@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct ContentView: View {
     @Environment(DatabaseManager.self) private var database
@@ -13,7 +14,8 @@ struct ContentView: View {
     @State private var selectedSession: Session?
     @State private var statusFilter: Session.SessionStatus? = nil
     @State private var searchText = ""
-    @State private var refreshTimer: Timer?
+    @State private var fallbackTimer: Timer?
+    @State private var eventSubscription: AnyCancellable?
 
     var filteredSessions: [Session] {
         var result = sessions
@@ -65,16 +67,29 @@ struct ContentView: View {
         }
         .onAppear {
             loadSessions()
-            database.onDatabaseChanged = { [self] in
-                loadSessions()
+
+            // Subscribe to EventBus for push updates from hooks
+            eventSubscription = EventBus.shared.sessionUpdated
+                .receive(on: DispatchQueue.main)
+                .sink { _ in
+                    loadSessions()
+                }
+
+            // Database file watcher as backup
+            database.onDatabaseChanged = {
+                EventBus.shared.notifyDatabaseChanged()
             }
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+
+            // Long fallback timer (30s) in case events are missed
+            fallbackTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
                 loadSessions()
             }
         }
         .onDisappear {
-            refreshTimer?.invalidate()
-            refreshTimer = nil
+            fallbackTimer?.invalidate()
+            fallbackTimer = nil
+            eventSubscription?.cancel()
+            eventSubscription = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
             if let sessionId = notification.userInfo?["sessionId"] as? String,
@@ -358,6 +373,13 @@ struct ContentView: View {
     private func loadSessions() {
         let oldWaitingIds = Set(waitingSessions.map { $0.id })
         sessions = database.fetchSessions()
+
+        // Sync selectedSession with fresh data from database
+        // This ensures workStatus and other fields are up-to-date
+        if let selected = selectedSession,
+           let freshSession = sessions.first(where: { $0.id == selected.id }) {
+            selectedSession = freshSession
+        }
 
         // Check for new sessions needing attention and send notifications
         for session in waitingSessions {

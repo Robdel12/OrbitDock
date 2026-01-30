@@ -12,8 +12,13 @@ struct TranscriptMessage: Identifiable, Hashable {
     let timestamp: Date
     let toolName: String?
     let toolInput: [String: Any]?
+    var toolOutput: String?  // Result of tool execution (var for incremental updates)
+    let toolDuration: TimeInterval?  // How long the tool took
     let inputTokens: Int?
     let outputTokens: Int?
+    var isInProgress: Bool = false  // Tool is currently running
+    var imageData: Data?  // Base64 decoded image data
+    var imageMimeType: String?  // e.g., "image/png"
 
     enum MessageType: String {
         case user
@@ -34,6 +39,11 @@ struct TranscriptMessage: Identifiable, Hashable {
         hasher.combine(content)
         hasher.combine(timestamp)
         hasher.combine(toolName)
+        hasher.combine(imageData)
+    }
+
+    var hasImage: Bool {
+        imageData != nil
     }
 
     static func == (lhs: TranscriptMessage, rhs: TranscriptMessage) -> Bool {
@@ -90,5 +100,91 @@ struct TranscriptMessage: Identifiable, Hashable {
     var bashCommand: String? {
         guard toolName?.lowercased() == "bash", let input = toolInput else { return nil }
         return input["command"] as? String
+    }
+
+    // Extract edit details
+    var editOldString: String? {
+        guard toolName?.lowercased() == "edit", let input = toolInput else { return nil }
+        return input["old_string"] as? String
+    }
+
+    var editNewString: String? {
+        guard toolName?.lowercased() == "edit", let input = toolInput else { return nil }
+        return input["new_string"] as? String
+    }
+
+    // Extract write content
+    var writeContent: String? {
+        guard toolName?.lowercased() == "write", let input = toolInput else { return nil }
+        return input["content"] as? String
+    }
+
+    // Extract glob pattern
+    var globPattern: String? {
+        guard toolName?.lowercased() == "glob", let input = toolInput else { return nil }
+        return input["pattern"] as? String
+    }
+
+    // Extract grep pattern
+    var grepPattern: String? {
+        guard toolName?.lowercased() == "grep", let input = toolInput else { return nil }
+        return input["pattern"] as? String
+    }
+
+    // Task/subagent details
+    var taskPrompt: String? {
+        guard toolName?.lowercased() == "task", let input = toolInput else { return nil }
+        return input["prompt"] as? String
+    }
+
+    var taskDescription: String? {
+        guard toolName?.lowercased() == "task", let input = toolInput else { return nil }
+        return input["description"] as? String
+    }
+
+    // Format tool input as displayable text
+    var formattedToolInput: String? {
+        guard let input = toolInput else { return nil }
+
+        switch toolName?.lowercased() {
+        case "bash":
+            return bashCommand
+        case "read":
+            return filePath
+        case "edit":
+            if let old = editOldString, let new = editNewString {
+                let oldPreview = old.count > 200 ? String(old.prefix(200)) + "..." : old
+                let newPreview = new.count > 200 ? String(new.prefix(200)) + "..." : new
+                return "- \(oldPreview)\n+ \(newPreview)"
+            }
+            return filePath
+        case "write":
+            if let content = writeContent {
+                return content.count > 500 ? String(content.prefix(500)) + "..." : content
+            }
+            return filePath
+        case "glob":
+            return globPattern
+        case "grep":
+            return grepPattern
+        case "task":
+            return taskDescription ?? taskPrompt
+        default:
+            // Generic JSON display for unknown tools
+            if let data = try? JSONSerialization.data(withJSONObject: input, options: .prettyPrinted),
+               let str = String(data: data, encoding: .utf8) {
+                return str.count > 500 ? String(str.prefix(500)) + "..." : str
+            }
+            return nil
+        }
+    }
+
+    // Truncated output for preview
+    var toolOutputPreview: String? {
+        guard let output = toolOutput else { return nil }
+        if output.count > 300 {
+            return String(output.prefix(300)) + "..."
+        }
+        return output
     }
 }

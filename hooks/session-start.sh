@@ -64,4 +64,7 @@ ON CONFLICT(id) DO UPDATE SET
   terminal_app = '$TERMINAL_APP';
 EOF
 
+# Notify the app via Darwin notification (instant, non-blocking)
+notifyutil -p com.commandcenter.session.updated 2>/dev/null &
+
 exit 0

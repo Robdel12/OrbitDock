@@ -23,16 +23,20 @@ run_sql() {
 case "$EVENT" in
   "UserPromptSubmit")
     run_sql "UPDATE sessions SET work_status = 'working', last_activity_at = '$NOW', prompt_count = prompt_count + 1 WHERE id = '$SESSION_ID';"
+    notifyutil -p com.commandcenter.session.updated 2>/dev/null &
     ;;
   "Stop")
     run_sql "UPDATE sessions SET work_status = 'waiting', last_activity_at = '$NOW' WHERE id = '$SESSION_ID';"
+    notifyutil -p com.commandcenter.session.updated 2>/dev/null &
     ;;
   "Notification")
     NOTIF_TYPE=$(echo "$INPUT" | jq -r '.notification_type // empty' 2>/dev/null)
     if [ "$NOTIF_TYPE" = "idle_prompt" ]; then
       run_sql "UPDATE sessions SET work_status = 'waiting', last_activity_at = '$NOW' WHERE id = '$SESSION_ID';"
+      notifyutil -p com.commandcenter.session.updated 2>/dev/null &
     elif [ "$NOTIF_TYPE" = "permission_prompt" ]; then
       run_sql "UPDATE sessions SET work_status = 'permission', last_activity_at = '$NOW' WHERE id = '$SESSION_ID';"
+      notifyutil -p com.commandcenter.session.updated 2>/dev/null &
     fi
     ;;
 esac

@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct SessionDetailView: View {
     @Environment(DatabaseManager.self) private var database
@@ -13,8 +14,9 @@ struct SessionDetailView: View {
     @State private var isHoveringPath = false
     @State private var copiedResume = false
     @State private var currentTool: String?
-    @State private var statsTimer: Timer?
+    @State private var fallbackTimer: Timer?
     @State private var terminalActionFailed = false
+    @State private var transcriptSubscription: AnyCancellable?
 
     // Use a dictionary keyed by session ID to prevent state bleeding
     @State private var statsCache: [String: TranscriptUsageStats] = [:]
@@ -42,6 +44,7 @@ struct SessionDetailView: View {
             // Conversation
             ConversationView(
                 transcriptPath: session.transcriptPath,
+                sessionId: session.id,
                 isSessionActive: session.isActive,
                 workStatus: session.workStatus,
                 currentTool: currentTool
@@ -59,13 +62,27 @@ struct SessionDetailView: View {
             currentTool = nil
             labelText = session.contextLabel ?? ""
             loadUsageStats(for: session)
-            statsTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
+
+            // Subscribe to transcript updates for this session
+            if let path = session.transcriptPath {
+                transcriptSubscription = EventBus.shared.transcriptUpdated
+                    .filter { $0 == path }
+                    .receive(on: DispatchQueue.main)
+                    .sink { _ in
+                        loadUsageStats(for: session)
+                    }
+            }
+
+            // Long fallback timer (30s) for missed events
+            fallbackTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
                 loadUsageStats(for: session)
             }
         }
         .onDisappear {
-            statsTimer?.invalidate()
-            statsTimer = nil
+            fallbackTimer?.invalidate()
+            fallbackTimer = nil
+            transcriptSubscription?.cancel()
+            transcriptSubscription = nil
         }
         .onChange(of: session.id) { oldId, newId in
             // Clear current tool immediately
@@ -454,20 +471,21 @@ struct SessionDetailView: View {
     }
 
     private func loadUsageStats(for targetSession: Session) {
-        guard let path = targetSession.transcriptPath else { return }
         let targetId = targetSession.id
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let stats = TranscriptParser.parseUsageStats(transcriptPath: path)
-            let tool = TranscriptParser.parseLastTool(transcriptPath: path)
+            // Read-only from SQLite - ConversationView handles syncing
+            if let cachedStats = MessageStore.shared.readStats(sessionId: targetId) {
+                let info = MessageStore.shared.readSessionInfo(sessionId: targetId)
 
-            DispatchQueue.main.async {
-                // Only update if we're still viewing the same session
-                if session.id == targetId {
-                    statsCache[targetId] = stats
-                    currentTool = tool
+                DispatchQueue.main.async {
+                    if session.id == targetId {
+                        statsCache[targetId] = cachedStats
+                        currentTool = info.lastTool
+                    }
                 }
             }
+            // If no SQLite data yet, ConversationView will sync it - we'll get updated via EventBus
         }
     }
 }

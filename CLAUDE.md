@@ -45,8 +45,26 @@ Command Center is a native macOS SwiftUI app that monitors Claude Code CLI sessi
 3. Update `DatabaseManager.swift` column definition and fetchSessions query
 4. Update relevant hook to write the field
 
+### Message Storage Architecture
+The app uses a two-layer architecture for message display:
+
+1. **JSONL Transcripts** (source of truth) - Claude writes here
+2. **SQLite MessageStore** (read layer) - App reads from here for fast UI
+
+Flow:
+- File change detected → EventBus debounces (300ms)
+- TranscriptParser.parseAll() reads JSONL once
+- MessageStore.syncFromParseResult() stores in SQLite
+- UI reads from SQLite (~50ms for 1000+ messages)
+
+Key files:
+- `MessageStore.swift` - SQLite storage with per-session sync locks
+- `TranscriptParser.swift` - JSONL parsing with in-memory cache
+- `EventBus.swift` - Debounced event coordination
+
 ### Parsing transcript data
-- Use `TranscriptParser.swift` for reading JSONL files
+- Use `TranscriptParser.parseAll()` for unified single-pass parsing
+- Returns messages, stats, lastUserPrompt, and lastTool in one call
 - Messages have `type` field: "human", "assistant", "tool_use", "tool_result"
 - Token usage is in assistant messages under `message.usage`
 

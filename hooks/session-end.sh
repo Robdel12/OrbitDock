@@ -47,4 +47,7 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
   # Future: extract tool_use events and insert into activities table
 fi
 
+# Notify the app via Darwin notification (instant, non-blocking)
+notifyutil -p com.commandcenter.session.updated 2>/dev/null &
+
 exit 0

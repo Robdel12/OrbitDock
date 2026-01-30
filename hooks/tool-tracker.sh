@@ -22,10 +22,12 @@ case "$EVENT" in
   "PreToolUse")
     # Update last tool and set working status
     run_sql "UPDATE sessions SET last_tool = '$TOOL_NAME', last_tool_at = '$NOW', work_status = 'working' WHERE id = '$SESSION_ID';"
+    notifyutil -p com.commandcenter.session.updated 2>/dev/null &
     ;;
   "PostToolUse")
     # Keep last tool, update activity time
     run_sql "UPDATE sessions SET last_activity_at = '$NOW', tool_count = tool_count + 1 WHERE id = '$SESSION_ID';"
+    notifyutil -p com.commandcenter.session.updated 2>/dev/null &
     ;;
 esac
 

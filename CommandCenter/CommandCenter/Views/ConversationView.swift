@@ -4,17 +4,27 @@
 //
 
 import SwiftUI
+import Combine
+import AppKit
 
 struct ConversationView: View {
     let transcriptPath: String?
+    let sessionId: String?  // For SQLite lookups
     var isSessionActive: Bool = false
     var workStatus: Session.WorkStatus = .unknown
     var currentTool: String? = nil
 
-    // Use a dictionary keyed by path to prevent state bleeding between sessions
+    // Use a dictionary keyed by session to prevent state bleeding between sessions
     @State private var messagesCache: [String: [TranscriptMessage]] = [:]
+    @State private var currentPromptCache: [String: String] = [:]
+    @State private var transcriptSubscription: AnyCancellable?
+
+    private var currentPrompt: String? {
+        guard let sid = sessionId else { return nil }
+        return currentPromptCache[sid]
+    }
     @State private var isLoading = true
-    @State private var loadedPath: String?
+    @State private var loadedSessionId: String?
     @State private var displayedCount: Int = 50
     @State private var isLoadingMore = false
     @State private var fileMonitor: DispatchSourceFileSystemObject?
@@ -22,10 +32,10 @@ struct ConversationView: View {
 
     private let pageSize = 50
 
-    // Get messages for the current path only
+    // Get messages for the current session only
     private var messages: [TranscriptMessage] {
-        guard let path = transcriptPath else { return [] }
-        return messagesCache[path] ?? []
+        guard let sid = sessionId else { return [] }
+        return messagesCache[sid] ?? []
     }
 
     var displayedMessages: [TranscriptMessage] {
@@ -50,17 +60,31 @@ struct ConversationView: View {
         .onAppear {
             loadMessagesIfNeeded()
             startWatchingFile()
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
-                reloadMessages()
+
+            // Subscribe to EventBus for this transcript
+            if let path = transcriptPath {
+                transcriptSubscription = EventBus.shared.transcriptUpdated
+                    .filter { $0 == path }
+                    .receive(on: DispatchQueue.main)
+                    .sink { _ in
+                        syncAndReload()
+                    }
+            }
+
+            // Long fallback timer (30s) in case events are missed
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
+                syncAndReload()
             }
         }
         .onDisappear {
             stopWatchingFile()
             refreshTimer?.invalidate()
             refreshTimer = nil
+            transcriptSubscription?.cancel()
+            transcriptSubscription = nil
         }
-        .onChange(of: transcriptPath) { oldPath, newPath in
-            // Reset display count for new path
+        .onChange(of: sessionId) { oldId, newId in
+            // Reset display count for new session
             displayedCount = pageSize
             stopWatchingFile()
             loadMessagesIfNeeded()
@@ -83,8 +107,10 @@ struct ConversationView: View {
             queue: .main
         )
 
-        source.setEventHandler { [self] in
-            reloadMessages()
+        let capturedPath = path
+        source.setEventHandler {
+            // Push to EventBus which handles debouncing
+            EventBus.shared.notifyTranscriptChanged(path: capturedPath)
         }
 
         source.setCancelHandler {
@@ -100,25 +126,37 @@ struct ConversationView: View {
         fileMonitor = nil
     }
 
-    private func reloadMessages() {
-        guard let path = transcriptPath else { return }
-        let targetPath = path  // Capture for async
+    /// Sync JSONL to SQLite, then read from SQLite
+    private func syncAndReload() {
+        guard let path = transcriptPath, let sid = sessionId else { return }
+        let targetPath = path
+        let targetSid = sid
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            let parsed = TranscriptParser.parse(transcriptPath: targetPath)
+        DispatchQueue.global(qos: .utility).async {
+            // Parse JSONL (source of truth)
+            let result = TranscriptParser.parseAll(transcriptPath: targetPath)
+
+            // Store in SQLite for fast future reads
+            MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
+
+            // Read back from SQLite (validates the sync worked)
+            let messages = MessageStore.shared.readMessages(sessionId: targetSid)
+
             DispatchQueue.main.async {
-                // Only update if we're still viewing the same path
-                guard transcriptPath == targetPath else { return }
+                guard sessionId == targetSid else { return }
 
-                let currentMessages = messagesCache[targetPath] ?? []
-                if parsed.count != currentMessages.count {
-                    let wasAtBottom = displayedCount >= currentMessages.count
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        messagesCache[targetPath] = parsed
-                        if wasAtBottom {
-                            displayedCount = min(pageSize, parsed.count)
-                        }
-                    }
+                // Update caches
+                if let prompt = result.lastUserPrompt {
+                    currentPromptCache[targetSid] = prompt
+                }
+
+                let currentMessages = messagesCache[targetSid] ?? []
+                let wasAtBottom = displayedCount >= currentMessages.count
+
+
+                messagesCache[targetSid] = messages
+                if wasAtBottom && messages.count > currentMessages.count {
+                    displayedCount = max(displayedCount, min(pageSize, messages.count))
                 }
             }
         }
@@ -158,31 +196,24 @@ struct ConversationView: View {
                         if message.isTool {
                             ToolRow(message: message)
                                 .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .scale(scale: 0.95, anchor: .leading)),
-                                    removal: .opacity
-                                ))
                         } else {
                             MessageRow(message: message)
                                 .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .move(edge: message.isUser ? .trailing : .leading)),
-                                    removal: .opacity
-                                ))
                         }
                     }
 
-                    // Activity indicator when Claude is working
-                    if isSessionActive && workStatus == .working {
-                        ActivityIndicator(currentTool: currentTool)
-                            .id("activity-indicator")
-                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    // Activity indicator when Claude is working or needs attention
+                    if isSessionActive && workStatus != .unknown {
+                        SessionActivityIndicator(
+                            workStatus: workStatus,
+                            currentTool: currentTool,
+                            currentPrompt: currentPrompt
+                        )
+                        .id("activity-indicator")
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: messages.count)
-                .animation(.easeInOut(duration: 0.2), value: workStatus)
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.bottom)
@@ -233,7 +264,7 @@ struct ConversationView: View {
         guard let id = targetId else { return }
 
         if animated {
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(.easeOut(duration: 0.2)) {
                 proxy.scrollTo(id, anchor: .bottom)
             }
         } else {
@@ -263,26 +294,73 @@ struct ConversationView: View {
     }
 
     private func loadMessagesIfNeeded() {
-        guard transcriptPath != loadedPath else { return }
-        loadedPath = transcriptPath
+        guard sessionId != loadedSessionId else { return }
+        loadedSessionId = sessionId
 
         isLoading = true
-        guard let path = transcriptPath else {
+        guard let path = transcriptPath, let sid = sessionId else {
             isLoading = false
             return
         }
 
-        let targetPath = path  // Capture for async
+        let targetPath = path
+        let targetSid = sid
 
         DispatchQueue.global(qos: .userInitiated).async {
-            let parsed = TranscriptParser.parse(transcriptPath: targetPath)
-            DispatchQueue.main.async {
-                // Only update if we're still viewing the same path
-                guard transcriptPath == targetPath else { return }
+            // Check if SQLite has data (fast ~5ms)
+            let hasData = MessageStore.shared.hasData(sessionId: targetSid)
 
-                messagesCache[targetPath] = parsed
-                displayedCount = min(pageSize, parsed.count)
-                isLoading = false
+            if hasData {
+                // Fast path: read from SQLite immediately
+                let messages = MessageStore.shared.readMessages(sessionId: targetSid)
+                let info = MessageStore.shared.readSessionInfo(sessionId: targetSid)
+
+                DispatchQueue.main.async {
+                    guard sessionId == targetSid else { return }
+
+                    messagesCache[targetSid] = messages
+                    if let prompt = info.lastPrompt {
+                        currentPromptCache[targetSid] = prompt
+                    }
+                    displayedCount = min(pageSize, messages.count)
+                    isLoading = false
+
+                }
+
+                // Background sync only - don't block UI
+                DispatchQueue.global(qos: .utility).async {
+                    let result = TranscriptParser.parseAll(transcriptPath: targetPath)
+                    MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
+
+                    // Only update UI if there are new messages
+                    let updatedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
+                    if updatedMessages.count != messages.count {
+                        DispatchQueue.main.async {
+                            guard sessionId == targetSid else { return }
+                            let wasAtBottom = displayedCount >= messages.count
+                            messagesCache[targetSid] = updatedMessages
+                            if wasAtBottom {
+                                displayedCount = min(pageSize, updatedMessages.count)
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Cold start: parse JSONL, store in SQLite
+                let result = TranscriptParser.parseAll(transcriptPath: targetPath)
+                MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
+                let messages = MessageStore.shared.readMessages(sessionId: targetSid)
+
+                DispatchQueue.main.async {
+                    guard sessionId == targetSid else { return }
+
+                    messagesCache[targetSid] = messages
+                    if let prompt = result.lastUserPrompt {
+                        currentPromptCache[targetSid] = prompt
+                    }
+                    displayedCount = min(pageSize, messages.count)
+                    isLoading = false
+                }
             }
         }
     }
@@ -294,6 +372,7 @@ struct ToolRow: View {
     let message: TranscriptMessage
     @State private var isExpanded = false
     @State private var isHovering = false
+    @State private var showOutput = false
 
     private var toolColor: Color {
         switch message.toolColor {
@@ -311,17 +390,25 @@ struct ToolRow: View {
         VStack(alignment: .leading, spacing: 0) {
             // Main row
             HStack(spacing: 8) {
-                // Compact icon
+                // Compact icon with in-progress indicator
                 Image(systemName: message.toolIcon)
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(toolColor)
-                    .frame(width: 20, height: 20)
-                    .background(toolColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .frame(width: 24, height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(toolColor.opacity(message.isInProgress ? 0.25 : 0.15))
+                    )
 
                 // Tool name
                 Text(message.toolName ?? "Tool")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(toolColor)
+
+                if message.isInProgress {
+                    ProgressView()
+                        .controlSize(.mini)
+                }
 
                 // Summary
                 Text(message.content)
@@ -345,7 +432,7 @@ struct ToolRow: View {
                         .opacity(isHovering ? 1 : 0)
                     }
 
-                    if message.toolInput != nil {
+                    if message.toolInput != nil || message.toolOutput != nil {
                         Button {
                             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                                 isExpanded.toggle()
@@ -364,25 +451,81 @@ struct ToolRow: View {
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(toolColor.opacity(isHovering ? 0.12 : 0.08))
+                    .fill(message.isInProgress ? toolColor.opacity(0.15) : toolColor.opacity(isHovering ? 0.12 : 0.08))
             )
+            .contentShape(Rectangle())  // Make entire row clickable
+            .onTapGesture {
+                if message.toolInput != nil || message.toolOutput != nil {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        isExpanded.toggle()
+                    }
+                }
+            }
             .onHover { isHovering = $0 }
 
             // Expanded content
             if isExpanded {
-                VStack(alignment: .leading, spacing: 6) {
-                    if let command = message.bashCommand {
-                        Text(command)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 8) {
+                    // Input section
+                    if let formattedInput = message.formattedToolInput {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Input")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                Text(formattedInput)
+                                    .font(.system(size: 10, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                    .textSelection(.enabled)
+                            }
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color.backgroundPrimary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                            .textSelection(.enabled)
+                        }
                     }
 
+                    // Output section
+                    if let output = message.toolOutput, !output.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Output")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+
+                                Spacer()
+
+                                Button {
+                                    showOutput.toggle()
+                                } label: {
+                                    Text(showOutput ? "Hide" : "Show")
+                                        .font(.system(size: 9, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            if showOutput {
+                                ScrollView {
+                                    Text(output.count > 2000 ? String(output.prefix(2000)) + "\n\n[Truncated...]" : output)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundStyle(.primary.opacity(0.8))
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .frame(maxHeight: 200)
+                                .padding(10)
+                                .background(Color.backgroundPrimary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            }
+                        }
+                    }
+
+                    // File path
                     if let path = message.filePath {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
                             Text(path)
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(.primary.opacity(0.7))
@@ -393,6 +536,7 @@ struct ToolRow: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .padding(.leading, 28)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
@@ -427,15 +571,24 @@ struct MessageRow: View {
                     .foregroundStyle(.primary.opacity(0.7))
             }
 
-            // Message content
-            Text(truncatedContent)
-                .font(.system(size: 12))
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
-                .lineSpacing(2)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.accentColor.opacity(0.2), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            // Image if present
+            if let imageData = message.imageData,
+               let nsImage = NSImage(data: imageData) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 300, maxHeight: 200)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+            }
+
+            // Message content (if not empty)
+            if !message.content.isEmpty {
+                MarkdownView(content: truncatedContent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor.opacity(0.2), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
         }
     }
 
@@ -463,7 +616,7 @@ struct MessageRow: View {
             }
 
             // Message content
-            MarkdownText(content: truncatedContent)
+            MessageText(content: truncatedContent)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -478,70 +631,134 @@ struct MessageRow: View {
         return message.content
     }
 
-    private func formatTime(_ date: Date) -> String {
+    private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private func formatTime(_ date: Date) -> String {
+        Self.timeFormatter.string(from: date)
     }
 }
 
-// MARK: - Markdown Text View
+// MARK: - Message Text View (with markdown support)
 
-struct MarkdownText: View {
+struct MessageText: View {
     let content: String
 
     var body: some View {
-        Text(attributedContent)
-            .font(.system(size: 12))
-            .foregroundStyle(.primary)
-            .textSelection(.enabled)
-            .lineSpacing(2)
-    }
-
-    private var attributedContent: AttributedString {
-        if let attributed = try? AttributedString(markdown: content, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)) {
-            return attributed
-        }
-        return AttributedString(content)
+        MarkdownView(content: content)
     }
 }
 
-// MARK: - Activity Indicator
+// MARK: - Session Activity Indicator
 
-struct ActivityIndicator: View {
+struct SessionActivityIndicator: View {
+    let workStatus: Session.WorkStatus
     let currentTool: String?
-    @State private var dotCount = 0
+    let currentPrompt: String?
+
+    private var statusColor: Color {
+        switch workStatus {
+        case .working: return .purple
+        case .waiting: return .orange
+        case .permission: return .yellow
+        case .unknown: return .secondary
+        }
+    }
+
+    private var statusIcon: String {
+        switch workStatus {
+        case .working: return "sparkle"
+        case .waiting: return "hand.raised.fill"
+        case .permission: return "lock.fill"
+        case .unknown: return "circle"
+        }
+    }
+
+    private var statusLabel: String {
+        switch workStatus {
+        case .working: return "Claude is working"
+        case .waiting: return "Waiting for you"
+        case .permission: return "Needs permission"
+        case .unknown: return ""
+        }
+    }
+
+    private var truncatedPrompt: String? {
+        guard let prompt = currentPrompt else { return nil }
+        let cleaned = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+        if cleaned.count > 100 {
+            return String(cleaned.prefix(100)) + "..."
+        }
+        return cleaned
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 // Header
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkle")
+                    Image(systemName: statusIcon)
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(statusColor)
 
-                    Text("Claude")
+                    Text(statusLabel)
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.purple)
+                        .foregroundStyle(statusColor)
+
+                    if let tool = currentTool, workStatus == .working {
+                        Text("•")
+                            .foregroundStyle(.secondary)
+                        Text(tool)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
-                // Typing bubble
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
+                // Status bubble with prompt context
+                VStack(alignment: .leading, spacing: 6) {
+                    if workStatus == .working {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            TypingDots()
+                        }
 
-                    if let tool = currentTool {
-                        Text(tool)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        TypingDots()
+                        // Show what prompt triggered this work
+                        if let prompt = truncatedPrompt {
+                            Text("Working on: \(prompt)")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    } else if workStatus == .permission {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.yellow)
+
+                            Text("Accept or reject in terminal")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.primary.opacity(0.8))
+                        }
+                    } else if workStatus == .waiting {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.turn.down.left")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.orange)
+
+                            Text("Your turn to respond")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.primary.opacity(0.8))
+                        }
                     }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
-                .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(statusColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             Spacer(minLength: 60)
         }
@@ -549,31 +766,19 @@ struct ActivityIndicator: View {
 }
 
 struct TypingDots: View {
-    @State private var animating = false
-
     var body: some View {
+        // Simple static dots - no animation to save battery
         HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { index in
+            ForEach(0..<3, id: \.self) { _ in
                 Circle()
-                    .fill(Color.secondary)
-                    .frame(width: 6, height: 6)
-                    .scaleEffect(animating ? 1.0 : 0.5)
-                    .opacity(animating ? 1.0 : 0.3)
-                    .animation(
-                        .easeInOut(duration: 0.5)
-                        .repeatForever(autoreverses: true)
-                        .delay(Double(index) * 0.15),
-                        value: animating
-                    )
+                    .fill(Color.secondary.opacity(0.6))
+                    .frame(width: 5, height: 5)
             }
-        }
-        .onAppear {
-            animating = true
         }
     }
 }
 
 #Preview {
-    ConversationView(transcriptPath: nil)
+    ConversationView(transcriptPath: nil, sessionId: nil)
         .frame(width: 600, height: 700)
 }
