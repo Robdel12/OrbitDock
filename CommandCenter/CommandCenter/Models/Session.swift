@@ -11,7 +11,8 @@ struct Session: Identifiable, Hashable {
     let projectName: String?
     let branch: String?
     let model: String?
-    var contextLabel: String?
+    var summary: String?           // Claude-generated conversation title
+    var customName: String?        // User-defined custom name (overrides summary)
     let transcriptPath: String?
     var status: SessionStatus
     var workStatus: WorkStatus
@@ -41,8 +42,64 @@ struct Session: Identifiable, Hashable {
         case unknown    // Unknown state
     }
 
+    // Custom initializer with backward compatibility for legacy code using contextLabel
+    init(
+        id: String,
+        projectPath: String,
+        projectName: String? = nil,
+        branch: String? = nil,
+        model: String? = nil,
+        summary: String? = nil,
+        customName: String? = nil,
+        contextLabel: String? = nil,  // Legacy parameter, mapped to customName
+        transcriptPath: String? = nil,
+        status: SessionStatus,
+        workStatus: WorkStatus,
+        startedAt: Date? = nil,
+        endedAt: Date? = nil,
+        endReason: String? = nil,
+        totalTokens: Int = 0,
+        totalCostUSD: Double = 0,
+        lastActivityAt: Date? = nil,
+        lastTool: String? = nil,
+        lastToolAt: Date? = nil,
+        promptCount: Int = 0,
+        toolCount: Int = 0,
+        terminalSessionId: String? = nil,
+        terminalApp: String? = nil
+    ) {
+        self.id = id
+        self.projectPath = projectPath
+        self.projectName = projectName
+        self.branch = branch
+        self.model = model
+        self.summary = summary
+        self.customName = customName ?? contextLabel  // Use contextLabel if customName not provided
+        self.transcriptPath = transcriptPath
+        self.status = status
+        self.workStatus = workStatus
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.endReason = endReason
+        self.totalTokens = totalTokens
+        self.totalCostUSD = totalCostUSD
+        self.lastActivityAt = lastActivityAt
+        self.lastTool = lastTool
+        self.lastToolAt = lastToolAt
+        self.promptCount = promptCount
+        self.toolCount = toolCount
+        self.terminalSessionId = terminalSessionId
+        self.terminalApp = terminalApp
+    }
+
     var displayName: String {
-        contextLabel ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
+        customName ?? summary ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
+    }
+
+    /// For backward compatibility
+    var contextLabel: String? {
+        get { customName }
+        set { customName = newValue }
     }
 
     var isActive: Bool {

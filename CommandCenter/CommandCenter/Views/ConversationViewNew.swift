@@ -360,18 +360,9 @@ struct ThreadMessage: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Image if present
-                if let imageData = message.imageData,
-                   let nsImage = NSImage(data: imageData) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: 280, maxHeight: 180)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
-                        )
+                // Images (supports multiple)
+                if !message.images.isEmpty {
+                    ImageGallery(images: message.images)
                 }
 
                 // Content
@@ -998,10 +989,10 @@ struct UnifiedDiffView: View {
                 .foregroundStyle(prefixColor(for: line.type))
                 .frame(width: 16)
 
-            // Code content
-            Text(line.content.isEmpty ? " " : line.content)
+            // Code content with syntax highlighting
+            Text(SyntaxHighlighter.highlightLine(line.content.isEmpty ? " " : line.content, language: language.isEmpty ? nil : language))
                 .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(.primary.opacity(line.type == .context ? 0.7 : 0.95))
+                .opacity(line.type == .context ? 0.7 : 1.0)
                 .textSelection(.enabled)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1164,9 +1155,8 @@ struct DiffSection: View {
                         .foregroundStyle(accentColor)
                         .frame(width: 16)
 
-                    Text(line.isEmpty ? " " : line)
+                    Text(SyntaxHighlighter.highlightLine(line.isEmpty ? " " : line, language: language.isEmpty ? nil : language))
                         .font(.system(size: 13, design: .monospaced))
-                        .foregroundStyle(.primary.opacity(0.95))
                         .textSelection(.enabled)
 
                     Spacer(minLength: 0)
@@ -1175,6 +1165,153 @@ struct DiffSection: View {
                 .background(backgroundColor)
             }
         }
+    }
+}
+
+// MARK: - Image Gallery (Multiple images with fullscreen)
+
+struct ImageGallery: View {
+    let images: [MessageImage]
+    @State private var selectedImage: MessageImage?
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            // Show images in a flow layout
+            FlowLayout(spacing: 8) {
+                ForEach(images) { image in
+                    if let nsImage = NSImage(data: image.data) {
+                        ImageThumbnail(nsImage: nsImage) {
+                            selectedImage = image
+                        }
+                    }
+                }
+            }
+
+            // Image count badge if multiple
+            if images.count > 1 {
+                Text("\(images.count) images")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .sheet(item: $selectedImage) { image in
+            ImageFullscreen(image: image)
+        }
+    }
+}
+
+struct ImageThumbnail: View {
+    let nsImage: NSImage
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onTap) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 120, height: 90)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.white.opacity(isHovering ? 0.3 : 0.1), lineWidth: 1)
+                )
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(4)
+                        .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .padding(6)
+                        .opacity(isHovering ? 1 : 0)
+                }
+                .scaleEffect(isHovering ? 1.02 : 1.0)
+                .animation(.easeOut(duration: 0.15), value: isHovering)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+}
+
+struct ImageFullscreen: View {
+    let image: MessageImage
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if let nsImage = NSImage(data: image.data) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .padding(40)
+            }
+
+            // Close button
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(20)
+                }
+                Spacer()
+            }
+        }
+        .frame(minWidth: 600, minHeight: 500)
+    }
+}
+
+// Simple flow layout for images
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = layout(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = layout(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.maxX - position.x - subviews[index].sizeThatFits(.unspecified).width,
+                                               y: bounds.minY + position.y),
+                                   proposal: .unspecified)
+        }
+    }
+
+    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+
+            if currentX + size.width > maxWidth && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            positions.append(CGPoint(x: currentX, y: currentY))
+            currentX += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+            totalWidth = max(totalWidth, currentX - spacing)
+        }
+
+        return (CGSize(width: totalWidth, height: currentY + lineHeight), positions)
     }
 }
 

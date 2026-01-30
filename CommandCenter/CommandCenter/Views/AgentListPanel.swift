@@ -40,7 +40,8 @@ struct AgentListPanel: View {
             $0.displayName.localizedCaseInsensitiveContains(searchText) ||
             $0.projectPath.localizedCaseInsensitiveContains(searchText) ||
             ($0.branch ?? "").localizedCaseInsensitiveContains(searchText) ||
-            ($0.contextLabel ?? "").localizedCaseInsensitiveContains(searchText)
+            ($0.summary ?? "").localizedCaseInsensitiveContains(searchText) ||
+            ($0.customName ?? "").localizedCaseInsensitiveContains(searchText)
         }
     }
 
@@ -61,22 +62,22 @@ struct AgentListPanel: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     if searchText.isEmpty {
-                        // Grouped view
-                        if !needsAttentionSessions.isEmpty {
-                            sectionView(
-                                title: "NEEDS ATTENTION",
-                                sessions: needsAttentionSessions,
-                                color: .statusWaiting,
-                                icon: "exclamationmark.circle.fill"
-                            )
-                        }
-
+                        // Grouped view: Working → Needs Attention → Recent
                         if !workingSessions.isEmpty {
                             sectionView(
                                 title: "WORKING",
                                 sessions: workingSessions,
                                 color: .statusWorking,
                                 icon: "bolt.fill"
+                            )
+                        }
+
+                        if !needsAttentionSessions.isEmpty {
+                            sectionView(
+                                title: "NEEDS ATTENTION",
+                                sessions: needsAttentionSessions,
+                                color: .statusWaiting,
+                                icon: "exclamationmark.circle.fill"
                             )
                         }
 
@@ -96,7 +97,7 @@ struct AgentListPanel: View {
                                 isSelected: selectedSessionId == session.id,
                                 onSelect: { onSelectSession(session.id) },
                                 onRename: {
-                                    renameText = session.contextLabel ?? ""
+                                    renameText = session.customName ?? ""
                                     renamingSession = session
                                 }
                             )
@@ -229,7 +230,7 @@ struct AgentListPanel: View {
                     isSelected: selectedSessionId == session.id,
                     onSelect: { onSelectSession(session.id) },
                     onRename: {
-                        renameText = session.contextLabel ?? ""
+                        renameText = session.customName ?? ""
                         renamingSession = session
                     }
                 )
@@ -386,12 +387,28 @@ struct RenameSessionSheet: View {
                         .foregroundStyle(.primary)
                 }
 
+                // Show Claude's generated title if available
+                if let summary = session.summary {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Claude's Title")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+
+                        Text(summary)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.primary.opacity(0.8))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                }
+
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Session Name")
+                    Text("Custom Name")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
 
-                    TextField("e.g., Auth refactor, Bug fix #123", text: $text)
+                    TextField("Override with your own name...", text: $text)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                         .padding(.horizontal, 10)
@@ -400,7 +417,7 @@ struct RenameSessionSheet: View {
                         .focused($isFocused)
                 }
 
-                Text("Give this session a name to distinguish it from other sessions in the same project.")
+                Text("Leave empty to use Claude's title, or set a custom name.")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)

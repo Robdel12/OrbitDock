@@ -11,8 +11,8 @@ struct SessionDetailView: View {
     let session: Session
 
     // UI state - cleared on session change
-    @State private var editingLabel = false
-    @State private var labelText = ""
+    @State private var editingName = false
+    @State private var nameText = ""
     @State private var isHoveringPath = false
     @State private var copiedResume = false
     @State private var copiedResetTask: Task<Void, Never>?
@@ -98,8 +98,8 @@ struct SessionDetailView: View {
     private func resetStateForSession() {
         currentTool = nil
         usageStats = TranscriptUsageStats()
-        labelText = session.contextLabel ?? ""
-        editingLabel = false
+        nameText = session.customName ?? ""
+        editingName = false
         copiedResetTask?.cancel()
         copiedResume = false
     }
@@ -165,7 +165,7 @@ struct SessionDetailView: View {
                 Spacer()
 
                 // Inline label
-                contextLabelView
+                sessionNameView
             }
         }
     }
@@ -187,21 +187,21 @@ struct SessionDetailView: View {
         return path.replacingOccurrences(of: "/Users/\(NSUserName())", with: "~")
     }
 
-    private var contextLabelView: some View {
+    private var sessionNameView: some View {
         Group {
-            if editingLabel {
+            if editingName {
                 HStack(spacing: 6) {
-                    TextField("Label...", text: $labelText)
+                    TextField("Custom name...", text: $nameText)
                         .textFieldStyle(.plain)
                         .font(.system(size: 11))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .frame(width: 140)
+                        .frame(width: 160)
 
                     Button {
-                        database.updateContextLabel(sessionId: session.id, label: labelText.isEmpty ? nil : labelText)
-                        editingLabel = false
+                        database.updateCustomName(sessionId: session.id, name: nameText.isEmpty ? nil : nameText)
+                        editingName = false
                     } label: {
                         Image(systemName: "checkmark")
                             .font(.system(size: 10, weight: .semibold))
@@ -210,8 +210,8 @@ struct SessionDetailView: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        labelText = session.contextLabel ?? ""
-                        editingLabel = false
+                        nameText = session.customName ?? ""
+                        editingName = false
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 10, weight: .semibold))
@@ -221,15 +221,15 @@ struct SessionDetailView: View {
                 }
             } else {
                 Button {
-                    editingLabel = true
+                    editingName = true
                 } label: {
                     HStack(spacing: 3) {
-                        Image(systemName: session.contextLabel == nil ? "tag" : "tag.fill")
+                        Image(systemName: session.customName == nil ? "pencil" : "pencil.circle.fill")
                             .font(.system(size: 9, weight: .medium))
-                        Text(session.contextLabel ?? "Add label")
+                        Text(session.customName ?? "Rename")
                             .font(.system(size: 10, weight: .medium))
                     }
-                    .foregroundStyle(session.contextLabel == nil ? Color.secondary : Color.primary.opacity(0.7))
+                    .foregroundStyle(session.customName == nil ? Color.secondary : Color.primary.opacity(0.7))
                 }
                 .buttonStyle(.plain)
             }

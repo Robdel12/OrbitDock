@@ -23,7 +23,9 @@ class DatabaseManager {
     private let projectName = SQLite.Expression<String?>("project_name")
     private let branch = SQLite.Expression<String?>("branch")
     private let model = SQLite.Expression<String?>("model")
-    private let contextLabel = SQLite.Expression<String?>("context_label")
+    private let sessionSummary = SQLite.Expression<String?>("summary")  // Claude-generated title
+    private let customName = SQLite.Expression<String?>("custom_name")  // User-defined name
+    private let contextLabel = SQLite.Expression<String?>("context_label")  // Legacy, mapped to custom_name
     private let transcriptPath = SQLite.Expression<String?>("transcript_path")
     private let status = SQLite.Expression<String>("status")
     private let workStatus = SQLite.Expression<String?>("work_status")
@@ -66,6 +68,12 @@ class DatabaseManager {
             try db?.execute("PRAGMA busy_timeout = 5000")
             // Synchronous NORMAL is safer with WAL and still fast
             try db?.execute("PRAGMA synchronous = NORMAL")
+
+            // Ensure schema has new columns
+            ensureSchema()
+
+            // Sync summaries from Claude's sessions-index.json
+            syncSummariesFromClaude()
         } catch {
             print("Failed to connect to database: \(error)")
         }
@@ -115,13 +123,18 @@ class DatabaseManager {
 
         do {
             return try db.prepare(query).map { row in
-                Session(
+                // Try new columns first, fall back to legacy context_label
+                let summaryValue = try? row.get(sessionSummary)
+                let customNameValue = (try? row.get(customName)) ?? row[contextLabel]
+
+                return Session(
                     id: row[id],
                     projectPath: row[projectPath],
                     projectName: row[projectName],
                     branch: row[branch],
                     model: row[model],
-                    contextLabel: row[contextLabel],
+                    summary: summaryValue,
+                    customName: customNameValue,
                     transcriptPath: row[transcriptPath],
                     status: Session.SessionStatus(rawValue: row[status]) ?? .ended,
                     workStatus: Session.WorkStatus(rawValue: row[workStatus] ?? "unknown") ?? .unknown,
@@ -146,13 +159,96 @@ class DatabaseManager {
     }
 
     func updateContextLabel(sessionId: String, label: String?) {
+        updateCustomName(sessionId: sessionId, name: label)
+    }
+
+    func updateCustomName(sessionId: String, name: String?) {
         guard let db = db else { return }
 
         let session = sessions.filter(id == sessionId)
         do {
-            try db.run(session.update(contextLabel <- label))
+            // Try new column first, fall back to legacy
+            if columnExists("custom_name", in: "sessions") {
+                try db.run(session.update(customName <- name))
+            } else {
+                try db.run(session.update(contextLabel <- name))
+            }
         } catch {
-            print("Failed to update context label: \(error)")
+            print("Failed to update custom name: \(error)")
+        }
+    }
+
+    func updateSummary(sessionId: String, summary: String?) {
+        guard let db = db else { return }
+
+        let session = sessions.filter(id == sessionId)
+        do {
+            if columnExists("summary", in: "sessions") {
+                try db.run(session.update(sessionSummary <- summary))
+            }
+        } catch {
+            print("Failed to update summary: \(error)")
+        }
+    }
+
+    /// Sync summaries from Claude's sessions-index.json files
+    func syncSummariesFromClaude() {
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let projectsDir = homeDir.appendingPathComponent(".claude/projects")
+
+        guard let projectDirs = try? FileManager.default.contentsOfDirectory(
+            at: projectsDir,
+            includingPropertiesForKeys: nil,
+            options: .skipsHiddenFiles
+        ) else { return }
+
+        for projectDir in projectDirs {
+            let indexPath = projectDir.appendingPathComponent("sessions-index.json")
+            guard let data = try? Data(contentsOf: indexPath),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let entries = json["entries"] as? [[String: Any]] else { continue }
+
+            for entry in entries {
+                guard let sessionId = entry["sessionId"] as? String,
+                      let summary = entry["summary"] as? String else { continue }
+                updateSummary(sessionId: sessionId, summary: summary)
+            }
+        }
+    }
+
+    private func columnExists(_ column: String, in table: String) -> Bool {
+        guard let db = db else { return false }
+        do {
+            let result = try db.prepare("PRAGMA table_info(\(table))")
+            for row in result {
+                if let name = row[1] as? String, name == column {
+                    return true
+                }
+            }
+        } catch {}
+        return false
+    }
+
+    /// Ensure the database has the required columns (migration)
+    func ensureSchema() {
+        guard let db = db else { return }
+
+        // Add summary column if it doesn't exist
+        if !columnExists("summary", in: "sessions") {
+            do {
+                try db.run("ALTER TABLE sessions ADD COLUMN summary TEXT")
+            } catch {
+                print("Failed to add summary column: \(error)")
+            }
+        }
+
+        // Add custom_name column if it doesn't exist
+        if !columnExists("custom_name", in: "sessions") {
+            do {
+                try db.run("ALTER TABLE sessions ADD COLUMN custom_name TEXT")
+            } catch {
+                print("Failed to add custom_name column: \(error)")
+            }
         }
     }
 

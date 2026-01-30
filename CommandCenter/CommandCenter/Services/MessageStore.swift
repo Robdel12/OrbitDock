@@ -230,6 +230,12 @@ final class MessageStore {
                     }
                 }()
 
+                // Convert DB single image to images array
+                var images: [MessageImage] = []
+                if let data = row[imageData], let mimeType = row[imageMimeType] {
+                    images.append(MessageImage(data: data, mimeType: mimeType))
+                }
+
                 var msg = TranscriptMessage(
                     id: row[id],
                     type: msgType,
@@ -241,8 +247,7 @@ final class MessageStore {
                     toolDuration: nil,
                     inputTokens: row[inputTokens],
                     outputTokens: row[outputTokens],
-                    imageData: row[imageData],
-                    imageMimeType: row[imageMimeType]
+                    images: images
                 )
                 msg.isInProgress = row[isInProgress] == 1
                 result.append(msg)

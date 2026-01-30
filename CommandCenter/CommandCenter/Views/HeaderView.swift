@@ -186,7 +186,7 @@ struct HeaderView: View {
     }
 
     private var agentName: String {
-        session.contextLabel ?? "Session"
+        session.customName ?? session.summary ?? "Session"
     }
 
     private func shortenPath(_ path: String) -> String {

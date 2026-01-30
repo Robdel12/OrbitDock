@@ -8,12 +8,15 @@
 import SwiftUI
 
 struct QuickSwitcher: View {
+    @Environment(DatabaseManager.self) private var database
     let sessions: [Session]
     let onSelect: (String) -> Void
     let onClose: () -> Void
 
     @State private var searchText = ""
     @State private var selectedIndex = 0
+    @State private var renamingSession: Session?
+    @State private var renameText = ""
     @FocusState private var isSearchFocused: Bool
 
     // Grouped and filtered sessions
@@ -22,7 +25,8 @@ struct QuickSwitcher: View {
         return sessions.filter {
             $0.displayName.localizedCaseInsensitiveContains(searchText) ||
             $0.projectPath.localizedCaseInsensitiveContains(searchText) ||
-            ($0.contextLabel ?? "").localizedCaseInsensitiveContains(searchText) ||
+            ($0.summary ?? "").localizedCaseInsensitiveContains(searchText) ||
+            ($0.customName ?? "").localizedCaseInsensitiveContains(searchText) ||
             ($0.branch ?? "").localizedCaseInsensitiveContains(searchText)
         }
     }
@@ -42,27 +46,59 @@ struct QuickSwitcher: View {
             .map { $0 }
     }
 
-    // Flat list for keyboard navigation
+    // Flat list for keyboard navigation (matches display order)
     private var allVisibleSessions: [Session] {
-        needsAttention + working + recent
+        working + needsAttention + recent
     }
 
     var body: some View {
+        mainContent
+            .onAppear {
+                isSearchFocused = true
+                selectedIndex = 0
+            }
+            .modifier(KeyboardNavigationModifier(
+                onMoveUp: { moveSelection(by: -1) },
+                onMoveDown: { moveSelection(by: 1) },
+                onMoveToFirst: { selectedIndex = 0 },
+                onMoveToLast: {
+                    let count = allVisibleSessions.count
+                    if count > 0 { selectedIndex = count - 1 }
+                },
+                onSelect: { selectCurrent() },
+                onRename: { renameCurrentSelection() }
+            ))
+            .sheet(item: $renamingSession) { session in
+                RenameSessionSheet(
+                    session: session,
+                    initialText: renameText,
+                    onSave: { newName in
+                        database.updateCustomName(
+                            sessionId: session.id,
+                            name: newName.isEmpty ? nil : newName
+                        )
+                        renamingSession = nil
+                    },
+                    onCancel: {
+                        renamingSession = nil
+                    }
+                )
+            }
+    }
+
+    private var mainContent: some View {
         VStack(spacing: 0) {
-            // Search bar
             searchBar
 
             Divider()
                 .foregroundStyle(Color.panelBorder)
 
-            // Results
             if allVisibleSessions.isEmpty {
                 emptyState
             } else {
                 resultsView
             }
 
-            // Footer hint
             footerHint
         }
         .frame(width: 520)
@@ -72,22 +108,6 @@ struct QuickSwitcher: View {
                 .strokeBorder(Color.panelBorder, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
-        .onAppear {
-            isSearchFocused = true
-            selectedIndex = 0
-        }
-        .onKeyPress(keys: [.upArrow]) { _ in
-            moveSelection(by: -1)
-            return .handled
-        }
-        .onKeyPress(keys: [.downArrow]) { _ in
-            moveSelection(by: 1)
-            return .handled
-        }
-        .onKeyPress(keys: [.return]) { _ in
-            selectCurrent()
-            return .handled
-        }
     }
 
     // MARK: - Search Bar
@@ -134,23 +154,23 @@ struct QuickSwitcher: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    if !needsAttention.isEmpty {
-                        sectionView(
-                            title: "NEEDS ATTENTION",
-                            sessions: needsAttention,
-                            color: .statusWaiting,
-                            icon: "exclamationmark.circle.fill",
-                            startIndex: 0
-                        )
-                    }
-
                     if !working.isEmpty {
                         sectionView(
                             title: "WORKING",
                             sessions: working,
                             color: .statusWorking,
                             icon: "bolt.fill",
-                            startIndex: needsAttention.count
+                            startIndex: 0
+                        )
+                    }
+
+                    if !needsAttention.isEmpty {
+                        sectionView(
+                            title: "NEEDS ATTENTION",
+                            sessions: needsAttention,
+                            color: .statusWaiting,
+                            icon: "exclamationmark.circle.fill",
+                            startIndex: working.count
                         )
                     }
 
@@ -160,7 +180,7 @@ struct QuickSwitcher: View {
                             sessions: recent,
                             color: .secondary,
                             icon: "clock",
-                            startIndex: needsAttention.count + working.count
+                            startIndex: working.count + needsAttention.count
                         )
                     }
                 }
@@ -311,9 +331,11 @@ struct QuickSwitcher: View {
     // MARK: - Footer
 
     private var footerHint: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             hintItem(keys: "↑↓", label: "Navigate")
+            hintItem(keys: "C-p/n", label: "Emacs")
             hintItem(keys: "↵", label: "Select")
+            hintItem(keys: "⌘R", label: "Rename")
             hintItem(keys: "esc", label: "Close")
         }
         .padding(.horizontal, 18)
@@ -358,6 +380,13 @@ struct QuickSwitcher: View {
         onSelect(session.id)
     }
 
+    private func renameCurrentSelection() {
+        guard selectedIndex < allVisibleSessions.count else { return }
+        let session = allVisibleSessions[selectedIndex]
+        renameText = session.customName ?? ""
+        renamingSession = session
+    }
+
     private func statusColor(for session: Session) -> Color {
         guard session.isActive else { return .secondary.opacity(0.3) }
         switch session.workStatus {
@@ -382,7 +411,7 @@ struct QuickSwitcher: View {
     }
 
     private func agentName(for session: Session) -> String {
-        session.contextLabel ?? "Session"
+        session.customName ?? session.summary ?? "Session"
     }
 }
 
@@ -470,4 +499,62 @@ struct QuickSwitcher: View {
         )
     }
     .frame(width: 700, height: 500)
+}
+
+// MARK: - Keyboard Navigation Modifier
+
+struct KeyboardNavigationModifier: ViewModifier {
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let onMoveToFirst: () -> Void
+    let onMoveToLast: () -> Void
+    let onSelect: () -> Void
+    let onRename: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // Arrow keys
+            .onKeyPress(keys: [.upArrow]) { _ in
+                onMoveUp()
+                return .handled
+            }
+            .onKeyPress(keys: [.downArrow]) { _ in
+                onMoveDown()
+                return .handled
+            }
+            // Enter to select
+            .onKeyPress(keys: [.return]) { _ in
+                onSelect()
+                return .handled
+            }
+            // Handle all other keys for Emacs bindings and ⌘R
+            .onKeyPress { keyPress in
+                // Emacs: C-p (previous)
+                if keyPress.key == "p" && keyPress.modifiers.contains(.control) {
+                    onMoveUp()
+                    return .handled
+                }
+                // Emacs: C-n (next)
+                if keyPress.key == "n" && keyPress.modifiers.contains(.control) {
+                    onMoveDown()
+                    return .handled
+                }
+                // Emacs: C-a (first)
+                if keyPress.key == "a" && keyPress.modifiers.contains(.control) {
+                    onMoveToFirst()
+                    return .handled
+                }
+                // Emacs: C-e (last)
+                if keyPress.key == "e" && keyPress.modifiers.contains(.control) {
+                    onMoveDown()
+                    return .handled
+                }
+                // ⌘R to rename
+                if keyPress.key == "r" && keyPress.modifiers.contains(.command) {
+                    onRename()
+                    return .handled
+                }
+                return .ignored
+            }
+    }
 }

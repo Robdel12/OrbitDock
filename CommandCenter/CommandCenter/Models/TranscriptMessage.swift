@@ -5,6 +5,22 @@
 
 import Foundation
 
+// MARK: - Message Image
+
+struct MessageImage: Identifiable, Hashable {
+    let id: String
+    let data: Data
+    let mimeType: String
+
+    init(data: Data, mimeType: String) {
+        self.id = UUID().uuidString
+        self.data = data
+        self.mimeType = mimeType
+    }
+}
+
+// MARK: - Transcript Message
+
 struct TranscriptMessage: Identifiable, Hashable {
     let id: String
     let type: MessageType
@@ -17,8 +33,11 @@ struct TranscriptMessage: Identifiable, Hashable {
     let inputTokens: Int?
     let outputTokens: Int?
     var isInProgress: Bool = false  // Tool is currently running
-    var imageData: Data?  // Base64 decoded image data
-    var imageMimeType: String?  // e.g., "image/png"
+    var images: [MessageImage] = []  // Support multiple images
+
+    // Legacy single image support (for backwards compatibility)
+    var imageData: Data? { images.first?.data }
+    var imageMimeType: String? { images.first?.mimeType }
 
     enum MessageType: String {
         case user
@@ -39,11 +58,11 @@ struct TranscriptMessage: Identifiable, Hashable {
         hasher.combine(content)
         hasher.combine(timestamp)
         hasher.combine(toolName)
-        hasher.combine(imageData)
+        hasher.combine(images)
     }
 
     var hasImage: Bool {
-        imageData != nil
+        !images.isEmpty
     }
 
     static func == (lhs: TranscriptMessage, rhs: TranscriptMessage) -> Bool {

@@ -213,10 +213,10 @@ struct TranscriptParser {
             case "user":
                 if let message = json["message"] as? [String: Any] {
                     let content = extractUserContent(from: message) ?? ""
-                    let imageInfo = extractImageFromMessage(message)
+                    let images = extractImagesFromMessage(message)
 
-                    // Only add if there's content or an image
-                    if !content.isEmpty || imageInfo != nil {
+                    // Only add if there's content or images
+                    if !content.isEmpty || !images.isEmpty {
                         messages.append(TranscriptMessage(
                             id: uuid,
                             type: .user,
@@ -228,8 +228,7 @@ struct TranscriptParser {
                             toolDuration: nil,
                             inputTokens: nil,
                             outputTokens: nil,
-                            imageData: imageInfo?.data,
-                            imageMimeType: imageInfo?.mimeType
+                            images: images
                         ))
                     }
                 }
@@ -253,9 +252,7 @@ struct TranscriptParser {
                             toolOutput: nil,
                             toolDuration: nil,
                             inputTokens: inputTokens,
-                            outputTokens: outputTokens,
-                            imageData: nil,
-                            imageMimeType: nil
+                            outputTokens: outputTokens
                         ))
                     }
 
@@ -288,9 +285,7 @@ struct TranscriptParser {
                                     toolOutput: result?.output,
                                     toolDuration: result?.duration,
                                     inputTokens: nil,
-                                    outputTokens: nil,
-                                    imageData: nil,
-                                    imageMimeType: nil
+                                    outputTokens: nil
                                 )
                                 msg.isInProgress = !hasResult
                                 messages.append(msg)
@@ -366,12 +361,13 @@ struct TranscriptParser {
         return ""
     }
 
-    // Extract base64 image from user message
-    private static func extractImageFromMessage(_ message: [String: Any]) -> (data: Data, mimeType: String)? {
+    // Extract ALL base64 images from user message
+    private static func extractImagesFromMessage(_ message: [String: Any]) -> [MessageImage] {
         guard let contentArray = message["content"] as? [[String: Any]] else {
-            return nil
+            return []
         }
 
+        var images: [MessageImage] = []
         for item in contentArray {
             if item["type"] as? String == "image",
                let source = item["source"] as? [String: Any],
@@ -379,11 +375,18 @@ struct TranscriptParser {
                let mediaType = source["media_type"] as? String,
                let base64String = source["data"] as? String,
                let data = Data(base64Encoded: base64String) {
-                return (data: data, mimeType: mediaType)
+                images.append(MessageImage(data: data, mimeType: mediaType))
             }
         }
 
-        return nil
+        return images
+    }
+
+    // Legacy single image extraction (for backwards compatibility)
+    private static func extractImageFromMessage(_ message: [String: Any]) -> (data: Data, mimeType: String)? {
+        let images = extractImagesFromMessage(message)
+        guard let first = images.first else { return nil }
+        return (data: first.data, mimeType: first.mimeType)
     }
 
     static func shortenPath(_ path: String) -> String {
@@ -664,14 +667,14 @@ struct TranscriptParser {
             case "user":
                 if let message = json["message"] as? [String: Any] {
                     let userContent = extractUserContent(from: message) ?? ""
-                    let imageInfo = extractImageFromMessage(message)
+                    let images = extractImagesFromMessage(message)
 
                     // Track last user prompt
                     if !userContent.isEmpty {
                         lastUserPrompt = userContent
                     }
 
-                    if !userContent.isEmpty || imageInfo != nil {
+                    if !userContent.isEmpty || !images.isEmpty {
                         messages.append(TranscriptMessage(
                             id: uuid,
                             type: .user,
@@ -683,8 +686,7 @@ struct TranscriptParser {
                             toolDuration: nil,
                             inputTokens: nil,
                             outputTokens: nil,
-                            imageData: imageInfo?.data,
-                            imageMimeType: imageInfo?.mimeType
+                            images: images
                         ))
                     }
                 }
@@ -725,9 +727,7 @@ struct TranscriptParser {
                             toolOutput: nil,
                             toolDuration: nil,
                             inputTokens: inputTokens,
-                            outputTokens: outputTokens,
-                            imageData: nil,
-                            imageMimeType: nil
+                            outputTokens: outputTokens
                         ))
                     }
 
@@ -755,9 +755,7 @@ struct TranscriptParser {
                                     toolOutput: result?.output,
                                     toolDuration: result?.duration,
                                     inputTokens: nil,
-                                    outputTokens: nil,
-                                    imageData: nil,
-                                    imageMimeType: nil
+                                    outputTokens: nil
                                 )
                                 msg.isInProgress = !hasResult
                                 messages.append(msg)
