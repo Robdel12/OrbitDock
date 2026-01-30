@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		80BCD0FD2F2C854300D91F91 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCD0FC2F2C854300D91F91 /* SQLite */; };
+		80BCD1002F2C900000D91F91 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCD0FF2F2C900000D91F91 /* MarkdownUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				80BCD0FD2F2C854300D91F91 /* SQLite in Frameworks */,
+				80BCD1002F2C900000D91F91 /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +120,7 @@
 			name = CommandCenter;
 			packageProductDependencies = (
 				80BCD0FC2F2C854300D91F91 /* SQLite */,
+				80BCD0FF2F2C900000D91F91 /* MarkdownUI */,
 			);
 			productName = CommandCenter;
 			productReference = 80BCD0C02F2C834F00D91F91 /* CommandCenter.app */;
@@ -203,6 +206,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */,
+				80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80BCD0C12F2C834F00D91F91 /* Products */;
@@ -590,6 +594,14 @@
 				minimumVersion = 0.15.5;
 			};
 		};
+		80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -597,6 +609,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
+		};
+		80BCD0FF2F2C900000D91F91 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

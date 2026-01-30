@@ -15,6 +15,7 @@ struct SessionDetailView: View {
     @State private var labelText = ""
     @State private var isHoveringPath = false
     @State private var copiedResume = false
+    @State private var copiedResetTask: Task<Void, Never>?
     @State private var terminalActionFailed = false
     @State private var transcriptSubscription: AnyCancellable?
 
@@ -58,26 +59,39 @@ struct SessionDetailView: View {
         .onAppear {
             resetStateForSession()
             loadUsageStats(for: session)
-
-            // Subscribe to transcript updates for this session
-            if let path = session.transcriptPath {
-                transcriptSubscription = EventBus.shared.transcriptUpdated
-                    .filter { $0 == path }
-                    .receive(on: DispatchQueue.main)
-                    .sink { _ in
-                        loadUsageStats(for: session)
-                    }
-            }
+            setupSubscription()
         }
         .onDisappear {
-            transcriptSubscription?.cancel()
-            transcriptSubscription = nil
+            cleanupSubscription()
         }
         .onChange(of: session.id) { oldId, newId in
-            // Clear ALL state when switching sessions
+            // CRITICAL: Clean up old subscription before setting up new one
+            cleanupSubscription()
             resetStateForSession()
             loadUsageStats(for: session)
+            setupSubscription()
         }
+    }
+
+    /// Set up EventBus subscription for current session's transcript
+    private func setupSubscription() {
+        guard let path = session.transcriptPath else { return }
+        let targetSession = session  // Capture current session
+
+        transcriptSubscription = EventBus.shared.transcriptUpdated
+            .filter { $0 == path }
+            .receive(on: DispatchQueue.main)
+            .sink { [targetSession] _ in
+                // Only update if still viewing the same session
+                guard session.id == targetSession.id else { return }
+                loadUsageStats(for: targetSession)
+            }
+    }
+
+    /// Clean up subscription
+    private func cleanupSubscription() {
+        transcriptSubscription?.cancel()
+        transcriptSubscription = nil
     }
 
     /// Reset all session-specific state to defaults
@@ -86,6 +100,7 @@ struct SessionDetailView: View {
         usageStats = TranscriptUsageStats()
         labelText = session.contextLabel ?? ""
         editingLabel = false
+        copiedResetTask?.cancel()
         copiedResume = false
     }
 
@@ -310,7 +325,14 @@ struct SessionDetailView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         copiedResume = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+
+        // Cancel any existing reset task
+        copiedResetTask?.cancel()
+
+        // Schedule reset using Task (cancellable, no timer)
+        copiedResetTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
             copiedResume = false
         }
     }

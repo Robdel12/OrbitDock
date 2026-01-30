@@ -22,7 +22,6 @@ struct ConversationView: View {
     @State private var isLoading = true
     @State private var loadedSessionId: String?
     @State private var displayedCount: Int = 50
-    @State private var isLoadingMore = false
     @State private var fileMonitor: DispatchSourceFileSystemObject?
 
     private let pageSize = 50
@@ -48,29 +47,39 @@ struct ConversationView: View {
         }
         .onAppear {
             loadMessagesIfNeeded()
-            startWatchingFile()
-
-            // Subscribe to EventBus for this transcript
-            if let path = transcriptPath {
-                transcriptSubscription = EventBus.shared.transcriptUpdated
-                    .filter { $0 == path }
-                    .receive(on: DispatchQueue.main)
-                    .sink { _ in
-                        syncAndReload()
-                    }
-            }
+            setupSubscriptions()
         }
         .onDisappear {
-            stopWatchingFile()
-            transcriptSubscription?.cancel()
-            transcriptSubscription = nil
+            cleanupSubscriptions()
         }
         .onChange(of: sessionId) { oldId, newId in
-            // Reset state for new session
-            stopWatchingFile()
+            // CRITICAL: Clean up old subscriptions before setting up new ones
+            cleanupSubscriptions()
             loadMessagesIfNeeded()
-            startWatchingFile()
+            setupSubscriptions()
         }
+    }
+
+    /// Set up file watcher and EventBus subscription for current session
+    private func setupSubscriptions() {
+        startWatchingFile()
+
+        // Subscribe to EventBus for THIS transcript path
+        if let path = transcriptPath {
+            transcriptSubscription = EventBus.shared.transcriptUpdated
+                .filter { $0 == path }
+                .receive(on: DispatchQueue.main)
+                .sink { _ in
+                    syncAndReload()
+                }
+        }
+    }
+
+    /// Clean up all subscriptions
+    private func cleanupSubscriptions() {
+        stopWatchingFile()
+        transcriptSubscription?.cancel()
+        transcriptSubscription = nil
     }
 
     // MARK: - File Watching
@@ -214,13 +223,8 @@ struct ConversationView: View {
             loadMoreMessages()
         } label: {
             HStack(spacing: 6) {
-                if isLoadingMore {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 9, weight: .semibold))
-                }
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 9, weight: .semibold))
                 Text("Load \(min(pageSize, messages.count - displayedCount)) more")
                     .font(.system(size: 10, weight: .medium))
             }
@@ -230,7 +234,6 @@ struct ConversationView: View {
             .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(isLoadingMore)
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = true) {
@@ -253,12 +256,8 @@ struct ConversationView: View {
     }
 
     private func loadMoreMessages() {
-        guard !isLoadingMore else { return }
-        isLoadingMore = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            displayedCount = min(displayedCount + pageSize, messages.count)
-            isLoadingMore = false
-        }
+        // Immediate update - no loading state needed for synchronous operation
+        displayedCount = min(displayedCount + pageSize, messages.count)
     }
 
     private var emptyState: some View {
