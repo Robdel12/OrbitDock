@@ -24,7 +24,6 @@ struct ConversationView: View {
     @State private var displayedCount: Int = 50
     @State private var isLoadingMore = false
     @State private var fileMonitor: DispatchSourceFileSystemObject?
-    @State private var refreshTimer: Timer?
 
     private let pageSize = 50
 
@@ -60,16 +59,9 @@ struct ConversationView: View {
                         syncAndReload()
                     }
             }
-
-            // Long fallback timer (30s) in case events are missed
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
-                syncAndReload()
-            }
         }
         .onDisappear {
             stopWatchingFile()
-            refreshTimer?.invalidate()
-            refreshTimer = nil
             transcriptSubscription?.cancel()
             transcriptSubscription = nil
         }

@@ -11,11 +11,16 @@ import Combine
 struct ContentView: View {
     @Environment(DatabaseManager.self) private var database
     @State private var sessions: [Session] = []
-    @State private var selectedSession: Session?
+    @State private var selectedSessionId: String?  // ID-based selection (not stale object)
     @State private var statusFilter: Session.SessionStatus? = nil
     @State private var searchText = ""
-    @State private var fallbackTimer: Timer?
     @State private var eventSubscription: AnyCancellable?
+
+    // Resolve ID to fresh session object from current sessions array
+    private var selectedSession: Session? {
+        guard let id = selectedSessionId else { return nil }
+        return sessions.first { $0.id == id }
+    }
 
     var filteredSessions: [Session] {
         var result = sessions
@@ -79,22 +84,14 @@ struct ContentView: View {
             database.onDatabaseChanged = {
                 EventBus.shared.notifyDatabaseChanged()
             }
-
-            // Long fallback timer (30s) in case events are missed
-            fallbackTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
-                loadSessions()
-            }
         }
         .onDisappear {
-            fallbackTimer?.invalidate()
-            fallbackTimer = nil
             eventSubscription?.cancel()
             eventSubscription = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
-            if let sessionId = notification.userInfo?["sessionId"] as? String,
-               let session = sessions.first(where: { $0.id == sessionId }) {
-                selectedSession = session
+            if let sessionId = notification.userInfo?["sessionId"] as? String {
+                selectedSessionId = sessionId
             }
         }
     }
@@ -253,7 +250,7 @@ struct ContentView: View {
             VStack(spacing: 4) {
                 ForEach(Array(waitingSessions.prefix(3).enumerated()), id: \.element.id) { _, session in
                     AttentionRow(session: session) {
-                        selectedSession = session
+                        selectedSessionId = session.id
                     }
                 }
             }
@@ -288,11 +285,11 @@ struct ContentView: View {
             .padding(.bottom, 2)
 
             ForEach(Array(sessions.enumerated()), id: \.element.id) { _, session in
-                SessionRowView(session: session, isSelected: selectedSession?.id == session.id)
+                SessionRowView(session: session, isSelected: selectedSessionId == session.id)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            selectedSession = session
+                            selectedSessionId = session.id
                         }
                     }
             }
@@ -374,12 +371,8 @@ struct ContentView: View {
         let oldWaitingIds = Set(waitingSessions.map { $0.id })
         sessions = database.fetchSessions()
 
-        // Sync selectedSession with fresh data from database
-        // This ensures workStatus and other fields are up-to-date
-        if let selected = selectedSession,
-           let freshSession = sessions.first(where: { $0.id == selected.id }) {
-            selectedSession = freshSession
-        }
+        // No manual sync needed - selectedSession is computed from selectedSessionId
+        // and always resolves to fresh data from sessions array
 
         // Check for new sessions needing attention and send notifications
         for session in waitingSessions {

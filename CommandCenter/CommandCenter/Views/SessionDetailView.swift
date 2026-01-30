@@ -9,21 +9,18 @@ import Combine
 struct SessionDetailView: View {
     @Environment(DatabaseManager.self) private var database
     let session: Session
+
+    // UI state - cleared on session change
     @State private var editingLabel = false
     @State private var labelText = ""
     @State private var isHoveringPath = false
     @State private var copiedResume = false
-    @State private var currentTool: String?
-    @State private var fallbackTimer: Timer?
     @State private var terminalActionFailed = false
     @State private var transcriptSubscription: AnyCancellable?
 
-    // Use a dictionary keyed by session ID to prevent state bleeding
-    @State private var statsCache: [String: TranscriptUsageStats] = [:]
-
-    private var usageStats: TranscriptUsageStats {
-        statsCache[session.id] ?? TranscriptUsageStats()
-    }
+    // Session-specific data - direct state (not dictionary cache)
+    @State private var usageStats = TranscriptUsageStats()
+    @State private var currentTool: String?
 
 
     var body: some View {
@@ -59,8 +56,7 @@ struct SessionDetailView: View {
         }
         .background(Color.backgroundPrimary)
         .onAppear {
-            currentTool = nil
-            labelText = session.contextLabel ?? ""
+            resetStateForSession()
             loadUsageStats(for: session)
 
             // Subscribe to transcript updates for this session
@@ -72,24 +68,25 @@ struct SessionDetailView: View {
                         loadUsageStats(for: session)
                     }
             }
-
-            // Long fallback timer (30s) for missed events
-            fallbackTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { _ in
-                loadUsageStats(for: session)
-            }
         }
         .onDisappear {
-            fallbackTimer?.invalidate()
-            fallbackTimer = nil
             transcriptSubscription?.cancel()
             transcriptSubscription = nil
         }
         .onChange(of: session.id) { oldId, newId in
-            // Clear current tool immediately
-            currentTool = nil
-            labelText = session.contextLabel ?? ""
+            // Clear ALL state when switching sessions
+            resetStateForSession()
             loadUsageStats(for: session)
         }
+    }
+
+    /// Reset all session-specific state to defaults
+    private func resetStateForSession() {
+        currentTool = nil
+        usageStats = TranscriptUsageStats()
+        labelText = session.contextLabel ?? ""
+        editingLabel = false
+        copiedResume = false
     }
 
     // MARK: - Header
@@ -475,14 +472,14 @@ struct SessionDetailView: View {
 
         DispatchQueue.global(qos: .userInitiated).async {
             // Read-only from SQLite - ConversationView handles syncing
-            if let cachedStats = MessageStore.shared.readStats(sessionId: targetId) {
+            if let stats = MessageStore.shared.readStats(sessionId: targetId) {
                 let info = MessageStore.shared.readSessionInfo(sessionId: targetId)
 
                 DispatchQueue.main.async {
-                    if session.id == targetId {
-                        statsCache[targetId] = cachedStats
-                        currentTool = info.lastTool
-                    }
+                    // Only update if still viewing the same session
+                    guard session.id == targetId else { return }
+                    usageStats = stats
+                    currentTool = info.lastTool
                 }
             }
             // If no SQLite data yet, ConversationView will sync it - we'll get updated via EventBus
