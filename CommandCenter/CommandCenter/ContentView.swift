@@ -11,42 +11,17 @@ import Combine
 struct ContentView: View {
     @Environment(DatabaseManager.self) private var database
     @State private var sessions: [Session] = []
-    @State private var selectedSessionId: String?  // ID-based selection (not stale object)
-    @State private var statusFilter: Session.SessionStatus? = nil
-    @State private var searchText = ""
+    @State private var selectedSessionId: String?
     @State private var eventSubscription: AnyCancellable?
+
+    // Panel state
+    @State private var showAgentPanel = false
+    @State private var showQuickSwitcher = false
 
     // Resolve ID to fresh session object from current sessions array
     private var selectedSession: Session? {
         guard let id = selectedSessionId else { return nil }
         return sessions.first { $0.id == id }
-    }
-
-    var filteredSessions: [Session] {
-        var result = sessions
-
-        if let filter = statusFilter {
-            result = result.filter { $0.status == filter }
-        }
-
-        if !searchText.isEmpty {
-            result = result.filter {
-                $0.displayName.localizedCaseInsensitiveContains(searchText) ||
-                $0.projectPath.localizedCaseInsensitiveContains(searchText) ||
-                ($0.branch ?? "").localizedCaseInsensitiveContains(searchText) ||
-                ($0.contextLabel ?? "").localizedCaseInsensitiveContains(searchText)
-            }
-        }
-
-        return result
-    }
-
-    var activeSessions: [Session] {
-        filteredSessions.filter { $0.isActive }
-    }
-
-    var endedSessions: [Session] {
-        filteredSessions.filter { !$0.isActive }
     }
 
     var workingSessions: [Session] {
@@ -58,31 +33,54 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
-            sidebarContent
-                .navigationSplitViewColumnWidth(min: 320, ideal: 360)
-        } detail: {
-            detailContent
-        }
-        .navigationTitle("")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                globalStatsBar
+        ZStack(alignment: .leading) {
+            // Main content (conversation-first)
+            mainContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Left panel overlay
+            if showAgentPanel {
+                HStack(spacing: 0) {
+                    AgentListPanel(
+                        sessions: sessions,
+                        selectedSessionId: selectedSessionId,
+                        onSelectSession: { id in
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                                selectedSessionId = id
+                            }
+                        },
+                        onClose: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showAgentPanel = false
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+
+                    // Click-away area
+                    Color.black.opacity(0.3)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showAgentPanel = false
+                            }
+                        }
+                }
+                .transition(.opacity)
+            }
+
+            // Quick switcher overlay
+            if showQuickSwitcher {
+                quickSwitcherOverlay
             }
         }
+        .background(Color.backgroundPrimary)
         .onAppear {
             loadSessions()
+            setupEventSubscription()
 
-            // Subscribe to EventBus for push updates from hooks
-            eventSubscription = EventBus.shared.sessionUpdated
-                .receive(on: DispatchQueue.main)
-                .sink { _ in
-                    loadSessions()
-                }
-
-            // Database file watcher as backup
-            database.onDatabaseChanged = {
-                EventBus.shared.notifyDatabaseChanged()
+            // Auto-select first session if none selected
+            if selectedSessionId == nil, let first = sessions.first {
+                selectedSessionId = first.id
             }
         }
         .onDisappear {
@@ -94,276 +92,212 @@ struct ContentView: View {
                 selectedSessionId = sessionId
             }
         }
-    }
-
-    // MARK: - Global Stats Bar
-
-    private var globalStatsBar: some View {
-        HStack(spacing: 20) {
-            StatPill(
-                icon: "bolt.fill",
-                value: "\(workingSessions.count)",
-                label: "Working",
-                color: workingSessions.isEmpty ? .secondary : .green,
-                isActive: !workingSessions.isEmpty
-            )
-
-            StatPill(
-                icon: "hand.raised.fill",
-                value: "\(waitingSessions.count)",
-                label: "Waiting",
-                color: waitingSessions.isEmpty ? .secondary : .orange,
-                isActive: !waitingSessions.isEmpty
-            )
-
-            Divider()
-                .frame(height: 16)
-
-            HStack(spacing: 4) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 10, weight: .medium))
-                Text("\(sessions.filter { isToday($0.startedAt) }.count) today")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(.secondary)
-
-            HStack(spacing: 4) {
-                Image(systemName: "bubble.left.and.bubble.right")
-                    .font(.system(size: 10, weight: .medium))
-                Text("\(formatMessageCount(UsageManager.shared.totalMessagesThisWeek)) this week")
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(.secondary)
-            .help("Total messages this week")
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial, in: Capsule())
-    }
-
-    private func isToday(_ date: Date?) -> Bool {
-        guard let date = date else { return false }
-        return Calendar.current.isDateInToday(date)
-    }
-
-    private func formatMessageCount(_ count: Int) -> String {
-        if count >= 1000 {
-            return String(format: "%.1fk", Double(count) / 1000.0)
-        }
-        return "\(count)"
-    }
-
-    // MARK: - Sidebar
-
-    private var sidebarContent: some View {
-        VStack(spacing: 0) {
-            // Filter tabs
-            filterBar
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-
-            Divider()
-                .opacity(0.3)
-
-            // Needs attention banner
-            if !waitingSessions.isEmpty && statusFilter != .ended {
-                needsAttentionBanner
-            }
-
-            // Session list
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if !activeSessions.isEmpty {
-                        sessionSection(title: "Active", sessions: activeSessions, color: .green)
-                    }
-
-                    if !endedSessions.isEmpty {
-                        sessionSection(title: "Recent", sessions: Array(endedSessions.prefix(25)), color: .secondary)
-                    }
-
-                    if filteredSessions.isEmpty {
-                        emptyStateView
-                    }
+        // Keyboard shortcuts via focusable + onKeyPress
+        .focusable()
+        .onKeyPress(keys: [.escape]) { _ in
+            if showQuickSwitcher {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    showQuickSwitcher = false
                 }
-                .padding(.vertical, 4)
+                return .handled
             }
-            .scrollContentBackground(.hidden)
-            .scrollIndicators(.hidden)
-        }
-        .searchable(text: $searchText, placement: .sidebar, prompt: "Search...")
-        .background(Color.backgroundPrimary)
-    }
-
-    private var filterBar: some View {
-        HStack(spacing: 8) {
-            ForEach([nil, Session.SessionStatus.active, Session.SessionStatus.ended], id: \.self) { filter in
-                FilterPill(
-                    title: filterTitle(for: filter),
-                    count: filterCount(for: filter),
-                    isSelected: statusFilter == filter
-                ) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        statusFilter = filter
-                    }
+            if showAgentPanel {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    showAgentPanel = false
                 }
+                return .handled
             }
-
-            Spacer()
-
-            Button {
-                loadSessions()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
-                    .background(Color.primary.opacity(0.05), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Refresh sessions")
+            return .ignored
         }
-    }
-
-    // MARK: - Needs Attention Banner
-
-    private var needsAttentionBanner: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.orange)
-
-                Text("Needs Attention")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.primary)
-
-                Spacer()
-
-                Text("\(waitingSessions.count)")
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.orange, in: Capsule())
-            }
-
-            VStack(spacing: 4) {
-                ForEach(Array(waitingSessions.prefix(3).enumerated()), id: \.element.id) { _, session in
-                    AttentionRow(session: session) {
-                        selectedSessionId = session.id
+        // Use toolbar buttons with keyboard shortcuts for ⌘1 and ⌘K
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        showAgentPanel.toggle()
                     }
+                } label: {
+                    Label("Agents", systemImage: "sidebar.left")
                 }
+                .keyboardShortcut("1", modifiers: .command)
             }
-        }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.orange.opacity(0.06))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(.orange.opacity(0.15), lineWidth: 1)
-                )
-        )
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-    }
 
-    private func sessionSection(title: String, sessions: [Session], color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
-                Text(title.uppercased())
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
-                    .foregroundStyle(.quaternary)
-                    .tracking(0.5)
-
-                Text("\(sessions.count)")
-                    .font(.system(size: 8, weight: .bold, design: .rounded))
-                    .foregroundStyle(color.opacity(0.8))
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 10)
-            .padding(.bottom, 2)
-
-            ForEach(Array(sessions.enumerated()), id: \.element.id) { _, session in
-                SessionRowView(session: session, isSelected: selectedSessionId == session.id)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                            selectedSessionId = session.id
-                        }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        showQuickSwitcher = true
                     }
+                } label: {
+                    Label("Quick Switch", systemImage: "magnifyingglass")
+                }
+                .keyboardShortcut("k", modifiers: .command)
             }
         }
     }
 
-    private var emptyStateView: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "terminal")
-                .font(.system(size: 36))
-                .foregroundStyle(.quaternary)
+    // MARK: - Main Content
 
-            VStack(spacing: 6) {
-                Text("No Sessions")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                Text("Start a Claude Code session\nto see it here")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 60)
-    }
-
-    // MARK: - Detail
-
-    private var detailContent: some View {
+    private var mainContent: some View {
         Group {
             if let session = selectedSession {
-                SessionDetailView(session: session)
+                SessionDetailViewNew(
+                    session: session,
+                    onTogglePanel: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showAgentPanel.toggle()
+                        }
+                    },
+                    onOpenSwitcher: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showQuickSwitcher = true
+                        }
+                    }
+                )
             } else {
-                VStack(spacing: 16) {
-                    ZStack {
-                        Circle()
-                            .fill(.quaternary.opacity(0.5))
-                            .frame(width: 80, height: 80)
-                        Image(systemName: "sidebar.left")
-                            .font(.system(size: 32, weight: .light))
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    VStack(spacing: 4) {
-                        Text("Select a Session")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        Text("Choose a session from the sidebar to view details")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
+                emptyState
             }
         }
     }
 
-    // MARK: - Helpers
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(Color.backgroundTertiary)
+                    .frame(width: 80, height: 80)
+                Image(systemName: "terminal")
+                    .font(.system(size: 32, weight: .light))
+                    .foregroundStyle(.tertiary)
+            }
 
-    private func filterTitle(for filter: Session.SessionStatus?) -> String {
-        switch filter {
-        case nil: return "All"
-        case .active: return "Active"
-        case .ended: return "Ended"
-        case .idle: return "Idle"
+            VStack(spacing: 8) {
+                Text("No Agent Selected")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Text("Press ⌘K to switch agents\nor ⌘1 to open the panel")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            // Stats summary
+            if !sessions.isEmpty {
+                HStack(spacing: 16) {
+                    statBadge(count: workingSessions.count, label: "Working", color: .statusWorking)
+                    statBadge(count: waitingSessions.count, label: "Waiting", color: .statusWaiting)
+                    statBadge(count: sessions.count, label: "Total", color: .secondary)
+                }
+                .padding(.top, 8)
+            }
+
+            // Quick action buttons
+            HStack(spacing: 12) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        showAgentPanel = true
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Open Panel")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("⌘1")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        showQuickSwitcher = true
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                        Text("Quick Switch")
+                            .font(.system(size: 12, weight: .medium))
+                        Text("⌘K")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.top, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func statBadge(count: Int, label: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+
+            Text("\(count)")
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
     }
 
-    private func filterCount(for filter: Session.SessionStatus?) -> Int {
-        switch filter {
-        case nil: return sessions.count
-        case .active: return sessions.filter { $0.status == .active }.count
-        case .ended: return sessions.filter { $0.status == .ended }.count
-        case .idle: return sessions.filter { $0.status == .idle }.count
+    // MARK: - Quick Switcher Overlay
+
+    private var quickSwitcherOverlay: some View {
+        ZStack {
+            // Backdrop
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        showQuickSwitcher = false
+                    }
+                }
+
+            // Quick Switcher
+            QuickSwitcher(
+                sessions: sessions,
+                onSelect: { id in
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        selectedSessionId = id
+                        showQuickSwitcher = false
+                    }
+                },
+                onClose: {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        showQuickSwitcher = false
+                    }
+                }
+            )
+        }
+        .transition(.opacity)
+    }
+
+    // MARK: - Setup
+
+    private func setupEventSubscription() {
+        eventSubscription = EventBus.shared.sessionUpdated
+            .receive(on: DispatchQueue.main)
+            .sink { _ in
+                loadSessions()
+            }
+
+        database.onDatabaseChanged = {
+            EventBus.shared.notifyDatabaseChanged()
         }
     }
 
@@ -371,10 +305,7 @@ struct ContentView: View {
         let oldWaitingIds = Set(waitingSessions.map { $0.id })
         sessions = database.fetchSessions()
 
-        // No manual sync needed - selectedSession is computed from selectedSessionId
-        // and always resolves to fresh data from sessions array
-
-        // Check for new sessions needing attention and send notifications
+        // Check for new sessions needing attention
         for session in waitingSessions {
             if !oldWaitingIds.contains(session.id) {
                 NotificationManager.shared.notifyNeedsAttention(session: session)
@@ -388,6 +319,283 @@ struct ContentView: View {
             }
         }
     }
+}
+
+// MARK: - New Session Detail View (Conversation-First)
+
+struct SessionDetailViewNew: View {
+    @Environment(DatabaseManager.self) private var database
+    let session: Session
+    let onTogglePanel: () -> Void
+    let onOpenSwitcher: () -> Void
+
+    @State private var usageStats = TranscriptUsageStats()
+    @State private var currentTool: String?
+    @State private var transcriptSubscription: AnyCancellable?
+    @State private var terminalActionFailed = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Compact header
+            HeaderView(
+                session: session,
+                usageStats: usageStats,
+                currentTool: currentTool,
+                onTogglePanel: onTogglePanel,
+                onOpenSwitcher: onOpenSwitcher,
+                onFocusTerminal: { openInITerm() }
+            )
+
+            Divider()
+                .foregroundStyle(Color.panelBorder)
+
+            // Conversation (hero) - using redesigned view
+            ConversationViewNew(
+                transcriptPath: session.transcriptPath,
+                sessionId: session.id,
+                isSessionActive: session.isActive,
+                workStatus: session.workStatus,
+                currentTool: currentTool
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Action bar
+            actionBar
+        }
+        .background(Color.backgroundPrimary)
+        .onAppear {
+            loadUsageStats()
+            setupSubscription()
+        }
+        .onDisappear {
+            transcriptSubscription?.cancel()
+        }
+        .onChange(of: session.id) { _, _ in
+            transcriptSubscription?.cancel()
+            loadUsageStats()
+            setupSubscription()
+        }
+        .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
+            Button("Open New") { openNewITermWithResume() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Couldn't find the terminal. Open a new iTerm window to resume?")
+        }
+    }
+
+    // MARK: - Action Bar
+
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            // Primary action
+            Button {
+                openInITerm()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(session.isActive ? "Focus" : "Resume")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                copyResumeCommand()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 9, weight: .medium))
+                    Text("Copy cmd")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .foregroundStyle(.primary.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+            } label: {
+                Image(systemName: "folder")
+                    .font(.system(size: 10, weight: .medium))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .foregroundStyle(.primary.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            if let lastActivity = session.lastActivityAt {
+                Text(lastActivity, style: .relative)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color.backgroundSecondary)
+    }
+
+    // MARK: - Helpers
+
+    private func setupSubscription() {
+        guard let path = session.transcriptPath else { return }
+        let targetSession = session
+
+        transcriptSubscription = EventBus.shared.transcriptUpdated
+            .filter { $0 == path }
+            .receive(on: DispatchQueue.main)
+            .sink { [targetSession] _ in
+                guard session.id == targetSession.id else { return }
+                loadUsageStats()
+            }
+    }
+
+    private func loadUsageStats() {
+        let targetId = session.id
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let stats = MessageStore.shared.readStats(sessionId: targetId) {
+                let info = MessageStore.shared.readSessionInfo(sessionId: targetId)
+
+                DispatchQueue.main.async {
+                    guard session.id == targetId else { return }
+                    usageStats = stats
+                    currentTool = info.lastTool
+                }
+            }
+        }
+    }
+
+    private func copyResumeCommand() {
+        let command = "claude --resume \(session.id)"
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+    }
+
+    private func openInITerm() {
+        if session.isActive {
+            focusExistingTerminal()
+        } else {
+            openNewITermWithResume()
+        }
+    }
+
+    private func focusExistingTerminal() {
+        if let terminalId = session.terminalSessionId, !terminalId.isEmpty,
+           session.terminalApp == "iTerm.app" {
+            focusITermBySessionId(terminalId)
+            return
+        }
+        focusExistingTerminalByPath()
+    }
+
+    private func focusITermBySessionId(_ sessionId: String) {
+        let script = """
+        tell application "iTerm2"
+            repeat with aWindow in windows
+                repeat with aTab in tabs of aWindow
+                    repeat with aSession in sessions of aTab
+                        try
+                            if unique ID of aSession contains "\(sessionId)" then
+                                select aTab
+                                select aSession
+                                set index of aWindow to 1
+                                activate
+                                return "found"
+                            end if
+                        end try
+                    end repeat
+                end repeat
+            end repeat
+            return "not_found"
+        end tell
+        """
+
+        runAppleScript(script) { result in
+            if result == "not_found" || result == nil {
+                focusExistingTerminalByPath()
+            }
+        }
+    }
+
+    private func focusExistingTerminalByPath() {
+        let escapedPath = session.projectPath.replacingOccurrences(of: "'", with: "'\\''")
+
+        let script = """
+        tell application "iTerm2"
+            repeat with aWindow in windows
+                repeat with aTab in tabs of aWindow
+                    repeat with aSession in sessions of aTab
+                        try
+                            set sessionPath to path of aSession
+                            if sessionPath contains "\(escapedPath)" then
+                                select aTab
+                                select aSession
+                                set index of aWindow to 1
+                                activate
+                                return "found"
+                            end if
+                        end try
+                    end repeat
+                end repeat
+            end repeat
+            return "not_found"
+        end tell
+        """
+
+        runAppleScript(script) { result in
+            if result == "not_found" || result == nil {
+                DispatchQueue.main.async {
+                    terminalActionFailed = true
+                }
+            }
+        }
+    }
+
+    private func openNewITermWithResume() {
+        let escapedPath = session.projectPath.replacingOccurrences(of: "'", with: "'\\''")
+        let command = "cd '\(escapedPath)' && claude --resume \(session.id)"
+
+        let script = """
+        tell application "iTerm2"
+            activate
+            set newWindow to (create window with default profile)
+            tell current session of newWindow
+                write text "\(command)"
+            end tell
+        end tell
+        """
+
+        runAppleScript(script) { _ in }
+    }
+
+    private func runAppleScript(_ source: String, completion: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let script = NSAppleScript(source: source)
+            var error: NSDictionary?
+            let result = script?.executeAndReturnError(&error)
+
+            DispatchQueue.main.async {
+                completion(result?.stringValue)
+            }
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+        .environment(DatabaseManager.shared)
+        .frame(width: 1000, height: 700)
 }
 
 // MARK: - Supporting Views
