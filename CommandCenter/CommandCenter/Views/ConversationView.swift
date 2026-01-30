@@ -14,15 +14,11 @@ struct ConversationView: View {
     var workStatus: Session.WorkStatus = .unknown
     var currentTool: String? = nil
 
-    // Use a dictionary keyed by session to prevent state bleeding between sessions
-    @State private var messagesCache: [String: [TranscriptMessage]] = [:]
-    @State private var currentPromptCache: [String: String] = [:]
+    // Direct state for current session (not computed - ensures SwiftUI updates)
+    @State private var messages: [TranscriptMessage] = []
+    @State private var currentPrompt: String?
     @State private var transcriptSubscription: AnyCancellable?
 
-    private var currentPrompt: String? {
-        guard let sid = sessionId else { return nil }
-        return currentPromptCache[sid]
-    }
     @State private var isLoading = true
     @State private var loadedSessionId: String?
     @State private var displayedCount: Int = 50
@@ -31,12 +27,6 @@ struct ConversationView: View {
     @State private var refreshTimer: Timer?
 
     private let pageSize = 50
-
-    // Get messages for the current session only
-    private var messages: [TranscriptMessage] {
-        guard let sid = sessionId else { return [] }
-        return messagesCache[sid] ?? []
-    }
 
     var displayedMessages: [TranscriptMessage] {
         let startIndex = max(0, messages.count - displayedCount)
@@ -84,8 +74,7 @@ struct ConversationView: View {
             transcriptSubscription = nil
         }
         .onChange(of: sessionId) { oldId, newId in
-            // Reset display count for new session
-            displayedCount = pageSize
+            // Reset state for new session
             stopWatchingFile()
             loadMessagesIfNeeded()
             startWatchingFile()
@@ -140,23 +129,22 @@ struct ConversationView: View {
             MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
 
             // Read back from SQLite (validates the sync worked)
-            let messages = MessageStore.shared.readMessages(sessionId: targetSid)
+            let newMessages = MessageStore.shared.readMessages(sessionId: targetSid)
 
             DispatchQueue.main.async {
                 guard sessionId == targetSid else { return }
 
-                // Update caches
-                if let prompt = result.lastUserPrompt {
-                    currentPromptCache[targetSid] = prompt
-                }
+                // Update state directly (ensures SwiftUI view update)
+                currentPrompt = result.lastUserPrompt
 
-                let currentMessages = messagesCache[targetSid] ?? []
-                let wasAtBottom = displayedCount >= currentMessages.count
+                let oldCount = messages.count
+                let wasAtBottom = displayedCount >= oldCount
 
+                messages = newMessages
 
-                messagesCache[targetSid] = messages
-                if wasAtBottom && messages.count > currentMessages.count {
-                    displayedCount = max(displayedCount, min(pageSize, messages.count))
+                // Expand displayedCount to show new messages if user was at bottom
+                if wasAtBottom && newMessages.count > oldCount {
+                    displayedCount = newMessages.count
                 }
             }
         }
@@ -297,7 +285,11 @@ struct ConversationView: View {
         guard sessionId != loadedSessionId else { return }
         loadedSessionId = sessionId
 
+        // Clear state immediately when switching sessions
+        messages = []
+        currentPrompt = nil
         isLoading = true
+
         guard let path = transcriptPath, let sid = sessionId else {
             isLoading = false
             return
@@ -312,36 +304,29 @@ struct ConversationView: View {
 
             if hasData {
                 // Fast path: read from SQLite immediately
-                let messages = MessageStore.shared.readMessages(sessionId: targetSid)
+                let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
                 let info = MessageStore.shared.readSessionInfo(sessionId: targetSid)
 
                 DispatchQueue.main.async {
                     guard sessionId == targetSid else { return }
 
-                    messagesCache[targetSid] = messages
-                    if let prompt = info.lastPrompt {
-                        currentPromptCache[targetSid] = prompt
-                    }
-                    displayedCount = min(pageSize, messages.count)
+                    messages = loadedMessages
+                    currentPrompt = info.lastPrompt
+                    displayedCount = loadedMessages.count  // Show all messages
                     isLoading = false
-
                 }
 
-                // Background sync only - don't block UI
+                // Background sync to catch any new messages
                 DispatchQueue.global(qos: .utility).async {
                     let result = TranscriptParser.parseAll(transcriptPath: targetPath)
                     MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
 
-                    // Only update UI if there are new messages
                     let updatedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-                    if updatedMessages.count != messages.count {
+                    if updatedMessages.count != loadedMessages.count {
                         DispatchQueue.main.async {
                             guard sessionId == targetSid else { return }
-                            let wasAtBottom = displayedCount >= messages.count
-                            messagesCache[targetSid] = updatedMessages
-                            if wasAtBottom {
-                                displayedCount = min(pageSize, updatedMessages.count)
-                            }
+                            messages = updatedMessages
+                            displayedCount = updatedMessages.count
                         }
                     }
                 }
@@ -349,16 +334,14 @@ struct ConversationView: View {
                 // Cold start: parse JSONL, store in SQLite
                 let result = TranscriptParser.parseAll(transcriptPath: targetPath)
                 MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-                let messages = MessageStore.shared.readMessages(sessionId: targetSid)
+                let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
 
                 DispatchQueue.main.async {
                     guard sessionId == targetSid else { return }
 
-                    messagesCache[targetSid] = messages
-                    if let prompt = result.lastUserPrompt {
-                        currentPromptCache[targetSid] = prompt
-                    }
-                    displayedCount = min(pageSize, messages.count)
+                    messages = loadedMessages
+                    currentPrompt = result.lastUserPrompt
+                    displayedCount = loadedMessages.count  // Show all messages
                     isLoading = false
                 }
             }

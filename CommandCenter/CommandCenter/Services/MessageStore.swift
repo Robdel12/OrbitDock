@@ -9,11 +9,13 @@ import Foundation
 import SQLite
 
 /// High-performance message store using SQLite
-/// Provides O(1) reads regardless of transcript size
+/// Uses separate read/write connections for non-blocking reads
 final class MessageStore {
     static let shared = MessageStore()
 
-    private var db: Connection?
+    // Separate connections for concurrent read/write
+    private var writeDb: Connection?  // For syncs (exclusive writes)
+    private var readDb: Connection?   // For UI reads (never blocks on writes)
     private let dbPath: String
 
     // Prevent concurrent syncs for the same session
@@ -58,15 +60,18 @@ final class MessageStore {
 
     private func setupDatabase() {
         do {
-            db = try Connection(dbPath)
+            // Write connection - for syncs
+            writeDb = try Connection(dbPath)
+            try writeDb?.execute("PRAGMA journal_mode = WAL")
+            try writeDb?.execute("PRAGMA busy_timeout = 5000")
+            try writeDb?.execute("PRAGMA synchronous = NORMAL")
+            try writeDb?.execute("PRAGMA cache_size = -64000")  // 64MB cache
 
-            // Enable WAL mode for concurrent reads/writes (hooks write, app reads)
-            try db?.execute("PRAGMA journal_mode = WAL")
-            try db?.execute("PRAGMA busy_timeout = 5000")
-            try db?.execute("PRAGMA synchronous = NORMAL")
-            try db?.execute("PRAGMA cache_size = -64000")  // 64MB cache
+            // Read connection - separate connection that never blocks on writes
+            readDb = try Connection(dbPath, readonly: true)
+            try readDb?.execute("PRAGMA cache_size = -32000")  // 32MB cache for reads
 
-            // Create tables if they don't exist
+            // Create tables using write connection
             try createTables()
         } catch {
             print("❌ MessageStore: Failed to setup database: \(error)")
@@ -74,7 +79,7 @@ final class MessageStore {
     }
 
     private func createTables() throws {
-        guard let db = db else { return }
+        guard let db = writeDb else { return }
 
         // Messages table
         try db.run(messages.create(ifNotExists: true) { t in
@@ -139,7 +144,7 @@ final class MessageStore {
 
         let start = CFAbsoluteTimeGetCurrent()
 
-        guard let db = db else { return }
+        guard let db = writeDb else { return }
 
         do {
             try db.transaction {
@@ -197,11 +202,11 @@ final class MessageStore {
 
     // MARK: - Read Operations
 
-    /// Read all messages for a session (fast indexed query)
+    /// Read all messages for a session (fast indexed query, never blocks on writes)
     func readMessages(sessionId sid: String) -> [TranscriptMessage] {
         let start = CFAbsoluteTimeGetCurrent()
 
-        guard let db = db else { return [] }
+        guard let db = readDb else { return [] }
 
         do {
             let query = messages
@@ -255,9 +260,9 @@ final class MessageStore {
         }
     }
 
-    /// Read aggregated stats for a session
+    /// Read aggregated stats for a session (never blocks on writes)
     func readStats(sessionId sid: String) -> TranscriptUsageStats? {
-        guard let db = db else { return nil }
+        guard let db = readDb else { return nil }
 
         do {
             let query = sessionStats.filter(statsSessionId == sid)
@@ -278,9 +283,9 @@ final class MessageStore {
         return nil
     }
 
-    /// Read session info (last prompt and tool)
+    /// Read session info (last prompt and tool, never blocks on writes)
     func readSessionInfo(sessionId sid: String) -> (lastPrompt: String?, lastTool: String?) {
-        guard let db = db else { return (nil, nil) }
+        guard let db = readDb else { return (nil, nil) }
 
         do {
             let query = sessionStats.filter(statsSessionId == sid)
@@ -294,9 +299,9 @@ final class MessageStore {
         return (nil, nil)
     }
 
-    /// Check if we have synced data for a session
+    /// Check if we have synced data for a session (never blocks on writes)
     func hasData(sessionId sid: String) -> Bool {
-        guard let db = db else { return false }
+        guard let db = readDb else { return false }
 
         do {
             let query = sessionStats.filter(statsSessionId == sid)
@@ -306,9 +311,9 @@ final class MessageStore {
         }
     }
 
-    /// Get the last sync time for a session
+    /// Get the last sync time for a session (never blocks on writes)
     func lastSyncTime(sessionId sid: String) -> Date? {
-        guard let db = db else { return nil }
+        guard let db = readDb else { return nil }
 
         do {
             let query = sessionStats.filter(statsSessionId == sid)
@@ -325,7 +330,7 @@ final class MessageStore {
 
     /// Clear all data for a session (for re-sync)
     func clearSession(sessionId sid: String) {
-        guard let db = db else { return }
+        guard let db = writeDb else { return }
 
         do {
             try db.run(messages.filter(sessionId == sid).delete())
