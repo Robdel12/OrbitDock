@@ -11,7 +11,7 @@
   "scripts": {
     "install-hooks": "node install.js",
     "start": "node mcp-server/server.js",
-    "test": "node --test lib/*.test.js",
+    "test": "node --test lib/*.test.js hooks/*.test.js",
     "check": "biome check .",
     "lint": "biome check --write ."
   },

@@ -23,6 +23,12 @@ struct OrbitDockApp: App {
         .windowStyle(.automatic)
         .defaultSize(width: 1000, height: 700)
 
+        // Settings window (⌘,)
+        Settings {
+            SettingsView()
+                .preferredColorScheme(.dark)
+        }
+
         // Menu bar
         MenuBarExtra {
             MenuBarView()
