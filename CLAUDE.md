@@ -37,9 +37,9 @@ OrbitDock is a native macOS SwiftUI app - a "cosmic harbor" for AI agent session
 
 ## File Locations
 
-- **Database**: `~/.claude/dashboard.db`
+- **Database**: `~/.orbitdock/orbitdock.db` (separate from Claude to survive reinstalls)
 - **Hooks**: `~/.claude/hooks/` (session-start.sh, session-end.sh, status-tracker.sh, tool-tracker.sh)
-- **Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl`
+- **Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only, Claude's data)
 
 ## Common Tasks
 

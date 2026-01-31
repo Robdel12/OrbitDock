@@ -95,11 +95,8 @@ CREATE TABLE IF NOT EXISTS repos (
 CREATE TABLE IF NOT EXISTS workstreams (
     id TEXT PRIMARY KEY,
     repo_id TEXT NOT NULL REFERENCES repos(id),
-    name TEXT,
-    description TEXT,
     branch TEXT NOT NULL,
     directory TEXT,
-    -- Legacy single-ticket fields (kept for backwards compat, use workstream_tickets instead)
     linear_issue_id TEXT,
     linear_issue_title TEXT,
     linear_issue_state TEXT,
@@ -107,7 +104,6 @@ CREATE TABLE IF NOT EXISTS workstreams (
     github_issue_number INTEGER,
     github_issue_title TEXT,
     github_issue_state TEXT,
-    -- PR info (a workstream typically has one PR)
     github_pr_number INTEGER,
     github_pr_title TEXT,
     github_pr_state TEXT,
@@ -117,62 +113,15 @@ CREATE TABLE IF NOT EXISTS workstreams (
     review_state TEXT,
     review_approvals INTEGER DEFAULT 0,
     review_comments INTEGER DEFAULT 0,
-    -- Lifecycle
     stage TEXT DEFAULT 'working',
-    -- Stats
     session_count INTEGER DEFAULT 0,
     total_session_seconds INTEGER DEFAULT 0,
     commit_count INTEGER DEFAULT 0,
-    -- Timestamps
     last_activity_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(repo_id, branch)
 );
-
--- Multi-ticket support: workstreams can have many tickets
-CREATE TABLE IF NOT EXISTS workstream_tickets (
-    id TEXT PRIMARY KEY,
-    workstream_id TEXT NOT NULL REFERENCES workstreams(id) ON DELETE CASCADE,
-    -- Ticket source
-    source TEXT NOT NULL CHECK (source IN ('linear', 'github_issue', 'github_pr')),
-    -- Linear fields
-    linear_issue_id TEXT,
-    linear_team_id TEXT,
-    -- GitHub fields
-    github_owner TEXT,
-    github_repo TEXT,
-    github_number INTEGER,
-    -- Common fields
-    title TEXT,
-    state TEXT,
-    url TEXT,
-    -- Relationship
-    is_primary INTEGER DEFAULT 0,
-    linked_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    UNIQUE(workstream_id, source, linear_issue_id, github_owner, github_repo, github_number)
-);
-
--- Notes, decisions, blockers, pivots logged during workstream
-CREATE TABLE IF NOT EXISTS workstream_notes (
-    id TEXT PRIMARY KEY,
-    workstream_id TEXT NOT NULL REFERENCES workstreams(id) ON DELETE CASCADE,
-    session_id TEXT REFERENCES sessions(id),
-    -- Note type
-    type TEXT NOT NULL CHECK (type IN ('note', 'decision', 'blocker', 'pivot', 'milestone')),
-    -- Content
-    content TEXT NOT NULL,
-    -- Optional metadata (JSON)
-    metadata TEXT,
-    -- Timestamps
-    created_at TEXT NOT NULL,
-    resolved_at TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_workstream_tickets_workstream ON workstream_tickets(workstream_id);
-CREATE INDEX IF NOT EXISTS idx_workstream_notes_workstream ON workstream_notes(workstream_id);
-CREATE INDEX IF NOT EXISTS idx_workstream_notes_session ON workstream_notes(session_id);
 SCHEMA
 
 # If we have a repo root, find or create repo and workstream
@@ -223,32 +172,13 @@ EOF
   fi
 fi
 
-# Mark any existing active sessions with the same terminal as ended
-# (A terminal can only run one Claude session at a time, so if we're starting
-# a new session in this terminal, the old one must have ended without cleanup)
-if [ -n "$TERMINAL_SESSION_ID" ]; then
-  sqlite3 "$DB_PATH" << EOF
-PRAGMA journal_mode = WAL;
-PRAGMA busy_timeout = 5000;
-UPDATE sessions
-SET status = 'ended', ended_at = '$NOW', end_reason = 'stale'
-WHERE terminal_session_id = '$TERMINAL_SESSION_ID'
-  AND status = 'active'
-  AND id != '$SESSION_ID';
-EOF
-fi
-
 # Insert or update session
-# Note: On resume, we update project_path/branch to track directory changes (e.g., worktrees)
 sqlite3 "$DB_PATH" << EOF
 PRAGMA journal_mode = WAL;
 PRAGMA busy_timeout = 5000;
 INSERT INTO sessions (id, project_path, project_name, branch, model, transcript_path, status, started_at, last_activity_at, terminal_session_id, terminal_app, workstream_id)
 VALUES ('$SESSION_ID', '$CWD', '$PROJECT_NAME', '$BRANCH', '$MODEL', '$TRANSCRIPT_PATH', 'active', '$NOW', '$NOW', '$TERMINAL_SESSION_ID', '$TERMINAL_APP', $([ -n "$WORKSTREAM_ID" ] && echo "'$WORKSTREAM_ID'" || echo "NULL"))
 ON CONFLICT(id) DO UPDATE SET
-  project_path = excluded.project_path,
-  project_name = excluded.project_name,
-  branch = excluded.branch,
   status = 'active',
   last_activity_at = '$NOW',
   terminal_session_id = '$TERMINAL_SESSION_ID',
