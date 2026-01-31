@@ -277,18 +277,22 @@ struct SessionDetailViewNew: View {
     @State private var terminalActionFailed = false
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
+    @State private var workstream: Workstream?
+    @State private var showingWorkstreamDetail = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // Compact header
+            // Compact header with integrated workstream
             HeaderView(
                 session: session,
                 usageStats: usageStats,
                 currentTool: currentTool,
+                workstream: workstream,
                 onTogglePanel: onTogglePanel,
                 onOpenSwitcher: onOpenSwitcher,
                 onFocusTerminal: { openInITerm() },
-                onGoToDashboard: onGoToDashboard
+                onGoToDashboard: onGoToDashboard,
+                onOpenWorkstream: { showingWorkstreamDetail = true }
             )
 
             Divider()
@@ -316,6 +320,7 @@ struct SessionDetailViewNew: View {
         .onAppear {
             loadUsageStats()
             setupSubscription()
+            loadWorkstream()
         }
         .onDisappear {
             transcriptSubscription?.cancel()
@@ -324,6 +329,16 @@ struct SessionDetailViewNew: View {
             transcriptSubscription?.cancel()
             loadUsageStats()
             setupSubscription()
+            loadWorkstream()
+        }
+        .sheet(isPresented: $showingWorkstreamDetail) {
+            if let ws = workstream {
+                WorkstreamDetailView(
+                    workstream: ws,
+                    repo: DatabaseManager.shared.fetchRepos().first { $0.id == ws.repoId }
+                )
+                .frame(minWidth: 600, minHeight: 500)
+            }
         }
         .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
             Button("Open New") { TerminalService.shared.focusSession(session) }
@@ -470,6 +485,14 @@ struct SessionDetailViewNew: View {
                     currentTool = info.lastTool
                 }
             }
+        }
+    }
+
+    private func loadWorkstream() {
+        if let wsId = session.workstreamId {
+            workstream = DatabaseManager.shared.fetchWorkstreamWithRelations(id: wsId)
+        } else {
+            workstream = nil
         }
     }
 

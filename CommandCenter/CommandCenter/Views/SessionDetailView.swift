@@ -22,10 +22,20 @@ struct SessionDetailView: View {
     // Session-specific data - direct state (not dictionary cache)
     @State private var usageStats = TranscriptUsageStats()
     @State private var currentTool: String?
+    @State private var workstream: Workstream?
+    @State private var showingWorkstreamDetail = false
 
 
     var body: some View {
         VStack(spacing: 0) {
+            // DEBUG BANNER
+            Text("DEBUG: Session \(session.id.prefix(8))... WS: \(session.workstreamId ?? "nil")")
+                .font(.caption)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(4)
+                .background(Color.red)
+
             // Compact header with essential info
             headerSection
                 .padding(.horizontal, 20)
@@ -71,6 +81,15 @@ struct SessionDetailView: View {
             loadUsageStats(for: session)
             setupSubscription()
         }
+        .sheet(isPresented: $showingWorkstreamDetail) {
+            if let ws = workstream {
+                WorkstreamDetailView(
+                    workstream: ws,
+                    repo: DatabaseManager.shared.fetchRepos().first { $0.id == ws.repoId }
+                )
+                .frame(minWidth: 600, minHeight: 500)
+            }
+        }
     }
 
     /// Set up EventBus subscription for current session's transcript
@@ -96,12 +115,25 @@ struct SessionDetailView: View {
 
     /// Reset all session-specific state to defaults
     private func resetStateForSession() {
+        print("🔴 resetStateForSession called for \(session.id)")
         currentTool = nil
         usageStats = TranscriptUsageStats()
         nameText = session.customName ?? ""
         editingName = false
         copiedResetTask?.cancel()
         copiedResume = false
+        loadWorkstream()
+    }
+
+    /// Load workstream for this session
+    private func loadWorkstream() {
+        print("[DEBUG] Loading workstream for session \(session.id), workstreamId: \(session.workstreamId ?? "nil")")
+        if let wsId = session.workstreamId {
+            workstream = DatabaseManager.shared.fetchWorkstreamWithRelations(id: wsId)
+            print("[DEBUG] Loaded workstream: \(workstream?.name ?? workstream?.branch ?? "nil")")
+        } else {
+            workstream = nil
+        }
     }
 
     // MARK: - Header
@@ -160,6 +192,33 @@ struct SessionDetailView: View {
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                     }
                     .foregroundStyle(.orange)
+                }
+
+                // DEBUG: Always show something to confirm code is running
+                Text("WS:\(session.workstreamId ?? "none")")
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+
+                // Workstream badge (if linked)
+                if let ws = workstream {
+                    Button {
+                        showingWorkstreamDetail = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "scope")
+                                .font(.system(size: 9, weight: .semibold))
+                            Text(ws.name ?? ws.branch)
+                                .font(.system(size: 10, weight: .medium))
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(Color.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.accent.opacity(0.1))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("View workstream")
                 }
 
                 Spacer()
