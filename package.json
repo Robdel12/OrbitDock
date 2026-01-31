@@ -1,0 +1,32 @@
+{
+  "name": "orbitdock",
+  "version": "1.0.0",
+  "description": "OrbitDock hooks and MCP server for Claude Code",
+  "type": "module",
+  "main": "mcp-server/server.js",
+  "bin": {
+    "orbitdock-server": "./mcp-server/server.js",
+    "orbitdock-install": "./install.js"
+  },
+  "scripts": {
+    "install-hooks": "node install.js",
+    "start": "node mcp-server/server.js",
+    "test": "node --test lib/*.test.js",
+    "check": "biome check .",
+    "lint": "biome check --write ."
+  },
+  "keywords": [
+    "mcp",
+    "claude",
+    "orbitdock"
+  ],
+  "author": "Robert DeLuca",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "better-sqlite3": "^12.6.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.13"
+  }
+}

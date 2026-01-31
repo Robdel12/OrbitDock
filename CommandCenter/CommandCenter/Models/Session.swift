@@ -28,6 +28,7 @@ struct Session: Identifiable, Hashable {
     var toolCount: Int
     var terminalSessionId: String?
     var terminalApp: String?
+    var workstreamId: String? = nil     // Link to workstream
     var attentionReason: AttentionReason
     var pendingToolName: String?    // Which tool needs permission
     var pendingQuestion: String?    // Question text from AskUserQuestion
@@ -95,6 +96,7 @@ struct Session: Identifiable, Hashable {
         toolCount: Int = 0,
         terminalSessionId: String? = nil,
         terminalApp: String? = nil,
+        workstreamId: String? = nil,
         attentionReason: AttentionReason = .none,
         pendingToolName: String? = nil,
         pendingQuestion: String? = nil
@@ -121,6 +123,7 @@ struct Session: Identifiable, Hashable {
         self.toolCount = toolCount
         self.terminalSessionId = terminalSessionId
         self.terminalApp = terminalApp
+        self.workstreamId = workstreamId
         self.attentionReason = attentionReason
         self.pendingToolName = pendingToolName
         self.pendingQuestion = pendingQuestion

@@ -11,13 +11,16 @@ struct HeaderView: View {
     let session: Session
     let usageStats: TranscriptUsageStats
     let currentTool: String?
+    let workstream: Workstream?
     let onTogglePanel: () -> Void
     let onOpenSwitcher: () -> Void
     let onFocusTerminal: () -> Void
     let onGoToDashboard: () -> Void
+    let onOpenWorkstream: () -> Void
 
     @State private var isHoveringPath = false
     @State private var isHoveringProject = false
+    @State private var isHoveringWorkstream = false
     @AppStorage("preferredEditor") private var preferredEditor: String = ""
 
     private var statusColor: Color {
@@ -31,11 +34,10 @@ struct HeaderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main row
-            HStack(spacing: 12) {
+            // Main row - Session identity + stats
+            HStack(spacing: 10) {
                 // Nav buttons
                 HStack(spacing: 4) {
-                    // Panel toggle
                     Button(action: onTogglePanel) {
                         Image(systemName: "sidebar.left")
                             .font(.system(size: 12, weight: .medium))
@@ -46,7 +48,6 @@ struct HeaderView: View {
                     .buttonStyle(.plain)
                     .help("Toggle projects panel (⌘1)")
 
-                    // Home / Dashboard button
                     Button(action: onGoToDashboard) {
                         Image(systemName: "square.grid.2x2")
                             .font(.system(size: 11, weight: .medium))
@@ -60,39 +61,28 @@ struct HeaderView: View {
 
                 // Status dot - "Orbit indicator"
                 ZStack {
-                    // Outer glow for active working sessions
                     if session.isActive && session.workStatus == .working {
                         Circle()
                             .fill(statusColor.opacity(0.15))
                             .frame(width: 24, height: 24)
                             .blur(radius: 4)
-
                         Circle()
                             .stroke(statusColor.opacity(0.5), lineWidth: 1.5)
                             .frame(width: 20, height: 20)
                     }
-
-                    // Core dot
                     Circle()
                         .fill(session.isActive ? statusColor : Color.statusIdle)
                         .frame(width: 10, height: 10)
                         .shadow(color: session.isActive ? statusColor.opacity(0.6) : .clear, radius: 4)
                 }
 
-                // Project / Agent name
+                // Session title (primary focus)
                 Button(action: onOpenSwitcher) {
                     HStack(spacing: 6) {
-                        Text(projectName)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-
-                        Text("/")
-                            .font(.system(size: 13, weight: .light))
-                            .foregroundStyle(.quaternary)
-
                         Text(agentName)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.primary)
+                            .lineLimit(1)
 
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .semibold))
@@ -107,9 +97,8 @@ struct HeaderView: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { isHoveringProject = $0 }
-                .help("Switch agents")
 
-                // Model badge (inline)
+                // Model badge
                 ModelBadgeCompact(model: session.model)
 
                 // Status pill (only when active)
@@ -120,25 +109,21 @@ struct HeaderView: View {
                 Spacer()
 
                 // Stats row (compact)
-                HStack(spacing: 16) {
-                    // Subscription usage (API limits)
+                HStack(spacing: 14) {
                     SubscriptionUsageCompact()
 
                     Divider()
                         .frame(height: 12)
                         .opacity(0.3)
 
-                    // Context gauge (session context window)
                     ContextGaugeCompact(stats: usageStats)
 
-                    // Cost
                     if usageStats.estimatedCostUSD > 0 {
                         Text(usageStats.formattedCost)
                             .font(.system(size: 12, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.primary.opacity(0.8))
                     }
 
-                    // Duration
                     Text(session.formattedDuration)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -154,7 +139,7 @@ struct HeaderView: View {
                             .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .help("Search sessions")
+                    .help("Search sessions (⌘K)")
 
                     Button(action: onFocusTerminal) {
                         Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
@@ -164,29 +149,59 @@ struct HeaderView: View {
                             .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .help(session.isActive ? "Focus terminal (⌘⇧F)" : "Resume in terminal")
+                    .help(session.isActive ? "Focus terminal" : "Resume in terminal")
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
 
-            // Secondary row: path + branch
-            HStack(spacing: 12) {
-                Spacer()
-                    .frame(width: 40) // Align with content after toggle
-
-                // Branch
+            // Context row - Breadcrumb with project context
+            HStack(spacing: 8) {
+                // Git branch
                 if let branch = session.branch, !branch.isEmpty {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Image(systemName: "arrow.triangle.branch")
                             .font(.system(size: 10, weight: .semibold))
                         Text(branch)
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .font(.system(size: 11, weight: .medium))
                     }
                     .foregroundStyle(Color.gitBranch)
                 }
 
-                // Path (click to open in editor)
+                // Workstream (clickable, if linked)
+                if let ws = workstream {
+                    Text("›")
+                        .font(.system(size: 12, weight: .light))
+                        .foregroundStyle(.quaternary)
+
+                    Button(action: onOpenWorkstream) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "scope")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(ws.name ?? "Workstream")
+                                .font(.system(size: 11, weight: .medium))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .foregroundStyle(isHoveringWorkstream ? Color.accent : Color.accent.opacity(0.8))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(isHoveringWorkstream ? Color.accent.opacity(0.15) : Color.accent.opacity(0.08))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isHoveringWorkstream = $0 }
+                    .help("View workstream details")
+                }
+
+                // Separator
+                Text("•")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.quaternary)
+
+                // Project/Path
                 Button {
                     openInEditor(session.projectPath)
                 } label: {
@@ -210,9 +225,7 @@ struct HeaderView: View {
                     }
                     Divider()
                     Menu("Set Editor") {
-                        Button("Use $EDITOR") {
-                            preferredEditor = ""
-                        }
+                        Button("Use $EDITOR") { preferredEditor = "" }
                         Divider()
                         Button("Emacs") { preferredEditor = "emacs" }
                         Button("VS Code") { preferredEditor = "code" }
@@ -227,16 +240,12 @@ struct HeaderView: View {
                 Spacer()
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(.bottom, 10)
         }
         .background(Color.backgroundSecondary)
     }
 
     // MARK: - Helpers
-
-    private var projectName: String {
-        session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
-    }
 
     private var agentName: String {
         session.customName ?? session.summary ?? "Session"
@@ -441,10 +450,26 @@ struct ContextGaugeCompact: View {
                 return stats
             }(),
             currentTool: "Edit",
+            workstream: Workstream(
+                id: "ws-1",
+                repoId: "repo-1",
+                branch: "feat/auth-system",
+                directory: nil,
+                name: "Auth System Refactor",
+                reviewApprovals: 0,
+                reviewComments: 0,
+                stage: .working,
+                sessionCount: 3,
+                totalSessionSeconds: 7200,
+                commitCount: 5,
+                createdAt: Date(),
+                updatedAt: Date()
+            ),
             onTogglePanel: {},
             onOpenSwitcher: {},
             onFocusTerminal: {},
-            onGoToDashboard: {}
+            onGoToDashboard: {},
+            onOpenWorkstream: {}
         )
 
         Divider().opacity(0.3)

@@ -13,6 +13,13 @@ struct DashboardView: View {
     let onOpenQuickSwitcher: () -> Void
     let onOpenPanel: () -> Void
 
+    enum Tab: String, CaseIterable {
+        case sessions = "Sessions"
+        case workstreams = "Workstreams"
+    }
+
+    @State private var selectedTab: Tab = .sessions
+
     // Group sessions by project
     private var projectGroups: [ProjectGroup] {
         let grouped = Dictionary(grouping: sessions) { $0.projectPath }
@@ -88,35 +95,46 @@ struct DashboardView: View {
             Divider()
                 .foregroundStyle(Color.panelBorder)
 
-            // Content
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Stats summary
-                    StatsSummary(sessions: sessions)
-
-                    // Attention banner (if any need attention)
-                    if !attentionSessions.isEmpty {
-                        attentionBanner
-                    }
-
-                    // Project groups
-                    ForEach(projectGroups) { group in
-                        ProjectSection(
-                            group: group,
-                            onSelectSession: onSelectSession
-                        )
-                    }
-
-                    // Empty state
-                    if sessions.isEmpty {
-                        emptyState
-                    }
-                }
-                .padding(24)
+            // Content based on selected tab
+            switch selectedTab {
+            case .sessions:
+                sessionsContent
+            case .workstreams:
+                MissionControlView(onSelectSession: onSelectSession)
             }
-            .scrollContentBackground(.hidden)
         }
         .background(Color.backgroundPrimary)
+    }
+
+    // MARK: - Sessions Content
+
+    private var sessionsContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Stats summary
+                StatsSummary(sessions: sessions)
+
+                // Attention banner (if any need attention)
+                if !attentionSessions.isEmpty {
+                    attentionBanner
+                }
+
+                // Project groups
+                ForEach(projectGroups) { group in
+                    ProjectSection(
+                        group: group,
+                        onSelectSession: onSelectSession
+                    )
+                }
+
+                // Empty state
+                if sessions.isEmpty {
+                    emptyState
+                }
+            }
+            .padding(24)
+        }
+        .scrollContentBackground(.hidden)
     }
 
     // MARK: - Dashboard Header
@@ -139,6 +157,36 @@ struct DashboardView: View {
             Text("OrbitDock")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.primary)
+
+            // Tab switcher
+            HStack(spacing: 2) {
+                ForEach(Tab.allCases, id: \.self) { tab in
+                    Button {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            selectedTab = tab
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: tab == .sessions ? "cpu" : "scope")
+                                .font(.system(size: 10, weight: .medium))
+                            Text(tab.rawValue)
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            selectedTab == tab
+                                ? Color.accent.opacity(0.15)
+                                : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        )
+                        .foregroundStyle(selectedTab == tab ? Color.accent : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(3)
+            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
             Spacer()
 
