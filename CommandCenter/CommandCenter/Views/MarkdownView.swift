@@ -31,102 +31,112 @@ typealias MarkdownView = MarkdownContentView
 
 extension MarkdownUI.Theme {
     static let commandCenter = Theme()
+        // Body text - comfortable reading size with good weight
         .text {
-            ForegroundColor(.primary)
-            FontSize(12)
+            ForegroundColor(.primary.opacity(0.92))
+            FontSize(15.5)
         }
+        // Inline code - slightly smaller, warm color
         .code {
             FontFamilyVariant(.monospaced)
-            FontSize(11)
-            ForegroundColor(Color(red: 0.90, green: 0.60, blue: 0.45))
-            BackgroundColor(Color.white.opacity(0.06))
+            FontSize(13)
+            ForegroundColor(Color(red: 0.95, green: 0.65, blue: 0.45))
+            BackgroundColor(Color.white.opacity(0.07))
         }
         .strong {
             FontWeight(.semibold)
+            ForegroundColor(.primary)
         }
         .emphasis {
             FontStyle(.italic)
         }
         .link {
-            ForegroundColor(Color(red: 0.45, green: 0.68, blue: 0.90))
+            ForegroundColor(Color(red: 0.5, green: 0.72, blue: 0.95))
             UnderlineStyle(.single)
         }
+        // H1 - Large and bold, clear section headers
         .heading1 { configuration in
             configuration.label
                 .markdownTextStyle {
-                    FontSize(20)
+                    FontSize(24)
                     FontWeight(.bold)
                     ForegroundColor(.primary)
                 }
-                .markdownMargin(top: 16, bottom: 8)
+                .markdownMargin(top: 28, bottom: 14)
         }
+        // H2 - Clear subsection headers
         .heading2 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontSize(20)
+                    FontWeight(.semibold)
+                    ForegroundColor(.primary)
+                }
+                .markdownMargin(top: 24, bottom: 10)
+        }
+        // H3 - Subtle but distinct
+        .heading3 { configuration in
             configuration.label
                 .markdownTextStyle {
                     FontSize(17)
                     FontWeight(.semibold)
-                    ForegroundColor(.primary)
+                    ForegroundColor(.primary.opacity(0.9))
                 }
-                .markdownMargin(top: 14, bottom: 6)
+                .markdownMargin(top: 20, bottom: 8)
         }
-        .heading3 { configuration in
-            configuration.label
-                .markdownTextStyle {
-                    FontSize(14)
-                    FontWeight(.semibold)
-                    ForegroundColor(.primary)
-                }
-                .markdownMargin(top: 12, bottom: 4)
-        }
+        // Paragraphs - generous spacing for readability
         .paragraph { configuration in
             configuration.label
-                .markdownMargin(top: 0, bottom: 8)
+                .markdownMargin(top: 0, bottom: 14)
         }
+        // Lists - comfortable spacing
         .listItem { configuration in
             configuration.label
-                .markdownMargin(top: 2, bottom: 2)
+                .markdownMargin(top: 4, bottom: 4)
         }
         .taskListMarker { configuration in
             TaskListCheckbox(isCompleted: configuration.isCompleted)
         }
+        // Blockquotes - distinct but subtle
         .blockquote { configuration in
             HStack(spacing: 0) {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.purple.opacity(0.6))
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.purple.opacity(0.5))
                     .frame(width: 3)
                 configuration.label
                     .markdownTextStyle {
-                        ForegroundColor(.secondary)
+                        ForegroundColor(.primary.opacity(0.7))
                         FontStyle(.italic)
+                        FontSize(15)
                     }
-                    .padding(.leading, 12)
+                    .padding(.leading, 14)
             }
-            .markdownMargin(top: 8, bottom: 8)
+            .markdownMargin(top: 12, bottom: 12)
         }
         .thematicBreak {
             HorizontalDivider()
-                .markdownMargin(top: 16, bottom: 16)
+                .markdownMargin(top: 20, bottom: 20)
         }
         .codeBlock { configuration in
             CodeBlockView(
                 language: configuration.language,
                 code: configuration.content
             )
-            .markdownMargin(top: 8, bottom: 8)
+            .markdownMargin(top: 12, bottom: 12)
         }
         .table { configuration in
             configuration.label
                 .markdownTableBackgroundStyle(.alternatingRows(Color.white.opacity(0.02), Color.white.opacity(0.05)))
-                .markdownTableBorderStyle(.init(color: Color.white.opacity(0.1)))
-                .markdownMargin(top: 8, bottom: 8)
+                .markdownTableBorderStyle(.init(color: Color.white.opacity(0.12)))
+                .markdownMargin(top: 12, bottom: 12)
         }
         .tableCell { configuration in
             configuration.label
                 .markdownTextStyle {
-                    FontSize(11)
+                    FontSize(14)
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 10)
+                .padding(.vertical, 10)
+                .padding(.horizontal, 14)
         }
 }
 
@@ -137,9 +147,9 @@ struct TaskListCheckbox: View {
 
     var body: some View {
         Image(systemName: isCompleted ? "checkmark.square.fill" : "square")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(isCompleted ? Color.green : Color.secondary)
-            .frame(width: 18)
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(isCompleted ? Color.green : Color.secondary.opacity(0.7))
+            .frame(width: 20)
     }
 }
 
@@ -230,14 +240,14 @@ struct CodeBlockView: View {
     // MARK: - Subviews
 
     private var header: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             if let lang = normalizedLanguage ?? language, !lang.isEmpty {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     Circle()
                         .fill(languageColor(lang))
                         .frame(width: 8, height: 8)
                     Text(lang)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -246,7 +256,7 @@ struct CodeBlockView: View {
 
             // Line count
             Text("\(lines.count) lines")
-                .font(.system(size: 9))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.tertiary)
 
             // Copy button
@@ -255,13 +265,13 @@ struct CodeBlockView: View {
                 NSPasteboard.general.setString(code, forType: .string)
                 copied = true
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .contentTransition(.symbolEffect(.replace))
                     if copied {
                         Text("Copied")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 10, weight: .medium))
                             .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
                 }
@@ -275,9 +285,9 @@ struct CodeBlockView: View {
                 if !newValue { copied = false }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 6)
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
     }
 
     private var codeContent: some View {
@@ -290,31 +300,31 @@ struct CodeBlockView: View {
                 VStack(alignment: .trailing, spacing: 0) {
                     ForEach(Array(displayLines.enumerated()), id: \.offset) { index, _ in
                         Text("\(index + 1)")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                            .frame(width: CGFloat(maxLineNumWidth) * 8 + 8, alignment: .trailing)
-                            .frame(height: 16)
+                            .font(.system(size: 11, weight: .regular, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.35))
+                            .frame(width: CGFloat(maxLineNumWidth) * 8 + 10, alignment: .trailing)
+                            .frame(height: 18)
                     }
                 }
-                .padding(.trailing, 12)
-                .padding(.leading, 8)
+                .padding(.trailing, 14)
+                .padding(.leading, 10)
                 .background(Color.white.opacity(0.02))
 
                 // Highlighted code
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(displayLines.enumerated()), id: \.offset) { index, line in
                         Text(SyntaxHighlighter.highlightLine(line, language: normalizedLanguage))
-                            .font(.system(size: 11, design: .monospaced))
-                            .frame(height: 16, alignment: .leading)
+                            .font(.system(size: 12.5, design: .monospaced))
+                            .frame(height: 18, alignment: .leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .textSelection(.enabled)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 14)
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
         }
-        .frame(maxHeight: shouldCollapse && !isExpanded ? CGFloat(collapsedLineCount) * 16 + 20 : min(CGFloat(lines.count) * 16 + 20, 500))
+        .frame(maxHeight: shouldCollapse && !isExpanded ? CGFloat(collapsedLineCount) * 18 + 24 : min(CGFloat(lines.count) * 18 + 24, 550))
     }
 
     private var expandCollapseButton: some View {
@@ -325,13 +335,13 @@ struct CodeBlockView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 9, weight: .bold))
                 Text(isExpanded ? "Show less" : "Show \(lines.count - collapsedLineCount) more lines")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
             .background(Color.white.opacity(0.03))
         }
         .buttonStyle(.plain)

@@ -100,9 +100,9 @@ struct ConversationView: View {
 
                     // Bottom padding
                     Spacer()
-                        .frame(height: 20)
+                        .frame(height: 32)
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 32)
             }
             .scrollIndicators(.hidden)
             .defaultScrollAnchor(.bottom)
@@ -139,27 +139,27 @@ struct ConversationView: View {
     // MARK: - Loading & Empty States
 
     private var loadingView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             ProgressView()
                 .controlSize(.regular)
             Text("Loading conversation...")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.tertiary)
         }
     }
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 20) {
             Image(systemName: "text.bubble")
-                .font(.system(size: 32, weight: .light))
+                .font(.system(size: 36, weight: .light))
                 .foregroundStyle(.quaternary)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Text("No messages yet")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.secondary)
                 Text("Start the conversation in your terminal")
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(.tertiary)
             }
         }
@@ -171,24 +171,24 @@ struct ConversationView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .bold))
                 Text("Load \(min(pageSize, messages.count - displayedCount)) earlier")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
         }
         .buttonStyle(.plain)
-        .padding(.bottom, 8)
+        .padding(.bottom, 10)
     }
 
     private var messageCountIndicator: some View {
         Text("\(displayedMessages.count) of \(messages.count) messages")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: 11, weight: .medium))
             .foregroundStyle(.quaternary)
             .frame(maxWidth: .infinity)
-            .padding(.bottom, 16)
+            .padding(.bottom, 20)
     }
 
     // MARK: - Subscriptions & Data Loading
@@ -340,25 +340,25 @@ struct ThreadMessage: View {
                 assistantMessage
             }
         }
-        .padding(.vertical, 16)
+        .padding(.vertical, 20)
     }
 
     // MARK: - User Message (Right-aligned, distinctive)
 
     private var userMessage: some View {
         HStack(alignment: .top, spacing: 0) {
-            Spacer(minLength: 80)
+            Spacer(minLength: 100)
 
-            VStack(alignment: .trailing, spacing: 8) {
-                // Meta line
-                HStack(spacing: 8) {
+            VStack(alignment: .trailing, spacing: 12) {
+                // Meta line - subtle timestamp and label
+                HStack(spacing: 10) {
                     Text(formatTime(message.timestamp))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.quaternary)
 
                     Text("You")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                 }
 
                 // Images (supports multiple)
@@ -366,22 +366,23 @@ struct ThreadMessage: View {
                     ImageGallery(images: message.images)
                 }
 
-                // Content
+                // Content - larger text for readability
                 if !message.content.isEmpty {
-                    VStack(alignment: .trailing, spacing: 6) {
+                    VStack(alignment: .trailing, spacing: 8) {
                         Text(displayContent)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.primary)
+                            .font(.system(size: 15.5))
+                            .foregroundStyle(.primary.opacity(0.95))
+                            .lineSpacing(3)
                             .textSelection(.enabled)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 14)
                             .background(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .fill(Color.accentColor.opacity(0.15))
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.12))
                             )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(Color.accentColor.opacity(0.2), lineWidth: 1)
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 1)
                             )
 
                         if isLongContent {
@@ -396,40 +397,38 @@ struct ThreadMessage: View {
     // MARK: - Assistant Message (Left-aligned, clean)
 
     private var assistantMessage: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Meta line
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Meta line - Claude branding with timestamp
+            HStack(spacing: 10) {
                 // Claude indicator
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("Claude")
                         .font(.system(size: 11, weight: .semibold))
+                    Text("Claude")
+                        .font(.system(size: 12, weight: .semibold))
                 }
                 .foregroundStyle(Color.modelOpus)
 
                 Text(formatTime(message.timestamp))
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(.quaternary)
 
                 if let tokens = message.outputTokens, tokens > 0 {
                     Text("\(tokens) tokens")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(.quaternary)
                 }
             }
 
-            // Content - clean, no bubble for assistant
+            // Content - clean markdown, generous left padding for readability
             MarkdownView(content: displayContent)
-                .padding(.leading, 2)
 
             if isLongContent {
                 expandCollapseButton
-                    .padding(.leading, 2)
             }
 
             Spacer()
-                .frame(width: 80)
+                .frame(width: 100)
         }
     }
 
@@ -439,18 +438,18 @@ struct ThreadMessage: View {
                 isContentExpanded.toggle()
             }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Image(systemName: isContentExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 9, weight: .bold))
                 Text(isContentExpanded ? "Show less" : "Show more")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(Color.backgroundTertiary.opacity(0.5))
+                    .fill(Color.backgroundTertiary.opacity(0.4))
             )
         }
         .buttonStyle(.plain)
@@ -682,11 +681,14 @@ struct ToolIndicator: View {
             }
             // For Edit tool, show unified diff (GitHub-style)
             else if !oldString.isEmpty || !newString.isEmpty {
+                // Find actual line number in file where edit starts
+                let startLine = findStartLine(in: message.filePath, for: oldString)
                 UnifiedDiffView(
                     oldString: oldString,
                     newString: newString,
                     language: language,
-                    maxLines: maxLines
+                    maxLines: maxLines,
+                    startLine: startLine
                 )
             }
             // Fallback - no diff data
@@ -703,6 +705,25 @@ struct ToolIndicator: View {
                     .padding(14)
             }
         }
+    }
+
+    // Find the line number where oldString starts in the file
+    private func findStartLine(in filePath: String?, for searchString: String) -> Int {
+        guard let path = filePath,
+              !searchString.isEmpty,
+              let fileContents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            return 1
+        }
+
+        // Find the range of searchString in the file
+        guard let range = fileContents.range(of: searchString) else {
+            return 1
+        }
+
+        // Count newlines before the match to get line number (1-indexed)
+        let prefixString = fileContents[..<range.lowerBound]
+        let lineNumber = prefixString.filter { $0 == "\n" }.count + 1
+        return lineNumber
     }
 
     // Detect language from file extension
@@ -964,6 +985,7 @@ struct UnifiedDiffView: View {
     let newString: String
     let language: String
     var maxLines: Int = 100
+    var startLine: Int = 1  // Actual line number in file where edit starts
 
     // Colors
     private let addedBg = Color(red: 0.15, green: 0.32, blue: 0.18).opacity(0.6)
@@ -1005,28 +1027,28 @@ struct UnifiedDiffView: View {
         HStack(alignment: .top, spacing: 0) {
             // Old line number
             Text(line.oldLineNum.map { String($0) } ?? "")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.35))
-                .frame(width: 36, alignment: .trailing)
-                .padding(.trailing, 4)
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.32))
+                .frame(width: 38, alignment: .trailing)
+                .padding(.trailing, 6)
 
             // New line number
             Text(line.newLineNum.map { String($0) } ?? "")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.35))
-                .frame(width: 36, alignment: .trailing)
-                .padding(.trailing, 8)
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.32))
+                .frame(width: 38, alignment: .trailing)
+                .padding(.trailing, 10)
 
             // Change indicator
             Text(line.prefix)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .font(.system(size: 12.5, weight: .bold, design: .monospaced))
                 .foregroundStyle(prefixColor(for: line.type))
-                .frame(width: 16)
+                .frame(width: 18)
 
             // Code content with syntax highlighting
             Text(SyntaxHighlighter.highlightLine(line.content.isEmpty ? " " : line.content, language: language.isEmpty ? nil : language))
-                .font(.system(size: 13, design: .monospaced))
-                .opacity(line.type == .context ? 0.7 : 1.0)
+                .font(.system(size: 12.5, design: .monospaced))
+                .opacity(line.type == .context ? 0.65 : 1.0)
                 .textSelection(.enabled)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1059,11 +1081,13 @@ struct UnifiedDiffView: View {
         let newLines = newString.components(separatedBy: "\n")
 
         // Use LCS-based diff for proper interleaving
-        return computeLCSDiff(oldLines: oldLines, newLines: newLines)
+        // Offset is startLine - 1 since LCS uses 1-based indexing internally
+        return computeLCSDiff(oldLines: oldLines, newLines: newLines, lineOffset: startLine - 1)
     }
 
     // LCS-based diff algorithm for proper unified diff
-    private func computeLCSDiff(oldLines: [String], newLines: [String]) -> [DiffLine] {
+    // lineOffset shifts line numbers to match actual file position
+    private func computeLCSDiff(oldLines: [String], newLines: [String], lineOffset: Int = 0) -> [DiffLine] {
         let m = oldLines.count
         let n = newLines.count
 
@@ -1089,8 +1113,8 @@ struct UnifiedDiffView: View {
                 tempResult.append(DiffLine(
                     type: .context,
                     content: oldLines[i - 1],
-                    oldLineNum: i,
-                    newLineNum: j,
+                    oldLineNum: i + lineOffset,
+                    newLineNum: j + lineOffset,
                     prefix: " "
                 ))
                 i -= 1
@@ -1101,7 +1125,7 @@ struct UnifiedDiffView: View {
                     type: .added,
                     content: newLines[j - 1],
                     oldLineNum: nil,
-                    newLineNum: j,
+                    newLineNum: j + lineOffset,
                     prefix: "+"
                 ))
                 j -= 1
@@ -1110,7 +1134,7 @@ struct UnifiedDiffView: View {
                 tempResult.append(DiffLine(
                     type: .removed,
                     content: oldLines[i - 1],
-                    oldLineNum: i,
+                    oldLineNum: i + lineOffset,
                     newLineNum: nil,
                     prefix: "−"
                 ))
@@ -1179,18 +1203,18 @@ struct DiffSection: View {
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                 HStack(alignment: .top, spacing: 0) {
                     Text("\(index + 1)")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.35))
-                        .frame(width: 36, alignment: .trailing)
-                        .padding(.trailing, 8)
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.32))
+                        .frame(width: 38, alignment: .trailing)
+                        .padding(.trailing, 10)
 
                     Text(isAddition ? "+" : "−")
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .font(.system(size: 12.5, weight: .bold, design: .monospaced))
                         .foregroundStyle(accentColor)
-                        .frame(width: 16)
+                        .frame(width: 18)
 
                     Text(SyntaxHighlighter.highlightLine(line.isEmpty ? " " : line, language: language.isEmpty ? nil : language))
-                        .font(.system(size: 13, design: .monospaced))
+                        .font(.system(size: 12.5, design: .monospaced))
                         .textSelection(.enabled)
 
                     Spacer(minLength: 0)
@@ -1406,7 +1430,7 @@ struct ActivityBanner: View {
                 .fill(color)
                 .frame(width: 3)
 
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 // Icon
                 ZStack {
                     if workStatus == .working {
@@ -1414,39 +1438,39 @@ struct ActivityBanner: View {
                             .controlSize(.small)
                     } else {
                         Image(systemName: icon)
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(color)
                     }
                 }
-                .frame(width: 24, height: 24)
+                .frame(width: 26, height: 26)
 
                 // Text
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(color)
 
                     if let subtitle = subtitle {
                         Text(subtitle)
-                            .font(.system(size: 11))
+                            .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 Spacer()
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
         }
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(color.opacity(0.1))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(color.opacity(0.08))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(color.opacity(0.2), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(color.opacity(0.15), lineWidth: 1)
         )
-        .padding(.top, 12)
+        .padding(.top, 16)
     }
 }
 
