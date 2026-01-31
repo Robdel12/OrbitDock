@@ -1,0 +1,360 @@
+//
+//  SubscriptionUsageService.swift
+//  OrbitDock
+//
+//  Fetches Claude subscription usage from Anthropic's OAuth API.
+//  Caches credentials in app's keychain to avoid repeated password prompts.
+//
+
+import Foundation
+import Security
+
+// MARK: - Models
+
+struct SubscriptionUsage: Sendable {
+    struct Window: Sendable {
+        let utilization: Double  // 0-100
+        let resetsAt: Date?
+
+        var remaining: Double { max(0, 100 - utilization) }
+
+        var resetsInDescription: String? {
+            guard let resetsAt else { return nil }
+            let interval = resetsAt.timeIntervalSinceNow
+            if interval <= 0 { return "now" }
+
+            let hours = Int(interval / 3600)
+            let minutes = Int((interval.truncatingRemainder(dividingBy: 3600)) / 60)
+
+            if hours > 0 {
+                return "\(hours)h \(minutes)m"
+            }
+            return "\(minutes)m"
+        }
+    }
+
+    let fiveHour: Window
+    let sevenDay: Window?
+    let sevenDaySonnet: Window?
+    let sevenDayOpus: Window?
+    let fetchedAt: Date
+    let rateLimitTier: String?
+
+    var planName: String? {
+        guard let tier = rateLimitTier?.lowercased() else { return nil }
+        if tier.contains("max_20x") { return "Max 20x" }
+        if tier.contains("max_5x") { return "Max 5x" }
+        if tier.contains("max") { return "Max" }
+        if tier.contains("pro") { return "Pro" }
+        if tier.contains("team") { return "Team" }
+        if tier.contains("enterprise") { return "Enterprise" }
+        return nil
+    }
+}
+
+enum SubscriptionUsageError: LocalizedError {
+    case noCredentials
+    case tokenExpired
+    case unauthorized
+    case networkError(Error)
+    case invalidResponse
+    case missingScope
+
+    var errorDescription: String? {
+        switch self {
+        case .noCredentials: return "No Claude credentials found"
+        case .tokenExpired: return "Claude token expired - restart Claude CLI to refresh"
+        case .unauthorized: return "Unauthorized - check Claude CLI login"
+        case .networkError(let e): return "Network error: \(e.localizedDescription)"
+        case .invalidResponse: return "Invalid API response"
+        case .missingScope: return "Token missing user:profile scope"
+        }
+    }
+}
+
+// MARK: - Service
+
+@Observable
+final class SubscriptionUsageService {
+    static let shared = SubscriptionUsageService()
+
+    private(set) var usage: SubscriptionUsage?
+    private(set) var error: SubscriptionUsageError?
+    private(set) var isLoading = false
+    private(set) var lastFetchAttempt: Date?
+
+    // Cache token in our app's keychain
+    private let appKeychainService = "com.orbitdock.claude-token"
+    private let appKeychainAccount = "oauth"
+
+    // Claude's keychain
+    private let claudeKeychainService = "Claude Code-credentials"
+
+    // Refresh interval
+    private let refreshInterval: TimeInterval = 60  // 1 minute
+    private let staleThreshold: TimeInterval = 300  // 5 minutes before showing stale
+
+    private var refreshTask: Task<Void, Never>?
+
+    private init() {
+        // Start background refresh
+        startAutoRefresh()
+    }
+
+    deinit {
+        refreshTask?.cancel()
+    }
+
+    // MARK: - Public API
+
+    func refresh() async {
+        guard !isLoading else { return }
+
+        isLoading = true
+        lastFetchAttempt = Date()
+
+        do {
+            let token = try getAccessToken()
+            let response = try await fetchUsage(token: token)
+            let tier = try? getCachedRateLimitTier()
+
+            usage = parseResponse(response, rateLimitTier: tier)
+            error = nil
+        } catch let e as SubscriptionUsageError {
+            error = e
+        } catch {
+            self.error = .networkError(error)
+        }
+
+        isLoading = false
+    }
+
+    var isStale: Bool {
+        guard let fetched = usage?.fetchedAt else { return true }
+        return Date().timeIntervalSince(fetched) > staleThreshold
+    }
+
+    // MARK: - Auto Refresh
+
+    private func startAutoRefresh() {
+        refreshTask = Task { [weak self] in
+            // Initial fetch
+            await self?.refresh()
+
+            // Periodic refresh
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(self?.refreshInterval ?? 60))
+                await self?.refresh()
+            }
+        }
+    }
+
+    // MARK: - Token Management
+
+    private func getAccessToken() throws -> String {
+        // First, try our cached token
+        if let cached = try? loadFromAppKeychain() {
+            return cached.token
+        }
+
+        // Fall back to Claude's keychain (may prompt once)
+        let credentials = try loadFromClaudeKeychain()
+
+        // Cache it in our keychain for future use
+        try? saveToAppKeychain(credentials)
+
+        return credentials.token
+    }
+
+    private struct CachedCredentials {
+        let token: String
+        let expiresAt: Date?
+        let rateLimitTier: String?
+        let scopes: [String]
+    }
+
+    private func loadFromAppKeychain() throws -> CachedCredentials {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: appKeychainService,
+            kSecAttrAccount as String: appKeychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = json["token"] as? String else {
+            throw SubscriptionUsageError.noCredentials
+        }
+
+        // Check expiration
+        if let expiresAtMs = json["expiresAt"] as? Double {
+            let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
+            if Date() >= expiresAt {
+                // Token expired, clear cache and throw
+                clearAppKeychain()
+                throw SubscriptionUsageError.tokenExpired
+            }
+        }
+
+        // Check scope
+        let scopes = json["scopes"] as? [String] ?? []
+        if !scopes.contains("user:profile") {
+            throw SubscriptionUsageError.missingScope
+        }
+
+        let expiresAt = (json["expiresAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
+        let tier = json["rateLimitTier"] as? String
+
+        return CachedCredentials(token: token, expiresAt: expiresAt, rateLimitTier: tier, scopes: scopes)
+    }
+
+    private func saveToAppKeychain(_ credentials: CachedCredentials) throws {
+        let json: [String: Any] = [
+            "token": credentials.token,
+            "expiresAt": credentials.expiresAt.map { $0.timeIntervalSince1970 * 1000 } as Any,
+            "rateLimitTier": credentials.rateLimitTier as Any,
+            "scopes": credentials.scopes
+        ]
+
+        guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
+
+        // Delete existing
+        clearAppKeychain()
+
+        // Add new with unrestricted access for our app
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: appKeychainService,
+            kSecAttrAccount as String: appKeychainAccount,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+
+        SecItemAdd(addQuery as CFDictionary, nil)
+    }
+
+    private func clearAppKeychain() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: appKeychainService,
+            kSecAttrAccount as String: appKeychainAccount
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private func loadFromClaudeKeychain() throws -> CachedCredentials {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: claudeKeychainService,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let oauth = json["claudeAiOauth"] as? [String: Any],
+              let token = oauth["accessToken"] as? String else {
+            throw SubscriptionUsageError.noCredentials
+        }
+
+        // Check expiration
+        let expiresAt: Date?
+        if let expiresAtMs = oauth["expiresAt"] as? Double {
+            expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
+            if Date() >= expiresAt! {
+                throw SubscriptionUsageError.tokenExpired
+            }
+        } else {
+            expiresAt = nil
+        }
+
+        // Check scope
+        let scopes = oauth["scopes"] as? [String] ?? []
+        if !scopes.contains("user:profile") {
+            throw SubscriptionUsageError.missingScope
+        }
+
+        let tier = oauth["rateLimitTier"] as? String
+
+        return CachedCredentials(token: token, expiresAt: expiresAt, rateLimitTier: tier, scopes: scopes)
+    }
+
+    private func getCachedRateLimitTier() throws -> String? {
+        if let cached = try? loadFromAppKeychain() {
+            return cached.rateLimitTier
+        }
+        return nil
+    }
+
+    // MARK: - API
+
+    private func fetchUsage(token: String) async throws -> [String: Any] {
+        let url = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        request.setValue("OrbitDock/1.0", forHTTPHeaderField: "User-Agent")
+        request.timeoutInterval = 15
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw SubscriptionUsageError.invalidResponse
+        }
+
+        switch http.statusCode {
+        case 200:
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw SubscriptionUsageError.invalidResponse
+            }
+            return json
+        case 401:
+            // Clear cached token and retry from Claude keychain next time
+            clearAppKeychain()
+            throw SubscriptionUsageError.unauthorized
+        default:
+            throw SubscriptionUsageError.invalidResponse
+        }
+    }
+
+    private func parseResponse(_ json: [String: Any], rateLimitTier: String?) -> SubscriptionUsage {
+        func parseWindow(_ dict: [String: Any]?) -> SubscriptionUsage.Window? {
+            guard let dict,
+                  let utilization = dict["utilization"] as? Double else { return nil }
+
+            let resetsAt: Date?
+            if let resetsAtStr = dict["resets_at"] as? String {
+                resetsAt = ISO8601DateFormatter().date(from: resetsAtStr)
+            } else {
+                resetsAt = nil
+            }
+
+            return SubscriptionUsage.Window(utilization: utilization, resetsAt: resetsAt)
+        }
+
+        let fiveHour = parseWindow(json["five_hour"] as? [String: Any])
+            ?? SubscriptionUsage.Window(utilization: 0, resetsAt: nil)
+
+        return SubscriptionUsage(
+            fiveHour: fiveHour,
+            sevenDay: parseWindow(json["seven_day"] as? [String: Any]),
+            sevenDaySonnet: parseWindow(json["seven_day_sonnet"] as? [String: Any]),
+            sevenDayOpus: parseWindow(json["seven_day_opus"] as? [String: Any]),
+            fetchedAt: Date(),
+            rateLimitTier: rateLimitTier
+        )
+    }
+}

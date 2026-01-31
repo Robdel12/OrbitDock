@@ -1,6 +1,6 @@
 //
 //  ToolSearchCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Shows tool discovery/search operations
 //

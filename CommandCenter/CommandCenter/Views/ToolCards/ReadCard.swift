@@ -1,6 +1,6 @@
 //
 //  ReadCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Compact, expandable file preview card
 //

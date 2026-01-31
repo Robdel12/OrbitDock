@@ -1,6 +1,6 @@
 //
 //  WebFetchCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  URL fetch with preview of content
 //

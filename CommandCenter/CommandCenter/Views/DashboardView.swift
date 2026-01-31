@@ -1,6 +1,6 @@
 //
 //  DashboardView.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Home view showing all sessions organized by project
 //
@@ -136,7 +136,7 @@ struct DashboardView: View {
             .buttonStyle(.plain)
             .help("Toggle panel (⌘1)")
 
-            Text("Command Center")
+            Text("OrbitDock")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.primary)
 

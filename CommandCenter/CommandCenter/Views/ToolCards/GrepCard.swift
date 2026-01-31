@@ -1,6 +1,6 @@
 //
 //  GrepCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Search results with file grouping
 //

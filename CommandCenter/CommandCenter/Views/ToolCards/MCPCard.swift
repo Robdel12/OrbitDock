@@ -1,6 +1,6 @@
 //
 //  MCPCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Generic card for MCP (Model Context Protocol) tool calls
 //
@@ -212,17 +212,17 @@ struct MCPCard: View {
     static func serverColor(_ server: String) -> Color {
         switch server.lowercased() {
         case "github":
-            return Color(red: 0.55, green: 0.45, blue: 0.95)  // Purple (GitHub brand-ish)
+            return .serverGitHub
         case "linear-server", "linear":
-            return Color(red: 0.35, green: 0.5, blue: 0.95)   // Blue (Linear brand)
+            return .serverLinear
         case "chrome-devtools", "chrome":
-            return Color(red: 0.95, green: 0.6, blue: 0.2)    // Orange (Chrome)
+            return .serverChrome
         case "slack":
-            return Color(red: 0.9, green: 0.35, blue: 0.55)   // Pink (Slack)
+            return .serverSlack
         case "cupertino":
-            return Color(red: 0.4, green: 0.7, blue: 0.95)    // Light blue (Apple)
+            return .serverApple
         default:
-            return Color(red: 0.5, green: 0.65, blue: 0.8)    // Neutral blue-gray
+            return .serverDefault
         }
     }
 

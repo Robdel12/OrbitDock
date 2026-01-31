@@ -1,6 +1,6 @@
 //
 //  HeaderView.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Compact header bar for session detail view
 //
@@ -58,17 +58,25 @@ struct HeaderView: View {
                     .help("Go to dashboard (⌘0)")
                 }
 
-                // Status dot
+                // Status dot - "Orbit indicator"
                 ZStack {
-                    Circle()
-                        .fill(session.isActive ? statusColor : Color.secondary.opacity(0.3))
-                        .frame(width: 10, height: 10)
-
+                    // Outer glow for active working sessions
                     if session.isActive && session.workStatus == .working {
                         Circle()
-                            .stroke(statusColor.opacity(0.4), lineWidth: 2)
-                            .frame(width: 18, height: 18)
+                            .fill(statusColor.opacity(0.15))
+                            .frame(width: 24, height: 24)
+                            .blur(radius: 4)
+
+                        Circle()
+                            .stroke(statusColor.opacity(0.5), lineWidth: 1.5)
+                            .frame(width: 20, height: 20)
                     }
+
+                    // Core dot
+                    Circle()
+                        .fill(session.isActive ? statusColor : Color.statusIdle)
+                        .frame(width: 10, height: 10)
+                        .shadow(color: session.isActive ? statusColor.opacity(0.6) : .clear, radius: 4)
                 }
 
                 // Project / Agent name
@@ -113,7 +121,14 @@ struct HeaderView: View {
 
                 // Stats row (compact)
                 HStack(spacing: 16) {
-                    // Context gauge
+                    // Subscription usage (API limits)
+                    SubscriptionUsageCompact()
+
+                    Divider()
+                        .frame(height: 12)
+                        .opacity(0.3)
+
+                    // Context gauge (session context window)
                     ContextGaugeCompact(stats: usageStats)
 
                     // Cost
@@ -168,7 +183,7 @@ struct HeaderView: View {
                         Text(branch)
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                     }
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.gitBranch)
                 }
 
                 // Path (click to open in editor)
@@ -236,35 +251,37 @@ struct HeaderView: View {
     }
 
     private func openInEditor(_ path: String) {
-        // Determine which editor to use
-        let editor: String
-        if !preferredEditor.isEmpty {
-            editor = preferredEditor
-        } else if let envEditor = ProcessInfo.processInfo.environment["VISUAL"] {
-            editor = envEditor
-        } else if let envEditor = ProcessInfo.processInfo.environment["EDITOR"] {
-            editor = envEditor
-        } else {
-            // Fallback: reveal in Finder
+        // If no editor configured, fall back to Finder
+        guard !preferredEditor.isEmpty else {
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
             return
         }
 
-        // Try to open with the editor
+        // Map common editor commands to app names for `open -a`
+        let appNames: [String: String] = [
+            "emacs": "Emacs",
+            "code": "Visual Studio Code",
+            "cursor": "Cursor",
+            "zed": "Zed",
+            "subl": "Sublime Text",
+        ]
+
+        // Try opening as a macOS app first (works best for GUI editors)
+        if let appName = appNames[preferredEditor] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            process.arguments = ["-a", appName, path]
+            if (try? process.run()) != nil {
+                return
+            }
+        }
+
+        // Fall back to running the command directly (for terminal editors or custom paths)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [editor, path]
+        process.arguments = [preferredEditor, path]
         process.currentDirectoryURL = URL(fileURLWithPath: path)
-
-        do {
-            try process.run()
-        } catch {
-            // Fallback: try opening as an app with `open -a`
-            let openProcess = Process()
-            openProcess.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            openProcess.arguments = ["-a", editor, path]
-            try? openProcess.run()
-        }
+        try? process.run()
     }
 }
 
@@ -283,9 +300,9 @@ struct ModelBadgeCompact: View {
 
     private var modelColor: Color {
         guard let model = model?.lowercased() else { return .secondary }
-        if model.contains("opus") { return .purple }
-        if model.contains("sonnet") { return .blue }
-        if model.contains("haiku") { return .teal }
+        if model.contains("opus") { return .modelOpus }
+        if model.contains("sonnet") { return .modelSonnet }
+        if model.contains("haiku") { return .modelHaiku }
         return .secondary
     }
 
@@ -360,9 +377,9 @@ struct ContextGaugeCompact: View {
     let stats: TranscriptUsageStats
 
     private var progressColor: Color {
-        if stats.contextPercentage > 0.9 { return .red }
-        if stats.contextPercentage > 0.7 { return .orange }
-        return .blue
+        if stats.contextPercentage > 0.9 { return .statusError }
+        if stats.contextPercentage > 0.7 { return .statusWaiting }
+        return .accent
     }
 
     var body: some View {

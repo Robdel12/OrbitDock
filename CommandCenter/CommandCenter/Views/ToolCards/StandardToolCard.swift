@@ -1,6 +1,6 @@
 //
 //  StandardToolCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Generic tool card for WebFetch, WebSearch, and other tools
 //

@@ -1,6 +1,6 @@
 //
 //  MarkdownView.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Markdown rendering using MarkdownUI library
 
@@ -15,7 +15,7 @@ struct MarkdownContentView: View {
 
     var body: some View {
         Markdown(content)
-            .markdownTheme(.commandCenter)
+            .markdownTheme(.orbitDock)
             .textSelection(.enabled)
             .environment(\.openURL, OpenURLAction { url in
                 NSWorkspace.shared.open(url)
@@ -129,7 +129,7 @@ extension MarkdownUI.Theme {
             .markdownMargin(top: 6, bottom: 6)
         }
 
-    static let commandCenter = Theme()
+    static let orbitDock = Theme()
         // Body text - comfortable reading size with good weight
         .text {
             ForegroundColor(.primary.opacity(0.92))

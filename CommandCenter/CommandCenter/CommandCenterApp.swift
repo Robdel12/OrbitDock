@@ -1,6 +1,6 @@
 //
-//  CommandCenterApp.swift
-//  CommandCenter
+//  OrbitDockApp.swift
+//  OrbitDock
 //
 //  Created by Robert DeLuca on 1/30/26.
 //
@@ -9,7 +9,7 @@ import SwiftUI
 import UserNotifications
 
 @main
-struct CommandCenterApp: App {
+struct OrbitDockApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     private let database = DatabaseManager.shared
 

@@ -1,6 +1,6 @@
 //
 //  QuickSwitcher.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Command palette for switching agents and executing actions (⌘K)
 //  - No prefix: Search sessions
@@ -341,7 +341,7 @@ struct QuickSwitcher: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selectedIndex == index ? Color.accentColor.opacity(0.2) : Color.clear)
+                    .fill(selectedIndex == index ? Color.accent.opacity(0.2) : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -379,7 +379,7 @@ struct QuickSwitcher: View {
         HStack(spacing: 12) {
             Image(systemName: isCommandMode ? "command" : "magnifyingglass")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(isCommandMode ? Color.accentColor : Color.secondary)
+                .foregroundStyle(isCommandMode ? Color.accent : Color.secondary)
 
             TextField(isCommandMode ? "Search commands..." : "Search agents... (type > for commands)", text: $searchText)
                 .textFieldStyle(.plain)
@@ -490,7 +490,7 @@ struct QuickSwitcher: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selectedIndex == 0 ? Color.accentColor.opacity(0.2) : Color.clear)
+                    .fill(selectedIndex == 0 ? Color.accent.opacity(0.2) : Color.clear)
             )
             .contentShape(Rectangle())
         }
@@ -601,7 +601,7 @@ struct QuickSwitcher: View {
             .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selectedIndex == index ? Color.accentColor.opacity(0.2) : Color.clear)
+                    .fill(selectedIndex == index ? Color.accent.opacity(0.2) : Color.clear)
             )
             .contentShape(Rectangle())
         }

@@ -1,6 +1,6 @@
 //
 //  ToolCardStyle.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Shared styling and helpers for tool cards
 //
@@ -24,27 +24,27 @@ enum ToolCardStyle {
 
         switch lowercased {
         case "read":
-            return Color(red: 0.4, green: 0.6, blue: 1.0)      // Soft blue
+            return .toolRead
         case "edit", "write", "notebookedit":
-            return Color(red: 1.0, green: 0.55, blue: 0.25)    // Warm orange
+            return .toolWrite
         case "bash":
-            return Color(red: 0.35, green: 0.8, blue: 0.5)     // Soft green
+            return .toolBash
         case "glob", "grep":
-            return Color(red: 0.65, green: 0.45, blue: 0.9)    // Purple
+            return .toolSearch
         case "task":
-            return Color(red: 0.45, green: 0.45, blue: 0.95)   // Indigo
+            return .toolTask
         case "webfetch", "websearch":
-            return Color(red: 0.3, green: 0.75, blue: 0.75)    // Teal
+            return .toolWeb
         case "askuserquestion":
-            return Color(red: 0.95, green: 0.65, blue: 0.25)   // Amber
+            return .toolQuestion
         case "toolsearch":
-            return Color(red: 0.5, green: 0.65, blue: 0.8)     // Blue-gray
+            return .toolMcp
         case "skill":
-            return Color(red: 0.85, green: 0.5, blue: 0.85)    // Pink/magenta
+            return .toolSkill
         case "enterplanmode", "exitplanmode":
-            return Color(red: 0.45, green: 0.7, blue: 0.45)    // Soft green
+            return .toolPlan
         case "taskcreate", "taskupdate", "tasklist", "taskget":
-            return Color(red: 0.65, green: 0.75, blue: 0.4)    // Lime/olive
+            return .toolTodo
         default:
             return .secondary
         }

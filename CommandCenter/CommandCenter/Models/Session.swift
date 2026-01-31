@@ -1,6 +1,6 @@
 //
 //  Session.swift
-//  CommandCenter
+//  OrbitDock
 //
 
 import Foundation

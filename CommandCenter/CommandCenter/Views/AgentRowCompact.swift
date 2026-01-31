@@ -1,6 +1,6 @@
 //
 //  AgentRowCompact.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Compact agent row for the projects panel
 //
@@ -28,19 +28,27 @@ struct AgentRowCompact: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
-                // Status dot with pulse for active
+                // Status dot - "Orbit indicator"
                 ZStack {
+                    // Glow for active working sessions
+                    if session.isActive && session.workStatus == .working {
+                        Circle()
+                            .fill(statusColor.opacity(0.2))
+                            .frame(width: 16, height: 16)
+                            .blur(radius: 3)
+
+                        Circle()
+                            .stroke(statusColor.opacity(0.5), lineWidth: 1)
+                            .frame(width: 14, height: 14)
+                    }
+
+                    // Core dot
                     Circle()
                         .fill(statusColor)
                         .frame(width: 8, height: 8)
-
-                    if session.isActive && session.workStatus == .working {
-                        Circle()
-                            .stroke(statusColor.opacity(0.4), lineWidth: 1.5)
-                            .frame(width: 14, height: 14)
-                    }
+                        .shadow(color: session.isActive ? statusColor.opacity(0.5) : .clear, radius: 2)
                 }
-                .frame(width: 14, height: 14)
+                .frame(width: 16, height: 16)
 
                 // Content
                 VStack(alignment: .leading, spacing: 2) {

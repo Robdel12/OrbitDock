@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Created by Robert DeLuca on 1/30/26.
 //
@@ -341,7 +341,7 @@ struct SessionDetailViewNew: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .background(Color.accent, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
@@ -586,7 +586,7 @@ struct FilterPill: View {
             .padding(.vertical, 6)
             .background(
                 isSelected
-                    ? AnyShapeStyle(Color.accentColor)
+                    ? AnyShapeStyle(Color.accent)
                     : AnyShapeStyle(Color.backgroundTertiary),
                 in: Capsule()
             )

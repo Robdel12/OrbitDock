@@ -1,6 +1,6 @@
 //
 //  NotificationManager.swift
-//  CommandCenter
+//  OrbitDock
 //
 
 import Foundation

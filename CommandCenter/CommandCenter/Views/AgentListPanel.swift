@@ -1,6 +1,6 @@
 //
 //  AgentListPanel.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Left slide-in panel showing all agents grouped by status
 //

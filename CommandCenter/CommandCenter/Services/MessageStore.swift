@@ -1,6 +1,6 @@
 //
 //  MessageStore.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  SQLite-backed message storage for fast reads/writes.
 //
@@ -145,12 +145,13 @@ final class MessageStore {
     }
 
     /// Write messages and stats from a parse result (called after JSONL parse)
-    /// Thread-safe: only one sync per session at a time
+    /// Thread-safe: only one sync per session at a time (blocks if concurrent)
     func syncFromParseResult(_ result: TranscriptParseResult, sessionId sid: String) {
         let lock = lockForSession(sid)
 
-        // Non-blocking tryLock - if another sync is in progress, skip this one
-        guard lock.try() else { return }
+        // Block until we can acquire the lock - ensures sync always completes
+        // This prevents race conditions where stale data is read after skipped syncs
+        lock.lock()
         defer { lock.unlock() }
 
         let start = CFAbsoluteTimeGetCurrent()

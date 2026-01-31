@@ -1,6 +1,6 @@
 //
 //  PlanModeCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Shows plan mode entry/exit
 //

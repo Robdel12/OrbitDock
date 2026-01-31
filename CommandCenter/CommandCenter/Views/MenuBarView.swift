@@ -1,6 +1,6 @@
 //
 //  MenuBarView.swift
-//  CommandCenter
+//  OrbitDock
 //
 
 import SwiftUI
@@ -24,7 +24,7 @@ struct MenuBarView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "terminal.fill")
                         .font(.system(size: 12, weight: .semibold))
-                    Text("Command Center")
+                    Text("OrbitDock")
                         .font(.system(size: 13, weight: .semibold))
                 }
 
@@ -33,16 +33,21 @@ struct MenuBarView: View {
                 if !activeSessions.isEmpty {
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(Color.green)
+                            .fill(Color.statusWorking)
                             .frame(width: 6, height: 6)
                         Text("\(activeSessions.count)")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(Color.statusWorking)
                     }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
+
+            // Subscription Usage
+            MenuBarUsageSection()
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
 
             Divider()
 
@@ -85,7 +90,7 @@ struct MenuBarView: View {
             HStack {
                 Button {
                     if let window = NSApplication.shared.windows.first(where: {
-                        $0.title.contains("Command Center") || $0.contentView is NSHostingView<ContentView>
+                        $0.title.contains("OrbitDock") || $0.contentView is NSHostingView<ContentView>
                     }) {
                         NSApplication.shared.activate(ignoringOtherApps: true)
                         window.makeKeyAndOrderFront(nil)
@@ -164,12 +169,12 @@ struct MenuBarSessionRow: View {
             ZStack {
                 if isActive {
                     Circle()
-                        .fill(Color.green.opacity(0.3))
+                        .fill(Color.statusWorking.opacity(0.3))
                         .frame(width: 12, height: 12)
                         .blur(radius: 3)
                 }
                 Circle()
-                    .fill(isActive ? Color.green : Color.secondary.opacity(0.25))
+                    .fill(isActive ? Color.statusWorking : Color.secondary.opacity(0.25))
                     .frame(width: 6, height: 6)
             }
             .frame(width: 14)

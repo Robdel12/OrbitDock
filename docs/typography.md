@@ -1,6 +1,8 @@
 # Typography Design System
 
-Command Center's typography system prioritizes readability and clear hierarchy. As a text-heavy app displaying conversations, code, and metadata, typography choices directly impact usability.
+OrbitDock's typography system prioritizes readability and clear hierarchy in the cosmic harbor theme. As a text-heavy app displaying conversations, code, and metadata, typography choices directly impact usability.
+
+The dark space theme demands careful attention to contrast and legibility.
 
 ## Core Principles
 
@@ -79,52 +81,56 @@ Use weights purposefully to create hierarchy:
 ### Text Colors
 
 ```swift
-// Primary content
+// Primary content (starlight)
 .primary                    // Headings, important text
-.primary.opacity(0.92)      // Body text (slightly softer)
+Color.textPrimary           // Body text (0.92 white)
 .primary.opacity(0.95)      // User message bubbles
 
-// Secondary content
-.secondary                  // Labels, less important text
-.tertiary                   // Metadata, timestamps, buttons
-.quaternary                 // Very subtle indicators
+// Secondary content (distant stars)
+Color.textSecondary         // Labels, less important text (0.55 white)
+Color.textTertiary          // Metadata, timestamps (0.35 white)
+Color.textQuaternary        // Very subtle indicators (0.20 white)
 
 // Semantic colors
-Color.modelOpus             // Claude branding
-Color.accentColor           // User message accents
+Color.modelOpus             // Cosmic purple - Opus branding
+Color.modelSonnet           // Nebula blue - Sonnet branding
+Color.modelHaiku            // Aqua teal - Haiku branding
+Color.accent                // Orbit cyan - user message accents, links
 ```
 
 ### Code Colors (Syntax Highlighting)
 
+All syntax colors are defined in `Theme.swift` and accessed via the `SyntaxColors` enum:
+
 ```swift
 enum SyntaxColors {
-    static let keyword  = Color(red: 0.78, green: 0.46, blue: 0.82)  // Purple
-    static let string   = Color(red: 0.81, green: 0.54, blue: 0.40)  // Orange
-    static let number   = Color(red: 0.71, green: 0.81, blue: 0.54)  // Green
-    static let comment  = Color(red: 0.42, green: 0.47, blue: 0.42)  // Gray-green
-    static let type     = Color(red: 0.31, green: 0.73, blue: 0.78)  // Cyan
-    static let function = Color(red: 0.87, green: 0.87, blue: 0.67)  // Yellow
-    static let property = Color(red: 0.61, green: 0.78, blue: 0.92)  // Light blue
-    static let text     = Color(red: 0.85, green: 0.85, blue: 0.85)  // Light gray
+    static let keyword  = Color.syntaxKeyword   // Nebula purple
+    static let string   = Color.syntaxString    // Solar orange
+    static let number   = Color.syntaxNumber    // Starchart lime
+    static let comment  = Color.syntaxComment   // Distant star gray
+    static let type     = Color.syntaxType      // Orbit cyan (brand!)
+    static let function = Color.syntaxFunction  // Signal yellow
+    static let property = Color.syntaxProperty  // Atmosphere blue
+    static let text     = Color.syntaxText      // Starlight
 }
 
 // Inline code
-Color(red: 0.95, green: 0.65, blue: 0.45)  // Warm orange
+Color.markdownInlineCode    // Warm signal orange
 ```
 
 ### Diff Colors
 
 ```swift
-// Backgrounds
+// Backgrounds (deep space tinted)
 let addedBg   = Color(red: 0.15, green: 0.32, blue: 0.18).opacity(0.6)
 let removedBg = Color(red: 0.35, green: 0.14, blue: 0.14).opacity(0.6)
 
 // Accents (for +/- symbols)
-let addedAccent   = Color(red: 0.4, green: 0.95, blue: 0.5)
-let removedAccent = Color(red: 1.0, green: 0.5, blue: 0.5)
+let addedAccent   = Color.statusSuccess   // Soft green confirmation
+let removedAccent = Color.statusError     // Soft red warning
 
 // Line numbers
-.white.opacity(0.32)
+Color.textTertiary
 ```
 
 ---
@@ -168,10 +174,18 @@ let removedAccent = Color(red: 1.0, green: 0.5, blue: 0.5)
 
 ```swift
 extension MarkdownUI.Theme {
-    static let commandCenter = Theme()
+    static let orbitDock = Theme()
         .text {
-            ForegroundColor(.primary.opacity(0.92))
+            ForegroundColor(Color.textPrimary)
             FontSize(15.5)
+        }
+        .code {
+            ForegroundColor(Color.markdownInlineCode)
+            BackgroundColor(Color.white.opacity(0.07))
+        }
+        .link {
+            ForegroundColor(Color.markdownLink)  // Orbit cyan
+            UnderlineStyle(.single)
         }
         .heading1 { configuration in
             configuration.label
@@ -191,21 +205,26 @@ extension MarkdownUI.Theme {
 // Body text
 Text(content)
     .font(.system(size: 15.5))
-    .foregroundStyle(.primary.opacity(0.92))
+    .foregroundStyle(Color.textPrimary)
 
 // Metadata
 Text(timestamp)
     .font(.system(size: 11, weight: .medium, design: .monospaced))
-    .foregroundStyle(.quaternary)
+    .foregroundStyle(Color.textQuaternary)
 
 // Code
 Text(code)
     .font(.system(size: 12.5, design: .monospaced))
+    .foregroundStyle(Color.syntaxText)
 
 // Labels
 Text("Claude")
     .font(.system(size: 12, weight: .semibold))
     .foregroundStyle(Color.modelOpus)
+
+// Links and interactive text
+Text("View details")
+    .foregroundStyle(Color.accent)  // Orbit cyan
 ```
 
 ---
@@ -243,3 +262,23 @@ Text("Claude")
 11pt  Medium    - Timestamps, line numbers, metadata
 10pt  Medium    - Token counts, badges
 ```
+
+---
+
+## Cosmic Theme Color Philosophy
+
+OrbitDock uses a "deep space with nebula undertones" color palette:
+
+| Color Role | Usage | Theme Color |
+|------------|-------|-------------|
+| **Brand accent** | Links, active states, interactive elements | `Color.accent` (Orbit cyan) |
+| **Working status** | Active session indicators | `Color.statusWorking` (Orbit cyan) |
+| **Code types** | Type annotations in syntax highlighting | `Color.syntaxType` (Orbit cyan) |
+
+The cyan orbit ring from the app icon should appear consistently throughout the UI for brand cohesion. Use it for:
+- Links and interactive text
+- Active/selected states
+- Working session indicators (the "in orbit" state)
+- Code types and certain language badges
+
+Reserve other colors for semantic meaning (amber for waiting, red for errors, green for success/completion).

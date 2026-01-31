@@ -1,6 +1,6 @@
 //
 //  WebSearchCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Web search with query and results
 //

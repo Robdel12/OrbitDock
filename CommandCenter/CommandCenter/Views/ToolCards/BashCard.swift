@@ -1,6 +1,6 @@
 //
 //  BashCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Terminal-style command card with output
 //

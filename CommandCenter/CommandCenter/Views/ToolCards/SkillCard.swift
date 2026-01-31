@@ -1,6 +1,6 @@
 //
 //  SkillCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Shows skill/slash command invocations
 //

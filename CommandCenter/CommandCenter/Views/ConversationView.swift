@@ -1,6 +1,6 @@
 //
 //  ConversationView.swift
-//  CommandCenter
+//  OrbitDock
 //
 
 import SwiftUI
@@ -157,7 +157,7 @@ struct ConversationView: View {
                         .padding(.vertical, 8)
                         .background(
                             Capsule()
-                                .fill(Color.accentColor)
+                                .fill(Color.accent)
                                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                         )
                     }
@@ -406,13 +406,27 @@ struct ThreadMessage: View {
         ParsedBashContent.parse(from: message.content)
     }
 
+    /// Check if content contains slash command tags
+    private var parsedSlashCommand: ParsedSlashCommand? {
+        ParsedSlashCommand.parse(from: message.content)
+    }
+
+    /// Check if content is a system caveat
+    private var parsedSystemCaveat: ParsedSystemCaveat? {
+        ParsedSystemCaveat.parse(from: message.content)
+    }
+
     private var userMessage: some View {
         HStack(alignment: .top, spacing: 0) {
             Spacer(minLength: 100)
 
-            // Check for bash-input content
+            // Check for special content types
             if let bash = parsedBashContent {
                 UserBashCard(bash: bash, timestamp: message.timestamp)
+            } else if let command = parsedSlashCommand {
+                UserSlashCommandCard(command: command, timestamp: message.timestamp)
+            } else if let caveat = parsedSystemCaveat {
+                SystemCaveatView(caveat: caveat)
             } else {
                 standardUserMessage
             }
@@ -449,11 +463,11 @@ struct ThreadMessage: View {
                         .padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.accentColor.opacity(0.12))
+                                .fill(Color.accent.opacity(0.12))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(Color.accentColor.opacity(0.18), lineWidth: 1)
+                                .strokeBorder(Color.accent.opacity(0.18), lineWidth: 1)
                         )
 
                     if isLongContent {

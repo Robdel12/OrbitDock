@@ -1,6 +1,6 @@
 //
 //  ToolCardContainer.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Reusable container for tool cards with consistent styling
 //

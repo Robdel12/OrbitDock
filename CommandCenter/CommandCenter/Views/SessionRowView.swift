@@ -1,6 +1,6 @@
 //
 //  SessionRowView.swift
-//  CommandCenter
+//  OrbitDock
 //
 
 import SwiftUI
@@ -10,29 +10,41 @@ struct SessionRowView: View {
     var isSelected: Bool = false
 
     private var statusColor: Color {
-        if !session.isActive { return .secondary.opacity(0.3) }
+        if !session.isActive { return .statusIdle }
         switch session.workStatus {
-        case .working: return .green
-        case .waiting: return .orange
-        case .permission: return .yellow
-        case .unknown: return .green.opacity(0.5)
+        case .working: return .statusWorking
+        case .waiting: return .statusWaiting
+        case .permission: return .statusPermission
+        case .unknown: return .statusWorking.opacity(0.5)
         }
     }
 
     var body: some View {
         HStack(spacing: 10) {
-            // Minimal status dot
-            Circle()
-                .fill(statusColor)
-                .frame(width: 8, height: 8)
-                .overlay {
-                    if session.isActive && session.needsAttention {
-                        Circle()
-                            .stroke(statusColor.opacity(0.5), lineWidth: 1.5)
-                            .frame(width: 14, height: 14)
-                    }
+            // Status dot - "Orbit indicator"
+            ZStack {
+                // Glow for active sessions
+                if session.isActive && session.workStatus == .working {
+                    Circle()
+                        .fill(statusColor.opacity(0.2))
+                        .frame(width: 16, height: 16)
+                        .blur(radius: 3)
                 }
-                .frame(width: 20)
+
+                // Attention ring
+                if session.isActive && session.needsAttention {
+                    Circle()
+                        .stroke(statusColor.opacity(0.5), lineWidth: 1.5)
+                        .frame(width: 14, height: 14)
+                }
+
+                // Core dot
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                    .shadow(color: session.isActive ? statusColor.opacity(0.5) : .clear, radius: 3)
+            }
+            .frame(width: 20)
 
             // Main content
             VStack(alignment: .leading, spacing: 3) {
@@ -109,9 +121,9 @@ struct CompactStatusBadge: View {
 
     private var color: Color {
         switch workStatus {
-        case .working: return .green
-        case .waiting: return .orange
-        case .permission: return .yellow
+        case .working: return .statusWorking
+        case .waiting: return .statusWaiting
+        case .permission: return .statusPermission
         case .unknown: return .secondary
         }
     }
@@ -161,9 +173,9 @@ struct CompactModelBadge: View {
 
     private var badgeColor: Color {
         guard let model = model else { return .secondary }
-        if model.contains("opus") { return .purple }
-        if model.contains("sonnet") { return .blue }
-        if model.contains("haiku") { return .teal }
+        if model.contains("opus") { return .modelOpus }
+        if model.contains("sonnet") { return .modelSonnet }
+        if model.contains("haiku") { return .modelHaiku }
         return .secondary
     }
 
@@ -173,7 +185,7 @@ struct CompactModelBadge: View {
             .foregroundStyle(badgeColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(badgeColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .background(badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
     }
 }
 
@@ -192,9 +204,9 @@ struct ModelBadge: View {
 
     private var badgeColor: Color {
         guard let model = model else { return .secondary }
-        if model.contains("opus") { return .purple }
-        if model.contains("sonnet") { return .blue }
-        if model.contains("haiku") { return .teal }
+        if model.contains("opus") { return .modelOpus }
+        if model.contains("sonnet") { return .modelSonnet }
+        if model.contains("haiku") { return .modelHaiku }
         return .secondary
     }
 
@@ -204,7 +216,7 @@ struct ModelBadge: View {
             .foregroundStyle(badgeColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(badgeColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 
@@ -215,9 +227,9 @@ struct WorkStatusBadge: View {
 
     private var color: Color {
         switch workStatus {
-        case .working: return .green
-        case .waiting: return .orange
-        case .permission: return .yellow
+        case .working: return .statusWorking
+        case .waiting: return .statusWaiting
+        case .permission: return .statusPermission
         case .unknown: return .secondary
         }
     }

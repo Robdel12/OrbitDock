@@ -1,6 +1,6 @@
 //
 //  TaskCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Enhanced agent/subagent task card with nested tool calls and live refresh
 //

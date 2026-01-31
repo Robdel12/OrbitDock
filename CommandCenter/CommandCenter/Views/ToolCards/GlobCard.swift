@@ -1,6 +1,6 @@
 //
 //  GlobCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  File tree view for glob results
 //

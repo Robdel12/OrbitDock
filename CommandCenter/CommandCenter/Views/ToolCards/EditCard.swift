@@ -1,6 +1,6 @@
 //
 //  EditCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Rich diff view for Edit/Write operations
 //

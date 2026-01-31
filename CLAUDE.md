@@ -1,8 +1,8 @@
-# Claude Code Instructions for Command Center
+# Claude Code Instructions for OrbitDock
 
 ## Project Overview
 
-Command Center is a native macOS SwiftUI app that monitors Claude Code CLI sessions. It reads from a SQLite database populated by Claude Code hooks and displays real-time session information.
+OrbitDock is a native macOS SwiftUI app - a "cosmic harbor" for AI agent sessions. It monitors Claude Code CLI sessions, displaying them as spacecraft docked at your mission control center. Reads from a SQLite database populated by Claude Code hooks with real-time session tracking.
 
 ## Tech Stack
 
@@ -27,9 +27,13 @@ Command Center is a native macOS SwiftUI app that monitors Claude Code CLI sessi
 - Add `.transition()` modifiers to ForEach items for smooth insertions
 - Avoid timers for animations - use SwiftUI's declarative animation system
 
-### Dark Theme
-- Use custom colors from Theme.swift: `Color.backgroundPrimary`, `Color.backgroundSecondary`, etc.
-- All backgrounds should use these colors, not system defaults
+### Cosmic Harbor Theme
+- Use custom colors from Theme.swift - deep space backgrounds with nebula undertones
+- `Color.backgroundPrimary` (void black), `Color.backgroundSecondary` (nebula purple), etc.
+- `Color.accent` is the cyan orbit ring - use for active states, links, working sessions
+- Status colors: `.statusWorking` (cyan/in-orbit), `.statusWaiting` (amber/beacon), `.statusSuccess` (green)
+- All backgrounds should use theme colors, not system defaults
+- Never use system colors (.blue, .green, .purple) - use themed equivalents
 
 ## File Locations
 
@@ -78,7 +82,7 @@ Key files:
 1. Make changes to Swift code
 2. Build in Xcode (Cmd+R)
 3. Start a new Claude Code session to trigger hooks
-4. Verify data appears in Command Center
+4. Verify data appears in OrbitDock
 
 ## Don't
 
@@ -86,3 +90,5 @@ Key files:
 - Don't use `.scaleEffect()` on ProgressView - use `.controlSize(.small)` instead
 - Don't use timers for animations - use SwiftUI animation modifiers
 - Don't store single @State values for data that varies by session - use dictionaries
+- Don't use system colors (.blue, .green, .purple, .orange) - use `Color.accent`, `Color.statusWorking`, etc.
+- Don't use generic gray backgrounds - use the cosmic palette (`Color.backgroundPrimary`, etc.)

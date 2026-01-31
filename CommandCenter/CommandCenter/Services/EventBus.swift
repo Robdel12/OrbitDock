@@ -1,6 +1,6 @@
 //
 //  EventBus.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Centralized event system for efficient updates.
 //  Uses Darwin notifications from hooks + file system monitoring.

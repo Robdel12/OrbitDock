@@ -1,6 +1,6 @@
 //
 //  SessionCard.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Grid card for displaying session in dashboard
 //

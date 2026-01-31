@@ -1,6 +1,6 @@
 //
 //  SessionDetailView.swift
-//  CommandCenter
+//  OrbitDock
 //
 
 import SwiftUI
@@ -268,7 +268,7 @@ struct SessionDetailView: View {
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .background(Color.accent, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .foregroundStyle(.white)
             }
             .buttonStyle(.plain)

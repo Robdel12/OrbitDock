@@ -1,6 +1,6 @@
 //
 //  UsageManager.swift
-//  CommandCenter
+//  OrbitDock
 //
 
 import Foundation

@@ -1,6 +1,6 @@
 //
 //  StatsSummary.swift
-//  CommandCenter
+//  OrbitDock
 //
 //  Summary stats row for dashboard header
 //
@@ -37,6 +37,13 @@ struct StatsSummary: View {
         let stats = aggregateStats
 
         HStack(spacing: 12) {
+            // Subscription usage card
+            SubscriptionUsageCard()
+
+            Divider()
+                .frame(height: 40)
+                .opacity(0.2)
+
             StatCard(
                 value: "\(workingCount)",
                 label: "Working",
