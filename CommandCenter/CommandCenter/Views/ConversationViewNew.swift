@@ -330,6 +330,10 @@ struct ConversationViewNew: View {
 
 struct ThreadMessage: View {
     let message: TranscriptMessage
+    @State private var isContentExpanded = false
+
+    private let maxLength = 4000
+    private var isLongContent: Bool { message.content.count > maxLength }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -367,20 +371,26 @@ struct ThreadMessage: View {
 
                 // Content
                 if !message.content.isEmpty {
-                    Text(truncatedContent)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.accentColor.opacity(0.15))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(Color.accentColor.opacity(0.2), lineWidth: 1)
-                        )
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text(displayContent)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.primary)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(Color.accentColor.opacity(0.15))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(Color.accentColor.opacity(0.2), lineWidth: 1)
+                            )
+
+                        if isLongContent {
+                            expandCollapseButton
+                        }
+                    }
                 }
             }
         }
@@ -413,20 +423,47 @@ struct ThreadMessage: View {
             }
 
             // Content - clean, no bubble for assistant
-            MarkdownView(content: truncatedContent)
+            MarkdownView(content: displayContent)
                 .padding(.leading, 2)
+
+            if isLongContent {
+                expandCollapseButton
+                    .padding(.leading, 2)
+            }
 
             Spacer()
                 .frame(width: 80)
         }
     }
 
-    private var truncatedContent: String {
-        let maxLength = 4000
-        if message.content.count > maxLength {
-            return String(message.content.prefix(maxLength)) + "\n\n[Truncated...]"
+    private var expandCollapseButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                isContentExpanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: isContentExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                Text(isContentExpanded ? "Show less" : "Show more")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color.backgroundTertiary.opacity(0.5))
+            )
         }
-        return message.content
+        .buttonStyle(.plain)
+    }
+
+    private var displayContent: String {
+        if isContentExpanded || !isLongContent {
+            return message.content
+        }
+        return String(message.content.prefix(maxLength))
     }
 
     private static let timeFormatter: DateFormatter = {
