@@ -55,7 +55,7 @@ case "$EVENT" in
     ;;
   "Notification")
     NOTIF_TYPE=$(echo "$INPUT" | jq -r '.notification_type // empty' 2>/dev/null)
-    TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+    MESSAGE=$(echo "$INPUT" | jq -r '.message // empty' 2>/dev/null)
 
     if [ "$NOTIF_TYPE" = "idle_prompt" ]; then
       # Check if last tool was AskUserQuestion
@@ -72,7 +72,8 @@ case "$EVENT" in
         WHERE id = '$SESSION_ID';"
       notifyutil -p com.commandcenter.session.updated 2>/dev/null &
     elif [ "$NOTIF_TYPE" = "permission_prompt" ]; then
-      # Capture which tool needs permission
+      # Parse tool name from message: "Claude needs your permission to use Bash"
+      TOOL_NAME=$(echo "$MESSAGE" | sed -n 's/.*permission to use \([A-Za-z]*\).*/\1/p')
       run_sql "UPDATE sessions SET
         work_status = 'permission',
         attention_reason = 'awaitingPermission',
