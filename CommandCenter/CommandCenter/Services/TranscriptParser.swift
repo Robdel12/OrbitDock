@@ -158,22 +158,17 @@ struct TranscriptParser {
             return []
         }
 
-        let readStart = CFAbsoluteTimeGetCurrent()
         guard let content = try? String(contentsOfFile: transcriptPath, encoding: .utf8) else {
             return []
         }
-        let readTime = (CFAbsoluteTimeGetCurrent() - readStart) * 1000
 
-        let splitStart = CFAbsoluteTimeGetCurrent()
         let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
-        let splitTime = (CFAbsoluteTimeGetCurrent() - splitStart) * 1000
         var messages: [TranscriptMessage] = []
         var toolResults: [String: (output: String, timestamp: Date)] = [:]
         var toolUseTimestamps: [String: Date] = [:]
         var pendingToolIds: Set<String> = [] // Track tools without results yet
 
         // First pass: collect tool results and tool_use timestamps
-        let pass1Start = CFAbsoluteTimeGetCurrent()
         for line in lines {
             guard let data = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -208,10 +203,7 @@ struct TranscriptParser {
             }
         }
 
-        let pass1Time = (CFAbsoluteTimeGetCurrent() - pass1Start) * 1000
-
         // Second pass: build messages with results
-        let pass2Start = CFAbsoluteTimeGetCurrent()
         for line in lines {
             guard let data = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -322,7 +314,6 @@ struct TranscriptParser {
                 break
             }
         }
-        let pass2Time = (CFAbsoluteTimeGetCurrent() - pass2Start) * 1000
         let totalTime = (CFAbsoluteTimeGetCurrent() - start) * 1000
 
         if totalTime > 500 {  // Only log slow parses

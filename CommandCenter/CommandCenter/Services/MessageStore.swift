@@ -105,9 +105,9 @@ final class MessageStore {
         })
 
         // Migrations for existing tables
-        try? db.run("ALTER TABLE messages ADD COLUMN sequence INTEGER DEFAULT 0")
-        try? db.run("ALTER TABLE messages ADD COLUMN thinking TEXT")
-        try? db.run("ALTER TABLE messages ADD COLUMN tool_duration REAL")
+        _ = try? db.run("ALTER TABLE messages ADD COLUMN sequence INTEGER DEFAULT 0")
+        _ = try? db.run("ALTER TABLE messages ADD COLUMN thinking TEXT")
+        _ = try? db.run("ALTER TABLE messages ADD COLUMN tool_duration REAL")
 
         // Indexes for fast queries
         try db.run(messages.createIndex(sessionId, ifNotExists: true))
