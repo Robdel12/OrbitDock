@@ -82,6 +82,9 @@ struct ConversationView: View {
                         if message.isTool {
                             ToolIndicator(message: message)
                                 .id(message.id)
+                        } else if message.isThinking {
+                            ThinkingIndicator(message: message)
+                                .id(message.id)
                         } else {
                             ThreadMessage(message: message)
                                 .id(message.id)
@@ -246,6 +249,9 @@ struct ConversationView: View {
         let targetPath = path
         let targetSid = sid
 
+        // Invalidate cache to ensure fresh parse
+        TranscriptParser.invalidateCache(for: targetPath)
+
         DispatchQueue.global(qos: .utility).async {
             let result = TranscriptParser.parseAll(transcriptPath: targetPath)
             MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
@@ -328,6 +334,7 @@ struct ConversationView: View {
 struct ThreadMessage: View {
     let message: TranscriptMessage
     @State private var isContentExpanded = false
+    @State private var isThinkingExpanded = false
 
     private let maxLength = 4000
     private var isLongContent: Bool { message.content.count > maxLength }
@@ -420,6 +427,11 @@ struct ThreadMessage: View {
                 }
             }
 
+            // Thinking disclosure (if attached)
+            if message.hasThinking {
+                thinkingDisclosure
+            }
+
             // Content - clean markdown, generous left padding for readability
             MarkdownView(content: displayContent)
 
@@ -429,6 +441,68 @@ struct ThreadMessage: View {
 
             Spacer()
                 .frame(width: 100)
+        }
+    }
+
+    // MARK: - Thinking Disclosure
+
+    private var thinkingDisclosure: some View {
+        let thinkingColor = Color(red: 0.6, green: 0.55, blue: 0.8)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+                    isThinkingExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Thinking")
+                        .font(.system(size: 11, weight: .semibold))
+
+                    if !isThinkingExpanded {
+                        Text(message.thinking?.components(separatedBy: "\n").first ?? "")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isThinkingExpanded ? 90 : 0))
+                }
+                .foregroundStyle(thinkingColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(thinkingColor.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
+
+            if isThinkingExpanded, let thinking = message.thinking {
+                ScrollView {
+                    Text(thinking)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 250)
+                .padding(10)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(thinkingColor.opacity(0.04))
+                )
+                .padding(.top, 6)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
     }
 
@@ -470,6 +544,95 @@ struct ThreadMessage: View {
 
     private func formatTime(_ date: Date) -> String {
         Self.timeFormatter.string(from: date)
+    }
+}
+
+// MARK: - Thinking Indicator (Collapsed by default)
+
+struct ThinkingIndicator: View {
+    let message: TranscriptMessage
+    @State private var isExpanded = false
+    @State private var isHovering = false
+
+    private let thinkingColor = Color(red: 0.6, green: 0.55, blue: 0.8)  // Soft purple
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(thinkingColor.opacity(0.6))
+                    .frame(width: 2)
+                    .padding(.vertical, 4)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(thinkingColor)
+                        .frame(width: 16)
+
+                    Text("Thinking")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(thinkingColor)
+
+                    // Preview of thinking (collapsed)
+                    if !isExpanded {
+                        Text(message.content.components(separatedBy: "\n").first ?? "")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(isHovering ? thinkingColor.opacity(0.08) : Color.clear)
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+                    isExpanded.toggle()
+                }
+            }
+            .onHover { isHovering = $0 }
+
+            // Expanded thinking content
+            if isExpanded {
+                ScrollView {
+                    Text(message.content)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 300)
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(thinkingColor.opacity(0.05))
+                )
+                .padding(.leading, 28)
+                .padding(.top, 6)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
@@ -682,7 +845,7 @@ struct ToolIndicator: View {
             // For Edit tool, show unified diff (GitHub-style)
             else if !oldString.isEmpty || !newString.isEmpty {
                 // Find actual line number in file where edit starts
-                let startLine = findStartLine(in: message.filePath, for: oldString)
+                let startLine = findStartLine(in: message.filePath, oldString: oldString, newString: newString)
                 UnifiedDiffView(
                     oldString: oldString,
                     newString: newString,
@@ -707,16 +870,20 @@ struct ToolIndicator: View {
         }
     }
 
-    // Find the line number where oldString starts in the file
-    private func findStartLine(in filePath: String?, for searchString: String) -> Int {
+    // Find the line number where the edit occurs in the file
+    // Since edits are already applied, we search for newString in the current file
+    private func findStartLine(in filePath: String?, oldString: String, newString: String) -> Int {
         guard let path = filePath,
-              !searchString.isEmpty,
               let fileContents = try? String(contentsOfFile: path, encoding: .utf8) else {
             return 1
         }
 
-        // Find the range of searchString in the file
-        guard let range = fileContents.range(of: searchString) else {
+        // The edit is already applied, so search for newString in current file
+        // If newString is empty (deletion), we can't find it - fall back to 1
+        let searchString = !newString.isEmpty ? newString : oldString
+
+        guard !searchString.isEmpty,
+              let range = fileContents.range(of: searchString) else {
             return 1
         }
 
@@ -1024,19 +1191,15 @@ struct UnifiedDiffView: View {
 
     @ViewBuilder
     private func diffLineView(_ line: DiffLine) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            // Old line number
-            Text(line.oldLineNum.map { String($0) } ?? "")
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.32))
-                .frame(width: 38, alignment: .trailing)
-                .padding(.trailing, 6)
+        // Single line number: use oldLineNum for removals, newLineNum for additions/context
+        let lineNum = line.oldLineNum ?? line.newLineNum
 
-            // New line number
-            Text(line.newLineNum.map { String($0) } ?? "")
+        HStack(alignment: .top, spacing: 0) {
+            // Single line number column
+            Text(lineNum.map { String($0) } ?? "")
                 .font(.system(size: 11, weight: .regular, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.32))
-                .frame(width: 38, alignment: .trailing)
+                .frame(width: 42, alignment: .trailing)
                 .padding(.trailing, 10)
 
             // Change indicator

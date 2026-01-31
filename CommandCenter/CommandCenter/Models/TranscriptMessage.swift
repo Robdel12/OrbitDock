@@ -34,6 +34,7 @@ struct TranscriptMessage: Identifiable, Hashable {
     let outputTokens: Int?
     var isInProgress: Bool = false  // Tool is currently running
     var images: [MessageImage] = []  // Support multiple images
+    var thinking: String? = nil  // Claude's thinking trace (collapsed by default)
 
     // Legacy single image support (for backwards compatibility)
     var imageData: Data? { images.first?.data }
@@ -44,12 +45,14 @@ struct TranscriptMessage: Identifiable, Hashable {
         case assistant
         case tool      // Tool call from assistant
         case toolResult // Result of tool call
+        case thinking  // Claude's internal reasoning
         case system
     }
 
     var isUser: Bool { type == .user }
     var isAssistant: Bool { type == .assistant }
     var isTool: Bool { type == .tool }
+    var isThinking: Bool { type == .thinking }
 
     // Hashable conformance - exclude toolInput since [String: Any] isn't Hashable
     func hash(into hasher: inout Hasher) {
@@ -63,6 +66,10 @@ struct TranscriptMessage: Identifiable, Hashable {
 
     var hasImage: Bool {
         !images.isEmpty
+    }
+
+    var hasThinking: Bool {
+        thinking != nil && !thinking!.isEmpty
     }
 
     static func == (lhs: TranscriptMessage, rhs: TranscriptMessage) -> Bool {

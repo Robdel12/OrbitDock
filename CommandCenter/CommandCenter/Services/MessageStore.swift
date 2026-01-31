@@ -29,6 +29,7 @@ final class MessageStore {
     private let type = SQLite.Expression<String>("type")
     private let content = SQLite.Expression<String>("content")
     private let timestamp = SQLite.Expression<Date>("timestamp")
+    private let sequence = SQLite.Expression<Int>("sequence")  // Preserves JSONL order
     private let toolName = SQLite.Expression<String?>("tool_name")
     private let toolInput = SQLite.Expression<String?>("tool_input")  // JSON string
     private let toolOutput = SQLite.Expression<String?>("tool_output")
@@ -37,6 +38,7 @@ final class MessageStore {
     private let outputTokens = SQLite.Expression<Int?>("output_tokens")
     private let imageData = SQLite.Expression<Data?>("image_data")
     private let imageMimeType = SQLite.Expression<String?>("image_mime_type")
+    private let thinking = SQLite.Expression<String?>("thinking")  // Claude's thinking trace
 
     // Stats table for aggregated message data (separate from main session_stats)
     private let sessionStats = Table("message_session_stats")
@@ -88,6 +90,7 @@ final class MessageStore {
             t.column(type)
             t.column(content)
             t.column(timestamp)
+            t.column(sequence, defaultValue: 0)  // Preserves JSONL order
             t.column(toolName)
             t.column(toolInput)
             t.column(toolOutput)
@@ -96,7 +99,13 @@ final class MessageStore {
             t.column(outputTokens)
             t.column(imageData)
             t.column(imageMimeType)
+            t.column(thinking)  // Claude's thinking trace
         })
+
+        // Add sequence column to existing tables (migration)
+        try? db.run("ALTER TABLE messages ADD COLUMN sequence INTEGER DEFAULT 0")
+        // Add thinking column to existing tables (migration)
+        try? db.run("ALTER TABLE messages ADD COLUMN thinking TEXT")
 
         // Indexes for fast queries
         try db.run(messages.createIndex(sessionId, ifNotExists: true))
@@ -152,7 +161,7 @@ final class MessageStore {
                 try db.run(messages.filter(sessionId == sid).delete())
 
                 // Batch insert all messages
-                for msg in result.messages {
+                for (index, msg) in result.messages.enumerated() {
                     let toolInputJson: String? = msg.toolInput.flatMap { input in
                         guard let data = try? JSONSerialization.data(withJSONObject: input) else { return nil }
                         return String(data: data, encoding: .utf8)
@@ -164,6 +173,7 @@ final class MessageStore {
                         type <- msg.type.rawValue,
                         content <- msg.content,
                         timestamp <- msg.timestamp,
+                        sequence <- index,  // Preserve JSONL order
                         toolName <- msg.toolName,
                         toolInput <- toolInputJson,
                         toolOutput <- msg.toolOutput,
@@ -171,7 +181,8 @@ final class MessageStore {
                         inputTokens <- msg.inputTokens,
                         outputTokens <- msg.outputTokens,
                         imageData <- msg.imageData,
-                        imageMimeType <- msg.imageMimeType
+                        imageMimeType <- msg.imageMimeType,
+                        thinking <- msg.thinking
                     ))
                 }
 
@@ -211,7 +222,7 @@ final class MessageStore {
         do {
             let query = messages
                 .filter(sessionId == sid)
-                .order(timestamp.asc)
+                .order(sequence.asc)  // Use sequence to preserve JSONL order
 
             var result: [TranscriptMessage] = []
 
@@ -226,6 +237,7 @@ final class MessageStore {
                     case "assistant": return .assistant
                     case "tool": return .tool
                     case "toolResult": return .toolResult
+                    case "thinking": return .thinking
                     default: return .system
                     }
                 }()
@@ -250,6 +262,7 @@ final class MessageStore {
                     images: images
                 )
                 msg.isInProgress = row[isInProgress] == 1
+                msg.thinking = row[thinking]
                 result.append(msg)
             }
 

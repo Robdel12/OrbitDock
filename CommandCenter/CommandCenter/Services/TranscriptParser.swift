@@ -539,6 +539,22 @@ struct TranscriptParser {
         return texts.isEmpty ? nil : texts.joined(separator: "\n")
     }
 
+    /// Extract thinking blocks from assistant message
+    private static func extractThinkingContent(from message: [String: Any]) -> String? {
+        guard let content = message["content"] as? [[String: Any]] else {
+            return nil
+        }
+
+        let thinkingBlocks = content.compactMap { item -> String? in
+            if item["type"] as? String == "thinking" {
+                return item["thinking"] as? String
+            }
+            return nil
+        }
+
+        return thinkingBlocks.isEmpty ? nil : thinkingBlocks.joined(separator: "\n\n")
+    }
+
     // Cached formatter - creating these is expensive
     static let timestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -721,12 +737,31 @@ struct TranscriptParser {
                     let inputTokens = usage?["input_tokens"] as? Int
                     let outputTokens = usage?["output_tokens"] as? Int
 
+                    // Extract thinking content
+                    let thinkingContent = extractThinkingContent(from: message)
+
                     // Extract text content
                     if let textContent = extractAssistantContent(from: message), !textContent.isEmpty {
-                        messages.append(TranscriptMessage(
+                        var msg = TranscriptMessage(
                             id: uuid + "-text",
                             type: .assistant,
                             content: textContent,
+                            timestamp: timestamp,
+                            toolName: nil,
+                            toolInput: nil,
+                            toolOutput: nil,
+                            toolDuration: nil,
+                            inputTokens: inputTokens,
+                            outputTokens: outputTokens
+                        )
+                        msg.thinking = thinkingContent
+                        messages.append(msg)
+                    } else if let thinking = thinkingContent, !thinking.isEmpty {
+                        // Create a thinking-only message if no text content
+                        messages.append(TranscriptMessage(
+                            id: uuid + "-thinking",
+                            type: .thinking,
+                            content: thinking,
                             timestamp: timestamp,
                             toolName: nil,
                             toolInput: nil,
