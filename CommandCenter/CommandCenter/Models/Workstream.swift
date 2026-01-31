@@ -11,13 +11,21 @@ struct Workstream: Identifiable, Equatable {
     let branch: String
     let directory: String?
 
-    // Origin - Linear
+    // Workstream identity
+    var name: String?
+    var description: String?
+
+    // Multi-ticket support (populated separately)
+    var tickets: [WorkstreamTicket]?
+    var notes: [WorkstreamNote]?
+
+    // Legacy single-ticket fields (kept for backwards compat)
     var linearIssueId: String?
     var linearIssueTitle: String?
     var linearIssueState: String?
     var linearIssueURL: String?
 
-    // Origin - GitHub Issue
+    // Legacy GitHub issue
     var githubIssueNumber: Int?
     var githubIssueTitle: String?
     var githubIssueState: String?
@@ -81,7 +89,14 @@ struct Workstream: Identifiable, Equatable {
     // MARK: - Computed Properties
 
     var displayName: String {
-        linearIssueTitle ?? githubIssueTitle ?? githubPRTitle ?? branch
+        // Prefer explicit name, then primary ticket title, then legacy fields, then branch
+        if let name = name, !name.isEmpty {
+            return name
+        }
+        if let primaryTicket = tickets?.first(where: { $0.isPrimary }), let title = primaryTicket.title {
+            return title
+        }
+        return linearIssueTitle ?? githubIssueTitle ?? githubPRTitle ?? branch
     }
 
     var originLabel: String? {
@@ -95,7 +110,34 @@ struct Workstream: Identifiable, Equatable {
     }
 
     var hasOrigin: Bool {
-        linearIssueId != nil || githubIssueNumber != nil
+        // Check new multi-ticket first, then legacy
+        if let tickets = tickets, !tickets.isEmpty {
+            return true
+        }
+        return linearIssueId != nil || githubIssueNumber != nil
+    }
+
+    var hasTickets: Bool {
+        if let tickets = tickets {
+            return !tickets.isEmpty
+        }
+        return false
+    }
+
+    var openTickets: [WorkstreamTicket] {
+        tickets?.filter { $0.isOpen } ?? []
+    }
+
+    var primaryTicket: WorkstreamTicket? {
+        tickets?.first(where: { $0.isPrimary }) ?? tickets?.first
+    }
+
+    var unresolvedBlockers: [WorkstreamNote] {
+        notes?.filter { $0.type == .blocker && !$0.isResolved } ?? []
+    }
+
+    var recentNotes: [WorkstreamNote] {
+        notes?.sorted { $0.createdAt > $1.createdAt } ?? []
     }
 
     var hasPR: Bool {

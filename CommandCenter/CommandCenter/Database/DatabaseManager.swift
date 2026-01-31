@@ -73,6 +73,8 @@ class DatabaseManager {
     private let workstreamRepoId = SQLite.Expression<String>("repo_id")
     private let workstreamBranch = SQLite.Expression<String>("branch")
     private let workstreamDirectory = SQLite.Expression<String?>("directory")
+    private let workstreamName = SQLite.Expression<String?>("name")
+    private let workstreamDescription = SQLite.Expression<String?>("description")
     private let linearIssueId = SQLite.Expression<String?>("linear_issue_id")
     private let linearIssueTitle = SQLite.Expression<String?>("linear_issue_title")
     private let linearIssueState = SQLite.Expression<String?>("linear_issue_state")
@@ -96,6 +98,34 @@ class DatabaseManager {
     private let workstreamLastActivityAt = SQLite.Expression<String?>("last_activity_at")
     private let workstreamCreatedAt = SQLite.Expression<String>("created_at")
     private let workstreamUpdatedAt = SQLite.Expression<String>("updated_at")
+
+    // Workstream tickets table and columns
+    private let workstreamTickets = Table("workstream_tickets")
+    private let ticketId = SQLite.Expression<String>("id")
+    private let ticketWorkstreamId = SQLite.Expression<String>("workstream_id")
+    private let ticketSource = SQLite.Expression<String>("source")
+    private let ticketLinearIssueId = SQLite.Expression<String?>("linear_issue_id")
+    private let ticketLinearTeamId = SQLite.Expression<String?>("linear_team_id")
+    private let ticketGithubOwner = SQLite.Expression<String?>("github_owner")
+    private let ticketGithubRepo = SQLite.Expression<String?>("github_repo")
+    private let ticketGithubNumber = SQLite.Expression<Int?>("github_number")
+    private let ticketTitle = SQLite.Expression<String?>("title")
+    private let ticketState = SQLite.Expression<String?>("state")
+    private let ticketUrl = SQLite.Expression<String?>("url")
+    private let ticketIsPrimary = SQLite.Expression<Int>("is_primary")
+    private let ticketLinkedAt = SQLite.Expression<String>("linked_at")
+    private let ticketUpdatedAt = SQLite.Expression<String>("updated_at")
+
+    // Workstream notes table and columns
+    private let workstreamNotes = Table("workstream_notes")
+    private let noteId = SQLite.Expression<String>("id")
+    private let noteWorkstreamId = SQLite.Expression<String>("workstream_id")
+    private let noteSessionId = SQLite.Expression<String?>("session_id")
+    private let noteType = SQLite.Expression<String>("type")
+    private let noteContent = SQLite.Expression<String>("content")
+    private let noteMetadata = SQLite.Expression<String?>("metadata")
+    private let noteCreatedAt = SQLite.Expression<String>("created_at")
+    private let noteResolvedAt = SQLite.Expression<String?>("resolved_at")
 
     // Project columns
     private let projectId = SQLite.Expression<String>("id")
@@ -632,6 +662,8 @@ class DatabaseManager {
                     repoId: row[workstreamRepoId],
                     branch: row[workstreamBranch],
                     directory: row[workstreamDirectory],
+                    name: row[workstreamName],
+                    description: row[workstreamDescription],
                     linearIssueId: row[linearIssueId],
                     linearIssueTitle: row[linearIssueTitle],
                     linearIssueState: row[linearIssueState],
@@ -678,6 +710,8 @@ class DatabaseManager {
                     repoId: row[workstreamRepoId],
                     branch: row[workstreamBranch],
                     directory: row[workstreamDirectory],
+                    name: row[workstreamName],
+                    description: row[workstreamDescription],
                     linearIssueId: row[linearIssueId],
                     linearIssueTitle: row[linearIssueTitle],
                     linearIssueState: row[linearIssueState],
@@ -707,6 +741,140 @@ class DatabaseManager {
             print("Failed to fetch active workstreams: \(error)")
             return []
         }
+    }
+
+    // MARK: - Workstream Tickets
+
+    func fetchTickets(workstreamId: String) -> [WorkstreamTicket] {
+        guard let db = db else { return [] }
+
+        let query = workstreamTickets
+            .filter(ticketWorkstreamId == workstreamId)
+            .order(ticketIsPrimary.desc, ticketLinkedAt.desc)
+
+        do {
+            return try db.prepare(query).map { row in
+                WorkstreamTicket(
+                    id: row[ticketId],
+                    workstreamId: row[ticketWorkstreamId],
+                    source: WorkstreamTicket.Source(rawValue: row[ticketSource]) ?? .linear,
+                    linearIssueId: row[ticketLinearIssueId],
+                    linearTeamId: row[ticketLinearTeamId],
+                    githubOwner: row[ticketGithubOwner],
+                    githubRepo: row[ticketGithubRepo],
+                    githubNumber: row[ticketGithubNumber],
+                    title: row[ticketTitle],
+                    state: row[ticketState],
+                    url: row[ticketUrl],
+                    isPrimary: row[ticketIsPrimary] == 1,
+                    linkedAt: parseDate(row[ticketLinkedAt]) ?? Date(),
+                    updatedAt: parseDate(row[ticketUpdatedAt]) ?? Date()
+                )
+            }
+        } catch {
+            print("Failed to fetch tickets: \(error)")
+            return []
+        }
+    }
+
+    func addTicket(to workstreamId: String, source: WorkstreamTicket.Source, linearIssueId: String? = nil, linearTeamId: String? = nil, githubOwner: String? = nil, githubRepo: String? = nil, githubNumber: Int? = nil, title: String? = nil, state: String? = nil, url: String? = nil, isPrimary: Bool = false) {
+        guard let db = db else { return }
+
+        let now = dateFormatter.string(from: Date())
+        let id = UUID().uuidString.lowercased()
+
+        do {
+            try db.run(workstreamTickets.insert(or: .ignore,
+                ticketId <- id,
+                ticketWorkstreamId <- workstreamId,
+                ticketSource <- source.rawValue,
+                ticketLinearIssueId <- linearIssueId,
+                ticketLinearTeamId <- linearTeamId,
+                ticketGithubOwner <- githubOwner,
+                ticketGithubRepo <- githubRepo,
+                ticketGithubNumber <- githubNumber,
+                ticketTitle <- title,
+                ticketState <- state,
+                ticketUrl <- url,
+                ticketIsPrimary <- (isPrimary ? 1 : 0),
+                ticketLinkedAt <- now,
+                ticketUpdatedAt <- now
+            ))
+        } catch {
+            print("Failed to add ticket: \(error)")
+        }
+    }
+
+    // MARK: - Workstream Notes
+
+    func fetchNotes(workstreamId: String) -> [WorkstreamNote] {
+        guard let db = db else { return [] }
+
+        let query = workstreamNotes
+            .filter(noteWorkstreamId == workstreamId)
+            .order(noteCreatedAt.desc)
+
+        do {
+            return try db.prepare(query).map { row in
+                WorkstreamNote(
+                    id: row[noteId],
+                    workstreamId: row[noteWorkstreamId],
+                    sessionId: row[noteSessionId],
+                    type: WorkstreamNote.NoteType(rawValue: row[noteType]) ?? .note,
+                    content: row[noteContent],
+                    createdAt: parseDate(row[noteCreatedAt]) ?? Date(),
+                    resolvedAt: parseDate(row[noteResolvedAt])
+                )
+            }
+        } catch {
+            print("Failed to fetch notes: \(error)")
+            return []
+        }
+    }
+
+    func addNote(to workstreamId: String, sessionId: String? = nil, type: WorkstreamNote.NoteType, content: String) {
+        guard let db = db else { return }
+
+        let now = dateFormatter.string(from: Date())
+        let id = UUID().uuidString.lowercased()
+
+        do {
+            try db.run(workstreamNotes.insert(
+                noteId <- id,
+                noteWorkstreamId <- workstreamId,
+                noteSessionId <- sessionId,
+                noteType <- type.rawValue,
+                noteContent <- content,
+                noteCreatedAt <- now
+            ))
+        } catch {
+            print("Failed to add note: \(error)")
+        }
+    }
+
+    func resolveNote(noteId: String) {
+        guard let db = db else { return }
+
+        let now = dateFormatter.string(from: Date())
+        let note = workstreamNotes.filter(self.noteId == noteId)
+
+        do {
+            try db.run(note.update(noteResolvedAt <- now))
+        } catch {
+            print("Failed to resolve note: \(error)")
+        }
+    }
+
+    // MARK: - Workstream with Relations
+
+    func fetchWorkstreamWithRelations(id workstreamIdValue: String) -> Workstream? {
+        var workstream = fetchWorkstreams().first { $0.id == workstreamIdValue }
+        guard workstream != nil else { return nil }
+
+        workstream?.tickets = fetchTickets(workstreamId: workstreamIdValue)
+        workstream?.notes = fetchNotes(workstreamId: workstreamIdValue)
+
+        return workstream
     }
 
     func findOrCreateWorkstream(repoId: String, branch: String, directory: String?) -> Workstream? {
@@ -930,6 +1098,8 @@ class DatabaseManager {
                     repoId: row[workstreamRepoId],
                     branch: row[workstreamBranch],
                     directory: row[workstreamDirectory],
+                    name: row[workstreamName],
+                    description: row[workstreamDescription],
                     linearIssueId: row[linearIssueId],
                     linearIssueTitle: row[linearIssueTitle],
                     linearIssueState: row[linearIssueState],
