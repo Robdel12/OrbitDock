@@ -57,7 +57,7 @@ final class MessageStore {
 
     private init() {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        dbPath = homeDir.appendingPathComponent(".claude/dashboard.db").path
+        dbPath = homeDir.appendingPathComponent(".orbitdock/orbitdock.db").path
         setupDatabase()
     }
 

@@ -3,7 +3,7 @@
 # Handles: UserPromptSubmit, Stop, Notification
 
 # Don't use set -e to avoid breaking tool execution
-DB_PATH="$HOME/.claude/dashboard.db"
+DB_PATH="$HOME/.orbitdock/orbitdock.db"
 INPUT=$(cat)
 
 # Extract fields silently

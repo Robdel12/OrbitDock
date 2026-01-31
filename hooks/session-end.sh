@@ -5,7 +5,7 @@
 set -e
 
 LOG_FILE="$HOME/.claude/hooks/debug.log"
-DB_PATH="$HOME/.claude/dashboard.db"
+DB_PATH="$HOME/.orbitdock/orbitdock.db"
 INPUT=$(cat)
 
 # Debug logging
