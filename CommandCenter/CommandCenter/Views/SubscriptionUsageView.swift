@@ -241,19 +241,23 @@ struct SubscriptionUsageCard: View {
     var body: some View {
         HStack(spacing: 16) {
             if let usage = service.usage {
-                // 5-hour gauge
+                // 5-hour gauge with pace
                 UsageGauge(
                     value: usage.fiveHour.utilization,
                     label: "5h",
-                    resetsIn: usage.fiveHour.resetsInDescription
+                    resetsIn: usage.fiveHour.resetsInDescription,
+                    paceStatus: usage.fiveHour.paceStatus,
+                    projectedUsage: usage.fiveHour.projectedAtReset
                 )
 
-                // 7-day gauge (if available)
+                // 7-day gauge with pace (if available)
                 if let sevenDay = usage.sevenDay {
                     UsageGauge(
                         value: sevenDay.utilization,
                         label: "7d",
-                        resetsIn: sevenDay.resetsInDescription
+                        resetsIn: sevenDay.resetsInDescription,
+                        paceStatus: sevenDay.paceStatus,
+                        projectedUsage: sevenDay.projectedAtReset
                     )
                 }
 
@@ -309,11 +313,30 @@ struct SubscriptionUsageCard: View {
         if let resets = usage.fiveHour.resetsInDescription {
             text += " (resets in \(resets))"
         }
-        if let sevenDay = usage.sevenDay {
-            text += "\n7-day rolling: \(Int(sevenDay.utilization))% used"
+        let pace5h = usage.fiveHour.paceStatus
+        if pace5h != .unknown {
+            text += "\n  Pace: \(pace5h.rawValue)"
+            if usage.fiveHour.projectedAtReset > usage.fiveHour.utilization {
+                text += " → projected \(Int(usage.fiveHour.projectedAtReset))% at reset"
+            }
         }
+
+        if let sevenDay = usage.sevenDay {
+            text += "\n\n7-day rolling: \(Int(sevenDay.utilization))% used"
+            if let resets = sevenDay.resetsInDescription {
+                text += " (resets in \(resets))"
+            }
+            let pace7d = sevenDay.paceStatus
+            if pace7d != .unknown {
+                text += "\n  Pace: \(pace7d.rawValue)"
+                if sevenDay.projectedAtReset > sevenDay.utilization {
+                    text += " → projected \(Int(sevenDay.projectedAtReset))% at reset"
+                }
+            }
+        }
+
         if let plan = usage.planName {
-            text += "\nPlan: \(plan)"
+            text += "\n\nPlan: \(plan)"
         }
         return text
     }
@@ -325,6 +348,8 @@ struct UsageGauge: View {
     let value: Double  // 0-100
     let label: String
     let resetsIn: String?
+    var paceStatus: SubscriptionUsage.Window.PaceStatus? = nil
+    var projectedUsage: Double? = nil
 
     private let size: CGFloat = 44
     private let lineWidth: CGFloat = 4
@@ -335,12 +360,34 @@ struct UsageGauge: View {
         return .accent
     }
 
+    private var paceColor: Color {
+        guard let pace = paceStatus else { return .secondary }
+        switch pace {
+        case .unknown: return .secondary
+        case .relaxed: return .accent
+        case .onTrack: return .statusSuccess
+        case .borderline: return .statusWaiting
+        case .exceeding, .critical: return .statusError
+        }
+    }
+
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
                 // Background ring
                 Circle()
                     .stroke(Color.primary.opacity(0.08), lineWidth: lineWidth)
+
+                // Projected usage indicator (faint)
+                if let projected = projectedUsage, projected > value {
+                    Circle()
+                        .trim(from: min(1, value / 100), to: min(1, projected / 100))
+                        .stroke(
+                            paceColor.opacity(0.25),
+                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                }
 
                 // Progress arc
                 Circle()
@@ -358,7 +405,7 @@ struct UsageGauge: View {
             }
             .frame(width: size, height: size)
 
-            // Label + reset time
+            // Label + reset time + pace
             VStack(spacing: 1) {
                 Text(label)
                     .font(.system(size: 9, weight: .semibold))
@@ -369,6 +416,17 @@ struct UsageGauge: View {
                         .font(.system(size: 8, weight: .medium))
                         .foregroundStyle(.quaternary)
                 }
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            // Pace indicator badge
+            if let pace = paceStatus, pace != .unknown {
+                Image(systemName: pace.icon)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(paceColor)
+                    .padding(2)
+                    .background(Color.backgroundTertiary, in: Circle())
+                    .offset(x: 4, y: -2)
             }
         }
     }
@@ -382,21 +440,25 @@ struct MenuBarUsageSection: View {
     var body: some View {
         HStack(spacing: 0) {
             if let usage = service.usage {
-                // 5h gauge
+                // 5h gauge with pace
                 MenuBarGauge(
                     value: usage.fiveHour.utilization,
                     label: "5h Session",
-                    resetsIn: usage.fiveHour.resetsInDescription
+                    resetsIn: usage.fiveHour.resetsInDescription,
+                    paceStatus: usage.fiveHour.paceStatus,
+                    projectedUsage: usage.fiveHour.projectedAtReset
                 )
 
                 Spacer()
 
-                // 7d gauge
+                // 7d gauge with pace
                 if let sevenDay = usage.sevenDay {
                     MenuBarGauge(
                         value: sevenDay.utilization,
                         label: "7d Rolling",
-                        resetsIn: sevenDay.resetsInDescription
+                        resetsIn: sevenDay.resetsInDescription,
+                        paceStatus: sevenDay.paceStatus,
+                        projectedUsage: sevenDay.projectedAtReset
                     )
                 }
             } else if service.isLoading {
@@ -431,11 +493,24 @@ struct MenuBarGauge: View {
     let value: Double
     let label: String
     let resetsIn: String?
+    var paceStatus: SubscriptionUsage.Window.PaceStatus? = nil
+    var projectedUsage: Double? = nil
 
     private var color: Color {
         if value >= 90 { return .statusError }
         if value >= 70 { return .statusWaiting }
         return .accent
+    }
+
+    private var paceColor: Color {
+        guard let pace = paceStatus else { return .secondary }
+        switch pace {
+        case .unknown: return .secondary
+        case .relaxed: return .accent
+        case .onTrack: return .statusSuccess
+        case .borderline: return .statusWaiting
+        case .exceeding, .critical: return .statusError
+        }
     }
 
     var body: some View {
@@ -445,6 +520,13 @@ struct MenuBarGauge: View {
                 Text(label)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
+
+                // Pace indicator
+                if let pace = paceStatus, pace != .unknown {
+                    Image(systemName: pace.icon)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(paceColor)
+                }
 
                 Spacer()
 
@@ -459,12 +541,20 @@ struct MenuBarGauge: View {
                 }
             }
 
-            // Progress bar
+            // Progress bar with projection
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
                         .fill(Color.primary.opacity(0.08))
 
+                    // Projected usage (faint)
+                    if let projected = projectedUsage, projected > value {
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(paceColor.opacity(0.25))
+                            .frame(width: geo.size.width * min(1, projected / 100))
+                    }
+
+                    // Current usage
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
                         .fill(color)
                         .frame(width: geo.size.width * min(1, value / 100))

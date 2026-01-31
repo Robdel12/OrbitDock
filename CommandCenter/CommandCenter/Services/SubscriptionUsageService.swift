@@ -15,6 +15,7 @@ struct SubscriptionUsage: Sendable {
     struct Window: Sendable {
         let utilization: Double  // 0-100
         let resetsAt: Date?
+        let windowDuration: TimeInterval  // 5 hours or 7 days in seconds
 
         var remaining: Double { max(0, 100 - utilization) }
 
@@ -30,6 +31,80 @@ struct SubscriptionUsage: Sendable {
                 return "\(hours)h \(minutes)m"
             }
             return "\(minutes)m"
+        }
+
+        /// Time remaining until reset
+        var timeRemaining: TimeInterval {
+            guard let resetsAt else { return 0 }
+            return max(0, resetsAt.timeIntervalSinceNow)
+        }
+
+        /// Time elapsed since window started
+        var timeElapsed: TimeInterval {
+            return windowDuration - timeRemaining
+        }
+
+        /// Current burn rate (% per hour)
+        var burnRatePerHour: Double {
+            guard timeElapsed > 0 else { return 0 }
+            return utilization / (timeElapsed / 3600)
+        }
+
+        /// Projected usage at reset if current pace continues
+        var projectedAtReset: Double {
+            guard timeElapsed > 60 else { return utilization }  // Need at least 1 min of data
+            let rate = utilization / timeElapsed
+            return min(100, rate * windowDuration)
+        }
+
+        /// Whether on track to exceed the limit
+        var willExceed: Bool {
+            projectedAtReset > 95  // Give 5% buffer
+        }
+
+        /// Pace status
+        var paceStatus: PaceStatus {
+            // If very early in window, not enough data
+            if timeElapsed < 300 { return .unknown }  // 5 min minimum
+
+            let sustainableRate = 100.0 / (windowDuration / 3600)  // % per hour to use exactly 100%
+            let ratio = burnRatePerHour / sustainableRate
+
+            if ratio < 0.5 { return .relaxed }
+            if ratio < 0.9 { return .onTrack }
+            if ratio < 1.1 { return .borderline }
+            if ratio < 1.5 { return .exceeding }
+            return .critical
+        }
+
+        enum PaceStatus: String {
+            case unknown = "—"
+            case relaxed = "Relaxed"
+            case onTrack = "On Track"
+            case borderline = "Borderline"
+            case exceeding = "Exceeding"
+            case critical = "Critical"
+
+            var color: String {
+                switch self {
+                case .unknown: return "secondary"
+                case .relaxed: return "accent"
+                case .onTrack: return "statusSuccess"
+                case .borderline: return "statusWaiting"
+                case .exceeding, .critical: return "statusError"
+                }
+            }
+
+            var icon: String {
+                switch self {
+                case .unknown: return "minus"
+                case .relaxed: return "tortoise.fill"
+                case .onTrack: return "checkmark.circle.fill"
+                case .borderline: return "exclamationmark.circle.fill"
+                case .exceeding: return "flame.fill"
+                case .critical: return "bolt.fill"
+                }
+            }
         }
     }
 
@@ -331,7 +406,10 @@ final class SubscriptionUsageService {
     }
 
     private func parseResponse(_ json: [String: Any], rateLimitTier: String?) -> SubscriptionUsage {
-        func parseWindow(_ dict: [String: Any]?) -> SubscriptionUsage.Window? {
+        let fiveHourDuration: TimeInterval = 5 * 3600  // 5 hours
+        let sevenDayDuration: TimeInterval = 7 * 24 * 3600  // 7 days
+
+        func parseWindow(_ dict: [String: Any]?, duration: TimeInterval) -> SubscriptionUsage.Window? {
             guard let dict,
                   let utilization = dict["utilization"] as? Double else { return nil }
 
@@ -342,17 +420,17 @@ final class SubscriptionUsageService {
                 resetsAt = nil
             }
 
-            return SubscriptionUsage.Window(utilization: utilization, resetsAt: resetsAt)
+            return SubscriptionUsage.Window(utilization: utilization, resetsAt: resetsAt, windowDuration: duration)
         }
 
-        let fiveHour = parseWindow(json["five_hour"] as? [String: Any])
-            ?? SubscriptionUsage.Window(utilization: 0, resetsAt: nil)
+        let fiveHour = parseWindow(json["five_hour"] as? [String: Any], duration: fiveHourDuration)
+            ?? SubscriptionUsage.Window(utilization: 0, resetsAt: nil, windowDuration: fiveHourDuration)
 
         return SubscriptionUsage(
             fiveHour: fiveHour,
-            sevenDay: parseWindow(json["seven_day"] as? [String: Any]),
-            sevenDaySonnet: parseWindow(json["seven_day_sonnet"] as? [String: Any]),
-            sevenDayOpus: parseWindow(json["seven_day_opus"] as? [String: Any]),
+            sevenDay: parseWindow(json["seven_day"] as? [String: Any], duration: sevenDayDuration),
+            sevenDaySonnet: parseWindow(json["seven_day_sonnet"] as? [String: Any], duration: sevenDayDuration),
+            sevenDayOpus: parseWindow(json["seven_day_opus"] as? [String: Any], duration: sevenDayDuration),
             fetchedAt: Date(),
             rateLimitTier: rateLimitTier
         )
