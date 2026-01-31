@@ -41,6 +41,9 @@ class DatabaseManager {
     private let toolCount = SQLite.Expression<Int?>("tool_count")
     private let terminalSessionId = SQLite.Expression<String?>("terminal_session_id")
     private let terminalApp = SQLite.Expression<String?>("terminal_app")
+    private let attentionReason = SQLite.Expression<String?>("attention_reason")
+    private let pendingToolName = SQLite.Expression<String?>("pending_tool_name")
+    private let pendingQuestion = SQLite.Expression<String?>("pending_question")
 
     // Activity columns
     private let activityId = SQLite.Expression<Int>("id")
@@ -127,6 +130,21 @@ class DatabaseManager {
                 let summaryValue = try? row.get(sessionSummary)
                 let customNameValue = (try? row.get(customName)) ?? row[contextLabel]
 
+                // Parse attention reason with fallback logic
+                let attentionReasonValue: Session.AttentionReason = {
+                    if let reasonStr = try? row.get(attentionReason),
+                       let reason = Session.AttentionReason(rawValue: reasonStr) {
+                        return reason
+                    }
+                    // Fallback: derive from workStatus for backward compatibility
+                    let ws = Session.WorkStatus(rawValue: row[workStatus] ?? "unknown") ?? .unknown
+                    switch ws {
+                    case .permission: return .awaitingPermission
+                    case .waiting: return .awaitingReply
+                    default: return .none
+                    }
+                }()
+
                 return Session(
                     id: row[id],
                     projectPath: row[projectPath],
@@ -149,7 +167,10 @@ class DatabaseManager {
                     promptCount: row[promptCount] ?? 0,
                     toolCount: row[toolCount] ?? 0,
                     terminalSessionId: row[terminalSessionId],
-                    terminalApp: row[terminalApp]
+                    terminalApp: row[terminalApp],
+                    attentionReason: attentionReasonValue,
+                    pendingToolName: (try? row.get(pendingToolName)) ?? nil,
+                    pendingQuestion: (try? row.get(pendingQuestion)) ?? nil
                 )
             }
         } catch {
@@ -248,6 +269,33 @@ class DatabaseManager {
                 try db.run("ALTER TABLE sessions ADD COLUMN custom_name TEXT")
             } catch {
                 print("Failed to add custom_name column: \(error)")
+            }
+        }
+
+        // Add attention_reason column if it doesn't exist
+        if !columnExists("attention_reason", in: "sessions") {
+            do {
+                try db.run("ALTER TABLE sessions ADD COLUMN attention_reason TEXT")
+            } catch {
+                print("Failed to add attention_reason column: \(error)")
+            }
+        }
+
+        // Add pending_tool_name column if it doesn't exist
+        if !columnExists("pending_tool_name", in: "sessions") {
+            do {
+                try db.run("ALTER TABLE sessions ADD COLUMN pending_tool_name TEXT")
+            } catch {
+                print("Failed to add pending_tool_name column: \(error)")
+            }
+        }
+
+        // Add pending_question column if it doesn't exist
+        if !columnExists("pending_question", in: "sessions") {
+            do {
+                try db.run("ALTER TABLE sessions ADD COLUMN pending_question TEXT")
+            } catch {
+                print("Failed to add pending_question column: \(error)")
             }
         }
     }

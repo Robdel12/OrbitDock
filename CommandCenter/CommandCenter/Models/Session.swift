@@ -28,6 +28,9 @@ struct Session: Identifiable, Hashable {
     var toolCount: Int
     var terminalSessionId: String?
     var terminalApp: String?
+    var attentionReason: AttentionReason
+    var pendingToolName: String?    // Which tool needs permission
+    var pendingQuestion: String?    // Question text from AskUserQuestion
 
     enum SessionStatus: String {
         case active
@@ -40,6 +43,31 @@ struct Session: Identifiable, Hashable {
         case waiting    // Waiting for user input
         case permission // Waiting for permission approval
         case unknown    // Unknown state
+    }
+
+    enum AttentionReason: String {
+        case none               // Working or ended - no attention needed
+        case awaitingReply      // Claude finished, waiting for next prompt
+        case awaitingPermission // Tool needs approval (Bash, Write, etc.)
+        case awaitingQuestion   // AskUserQuestion tool - Claude asked a question
+
+        var label: String {
+            switch self {
+            case .none: return ""
+            case .awaitingReply: return "Ready"
+            case .awaitingPermission: return "Permission"
+            case .awaitingQuestion: return "Question"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .none: return "circle"
+            case .awaitingReply: return "checkmark.circle"
+            case .awaitingPermission: return "lock.fill"
+            case .awaitingQuestion: return "questionmark.bubble"
+            }
+        }
     }
 
     // Custom initializer with backward compatibility for legacy code using contextLabel
@@ -66,7 +94,10 @@ struct Session: Identifiable, Hashable {
         promptCount: Int = 0,
         toolCount: Int = 0,
         terminalSessionId: String? = nil,
-        terminalApp: String? = nil
+        terminalApp: String? = nil,
+        attentionReason: AttentionReason = .none,
+        pendingToolName: String? = nil,
+        pendingQuestion: String? = nil
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -90,6 +121,9 @@ struct Session: Identifiable, Hashable {
         self.toolCount = toolCount
         self.terminalSessionId = terminalSessionId
         self.terminalApp = terminalApp
+        self.attentionReason = attentionReason
+        self.pendingToolName = pendingToolName
+        self.pendingQuestion = pendingQuestion
     }
 
     var displayName: String {
@@ -107,7 +141,12 @@ struct Session: Identifiable, Hashable {
     }
 
     var needsAttention: Bool {
-        isActive && (workStatus == .waiting || workStatus == .permission)
+        isActive && attentionReason != .none && attentionReason != .awaitingReply
+    }
+
+    /// Returns true if session is waiting but not blocking (just needs a reply)
+    var isReady: Bool {
+        isActive && attentionReason == .awaitingReply
     }
 
     var statusIcon: String {

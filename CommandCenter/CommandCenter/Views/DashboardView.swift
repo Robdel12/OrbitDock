@@ -22,17 +22,37 @@ struct DashboardView: View {
                 ?? path.components(separatedBy: "/").last
                 ?? "Unknown"
 
-            // Sort sessions: active first (by status priority), then ended by date
+            // Sort sessions: active first, then by attention priority, then by last activity
             let sorted = sessions.sorted { a, b in
+                // Active sessions before ended
                 if a.isActive && !b.isActive { return true }
                 if !a.isActive && b.isActive { return false }
+
                 if a.isActive && b.isActive {
-                    // Within active: waiting/permission first, then working
-                    if a.needsAttention && !b.needsAttention { return true }
-                    if !a.needsAttention && b.needsAttention { return false }
+                    // Priority order: Working > Needs Attention (permission/question) > Ready
+                    let aPriority = attentionPriority(a)
+                    let bPriority = attentionPriority(b)
+                    if aPriority != bPriority { return aPriority < bPriority }
+                    // Same priority: sort by last activity
+                    let aTime = a.lastActivityAt ?? a.startedAt ?? .distantPast
+                    let bTime = b.lastActivityAt ?? b.startedAt ?? .distantPast
+                    return aTime > bTime
                 }
-                // Both ended: sort by end date
-                return (a.endedAt ?? .distantPast) > (b.endedAt ?? .distantPast)
+
+                // Both ended: sort by last activity (or end date as fallback)
+                let aTime = a.lastActivityAt ?? a.endedAt ?? .distantPast
+                let bTime = b.lastActivityAt ?? b.endedAt ?? .distantPast
+                return aTime > bTime
+            }
+
+            // Priority: 0 = working, 1 = needs attention, 2 = ready
+            func attentionPriority(_ session: Session) -> Int {
+                if session.workStatus == .working { return 0 }
+                switch session.attentionReason {
+                case .awaitingPermission, .awaitingQuestion: return 1
+                case .awaitingReply: return 2
+                case .none: return 3
+                }
             }
 
             return ProjectGroup(
@@ -444,31 +464,48 @@ struct TaskRow: View {
 
     private var statusColor: Color {
         guard session.isActive else { return .secondary.opacity(0.4) }
-        switch session.workStatus {
-        case .working: return .statusWorking
-        case .waiting: return .statusWaiting
-        case .permission: return .statusPermission
-        case .unknown: return .secondary
+        // Use attention reason for more nuanced colors
+        switch session.attentionReason {
+        case .none:
+            return session.workStatus == .working ? .statusWorking : .secondary
+        case .awaitingReply:
+            return .blue.opacity(0.8)  // Ready/done - low urgency
+        case .awaitingPermission:
+            return .statusPermission   // Yellow - needs action
+        case .awaitingQuestion:
+            return .statusWaiting      // Orange - Claude asked something
         }
     }
 
     private var statusLabel: String {
         guard session.isActive else { return "Ended" }
-        switch session.workStatus {
-        case .working: return "Working"
-        case .waiting: return "Waiting"
-        case .permission: return "Permission"
-        case .unknown: return "Active"
+        // Use attention reason for more specific labels
+        switch session.attentionReason {
+        case .none:
+            return session.workStatus == .working ? "Working" : "Active"
+        case .awaitingReply:
+            return "Ready"
+        case .awaitingPermission:
+            if let tool = session.pendingToolName {
+                return tool
+            }
+            return "Permission"
+        case .awaitingQuestion:
+            return "Question"
         }
     }
 
     private var statusIcon: String {
         guard session.isActive else { return "checkmark.circle" }
-        switch session.workStatus {
-        case .working: return "bolt.fill"
-        case .waiting: return "clock.fill"
-        case .permission: return "lock.fill"
-        case .unknown: return "circle"
+        switch session.attentionReason {
+        case .none:
+            return session.workStatus == .working ? "bolt.fill" : "circle"
+        case .awaitingReply:
+            return "checkmark.circle"
+        case .awaitingPermission:
+            return "lock.fill"
+        case .awaitingQuestion:
+            return "questionmark.bubble"
         }
     }
 

@@ -159,11 +159,17 @@ struct QuickSwitcher: View {
     }
 
     private var needsAttention: [Session] {
+        // Permission or question - actually needs action
         filteredSessions.filter { $0.needsAttention }
     }
 
     private var working: [Session] {
         filteredSessions.filter { $0.isActive && $0.workStatus == .working }
+    }
+
+    private var ready: [Session] {
+        // Awaiting reply - Claude is done, low urgency
+        filteredSessions.filter { $0.isActive && $0.isReady }
     }
 
     private var recent: [Session] {
@@ -175,7 +181,7 @@ struct QuickSwitcher: View {
 
     // Flat list for keyboard navigation (matches display order)
     private var allVisibleSessions: [Session] {
-        working + needsAttention + recent
+        working + needsAttention + ready + recent
     }
 
     // Total items for navigation (includes dashboard row when not in command mode)
@@ -426,13 +432,23 @@ struct QuickSwitcher: View {
                         )
                     }
 
+                    if !ready.isEmpty {
+                        sectionView(
+                            title: "READY",
+                            sessions: ready,
+                            color: .blue.opacity(0.8),
+                            icon: "checkmark.circle",
+                            startIndex: working.count + needsAttention.count + 1
+                        )
+                    }
+
                     if !recent.isEmpty {
                         sectionView(
                             title: "RECENT",
                             sessions: recent,
                             color: .secondary,
                             icon: "clock",
-                            startIndex: working.count + needsAttention.count + 1
+                            startIndex: working.count + needsAttention.count + ready.count + 1
                         )
                     }
                 }
