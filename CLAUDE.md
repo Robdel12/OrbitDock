@@ -77,6 +77,18 @@ Key files:
 - Use `NSAppleScript(source:)` with `executeAndReturnError`
 - iTerm2 sessions have `unique ID` and `path` properties
 
+### Subscription Usage API
+- `SubscriptionUsageService.shared` fetches from `api.anthropic.com/api/oauth/usage`
+- Reads OAuth token from Claude CLI keychain (`Claude Code-credentials`)
+- Caches token in app's own keychain (`com.orbitdock.claude-token`) to avoid prompts
+- Auto-refreshes every 60 seconds
+- Tracks: 5h session, 7d rolling, Sonnet/Opus specific limits
+- Pace tracking calculates burn rate and projects usage at reset
+
+Key files:
+- `SubscriptionUsageService.swift` - API fetching, keychain, pace calculations
+- `SubscriptionUsageView.swift` - UI components (gauges, bars, badges)
+
 ## Testing Changes
 
 1. Make changes to Swift code
