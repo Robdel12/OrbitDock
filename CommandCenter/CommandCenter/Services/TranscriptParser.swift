@@ -519,6 +519,12 @@ struct TranscriptParser {
     }
 
     private static func extractAssistantContent(from message: [String: Any]) -> String? {
+        // Handle simple string content (e.g., text-only continuation messages)
+        if let content = message["content"] as? String {
+            return content
+        }
+
+        // Handle array of content blocks (e.g., mixed tool_use and text)
         guard let content = message["content"] as? [[String: Any]] else {
             return nil
         }
