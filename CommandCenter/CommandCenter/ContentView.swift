@@ -349,8 +349,8 @@ struct SessionDetailViewNew: View {
             Divider()
                 .foregroundStyle(Color.panelBorder)
 
-            // Conversation (hero) - using redesigned view
-            ConversationViewNew(
+            // Conversation (hero)
+            ConversationView(
                 transcriptPath: session.transcriptPath,
                 sessionId: session.id,
                 isSessionActive: session.isActive,
