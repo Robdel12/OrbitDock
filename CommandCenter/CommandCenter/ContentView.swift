@@ -205,6 +205,7 @@ struct ContentView: View {
             // Quick Switcher
             QuickSwitcher(
                 sessions: sessions,
+                currentSessionId: selectedSessionId,
                 onSelect: { id in
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                         selectedSessionId = id
@@ -318,7 +319,7 @@ struct SessionDetailViewNew: View {
             setupSubscription()
         }
         .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
-            Button("Open New") { openNewITermWithResume() }
+            Button("Open New") { TerminalService.shared.focusSession(session) }
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Couldn't find the terminal. Open a new iTerm window to resume?")
@@ -425,112 +426,7 @@ struct SessionDetailViewNew: View {
     }
 
     private func openInITerm() {
-        if session.isActive {
-            focusExistingTerminal()
-        } else {
-            openNewITermWithResume()
-        }
-    }
-
-    private func focusExistingTerminal() {
-        if let terminalId = session.terminalSessionId, !terminalId.isEmpty,
-           session.terminalApp == "iTerm.app" {
-            focusITermBySessionId(terminalId)
-            return
-        }
-        focusExistingTerminalByPath()
-    }
-
-    private func focusITermBySessionId(_ sessionId: String) {
-        let script = """
-        tell application "iTerm2"
-            repeat with aWindow in windows
-                repeat with aTab in tabs of aWindow
-                    repeat with aSession in sessions of aTab
-                        try
-                            if unique ID of aSession contains "\(sessionId)" then
-                                select aTab
-                                select aSession
-                                set index of aWindow to 1
-                                activate
-                                return "found"
-                            end if
-                        end try
-                    end repeat
-                end repeat
-            end repeat
-            return "not_found"
-        end tell
-        """
-
-        runAppleScript(script) { result in
-            if result == "not_found" || result == nil {
-                focusExistingTerminalByPath()
-            }
-        }
-    }
-
-    private func focusExistingTerminalByPath() {
-        let escapedPath = session.projectPath.replacingOccurrences(of: "'", with: "'\\''")
-
-        let script = """
-        tell application "iTerm2"
-            repeat with aWindow in windows
-                repeat with aTab in tabs of aWindow
-                    repeat with aSession in sessions of aTab
-                        try
-                            set sessionPath to path of aSession
-                            if sessionPath contains "\(escapedPath)" then
-                                select aTab
-                                select aSession
-                                set index of aWindow to 1
-                                activate
-                                return "found"
-                            end if
-                        end try
-                    end repeat
-                end repeat
-            end repeat
-            return "not_found"
-        end tell
-        """
-
-        runAppleScript(script) { result in
-            if result == "not_found" || result == nil {
-                DispatchQueue.main.async {
-                    terminalActionFailed = true
-                }
-            }
-        }
-    }
-
-    private func openNewITermWithResume() {
-        let escapedPath = session.projectPath.replacingOccurrences(of: "'", with: "'\\''")
-        let command = "cd '\(escapedPath)' && claude --resume \(session.id)"
-
-        let script = """
-        tell application "iTerm2"
-            activate
-            set newWindow to (create window with default profile)
-            tell current session of newWindow
-                write text "\(command)"
-            end tell
-        end tell
-        """
-
-        runAppleScript(script) { _ in }
-    }
-
-    private func runAppleScript(_ source: String, completion: @escaping (String?) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let script = NSAppleScript(source: source)
-            var error: NSDictionary?
-            let result = script?.executeAndReturnError(&error)
-
-            DispatchQueue.main.async {
-                completion(result?.stringValue)
-            }
-        }
+        TerminalService.shared.focusSession(session)
     }
 }
 

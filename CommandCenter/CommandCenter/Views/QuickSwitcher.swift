@@ -67,31 +67,31 @@ struct QuickCommand: Identifiable {
 struct QuickSwitcher: View {
     @Environment(DatabaseManager.self) private var database
     let sessions: [Session]
+    let currentSessionId: String?  // Currently selected session in ContentView
     let onSelect: (String) -> Void
     let onGoToDashboard: () -> Void
     let onClose: () -> Void
 
     @State private var searchText = ""
     @State private var selectedIndex = 0
+    @State private var hoveredIndex: Int?
     @State private var renamingSession: Session?
     @State private var renameText = ""
-    @State private var contextSession: Session?  // Session selected when entering command mode
+    @State private var targetSession: Session?  // Session that commands will act on
     @FocusState private var isSearchFocused: Bool
 
-    // MARK: - Search Mode Detection
-
-    private var isCommandMode: Bool {
-        searchText.hasPrefix(">")
+    // The session currently being viewed (for commands to act on)
+    private var currentSession: Session? {
+        if let id = currentSessionId {
+            return sessions.first { $0.id == id }
+        }
+        return nil
     }
 
-    private var commandSearchText: String {
-        guard isCommandMode else { return "" }
-        return String(searchText.dropFirst()).trimmingCharacters(in: .whitespaces)
-    }
+    // MARK: - Search
 
-    private var sessionSearchText: String {
-        guard !isCommandMode else { return "" }
-        return searchText
+    private var searchQuery: String {
+        searchText.trimmingCharacters(in: .whitespaces).lowercased()
     }
 
     // MARK: - Commands
@@ -118,7 +118,7 @@ struct QuickSwitcher: View {
                 renameText = session.customName ?? ""
                 renamingSession = session
             },
-            onFocus: { session in
+            onFocus: { [self] session in
                 focusTerminal(for: session)
                 onClose()
             },
@@ -138,23 +138,20 @@ struct QuickSwitcher: View {
     }
 
     private var filteredCommands: [QuickCommand] {
-        guard isCommandMode else { return [] }
-        let query = commandSearchText.lowercased()
-        if query.isEmpty { return commands }
-        return commands.filter { $0.name.lowercased().contains(query) }
+        guard !searchQuery.isEmpty else { return [] }
+        return commands.filter { $0.name.lowercased().contains(searchQuery) }
     }
 
     // MARK: - Sessions
 
     private var filteredSessions: [Session] {
-        guard !isCommandMode else { return [] }
-        guard !sessionSearchText.isEmpty else { return sessions }
+        guard !searchQuery.isEmpty else { return sessions }
         return sessions.filter {
-            $0.displayName.localizedCaseInsensitiveContains(sessionSearchText) ||
-            $0.projectPath.localizedCaseInsensitiveContains(sessionSearchText) ||
-            ($0.summary ?? "").localizedCaseInsensitiveContains(sessionSearchText) ||
-            ($0.customName ?? "").localizedCaseInsensitiveContains(sessionSearchText) ||
-            ($0.branch ?? "").localizedCaseInsensitiveContains(sessionSearchText)
+            $0.displayName.localizedCaseInsensitiveContains(searchQuery) ||
+            $0.projectPath.localizedCaseInsensitiveContains(searchQuery) ||
+            ($0.summary ?? "").localizedCaseInsensitiveContains(searchQuery) ||
+            ($0.customName ?? "").localizedCaseInsensitiveContains(searchQuery) ||
+            ($0.branch ?? "").localizedCaseInsensitiveContains(searchQuery)
         }
     }
 
@@ -184,9 +181,10 @@ struct QuickSwitcher: View {
         working + needsAttention + ready + recent
     }
 
-    // Total items for navigation (includes dashboard row when not in command mode)
+    // Total items for navigation
+    // Order: Commands (if searching) → Dashboard → Sessions
     private var totalItems: Int {
-        isCommandMode ? filteredCommands.count : allVisibleSessions.count + 1  // +1 for dashboard row
+        filteredCommands.count + 1 + allVisibleSessions.count  // commands + dashboard + sessions
     }
 
     var body: some View {
@@ -206,24 +204,19 @@ struct QuickSwitcher: View {
                 onRename: { renameCurrentSelection() }
             ))
             .onChange(of: searchText) { oldValue, newValue in
-                selectedIndex = 0  // Reset selection when search changes
-
-                // Track context session when entering command mode
-                let wasCommandMode = oldValue.hasPrefix(">")
-                let isNowCommandMode = newValue.hasPrefix(">")
-                if !wasCommandMode && isNowCommandMode {
-                    // Entering command mode - save current session context
-                    // Account for dashboard row at index 0 (session indices start at 1)
-                    let sessionIndex = selectedIndex > 0 ? selectedIndex - 1 : 0
-                    if sessionIndex < allVisibleSessions.count {
-                        contextSession = allVisibleSessions[sessionIndex]
+                // When starting to type, capture the current session as target
+                if oldValue.isEmpty && !newValue.isEmpty {
+                    let sessionIndex = selectedIndex - sessionStartIndex
+                    if sessionIndex >= 0 && sessionIndex < allVisibleSessions.count {
+                        targetSession = allVisibleSessions[sessionIndex]
                     } else {
-                        contextSession = allVisibleSessions.first
+                        targetSession = allVisibleSessions.first
                     }
-                } else if wasCommandMode && !isNowCommandMode {
-                    // Leaving command mode - clear context
-                    contextSession = nil
+                } else if newValue.isEmpty {
+                    targetSession = nil
                 }
+                selectedIndex = 0
+                hoveredIndex = nil
             }
             .sheet(item: $renamingSession) { session in
                 RenameSessionSheet(
@@ -250,9 +243,7 @@ struct QuickSwitcher: View {
             Divider()
                 .foregroundStyle(Color.panelBorder)
 
-            if isCommandMode {
-                commandsView
-            } else if allVisibleSessions.isEmpty {
+            if allVisibleSessions.isEmpty && filteredCommands.isEmpty && !searchQuery.isEmpty {
                 emptyState
             } else {
                 resultsView
@@ -267,47 +258,6 @@ struct QuickSwitcher: View {
                 .strokeBorder(Color.panelBorder, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 40, x: 0, y: 20)
-    }
-
-    // MARK: - Commands View
-
-    private var commandsView: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                // Context session indicator
-                if let session = contextSession ?? allVisibleSessions.first {
-                    HStack(spacing: 10) {
-                        Image(systemName: "target")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.accent.opacity(0.6))
-
-                        Text("Acting on")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.tertiary)
-
-                        Text(session.displayName)
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
-
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(Color.backgroundTertiary.opacity(0.4))
-                }
-
-                if filteredCommands.isEmpty {
-                    commandEmptyState
-                } else {
-                    ForEach(Array(filteredCommands.enumerated()), id: \.element.id) { index, command in
-                        commandRow(command: command, index: index)
-                            .id("cmd-\(index)")
-                    }
-                }
-            }
-            .padding(.vertical, 8)
-        }
-        .frame(maxHeight: 480)
     }
 
     private func commandRow(command: QuickCommand, index: Int) -> some View {
@@ -352,46 +302,24 @@ struct QuickSwitcher: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(selectedIndex == index ? Color.accent.opacity(0.15) : Color.clear)
+                QuickSwitcherRowBackground(
+                    isSelected: selectedIndex == index,
+                    isHovered: hoveredIndex == index
+                )
             )
             .padding(.horizontal, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private var commandEmptyState: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(Color.backgroundTertiary)
-                    .frame(width: 56, height: 56)
-
-                Image(systemName: "command")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(.tertiary)
-            }
-
-            VStack(spacing: 4) {
-                Text("No commands found")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                Text("Try a different search term")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-            }
+        .onHover { isHovered in
+            hoveredIndex = isHovered ? index : nil
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 48)
     }
 
     private func executeCommand(_ command: QuickCommand) {
         if command.requiresSession {
-            // Use the context session (selected when entering command mode) or first session
-            let session = contextSession ?? allVisibleSessions.first
-            guard session != nil else { return }
+            // Use current session (from ContentView), or target (from navigation), or first visible
+            guard let session = currentSession ?? targetSession ?? allVisibleSessions.first else { return }
             command.action(session)
         } else {
             command.action(nil)
@@ -402,12 +330,12 @@ struct QuickSwitcher: View {
 
     private var searchBar: some View {
         HStack(spacing: 14) {
-            Image(systemName: isCommandMode ? "command" : "magnifyingglass")
+            Image(systemName: "magnifyingglass")
                 .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(isCommandMode ? Color.accent : Color.secondary)
+                .foregroundStyle(Color.secondary)
                 .frame(width: 24)
 
-            TextField(isCommandMode ? "Search commands..." : "Search agents... (type > for commands)", text: $searchText)
+            TextField("Search sessions and commands...", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 17))
                 .focused($isSearchFocused)
@@ -429,22 +357,32 @@ struct QuickSwitcher: View {
 
     // MARK: - Results View
 
+    // Index offset: commands come first, then dashboard, then sessions
+    private var commandCount: Int { filteredCommands.count }
+    private var dashboardIndex: Int { commandCount }
+    private var sessionStartIndex: Int { commandCount + 1 }
+
     private var resultsView: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    // Dashboard row (always first, index 0)
-                    dashboardRow
-                        .id("row-0")
+                    // Commands section (when searching)
+                    if !filteredCommands.isEmpty {
+                        commandsSection
+                    }
 
-                    // Sessions start at index 1
+                    // Dashboard row
+                    dashboardRow
+                        .id("row-\(dashboardIndex)")
+
+                    // Sessions
                     if !working.isEmpty {
                         sectionView(
                             title: "WORKING",
                             sessions: working,
                             color: .statusWorking,
                             icon: "bolt.fill",
-                            startIndex: 1  // Offset by 1 for dashboard row
+                            startIndex: sessionStartIndex
                         )
                     }
 
@@ -454,7 +392,7 @@ struct QuickSwitcher: View {
                             sessions: needsAttention,
                             color: .statusWaiting,
                             icon: "exclamationmark.circle.fill",
-                            startIndex: working.count + 1
+                            startIndex: sessionStartIndex + working.count
                         )
                     }
 
@@ -464,7 +402,7 @@ struct QuickSwitcher: View {
                             sessions: ready,
                             color: .statusSuccess,
                             icon: "checkmark.circle",
-                            startIndex: working.count + needsAttention.count + 1
+                            startIndex: sessionStartIndex + working.count + needsAttention.count
                         )
                     }
 
@@ -474,7 +412,7 @@ struct QuickSwitcher: View {
                             sessions: recent,
                             color: .secondary,
                             icon: "clock",
-                            startIndex: working.count + needsAttention.count + ready.count + 1
+                            startIndex: sessionStartIndex + working.count + needsAttention.count + ready.count
                         )
                     }
                 }
@@ -487,69 +425,102 @@ struct QuickSwitcher: View {
         }
     }
 
-    // Quick Actions section at the top
-    private var dashboardRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Section header
-            Text("QUICK ACTIONS")
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary)
-                .tracking(0.8)
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
+    // MARK: - Commands Section
 
-            Button {
-                onGoToDashboard()
-                onClose()
-            } label: {
-                HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.accent.opacity(0.15))
-                            .frame(width: 32, height: 32)
+    private var commandsSection: some View {
+        let activeSession = targetSession ?? allVisibleSessions.first
 
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.accent)
-                    }
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "command")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.accent)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Dashboard")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.primary)
+                Text("COMMANDS")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.accent)
+                    .tracking(0.8)
 
-                        Text("View all agents overview")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    Spacer()
-
-                    Text("⌘0")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                if let session = activeSession {
+                    Text("→")
+                        .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(selectedIndex == 0 ? Color.accent.opacity(0.12) : Color.backgroundTertiary.opacity(0.4))
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 12)
 
-            // Divider before sessions
+                    Text(session.customName ?? session.summary ?? session.projectName ?? "Session")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            ForEach(Array(filteredCommands.enumerated()), id: \.element.id) { index, command in
+                commandRow(command: command, index: index)
+                    .id("row-\(index)")
+            }
+
+            // Divider after commands
             Rectangle()
                 .fill(Color.panelBorder)
                 .frame(height: 1)
                 .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.vertical, 8)
         }
+    }
+
+    // Dashboard row
+    private var dashboardRow: some View {
+        Button {
+            onGoToDashboard()
+            onClose()
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.accent.opacity(0.15))
+                        .frame(width: 32, height: 32)
+
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.accent)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Dashboard")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Text("View all agents overview")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                Text("⌘0")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                QuickSwitcherRowBackground(
+                    isSelected: selectedIndex == dashboardIndex,
+                    isHovered: hoveredIndex == dashboardIndex
+                )
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered in
+            hoveredIndex = isHovered ? dashboardIndex : nil
+        }
+        .padding(.horizontal, 8)
     }
 
     // MARK: - Section View
@@ -591,7 +562,9 @@ struct QuickSwitcher: View {
     // MARK: - Switcher Row
 
     private func switcherRow(session: Session, index: Int) -> some View {
-        Button {
+        let isHighlighted = selectedIndex == index || hoveredIndex == index
+
+        return Button {
             onSelect(session.id)
         } label: {
             HStack(spacing: 14) {
@@ -653,19 +626,71 @@ struct QuickSwitcher: View {
 
                 Spacer()
 
-                // Model badge
-                ModelBadgeMini(model: session.model)
+                // Action buttons (shown on hover/selection)
+                if isHighlighted {
+                    HStack(spacing: 4) {
+                        // Focus terminal
+                        actionButton(icon: "terminal", tooltip: "Focus Terminal") {
+                            print("Inline button focus on session: \(session.id)")
+                            print("  terminalSessionId: \(session.terminalSessionId ?? "nil")")
+                            focusTerminal(for: session)
+                            onClose()
+                        }
+
+                        // Open in Finder
+                        actionButton(icon: "folder", tooltip: "Open in Finder") {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+                            onClose()
+                        }
+
+                        // Rename
+                        actionButton(icon: "pencil", tooltip: "Rename") {
+                            renameText = session.customName ?? ""
+                            renamingSession = session
+                        }
+
+                        // Copy resume command
+                        actionButton(icon: "doc.on.doc", tooltip: "Copy Resume") {
+                            let command = "claude --resume \(session.id)"
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(command, forType: .string)
+                            onClose()
+                        }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                } else {
+                    // Model badge (shown when not highlighted)
+                    ModelBadgeMini(model: session.model)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(selectedIndex == index ? Color.accent.opacity(0.15) : Color.clear)
+                QuickSwitcherRowBackground(
+                    isSelected: selectedIndex == index,
+                    isHovered: hoveredIndex == index
+                )
             )
             .padding(.horizontal, 8)
             .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.15), value: isHighlighted)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered in
+            hoveredIndex = isHovered ? index : nil
+        }
+    }
+
+    private func actionButton(icon: String, tooltip: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(tooltip)
     }
 
     // MARK: - Empty State
@@ -702,21 +727,11 @@ struct QuickSwitcher: View {
 
     private var footerHint: some View {
         HStack(spacing: 0) {
-            if isCommandMode {
-                hintItem(keys: "↑↓", label: "Navigate")
-                footerDivider
-                hintItem(keys: "↵", label: "Execute")
-                footerDivider
-                hintItem(keys: "⌫", label: "Back")
-            } else {
-                hintItem(keys: ">", label: "Commands")
-                footerDivider
-                hintItem(keys: "↑↓", label: "Navigate")
-                footerDivider
-                hintItem(keys: "↵", label: "Select")
-                footerDivider
-                hintItem(keys: "⌘R", label: "Rename")
-            }
+            hintItem(keys: "↑↓", label: "Navigate")
+            footerDivider
+            hintItem(keys: "↵", label: "Select")
+            footerDivider
+            hintItem(keys: "⌘R", label: "Rename")
             footerDivider
             hintItem(keys: "esc", label: "Close")
 
@@ -765,31 +780,31 @@ struct QuickSwitcher: View {
     }
 
     private func selectCurrent() {
-        if isCommandMode {
-            // Execute command
-            guard selectedIndex < filteredCommands.count else { return }
+        // Commands come first
+        if selectedIndex < commandCount {
             let command = filteredCommands[selectedIndex]
             executeCommand(command)
-        } else {
-            // Index 0 is dashboard
-            if selectedIndex == 0 {
-                onGoToDashboard()
-                onClose()
-                return
-            }
-
-            // Session indices are offset by 1
-            let sessionIndex = selectedIndex - 1
-            guard sessionIndex < allVisibleSessions.count else { return }
-            let session = allVisibleSessions[sessionIndex]
-            onSelect(session.id)
+            return
         }
+
+        // Dashboard is after commands
+        if selectedIndex == dashboardIndex {
+            onGoToDashboard()
+            onClose()
+            return
+        }
+
+        // Sessions are after dashboard
+        let sessionIndex = selectedIndex - sessionStartIndex
+        guard sessionIndex >= 0 && sessionIndex < allVisibleSessions.count else { return }
+        let session = allVisibleSessions[sessionIndex]
+        onSelect(session.id)
     }
 
     private func renameCurrentSelection() {
-        guard !isCommandMode else { return }
-        guard selectedIndex > 0 else { return }  // Can't rename dashboard
-        let sessionIndex = selectedIndex - 1  // Offset by 1 for dashboard row
+        // Can only rename sessions (not commands or dashboard)
+        guard selectedIndex >= sessionStartIndex else { return }
+        let sessionIndex = selectedIndex - sessionStartIndex
         guard sessionIndex < allVisibleSessions.count else { return }
         let session = allVisibleSessions[sessionIndex]
         renameText = session.customName ?? ""
@@ -797,54 +812,7 @@ struct QuickSwitcher: View {
     }
 
     private func focusTerminal(for session: Session) {
-        if session.isActive {
-            // Try to focus existing terminal
-            if let terminalId = session.terminalSessionId, !terminalId.isEmpty,
-               session.terminalApp == "iTerm.app" {
-                let script = """
-                tell application "iTerm2"
-                    repeat with aWindow in windows
-                        repeat with aTab in tabs of aWindow
-                            repeat with aSession in sessions of aTab
-                                try
-                                    if unique ID of aSession contains "\(terminalId)" then
-                                        select aTab
-                                        select aSession
-                                        set index of aWindow to 1
-                                        activate
-                                        return
-                                    end if
-                                end try
-                            end repeat
-                        end repeat
-                    end repeat
-                end tell
-                """
-                runAppleScript(script)
-            }
-        } else {
-            // Open new terminal with resume command
-            let escapedPath = session.projectPath.replacingOccurrences(of: "'", with: "'\\''")
-            let command = "cd '\(escapedPath)' && claude --resume \(session.id)"
-            let script = """
-            tell application "iTerm2"
-                activate
-                set newWindow to (create window with default profile)
-                tell current session of newWindow
-                    write text "\(command)"
-                end tell
-            end tell
-            """
-            runAppleScript(script)
-        }
-    }
-
-    private func runAppleScript(_ source: String) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let script = NSAppleScript(source: source)
-            var error: NSDictionary?
-            script?.executeAndReturnError(&error)
-        }
+        TerminalService.shared.focusSession(session)
     }
 
     private func statusColor(for session: Session) -> Color {
@@ -954,12 +922,49 @@ struct QuickSwitcher: View {
                     terminalApp: nil
                 )
             ],
+            currentSessionId: "1",
             onSelect: { _ in },
             onGoToDashboard: {},
             onClose: {}
         )
     }
     .frame(width: 800, height: 600)
+}
+
+// MARK: - Row Background
+
+struct QuickSwitcherRowBackground: View {
+    let isSelected: Bool
+    let isHovered: Bool
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            // Background fill
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(backgroundColor)
+
+            // Left accent border when selected
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(Color.accent)
+                .frame(width: 3)
+                .padding(.leading, 4)
+                .padding(.vertical, 6)
+                .opacity(isSelected ? 1 : 0)
+                .scaleEffect(x: 1, y: isSelected ? 1 : 0.5, anchor: .center)
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
+        .animation(.easeOut(duration: 0.15), value: isHovered)
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accent.opacity(0.15)
+        } else if isHovered {
+            return Color.surfaceHover.opacity(0.6)
+        } else {
+            return Color.clear
+        }
+    }
 }
 
 // MARK: - Keyboard Navigation Modifier
