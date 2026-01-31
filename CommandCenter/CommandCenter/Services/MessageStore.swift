@@ -33,6 +33,7 @@ final class MessageStore {
     private let toolName = SQLite.Expression<String?>("tool_name")
     private let toolInput = SQLite.Expression<String?>("tool_input")  // JSON string
     private let toolOutput = SQLite.Expression<String?>("tool_output")
+    private let toolDuration = SQLite.Expression<Double?>("tool_duration")  // Seconds
     private let isInProgress = SQLite.Expression<Int>("is_in_progress")
     private let inputTokens = SQLite.Expression<Int?>("input_tokens")
     private let outputTokens = SQLite.Expression<Int?>("output_tokens")
@@ -94,6 +95,7 @@ final class MessageStore {
             t.column(toolName)
             t.column(toolInput)
             t.column(toolOutput)
+            t.column(toolDuration)  // Tool execution time in seconds
             t.column(isInProgress, defaultValue: 0)
             t.column(inputTokens)
             t.column(outputTokens)
@@ -102,10 +104,10 @@ final class MessageStore {
             t.column(thinking)  // Claude's thinking trace
         })
 
-        // Add sequence column to existing tables (migration)
+        // Migrations for existing tables
         try? db.run("ALTER TABLE messages ADD COLUMN sequence INTEGER DEFAULT 0")
-        // Add thinking column to existing tables (migration)
         try? db.run("ALTER TABLE messages ADD COLUMN thinking TEXT")
+        try? db.run("ALTER TABLE messages ADD COLUMN tool_duration REAL")
 
         // Indexes for fast queries
         try db.run(messages.createIndex(sessionId, ifNotExists: true))
@@ -177,6 +179,7 @@ final class MessageStore {
                         toolName <- msg.toolName,
                         toolInput <- toolInputJson,
                         toolOutput <- msg.toolOutput,
+                        toolDuration <- msg.toolDuration,
                         isInProgress <- (msg.isInProgress ? 1 : 0),
                         inputTokens <- msg.inputTokens,
                         outputTokens <- msg.outputTokens,
@@ -256,7 +259,7 @@ final class MessageStore {
                     toolName: row[toolName],
                     toolInput: toolInputDict,
                     toolOutput: row[toolOutput],
-                    toolDuration: nil,
+                    toolDuration: row[toolDuration],
                     inputTokens: row[inputTokens],
                     outputTokens: row[outputTokens],
                     images: images

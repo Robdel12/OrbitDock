@@ -168,10 +168,11 @@ struct TranscriptParser {
         let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
         let splitTime = (CFAbsoluteTimeGetCurrent() - splitStart) * 1000
         var messages: [TranscriptMessage] = []
-        var toolResults: [String: (output: String, duration: TimeInterval?)] = [:] // toolId -> result
+        var toolResults: [String: (output: String, timestamp: Date)] = [:]
+        var toolUseTimestamps: [String: Date] = [:]
         var pendingToolIds: Set<String> = [] // Track tools without results yet
 
-        // First pass: collect tool results
+        // First pass: collect tool results and tool_use timestamps
         let pass1Start = CFAbsoluteTimeGetCurrent()
         for line in lines {
             guard let data = line.data(using: .utf8),
@@ -179,6 +180,21 @@ struct TranscriptParser {
                 continue
             }
 
+            let entryTimestamp = parseTimestamp(json["timestamp"] as? String)
+
+            // Collect tool_use timestamps
+            if json["type"] as? String == "assistant",
+               let message = json["message"] as? [String: Any],
+               let contentArray = message["content"] as? [[String: Any]] {
+                for item in contentArray {
+                    if item["type"] as? String == "tool_use",
+                       let toolId = item["id"] as? String {
+                        toolUseTimestamps[toolId] = entryTimestamp
+                    }
+                }
+            }
+
+            // Collect tool_result outputs and timestamps
             if json["type"] as? String == "user",
                let message = json["message"] as? [String: Any],
                let contentArray = message["content"] as? [[String: Any]] {
@@ -186,7 +202,7 @@ struct TranscriptParser {
                     if item["type"] as? String == "tool_result",
                        let toolUseId = item["tool_use_id"] as? String {
                         let resultContent = extractToolResultContent(from: item)
-                        toolResults[toolUseId] = (output: resultContent, duration: nil)
+                        toolResults[toolUseId] = (output: resultContent, timestamp: entryTimestamp)
                     }
                 }
             }
@@ -275,6 +291,14 @@ struct TranscriptParser {
                                     pendingToolIds.remove(toolId)
                                 }
 
+                                // Calculate duration if we have both timestamps
+                                let duration: TimeInterval? = {
+                                    guard let toolUseTime = toolUseTimestamps[toolId],
+                                          let resultTime = result?.timestamp else { return nil }
+                                    let diff = resultTime.timeIntervalSince(toolUseTime)
+                                    return diff > 0 ? diff : nil
+                                }()
+
                                 var msg = TranscriptMessage(
                                     id: "\(uuid)-tool-\(index)",
                                     type: .tool,
@@ -283,7 +307,7 @@ struct TranscriptParser {
                                     toolName: toolName,
                                     toolInput: input,
                                     toolOutput: result?.output,
-                                    toolDuration: result?.duration,
+                                    toolDuration: duration,
                                     inputTokens: nil,
                                     outputTokens: nil
                                 )
@@ -640,19 +664,35 @@ struct TranscriptParser {
         let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
 
         var messages: [TranscriptMessage] = []
-        var toolResults: [String: (output: String, duration: TimeInterval?)] = [:]
+        var toolResults: [String: (output: String, timestamp: Date)] = [:]
+        var toolUseTimestamps: [String: Date] = [:] // Track when each tool_use started
         var stats = TranscriptUsageStats()
         var lastUserPrompt: String?
         var lastTool: String?
         var latestContextUsed = 0
 
-        // First pass: collect tool results
+        // First pass: collect tool results with timestamps, and tool_use timestamps
         for line in lines {
             guard let data = line.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 continue
             }
 
+            let entryTimestamp = parseTimestamp(json["timestamp"] as? String)
+
+            // Collect tool_use timestamps from assistant messages
+            if json["type"] as? String == "assistant",
+               let message = json["message"] as? [String: Any],
+               let contentArray = message["content"] as? [[String: Any]] {
+                for item in contentArray {
+                    if item["type"] as? String == "tool_use",
+                       let toolId = item["id"] as? String {
+                        toolUseTimestamps[toolId] = entryTimestamp
+                    }
+                }
+            }
+
+            // Collect tool_result outputs and timestamps from user messages
             if json["type"] as? String == "user",
                let message = json["message"] as? [String: Any],
                let contentArray = message["content"] as? [[String: Any]] {
@@ -660,7 +700,7 @@ struct TranscriptParser {
                     if item["type"] as? String == "tool_result",
                        let toolUseId = item["tool_use_id"] as? String {
                         let resultContent = extractToolResultContent(from: item)
-                        toolResults[toolUseId] = (output: resultContent, duration: nil)
+                        toolResults[toolUseId] = (output: resultContent, timestamp: entryTimestamp)
                     }
                 }
             }
@@ -783,6 +823,14 @@ struct TranscriptParser {
                                 let result = toolResults[toolId]
                                 let hasResult = result != nil
 
+                                // Calculate duration if we have both timestamps
+                                let duration: TimeInterval? = {
+                                    guard let toolUseTime = toolUseTimestamps[toolId],
+                                          let resultTime = result?.timestamp else { return nil }
+                                    let diff = resultTime.timeIntervalSince(toolUseTime)
+                                    return diff > 0 ? diff : nil
+                                }()
+
                                 // Track last tool
                                 lastTool = toolName
 
@@ -794,7 +842,7 @@ struct TranscriptParser {
                                     toolName: toolName,
                                     toolInput: input,
                                     toolOutput: result?.output,
-                                    toolDuration: result?.duration,
+                                    toolDuration: duration,
                                     inputTokens: nil,
                                     outputTokens: nil
                                 )

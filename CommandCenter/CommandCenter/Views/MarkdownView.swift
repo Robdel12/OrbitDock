@@ -27,9 +27,108 @@ struct MarkdownContentView: View {
 // Alias for backwards compatibility
 typealias MarkdownView = MarkdownContentView
 
+// MARK: - Thinking Markdown View (Compact theme)
+
+struct ThinkingMarkdownView: View {
+    let content: String
+
+    var body: some View {
+        Markdown(content)
+            .markdownTheme(.thinking)
+            .textSelection(.enabled)
+            .environment(\.openURL, OpenURLAction { url in
+                NSWorkspace.shared.open(url)
+                return .handled
+            })
+    }
+}
+
 // MARK: - Custom Theme
 
 extension MarkdownUI.Theme {
+    // Compact theme for thinking traces
+    static let thinking = Theme()
+        .text {
+            ForegroundColor(.secondary)
+            FontSize(12)
+        }
+        .code {
+            FontFamilyVariant(.monospaced)
+            FontSize(11)
+            ForegroundColor(Color(red: 0.85, green: 0.6, blue: 0.4))
+            BackgroundColor(Color.white.opacity(0.05))
+        }
+        .strong {
+            FontWeight(.semibold)
+            ForegroundColor(.secondary)
+        }
+        .emphasis {
+            FontStyle(.italic)
+        }
+        .link {
+            ForegroundColor(Color(red: 0.5, green: 0.65, blue: 0.85))
+        }
+        .heading1 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontSize(14)
+                    FontWeight(.semibold)
+                    ForegroundColor(.secondary)
+                }
+                .markdownMargin(top: 12, bottom: 6)
+        }
+        .heading2 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontSize(13)
+                    FontWeight(.semibold)
+                    ForegroundColor(.secondary)
+                }
+                .markdownMargin(top: 10, bottom: 5)
+        }
+        .heading3 { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    FontSize(12)
+                    FontWeight(.semibold)
+                    ForegroundColor(.secondary)
+                }
+                .markdownMargin(top: 8, bottom: 4)
+        }
+        .paragraph { configuration in
+            configuration.label
+                .markdownMargin(top: 0, bottom: 8)
+        }
+        .listItem { configuration in
+            configuration.label
+                .markdownMargin(top: 2, bottom: 2)
+        }
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(Color.secondary.opacity(0.4))
+                    .frame(width: 2)
+                configuration.label
+                    .markdownTextStyle {
+                        ForegroundColor(Color.secondary.opacity(0.7))
+                        FontStyle(.italic)
+                        FontSize(12)
+                    }
+                    .padding(.leading, 10)
+            }
+            .markdownMargin(top: 6, bottom: 6)
+        }
+        .codeBlock { configuration in
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(configuration.content)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+            }
+            .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 4))
+            .markdownMargin(top: 6, bottom: 6)
+        }
+
     static let commandCenter = Theme()
         // Body text - comfortable reading size with good weight
         .text {

@@ -213,4 +213,56 @@ struct TranscriptMessage: Identifiable, Hashable {
         }
         return output
     }
+
+    // MARK: - Duration & Statistics
+
+    // Format duration for display (e.g., "245ms", "1.2s", "2m 15s")
+    var formattedDuration: String? {
+        guard let duration = toolDuration, duration > 0 else { return nil }
+
+        if duration < 1.0 {
+            // Under 1 second: show milliseconds
+            let ms = Int(duration * 1000)
+            return "\(ms)ms"
+        } else if duration < 60 {
+            // Under 1 minute: show seconds with 1 decimal
+            return String(format: "%.1fs", duration)
+        } else {
+            // Over 1 minute: show minutes and seconds
+            let minutes = Int(duration / 60)
+            let seconds = Int(duration.truncatingRemainder(dividingBy: 60))
+            return "\(minutes)m \(seconds)s"
+        }
+    }
+
+    // Output statistics
+    var outputLineCount: Int? {
+        guard let output = toolOutput, !output.isEmpty else { return nil }
+        return output.components(separatedBy: "\n").count
+    }
+
+    // For Glob: count matched files
+    var globMatchCount: Int? {
+        guard toolName?.lowercased() == "glob", let output = toolOutput else { return nil }
+        return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
+    }
+
+    // For Grep: count matches
+    var grepMatchCount: Int? {
+        guard toolName?.lowercased() == "grep", let output = toolOutput else { return nil }
+        return output.components(separatedBy: "\n").filter { !$0.isEmpty }.count
+    }
+
+    // Detect if bash command likely errored
+    var bashHasError: Bool {
+        guard toolName?.lowercased() == "bash", let output = toolOutput else { return false }
+        let lowerOutput = output.lowercased()
+        return lowerOutput.contains("error:") ||
+               lowerOutput.contains("error[") ||
+               lowerOutput.contains("command not found") ||
+               lowerOutput.contains("permission denied") ||
+               lowerOutput.contains("no such file or directory") ||
+               lowerOutput.contains("fatal:") ||
+               lowerOutput.contains("failed to")
+    }
 }
