@@ -869,4 +869,157 @@ struct TranscriptParser {
         ParseCache.shared.set(path: transcriptPath, result: result)
         return result
     }
+
+    // MARK: - Subagent Transcript Parsing
+
+    /// Find subagent transcript that matches a given Task prompt
+    /// Returns the path to the subagent's JSONL file if found
+    static func findSubagentTranscript(sessionPath: String, taskPrompt: String) -> String? {
+        // Session path: ~/.claude/projects/<project>/<session-id>.jsonl
+        // Subagent path: ~/.claude/projects/<project>/<session-id>/subagents/agent-<id>.jsonl
+
+        let sessionId = (sessionPath as NSString).deletingPathExtension
+        let subagentsDir = sessionId + "/subagents"
+
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: subagentsDir),
+              let files = try? fm.contentsOfDirectory(atPath: subagentsDir) else {
+            return nil
+        }
+
+        // Look through subagent files to find one matching the prompt
+        for file in files where file.hasPrefix("agent-") && file.hasSuffix(".jsonl") {
+            let subagentPath = (subagentsDir as NSString).appendingPathComponent(file)
+
+            // Check first line for matching prompt
+            guard let handle = FileHandle(forReadingAtPath: subagentPath),
+                  let firstLine = readFirstLine(handle: handle),
+                  let data = firstLine.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let message = json["message"] as? [String: Any],
+                  let content = message["content"] as? String else {
+                continue
+            }
+
+            // Check if prompt matches (use prefix comparison for flexibility)
+            if content.hasPrefix(String(taskPrompt.prefix(200))) {
+                return subagentPath
+            }
+        }
+
+        return nil
+    }
+
+    /// Read first line from file handle efficiently
+    private static func readFirstLine(handle: FileHandle) -> String? {
+        defer { try? handle.close() }
+
+        let data = handle.readData(ofLength: 8192)  // Read enough for first JSONL entry
+        guard let str = String(data: data, encoding: .utf8) else { return nil }
+
+        if let newlineIndex = str.firstIndex(of: "\n") {
+            return String(str[..<newlineIndex])
+        }
+        return str
+    }
+
+    /// Parse tool calls from a subagent transcript (lightweight - just tools)
+    static func parseSubagentTools(subagentPath: String) -> [TranscriptMessage] {
+        guard FileManager.default.fileExists(atPath: subagentPath),
+              let content = try? String(contentsOfFile: subagentPath, encoding: .utf8) else {
+            return []
+        }
+
+        let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+        var messages: [TranscriptMessage] = []
+        var toolResults: [String: String] = [:]
+
+        // First pass: collect tool results
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+
+            if json["type"] as? String == "user",
+               let message = json["message"] as? [String: Any],
+               let contentArray = message["content"] as? [[String: Any]] {
+                for item in contentArray {
+                    if item["type"] as? String == "tool_result",
+                       let toolUseId = item["tool_use_id"] as? String {
+                        toolResults[toolUseId] = extractToolResultContent(from: item)
+                    }
+                }
+            }
+        }
+
+        // Second pass: build tool messages
+        for line in lines {
+            guard let data = line.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+
+            guard json["type"] as? String == "assistant",
+                  let uuid = json["uuid"] as? String,
+                  let message = json["message"] as? [String: Any],
+                  let contentArray = message["content"] as? [[String: Any]] else {
+                continue
+            }
+
+            let timestamp = parseTimestamp(json["timestamp"] as? String)
+
+            for (index, item) in contentArray.enumerated() {
+                if item["type"] as? String == "tool_use",
+                   let toolName = item["name"] as? String,
+                   let toolId = item["id"] as? String {
+                    let input = item["input"] as? [String: Any]
+                    let summary = createToolSummary(toolName: toolName, input: input)
+                    let result = toolResults[toolId]
+
+                    var msg = TranscriptMessage(
+                        id: "\(uuid)-tool-\(index)",
+                        type: .tool,
+                        content: summary,
+                        timestamp: timestamp,
+                        toolName: toolName,
+                        toolInput: input,
+                        toolOutput: result,
+                        toolDuration: nil,
+                        inputTokens: nil,
+                        outputTokens: nil
+                    )
+                    msg.isInProgress = result == nil
+                    messages.append(msg)
+                }
+            }
+        }
+
+        return messages
+    }
+
+    /// Get all subagent transcripts for a session
+    static func listSubagentTranscripts(sessionPath: String) -> [(agentId: String, path: String)] {
+        let sessionId = (sessionPath as NSString).deletingPathExtension
+        let subagentsDir = sessionId + "/subagents"
+
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: subagentsDir),
+              let files = try? fm.contentsOfDirectory(atPath: subagentsDir) else {
+            return []
+        }
+
+        return files.compactMap { file -> (String, String)? in
+            guard file.hasPrefix("agent-") && file.hasSuffix(".jsonl") else { return nil }
+
+            // Extract agent ID: agent-abc123.jsonl -> abc123
+            let start = file.index(file.startIndex, offsetBy: 6)
+            let end = file.index(file.endIndex, offsetBy: -6)
+            guard start < end else { return nil }
+
+            let agentId = String(file[start..<end])
+            let path = (subagentsDir as NSString).appendingPathComponent(file)
+            return (agentId, path)
+        }
+    }
 }

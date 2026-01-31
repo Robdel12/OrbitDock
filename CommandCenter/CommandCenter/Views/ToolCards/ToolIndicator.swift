@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ToolIndicator: View {
     let message: TranscriptMessage
+    var transcriptPath: String? = nil
     @State private var isExpanded = false
     @State private var isHovering = false
 
@@ -74,7 +75,7 @@ struct ToolIndicator: View {
             case .grep:
                 GrepCard(message: message, isExpanded: $isExpanded)
             case .task:
-                TaskCard(message: message, isExpanded: $isExpanded)
+                TaskCard(message: message, isExpanded: $isExpanded, transcriptPath: transcriptPath)
             case .mcp:
                 MCPCard(message: message, isExpanded: $isExpanded)
             case .webFetch:

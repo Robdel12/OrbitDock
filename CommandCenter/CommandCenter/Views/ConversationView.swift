@@ -80,7 +80,7 @@ struct ConversationView: View {
                     // Messages as a thread
                     ForEach(displayedMessages, id: \.id) { message in
                         if message.isTool {
-                            ToolIndicator(message: message)
+                            ToolIndicator(message: message, transcriptPath: transcriptPath)
                                 .id(message.id)
                         } else if message.isThinking {
                             ThinkingIndicator(message: message)

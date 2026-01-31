@@ -2,7 +2,7 @@
 //  TaskCard.swift
 //  CommandCenter
 //
-//  Enhanced agent/subagent task card with prominent result display
+//  Enhanced agent/subagent task card with nested tool calls
 //
 
 import SwiftUI
@@ -10,6 +10,12 @@ import SwiftUI
 struct TaskCard: View {
     let message: TranscriptMessage
     @Binding var isExpanded: Bool
+    var transcriptPath: String? = nil
+
+    // Subagent tool calls (loaded lazily when expanded)
+    @State private var subagentTools: [TranscriptMessage] = []
+    @State private var hasLoadedSubagent = false
+    @State private var showSubagentTools = false
 
     private var description: String { message.taskDescription ?? "" }
     private var prompt: String { message.taskPrompt ?? "" }
@@ -28,11 +34,40 @@ struct TaskCard: View {
         ToolCardContainer(
             color: agentInfo.color,
             isExpanded: $isExpanded,
-            hasContent: !prompt.isEmpty || !output.isEmpty
+            hasContent: !prompt.isEmpty || !output.isEmpty || !subagentTools.isEmpty
         ) {
             header
         } content: {
             expandedContent
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded && !hasLoadedSubagent {
+                loadSubagentTools()
+            }
+        }
+    }
+
+    // MARK: - Load Subagent Tools
+
+    private func loadSubagentTools() {
+        guard let path = transcriptPath, !prompt.isEmpty else {
+            hasLoadedSubagent = true
+            return
+        }
+
+        // Find and parse subagent transcript in background
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let subagentPath = TranscriptParser.findSubagentTranscript(sessionPath: path, taskPrompt: prompt) {
+                let tools = TranscriptParser.parseSubagentTools(subagentPath: subagentPath)
+                DispatchQueue.main.async {
+                    self.subagentTools = tools
+                    self.hasLoadedSubagent = true
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.hasLoadedSubagent = true
+                }
+            }
         }
     }
 
@@ -143,46 +178,181 @@ struct TaskCard: View {
                     }
 
                     ScrollView {
-                        Text(output)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.primary.opacity(0.9))
-                            .textSelection(.enabled)
+                        MarkdownView(content: output)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxHeight: 200)
+                    .frame(maxHeight: 300)
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(red: 0.15, green: 0.25, blue: 0.18).opacity(0.5))
             }
 
-            // Prompt section
-            if !prompt.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "text.quote")
-                            .font(.system(size: 10))
-                            .foregroundStyle(agentInfo.color.opacity(0.7))
-                        Text("PROMPT")
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
-                            .foregroundStyle(.quaternary)
-                            .tracking(0.5)
-                    }
-
-                    ScrollView {
-                        Text(prompt)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.primary.opacity(0.7))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .frame(maxHeight: 150)
+            // Subagent tools section
+            if !subagentTools.isEmpty {
+                subagentToolsSection
+            } else if !hasLoadedSubagent && isExpanded {
+                // Loading indicator
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Loading agent activity...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
                 .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.backgroundTertiary.opacity(0.3))
+            }
+
+            // Prompt section (collapsed by default if we have tools)
+            if !prompt.isEmpty {
+                promptSection
             }
         }
+    }
+
+    // MARK: - Subagent Tools Section
+
+    @ViewBuilder
+    private var subagentToolsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header with toggle
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    showSubagentTools.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(showSubagentTools ? 90 : 0))
+                        .foregroundStyle(agentInfo.color)
+
+                    Image(systemName: "rectangle.stack.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(agentInfo.color.opacity(0.7))
+
+                    Text("AGENT ACTIVITY")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(agentInfo.color.opacity(0.8))
+                        .tracking(0.5)
+
+                    Text("(\(subagentTools.count) tools)")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.tertiary)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(agentInfo.color.opacity(0.08))
+
+            // Nested tool list
+            if showSubagentTools {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(subagentTools.prefix(20).enumerated()), id: \.element.id) { index, tool in
+                        SubagentToolRow(tool: tool, color: agentInfo.color)
+                    }
+
+                    if subagentTools.count > 20 {
+                        Text("... +\(subagentTools.count - 20) more tools")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                    }
+                }
+                .padding(.vertical, 4)
+                .background(Color.backgroundTertiary.opacity(0.2))
+            }
+        }
+    }
+
+    // MARK: - Prompt Section
+
+    @ViewBuilder
+    private var promptSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "text.quote")
+                    .font(.system(size: 10))
+                    .foregroundStyle(agentInfo.color.opacity(0.7))
+                Text("PROMPT")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(.quaternary)
+                    .tracking(0.5)
+            }
+
+            ScrollView {
+                Text(prompt)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.primary.opacity(0.7))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 150)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.backgroundTertiary.opacity(0.3))
+    }
+}
+
+// MARK: - Subagent Tool Row
+
+private struct SubagentToolRow: View {
+    let tool: TranscriptMessage
+    let color: Color
+
+    private var toolColor: Color {
+        ToolCardStyle.color(for: tool.toolName)
+    }
+
+    private var toolIcon: String {
+        ToolCardStyle.icon(for: tool.toolName)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Indent indicator
+            Rectangle()
+                .fill(color.opacity(0.3))
+                .frame(width: 2)
+                .padding(.leading, 8)
+
+            // Tool icon
+            Image(systemName: toolIcon)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(toolColor)
+                .frame(width: 14)
+
+            // Tool name
+            Text(tool.toolName ?? "Tool")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(toolColor)
+
+            // Summary
+            Text(tool.content)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            Spacer()
+
+            // Status
+            if tool.isInProgress {
+                ProgressView()
+                    .controlSize(.mini)
+            } else {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5).opacity(0.7))
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.trailing, 12)
     }
 }
 
