@@ -4,11 +4,13 @@
  * Status tracker hook - tracks session work status and syncs session names
  * Handles: UserPromptSubmit, Stop, Notification
  *
- * On Stop events, resolves the best session title from multiple sources:
- * 1. Custom title (user's /rename command) - highest priority
- * 2. Claude's summary from sessions-index.json
- * 3. First user message (truncated) - fallback
- * 4. Session slug - last resort
+ * Session naming uses three separate fields (stored independently):
+ * - custom_name: User-defined via /rename command (highest display priority)
+ * - summary: Claude's auto-generated title from sessions-index.json
+ * - first_prompt: First user message, set once as conversation-specific fallback
+ *
+ * Display fallback (in Session.swift): customName → summary → firstPrompt → projectName → path
+ * This ensures titles don't revert and each session has a meaningful identifier.
  *
  * Input (stdin JSON):
  * {
@@ -30,87 +32,73 @@ import { createLogger } from '../lib/logger.js'
 let log = createLogger('status-tracker')
 
 /**
- * Resolve the best session title from multiple sources
- * Priority: custom-title > sessions-index summary > first user message > slug
+ * Get custom title from transcript (set by /rename command)
+ * This is the user-defined name and should be stored in custom_name field
  * @param {string} transcriptPath - Path to the transcript file
- * @param {string} sessionId - Session ID to look up
- * @returns {string|null} - Best available title
+ * @returns {string|null} - Custom title if found
  */
-let resolveSessionTitle = (transcriptPath, sessionId) => {
+let getCustomTitleFromTranscript = (transcriptPath) => {
   if (!transcriptPath || !existsSync(transcriptPath)) return null
 
   let customTitle = null
-  let firstUserMessage = null
-  let slug = null
 
   try {
-    // Read transcript line by line to find title sources
     let content = readFileSync(transcriptPath, 'utf-8')
     let lines = content.split('\n').filter(Boolean)
 
     for (let line of lines) {
       try {
         let entry = JSON.parse(line)
-
-        // Priority 1: Custom title from /rename
+        // Custom title from /rename - later entries override earlier ones
         if (entry.type === 'custom-title' && entry.customTitle) {
           customTitle = entry.customTitle
-          // Don't break - later custom-title entries override earlier ones
         }
+      } catch {}
+    }
+  } catch (err) {
+    log.debug('Failed to read transcript for custom title', { error: err.message })
+  }
 
-        // Capture slug from any entry (they all have it)
-        if (!slug && entry.slug) {
-          slug = entry.slug
-        }
+  return customTitle
+}
 
-        // Capture first user message (that's actual content, not commands)
-        if (!firstUserMessage && entry.type === 'user' && entry.message?.content) {
-          let content = entry.message.content
+/**
+ * Get first user message from transcript
+ * This provides a conversation-specific fallback when no title exists
+ * @param {string} transcriptPath - Path to the transcript file
+ * @returns {string|null} - First user message (truncated) if found
+ */
+let getFirstUserMessage = (transcriptPath) => {
+  if (!transcriptPath || !existsSync(transcriptPath)) return null
+
+  try {
+    let content = readFileSync(transcriptPath, 'utf-8')
+    let lines = content.split('\n').filter(Boolean)
+
+    for (let line of lines) {
+      try {
+        let entry = JSON.parse(line)
+        if (entry.type === 'user' && entry.message?.content) {
+          let msg = entry.message.content
           // Skip command messages and tool results
-          if (typeof content === 'string' &&
-              !content.startsWith('<command-name>') &&
-              !content.startsWith('<local-command') &&
-              !content.includes('tool_result')) {
+          if (typeof msg === 'string' &&
+              !msg.startsWith('<command-name>') &&
+              !msg.startsWith('<local-command') &&
+              !msg.includes('tool_result')) {
             // Clean and truncate
-            let cleaned = content.replace(/\s+/g, ' ').trim()
-            if (cleaned.length > 60) {
-              cleaned = cleaned.slice(0, 57) + '...'
+            let cleaned = msg.replace(/\s+/g, ' ').trim()
+            if (cleaned.length > 80) {
+              cleaned = cleaned.slice(0, 77) + '...'
             }
             if (cleaned.length > 0) {
-              firstUserMessage = cleaned
+              return cleaned
             }
           }
         }
       } catch {}
     }
   } catch (err) {
-    log.debug('Failed to read transcript for title', { error: err.message })
-  }
-
-  // Priority 1: Custom title
-  if (customTitle) {
-    log.debug('Using custom title', { customTitle })
-    return customTitle
-  }
-
-  // Priority 2: Claude's summary from sessions-index.json
-  let summary = getSessionSummaryFromIndex(transcriptPath, sessionId)
-  if (summary) {
-    log.debug('Using sessions-index summary', { summary })
-    return summary
-  }
-
-  // Priority 3: First user message
-  if (firstUserMessage) {
-    log.debug('Using first user message', { firstUserMessage })
-    return firstUserMessage
-  }
-
-  // Priority 4: Slug (humanize it)
-  if (slug) {
-    let humanized = slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-    log.debug('Using humanized slug', { slug, humanized })
-    return humanized
+    log.debug('Failed to read transcript for first message', { error: err.message })
   }
 
   return null
@@ -202,15 +190,35 @@ let main = () => {
         let session = getSession(db, sessionId)
         let attention = session?.last_tool === 'AskUserQuestion' ? 'awaitingQuestion' : 'awaitingReply'
 
-        // Resolve best available title for the session
-        let title = resolveSessionTitle(input.transcript_path, sessionId)
         let updates = {
           workStatus: 'waiting',
           attentionReason: attention,
         }
-        if (title) {
-          updates.summary = title
-          log.info('Stop: resolved title', { sessionId, title })
+
+        // Only update custom_name if user has renamed via /rename
+        // This preserves user intent and doesn't get overwritten by fallbacks
+        let customTitle = getCustomTitleFromTranscript(input.transcript_path)
+        if (customTitle && customTitle !== session?.custom_name) {
+          updates.customName = customTitle
+          log.info('Stop: found custom title', { sessionId, customTitle })
+        }
+
+        // Only update summary from Claude's sessions-index.json
+        // This is Claude's generated title, separate from user's custom name
+        let claudeSummary = getSessionSummaryFromIndex(input.transcript_path, sessionId)
+        if (claudeSummary && claudeSummary !== session?.summary) {
+          updates.summary = claudeSummary
+          log.info('Stop: found Claude summary', { sessionId, claudeSummary })
+        }
+
+        // Set first_prompt once as a conversation-specific fallback
+        // Only set if not already populated (never overwrite)
+        if (!session?.first_prompt) {
+          let firstMessage = getFirstUserMessage(input.transcript_path)
+          if (firstMessage) {
+            updates.firstPrompt = firstMessage
+            log.info('Stop: captured first prompt', { sessionId, firstMessage })
+          }
         }
 
         log.info('Stop: setting waiting status', { sessionId, attention, lastTool: session?.last_tool })

@@ -29,6 +29,7 @@ class DatabaseManager {
     private let model = SQLite.Expression<String?>("model")
     private let sessionSummary = SQLite.Expression<String?>("summary")  // Claude-generated title
     private let customName = SQLite.Expression<String?>("custom_name")  // User-defined name
+    private let firstPrompt = SQLite.Expression<String?>("first_prompt")  // First user message fallback
     private let contextLabel = SQLite.Expression<String?>("context_label")  // Legacy, mapped to custom_name
     private let transcriptPath = SQLite.Expression<String?>("transcript_path")
     private let status = SQLite.Expression<String>("status")
@@ -216,6 +217,7 @@ class DatabaseManager {
                 // Try new columns first, fall back to legacy context_label
                 let summaryValue = try? row.get(sessionSummary)
                 let customNameValue = (try? row.get(customName)) ?? row[contextLabel]
+                let firstPromptValue = try? row.get(firstPrompt)
 
                 // Parse attention reason with fallback logic
                 let attentionReasonValue: Session.AttentionReason = {
@@ -240,6 +242,7 @@ class DatabaseManager {
                     model: row[model],
                     summary: summaryValue,
                     customName: customNameValue,
+                    firstPrompt: firstPromptValue,
                     transcriptPath: row[transcriptPath],
                     status: Session.SessionStatus(rawValue: row[status]) ?? .ended,
                     workStatus: Session.WorkStatus(rawValue: row[workStatus] ?? "unknown") ?? .unknown,
@@ -357,6 +360,15 @@ class DatabaseManager {
                 try db.run("ALTER TABLE sessions ADD COLUMN custom_name TEXT")
             } catch {
                 print("Failed to add custom_name column: \(error)")
+            }
+        }
+
+        // Add first_prompt column if it doesn't exist
+        if !columnExists("first_prompt", in: "sessions") {
+            do {
+                try db.run("ALTER TABLE sessions ADD COLUMN first_prompt TEXT")
+            } catch {
+                print("Failed to add first_prompt column: \(error)")
             }
         }
 

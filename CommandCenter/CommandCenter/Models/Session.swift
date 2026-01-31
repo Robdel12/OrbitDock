@@ -13,6 +13,7 @@ struct Session: Identifiable, Hashable {
     let model: String?
     var summary: String?           // Claude-generated conversation title
     var customName: String?        // User-defined custom name (overrides summary)
+    var firstPrompt: String?       // First user message (conversation-specific fallback)
     let transcriptPath: String?
     var status: SessionStatus
     var workStatus: WorkStatus
@@ -80,6 +81,7 @@ struct Session: Identifiable, Hashable {
         model: String? = nil,
         summary: String? = nil,
         customName: String? = nil,
+        firstPrompt: String? = nil,
         contextLabel: String? = nil,  // Legacy parameter, mapped to customName
         transcriptPath: String? = nil,
         status: SessionStatus,
@@ -108,6 +110,7 @@ struct Session: Identifiable, Hashable {
         self.model = model
         self.summary = summary
         self.customName = customName ?? contextLabel  // Use contextLabel if customName not provided
+        self.firstPrompt = firstPrompt
         self.transcriptPath = transcriptPath
         self.status = status
         self.workStatus = workStatus
@@ -130,7 +133,7 @@ struct Session: Identifiable, Hashable {
     }
 
     var displayName: String {
-        customName ?? summary ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
+        customName ?? summary ?? firstPrompt ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
     }
 
     /// For backward compatibility
