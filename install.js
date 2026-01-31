@@ -73,6 +73,7 @@ const main = () => {
   }
 
   // OrbitDock hook definitions (run from repo, not copied)
+  // All hooks use async: true since we're tracking telemetry, not blocking actions
   let hooksPath = join(__dirname, 'hooks')
   let orbitdockHooks = {
     SessionStart: {
@@ -139,6 +140,15 @@ const main = () => {
         },
       ],
     },
+    PostToolUseFailure: {
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(hooksPath, 'tool-tracker.js')}`,
+          async: true,
+        },
+      ],
+    },
   }
 
   // Merge with existing hooks (preserve user's other hooks)
@@ -147,10 +157,14 @@ const main = () => {
   for (let [event, hookConfig] of Object.entries(orbitdockHooks)) {
     let existing = settings.hooks[event] || []
 
-    // Remove any previous OrbitDock hooks (by command path)
+    // Remove any previous OrbitDock hooks (by command path patterns)
     existing = existing.filter((entry) => {
       let commands = entry.hooks?.map((h) => h.command) || []
-      return !commands.some((cmd) => cmd?.includes('.claude/hooks/'))
+      return !commands.some((cmd) =>
+        cmd?.includes('.claude/hooks/') ||
+        cmd?.includes('claude-dashboard/hooks/') ||
+        cmd?.includes('orbitdock/hooks/')
+      )
     })
 
     // Add OrbitDock hook

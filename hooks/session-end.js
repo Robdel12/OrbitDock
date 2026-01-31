@@ -7,36 +7,49 @@
  * {
  *   "session_id": "abc-123",
  *   "cwd": "/path/to/project",
- *   "end_reason": "user_exit" | "error" | etc
+ *   "reason": "clear" | "logout" | "prompt_input_exit" | "bypass_permissions_disabled" | "other"
  * }
  */
 
 import { readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { getDb } from '../lib/db.js'
 import { handleSessionEnd } from '../lib/workstream.js'
+import { createLogger } from '../lib/logger.js'
 
-const LOG_PREFIX = '[OrbitDock:session-end]'
+let log = createLogger('session-end')
 
-const main = async () => {
+let notifyApp = () => {
+  try {
+    execSync('notifyutil -p com.orbitdock.session.updated', { stdio: 'ignore' })
+  } catch {}
+}
+
+let main = async () => {
   let input
   let db
 
+  log.info('SessionEnd hook triggered')
+
   try {
-    // Read and parse input
-    const rawInput = readFileSync(0, 'utf-8')
+    let rawInput = readFileSync(0, 'utf-8')
     if (!rawInput.trim()) {
+      log.debug('No input received, exiting')
       process.exit(0)
     }
 
     try {
       input = JSON.parse(rawInput)
     } catch (parseErr) {
-      console.error(`${LOG_PREFIX} Failed to parse input JSON:`, parseErr.message)
+      log.error('Failed to parse input JSON', { error: parseErr.message })
       process.exit(1)
     }
 
+    // reason: clear, logout, prompt_input_exit, bypass_permissions_disabled, other
+    log.info('Session end received', { sessionId: input.session_id, reason: input.reason })
+
     if (!input.session_id) {
-      console.error(`${LOG_PREFIX} Missing session_id`)
+      log.warn('Missing session_id')
       process.exit(1)
     }
 
@@ -44,14 +57,14 @@ const main = async () => {
 
     handleSessionEnd(db, {
       sessionId: input.session_id,
-      reason: input.end_reason,
+      reason: input.reason,
     })
 
-    console.error(
-      `${LOG_PREFIX} Session ${input.session_id} ended (${input.end_reason || 'unknown'})`,
-    )
+    notifyApp()
+
+    log.info('Session ended', { sessionId: input.session_id, reason: input.reason || 'unknown' })
   } catch (err) {
-    console.error(`${LOG_PREFIX} Error:`, err.message)
+    log.error('Hook error', { error: err.message, stack: err.stack })
   } finally {
     if (db) {
       try {

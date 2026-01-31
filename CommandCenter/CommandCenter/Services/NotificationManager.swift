@@ -28,8 +28,32 @@ class NotificationManager {
         }
     }
 
+    /// Get the configured notification sound from user preferences
+    private var configuredSound: UNNotificationSound? {
+        let soundName = UserDefaults.standard.string(forKey: "notificationSound") ?? "default"
+
+        switch soundName {
+        case "none":
+            return nil
+        case "default":
+            return .default
+        default:
+            return UNNotificationSound(named: UNNotificationSoundName(rawValue: soundName))
+        }
+    }
+
+    /// Check if notifications are enabled in user preferences
+    private var notificationsEnabled: Bool {
+        // Default to true if not set
+        if UserDefaults.standard.object(forKey: "notificationsEnabled") == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: "notificationsEnabled")
+    }
+
     func notifyNeedsAttention(session: Session) {
         guard isAuthorized else { return }
+        guard notificationsEnabled else { return }
         guard !notifiedSessionIds.contains(session.id) else { return }
 
         notifiedSessionIds.insert(session.id)
@@ -40,7 +64,7 @@ class NotificationManager {
         content.body = session.workStatus == .permission
             ? "Waiting for permission approval"
             : "Waiting for your input"
-        content.sound = .default
+        content.sound = configuredSound
         content.categoryIdentifier = "SESSION_ATTENTION"
 
         // Add session info for handling tap

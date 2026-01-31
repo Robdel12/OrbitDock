@@ -12,51 +12,64 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { ensureSchema, getDb } from '../lib/db.js'
 import { handleSessionStart } from '../lib/workstream.js'
+import { createLogger } from '../lib/logger.js'
 
-const LOG_PREFIX = '[OrbitDock:session-start]'
+let log = createLogger('session-start')
 
-const main = async () => {
+let notifyApp = () => {
+  try {
+    execSync('notifyutil -p com.orbitdock.session.updated', { stdio: 'ignore' })
+  } catch {}
+}
+
+let main = async () => {
   let input
   let db
 
+  log.info('SessionStart hook triggered')
+
   try {
-    // Read and parse input
-    const rawInput = readFileSync(0, 'utf-8')
+    let rawInput = readFileSync(0, 'utf-8')
     if (!rawInput.trim()) {
-      console.error(`${LOG_PREFIX} No input received`)
-      process.exit(0) // Not an error, just no input
+      log.debug('No input received, exiting')
+      process.exit(0)
     }
 
     try {
       input = JSON.parse(rawInput)
     } catch (parseErr) {
-      console.error(`${LOG_PREFIX} Failed to parse input JSON:`, parseErr.message)
+      log.error('Failed to parse input JSON', { error: parseErr.message })
       process.exit(1)
     }
 
-    // Validate required fields
+    // source: startup, resume, clear, compact
+    log.info('Session start received', {
+      sessionId: input.session_id,
+      cwd: input.cwd,
+      model: input.model,
+      source: input.source
+    })
+
     if (!input.session_id) {
-      console.error(`${LOG_PREFIX} Missing session_id in input`)
+      log.warn('Missing session_id in input')
       process.exit(1)
     }
 
     if (!input.cwd) {
-      console.error(`${LOG_PREFIX} Missing cwd in input`)
+      log.warn('Missing cwd in input')
       process.exit(1)
     }
 
-    // Initialize database
     db = getDb()
     ensureSchema(db)
 
-    // Capture terminal info from environment
-    const terminalSessionId = process.env.ITERM_SESSION_ID || null
-    const terminalApp = process.env.TERM_PROGRAM || null
+    let terminalSessionId = process.env.ITERM_SESSION_ID || null
+    let terminalApp = process.env.TERM_PROGRAM || null
 
-    // Handle session start
-    const result = handleSessionStart(db, {
+    let result = handleSessionStart(db, {
       sessionId: input.session_id,
       projectPath: input.cwd,
       model: input.model,
@@ -66,26 +79,20 @@ const main = async () => {
       terminalApp,
     })
 
-    // Log result (goes to stderr, not visible to user)
+    notifyApp()
+
     if (result.workstream) {
-      console.error(
-        `${LOG_PREFIX} Session ${input.session_id} linked to workstream: ${result.workstream.name || result.workstream.branch}`,
-      )
+      log.info('Session linked to workstream', { sessionId: input.session_id, workstream: result.workstream.name || result.workstream.branch })
     } else {
-      console.error(
-        `${LOG_PREFIX} Session ${input.session_id} started (no workstream - on main branch)`,
-      )
+      log.info('Session started (no workstream)', { sessionId: input.session_id })
     }
   } catch (err) {
-    console.error(`${LOG_PREFIX} Error:`, err.message)
-    // Don't exit with error code - hook failures shouldn't block Claude
+    log.error('Hook error', { error: err.message, stack: err.stack })
   } finally {
     if (db) {
       try {
         db.close()
-      } catch (closeErr) {
-        console.error(`${LOG_PREFIX} Failed to close database:`, closeErr.message)
-      }
+      } catch {}
     }
   }
 }
