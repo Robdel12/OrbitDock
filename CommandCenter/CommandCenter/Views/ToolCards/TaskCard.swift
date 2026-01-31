@@ -29,7 +29,7 @@ struct TaskCard: View {
     }
 
     var body: some View {
-        ToolCardContainer(color: color, isExpanded: isExpanded) {
+        ToolCardContainer(color: color, isExpanded: $isExpanded, hasContent: !prompt.isEmpty || message.toolOutput != nil) {
             header
         } content: {
             expandedContent

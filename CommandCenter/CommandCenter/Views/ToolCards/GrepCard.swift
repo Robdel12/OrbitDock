@@ -42,7 +42,7 @@ struct GrepCard: View {
     }
 
     var body: some View {
-        ToolCardContainer(color: color, isExpanded: isExpanded) {
+        ToolCardContainer(color: color, isExpanded: $isExpanded, hasContent: matchCount > 0) {
             header
         } content: {
             expandedContent

@@ -20,7 +20,7 @@ struct ReadCard: View {
     private var hasContent: Bool { !output.isEmpty && !message.isInProgress }
 
     var body: some View {
-        ToolCardContainer(color: color, isExpanded: isExpanded) {
+        ToolCardContainer(color: color, isExpanded: $isExpanded, hasContent: hasContent) {
             header
         } content: {
             expandedContent

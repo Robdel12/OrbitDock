@@ -11,9 +11,18 @@ import SwiftUI
 
 enum ToolCardStyle {
     static func color(for toolName: String?) -> Color {
-        guard let tool = toolName?.lowercased() else { return .secondary }
+        guard let tool = toolName else { return .secondary }
+        let lowercased = tool.lowercased()
 
-        switch tool {
+        // Check for MCP tools first
+        if tool.hasPrefix("mcp__") {
+            let parts = tool.dropFirst(5).split(separator: "__", maxSplits: 1)
+            if let server = parts.first {
+                return MCPCard.serverColor(String(server))
+            }
+        }
+
+        switch lowercased {
         case "read":
             return Color(red: 0.4, green: 0.6, blue: 1.0)      // Soft blue
         case "edit", "write", "notebookedit":
@@ -26,15 +35,34 @@ enum ToolCardStyle {
             return Color(red: 0.45, green: 0.45, blue: 0.95)   // Indigo
         case "webfetch", "websearch":
             return Color(red: 0.3, green: 0.75, blue: 0.75)    // Teal
+        case "askuserquestion":
+            return Color(red: 0.95, green: 0.65, blue: 0.25)   // Amber
+        case "toolsearch":
+            return Color(red: 0.5, green: 0.65, blue: 0.8)     // Blue-gray
+        case "skill":
+            return Color(red: 0.85, green: 0.5, blue: 0.85)    // Pink/magenta
+        case "enterplanmode", "exitplanmode":
+            return Color(red: 0.45, green: 0.7, blue: 0.45)    // Soft green
+        case "taskcreate", "taskupdate", "tasklist", "taskget":
+            return Color(red: 0.65, green: 0.75, blue: 0.4)    // Lime/olive
         default:
             return .secondary
         }
     }
 
     static func icon(for toolName: String?) -> String {
-        guard let tool = toolName?.lowercased() else { return "gearshape" }
+        guard let tool = toolName else { return "gearshape" }
+        let lowercased = tool.lowercased()
 
-        switch tool {
+        // Check for MCP tools first
+        if tool.hasPrefix("mcp__") {
+            let parts = tool.dropFirst(5).split(separator: "__", maxSplits: 1)
+            if let server = parts.first {
+                return MCPCard.serverIcon(String(server))
+            }
+        }
+
+        switch lowercased {
         case "read": return "doc.text.fill"
         case "edit": return "pencil"
         case "write": return "square.and.pencil"
@@ -44,6 +72,15 @@ enum ToolCardStyle {
         case "task": return "person.2.fill"
         case "webfetch": return "globe"
         case "websearch": return "magnifyingglass.circle"
+        case "askuserquestion": return "questionmark.circle.fill"
+        case "toolsearch": return "puzzlepiece.extension"
+        case "skill": return "sparkles"
+        case "enterplanmode": return "doc.text.magnifyingglass"
+        case "exitplanmode": return "checkmark.rectangle"
+        case "taskcreate": return "plus.circle.fill"
+        case "taskupdate": return "pencil.circle.fill"
+        case "tasklist": return "list.bullet.clipboard.fill"
+        case "taskget": return "doc.text.fill"
         default: return "gearshape"
         }
     }

@@ -6,28 +6,33 @@
 //
 
 import SwiftUI
+import AppKit
 
 struct ToolCardContainer<Header: View, Content: View>: View {
     let color: Color
     let header: Header
     let content: Content?
-    let isExpanded: Bool
+    @Binding var isExpanded: Bool
+    let hasContent: Bool
+    @State private var isHovering = false
 
     init(
         color: Color,
-        isExpanded: Bool = false,
+        isExpanded: Binding<Bool>,
+        hasContent: Bool = true,
         @ViewBuilder header: () -> Header,
         @ViewBuilder content: () -> Content
     ) {
         self.color = color
-        self.isExpanded = isExpanded
+        self._isExpanded = isExpanded
+        self.hasContent = hasContent
         self.header = header()
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header with accent bar
+            // Header with accent bar - tappable to expand
             HStack(spacing: 0) {
                 Rectangle()
                     .fill(color)
@@ -36,22 +41,43 @@ struct ToolCardContainer<Header: View, Content: View>: View {
                 header
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
+
+                Spacer(minLength: 0)
             }
-            .background(Color.backgroundTertiary.opacity(0.5))
+            .background(isHovering && hasContent ? Color.surfaceHover : Color.backgroundTertiary.opacity(0.5))
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovering = hovering
+                if hasContent {
+                    if hovering {
+                        NSCursor.pointingHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+            }
+            .onTapGesture {
+                if hasContent {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        isExpanded.toggle()
+                    }
+                }
+            }
 
             // Expandable content
             if isExpanded, let content = content {
                 content
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.backgroundTertiary.opacity(0.3))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(color.opacity(0.2), lineWidth: 1)
+                .strokeBorder(color.opacity(isHovering ? 0.4 : 0.2), lineWidth: 1)
         )
     }
 }
@@ -63,7 +89,8 @@ extension ToolCardContainer where Content == EmptyView {
         @ViewBuilder header: () -> Header
     ) {
         self.color = color
-        self.isExpanded = false
+        self._isExpanded = .constant(false)
+        self.hasContent = false
         self.header = header()
         self.content = nil
     }

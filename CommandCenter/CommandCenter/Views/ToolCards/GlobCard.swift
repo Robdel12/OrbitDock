@@ -32,7 +32,7 @@ struct GlobCard: View {
     private var sortedDirs: [String] { grouped.keys.sorted() }
 
     var body: some View {
-        ToolCardContainer(color: color, isExpanded: isExpanded) {
+        ToolCardContainer(color: color, isExpanded: $isExpanded, hasContent: !files.isEmpty) {
             header
         } content: {
             expandedContent
