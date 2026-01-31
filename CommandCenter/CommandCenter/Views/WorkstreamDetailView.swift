@@ -14,14 +14,32 @@ struct WorkstreamDetailView: View {
 
     @State private var sessions: [Session] = []
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     private let db = DatabaseManager.shared
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // Header
-                header
+        VStack(spacing: 0) {
+            // Toolbar with close button
+            HStack {
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(Color.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.escape, modifiers: [])
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // Header
+                    header
 
                 // Quick Actions
                 actionButtons
@@ -39,7 +57,8 @@ struct WorkstreamDetailView: View {
                 // Sessions Section
                 sessionsSection
             }
-            .padding(20)
+                .padding(20)
+            }
         }
         .background(Color.backgroundPrimary)
         .onAppear(perform: loadSessions)

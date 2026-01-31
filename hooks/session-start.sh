@@ -224,12 +224,16 @@ EOF
 fi
 
 # Insert or update session
+# Note: On resume, we update project_path/branch to track directory changes (e.g., worktrees)
 sqlite3 "$DB_PATH" << EOF
 PRAGMA journal_mode = WAL;
 PRAGMA busy_timeout = 5000;
 INSERT INTO sessions (id, project_path, project_name, branch, model, transcript_path, status, started_at, last_activity_at, terminal_session_id, terminal_app, workstream_id)
 VALUES ('$SESSION_ID', '$CWD', '$PROJECT_NAME', '$BRANCH', '$MODEL', '$TRANSCRIPT_PATH', 'active', '$NOW', '$NOW', '$TERMINAL_SESSION_ID', '$TERMINAL_APP', $([ -n "$WORKSTREAM_ID" ] && echo "'$WORKSTREAM_ID'" || echo "NULL"))
 ON CONFLICT(id) DO UPDATE SET
+  project_path = excluded.project_path,
+  project_name = excluded.project_name,
+  branch = excluded.branch,
   status = 'active',
   last_activity_at = '$NOW',
   terminal_session_id = '$TERMINAL_SESSION_ID',
