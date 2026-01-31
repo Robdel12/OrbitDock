@@ -37,40 +37,28 @@ const main = () => {
   log('📦 Installing dependencies...')
   execSync('npm install', { cwd: __dirname, stdio: 'inherit' })
 
-  // Backup existing hooks
-  log('📁 Backing up existing hooks...')
-  let hasExistingHooks =
-    existsSync(join(HOOKS_DIR, 'session-start.js')) ||
-    existsSync(join(HOOKS_DIR, 'session-start.sh'))
-
-  if (hasExistingHooks) {
-    let backupDir = join(HOOKS_DIR, 'backup')
-    mkdirSync(backupDir, { recursive: true })
-
+  // Clean up old copied hooks (we now run from repo directly)
+  log('🧹 Cleaning up old hooks...')
+  let oldHookFiles = ['session-start.js', 'session-end.js', 'tool-tracker.js', 'status-tracker.js']
+  for (let hook of oldHookFiles) {
+    let hookPath = join(HOOKS_DIR, hook)
+    if (existsSync(hookPath)) {
+      rmSync(hookPath, { force: true })
+    }
+  }
+  // Clean up old lib dir if it exists
+  let oldLibDir = join(HOOKS_DIR, 'lib')
+  if (existsSync(oldLibDir)) {
+    rmSync(oldLibDir, { recursive: true, force: true })
+  }
+  // Clean up old bash hooks
+  if (existsSync(HOOKS_DIR)) {
     let files = readdirSync(HOOKS_DIR)
     for (let file of files) {
-      if (file.match(/^(session-|tool-|status-).*\.(js|sh)$/)) {
-        let src = join(HOOKS_DIR, file)
-        let dest = join(backupDir, file)
-        copyFileSync(src, dest)
+      if (file.endsWith('.sh')) {
+        rmSync(join(HOOKS_DIR, file), { force: true })
       }
     }
-    log(`   Backed up to ${backupDir}`)
-  }
-
-  // Copy Node.js hooks
-  log('🔧 Installing hooks...')
-  let hooks = ['session-start.js', 'session-end.js', 'tool-tracker.js', 'status-tracker.js']
-  for (let hook of hooks) {
-    copyFileSync(join(__dirname, 'hooks', hook), join(HOOKS_DIR, hook))
-  }
-
-  // Copy lib files (hooks need these)
-  let libDir = join(HOOKS_DIR, 'lib')
-  mkdirSync(libDir, { recursive: true })
-  let libFiles = ['db.js', 'git.js', 'workstream.js']
-  for (let file of libFiles) {
-    copyFileSync(join(__dirname, 'lib', file), join(libDir, file))
   }
 
   // Update settings.json with hook configuration
@@ -84,13 +72,14 @@ const main = () => {
     settings = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
   }
 
-  // OrbitDock hook definitions
+  // OrbitDock hook definitions (run from repo, not copied)
+  let hooksPath = join(__dirname, 'hooks')
   let orbitdockHooks = {
     SessionStart: {
       hooks: [
         {
           type: 'command',
-          command: `node ${join(HOOKS_DIR, 'session-start.js')}`,
+          command: `node ${join(hooksPath, 'session-start.js')}`,
           async: true,
         },
       ],
@@ -99,7 +88,7 @@ const main = () => {
       hooks: [
         {
           type: 'command',
-          command: `node ${join(HOOKS_DIR, 'session-end.js')}`,
+          command: `node ${join(hooksPath, 'session-end.js')}`,
           async: true,
         },
       ],
@@ -108,7 +97,7 @@ const main = () => {
       hooks: [
         {
           type: 'command',
-          command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
+          command: `node ${join(hooksPath, 'status-tracker.js')}`,
           async: true,
         },
       ],
@@ -117,7 +106,7 @@ const main = () => {
       hooks: [
         {
           type: 'command',
-          command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
+          command: `node ${join(hooksPath, 'status-tracker.js')}`,
           async: true,
         },
       ],
@@ -127,7 +116,7 @@ const main = () => {
       hooks: [
         {
           type: 'command',
-          command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
+          command: `node ${join(hooksPath, 'status-tracker.js')}`,
           async: true,
         },
       ],
@@ -136,7 +125,7 @@ const main = () => {
       hooks: [
         {
           type: 'command',
-          command: `node ${join(HOOKS_DIR, 'tool-tracker.js')}`,
+          command: `node ${join(hooksPath, 'tool-tracker.js')}`,
           async: true,
         },
       ],
@@ -145,7 +134,7 @@ const main = () => {
       hooks: [
         {
           type: 'command',
-          command: `node ${join(HOOKS_DIR, 'tool-tracker.js')}`,
+          command: `node ${join(hooksPath, 'tool-tracker.js')}`,
           async: true,
         },
       ],
@@ -193,14 +182,6 @@ const main = () => {
   writeFileSync(MCP_CONFIG, JSON.stringify(mcpConfig, null, 2))
   log('   MCP server configured')
 
-  // Clean up old bash hooks
-  let files = readdirSync(HOOKS_DIR)
-  for (let file of files) {
-    if (file.endsWith('.sh')) {
-      rmSync(join(HOOKS_DIR, file), { force: true })
-    }
-  }
-
   // Clean up old hooks.json if it exists
   let oldHooksJson = join(HOME, '.claude', 'hooks.json')
   if (existsSync(oldHooksJson)) {
@@ -210,13 +191,12 @@ const main = () => {
   log('')
   log('✅ OrbitDock installed!')
   log('')
-  log(`Hooks installed to: ${HOOKS_DIR}`)
-  log('  • session-start.js')
-  log('  • session-end.js')
-  log('  • tool-tracker.js')
-  log('  • status-tracker.js')
+  log(`Hooks configured in: ${SETTINGS_FILE}`)
+  log(`  → Running from: ${join(__dirname, 'hooks')}`)
   log('')
   log(`MCP server configured in: ${MCP_CONFIG}`)
+  log(`  → Running from: ${join(__dirname, 'mcp-server')}`)
+  log('')
   log('Database location: ~/.orbitdock/orbitdock.db')
   log('')
   log('Restart Claude Code to activate.')

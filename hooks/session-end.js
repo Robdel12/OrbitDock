@@ -12,8 +12,8 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { getDb } from './lib/db.js'
-import { handleSessionEnd } from './lib/workstream.js'
+import { getDb } from '../lib/db.js'
+import { handleSessionEnd } from '../lib/workstream.js'
 
 const LOG_PREFIX = '[OrbitDock:session-end]'
 
