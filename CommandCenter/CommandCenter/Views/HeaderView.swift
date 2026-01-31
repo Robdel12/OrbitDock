@@ -18,6 +18,7 @@ struct HeaderView: View {
 
     @State private var isHoveringPath = false
     @State private var isHoveringProject = false
+    @AppStorage("preferredEditor") private var preferredEditor: String = ""
 
     private var statusColor: Color {
         switch session.workStatus {
@@ -170,9 +171,9 @@ struct HeaderView: View {
                     .foregroundStyle(.orange)
                 }
 
-                // Path
+                // Path (click to open in editor)
                 Button {
-                    NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+                    openInEditor(session.projectPath)
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "folder")
@@ -184,6 +185,29 @@ struct HeaderView: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { isHoveringPath = $0 }
+                .help("Open in editor")
+                .contextMenu {
+                    Button("Open in Editor") {
+                        openInEditor(session.projectPath)
+                    }
+                    Button("Reveal in Finder") {
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+                    }
+                    Divider()
+                    Menu("Set Editor") {
+                        Button("Use $EDITOR") {
+                            preferredEditor = ""
+                        }
+                        Divider()
+                        Button("Emacs") { preferredEditor = "emacs" }
+                        Button("VS Code") { preferredEditor = "code" }
+                        Button("Cursor") { preferredEditor = "cursor" }
+                        Button("Zed") { preferredEditor = "zed" }
+                        Button("Sublime Text") { preferredEditor = "subl" }
+                        Button("Vim") { preferredEditor = "vim" }
+                        Button("Neovim") { preferredEditor = "nvim" }
+                    }
+                }
 
                 Spacer()
             }
@@ -209,6 +233,38 @@ struct HeaderView: View {
             return "~/.../" + components.suffix(2).joined(separator: "/")
         }
         return path.replacingOccurrences(of: "/Users/\(NSUserName())", with: "~")
+    }
+
+    private func openInEditor(_ path: String) {
+        // Determine which editor to use
+        let editor: String
+        if !preferredEditor.isEmpty {
+            editor = preferredEditor
+        } else if let envEditor = ProcessInfo.processInfo.environment["VISUAL"] {
+            editor = envEditor
+        } else if let envEditor = ProcessInfo.processInfo.environment["EDITOR"] {
+            editor = envEditor
+        } else {
+            // Fallback: reveal in Finder
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+            return
+        }
+
+        // Try to open with the editor
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [editor, path]
+        process.currentDirectoryURL = URL(fileURLWithPath: path)
+
+        do {
+            try process.run()
+        } catch {
+            // Fallback: try opening as an app with `open -a`
+            let openProcess = Process()
+            openProcess.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            openProcess.arguments = ["-a", editor, path]
+            try? openProcess.run()
+        }
     }
 }
 

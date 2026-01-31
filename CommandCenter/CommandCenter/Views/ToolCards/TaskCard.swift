@@ -2,7 +2,7 @@
 //  TaskCard.swift
 //  CommandCenter
 //
-//  Enhanced agent/subagent task card with nested tool calls
+//  Enhanced agent/subagent task card with nested tool calls and live refresh
 //
 
 import SwiftUI
@@ -12,10 +12,14 @@ struct TaskCard: View {
     @Binding var isExpanded: Bool
     var transcriptPath: String? = nil
 
-    // Subagent tool calls (loaded lazily when expanded)
+    // Subagent state
     @State private var subagentTools: [TranscriptMessage] = []
+    @State private var subagentPath: String? = nil
     @State private var hasLoadedSubagent = false
     @State private var showSubagentTools = false
+
+    // File monitoring for live refresh
+    @State private var fileMonitor: DispatchSourceFileSystemObject? = nil
 
     private var description: String { message.taskDescription ?? "" }
     private var prompt: String { message.taskPrompt ?? "" }
@@ -45,6 +49,15 @@ struct TaskCard: View {
                 loadSubagentTools()
             }
         }
+        .onChange(of: isComplete) { _, complete in
+            // Stop monitoring when task completes
+            if complete {
+                stopFileMonitoring()
+            }
+        }
+        .onDisappear {
+            stopFileMonitoring()
+        }
     }
 
     // MARK: - Load Subagent Tools
@@ -57,11 +70,23 @@ struct TaskCard: View {
 
         // Find and parse subagent transcript in background
         DispatchQueue.global(qos: .userInitiated).async {
-            if let subagentPath = TranscriptParser.findSubagentTranscript(sessionPath: path, taskPrompt: prompt) {
+            let foundPath = TranscriptParser.findSubagentTranscript(
+                sessionPath: path,
+                taskPrompt: prompt,
+                taskTimestamp: message.timestamp
+            )
+
+            if let subagentPath = foundPath {
                 let tools = TranscriptParser.parseSubagentTools(subagentPath: subagentPath)
                 DispatchQueue.main.async {
+                    self.subagentPath = subagentPath
                     self.subagentTools = tools
                     self.hasLoadedSubagent = true
+
+                    // Start monitoring if task is still in progress
+                    if !self.isComplete {
+                        self.startFileMonitoring()
+                    }
                 }
             } else {
                 DispatchQueue.main.async {
@@ -69,6 +94,42 @@ struct TaskCard: View {
                 }
             }
         }
+    }
+
+    // MARK: - File Monitoring for Live Refresh
+
+    private func startFileMonitoring() {
+        guard let path = subagentPath else { return }
+
+        // Open file descriptor for monitoring
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .extend],
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+
+        source.setEventHandler { [path] in
+            // Re-parse subagent tools
+            let tools = TranscriptParser.parseSubagentTools(subagentPath: path)
+            DispatchQueue.main.async {
+                self.subagentTools = tools
+            }
+        }
+
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        source.resume()
+        fileMonitor = source
+    }
+
+    private func stopFileMonitoring() {
+        fileMonitor?.cancel()
+        fileMonitor = nil
     }
 
     // MARK: - Header

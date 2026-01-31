@@ -872,14 +872,23 @@ struct TranscriptParser {
 
     // MARK: - Subagent Transcript Parsing
 
-    /// Find subagent transcript that matches a given Task prompt
+    /// Find subagent transcript that matches a given Task
+    /// Uses robust matching: full prompt match + timestamp proximity + session validation
     /// Returns the path to the subagent's JSONL file if found
-    static func findSubagentTranscript(sessionPath: String, taskPrompt: String) -> String? {
+    static func findSubagentTranscript(
+        sessionPath: String,
+        taskPrompt: String,
+        taskTimestamp: Date? = nil
+    ) -> String? {
         // Session path: ~/.claude/projects/<project>/<session-id>.jsonl
         // Subagent path: ~/.claude/projects/<project>/<session-id>/subagents/agent-<id>.jsonl
 
         let sessionId = (sessionPath as NSString).deletingPathExtension
         let subagentsDir = sessionId + "/subagents"
+
+        // Extract parent session ID from path for validation
+        let parentSessionId = (sessionPath as NSString).lastPathComponent
+            .replacingOccurrences(of: ".jsonl", with: "")
 
         let fm = FileManager.default
         guard fm.fileExists(atPath: subagentsDir),
@@ -887,24 +896,64 @@ struct TranscriptParser {
             return nil
         }
 
-        // Look through subagent files to find one matching the prompt
+        // Candidate matches: (path, prompt match score, timestamp delta)
+        var candidates: [(path: String, exactMatch: Bool, timeDelta: TimeInterval)] = []
+
         for file in files where file.hasPrefix("agent-") && file.hasSuffix(".jsonl") {
+            // Skip prompt_suggestion agents (these are for UI suggestions, not real subagents)
+            if file.contains("prompt_suggestion") { continue }
+
             let subagentPath = (subagentsDir as NSString).appendingPathComponent(file)
 
-            // Check first line for matching prompt
             guard let handle = FileHandle(forReadingAtPath: subagentPath),
                   let firstLine = readFirstLine(handle: handle),
                   let data = firstLine.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let message = json["message"] as? [String: Any],
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+
+            // Validate session ID matches parent
+            guard let subagentSessionId = json["sessionId"] as? String,
+                  subagentSessionId == parentSessionId else {
+                continue
+            }
+
+            // Extract prompt from subagent's first message
+            guard let message = json["message"] as? [String: Any],
                   let content = message["content"] as? String else {
                 continue
             }
 
-            // Check if prompt matches (use prefix comparison for flexibility)
-            if content.hasPrefix(String(taskPrompt.prefix(200))) {
-                return subagentPath
+            // Check prompt match (exact or prefix for very long prompts)
+            let exactMatch = content == taskPrompt
+            let prefixMatch = content.hasPrefix(String(taskPrompt.prefix(500))) ||
+                              taskPrompt.hasPrefix(String(content.prefix(500)))
+
+            guard exactMatch || prefixMatch else { continue }
+
+            // Calculate timestamp delta if available
+            var timeDelta: TimeInterval = .infinity
+            if let taskTs = taskTimestamp,
+               let subagentTs = json["timestamp"] as? String {
+                let subagentDate = parseTimestamp(subagentTs)
+                timeDelta = abs(subagentDate.timeIntervalSince(taskTs))
             }
+
+            candidates.append((path: subagentPath, exactMatch: exactMatch, timeDelta: timeDelta))
+        }
+
+        // Return best match: prefer exact match, then closest timestamp
+        if let best = candidates.sorted(by: { lhs, rhs in
+            if lhs.exactMatch != rhs.exactMatch {
+                return lhs.exactMatch  // Exact match wins
+            }
+            return lhs.timeDelta < rhs.timeDelta  // Closer timestamp wins
+        }).first {
+            // Sanity check: if timestamp delta is > 5 seconds, probably wrong match
+            if !best.exactMatch && best.timeDelta > 5.0 {
+                return nil
+            }
+            return best.path
         }
 
         return nil
@@ -914,7 +963,7 @@ struct TranscriptParser {
     private static func readFirstLine(handle: FileHandle) -> String? {
         defer { try? handle.close() }
 
-        let data = handle.readData(ofLength: 8192)  // Read enough for first JSONL entry
+        let data = handle.readData(ofLength: 16384)  // Read enough for first JSONL entry (prompts can be long)
         guard let str = String(data: data, encoding: .utf8) else { return nil }
 
         if let newlineIndex = str.firstIndex(of: "\n") {
