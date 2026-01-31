@@ -41,6 +41,13 @@ struct MissionControlView: View {
         .onReceive(NotificationCenter.default.publisher(for: .init("DatabaseChanged"))) { _ in
             loadData()
         }
+        .sheet(item: $selectedWorkstream) { workstream in
+            WorkstreamDetailView(
+                workstream: workstream,
+                repo: repos[workstream.repoId]
+            )
+            .frame(minWidth: 600, minHeight: 500)
+        }
     }
 
     // MARK: - Header
