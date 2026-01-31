@@ -275,6 +275,8 @@ struct SessionDetailViewNew: View {
     @State private var currentTool: String?
     @State private var transcriptSubscription: AnyCancellable?
     @State private var terminalActionFailed = false
+    @State private var inputText = ""
+    @FocusState private var isInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -301,6 +303,11 @@ struct SessionDetailViewNew: View {
                 currentTool: currentTool
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Input bar (for active sessions)
+            if session.isActive {
+                inputBar
+            }
 
             // Action bar
             actionBar
@@ -386,6 +393,53 @@ struct SessionDetailViewNew: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Color.backgroundSecondary)
+    }
+
+    // MARK: - Input Bar
+
+    private var inputBar: some View {
+        HStack(spacing: 12) {
+            // Text field - single line, Enter to send
+            TextField("Message Claude...", text: $inputText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .focused($isInputFocused)
+                .onSubmit {
+                    sendMessage()
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(isInputFocused ? Color.accent.opacity(0.5) : Color.clear, lineWidth: 1)
+                )
+
+            // Send button
+            Button {
+                sendMessage()
+            } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(inputText.isEmpty ? Color.secondary.opacity(0.3) : Color.accent)
+            }
+            .buttonStyle(.plain)
+            .disabled(inputText.isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.backgroundSecondary)
+    }
+
+    private func sendMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        TerminalService.shared.sendInput(text, to: session) { success in
+            if success {
+                inputText = ""
+            }
+        }
     }
 
     // MARK: - Helpers
