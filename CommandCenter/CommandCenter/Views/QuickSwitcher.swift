@@ -260,13 +260,13 @@ struct QuickSwitcher: View {
 
             footerHint
         }
-        .frame(width: 520)
-        .background(Color.panelBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(width: 640)
+        .background(Color.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.panelBorder, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
+        .shadow(color: .black.opacity(0.5), radius: 40, x: 0, y: 20)
     }
 
     // MARK: - Commands View
@@ -276,20 +276,24 @@ struct QuickSwitcher: View {
             LazyVStack(spacing: 0) {
                 // Context session indicator
                 if let session = contextSession ?? allVisibleSessions.first {
-                    HStack(spacing: 8) {
-                        Text("Acting on:")
-                            .font(.system(size: 10, weight: .medium))
+                    HStack(spacing: 10) {
+                        Image(systemName: "target")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.accent.opacity(0.6))
+
+                        Text("Acting on")
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.tertiary)
 
                         Text(session.displayName)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.secondary)
 
                         Spacer()
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 8)
-                    .background(Color.backgroundTertiary.opacity(0.3))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                    .background(Color.backgroundTertiary.opacity(0.4))
                 }
 
                 if filteredCommands.isEmpty {
@@ -303,22 +307,36 @@ struct QuickSwitcher: View {
             }
             .padding(.vertical, 8)
         }
-        .frame(maxHeight: 340)
+        .frame(maxHeight: 480)
     }
 
     private func commandRow(command: QuickCommand, index: Int) -> some View {
         Button {
             executeCommand(command)
         } label: {
-            HStack(spacing: 12) {
-                Image(systemName: command.icon)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24)
+            HStack(spacing: 14) {
+                // Icon in colored container
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.accent.opacity(0.1))
+                        .frame(width: 32, height: 32)
 
-                Text(command.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
+                    Image(systemName: command.icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.accent.opacity(0.8))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(command.name)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.primary)
+
+                    if command.requiresSession {
+                        Text("Applies to selected session")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
 
                 Spacer()
 
@@ -326,40 +344,47 @@ struct QuickSwitcher: View {
                     Text(shortcut)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                }
-
-                if command.requiresSession {
-                    Text("on selected")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.quaternary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selectedIndex == index ? Color.accent.opacity(0.2) : Color.clear)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selectedIndex == index ? Color.accent.opacity(0.15) : Color.clear)
             )
+            .padding(.horizontal, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
     private var commandEmptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "command")
-                .font(.system(size: 24))
-                .foregroundStyle(.quaternary)
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Color.backgroundTertiary)
+                    .frame(width: 56, height: 56)
 
-            Text("No commands found")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                Image(systemName: "command")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
+
+            VStack(spacing: 4) {
+                Text("No commands found")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Text("Try a different search term")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 48)
     }
 
     private func executeCommand(_ command: QuickCommand) {
@@ -376,14 +401,15 @@ struct QuickSwitcher: View {
     // MARK: - Search Bar
 
     private var searchBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             Image(systemName: isCommandMode ? "command" : "magnifyingglass")
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(isCommandMode ? Color.accent : Color.secondary)
+                .frame(width: 24)
 
             TextField(isCommandMode ? "Search commands..." : "Search agents... (type > for commands)", text: $searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 16))
+                .font(.system(size: 17))
                 .focused($isSearchFocused)
 
             if !searchText.isEmpty {
@@ -391,14 +417,14 @@ struct QuickSwitcher: View {
                     searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 16))
                         .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
     }
 
     // MARK: - Results View
@@ -436,7 +462,7 @@ struct QuickSwitcher: View {
                         sectionView(
                             title: "READY",
                             sessions: ready,
-                            color: .blue.opacity(0.8),
+                            color: .statusSuccess,
                             icon: "checkmark.circle",
                             startIndex: working.count + needsAttention.count + 1
                         )
@@ -454,73 +480,106 @@ struct QuickSwitcher: View {
                 }
                 .padding(.vertical, 8)
             }
-            .frame(maxHeight: 340)
+            .frame(maxHeight: 480)
             .onChange(of: selectedIndex) { _, newIndex in
                 proxy.scrollTo("row-\(newIndex)", anchor: .center)
             }
         }
     }
 
-    // Dashboard row at the top of results
+    // Quick Actions section at the top
     private var dashboardRow: some View {
-        Button {
-            onGoToDashboard()
-            onClose()
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 14, height: 14)
+        VStack(alignment: .leading, spacing: 8) {
+            // Section header
+            Text("QUICK ACTIONS")
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .tracking(0.8)
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
 
-                Text("Dashboard")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.primary)
+            Button {
+                onGoToDashboard()
+                onClose()
+            } label: {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.accent.opacity(0.15))
+                            .frame(width: 32, height: 32)
 
-                Spacer()
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.accent)
+                    }
 
-                Text("⌘0")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Dashboard")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.primary)
+
+                        Text("View all agents overview")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Spacer()
+
+                    Text("⌘0")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(selectedIndex == 0 ? Color.accent.opacity(0.12) : Color.backgroundTertiary.opacity(0.4))
+                )
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selectedIndex == 0 ? Color.accent.opacity(0.2) : Color.clear)
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+
+            // Divider before sessions
+            Rectangle()
+                .fill(Color.panelBorder)
+                .frame(height: 1)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
         }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Section View
 
     private func sectionView(title: String, sessions: [Session], color: Color, icon: String, startIndex: Int) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            // Header - improved contrast
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
+            // Section Header
+            HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(color)
 
                 Text(title)
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(color.opacity(0.9))
-                    .tracking(0.5)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(color)
+                    .tracking(0.8)
 
+                // Count badge
                 Text("\(sessions.count)")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(color)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(color.opacity(0.15), in: Capsule())
             }
-            .padding(.horizontal, 18)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
 
-            // Rows
+            // Session Rows
             ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
                 let globalIndex = startIndex + index
                 switcherRow(session: session, index: globalIndex)
@@ -535,55 +594,55 @@ struct QuickSwitcher: View {
         Button {
             onSelect(session.id)
         } label: {
-            HStack(spacing: 12) {
-                // Status dot
+            HStack(spacing: 14) {
+                // Status indicator
                 ZStack {
                     Circle()
                         .fill(statusColor(for: session))
-                        .frame(width: 8, height: 8)
+                        .frame(width: 10, height: 10)
 
                     if session.isActive && session.workStatus == .working {
                         Circle()
-                            .stroke(statusColor(for: session).opacity(0.4), lineWidth: 1.5)
-                            .frame(width: 14, height: 14)
+                            .stroke(statusColor(for: session).opacity(0.3), lineWidth: 2)
+                            .frame(width: 18, height: 18)
                     }
                 }
-                .frame(width: 14, height: 14)
+                .frame(width: 20, height: 20)
 
-                // Content
-                VStack(alignment: .leading, spacing: 2) {
+                // Content - stacked layout for better hierarchy
+                VStack(alignment: .leading, spacing: 4) {
+                    // Project name + branch (top line, smaller)
                     HStack(spacing: 8) {
-                        // Project name
                         Text(projectName(for: session))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
 
-                        Text("/")
-                            .font(.system(size: 12, weight: .light))
-                            .foregroundStyle(.quaternary)
-
-                        // Agent name
-                        Text(agentName(for: session))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.primary)
-                    }
-
-                    // Branch + status
-                    HStack(spacing: 8) {
                         if let branch = session.branch {
-                            HStack(spacing: 4) {
+                            HStack(spacing: 3) {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 10))
+                                    .font(.system(size: 9))
                                 Text(branch)
                                     .font(.system(size: 10, design: .monospaced))
                             }
-                            .foregroundStyle(.orange.opacity(0.8))
+                            .foregroundStyle(Color.accent.opacity(0.7))
                         }
+                    }
 
+                    // Agent name (main line, prominent)
+                    HStack(spacing: 10) {
+                        Text(agentName(for: session))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+
+                        // Status badge
                         if session.isActive {
                             Text(statusLabel(for: session))
-                                .font(.system(size: 10, weight: .medium))
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(statusColor(for: session))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(statusColor(for: session).opacity(0.12), in: Capsule())
                         } else if let endedAt = session.endedAt {
                             Text(endedAt, style: .relative)
                                 .font(.system(size: 10))
@@ -597,12 +656,13 @@ struct QuickSwitcher: View {
                 // Model badge
                 ModelBadgeMini(model: session.model)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(selectedIndex == index ? Color.accent.opacity(0.2) : Color.clear)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(selectedIndex == index ? Color.accent.opacity(0.15) : Color.clear)
             )
+            .padding(.horizontal, 8)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -611,60 +671,81 @@ struct QuickSwitcher: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 24))
-                .foregroundStyle(.quaternary)
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(Color.backgroundTertiary)
+                    .frame(width: 56, height: 56)
+
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
 
             VStack(spacing: 4) {
                 Text("No agents found")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
 
                 if !searchText.isEmpty {
                     Text("Try a different search term")
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 48)
     }
 
     // MARK: - Footer
 
     private var footerHint: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
             if isCommandMode {
                 hintItem(keys: "↑↓", label: "Navigate")
+                footerDivider
                 hintItem(keys: "↵", label: "Execute")
+                footerDivider
                 hintItem(keys: "⌫", label: "Back")
             } else {
                 hintItem(keys: ">", label: "Commands")
+                footerDivider
                 hintItem(keys: "↑↓", label: "Navigate")
+                footerDivider
                 hintItem(keys: "↵", label: "Select")
+                footerDivider
                 hintItem(keys: "⌘R", label: "Rename")
             }
+            footerDivider
             hintItem(keys: "esc", label: "Close")
+
+            Spacer()
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Color.backgroundTertiary.opacity(0.5))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(Color.backgroundTertiary.opacity(0.3))
+    }
+
+    private var footerDivider: some View {
+        Rectangle()
+            .fill(Color.panelBorder)
+            .frame(width: 1, height: 14)
+            .padding(.horizontal, 12)
     }
 
     private func hintItem(keys: String, label: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Text(keys)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
 
             Text(label)
-                .font(.system(size: 10))
-                .foregroundStyle(.quaternary)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -878,7 +959,7 @@ struct QuickSwitcher: View {
             onClose: {}
         )
     }
-    .frame(width: 700, height: 500)
+    .frame(width: 800, height: 600)
 }
 
 // MARK: - Keyboard Navigation Modifier
