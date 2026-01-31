@@ -2,10 +2,67 @@
 //  QuickSwitcher.swift
 //  CommandCenter
 //
-//  Spotlight-style agent switcher (⌘K)
+//  Command palette for switching agents and executing actions (⌘K)
+//  - No prefix: Search sessions
+//  - ">" prefix: Search commands
 //
 
 import SwiftUI
+
+// MARK: - Command Definition
+
+struct QuickCommand: Identifiable {
+    let id: String
+    let name: String
+    let icon: String
+    let shortcut: String?
+    let requiresSession: Bool
+    let action: (Session?) -> Void
+
+    static func sessionCommands(
+        onRename: @escaping (Session) -> Void,
+        onFocus: @escaping (Session) -> Void,
+        onOpenFinder: @escaping (Session) -> Void,
+        onCopyResume: @escaping (Session) -> Void
+    ) -> [QuickCommand] {
+        [
+            QuickCommand(
+                id: "rename",
+                name: "Rename Session",
+                icon: "pencil",
+                shortcut: "⌘R",
+                requiresSession: true,
+                action: { session in if let s = session { onRename(s) } }
+            ),
+            QuickCommand(
+                id: "focus",
+                name: "Focus Terminal",
+                icon: "terminal",
+                shortcut: nil,
+                requiresSession: true,
+                action: { session in if let s = session { onFocus(s) } }
+            ),
+            QuickCommand(
+                id: "finder",
+                name: "Open in Finder",
+                icon: "folder",
+                shortcut: nil,
+                requiresSession: true,
+                action: { session in if let s = session { onOpenFinder(s) } }
+            ),
+            QuickCommand(
+                id: "copy",
+                name: "Copy Resume Command",
+                icon: "doc.on.doc",
+                shortcut: nil,
+                requiresSession: true,
+                action: { session in if let s = session { onCopyResume(s) } }
+            )
+        ]
+    }
+}
+
+// MARK: - Quick Switcher
 
 struct QuickSwitcher: View {
     @Environment(DatabaseManager.self) private var database
@@ -17,17 +74,68 @@ struct QuickSwitcher: View {
     @State private var selectedIndex = 0
     @State private var renamingSession: Session?
     @State private var renameText = ""
+    @State private var contextSession: Session?  // Session selected when entering command mode
     @FocusState private var isSearchFocused: Bool
 
-    // Grouped and filtered sessions
+    // MARK: - Search Mode Detection
+
+    private var isCommandMode: Bool {
+        searchText.hasPrefix(">")
+    }
+
+    private var commandSearchText: String {
+        guard isCommandMode else { return "" }
+        return String(searchText.dropFirst()).trimmingCharacters(in: .whitespaces)
+    }
+
+    private var sessionSearchText: String {
+        guard !isCommandMode else { return "" }
+        return searchText
+    }
+
+    // MARK: - Commands
+
+    private var commands: [QuickCommand] {
+        QuickCommand.sessionCommands(
+            onRename: { session in
+                renameText = session.customName ?? ""
+                renamingSession = session
+            },
+            onFocus: { session in
+                focusTerminal(for: session)
+                onClose()
+            },
+            onOpenFinder: { session in
+                NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+                onClose()
+            },
+            onCopyResume: { session in
+                let command = "claude --resume \(session.id)"
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+                onClose()
+            }
+        )
+    }
+
+    private var filteredCommands: [QuickCommand] {
+        guard isCommandMode else { return [] }
+        let query = commandSearchText.lowercased()
+        if query.isEmpty { return commands }
+        return commands.filter { $0.name.lowercased().contains(query) }
+    }
+
+    // MARK: - Sessions
+
     private var filteredSessions: [Session] {
-        guard !searchText.isEmpty else { return sessions }
+        guard !isCommandMode else { return [] }
+        guard !sessionSearchText.isEmpty else { return sessions }
         return sessions.filter {
-            $0.displayName.localizedCaseInsensitiveContains(searchText) ||
-            $0.projectPath.localizedCaseInsensitiveContains(searchText) ||
-            ($0.summary ?? "").localizedCaseInsensitiveContains(searchText) ||
-            ($0.customName ?? "").localizedCaseInsensitiveContains(searchText) ||
-            ($0.branch ?? "").localizedCaseInsensitiveContains(searchText)
+            $0.displayName.localizedCaseInsensitiveContains(sessionSearchText) ||
+            $0.projectPath.localizedCaseInsensitiveContains(sessionSearchText) ||
+            ($0.summary ?? "").localizedCaseInsensitiveContains(sessionSearchText) ||
+            ($0.customName ?? "").localizedCaseInsensitiveContains(sessionSearchText) ||
+            ($0.branch ?? "").localizedCaseInsensitiveContains(sessionSearchText)
         }
     }
 
@@ -51,6 +159,11 @@ struct QuickSwitcher: View {
         working + needsAttention + recent
     }
 
+    // Total items for navigation
+    private var totalItems: Int {
+        isCommandMode ? filteredCommands.count : allVisibleSessions.count
+    }
+
     var body: some View {
         mainContent
             .onAppear {
@@ -62,12 +175,29 @@ struct QuickSwitcher: View {
                 onMoveDown: { moveSelection(by: 1) },
                 onMoveToFirst: { selectedIndex = 0 },
                 onMoveToLast: {
-                    let count = allVisibleSessions.count
-                    if count > 0 { selectedIndex = count - 1 }
+                    if totalItems > 0 { selectedIndex = totalItems - 1 }
                 },
                 onSelect: { selectCurrent() },
                 onRename: { renameCurrentSelection() }
             ))
+            .onChange(of: searchText) { oldValue, newValue in
+                selectedIndex = 0  // Reset selection when search changes
+
+                // Track context session when entering command mode
+                let wasCommandMode = oldValue.hasPrefix(">")
+                let isNowCommandMode = newValue.hasPrefix(">")
+                if !wasCommandMode && isNowCommandMode {
+                    // Entering command mode - save current session context
+                    if selectedIndex < allVisibleSessions.count {
+                        contextSession = allVisibleSessions[selectedIndex]
+                    } else {
+                        contextSession = allVisibleSessions.first
+                    }
+                } else if wasCommandMode && !isNowCommandMode {
+                    // Leaving command mode - clear context
+                    contextSession = nil
+                }
+            }
             .sheet(item: $renamingSession) { session in
                 RenameSessionSheet(
                     session: session,
@@ -93,7 +223,9 @@ struct QuickSwitcher: View {
             Divider()
                 .foregroundStyle(Color.panelBorder)
 
-            if allVisibleSessions.isEmpty {
+            if isCommandMode {
+                commandsView
+            } else if allVisibleSessions.isEmpty {
                 emptyState
             } else {
                 resultsView
@@ -110,21 +242,122 @@ struct QuickSwitcher: View {
         .shadow(color: .black.opacity(0.4), radius: 30, x: 0, y: 15)
     }
 
+    // MARK: - Commands View
+
+    private var commandsView: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                // Context session indicator
+                if let session = contextSession ?? allVisibleSessions.first {
+                    HStack(spacing: 8) {
+                        Text("Acting on:")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.tertiary)
+
+                        Text(session.displayName)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 8)
+                    .background(Color.backgroundTertiary.opacity(0.3))
+                }
+
+                if filteredCommands.isEmpty {
+                    commandEmptyState
+                } else {
+                    ForEach(Array(filteredCommands.enumerated()), id: \.element.id) { index, command in
+                        commandRow(command: command, index: index)
+                            .id("cmd-\(index)")
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .frame(maxHeight: 340)
+    }
+
+    private func commandRow(command: QuickCommand, index: Int) -> some View {
+        Button {
+            executeCommand(command)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: command.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+
+                Text(command.name)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                if let shortcut = command.shortcut {
+                    Text(shortcut)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                }
+
+                if command.requiresSession {
+                    Text("on selected")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.quaternary)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selectedIndex == index ? Color.accentColor.opacity(0.2) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var commandEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "command")
+                .font(.system(size: 24))
+                .foregroundStyle(.quaternary)
+
+            Text("No commands found")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    private func executeCommand(_ command: QuickCommand) {
+        if command.requiresSession {
+            // Use the context session (selected when entering command mode) or first session
+            let session = contextSession ?? allVisibleSessions.first
+            guard session != nil else { return }
+            command.action(session)
+        } else {
+            command.action(nil)
+        }
+    }
+
     // MARK: - Search Bar
 
     private var searchBar: some View {
         HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass")
+            Image(systemName: isCommandMode ? "command" : "magnifyingglass")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(isCommandMode ? Color.accentColor : Color.secondary)
 
-            TextField("Search agents...", text: $searchText)
+            TextField(isCommandMode ? "Search commands..." : "Search agents... (type > for commands)", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .focused($isSearchFocused)
-                .onChange(of: searchText) { _, _ in
-                    selectedIndex = 0
-                }
 
             if !searchText.isEmpty {
                 Button {
@@ -331,11 +564,17 @@ struct QuickSwitcher: View {
     // MARK: - Footer
 
     private var footerHint: some View {
-        HStack(spacing: 12) {
-            hintItem(keys: "↑↓", label: "Navigate")
-            hintItem(keys: "C-p/n", label: "Emacs")
-            hintItem(keys: "↵", label: "Select")
-            hintItem(keys: "⌘R", label: "Rename")
+        HStack(spacing: 10) {
+            if isCommandMode {
+                hintItem(keys: "↑↓", label: "Navigate")
+                hintItem(keys: "↵", label: "Execute")
+                hintItem(keys: "⌫", label: "Back")
+            } else {
+                hintItem(keys: ">", label: "Commands")
+                hintItem(keys: "↑↓", label: "Navigate")
+                hintItem(keys: "↵", label: "Select")
+                hintItem(keys: "⌘R", label: "Rename")
+            }
             hintItem(keys: "esc", label: "Close")
         }
         .padding(.horizontal, 18)
@@ -361,13 +600,12 @@ struct QuickSwitcher: View {
     // MARK: - Helpers
 
     private func moveSelection(by delta: Int) {
-        let count = allVisibleSessions.count
-        guard count > 0 else { return }
+        guard totalItems > 0 else { return }
 
         let newIndex = selectedIndex + delta
         if newIndex < 0 {
-            selectedIndex = count - 1
-        } else if newIndex >= count {
+            selectedIndex = totalItems - 1
+        } else if newIndex >= totalItems {
             selectedIndex = 0
         } else {
             selectedIndex = newIndex
@@ -375,16 +613,76 @@ struct QuickSwitcher: View {
     }
 
     private func selectCurrent() {
-        guard selectedIndex < allVisibleSessions.count else { return }
-        let session = allVisibleSessions[selectedIndex]
-        onSelect(session.id)
+        if isCommandMode {
+            // Execute command
+            guard selectedIndex < filteredCommands.count else { return }
+            let command = filteredCommands[selectedIndex]
+            executeCommand(command)
+        } else {
+            // Select session
+            guard selectedIndex < allVisibleSessions.count else { return }
+            let session = allVisibleSessions[selectedIndex]
+            onSelect(session.id)
+        }
     }
 
     private func renameCurrentSelection() {
+        guard !isCommandMode else { return }
         guard selectedIndex < allVisibleSessions.count else { return }
         let session = allVisibleSessions[selectedIndex]
         renameText = session.customName ?? ""
         renamingSession = session
+    }
+
+    private func focusTerminal(for session: Session) {
+        if session.isActive {
+            // Try to focus existing terminal
+            if let terminalId = session.terminalSessionId, !terminalId.isEmpty,
+               session.terminalApp == "iTerm.app" {
+                let script = """
+                tell application "iTerm2"
+                    repeat with aWindow in windows
+                        repeat with aTab in tabs of aWindow
+                            repeat with aSession in sessions of aTab
+                                try
+                                    if unique ID of aSession contains "\(terminalId)" then
+                                        select aTab
+                                        select aSession
+                                        set index of aWindow to 1
+                                        activate
+                                        return
+                                    end if
+                                end try
+                            end repeat
+                        end repeat
+                    end repeat
+                end tell
+                """
+                runAppleScript(script)
+            }
+        } else {
+            // Open new terminal with resume command
+            let escapedPath = session.projectPath.replacingOccurrences(of: "'", with: "'\\''")
+            let command = "cd '\(escapedPath)' && claude --resume \(session.id)"
+            let script = """
+            tell application "iTerm2"
+                activate
+                set newWindow to (create window with default profile)
+                tell current session of newWindow
+                    write text "\(command)"
+                end tell
+            end tell
+            """
+            runAppleScript(script)
+        }
+    }
+
+    private func runAppleScript(_ source: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let script = NSAppleScript(source: source)
+            var error: NSDictionary?
+            script?.executeAndReturnError(&error)
+        }
     }
 
     private func statusColor(for session: Session) -> Color {
