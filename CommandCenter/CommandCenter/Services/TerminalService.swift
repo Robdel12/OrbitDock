@@ -27,8 +27,7 @@ final class TerminalService {
     }
 
     /// Send text input to a terminal session
-    /// Note: Claude Code TUI requires focus to receive keystroke events, so this
-    /// briefly activates iTerm, sends the input, then returns focus to OrbitDock
+    /// Claude's TUI requires keystroke events, so we activate iTerm and send Return
     func sendInput(_ text: String, to session: Session, completion: ((Bool) -> Void)? = nil) {
         guard let terminalId = session.terminalSessionId, !terminalId.isEmpty,
               session.terminalApp == "iTerm.app" else {
@@ -41,26 +40,23 @@ final class TerminalService {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
 
-        // Claude Code's TUI uses raw terminal mode and only receives keystroke events
-        // when iTerm is frontmost. We need to:
-        // 1. Write the text to the session (works in background)
-        // 2. Briefly activate iTerm to send the Return keystroke
-        // 3. Return focus to OrbitDock
+        // Write text, activate iTerm, send Return - user stays in iTerm to watch Claude
         let script = """
-        -- First, write text without activating
         tell application "iTerm2"
             repeat with aWindow in windows
                 repeat with aTab in tabs of aWindow
                     repeat with aSession in sessions of aTab
                         try
                             if "\(terminalId)" contains (unique ID of aSession) then
+                                -- Write the text (no newline yet)
+                                tell aSession to write text "\(escapedText)" newline false
+                                -- Focus this session's window and activate
+                                set index of aWindow to 1
                                 select aTab
                                 select aSession
-                                tell aSession to write text "\(escapedText)" newline NO
-
-                                -- Activate iTerm to send keystroke
-                                set index of aWindow to 1
                                 activate
+                                -- Send Return keystroke
+                                tell application "System Events" to key code 36
                                 return "sent"
                             end if
                         end try
@@ -71,27 +67,10 @@ final class TerminalService {
         end tell
         """
 
-        appleScript.execute(script) { [self] result in
+        appleScript.execute(script) { result in
             switch result {
             case .success(let output):
-                if output == "sent" {
-                    // Send keystroke Return (requires iTerm to be frontmost)
-                    let returnScript = """
-                    tell application "System Events"
-                        tell process "iTerm2"
-                            key code 36
-                        end tell
-                    end tell
-                    -- Return focus to OrbitDock
-                    tell application "OrbitDock" to activate
-                    """
-                    appleScript.execute(returnScript) { _ in
-                        completion?(true)
-                    }
-                } else {
-                    // Session not found - terminal may have been closed
-                    completion?(false)
-                }
+                completion?(output == "sent")
             case .failure:
                 completion?(false)
             }

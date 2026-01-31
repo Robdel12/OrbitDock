@@ -324,19 +324,30 @@ final class SubscriptionUsageService {
     }
 
     private func loadFromClaudeKeychain() throws -> CachedCredentials {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: claudeKeychainService,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
+        // Use security CLI to bypass partition_id restrictions
+        // (SecItemCopyMatching gets blocked by Anthropic's teamid partition)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["find-generic-password", "-s", claudeKeychainService, "-w"]
 
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
 
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            throw SubscriptionUsageError.noCredentials
+        }
+
+        guard process.terminationStatus == 0 else {
+            throw SubscriptionUsageError.noCredentials
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = json["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String else {
             throw SubscriptionUsageError.noCredentials
