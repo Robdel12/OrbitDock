@@ -77,88 +77,96 @@ const main = () => {
   log('⚙️  Configuring hooks in settings.json...')
   let settings = {}
   if (existsSync(SETTINGS_FILE)) {
+    // Backup settings.json before modifying
+    let backupPath = `${SETTINGS_FILE}.backup`
+    copyFileSync(SETTINGS_FILE, backupPath)
+    log(`   Backed up settings.json to ${backupPath}`)
     settings = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
   }
 
-  settings.hooks = {
-    SessionStart: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node ${join(HOOKS_DIR, 'session-start.js')}`,
-            async: true,
-          },
-        ],
-      },
-    ],
-    SessionEnd: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node ${join(HOOKS_DIR, 'session-end.js')}`,
-            async: true,
-          },
-        ],
-      },
-    ],
-    UserPromptSubmit: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
-            async: true,
-          },
-        ],
-      },
-    ],
-    Stop: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
-            async: true,
-          },
-        ],
-      },
-    ],
-    Notification: [
-      {
-        matcher: 'idle_prompt|permission_prompt',
-        hooks: [
-          {
-            type: 'command',
-            command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
-            async: true,
-          },
-        ],
-      },
-    ],
-    PreToolUse: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node ${join(HOOKS_DIR, 'tool-tracker.js')}`,
-            async: true,
-          },
-        ],
-      },
-    ],
-    PostToolUse: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node ${join(HOOKS_DIR, 'tool-tracker.js')}`,
-            async: true,
-          },
-        ],
-      },
-    ],
+  // OrbitDock hook definitions
+  let orbitdockHooks = {
+    SessionStart: {
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(HOOKS_DIR, 'session-start.js')}`,
+          async: true,
+        },
+      ],
+    },
+    SessionEnd: {
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(HOOKS_DIR, 'session-end.js')}`,
+          async: true,
+        },
+      ],
+    },
+    UserPromptSubmit: {
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
+          async: true,
+        },
+      ],
+    },
+    Stop: {
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
+          async: true,
+        },
+      ],
+    },
+    Notification: {
+      matcher: 'idle_prompt|permission_prompt',
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(HOOKS_DIR, 'status-tracker.js')}`,
+          async: true,
+        },
+      ],
+    },
+    PreToolUse: {
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(HOOKS_DIR, 'tool-tracker.js')}`,
+          async: true,
+        },
+      ],
+    },
+    PostToolUse: {
+      hooks: [
+        {
+          type: 'command',
+          command: `node ${join(HOOKS_DIR, 'tool-tracker.js')}`,
+          async: true,
+        },
+      ],
+    },
+  }
+
+  // Merge with existing hooks (preserve user's other hooks)
+  settings.hooks = settings.hooks || {}
+
+  for (let [event, hookConfig] of Object.entries(orbitdockHooks)) {
+    let existing = settings.hooks[event] || []
+
+    // Remove any previous OrbitDock hooks (by command path)
+    existing = existing.filter((entry) => {
+      let commands = entry.hooks?.map((h) => h.command) || []
+      return !commands.some((cmd) => cmd?.includes('.claude/hooks/'))
+    })
+
+    // Add OrbitDock hook
+    existing.push(hookConfig)
+    settings.hooks[event] = existing
   }
 
   writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
@@ -168,6 +176,10 @@ const main = () => {
   log('🔌 Setting up MCP server...')
   let mcpConfig = { mcpServers: {} }
   if (existsSync(MCP_CONFIG)) {
+    // Backup mcp.json before modifying
+    let backupPath = `${MCP_CONFIG}.backup`
+    copyFileSync(MCP_CONFIG, backupPath)
+    log(`   Backed up mcp.json to ${backupPath}`)
     mcpConfig = JSON.parse(readFileSync(MCP_CONFIG, 'utf-8'))
   }
 
