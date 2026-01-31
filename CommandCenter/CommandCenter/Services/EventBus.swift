@@ -40,7 +40,7 @@ final class EventBus {
                 let eventBus = Unmanaged<EventBus>.fromOpaque(observer).takeUnretainedValue()
                 eventBus.handleSessionNotification()
             },
-            "com.commandcenter.session.updated" as CFString,
+            "com.orbitdock.session.updated" as CFString,
             nil,
             .deliverImmediately
         )
@@ -54,7 +54,7 @@ final class EventBus {
                 let eventBus = Unmanaged<EventBus>.fromOpaque(observer).takeUnretainedValue()
                 eventBus.handleTranscriptNotification()
             },
-            "com.commandcenter.transcript.updated" as CFString,
+            "com.orbitdock.transcript.updated" as CFString,
             nil,
             .deliverImmediately
         )
