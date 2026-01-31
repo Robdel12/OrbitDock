@@ -102,9 +102,15 @@ export const getWorkstreamContext = (database, projectPath) => {
  */
 export const handleSessionStart = (
   database,
-  { sessionId, projectPath, model, contextLabel, transcriptPath },
+  { sessionId, projectPath, model, contextLabel, transcriptPath, terminalSessionId, terminalApp },
 ) => {
   db.ensureSchema(database)
+
+  // Clean up stale sessions from this terminal
+  // A terminal can only run one Claude session at a time
+  if (terminalSessionId) {
+    db.cleanupStaleSessions(database, terminalSessionId, sessionId)
+  }
 
   const branch = git.getCurrentBranch(projectPath)
   const repoName = git.getRepoName(projectPath)
@@ -122,6 +128,8 @@ export const handleSessionStart = (
     workStatus: 'unknown',
     startedAt: new Date().toISOString(),
     workstreamId: workstream?.id,
+    terminalSessionId,
+    terminalApp,
   })
 
   // Update workstream stats

@@ -5,15 +5,17 @@ import Database from 'better-sqlite3'
 import {
   addNote,
   addTicket,
+  cleanupStaleSessions,
   createWorkstream,
   ensureSchema,
   findOrCreateRepo,
   getNotes,
   getTickets,
   getUnresolvedBlockers,
+  upsertSession,
 } from './db.js'
 
-import { detectBranchCreation } from './git.js'
+import { detectBranchCreation, detectWorktreePath, parseLinearIssueFromBranch } from './git.js'
 
 // ============================================================================
 // Pure function tests - no I/O, no mocking
@@ -57,6 +59,43 @@ describe('detectBranchCreation', () => {
   it('ignores branch delete commands', () => {
     assert.strictEqual(bash('git branch -d old-branch'), null)
     assert.strictEqual(bash('git branch -D old-branch'), null)
+  })
+})
+
+describe('parseLinearIssueFromBranch', () => {
+  it('extracts Linear issue from branch name', () => {
+    assert.strictEqual(parseLinearIssueFromBranch('viz-42-add-dark-mode'), 'VIZ-42')
+    assert.strictEqual(parseLinearIssueFromBranch('feature/VIZ-123-thing'), 'VIZ-123')
+    assert.strictEqual(parseLinearIssueFromBranch('fix/abc-999'), 'ABC-999')
+  })
+
+  it('returns null for branches without issue ID', () => {
+    assert.strictEqual(parseLinearIssueFromBranch('feature/add-auth'), null)
+    assert.strictEqual(parseLinearIssueFromBranch('main'), null)
+    assert.strictEqual(parseLinearIssueFromBranch('fix-typo'), null)
+  })
+
+  it('handles null/undefined', () => {
+    assert.strictEqual(parseLinearIssueFromBranch(null), null)
+    assert.strictEqual(parseLinearIssueFromBranch(undefined), null)
+  })
+})
+
+describe('detectWorktreePath', () => {
+  it('extracts path from git worktree add', () => {
+    assert.strictEqual(
+      detectWorktreePath({ command: 'git worktree add ../my-worktree feature/thing' }),
+      '../my-worktree',
+    )
+    assert.strictEqual(
+      detectWorktreePath({ command: 'git worktree add -b new-branch /tmp/worktree' }),
+      '/tmp/worktree',
+    )
+  })
+
+  it('returns null for non-worktree commands', () => {
+    assert.strictEqual(detectWorktreePath({ command: 'git checkout -b foo' }), null)
+    assert.strictEqual(detectWorktreePath({ command: 'npm install' }), null)
   })
 })
 
@@ -163,5 +202,42 @@ describe('database operations', () => {
     let repo2 = findOrCreateRepo(db, { path: '/test/repo', name: 'different-name' })
 
     assert.strictEqual(repo1.id, repo2.id)
+  })
+
+  it('cleans up stale sessions in same terminal', () => {
+    freshDb()
+
+    // Create two sessions in same terminal
+    upsertSession(db, {
+      id: 'session-old',
+      projectPath: '/test',
+      status: 'active',
+      terminalSessionId: 'term-123',
+    })
+    upsertSession(db, {
+      id: 'session-new',
+      projectPath: '/test',
+      status: 'active',
+      terminalSessionId: 'term-123',
+    })
+
+    // Both should be active initially
+    let oldSession = db.prepare('SELECT status FROM sessions WHERE id = ?').get('session-old')
+    assert.strictEqual(oldSession.status, 'active')
+
+    // Cleanup should mark old session as stale
+    let cleaned = cleanupStaleSessions(db, 'term-123', 'session-new')
+    assert.strictEqual(cleaned, 1)
+
+    // Old session should now be ended
+    oldSession = db
+      .prepare('SELECT status, end_reason FROM sessions WHERE id = ?')
+      .get('session-old')
+    assert.strictEqual(oldSession.status, 'ended')
+    assert.strictEqual(oldSession.end_reason, 'stale')
+
+    // New session should still be active
+    let newSession = db.prepare('SELECT status FROM sessions WHERE id = ?').get('session-new')
+    assert.strictEqual(newSession.status, 'active')
   })
 })

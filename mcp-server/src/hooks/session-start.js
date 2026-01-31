@@ -51,6 +51,10 @@ const main = async () => {
     db = getDb()
     ensureSchema(db)
 
+    // Capture terminal info from environment
+    const terminalSessionId = process.env.ITERM_SESSION_ID || null
+    const terminalApp = process.env.TERM_PROGRAM || null
+
     // Handle session start
     const result = handleSessionStart(db, {
       sessionId: input.session_id,
@@ -58,6 +62,8 @@ const main = async () => {
       model: input.model,
       contextLabel: input.context_label,
       transcriptPath: input.transcript_path,
+      terminalSessionId,
+      terminalApp,
     })
 
     // Log result (goes to stderr, not visible to user)

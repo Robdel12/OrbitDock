@@ -321,13 +321,16 @@ export const upsertSession = (db, session) => {
     workStatus,
     startedAt,
     workstreamId,
+    terminalSessionId,
+    terminalApp,
   } = session
 
   db.prepare(`
     INSERT INTO sessions (
       id, project_path, project_name, branch, model, context_label,
-      transcript_path, status, work_status, started_at, last_activity_at, workstream_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+      transcript_path, status, work_status, started_at, last_activity_at,
+      workstream_id, terminal_session_id, terminal_app
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       project_path = excluded.project_path,
       project_name = excluded.project_name,
@@ -338,7 +341,9 @@ export const upsertSession = (db, session) => {
       status = excluded.status,
       work_status = excluded.work_status,
       last_activity_at = datetime('now'),
-      workstream_id = COALESCE(excluded.workstream_id, workstream_id)
+      workstream_id = COALESCE(excluded.workstream_id, workstream_id),
+      terminal_session_id = COALESCE(excluded.terminal_session_id, terminal_session_id),
+      terminal_app = COALESCE(excluded.terminal_app, terminal_app)
   `).run(
     id,
     projectPath,
@@ -351,6 +356,8 @@ export const upsertSession = (db, session) => {
     workStatus || 'unknown',
     startedAt || new Date().toISOString(),
     workstreamId || null,
+    terminalSessionId || null,
+    terminalApp || null,
   )
 
   return db.prepare('SELECT * FROM sessions WHERE id = ?').get(id)
@@ -381,6 +388,27 @@ export const endSession = (db, id, reason) => {
     SET status = 'ended', ended_at = datetime('now'), end_reason = ?
     WHERE id = ?
   `).run(reason || null, id)
+}
+
+/**
+ * Mark stale sessions as ended
+ * A terminal can only run one Claude session at a time, so if we're starting
+ * a new session in this terminal, any old active sessions must have ended without cleanup
+ */
+export const cleanupStaleSessions = (db, terminalSessionId, currentSessionId) => {
+  if (!terminalSessionId) return 0
+
+  const result = db
+    .prepare(`
+    UPDATE sessions
+    SET status = 'ended', ended_at = datetime('now'), end_reason = 'stale'
+    WHERE terminal_session_id = ?
+      AND status = 'active'
+      AND id != ?
+  `)
+    .run(terminalSessionId, currentSessionId)
+
+  return result.changes
 }
 
 // ============================================================================
