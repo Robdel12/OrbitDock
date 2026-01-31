@@ -3,3 +3,7 @@ node_modules/
 *.db
 *.db-wal
 *.db-shm
+
+# Xcode user data
+*.xcworkspace/
+xcuserdata/
