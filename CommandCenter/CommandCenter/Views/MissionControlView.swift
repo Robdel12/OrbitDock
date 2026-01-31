@@ -9,6 +9,8 @@
 import SwiftUI
 
 struct MissionControlView: View {
+    var onSelectSession: ((String) -> Void)? = nil
+
     @State private var workstreams: [Workstream] = []
     @State private var repos: [String: Repo] = [:]
     @State private var selectedWorkstream: Workstream?
@@ -44,7 +46,8 @@ struct MissionControlView: View {
         .sheet(item: $selectedWorkstream) { workstream in
             WorkstreamDetailView(
                 workstream: workstream,
-                repo: repos[workstream.repoId]
+                repo: repos[workstream.repoId],
+                onSelectSession: onSelectSession
             )
             .frame(minWidth: 600, minHeight: 500)
         }

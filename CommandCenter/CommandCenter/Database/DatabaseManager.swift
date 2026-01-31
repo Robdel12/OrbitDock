@@ -255,6 +255,7 @@ class DatabaseManager {
                     toolCount: row[toolCount] ?? 0,
                     terminalSessionId: row[terminalSessionId],
                     terminalApp: row[terminalApp],
+                    workstreamId: (try? row.get(sessionWorkstreamId)) ?? nil,
                     attentionReason: attentionReasonValue,
                     pendingToolName: (try? row.get(pendingToolName)) ?? nil,
                     pendingQuestion: (try? row.get(pendingQuestion)) ?? nil

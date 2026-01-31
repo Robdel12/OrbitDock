@@ -100,7 +100,7 @@ struct DashboardView: View {
             case .sessions:
                 sessionsContent
             case .workstreams:
-                MissionControlView()
+                MissionControlView(onSelectSession: onSelectSession)
             }
         }
         .background(Color.backgroundPrimary)
