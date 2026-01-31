@@ -5,9 +5,11 @@
   "type": "module",
   "main": "mcp-server/server.js",
   "bin": {
-    "orbitdock-server": "./mcp-server/server.js"
+    "orbitdock-server": "./mcp-server/server.js",
+    "orbitdock-install": "./install.js"
   },
   "scripts": {
+    "install-hooks": "node install.js",
     "start": "node mcp-server/server.js",
     "test": "node --test lib/*.test.js",
     "check": "biome check .",
