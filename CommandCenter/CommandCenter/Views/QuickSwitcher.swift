@@ -68,6 +68,7 @@ struct QuickSwitcher: View {
     @Environment(DatabaseManager.self) private var database
     let sessions: [Session]
     let onSelect: (String) -> Void
+    let onGoToDashboard: () -> Void
     let onClose: () -> Void
 
     @State private var searchText = ""
@@ -96,7 +97,23 @@ struct QuickSwitcher: View {
     // MARK: - Commands
 
     private var commands: [QuickCommand] {
-        QuickCommand.sessionCommands(
+        // Global commands (no session required)
+        var allCommands: [QuickCommand] = [
+            QuickCommand(
+                id: "dashboard",
+                name: "Go to Dashboard",
+                icon: "square.grid.2x2",
+                shortcut: "⌘0",
+                requiresSession: false,
+                action: { _ in
+                    onGoToDashboard()
+                    onClose()
+                }
+            )
+        ]
+
+        // Session-specific commands
+        allCommands += QuickCommand.sessionCommands(
             onRename: { session in
                 renameText = session.customName ?? ""
                 renamingSession = session
@@ -116,6 +133,8 @@ struct QuickSwitcher: View {
                 onClose()
             }
         )
+
+        return allCommands
     }
 
     private var filteredCommands: [QuickCommand] {
@@ -159,9 +178,9 @@ struct QuickSwitcher: View {
         working + needsAttention + recent
     }
 
-    // Total items for navigation
+    // Total items for navigation (includes dashboard row when not in command mode)
     private var totalItems: Int {
-        isCommandMode ? filteredCommands.count : allVisibleSessions.count
+        isCommandMode ? filteredCommands.count : allVisibleSessions.count + 1  // +1 for dashboard row
     }
 
     var body: some View {
@@ -188,8 +207,10 @@ struct QuickSwitcher: View {
                 let isNowCommandMode = newValue.hasPrefix(">")
                 if !wasCommandMode && isNowCommandMode {
                     // Entering command mode - save current session context
-                    if selectedIndex < allVisibleSessions.count {
-                        contextSession = allVisibleSessions[selectedIndex]
+                    // Account for dashboard row at index 0 (session indices start at 1)
+                    let sessionIndex = selectedIndex > 0 ? selectedIndex - 1 : 0
+                    if sessionIndex < allVisibleSessions.count {
+                        contextSession = allVisibleSessions[sessionIndex]
                     } else {
                         contextSession = allVisibleSessions.first
                     }
@@ -369,13 +390,6 @@ struct QuickSwitcher: View {
                 }
                 .buttonStyle(.plain)
             }
-
-            Text("⌘K")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(.quaternary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 16)
@@ -387,13 +401,18 @@ struct QuickSwitcher: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    // Dashboard row (always first, index 0)
+                    dashboardRow
+                        .id("row-0")
+
+                    // Sessions start at index 1
                     if !working.isEmpty {
                         sectionView(
                             title: "WORKING",
                             sessions: working,
                             color: .statusWorking,
                             icon: "bolt.fill",
-                            startIndex: 0
+                            startIndex: 1  // Offset by 1 for dashboard row
                         )
                     }
 
@@ -403,7 +422,7 @@ struct QuickSwitcher: View {
                             sessions: needsAttention,
                             color: .statusWaiting,
                             icon: "exclamationmark.circle.fill",
-                            startIndex: working.count
+                            startIndex: working.count + 1
                         )
                     }
 
@@ -413,7 +432,7 @@ struct QuickSwitcher: View {
                             sessions: recent,
                             color: .secondary,
                             icon: "clock",
-                            startIndex: working.count + needsAttention.count
+                            startIndex: working.count + needsAttention.count + 1
                         )
                     }
                 }
@@ -424,6 +443,42 @@ struct QuickSwitcher: View {
                 proxy.scrollTo("row-\(newIndex)", anchor: .center)
             }
         }
+    }
+
+    // Dashboard row at the top of results
+    private var dashboardRow: some View {
+        Button {
+            onGoToDashboard()
+            onClose()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 14, height: 14)
+
+                Text("Dashboard")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Text("⌘0")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(selectedIndex == 0 ? Color.accentColor.opacity(0.2) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Section View
@@ -500,9 +555,9 @@ struct QuickSwitcher: View {
                     // Branch + status
                     HStack(spacing: 8) {
                         if let branch = session.branch {
-                            HStack(spacing: 3) {
+                            HStack(spacing: 4) {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 8, weight: .medium))
+                                    .font(.system(size: 10))
                                 Text(branch)
                                     .font(.system(size: 10, design: .monospaced))
                             }
@@ -619,17 +674,27 @@ struct QuickSwitcher: View {
             let command = filteredCommands[selectedIndex]
             executeCommand(command)
         } else {
-            // Select session
-            guard selectedIndex < allVisibleSessions.count else { return }
-            let session = allVisibleSessions[selectedIndex]
+            // Index 0 is dashboard
+            if selectedIndex == 0 {
+                onGoToDashboard()
+                onClose()
+                return
+            }
+
+            // Session indices are offset by 1
+            let sessionIndex = selectedIndex - 1
+            guard sessionIndex < allVisibleSessions.count else { return }
+            let session = allVisibleSessions[sessionIndex]
             onSelect(session.id)
         }
     }
 
     private func renameCurrentSelection() {
         guard !isCommandMode else { return }
-        guard selectedIndex < allVisibleSessions.count else { return }
-        let session = allVisibleSessions[selectedIndex]
+        guard selectedIndex > 0 else { return }  // Can't rename dashboard
+        let sessionIndex = selectedIndex - 1  // Offset by 1 for dashboard row
+        guard sessionIndex < allVisibleSessions.count else { return }
+        let session = allVisibleSessions[sessionIndex]
         renameText = session.customName ?? ""
         renamingSession = session
     }
@@ -793,6 +858,7 @@ struct QuickSwitcher: View {
                 )
             ],
             onSelect: { _ in },
+            onGoToDashboard: {},
             onClose: {}
         )
     }

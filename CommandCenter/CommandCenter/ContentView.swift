@@ -77,11 +77,7 @@ struct ContentView: View {
         .onAppear {
             loadSessions()
             setupEventSubscription()
-
-            // Auto-select first session if none selected
-            if selectedSessionId == nil, let first = sessions.first {
-                selectedSessionId = first.id
-            }
+            // Dashboard is now the home view - no auto-select needed
         }
         .onDisappear {
             eventSubscription?.cancel()
@@ -109,8 +105,19 @@ struct ContentView: View {
             }
             return .ignored
         }
-        // Use toolbar buttons with keyboard shortcuts for ⌘1 and ⌘K
+        // Use toolbar buttons with keyboard shortcuts
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        selectedSessionId = nil
+                    }
+                } label: {
+                    Label("Dashboard", systemImage: "square.grid.2x2")
+                }
+                .keyboardShortcut("0", modifiers: .command)
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -151,107 +158,34 @@ struct ContentView: View {
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                             showQuickSwitcher = true
                         }
+                    },
+                    onGoToDashboard: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            selectedSessionId = nil
+                        }
                     }
                 )
             } else {
-                emptyState
-            }
-        }
-    }
-
-    private var emptyState: some View {
-        VStack(spacing: 20) {
-            ZStack {
-                Circle()
-                    .fill(Color.backgroundTertiary)
-                    .frame(width: 80, height: 80)
-                Image(systemName: "terminal")
-                    .font(.system(size: 32, weight: .light))
-                    .foregroundStyle(.tertiary)
-            }
-
-            VStack(spacing: 8) {
-                Text("No Agent Selected")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Text("Press ⌘K to switch agents\nor ⌘1 to open the panel")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            // Stats summary
-            if !sessions.isEmpty {
-                HStack(spacing: 16) {
-                    statBadge(count: workingSessions.count, label: "Working", color: .statusWorking)
-                    statBadge(count: waitingSessions.count, label: "Waiting", color: .statusWaiting)
-                    statBadge(count: sessions.count, label: "Total", color: .secondary)
-                }
-                .padding(.top, 8)
-            }
-
-            // Quick action buttons
-            HStack(spacing: 12) {
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        showAgentPanel = true
+                // Dashboard view when no session selected
+                DashboardView(
+                    sessions: sessions,
+                    onSelectSession: { id in
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            selectedSessionId = id
+                        }
+                    },
+                    onOpenQuickSwitcher: {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                            showQuickSwitcher = true
+                        }
+                    },
+                    onOpenPanel: {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            showAgentPanel = true
+                        }
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sidebar.left")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Open Panel")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("⌘1")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                        showQuickSwitcher = true
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 11, weight: .medium))
-                        Text("Quick Switch")
-                            .font(.system(size: 12, weight: .medium))
-                        Text("⌘K")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .foregroundStyle(.white)
-                }
-                .buttonStyle(.plain)
+                )
             }
-            .padding(.top, 16)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func statBadge(count: Int, label: String, color: Color) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-
-            Text("\(count)")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
-
-            Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -274,6 +208,12 @@ struct ContentView: View {
                 onSelect: { id in
                     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
                         selectedSessionId = id
+                        showQuickSwitcher = false
+                    }
+                },
+                onGoToDashboard: {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                        selectedSessionId = nil
                         showQuickSwitcher = false
                     }
                 },
@@ -328,6 +268,7 @@ struct SessionDetailViewNew: View {
     let session: Session
     let onTogglePanel: () -> Void
     let onOpenSwitcher: () -> Void
+    let onGoToDashboard: () -> Void
 
     @State private var usageStats = TranscriptUsageStats()
     @State private var currentTool: String?
@@ -343,7 +284,8 @@ struct SessionDetailViewNew: View {
                 currentTool: currentTool,
                 onTogglePanel: onTogglePanel,
                 onOpenSwitcher: onOpenSwitcher,
-                onFocusTerminal: { openInITerm() }
+                onFocusTerminal: { openInITerm() },
+                onGoToDashboard: onGoToDashboard
             )
 
             Divider()

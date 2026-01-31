@@ -14,6 +14,7 @@ struct HeaderView: View {
     let onTogglePanel: () -> Void
     let onOpenSwitcher: () -> Void
     let onFocusTerminal: () -> Void
+    let onGoToDashboard: () -> Void
 
     @State private var isHoveringPath = false
     @State private var isHoveringProject = false
@@ -31,16 +32,30 @@ struct HeaderView: View {
         VStack(spacing: 0) {
             // Main row
             HStack(spacing: 12) {
-                // Panel toggle
-                Button(action: onTogglePanel) {
-                    Image(systemName: "sidebar.left")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                // Nav buttons
+                HStack(spacing: 4) {
+                    // Panel toggle
+                    Button(action: onTogglePanel) {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Toggle projects panel (⌘1)")
+
+                    // Home / Dashboard button
+                    Button(action: onGoToDashboard) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Go to dashboard (⌘0)")
                 }
-                .buttonStyle(.plain)
-                .help("Toggle projects panel (⌘1)")
 
                 // Status dot
                 ZStack {
@@ -83,7 +98,7 @@ struct HeaderView: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { isHoveringProject = $0 }
-                .help("Switch agents (⌘K)")
+                .help("Switch agents")
 
                 // Model badge (inline)
                 ModelBadgeCompact(model: session.model)
@@ -116,15 +131,14 @@ struct HeaderView: View {
                 // Quick actions
                 HStack(spacing: 4) {
                     Button(action: onOpenSwitcher) {
-                        Text("⌘K")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.tertiary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 6)
-                            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                            .frame(width: 28, height: 28)
+                            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .help("Quick switch (⌘K)")
+                    .help("Search sessions")
 
                     Button(action: onFocusTerminal) {
                         Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
@@ -149,7 +163,7 @@ struct HeaderView: View {
                 if let branch = session.branch, !branch.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.triangle.branch")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: 10, weight: .semibold))
                         Text(branch)
                             .font(.system(size: 10, weight: .medium, design: .monospaced))
                     }
@@ -162,7 +176,7 @@ struct HeaderView: View {
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "folder")
-                            .font(.system(size: 9, weight: .medium))
+                            .font(.system(size: 10, weight: .medium))
                         Text(shortenPath(session.projectPath))
                             .font(.system(size: 10, design: .monospaced))
                     }
@@ -356,7 +370,8 @@ struct ContextGaugeCompact: View {
             currentTool: "Edit",
             onTogglePanel: {},
             onOpenSwitcher: {},
-            onFocusTerminal: {}
+            onFocusTerminal: {},
+            onGoToDashboard: {}
         )
 
         Divider().opacity(0.3)

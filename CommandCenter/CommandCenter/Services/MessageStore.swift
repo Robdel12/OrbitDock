@@ -316,6 +316,45 @@ final class MessageStore {
         }
     }
 
+    /// Read aggregate stats across all sessions (for dashboard)
+    func readAllSessionStats() -> [(sessionId: String, stats: TranscriptUsageStats)] {
+        guard let db = readDb else { return [] }
+
+        do {
+            var results: [(sessionId: String, stats: TranscriptUsageStats)] = []
+
+            for row in try db.prepare(sessionStats) {
+                var stats = TranscriptUsageStats()
+                stats.inputTokens = row[totalInputTokens]
+                stats.outputTokens = row[totalOutputTokens]
+                stats.cacheReadTokens = row[cacheReadTokens]
+                stats.cacheCreationTokens = row[cacheCreationTokens]
+                stats.contextUsed = row[contextUsed]
+                stats.model = row[model]
+                results.append((sessionId: row[statsSessionId], stats: stats))
+            }
+
+            return results
+        } catch {
+            print("❌ MessageStore: readAllSessionStats failed: \(error)")
+            return []
+        }
+    }
+
+    /// Get total estimated cost across all sessions
+    func totalCostAllSessions() -> Double {
+        let allStats = readAllSessionStats()
+        return allStats.reduce(0) { $0 + $1.stats.estimatedCostUSD }
+    }
+
+    /// Get total tokens across all sessions
+    func totalTokensAllSessions() -> Int {
+        let allStats = readAllSessionStats()
+        return allStats.reduce(0) { total, item in
+            total + item.stats.inputTokens + item.stats.outputTokens
+        }
+    }
+
     /// Get the last sync time for a session (never blocks on writes)
     func lastSyncTime(sessionId sid: String) -> Date? {
         guard let db = readDb else { return nil }
