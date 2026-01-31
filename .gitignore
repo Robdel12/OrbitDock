@@ -1,41 +1,5 @@
-# Xcode
-build/
-DerivedData/
-*.pbxuser
-!default.pbxuser
-*.mode1v3
-!default.mode1v3
-*.mode2v3
-!default.mode2v3
-*.perspectivev3
-!default.perspectivev3
-xcuserdata/
-*.xccheckout
-*.moved-aside
-*.xcuserstate
-*.xcscmblueprint
-*.xcworkspace
-!default.xcworkspace
-
-# Swift Package Manager
-.build/
-.swiftpm/
-Packages/
-Package.resolved
-
-# CocoaPods
-Pods/
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes
-
-# App specific
-*.log
-
-# Claude Code local settings
-.claude/
+node_modules/
+.test-workstreams/
+*.db
+*.db-wal
+*.db-shm

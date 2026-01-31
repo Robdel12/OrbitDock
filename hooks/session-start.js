@@ -12,8 +12,8 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { ensureSchema, getDb } from '../db.js'
-import { handleSessionStart } from '../workstream.js'
+import { ensureSchema, getDb } from '../lib/db.js'
+import { handleSessionStart } from '../lib/workstream.js'
 
 const LOG_PREFIX = '[OrbitDock:session-start]'
 

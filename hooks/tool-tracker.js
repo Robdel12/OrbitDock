@@ -14,8 +14,8 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { getDb } from '../db.js'
-import { handleToolUse } from '../workstream.js'
+import { getDb } from '../lib/db.js'
+import { handleToolUse } from '../lib/workstream.js'
 
 const LOG_PREFIX = '[OrbitDock:tool-tracker]'
 

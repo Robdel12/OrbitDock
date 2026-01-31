@@ -16,8 +16,8 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js'
 
-import { ensureSchema, getDb } from './db.js'
-import { addWorkstreamNote, getWorkstreamContext, linkTicket } from './workstream.js'
+import { ensureSchema, getDb } from '../lib/db.js'
+import { addWorkstreamNote, getWorkstreamContext, linkTicket } from '../lib/workstream.js'
 
 // ============================================================================
 // Configuration

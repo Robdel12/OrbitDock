@@ -1,15 +1,15 @@
 {
   "name": "orbitdock",
   "version": "1.0.0",
-  "description": "OrbitDock MCP server and Claude Code hooks",
+  "description": "OrbitDock hooks and MCP server for Claude Code",
   "type": "module",
-  "main": "src/server.js",
+  "main": "mcp-server/server.js",
   "bin": {
-    "orbitdock-server": "./src/server.js"
+    "orbitdock-server": "./mcp-server/server.js"
   },
   "scripts": {
-    "start": "node src/server.js",
-    "test": "node --test src/**/*.test.js",
+    "start": "node mcp-server/server.js",
+    "test": "node --test lib/*.test.js",
     "check": "biome check .",
     "lint": "biome check --write ."
   },
