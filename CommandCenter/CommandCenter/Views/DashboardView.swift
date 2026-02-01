@@ -105,9 +105,9 @@ struct DashboardView: View {
 
     private var sessionsContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // Stats summary
-                StatsSummary(sessions: sessions)
+            VStack(alignment: .leading, spacing: 20) {
+                // Command bar - rich stats strip
+                CommandBar(sessions: sessions)
 
                 // Active sessions (flat list, sorted by start time)
                 ActiveSessionsSection(
@@ -115,8 +115,8 @@ struct DashboardView: View {
                     onSelectSession: onSelectSession
                 )
 
-                // Project archive (ended sessions, collapsed by default)
-                ProjectArchiveSection(
+                // Session history (ended sessions, chronological)
+                SessionHistorySection(
                     sessions: sessions,
                     onSelectSession: onSelectSession
                 )
