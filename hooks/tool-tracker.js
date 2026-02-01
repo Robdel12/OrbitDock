@@ -19,7 +19,7 @@
 
 import { readFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
-import { getDb, updateSession, incrementToolCount } from '../lib/db.js'
+import { getDb, updateSession, incrementToolCount, getSession } from '../lib/db.js'
 import * as git from '../lib/git.js'
 import * as db from '../lib/db.js'
 import { createLogger } from '../lib/logger.js'
@@ -69,10 +69,20 @@ let main = () => {
       case 'PreToolUse': {
         log.info('PreToolUse: updating last tool', { sessionId, toolName })
 
+        // Check if session is already in permission state - don't overwrite pending info
+        let session = getSession(database, sessionId)
+        let isAwaitingPermission = session?.work_status === 'permission'
+
         let updates = {
           lastTool: toolName,
           lastToolAt: new Date().toISOString(),
           workStatus: 'working',
+        }
+
+        // Only update pending tool info if not already awaiting permission
+        if (!isAwaitingPermission) {
+          updates.pendingToolName = toolName
+          updates.pendingToolInput = toolInput ? JSON.stringify(toolInput) : null
         }
 
         // Capture question text from AskUserQuestion tool
@@ -128,6 +138,7 @@ let main = () => {
         // Clear pending permission state - tool executed successfully
         updateSession(database, sessionId, {
           pendingToolName: null,
+          pendingToolInput: null,
           // Keep pendingQuestion if it was AskUserQuestion - the question is still relevant
           // until the user responds
         })
@@ -149,6 +160,7 @@ let main = () => {
           workStatus: 'waiting',
           attentionReason: 'awaitingReply',
           pendingToolName: null,
+          pendingToolInput: null,
           pendingQuestion: null,
         })
 

@@ -179,6 +179,7 @@ let main = () => {
           workStatus: 'working',
           attentionReason: 'none',
           pendingToolName: null,
+          pendingToolInput: null,
           pendingQuestion: null,
         })
         notifyApp()
@@ -230,9 +231,8 @@ let main = () => {
 
       case 'Notification': {
         let notifType = input.notification_type
-        let toolName = input.tool_name
 
-        log.info('Notification received', { sessionId, notifType, toolName })
+        log.info('Notification received', { sessionId, notifType })
 
         if (notifType === 'idle_prompt') {
           let session = getSession(db, sessionId)
@@ -245,10 +245,13 @@ let main = () => {
           notifyApp()
           log.debug('Notification idle_prompt: done')
         } else if (notifType === 'permission_prompt') {
+          // Tool info already captured by tool-tracker in PreToolUse
+          // Just update the status to indicate permission is needed
+          log.info('Permission prompt received', { sessionId })
+
           updateSession(db, sessionId, {
             workStatus: 'permission',
             attentionReason: 'awaitingPermission',
-            pendingToolName: toolName || null,
           })
           notifyApp()
           log.debug('Notification permission_prompt: done')

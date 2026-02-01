@@ -130,6 +130,7 @@ Hooks update the `sessions` table in `~/.orbitdock/orbitdock.db`:
 | `tool_count` | tool-tracker (PostToolUse, PostToolUseFailure) |
 | `last_tool` | tool-tracker (PreToolUse) |
 | `pending_tool_name` | status-tracker (permission_prompt), tool-tracker (cleared on PostToolUse/PostToolUseFailure) |
+| `pending_tool_input` | status-tracker (permission_prompt) - JSON string of tool parameters for rich UI display |
 | `pending_question` | tool-tracker (PreToolUse for AskUserQuestion), cleared on PostToolUseFailure |
 | `summary` | status-tracker (Stop) - synced from Claude's sessions-index.json |
 

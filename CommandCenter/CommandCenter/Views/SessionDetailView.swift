@@ -51,6 +51,8 @@ struct SessionDetailView: View {
                 isSessionActive: session.isActive,
                 workStatus: session.workStatus,
                 currentTool: currentTool,
+                pendingToolName: session.pendingToolName,
+                pendingToolInput: session.pendingToolInput,
                 isPinned: $isPinned,
                 unreadCount: $unreadCount,
                 scrollToBottomTrigger: $scrollToBottomTrigger

@@ -427,6 +427,172 @@ struct SessionStatusDot: View {
     }
 }
 
+// MARK: - Rich Permission Banner
+
+/// Displays contextual permission information based on tool type
+struct PermissionBanner: View {
+    let toolName: String
+    let toolInput: String?  // JSON string
+
+    /// Parse tool input JSON and extract the most relevant display info
+    private var displayInfo: (icon: String, detail: String) {
+        guard let inputJson = toolInput,
+              let data = inputJson.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (toolIcon, "Accept or reject in terminal")
+        }
+
+        switch toolName {
+        case "Bash":
+            if let command = input["command"] as? String {
+                let truncated = command.count > 60 ? String(command.prefix(57)) + "..." : command
+                return ("terminal.fill", truncated)
+            }
+        case "Edit":
+            if let filePath = input["file_path"] as? String {
+                let fileName = (filePath as NSString).lastPathComponent
+                return ("pencil", fileName)
+            }
+        case "Write":
+            if let filePath = input["file_path"] as? String {
+                let fileName = (filePath as NSString).lastPathComponent
+                return ("doc.badge.plus", fileName)
+            }
+        case "Read":
+            if let filePath = input["file_path"] as? String {
+                let fileName = (filePath as NSString).lastPathComponent
+                return ("doc.text", fileName)
+            }
+        case "WebFetch":
+            if let url = input["url"] as? String {
+                // Extract domain from URL
+                if let urlObj = URL(string: url), let host = urlObj.host {
+                    return ("globe", host)
+                }
+                return ("globe", url.count > 40 ? String(url.prefix(37)) + "..." : url)
+            }
+        case "WebSearch":
+            if let query = input["query"] as? String {
+                return ("magnifyingglass", query.count > 50 ? String(query.prefix(47)) + "..." : query)
+            }
+        case "Glob", "Grep":
+            if let pattern = input["pattern"] as? String {
+                return ("magnifyingglass.circle", pattern)
+            }
+        case "Task":
+            if let prompt = input["prompt"] as? String {
+                let truncated = prompt.count > 50 ? String(prompt.prefix(47)) + "..." : prompt
+                return ("person.2.fill", truncated)
+            }
+        case "NotebookEdit":
+            if let path = input["notebook_path"] as? String {
+                let fileName = (path as NSString).lastPathComponent
+                return ("book.closed", fileName)
+            }
+        default:
+            break
+        }
+
+        return (toolIcon, "Accept or reject in terminal")
+    }
+
+    private var toolIcon: String {
+        switch toolName {
+        case "Bash": return "terminal.fill"
+        case "Edit": return "pencil"
+        case "Write": return "doc.badge.plus"
+        case "Read": return "doc.text"
+        case "WebFetch": return "globe"
+        case "WebSearch": return "magnifyingglass"
+        case "Glob", "Grep": return "magnifyingglass.circle"
+        case "Task": return "person.2.fill"
+        case "NotebookEdit": return "book.closed"
+        case "AskUserQuestion": return "questionmark.bubble"
+        default: return "gearshape"
+        }
+    }
+
+    var body: some View {
+        let info = displayInfo
+
+        HStack(spacing: 12) {
+            // Warning icon
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.statusAttention)
+
+            VStack(alignment: .leading, spacing: 4) {
+                // Tool name header
+                HStack(spacing: 6) {
+                    Text("Permission:")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.statusAttention)
+
+                    Text(toolName)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.primary)
+                }
+
+                // Rich detail line
+                HStack(spacing: 6) {
+                    Image(systemName: info.icon)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    Text(info.detail)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            // Subtle hint
+            Text("Accept in terminal")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(14)
+        .background(Color.statusAttention.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.statusAttention.opacity(0.25), lineWidth: 1)
+        )
+    }
+}
+
+#Preview("Permission Banners") {
+    VStack(spacing: 16) {
+        PermissionBanner(
+            toolName: "Bash",
+            toolInput: "{\"command\": \"npm run build && npm test\"}"
+        )
+
+        PermissionBanner(
+            toolName: "Edit",
+            toolInput: "{\"file_path\": \"/Users/rob/project/src/ConversationView.swift\"}"
+        )
+
+        PermissionBanner(
+            toolName: "Write",
+            toolInput: "{\"file_path\": \"/Users/rob/project/hooks/new-feature.js\"}"
+        )
+
+        PermissionBanner(
+            toolName: "WebFetch",
+            toolInput: "{\"url\": \"https://api.github.com/repos/owner/name\"}"
+        )
+
+        PermissionBanner(
+            toolName: "Bash",
+            toolInput: nil
+        )
+    }
+    .padding()
+    .background(Color.backgroundPrimary)
+}
+
 #Preview("Status Badges") {
     VStack(alignment: .leading, spacing: 20) {
         Text("Status Badges")
