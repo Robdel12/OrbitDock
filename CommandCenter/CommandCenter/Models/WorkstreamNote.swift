@@ -9,69 +9,69 @@
 import Foundation
 
 struct WorkstreamNote: Identifiable, Equatable {
-    let id: String
-    let workstreamId: String
-    var sessionId: String?
+  let id: String
+  let workstreamId: String
+  var sessionId: String?
 
-    let type: NoteType
-    let content: String
-    var metadata: [String: Any]?
+  let type: NoteType
+  let content: String
+  var metadata: [String: Any]?
 
-    let createdAt: Date
-    var resolvedAt: Date?
+  let createdAt: Date
+  var resolvedAt: Date?
 
-    enum NoteType: String, CaseIterable {
-        case note
-        case decision
-        case blocker
-        case pivot
-        case milestone
+  enum NoteType: String, CaseIterable {
+    case note
+    case decision
+    case blocker
+    case pivot
+    case milestone
 
-        var icon: String {
-            switch self {
-            case .note: return "note.text"
-            case .decision: return "arrow.triangle.branch"
-            case .blocker: return "exclamationmark.octagon"
-            case .pivot: return "arrow.uturn.right"
-            case .milestone: return "flag.checkered"
-            }
-        }
-
-        var label: String {
-            switch self {
-            case .note: return "Note"
-            case .decision: return "Decision"
-            case .blocker: return "Blocker"
-            case .pivot: return "Pivot"
-            case .milestone: return "Milestone"
-            }
-        }
-
-        var color: String {
-            switch self {
-            case .note: return "textSecondary"
-            case .decision: return "accent"
-            case .blocker: return "statusError"
-            case .pivot: return "statusWaiting"
-            case .milestone: return "statusSuccess"
-            }
-        }
+    var icon: String {
+      switch self {
+        case .note: "note.text"
+        case .decision: "arrow.triangle.branch"
+        case .blocker: "exclamationmark.octagon"
+        case .pivot: "arrow.uturn.right"
+        case .milestone: "flag.checkered"
+      }
     }
 
-    // MARK: - Computed Properties
-
-    var isResolved: Bool {
-        resolvedAt != nil
+    var label: String {
+      switch self {
+        case .note: "Note"
+        case .decision: "Decision"
+        case .blocker: "Blocker"
+        case .pivot: "Pivot"
+        case .milestone: "Milestone"
+      }
     }
 
-    // For Equatable - ignore metadata since it's [String: Any]
-    static func == (lhs: WorkstreamNote, rhs: WorkstreamNote) -> Bool {
-        lhs.id == rhs.id &&
-        lhs.workstreamId == rhs.workstreamId &&
-        lhs.sessionId == rhs.sessionId &&
-        lhs.type == rhs.type &&
-        lhs.content == rhs.content &&
-        lhs.createdAt == rhs.createdAt &&
-        lhs.resolvedAt == rhs.resolvedAt
+    var color: String {
+      switch self {
+        case .note: "textSecondary"
+        case .decision: "accent"
+        case .blocker: "statusError"
+        case .pivot: "statusWaiting"
+        case .milestone: "statusSuccess"
+      }
     }
+  }
+
+  // MARK: - Computed Properties
+
+  var isResolved: Bool {
+    resolvedAt != nil
+  }
+
+  /// For Equatable - ignore metadata since it's [String: Any]
+  static func == (lhs: WorkstreamNote, rhs: WorkstreamNote) -> Bool {
+    lhs.id == rhs.id &&
+      lhs.workstreamId == rhs.workstreamId &&
+      lhs.sessionId == rhs.sessionId &&
+      lhs.type == rhs.type &&
+      lhs.content == rhs.content &&
+      lhs.createdAt == rhs.createdAt &&
+      lhs.resolvedAt == rhs.resolvedAt
+  }
 }

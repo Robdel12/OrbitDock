@@ -1,0 +1,35 @@
+# SwiftFormat configuration for OrbitDock
+
+# Format options
+--swiftversion 5.9
+--indent 2
+--indentcase true
+--trimwhitespace always
+--voidtype void
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen balanced
+--commas always
+--decimalgrouping 3
+--exponentgrouping disabled
+--fractiongrouping disabled
+--header ignore
+--hexgrouping 4,8
+--hexliteralcase uppercase
+--importgrouping alpha
+--operatorfunc spaced
+--ranges spaced
+--self remove
+--selfrequired
+--semicolons inline
+--stripunusedargs closure-only
+--maxwidth 120
+
+# Rules to disable
+--disable redundantSelf
+--disable blankLinesAtStartOfScope
+--disable blankLinesAtEndOfScope
+
+# File options
+--exclude Pods,Carthage,.build,DerivedData
