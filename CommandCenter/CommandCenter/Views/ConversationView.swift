@@ -21,8 +21,11 @@ struct ConversationView: View {
     @State private var loadedSessionId: String?
     @State private var displayedCount: Int = 50
     @State private var fileMonitor: DispatchSourceFileSystemObject?
-    @State private var isScrolledToBottom = true
-    @State private var hasNewMessagesBelow = false
+
+    // Auto-follow state - controlled by parent
+    @Binding var isPinned: Bool
+    @Binding var unreadCount: Int
+    @Binding var scrollToBottomTrigger: Int
 
     private let pageSize = 50
 
@@ -68,123 +71,88 @@ struct ConversationView: View {
     private var conversationThread: some View {
         ScrollViewReader { proxy in
             ZStack(alignment: .bottom) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    // Load more indicator
-                    if hasMoreMessages {
-                        loadMoreIndicator
-                    }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        // Load more indicator
+                        if hasMoreMessages {
+                            loadMoreIndicator
+                        }
 
-                    // Message count (subtle)
-                    if messages.count > pageSize {
-                        messageCountIndicator
-                    }
+                        // Message count (subtle)
+                        if messages.count > pageSize {
+                            messageCountIndicator
+                        }
 
-                    // Messages as a thread
-                    ForEach(displayedMessages, id: \.id) { message in
-                        if message.isTool {
-                            ToolIndicator(message: message, transcriptPath: transcriptPath)
-                                .id(message.id)
-                        } else if message.isThinking {
-                            ThinkingIndicator(message: message)
-                                .id(message.id)
+                        // Messages as a thread
+                        ForEach(displayedMessages, id: \.id) { message in
+                            if message.isTool {
+                                ToolIndicator(message: message, transcriptPath: transcriptPath)
+                                    .id(message.id)
+                            } else if message.isThinking {
+                                ThinkingIndicator(message: message)
+                                    .id(message.id)
+                            } else {
+                                ThreadMessage(message: message)
+                                    .id(message.id)
+                            }
+                        }
+
+                        // Activity indicator
+                        if isSessionActive && workStatus != .unknown {
+                            ActivityBanner(
+                                workStatus: workStatus,
+                                currentTool: currentTool,
+                                currentPrompt: currentPrompt
+                            )
+                            .id("activity")
+                        }
+
+                        // Bottom spacer
+                        Color.clear
+                            .frame(height: 32)
+                            .id("bottomAnchor")
+                    }
+                    .padding(.horizontal, 32)
+                }
+                .scrollIndicators(.hidden)
+                .defaultScrollAnchor(.bottom)
+                .onAppear {
+                    scrollToEnd(proxy: proxy, animated: false)
+                }
+                .onChange(of: messages.count) { oldCount, newCount in
+                    if newCount > oldCount {
+                        if isPinned {
+                            scrollToEnd(proxy: proxy, animated: true)
                         } else {
-                            ThreadMessage(message: message)
-                                .id(message.id)
+                            unreadCount += (newCount - oldCount)
                         }
                     }
-
-                    // Activity indicator
-                    if isSessionActive && workStatus != .unknown {
-                        ActivityBanner(
-                            workStatus: workStatus,
-                            currentTool: currentTool,
-                            currentPrompt: currentPrompt
-                        )
-                        .id("activity")
-                    }
-
-                    // Bottom padding
-                    Spacer()
-                        .frame(height: 32)
-
-                    // Bottom anchor for scroll lock detection
-                    Color.clear
-                        .frame(height: 1)
-                        .id("bottomAnchor")
-                        .onAppear {
-                            isScrolledToBottom = true
-                            hasNewMessagesBelow = false
-                        }
-                        .onDisappear { isScrolledToBottom = false }
                 }
-                .padding(.horizontal, 32)
-            }
-            .scrollIndicators(.hidden)
-            .defaultScrollAnchor(.bottom)
-            .onAppear {
-                scrollToEnd(proxy: proxy, animated: false)
-            }
-            .onChange(of: messages.count) {
-                if isScrolledToBottom {
-                    scrollToEnd(proxy: proxy, animated: true)
-                } else {
-                    hasNewMessagesBelow = true
-                }
-            }
-            .onChange(of: workStatus) {
-                if isScrolledToBottom {
-                    scrollToEnd(proxy: proxy, animated: true)
-                }
-            }
-
-                // New messages indicator
-                if hasNewMessagesBelow {
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            hasNewMessagesBelow = false
-                        }
+                .onChange(of: workStatus) {
+                    if isPinned {
                         scrollToEnd(proxy: proxy, animated: true)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.down")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("New messages")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(
-                            Capsule()
-                                .fill(Color.accent)
-                                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-                        )
                     }
-                    .buttonStyle(.plain)
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .onChange(of: scrollToBottomTrigger) {
+                    scrollToEnd(proxy: proxy, animated: true)
                 }
             }
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: hasNewMessagesBelow)
         }
     }
 
     private func scrollToEnd(proxy: ScrollViewProxy, animated: Bool) {
-        let targetId: String? = if isSessionActive && workStatus == .working {
+        let targetId: String = if isSessionActive && workStatus == .working {
             "activity"
         } else {
-            displayedMessages.last?.id
+            "bottomAnchor"
         }
-
-        guard let id = targetId else { return }
 
         if animated {
             withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(id, anchor: .bottom)
+                proxy.scrollTo(targetId, anchor: .bottom)
             }
         } else {
-            proxy.scrollTo(id, anchor: .bottom)
+            proxy.scrollTo(targetId, anchor: .bottom)
         }
     }
 
@@ -309,12 +277,9 @@ struct ConversationView: View {
             DispatchQueue.main.async {
                 guard sessionId == targetSid else { return }
                 currentPrompt = result.lastUserPrompt
-                let oldCount = messages.count
-                let wasAtBottom = displayedCount >= oldCount
                 messages = newMessages
-                if wasAtBottom && newMessages.count > oldCount {
-                    displayedCount = newMessages.count
-                }
+                // Always keep displayedCount in sync to prevent slice shifting
+                displayedCount = max(displayedCount, newMessages.count)
             }
         }
     }
@@ -325,6 +290,7 @@ struct ConversationView: View {
         messages = []
         currentPrompt = nil
         isLoading = true
+        // Note: isPinned and unreadCount are now managed by parent
 
         guard let path = transcriptPath, let sid = sessionId else {
             isLoading = false
@@ -416,6 +382,11 @@ struct ThreadMessage: View {
         ParsedSystemCaveat.parse(from: message.content)
     }
 
+    /// Check if content is a task notification
+    private var parsedTaskNotification: ParsedTaskNotification? {
+        ParsedTaskNotification.parse(from: message.content)
+    }
+
     private var userMessage: some View {
         HStack(alignment: .top, spacing: 0) {
             Spacer(minLength: 100)
@@ -425,6 +396,8 @@ struct ThreadMessage: View {
                 UserBashCard(bash: bash, timestamp: message.timestamp)
             } else if let command = parsedSlashCommand {
                 UserSlashCommandCard(command: command, timestamp: message.timestamp)
+            } else if let notification = parsedTaskNotification {
+                TaskNotificationCard(notification: notification, timestamp: message.timestamp)
             } else if let caveat = parsedSystemCaveat {
                 SystemCaveatView(caveat: caveat)
             } else {
@@ -863,7 +836,7 @@ struct ActivityBanner: View {
 
     private var color: Color {
         switch workStatus {
-        case .working: return .modelOpus  // Purple for Claude
+        case .working: return .modelOpus
         case .waiting: return .statusWaiting
         case .permission: return .statusPermission
         case .unknown: return .secondary
@@ -958,12 +931,19 @@ struct ActivityBanner: View {
 // MARK: - Preview
 
 #Preview {
+    @Previewable @State var isPinned = true
+    @Previewable @State var unreadCount = 0
+    @Previewable @State var scrollTrigger = 0
+
     ConversationView(
         transcriptPath: nil,
         sessionId: nil,
         isSessionActive: true,
         workStatus: .working,
-        currentTool: "Edit"
+        currentTool: "Edit",
+        isPinned: $isPinned,
+        unreadCount: $unreadCount,
+        scrollToBottomTrigger: $scrollTrigger
     )
     .frame(width: 700, height: 600)
     .background(Color.backgroundPrimary)
