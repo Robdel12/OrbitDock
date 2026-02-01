@@ -684,66 +684,221 @@ struct ThinkingIndicator: View {
     }
 }
 
-// MARK: - Image Gallery (Multiple images with fullscreen)
+// MARK: - Image Gallery (Multiple images with fullscreen + collapsible)
 
 struct ImageGallery: View {
     let images: [MessageImage]
-    @State private var selectedImage: MessageImage?
+    @State private var selectedIndex: Int?
+    @State private var isExpanded = true
+
+    private var totalSize: String {
+        let bytes = images.reduce(0) { $0 + $1.data.count }
+        if bytes < 1024 {
+            return "\(bytes) B"
+        } else if bytes < 1024 * 1024 {
+            return String(format: "%.1f KB", Double(bytes) / 1024)
+        } else {
+            return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
+        }
+    }
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 8) {
-            // Show images in a flow layout
-            FlowLayout(spacing: 8) {
-                ForEach(images) { image in
-                    if let nsImage = NSImage(data: image.data) {
-                        ImageThumbnail(nsImage: nsImage) {
-                            selectedImage = image
+            // Collapsible header
+            Button {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(images.count == 1 ? "1 image" : "\(images.count) images")
+                        .font(.system(size: 12, weight: .medium))
+                    Text("•")
+                        .foregroundStyle(.quaternary)
+                    Text(totalSize)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.quaternary)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.backgroundTertiary.opacity(0.5))
+                )
+            }
+            .buttonStyle(.plain)
+
+            // Expanded content
+            if isExpanded {
+                if images.count == 1 {
+                    // Single image - show larger
+                    if let nsImage = NSImage(data: images[0].data) {
+                        SingleImageView(nsImage: nsImage, imageData: images[0]) {
+                            selectedIndex = 0
+                        }
+                    }
+                } else {
+                    // Multiple images - grid layout
+                    FlowLayout(spacing: 12) {
+                        ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
+                            if let nsImage = NSImage(data: image.data) {
+                                ImageThumbnail(
+                                    nsImage: nsImage,
+                                    imageData: image,
+                                    index: index,
+                                    totalCount: images.count
+                                ) {
+                                    selectedIndex = index
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+        .sheet(item: Binding(
+            get: { selectedIndex.map { ImageSelection(index: $0) } },
+            set: { selectedIndex = $0?.index }
+        )) { selection in
+            ImageFullscreen(
+                images: images,
+                currentIndex: selection.index
+            )
+        }
+    }
+}
 
-            // Image count badge if multiple
-            if images.count > 1 {
-                Text("\(images.count) images")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.tertiary)
+// Helper for sheet item binding
+private struct ImageSelection: Identifiable {
+    let index: Int
+    var id: Int { index }
+}
+
+// Single image view - larger and more prominent
+struct SingleImageView: View {
+    let nsImage: NSImage
+    let imageData: MessageImage
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    private var imageDimensions: String {
+        let w = Int(nsImage.size.width)
+        let h = Int(nsImage.size.height)
+        return "\(w) × \(h)"
+    }
+
+    private var imageSize: String {
+        let bytes = imageData.data.count
+        if bytes < 1024 {
+            return "\(bytes) B"
+        } else if bytes < 1024 * 1024 {
+            return String(format: "%.1f KB", Double(bytes) / 1024)
+        } else {
+            return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
+        }
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .trailing, spacing: 6) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 400, maxHeight: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white.opacity(isHovering ? 0.25 : 0.1), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
+                    .overlay(alignment: .bottomTrailing) {
+                        // Expand icon on hover
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .padding(8)
+                            .opacity(isHovering ? 1 : 0)
+                    }
+
+                // Image metadata
+                HStack(spacing: 8) {
+                    Text(imageDimensions)
+                    Text("•")
+                    Text(imageSize)
+                }
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.quaternary)
             }
+            .scaleEffect(isHovering ? 1.01 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: isHovering)
         }
-        .sheet(item: $selectedImage) { image in
-            ImageFullscreen(image: image)
-        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
     }
 }
 
 struct ImageThumbnail: View {
     let nsImage: NSImage
+    let imageData: MessageImage
+    let index: Int
+    let totalCount: Int
     let onTap: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
         Button(action: onTap) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: 120, height: 90)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.white.opacity(isHovering ? 0.3 : 0.1), lineWidth: 1)
-                )
-                .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(4)
-                        .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                        .padding(6)
-                        .opacity(isHovering ? 1 : 0)
+            ZStack(alignment: .topTrailing) {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 200, height: 150)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white.opacity(isHovering ? 0.3 : 0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 3)
+
+                // Index badge
+                Text("\(index + 1)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: 22, height: 22)
+                    .background(Color.accent.opacity(0.9), in: Circle())
+                    .padding(8)
+
+                // Expand icon on hover
+                if isHovering {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(4)
+                                .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                .padding(6)
+                        }
+                    }
                 }
-                .scaleEffect(isHovering ? 1.02 : 1.0)
-                .animation(.easeOut(duration: 0.15), value: isHovering)
+            }
+            .scaleEffect(isHovering ? 1.03 : 1.0)
+            .animation(.easeOut(duration: 0.15), value: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -751,38 +906,164 @@ struct ImageThumbnail: View {
 }
 
 struct ImageFullscreen: View {
-    let image: MessageImage
+    let images: [MessageImage]
+    @State var currentIndex: Int
     @Environment(\.dismiss) private var dismiss
+    @State private var isHoveringControls = false
+
+    private var currentImage: MessageImage {
+        images[currentIndex]
+    }
+
+    private var nsImage: NSImage? {
+        NSImage(data: currentImage.data)
+    }
+
+    private var imageDimensions: String {
+        guard let img = nsImage else { return "" }
+        return "\(Int(img.size.width)) × \(Int(img.size.height))"
+    }
+
+    private var imageSize: String {
+        let bytes = currentImage.data.count
+        if bytes < 1024 {
+            return "\(bytes) B"
+        } else if bytes < 1024 * 1024 {
+            return String(format: "%.1f KB", Double(bytes) / 1024)
+        } else {
+            return String(format: "%.1f MB", Double(bytes) / (1024 * 1024))
+        }
+    }
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack {
+                // Background
+                Color.black
 
-            if let nsImage = NSImage(data: image.data) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .padding(40)
-            }
-
-            // Close button
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 28))
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(20)
+                // Image - fill available space
+                if let nsImage {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 50)
+                        .padding(.bottom, images.count > 1 ? 80 : 12)
+                        .id(currentIndex)
                 }
-                Spacer()
+
+                // Navigation overlay
+                VStack(spacing: 0) {
+                    // Top bar
+                    HStack {
+                        // Image counter
+                        if images.count > 1 {
+                            Text("\(currentIndex + 1) of \(images.count)")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(.black.opacity(0.5), in: Capsule())
+                        }
+
+                        Spacer()
+
+                        // Image info
+                        HStack(spacing: 8) {
+                            Text(imageDimensions)
+                            Text("•")
+                            Text(imageSize)
+                        }
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.7))
+
+                        Spacer()
+
+                        // Close button
+                        Button {
+                            dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .frame(width: 30, height: 30)
+                                .background(.white.opacity(0.15), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .keyboardShortcut(.escape, modifiers: [])
+                    }
+                    .padding(12)
+
+                    Spacer()
+
+                    // Bottom navigation (for multiple images)
+                    if images.count > 1 {
+                        HStack(spacing: 16) {
+                            // Previous button
+                            Button {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    currentIndex = (currentIndex - 1 + images.count) % images.count
+                                }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 40, height: 40)
+                                    .background(.white.opacity(0.15), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .keyboardShortcut(.leftArrow, modifiers: [])
+
+                            // Thumbnail strip
+                            HStack(spacing: 8) {
+                                ForEach(Array(images.enumerated()), id: \.element.id) { index, image in
+                                    if let thumb = NSImage(data: image.data) {
+                                        Button {
+                                            withAnimation(.easeOut(duration: 0.2)) {
+                                                currentIndex = index
+                                            }
+                                        } label: {
+                                            Image(nsImage: thumb)
+                                                .resizable()
+                                                .aspectRatio(contentMode: .fill)
+                                                .frame(width: 56, height: 42)
+                                                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                                        .strokeBorder(index == currentIndex ? Color.accent : Color.clear, lineWidth: 2)
+                                                )
+                                                .opacity(index == currentIndex ? 1.0 : 0.5)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.black.opacity(0.5), in: Capsule())
+
+                            // Next button
+                            Button {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    currentIndex = (currentIndex + 1) % images.count
+                                }
+                            } label: {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 40, height: 40)
+                                    .background(.white.opacity(0.15), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .keyboardShortcut(.rightArrow, modifiers: [])
+                        }
+                        .padding(.bottom, 16)
+                    }
+                }
             }
         }
-        .frame(minWidth: 600, minHeight: 500)
+        .frame(minWidth: 800, idealWidth: 1000, minHeight: 600, idealHeight: 750)
     }
 }
 
