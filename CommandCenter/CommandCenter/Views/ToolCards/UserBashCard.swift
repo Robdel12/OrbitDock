@@ -380,6 +380,242 @@ struct SystemCaveatView: View {
     }
 }
 
+// MARK: - Parsed Task Notification
+
+struct ParsedTaskNotification {
+    let taskId: String
+    let outputFile: String
+    let status: TaskStatus
+    let summary: String
+
+    enum TaskStatus: String {
+        case completed
+        case running
+        case failed
+
+        var icon: String {
+            switch self {
+            case .completed: return "checkmark.circle.fill"
+            case .running: return "arrow.trianglehead.2.clockwise.rotate.90"
+            case .failed: return "xmark.circle.fill"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .completed: return .statusSuccess
+            case .running: return .accent
+            case .failed: return .statusWaiting
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .completed: return "Completed"
+            case .running: return "Running"
+            case .failed: return "Failed"
+            }
+        }
+    }
+
+    /// Parse content containing <task-notification> tags
+    static func parse(from content: String) -> ParsedTaskNotification? {
+        guard content.contains("<task-notification>") else { return nil }
+
+        let taskId = extractTag("task-id", from: content)
+        let outputFile = extractTag("output-file", from: content)
+        let statusStr = extractTag("status", from: content)
+        let summary = extractTag("summary", from: content)
+
+        guard !taskId.isEmpty else { return nil }
+
+        let status: TaskStatus
+        switch statusStr.lowercased() {
+        case "completed": status = .completed
+        case "running": status = .running
+        case "failed": status = .failed
+        default: status = .completed
+        }
+
+        return ParsedTaskNotification(
+            taskId: taskId,
+            outputFile: outputFile,
+            status: status,
+            summary: summary
+        )
+    }
+
+    /// Extract a cleaner description from the summary
+    var cleanDescription: String {
+        // Extract what's in quotes if present (e.g., "Preview presentation in browser")
+        if let quoteStart = summary.firstIndex(of: "\""),
+           let quoteEnd = summary[summary.index(after: quoteStart)...].firstIndex(of: "\"") {
+            return String(summary[summary.index(after: quoteStart)..<quoteEnd])
+        }
+        return summary
+    }
+
+    /// Check if this is a background command vs agent task
+    var isBackgroundCommand: Bool {
+        summary.lowercased().contains("background command")
+    }
+}
+
+// MARK: - Task Notification Card View
+
+struct TaskNotificationCard: View {
+    let notification: ParsedTaskNotification
+    let timestamp: Date
+
+    @State private var isExpanded = false
+    @State private var isHovering = false
+    @State private var outputContent: String?
+    @State private var isLoadingOutput = false
+
+    private var taskColor: Color { notification.status.color }
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            // Meta line
+            HStack(spacing: 8) {
+                Text(formatTime(timestamp))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.quaternary)
+
+                Text("Background Task")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+
+            // Task notification card
+            VStack(alignment: .leading, spacing: 0) {
+                // Header
+                HStack(spacing: 10) {
+                    // Status icon
+                    Image(systemName: notification.status.icon)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(taskColor)
+
+                    // Task description
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(notification.cleanDescription)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.primary.opacity(0.9))
+                            .lineLimit(isExpanded ? nil : 1)
+
+                        HStack(spacing: 6) {
+                            Text(notification.status.label)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(taskColor)
+
+                            Text("•")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.quaternary)
+
+                            Text(notification.taskId)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                    Spacer()
+
+                    // Expand indicator (if output file exists)
+                    if !notification.outputFile.isEmpty {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(taskColor.opacity(isHovering ? 0.12 : 0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(taskColor.opacity(0.15), lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !notification.outputFile.isEmpty {
+                        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+                            isExpanded.toggle()
+                        }
+                        if isExpanded && outputContent == nil {
+                            loadOutput()
+                        }
+                    }
+                }
+                .onHover { isHovering = $0 }
+
+                // Output panel
+                if isExpanded && !notification.outputFile.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if isLoadingOutput {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Loading output...")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 8)
+                        } else if let output = outputContent {
+                            ScrollView {
+                                Text(output.count > 5000 ? String(output.prefix(5000)) + "\n..." : output)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.primary.opacity(0.85))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 250)
+                        } else {
+                            Text("Output file not found")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.backgroundTertiary)
+                    )
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+        }
+    }
+
+    private func loadOutput() {
+        guard !notification.outputFile.isEmpty else { return }
+
+        isLoadingOutput = true
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let content = try? String(contentsOfFile: notification.outputFile, encoding: .utf8)
+
+            DispatchQueue.main.async {
+                outputContent = content
+                isLoadingOutput = false
+            }
+        }
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter
+    }()
+
+    private func formatTime(_ date: Date) -> String {
+        Self.timeFormatter.string(from: date)
+    }
+}
+
 // MARK: - Previews
 
 #Preview("Bash Cards") {
@@ -435,6 +671,43 @@ struct SystemCaveatView: View {
                 message: "",
                 args: "",
                 stdout: "Session renamed to: Design system and colors"
+            ),
+            timestamp: Date()
+        )
+    }
+    .padding(32)
+    .frame(width: 600)
+    .background(Color.backgroundPrimary)
+}
+
+#Preview("Task Notifications") {
+    VStack(alignment: .trailing, spacing: 20) {
+        TaskNotificationCard(
+            notification: ParsedTaskNotification(
+                taskId: "b1b8cae",
+                outputFile: "/tmp/example.output",
+                status: .completed,
+                summary: "Background command \"Preview presentation in browser\" completed (exit code 0)"
+            ),
+            timestamp: Date()
+        )
+
+        TaskNotificationCard(
+            notification: ParsedTaskNotification(
+                taskId: "c2a9def",
+                outputFile: "",
+                status: .running,
+                summary: "Background command \"Run tests\" is running"
+            ),
+            timestamp: Date()
+        )
+
+        TaskNotificationCard(
+            notification: ParsedTaskNotification(
+                taskId: "d3b0abc",
+                outputFile: "/tmp/failed.output",
+                status: .failed,
+                summary: "Background command \"Build project\" failed (exit code 1)"
             ),
             timestamp: Date()
         )
