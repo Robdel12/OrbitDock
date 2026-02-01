@@ -111,7 +111,9 @@ struct Session: Identifiable, Hashable {
     self.branch = branch
     self.model = model
     self.summary = summary
-    self.customName = customName ?? contextLabel // Use contextLabel if customName not provided
+    // Don't use contextLabel as customName fallback - it's just source metadata (e.g., "codex_cli_rs")
+    // Let displayName fall through to firstPrompt or projectName instead
+    self.customName = customName
     self.firstPrompt = firstPrompt
     self.transcriptPath = transcriptPath
     self.status = status

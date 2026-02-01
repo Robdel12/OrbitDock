@@ -15,6 +15,7 @@ struct MissionControlView: View {
   @State private var repos: [String: Repo] = [:]
   @State private var selectedWorkstream: Workstream?
   @State private var filterStage: Workstream.Stage?
+  @State private var showingCreateSheet = false
 
   private let db = DatabaseManager.shared
 
@@ -50,6 +51,11 @@ struct MissionControlView: View {
         onSelectSession: onSelectSession
       )
       .frame(minWidth: 600, minHeight: 500)
+    }
+    .sheet(isPresented: $showingCreateSheet) {
+      CreateWorkstreamSheet {
+        loadData()
+      }
     }
   }
 
@@ -90,6 +96,23 @@ struct MissionControlView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Color.surfaceHover)
+        .clipShape(Capsule())
+      }
+      .buttonStyle(.plain)
+
+      // Create button
+      Button {
+        showingCreateSheet = true
+      } label: {
+        HStack(spacing: 6) {
+          Image(systemName: "plus")
+          Text("New")
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(Color.textPrimary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.accent)
         .clipShape(Capsule())
       }
       .buttonStyle(.plain)
@@ -143,7 +166,11 @@ struct MissionControlView: View {
       ForEach(group.workstreams, id: \.id) { workstream in
         WorkstreamCard(
           workstream: workstream,
-          repo: repos[workstream.repoId]
+          repo: repos[workstream.repoId],
+          onStageChange: { stage in
+            db.updateWorkstreamStage(workstream.id, to: stage)
+            loadData()
+          }
         )
         .onTapGesture {
           selectedWorkstream = workstream
@@ -189,6 +216,7 @@ struct MissionControlView: View {
 struct WorkstreamCard: View {
   let workstream: Workstream
   let repo: Repo?
+  var onStageChange: ((Workstream.Stage) -> Void)? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -343,6 +371,53 @@ struct WorkstreamCard: View {
       RoundedRectangle(cornerRadius: 12)
         .stroke(workstream.stage.color.opacity(0.3), lineWidth: 1)
     )
+    .contextMenu {
+      if workstream.isActive {
+        Button {
+          onStageChange?(.merged)
+        } label: {
+          Label("Complete", systemImage: "checkmark.circle")
+        }
+
+        Button {
+          onStageChange?(.closed)
+        } label: {
+          Label("Cancel", systemImage: "xmark.circle")
+        }
+      } else {
+        Button {
+          onStageChange?(.working)
+        } label: {
+          Label("Reopen", systemImage: "arrow.counterclockwise")
+        }
+      }
+
+      Divider()
+
+      if let repo {
+        Button {
+          NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: repo.path)
+        } label: {
+          Label("Reveal in Finder", systemImage: "folder")
+        }
+      }
+
+      if let linearURL = workstream.linearIssueURL, let url = URL(string: linearURL) {
+        Button {
+          NSWorkspace.shared.open(url)
+        } label: {
+          Label("Open Linear Issue", systemImage: "link")
+        }
+      }
+
+      if let prURL = workstream.githubPRURL, let url = URL(string: prURL) {
+        Button {
+          NSWorkspace.shared.open(url)
+        } label: {
+          Label("Open Pull Request", systemImage: "arrow.triangle.pull")
+        }
+      }
+    }
   }
 
   private func prStateColor(_ state: Workstream.PRState) -> Color {
@@ -377,6 +452,21 @@ extension Workstream.Stage {
       case .approved: Color.statusSuccess
       case .merged: Color.serverGitHub
       case .closed: Color.textTertiary
+    }
+  }
+}
+
+// MARK: - StateFlag Extensions
+
+extension Workstream.StateFlag {
+  var color: Color {
+    switch self {
+    case .working: Color.statusWorking
+    case .hasOpenPR: Color.serverGitHub
+    case .inReview: Color.statusWaiting
+    case .hasApproval: Color.statusSuccess
+    case .merged: Color.serverGitHub
+    case .closed: Color.textTertiary
     }
   }
 }

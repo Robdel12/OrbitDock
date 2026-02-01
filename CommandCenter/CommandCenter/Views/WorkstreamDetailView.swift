@@ -18,10 +18,24 @@ struct WorkstreamDetailView: View {
   @State private var notes: [WorkstreamNote] = []
   @State private var showingLinkTicket = false
   @State private var showingAddNote = false
+
+  // State flags - local copies for immediate UI updates
+  @State private var activeFlags: Set<Workstream.StateFlag> = []
+
   @Environment(\.openURL) private var openURL
   @Environment(\.dismiss) private var dismiss
 
   private let db = DatabaseManager.shared
+
+  /// Primary flag for display (most "advanced" active state)
+  private var primaryFlag: Workstream.StateFlag {
+    if activeFlags.contains(Workstream.StateFlag.closed) { return Workstream.StateFlag.closed }
+    if activeFlags.contains(Workstream.StateFlag.merged) { return Workstream.StateFlag.merged }
+    if activeFlags.contains(Workstream.StateFlag.hasApproval) { return Workstream.StateFlag.hasApproval }
+    if activeFlags.contains(Workstream.StateFlag.inReview) { return Workstream.StateFlag.inReview }
+    if activeFlags.contains(Workstream.StateFlag.hasOpenPR) { return Workstream.StateFlag.hasOpenPR }
+    return Workstream.StateFlag.working
+  }
 
   /// Computed workstream with loaded relations
   private var workstreamWithRelations: Workstream {
@@ -99,26 +113,10 @@ struct WorkstreamDetailView: View {
     VStack(spacing: 0) {
       // Hero area with gradient background
       VStack(alignment: .leading, spacing: 16) {
-        // Top row: Stage + Repo
-        HStack {
-          // Stage badge with glow effect
-          HStack(spacing: 6) {
-            Image(systemName: workstream.stageIcon)
-              .font(.caption.weight(.semibold))
-            Text(workstream.stage.displayName)
-              .font(.caption.weight(.bold))
-          }
-          .foregroundStyle(workstream.stage.color)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 6)
-          .background(
-            Capsule()
-              .fill(workstream.stage.color.opacity(0.2))
-              .overlay(
-                Capsule()
-                  .strokeBorder(workstream.stage.color.opacity(0.4), lineWidth: 1)
-              )
-          )
+        // Top row: State flags + Repo
+        HStack(alignment: .center) {
+          // Active state chips with multi-select menu
+          stateSelector
 
           Spacer()
 
@@ -162,7 +160,7 @@ struct WorkstreamDetailView: View {
       .background(
         LinearGradient(
           colors: [
-            workstream.stage.color.opacity(0.08),
+            primaryFlag.color.opacity(0.08),
             Color.backgroundTertiary.opacity(0.5),
           ],
           startPoint: .topLeading,
@@ -175,7 +173,7 @@ struct WorkstreamDetailView: View {
           .strokeBorder(
             LinearGradient(
               colors: [
-                workstream.stage.color.opacity(0.3),
+                primaryFlag.color.opacity(0.3),
                 Color.surfaceBorder.opacity(0.2),
               ],
               startPoint: .topLeading,
@@ -234,6 +232,78 @@ struct WorkstreamDetailView: View {
       }
     }
     .frame(maxWidth: .infinity)
+  }
+
+  // MARK: - State Selector
+
+  private var stateSelector: some View {
+    Menu {
+      // Combinable flags section
+      Section("Status") {
+        ForEach(Workstream.StateFlag.combinableFlags) { flag in
+          Toggle(isOn: flagBinding(for: flag)) {
+            Label(flag.label, systemImage: flag.icon)
+          }
+        }
+      }
+
+      Divider()
+
+      // Terminal flags section
+      Section("Complete") {
+        ForEach(Workstream.StateFlag.terminalFlags) { flag in
+          Button {
+            toggleFlag(flag)
+          } label: {
+            HStack {
+              Label(flag.label, systemImage: flag.icon)
+              Spacer()
+              if activeFlags.contains(flag) {
+                Image(systemName: "checkmark")
+              }
+            }
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 6) {
+        // Show active flags as mini chips
+        ForEach(Array(activeFlags).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { flag in
+          HStack(spacing: 4) {
+            Image(systemName: flag.icon)
+              .font(.system(size: 10, weight: .semibold))
+            Text(flag.label)
+              .font(.system(size: 11, weight: .semibold))
+          }
+          .foregroundStyle(flag.color)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 5)
+          .background(
+            Capsule()
+              .fill(flag.color.opacity(0.2))
+              .overlay(
+                Capsule()
+                  .strokeBorder(flag.color.opacity(0.4), lineWidth: 1)
+              )
+          )
+        }
+
+        // Edit indicator
+        Image(systemName: "chevron.down")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(Color.textTertiary)
+          .padding(.leading, 2)
+      }
+    }
+    .buttonStyle(.plain)
+  }
+
+  /// Creates a binding for a specific flag to use with Toggle
+  private func flagBinding(for flag: Workstream.StateFlag) -> Binding<Bool> {
+    Binding(
+      get: { activeFlags.contains(flag) },
+      set: { _ in toggleFlag(flag) }
+    )
   }
 
   // MARK: - Action Buttons
@@ -772,6 +842,20 @@ struct WorkstreamDetailView: View {
   }
 
   private func loadData() {
+    // Initialize flags from workstream
+    if activeFlags.isEmpty {
+      var flags = Set<Workstream.StateFlag>()
+      if workstream.isWorking { flags.insert(Workstream.StateFlag.working) }
+      if workstream.hasOpenPR { flags.insert(Workstream.StateFlag.hasOpenPR) }
+      if workstream.inReview { flags.insert(Workstream.StateFlag.inReview) }
+      if workstream.hasApproval { flags.insert(Workstream.StateFlag.hasApproval) }
+      if workstream.isMerged { flags.insert(Workstream.StateFlag.merged) }
+      if workstream.isClosed { flags.insert(Workstream.StateFlag.closed) }
+      // Ensure at least one flag
+      if flags.isEmpty { flags.insert(Workstream.StateFlag.working) }
+      activeFlags = flags
+    }
+
     // Load sessions for this workstream
     let allSessions = db.fetchSessions()
     sessions = allSessions.filter { session in
@@ -785,6 +869,30 @@ struct WorkstreamDetailView: View {
     // Load tickets and notes
     tickets = db.fetchTickets(workstreamId: workstream.id)
     notes = db.fetchNotes(workstreamId: workstream.id)
+  }
+
+  private func toggleFlag(_ flag: Workstream.StateFlag) {
+    let newValue = !activeFlags.contains(flag)
+
+    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+      if flag.isTerminal && newValue {
+        // Terminal flag clears all others
+        activeFlags = [flag]
+      } else if newValue {
+        // Add flag, remove terminal flags if present
+        activeFlags.remove(Workstream.StateFlag.merged)
+        activeFlags.remove(Workstream.StateFlag.closed)
+        activeFlags.insert(flag)
+      } else {
+        activeFlags.remove(flag)
+        // Ensure at least one flag remains
+        if activeFlags.isEmpty {
+          activeFlags.insert(Workstream.StateFlag.working)
+        }
+      }
+    }
+
+    db.toggleWorkstreamFlag(workstream.id, flag: flag, value: newValue)
   }
 }
 

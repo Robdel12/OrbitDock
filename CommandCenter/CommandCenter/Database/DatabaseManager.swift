@@ -94,6 +94,12 @@ class DatabaseManager {
   private let reviewApprovals = SQLite.Expression<Int>("review_approvals")
   private let reviewComments = SQLite.Expression<Int>("review_comments")
   private let workstreamStage = SQLite.Expression<String>("stage")
+  private let flagIsWorking = SQLite.Expression<Int>("is_working")
+  private let flagHasOpenPR = SQLite.Expression<Int>("has_open_pr")
+  private let flagInReview = SQLite.Expression<Int>("in_review")
+  private let flagHasApproval = SQLite.Expression<Int>("has_approval")
+  private let flagIsMerged = SQLite.Expression<Int>("is_merged")
+  private let flagIsClosed = SQLite.Expression<Int>("is_closed")
   private let sessionCount = SQLite.Expression<Int>("session_count")
   private let totalSessionSeconds = SQLite.Expression<Int>("total_session_seconds")
   private let commitCount = SQLite.Expression<Int>("commit_count")
@@ -215,9 +221,9 @@ class DatabaseManager {
 
     do {
       return try db.prepare(query).map { row in
-        // Try new columns first, fall back to legacy context_label
+        // Get name-related fields - don't use context_label as fallback (it's just source metadata)
         let summaryValue = try? row.get(sessionSummary)
-        let customNameValue = (try? row.get(customName)) ?? row[contextLabel]
+        let customNameValue = try? row.get(customName)
         let firstPromptValue = try? row.get(firstPrompt)
 
         // Parse attention reason with fallback logic
@@ -417,6 +423,25 @@ class DatabaseManager {
         try db.run("ALTER TABLE sessions ADD COLUMN workstream_id TEXT REFERENCES workstreams(id)")
       } catch {
         print("Failed to add workstream_id column: \(error)")
+      }
+    }
+
+    // Add state flags to workstreams
+    let flagColumns = [
+      ("is_working", "INTEGER DEFAULT 1"),
+      ("has_open_pr", "INTEGER DEFAULT 0"),
+      ("in_review", "INTEGER DEFAULT 0"),
+      ("has_approval", "INTEGER DEFAULT 0"),
+      ("is_merged", "INTEGER DEFAULT 0"),
+      ("is_closed", "INTEGER DEFAULT 0"),
+    ]
+    for (column, type) in flagColumns {
+      if !columnExists(column, in: "workstreams") {
+        do {
+          try db.run("ALTER TABLE workstreams ADD COLUMN \(column) \(type)")
+        } catch {
+          print("Failed to add \(column) column: \(error)")
+        }
       }
     }
 
@@ -706,6 +731,12 @@ class DatabaseManager {
           reviewApprovals: row[reviewApprovals],
           reviewComments: row[reviewComments],
           stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
+          isWorking: (try? row.get(flagIsWorking)) == 1,
+          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
+          inReview: (try? row.get(flagInReview)) == 1,
+          hasApproval: (try? row.get(flagHasApproval)) == 1,
+          isMerged: (try? row.get(flagIsMerged)) == 1,
+          isClosed: (try? row.get(flagIsClosed)) == 1,
           sessionCount: row[sessionCount],
           totalSessionSeconds: row[totalSessionSeconds],
           commitCount: row[commitCount],
@@ -723,9 +754,9 @@ class DatabaseManager {
   func fetchActiveWorkstreams() -> [Workstream] {
     guard let db else { return [] }
 
-    let activeStages = ["working", "pr_open", "in_review", "approved"]
+    // Active = not merged AND not closed (using flags, with fallback to stage for migration)
     let query = workstreams
-      .filter(activeStages.contains(workstreamStage))
+      .filter(flagIsMerged == 0 && flagIsClosed == 0)
       .order(workstreamLastActivityAt.desc)
 
     do {
@@ -754,6 +785,12 @@ class DatabaseManager {
           reviewApprovals: row[reviewApprovals],
           reviewComments: row[reviewComments],
           stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
+          isWorking: (try? row.get(flagIsWorking)) == 1,
+          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
+          inReview: (try? row.get(flagInReview)) == 1,
+          hasApproval: (try? row.get(flagHasApproval)) == 1,
+          isMerged: (try? row.get(flagIsMerged)) == 1,
+          isClosed: (try? row.get(flagIsClosed)) == 1,
           sessionCount: row[sessionCount],
           totalSessionSeconds: row[totalSessionSeconds],
           commitCount: row[commitCount],
@@ -948,6 +985,12 @@ class DatabaseManager {
         reviewApprovals: existing[reviewApprovals],
         reviewComments: existing[reviewComments],
         stage: Workstream.Stage(rawValue: existing[workstreamStage]) ?? .working,
+        isWorking: (try? existing.get(flagIsWorking)) == 1,
+        hasOpenPR: (try? existing.get(flagHasOpenPR)) == 1,
+        inReview: (try? existing.get(flagInReview)) == 1,
+        hasApproval: (try? existing.get(flagHasApproval)) == 1,
+        isMerged: (try? existing.get(flagIsMerged)) == 1,
+        isClosed: (try? existing.get(flagIsClosed)) == 1,
         sessionCount: existing[sessionCount],
         totalSessionSeconds: existing[totalSessionSeconds],
         commitCount: existing[commitCount],
@@ -1035,6 +1078,73 @@ class DatabaseManager {
     }
   }
 
+  func updateWorkstreamStage(_ workstreamId: String, to stage: Workstream.Stage) {
+    guard let db else { return }
+
+    let now = formatDate(Date())
+    let ws = workstreams.filter(self.workstreamId == workstreamId)
+
+    do {
+      try db.run(ws.update(
+        workstreamStage <- stage.rawValue,
+        workstreamUpdatedAt <- now
+      ))
+
+      // Notify views to refresh
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+      }
+    } catch {
+      print("Failed to update workstream stage: \(error)")
+    }
+  }
+
+  func toggleWorkstreamFlag(_ workstreamId: String, flag: Workstream.StateFlag, value: Bool) {
+    guard let db else { return }
+
+    let now = formatDate(Date())
+    let ws = workstreams.filter(self.workstreamId == workstreamId)
+
+    do {
+      // If setting a terminal flag, clear other flags
+      if flag.isTerminal && value {
+        try db.run(ws.update(
+          flagIsWorking <- 0,
+          flagHasOpenPR <- 0,
+          flagInReview <- 0,
+          flagHasApproval <- 0,
+          flagIsMerged <- (flag == .merged ? 1 : 0),
+          flagIsClosed <- (flag == .closed ? 1 : 0),
+          workstreamUpdatedAt <- now
+        ))
+      } else {
+        // Toggle the specific flag
+        let flagValue = value ? 1 : 0
+        switch flag {
+        case .working:
+          try db.run(ws.update(flagIsWorking <- flagValue, workstreamUpdatedAt <- now))
+        case .hasOpenPR:
+          try db.run(ws.update(flagHasOpenPR <- flagValue, workstreamUpdatedAt <- now))
+        case .inReview:
+          try db.run(ws.update(flagInReview <- flagValue, workstreamUpdatedAt <- now))
+        case .hasApproval:
+          try db.run(ws.update(flagHasApproval <- flagValue, workstreamUpdatedAt <- now))
+        case .merged:
+          try db.run(ws.update(flagIsMerged <- flagValue, workstreamUpdatedAt <- now))
+        case .closed:
+          try db.run(ws.update(flagIsClosed <- flagValue, workstreamUpdatedAt <- now))
+        }
+      }
+
+      // Notify views to refresh
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+      }
+    } catch {
+      print("Failed to toggle workstream flag: \(error)")
+    }
+  }
+
   func linkSessionToWorkstream(sessionId: String, workstreamId: String) {
     guard let db else { return }
 
@@ -1044,6 +1154,103 @@ class DatabaseManager {
       try db.run(session.update(sessionWorkstreamId <- workstreamId))
     } catch {
       print("Failed to link session to workstream: \(error)")
+    }
+  }
+
+  func createWorkstream(repoId: String, branch: String, name: String? = nil) -> Workstream? {
+    guard let db else { return nil }
+
+    let now = formatDate(Date())
+    let wsId = UUID().uuidString
+
+    do {
+      try db.run(workstreams.insert(
+        workstreamId <- wsId,
+        workstreamRepoId <- repoId,
+        workstreamBranch <- branch,
+        workstreamName <- name,
+        workstreamStage <- "working",
+        flagIsWorking <- 1,
+        flagHasOpenPR <- 0,
+        flagInReview <- 0,
+        flagHasApproval <- 0,
+        flagIsMerged <- 0,
+        flagIsClosed <- 0,
+        workstreamCreatedAt <- now,
+        workstreamUpdatedAt <- now,
+        workstreamLastActivityAt <- now
+      ))
+
+      // Notify views to refresh
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+      }
+
+      return Workstream(
+        id: wsId,
+        repoId: repoId,
+        branch: branch,
+        directory: nil,
+        name: name,
+        reviewApprovals: 0,
+        reviewComments: 0,
+        stage: .working,
+        isWorking: true,
+        sessionCount: 0,
+        totalSessionSeconds: 0,
+        commitCount: 0,
+        createdAt: Date(),
+        updatedAt: Date()
+      )
+    } catch {
+      print("Failed to create workstream: \(error)")
+      return nil
+    }
+  }
+
+  func findOrCreateRepo(path: String, name: String) -> Repo? {
+    guard let db else { return nil }
+
+    // Check if repo exists
+    let existing = repos.filter(repoPath == path)
+    do {
+      if let row = try db.pluck(existing) {
+        return Repo(
+          id: row[repoId],
+          name: row[repoName],
+          path: row[repoPath],
+          githubOwner: row[githubOwner],
+          githubName: row[githubName],
+          createdAt: parseDate(row[repoCreatedAt]) ?? Date()
+        )
+      }
+    } catch {
+      print("Failed to find repo: \(error)")
+    }
+
+    // Create new repo
+    let now = formatDate(Date())
+    let newId = UUID().uuidString
+
+    do {
+      try db.run(repos.insert(
+        repoId <- newId,
+        repoName <- name,
+        repoPath <- path,
+        repoCreatedAt <- now
+      ))
+
+      return Repo(
+        id: newId,
+        name: name,
+        path: path,
+        githubOwner: nil,
+        githubName: nil,
+        createdAt: Date()
+      )
+    } catch {
+      print("Failed to create repo: \(error)")
+      return nil
     }
   }
 
@@ -1156,6 +1363,12 @@ class DatabaseManager {
           reviewApprovals: row[reviewApprovals],
           reviewComments: row[reviewComments],
           stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
+          isWorking: (try? row.get(flagIsWorking)) == 1,
+          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
+          inReview: (try? row.get(flagInReview)) == 1,
+          hasApproval: (try? row.get(flagHasApproval)) == 1,
+          isMerged: (try? row.get(flagIsMerged)) == 1,
+          isClosed: (try? row.get(flagIsClosed)) == 1,
           sessionCount: row[sessionCount],
           totalSessionSeconds: row[totalSessionSeconds],
           commitCount: row[commitCount],

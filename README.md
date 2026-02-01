@@ -89,6 +89,16 @@ Add to your `~/.claude/settings.json`:
 
 Open `CommandCenter/CommandCenter.xcodeproj` in Xcode and build (Cmd+R).
 
+## Codex CLI Integration (rollout watcher)
+
+Codex does not yet expose Claude-style hooks, but its CLI writes rich session rollouts to
+`~/.codex/sessions/**/rollout-*.jsonl`. OrbitDock watches those files **inside the app** using
+native file events and maps them into the same SQLite schema.
+
+**Notes:**
+- The watcher keeps offsets in `~/.orbitdock/codex-rollout-state.json` to avoid double-counting.
+- It only reacts to file changes (no polling/backfill), so old sessions appear only after new activity.
+
 ## Architecture
 
 ```
