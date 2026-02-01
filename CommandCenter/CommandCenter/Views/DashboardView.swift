@@ -82,9 +82,9 @@ struct DashboardView: View {
         }
     }
 
-    // Sessions needing immediate attention
+    // Sessions needing immediate attention - using unified status
     private var attentionSessions: [Session] {
-        sessions.filter { $0.needsAttention }
+        sessions.filter { SessionDisplayStatus.from($0) == .attention }
     }
 
     var body: some View {
@@ -190,11 +190,11 @@ struct DashboardView: View {
 
             Spacer()
 
-            // Status summary in header
+            // Status summary in header - using unified status system
             if !sessions.isEmpty {
                 HStack(spacing: 12) {
-                    let workingCount = sessions.filter { $0.isActive && $0.workStatus == .working }.count
-                    let waitingCount = attentionSessions.count
+                    let workingCount = sessions.filter { SessionDisplayStatus.from($0) == .working }.count
+                    let attentionCount = sessions.filter { SessionDisplayStatus.from($0) == .attention }.count
 
                     if workingCount > 0 {
                         HStack(spacing: 4) {
@@ -210,15 +210,15 @@ struct DashboardView: View {
                         }
                     }
 
-                    if waitingCount > 0 {
+                    if attentionCount > 0 {
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(Color.statusWaiting)
+                                .fill(Color.statusAttention)
                                 .frame(width: 6, height: 6)
-                            Text("\(waitingCount)")
+                            Text("\(attentionCount)")
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.secondary)
-                            Text("Waiting")
+                            Text("Attention")
                                 .font(.system(size: 11))
                                 .foregroundStyle(.tertiary)
                         }
@@ -255,7 +255,7 @@ struct DashboardView: View {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.circle.fill")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.statusWaiting)
+                    .foregroundStyle(Color.statusAttention)
 
                 Text("\(attentionSessions.count) session\(attentionSessions.count == 1 ? "" : "s") need\(attentionSessions.count == 1 ? "s" : "") your attention")
                     .font(.system(size: 12, weight: .semibold))
@@ -271,8 +271,9 @@ struct DashboardView: View {
                         onSelectSession(session.id)
                     } label: {
                         HStack(spacing: 6) {
+                            // All attention sessions use the same attention color
                             Circle()
-                                .fill(session.workStatus == .permission ? Color.statusPermission : Color.statusWaiting)
+                                .fill(Color.statusAttention)
                                 .frame(width: 6, height: 6)
 
                             Text(session.customName ?? session.summary ?? "Session")
@@ -294,10 +295,10 @@ struct DashboardView: View {
             }
         }
         .padding(14)
-        .background(Color.statusWaiting.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.statusAttention.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.statusWaiting.opacity(0.2), lineWidth: 1)
+                .stroke(Color.statusAttention.opacity(0.2), lineWidth: 1)
         )
     }
 
@@ -343,7 +344,7 @@ struct ProjectGroup: Identifiable {
     }
 
     var hasAttention: Bool {
-        sessions.contains { $0.needsAttention }
+        sessions.contains { SessionDisplayStatus.from($0) == .attention }
     }
 }
 
@@ -400,15 +401,15 @@ struct ProjectSection: View {
                         .font(.system(size: 11, weight: .medium, design: .rounded))
                         .foregroundStyle(.tertiary)
 
-                    // Active indicator
+                    // Active indicator - using unified status colors
                     if group.activeCount > 0 {
                         HStack(spacing: 4) {
                             Circle()
-                                .fill(group.hasAttention ? Color.statusWaiting : Color.statusWorking)
+                                .fill(group.hasAttention ? Color.statusAttention : Color.statusWorking)
                                 .frame(width: 6, height: 6)
                             Text("\(group.activeCount) active")
                                 .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(group.hasAttention ? Color.statusWaiting : Color.statusWorking)
+                                .foregroundStyle(group.hasAttention ? Color.statusAttention : Color.statusWorking)
                         }
                     }
 
@@ -510,51 +511,25 @@ struct TaskRow: View {
 
     @State private var isHovering = false
 
+    // Use unified status from design system
+    private var displayStatus: SessionDisplayStatus {
+        SessionDisplayStatus.from(session)
+    }
+
     private var statusColor: Color {
-        guard session.isActive else { return .secondary.opacity(0.4) }
-        // Use attention reason for more nuanced colors
-        switch session.attentionReason {
-        case .none:
-            return session.workStatus == .working ? .statusWorking : .secondary
-        case .awaitingReply:
-            return .blue.opacity(0.8)  // Ready/done - low urgency
-        case .awaitingPermission:
-            return .statusPermission   // Yellow - needs action
-        case .awaitingQuestion:
-            return .statusWaiting      // Orange - Claude asked something
-        }
+        displayStatus.color
     }
 
     private var statusLabel: String {
-        guard session.isActive else { return "Ended" }
-        // Use attention reason for more specific labels
-        switch session.attentionReason {
-        case .none:
-            return session.workStatus == .working ? "Working" : "Active"
-        case .awaitingReply:
-            return "Ready"
-        case .awaitingPermission:
-            if let tool = session.pendingToolName {
-                return tool
-            }
-            return "Permission"
-        case .awaitingQuestion:
-            return "Question"
+        // Show tool name for permission if available
+        if displayStatus == .attention, let tool = session.pendingToolName {
+            return tool
         }
+        return displayStatus.label
     }
 
     private var statusIcon: String {
-        guard session.isActive else { return "checkmark.circle" }
-        switch session.attentionReason {
-        case .none:
-            return session.workStatus == .working ? "bolt.fill" : "circle"
-        case .awaitingReply:
-            return "checkmark.circle"
-        case .awaitingPermission:
-            return "lock.fill"
-        case .awaitingQuestion:
-            return "questionmark.bubble"
-        }
+        displayStatus.icon
     }
 
     private var taskTitle: String {
@@ -592,21 +567,9 @@ struct TaskRow: View {
 
     private var activeRowContent: some View {
         HStack(spacing: 12) {
-            // Left: Status indicator
-            VStack {
-                ZStack {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 10, height: 10)
-
-                    if session.workStatus == .working {
-                        Circle()
-                            .stroke(statusColor.opacity(0.4), lineWidth: 2)
-                            .frame(width: 18, height: 18)
-                    }
-                }
-            }
-            .frame(width: 18)
+            // Left: Status indicator - using unified component
+            SessionStatusDot(status: displayStatus, size: 10)
+                .frame(width: 18)
 
             // Center: Title + stats
             VStack(alignment: .leading, spacing: 5) {
@@ -693,10 +656,8 @@ struct TaskRow: View {
 
     private var endedRowContent: some View {
         HStack(spacing: 12) {
-            // Status dot (aligned with active row)
-            Circle()
-                .fill(statusColor)
-                .frame(width: 6, height: 6)
+            // Status dot (aligned with active row) - using unified component
+            SessionStatusDot(status: .ended, size: 6, showGlow: false)
                 .frame(width: 18)
 
             // Task title
@@ -719,13 +680,8 @@ struct TaskRow: View {
                     .foregroundStyle(.quaternary)
             }
 
-            // Ended badge
-            Text("Ended")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.quaternary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.surfaceBorder.opacity(0.5), in: Capsule())
+            // Ended badge - using unified component
+            SessionStatusBadge(status: .ended, showIcon: false, size: .compact)
 
             ModelBadgeMini(model: session.model)
         }

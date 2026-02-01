@@ -15,40 +15,16 @@ struct AgentRowCompact: View {
 
     @State private var isHovering = false
 
-    private var statusColor: Color {
-        guard session.isActive else { return .secondary.opacity(0.3) }
-        switch session.workStatus {
-        case .working: return .statusWorking
-        case .waiting: return .statusWaiting
-        case .permission: return .statusPermission
-        case .unknown: return .secondary
-        }
+    private var displayStatus: SessionDisplayStatus {
+        SessionDisplayStatus.from(session)
     }
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 10) {
-                // Status dot - "Orbit indicator"
-                ZStack {
-                    // Glow for active working sessions
-                    if session.isActive && session.workStatus == .working {
-                        Circle()
-                            .fill(statusColor.opacity(0.2))
-                            .frame(width: 16, height: 16)
-                            .blur(radius: 3)
-
-                        Circle()
-                            .stroke(statusColor.opacity(0.5), lineWidth: 1)
-                            .frame(width: 14, height: 14)
-                    }
-
-                    // Core dot
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 8, height: 8)
-                        .shadow(color: session.isActive ? statusColor.opacity(0.5) : .clear, radius: 2)
-                }
-                .frame(width: 16, height: 16)
+                // Status dot - using unified component
+                SessionStatusDot(status: displayStatus)
+                    .frame(width: 16, height: 16)
 
                 // Content
                 VStack(alignment: .leading, spacing: 2) {
@@ -77,9 +53,9 @@ struct AgentRowCompact: View {
                                 .font(.system(size: 8))
                                 .foregroundStyle(.quaternary)
 
-                            Text(statusLabel)
+                            Text(displayStatus.label)
                                 .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(statusColor)
+                                .foregroundStyle(displayStatus.color)
                         } else {
                             let duration = session.formattedDuration
                             if duration != "--" {
@@ -139,15 +115,6 @@ struct AgentRowCompact: View {
 
     private var agentName: String {
         session.customName ?? session.summary ?? "Session"
-    }
-
-    private var statusLabel: String {
-        switch session.workStatus {
-        case .working: return "Working"
-        case .waiting: return "Waiting"
-        case .permission: return "Permission"
-        case .unknown: return ""
-        }
     }
 
     private var backgroundColor: Color {

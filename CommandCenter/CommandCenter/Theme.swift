@@ -77,24 +77,40 @@ extension Color {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARK: Status - Mission Control Indicators
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    //
+    // Status color hierarchy (from most to least urgent):
+    // 1. Attention (amber) - Needs YOUR action: permission, question
+    // 2. Working (cyan)    - Claude actively processing
+    // 3. Ready (green)     - Claude done, ball in your court (low urgency)
+    // 4. Ended (gray)      - Session finished
+    //
 
     /// Active/Working - Cyan orbit (session in flight)
     static let statusWorking = accent
 
-    /// Waiting for input - Amber beacon
-    static let statusWaiting = Color(red: 1.0, green: 0.7, blue: 0.25)
+    /// Needs attention - Amber beacon (permission OR question - you need to act)
+    static let statusAttention = Color(red: 1.0, green: 0.7, blue: 0.25)
 
-    /// Permission required - Yellow alert
-    static let statusPermission = Color(red: 1.0, green: 0.85, blue: 0.35)
+    /// Waiting for input - Amber beacon (legacy alias)
+    static let statusWaiting = statusAttention
+
+    /// Permission required - Same as attention (consolidated)
+    static let statusPermission = statusAttention
 
     /// Error - Red warning
     static let statusError = Color(red: 0.95, green: 0.4, blue: 0.45)
 
-    /// Success/Complete - Soft green confirmation
-    static let statusSuccess = Color(red: 0.35, green: 0.85, blue: 0.55)
+    /// Ready/Complete - Soft green (Claude finished, low urgency)
+    static let statusReady = Color(red: 0.35, green: 0.85, blue: 0.55)
 
-    /// Idle/Ended - Dimmed
-    static let statusIdle = Color.white.opacity(0.25)
+    /// Success - Alias for ready
+    static let statusSuccess = statusReady
+
+    /// Ended/Idle - Muted purple-gray (inactive but not invisible)
+    static let statusEnded = Color(red: 0.45, green: 0.42, blue: 0.55)
+
+    /// Idle - Alias for ended
+    static let statusIdle = statusEnded
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // MARK: Model Colors - Crew Ranks
@@ -219,4 +235,230 @@ extension View {
     func darkTheme() -> some View {
         modifier(DarkTheme())
     }
+}
+
+// MARK: - Unified Session Status
+
+/// Unified session status for consistent badge display across the app
+enum SessionDisplayStatus {
+    case working           // Claude actively processing (cyan)
+    case attention         // Needs your action: permission or question (amber)
+    case ready             // Claude done, waiting for your next prompt (green)
+    case ended             // Session finished (muted purple-gray)
+
+    var color: Color {
+        switch self {
+        case .working: return .statusWorking
+        case .attention: return .statusAttention
+        case .ready: return .statusReady
+        case .ended: return .statusEnded
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .working: return "Working"
+        case .attention: return "Attention"
+        case .ready: return "Ready"
+        case .ended: return "Ended"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .working: return "bolt.fill"
+        case .attention: return "exclamationmark.circle.fill"
+        case .ready: return "checkmark.circle"
+        case .ended: return "moon.fill"
+        }
+    }
+
+    /// Create from Session model
+    static func from(_ session: Session) -> SessionDisplayStatus {
+        guard session.isActive else { return .ended }
+
+        // Check attention reason first (more specific)
+        switch session.attentionReason {
+        case .awaitingPermission, .awaitingQuestion:
+            return .attention
+        case .awaitingReply:
+            return .ready
+        case .none:
+            // Fall back to work status
+            return session.workStatus == .working ? .working : .ready
+        }
+    }
+}
+
+// MARK: - Session Status Badge (Design System Component)
+
+/// Unified status badge for sessions - use this everywhere for consistency
+struct SessionStatusBadge: View {
+    let status: SessionDisplayStatus
+    var showIcon: Bool = true
+    var size: BadgeSize = .regular
+
+    enum BadgeSize {
+        case mini      // Just dot
+        case compact   // Small text only
+        case regular   // Icon + text
+        case large     // Bigger for headers
+
+        var fontSize: CGFloat {
+            switch self {
+            case .mini: return 0
+            case .compact: return 9
+            case .regular: return 10
+            case .large: return 11
+            }
+        }
+
+        var iconSize: CGFloat {
+            switch self {
+            case .mini: return 0
+            case .compact: return 7
+            case .regular: return 8
+            case .large: return 10
+            }
+        }
+
+        var paddingH: CGFloat {
+            switch self {
+            case .mini: return 0
+            case .compact: return 6
+            case .regular: return 8
+            case .large: return 10
+            }
+        }
+
+        var paddingV: CGFloat {
+            switch self {
+            case .mini: return 0
+            case .compact: return 2
+            case .regular: return 3
+            case .large: return 4
+            }
+        }
+    }
+
+    init(session: Session, showIcon: Bool = true, size: BadgeSize = .regular) {
+        self.status = SessionDisplayStatus.from(session)
+        self.showIcon = showIcon
+        self.size = size
+    }
+
+    init(status: SessionDisplayStatus, showIcon: Bool = true, size: BadgeSize = .regular) {
+        self.status = status
+        self.showIcon = showIcon
+        self.size = size
+    }
+
+    var body: some View {
+        if size == .mini {
+            // Just a colored dot
+            Circle()
+                .fill(status.color)
+                .frame(width: 6, height: 6)
+        } else {
+            HStack(spacing: size == .compact ? 3 : 4) {
+                if showIcon {
+                    Image(systemName: status.icon)
+                        .font(.system(size: size.iconSize, weight: .bold))
+                }
+                Text(status.label)
+                    .font(.system(size: size.fontSize, weight: .semibold))
+            }
+            .foregroundStyle(status.color)
+            .padding(.horizontal, size.paddingH)
+            .padding(.vertical, size.paddingV)
+            .background(status.color.opacity(0.12), in: Capsule())
+        }
+    }
+}
+
+// MARK: - Session Status Dot (for indicators)
+
+/// Status dot indicator with optional glow for working state
+struct SessionStatusDot: View {
+    let status: SessionDisplayStatus
+    var size: CGFloat = 8
+    var showGlow: Bool = true
+
+    init(session: Session, size: CGFloat = 8, showGlow: Bool = true) {
+        self.status = SessionDisplayStatus.from(session)
+        self.size = size
+        self.showGlow = showGlow
+    }
+
+    init(status: SessionDisplayStatus, size: CGFloat = 8, showGlow: Bool = true) {
+        self.status = status
+        self.size = size
+        self.showGlow = showGlow
+    }
+
+    var body: some View {
+        ZStack {
+            // Glow ring for working status
+            if showGlow && status == .working {
+                Circle()
+                    .fill(status.color.opacity(0.2))
+                    .frame(width: size * 2, height: size * 2)
+                    .blur(radius: 3)
+
+                Circle()
+                    .stroke(status.color.opacity(0.4), lineWidth: 1.5)
+                    .frame(width: size * 1.75, height: size * 1.75)
+            }
+
+            // Attention ring
+            if showGlow && status == .attention {
+                Circle()
+                    .stroke(status.color.opacity(0.5), lineWidth: 1.5)
+                    .frame(width: size * 1.75, height: size * 1.75)
+            }
+
+            // Core dot
+            Circle()
+                .fill(status.color)
+                .frame(width: size, height: size)
+                .shadow(color: status != .ended ? status.color.opacity(0.5) : .clear, radius: 3)
+        }
+        .frame(width: size * 2.5, height: size * 2.5)
+    }
+}
+
+#Preview("Status Badges") {
+    VStack(alignment: .leading, spacing: 20) {
+        Text("Status Badges")
+            .font(.headline)
+
+        HStack(spacing: 12) {
+            SessionStatusBadge(status: .working)
+            SessionStatusBadge(status: .attention)
+            SessionStatusBadge(status: .ready)
+            SessionStatusBadge(status: .ended)
+        }
+
+        Text("Compact Badges")
+            .font(.headline)
+
+        HStack(spacing: 12) {
+            SessionStatusBadge(status: .working, size: .compact)
+            SessionStatusBadge(status: .attention, size: .compact)
+            SessionStatusBadge(status: .ready, size: .compact)
+            SessionStatusBadge(status: .ended, size: .compact)
+        }
+
+        Text("Status Dots")
+            .font(.headline)
+
+        HStack(spacing: 20) {
+            SessionStatusDot(status: .working)
+            SessionStatusDot(status: .attention)
+            SessionStatusDot(status: .ready)
+            SessionStatusDot(status: .ended)
+        }
+    }
+    .padding()
+    .background(Color.backgroundPrimary)
 }

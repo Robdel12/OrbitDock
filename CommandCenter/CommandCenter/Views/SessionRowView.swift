@@ -9,42 +9,15 @@ struct SessionRowView: View {
     let session: Session
     var isSelected: Bool = false
 
-    private var statusColor: Color {
-        if !session.isActive { return .statusIdle }
-        switch session.workStatus {
-        case .working: return .statusWorking
-        case .waiting: return .statusWaiting
-        case .permission: return .statusPermission
-        case .unknown: return .statusWorking.opacity(0.5)
-        }
+    private var displayStatus: SessionDisplayStatus {
+        SessionDisplayStatus.from(session)
     }
 
     var body: some View {
         HStack(spacing: 10) {
-            // Status dot - "Orbit indicator"
-            ZStack {
-                // Glow for active sessions
-                if session.isActive && session.workStatus == .working {
-                    Circle()
-                        .fill(statusColor.opacity(0.2))
-                        .frame(width: 16, height: 16)
-                        .blur(radius: 3)
-                }
-
-                // Attention ring
-                if session.isActive && session.needsAttention {
-                    Circle()
-                        .stroke(statusColor.opacity(0.5), lineWidth: 1.5)
-                        .frame(width: 14, height: 14)
-                }
-
-                // Core dot
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 8, height: 8)
-                    .shadow(color: session.isActive ? statusColor.opacity(0.5) : .clear, radius: 3)
-            }
-            .frame(width: 20)
+            // Status dot - using unified component
+            SessionStatusDot(status: displayStatus)
+                .frame(width: 20)
 
             // Main content
             VStack(alignment: .leading, spacing: 3) {
@@ -117,46 +90,22 @@ struct SessionRowView: View {
 // MARK: - Compact Components
 
 struct CompactStatusBadge: View {
-    let workStatus: Session.WorkStatus
+    let session: Session
 
-    private var color: Color {
-        switch workStatus {
-        case .working: return .statusWorking
-        case .waiting: return .statusWaiting
-        case .permission: return .statusPermission
-        case .unknown: return .secondary
-        }
+    // Legacy initializer for backward compatibility
+    init(workStatus: Session.WorkStatus) {
+        // Create a minimal session for the status - this is a compatibility shim
+        self.session = Session(
+            id: "", projectPath: "", status: .active, workStatus: workStatus
+        )
     }
 
-    private var icon: String {
-        switch workStatus {
-        case .working: return "bolt.fill"
-        case .waiting: return "clock"
-        case .permission: return "lock.fill"
-        case .unknown: return "circle"
-        }
-    }
-
-    private var label: String {
-        switch workStatus {
-        case .working: return "Working"
-        case .waiting: return "Waiting"
-        case .permission: return "Permission"
-        case .unknown: return ""
-        }
+    init(session: Session) {
+        self.session = session
     }
 
     var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.system(size: 7, weight: .bold))
-            Text(label)
-                .font(.system(size: 9, weight: .semibold))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(color.opacity(0.12), in: Capsule())
+        SessionStatusBadge(session: session, size: .compact)
     }
 }
 
@@ -223,47 +172,23 @@ struct ModelBadge: View {
 // MARK: - Work Status Badge (Standalone - legacy support)
 
 struct WorkStatusBadge: View {
-    let workStatus: Session.WorkStatus
+    let session: Session
 
-    private var color: Color {
-        switch workStatus {
-        case .working: return .statusWorking
-        case .waiting: return .statusWaiting
-        case .permission: return .statusPermission
-        case .unknown: return .secondary
-        }
+    // Legacy initializer for backward compatibility
+    init(workStatus: Session.WorkStatus) {
+        self.session = Session(
+            id: "", projectPath: "", status: .active, workStatus: workStatus
+        )
     }
 
-    private var icon: String {
-        switch workStatus {
-        case .working: return "bolt.fill"
-        case .waiting: return "hand.raised.fill"
-        case .permission: return "lock.fill"
-        case .unknown: return "circle"
-        }
-    }
-
-    private var label: String {
-        switch workStatus {
-        case .working: return "Working"
-        case .waiting: return "Waiting"
-        case .permission: return "Permission"
-        case .unknown: return ""
-        }
+    init(session: Session) {
+        self.session = session
     }
 
     var body: some View {
-        if workStatus != .unknown {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9, weight: .bold))
-                Text(label)
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(color.opacity(0.12), in: Capsule())
+        let displayStatus = SessionDisplayStatus.from(session)
+        if displayStatus != .ended {
+            SessionStatusBadge(status: displayStatus, size: .regular)
         }
     }
 }

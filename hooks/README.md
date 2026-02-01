@@ -78,14 +78,22 @@ This ensures sessions always have meaningful names in the UI.
 
 | Event | What it does |
 |-------|--------------|
-| `PreToolUse` | Records which tool is running, sets status to "working" |
-| `PostToolUse` | Increments tool count |
-| `PostToolUseFailure` | Logs failed tool, still increments tool count |
+| `PreToolUse` | Records which tool is running, sets status to "working", captures question text for `AskUserQuestion` |
+| `PostToolUse` | Increments tool count, clears `pending_tool_name` |
+| `PostToolUseFailure` | Clears pending state (fixes state after permission denial), increments tool count |
+
+**PreToolUse special handling:**
+- For `AskUserQuestion` tool, captures the question text from `tool_input.questions` and stores it in `pending_question`
 
 **PostToolUseFailure input fields:**
 - `tool_name`, `tool_input`, `tool_use_id`
 - `error` - Error message describing the failure
 - `is_interrupt` - Whether the failure was due to user interrupt
+
+**PostToolUseFailure behavior:**
+- Clears `pending_tool_name` and `pending_question`
+- Sets `work_status` to "waiting" and `attention_reason` to "awaitingReply"
+- This handles permission denials - when a user rejects a tool, `PostToolUseFailure` fires and resets the session state
 
 **Also detects:**
 - Branch creation (`git checkout -b`, `git switch -c`) to auto-create workstreams
@@ -117,11 +125,12 @@ Hooks update the `sessions` table in `~/.orbitdock/orbitdock.db`:
 |-------|------------|
 | `status` | session-start, session-end |
 | `work_status` | status-tracker, tool-tracker |
-| `attention_reason` | status-tracker |
+| `attention_reason` | status-tracker, tool-tracker |
 | `prompt_count` | status-tracker (UserPromptSubmit) |
 | `tool_count` | tool-tracker (PostToolUse, PostToolUseFailure) |
 | `last_tool` | tool-tracker (PreToolUse) |
-| `pending_tool_name` | status-tracker (permission_prompt) |
+| `pending_tool_name` | status-tracker (permission_prompt), tool-tracker (cleared on PostToolUse/PostToolUseFailure) |
+| `pending_question` | tool-tracker (PreToolUse for AskUserQuestion), cleared on PostToolUseFailure |
 | `summary` | status-tracker (Stop) - synced from Claude's sessions-index.json |
 
 ## App Notifications

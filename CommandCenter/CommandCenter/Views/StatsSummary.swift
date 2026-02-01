@@ -11,11 +11,11 @@ struct StatsSummary: View {
     let sessions: [Session]
 
     private var workingCount: Int {
-        sessions.filter { $0.isActive && $0.workStatus == .working }.count
+        sessions.filter { SessionDisplayStatus.from($0) == .working }.count
     }
 
-    private var waitingCount: Int {
-        sessions.filter { $0.needsAttention }.count
+    private var attentionCount: Int {
+        sessions.filter { SessionDisplayStatus.from($0) == .attention }.count
     }
 
     private var todayCount: Int {
@@ -51,9 +51,9 @@ struct StatsSummary: View {
             )
 
             StatCard(
-                value: "\(waitingCount)",
-                label: "Waiting",
-                color: waitingCount > 0 ? .statusWaiting : .secondary
+                value: "\(attentionCount)",
+                label: "Attention",
+                color: attentionCount > 0 ? .statusAttention : .secondary
             )
 
             StatCard(
