@@ -38,7 +38,7 @@ struct SessionCard: View {
     }
 
     private var agentName: String {
-        session.customName ?? session.summary ?? "Session"
+        session.displayName
     }
 
     var body: some View {

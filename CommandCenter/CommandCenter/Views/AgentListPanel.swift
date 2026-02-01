@@ -394,7 +394,7 @@ struct RenameSessionSheet: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.secondary)
 
-                        Text(summary)
+                        Text(summary.strippingXMLTags())
                             .font(.system(size: 12))
                             .foregroundStyle(.primary.opacity(0.8))
                             .padding(.horizontal, 10)

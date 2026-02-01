@@ -82,11 +82,6 @@ struct DashboardView: View {
         }
     }
 
-    // Sessions needing immediate attention - using unified status
-    private var attentionSessions: [Session] {
-        sessions.filter { SessionDisplayStatus.from($0) == .attention }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -110,27 +105,21 @@ struct DashboardView: View {
 
     private var sessionsContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 24) {
                 // Stats summary
                 StatsSummary(sessions: sessions)
 
-                // Attention banner (if any need attention)
-                if !attentionSessions.isEmpty {
-                    attentionBanner
-                }
+                // Active sessions (flat list, sorted by start time)
+                ActiveSessionsSection(
+                    sessions: sessions,
+                    onSelectSession: onSelectSession
+                )
 
-                // Project groups
-                ForEach(projectGroups) { group in
-                    ProjectSection(
-                        group: group,
-                        onSelectSession: onSelectSession
-                    )
-                }
-
-                // Empty state
-                if sessions.isEmpty {
-                    emptyState
-                }
+                // Project archive (ended sessions, collapsed by default)
+                ProjectArchiveSection(
+                    sessions: sessions,
+                    onSelectSession: onSelectSession
+                )
             }
             .padding(24)
         }
@@ -246,60 +235,6 @@ struct DashboardView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color.backgroundSecondary)
-    }
-
-    // MARK: - Attention Banner
-
-    private var attentionBanner: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.statusAttention)
-
-                Text("\(attentionSessions.count) session\(attentionSessions.count == 1 ? "" : "s") need\(attentionSessions.count == 1 ? "s" : "") your attention")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary)
-
-                Spacer()
-            }
-
-            // Quick links to attention sessions
-            HStack(spacing: 8) {
-                ForEach(attentionSessions.prefix(4)) { session in
-                    Button {
-                        onSelectSession(session.id)
-                    } label: {
-                        HStack(spacing: 6) {
-                            // All attention sessions use the same attention color
-                            Circle()
-                                .fill(Color.statusAttention)
-                                .frame(width: 6, height: 6)
-
-                            Text(session.customName ?? session.summary ?? "Session")
-                                .font(.system(size: 11, weight: .medium))
-                                .lineLimit(1)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if attentionSessions.count > 4 {
-                    Text("+\(attentionSessions.count - 4) more")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-        .padding(14)
-        .background(Color.statusAttention.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.statusAttention.opacity(0.2), lineWidth: 1)
-        )
     }
 
     // MARK: - Empty State
@@ -533,7 +468,7 @@ struct TaskRow: View {
     }
 
     private var taskTitle: String {
-        session.customName ?? session.summary ?? "Session"
+        session.displayName
     }
 
     var body: some View {

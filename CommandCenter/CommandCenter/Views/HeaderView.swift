@@ -248,7 +248,7 @@ struct HeaderView: View {
     // MARK: - Helpers
 
     private var agentName: String {
-        session.customName ?? session.summary ?? "Session"
+        session.displayName
     }
 
     private func shortenPath(_ path: String) -> String {

@@ -155,28 +155,17 @@ struct QuickSwitcher: View {
         }
     }
 
-    private var needsAttention: [Session] {
-        // Permission or question - actually needs action
-        filteredSessions.filter {
-            SessionDisplayStatus.from($0) == .attention
-        }
+    /// All active sessions sorted by start time (stable order, matches dashboard)
+    private var activeSessions: [Session] {
+        filteredSessions
+            .filter { $0.isActive }
+            .sorted { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }
     }
 
-    private var working: [Session] {
-        filteredSessions.filter {
-            SessionDisplayStatus.from($0) == .working
-        }
-    }
-
-    private var ready: [Session] {
-        // Awaiting reply - Claude is done, low urgency
-        filteredSessions.filter {
-            $0.isActive && SessionDisplayStatus.from($0) == .ready
-        }
-    }
-
-    private var recent: [Session] {
-        filteredSessions.filter { !$0.isActive }
+    /// Recent ended sessions
+    private var recentSessions: [Session] {
+        filteredSessions
+            .filter { !$0.isActive }
             .sorted { ($0.endedAt ?? .distantPast) > ($1.endedAt ?? .distantPast) }
             .prefix(8)
             .map { $0 }
@@ -184,7 +173,7 @@ struct QuickSwitcher: View {
 
     // Flat list for keyboard navigation (matches display order)
     private var allVisibleSessions: [Session] {
-        working + needsAttention + ready + recent
+        activeSessions + recentSessions
     }
 
     // Total items for navigation
@@ -381,41 +370,14 @@ struct QuickSwitcher: View {
                     dashboardRow
                         .id("row-\(dashboardIndex)")
 
-                    // Sessions - using unified status colors
-                    if !working.isEmpty {
-                        sectionView(
-                            title: "WORKING",
-                            sessions: working,
-                            status: .working,
-                            startIndex: sessionStartIndex
-                        )
+                    // Active sessions - flat list sorted by start time (matches dashboard)
+                    if !activeSessions.isEmpty {
+                        activeSessionsSection
                     }
 
-                    if !needsAttention.isEmpty {
-                        sectionView(
-                            title: "ATTENTION",
-                            sessions: needsAttention,
-                            status: .attention,
-                            startIndex: sessionStartIndex + working.count
-                        )
-                    }
-
-                    if !ready.isEmpty {
-                        sectionView(
-                            title: "READY",
-                            sessions: ready,
-                            status: .ready,
-                            startIndex: sessionStartIndex + working.count + needsAttention.count
-                        )
-                    }
-
-                    if !recent.isEmpty {
-                        sectionView(
-                            title: "RECENT",
-                            sessions: recent,
-                            status: .ended,
-                            startIndex: sessionStartIndex + working.count + needsAttention.count + ready.count
-                        )
+                    // Recent ended sessions
+                    if !recentSessions.isEmpty {
+                        recentSessionsSection
                     }
                 }
                 .padding(.vertical, 8)
@@ -423,6 +385,78 @@ struct QuickSwitcher: View {
             .frame(maxHeight: 480)
             .onChange(of: selectedIndex) { _, newIndex in
                 proxy.scrollTo("row-\(newIndex)", anchor: .center)
+            }
+        }
+    }
+
+    // MARK: - Active Sessions Section
+
+    private var activeSessionsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Section Header
+            HStack(spacing: 8) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.accent)
+
+                Text("ACTIVE")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.accent)
+                    .tracking(0.8)
+
+                // Count badge
+                Text("\(activeSessions.count)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.accent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.accent.opacity(0.15), in: Capsule())
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            // Session Rows
+            ForEach(Array(activeSessions.enumerated()), id: \.element.id) { index, session in
+                let globalIndex = sessionStartIndex + index
+                switcherRow(session: session, index: globalIndex)
+                    .id("row-\(globalIndex)")
+            }
+        }
+    }
+
+    // MARK: - Recent Sessions Section
+
+    private var recentSessionsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Section Header
+            HStack(spacing: 8) {
+                Image(systemName: "clock")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.statusEnded)
+
+                Text("RECENT")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.statusEnded)
+                    .tracking(0.8)
+
+                // Count badge
+                Text("\(recentSessions.count)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.statusEnded)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.statusEnded.opacity(0.15), in: Capsule())
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+
+            // Session Rows
+            ForEach(Array(recentSessions.enumerated()), id: \.element.id) { index, session in
+                let globalIndex = sessionStartIndex + activeSessions.count + index
+                switcherRow(session: session, index: globalIndex)
+                    .id("row-\(globalIndex)")
             }
         }
     }
@@ -448,7 +482,7 @@ struct QuickSwitcher: View {
                         .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
 
-                    Text(session.customName ?? session.summary ?? session.projectName ?? "Session")
+                    Text(session.displayName)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -525,45 +559,6 @@ struct QuickSwitcher: View {
         .padding(.horizontal, 8)
     }
 
-    // MARK: - Section View
-
-    private func sectionView(title: String, sessions: [Session], status: SessionDisplayStatus, startIndex: Int) -> some View {
-        let color = status.color
-        let icon = status == .ended ? "clock" : status.icon  // Use clock for Recent section
-
-        return VStack(alignment: .leading, spacing: 4) {
-            // Section Header
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(color)
-
-                Text(title)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(color)
-                    .tracking(0.8)
-
-                // Count badge
-                Text("\(sessions.count)")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .foregroundStyle(color)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(color.opacity(0.15), in: Capsule())
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-
-            // Session Rows
-            ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
-                let globalIndex = startIndex + index
-                switcherRow(session: session, index: globalIndex)
-                    .id("row-\(globalIndex)")
-            }
-        }
-    }
-
     // MARK: - Switcher Row
 
     private func switcherRow(session: Session, index: Int) -> some View {
@@ -593,7 +588,7 @@ struct QuickSwitcher: View {
                                 Text(branch)
                                     .font(.system(size: 10, design: .monospaced))
                             }
-                            .foregroundStyle(Color.accent.opacity(0.7))
+                            .foregroundStyle(Color.gitBranch.opacity(0.7))
                         }
                     }
 
@@ -604,9 +599,9 @@ struct QuickSwitcher: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
 
-                        // Status badge - using unified component
+                        // Activity indicator for active sessions
                         if session.isActive {
-                            SessionStatusBadge(status: displayStatus, showIcon: false, size: .compact)
+                            activityIndicator(for: session, status: displayStatus)
                         } else {
                             // Ended badge with relative time
                             HStack(spacing: 4) {
@@ -816,7 +811,81 @@ struct QuickSwitcher: View {
     }
 
     private func agentName(for session: Session) -> String {
-        session.customName ?? session.summary ?? "Session"
+        // Use displayName which already strips HTML tags
+        session.displayName
+    }
+
+    @ViewBuilder
+    private func activityIndicator(for session: Session, status: SessionDisplayStatus) -> some View {
+        let color = status.color
+
+        HStack(spacing: 4) {
+            Image(systemName: activityIcon(for: session, status: status))
+                .font(.system(size: 9, weight: .medium))
+            Text(activityText(for: session, status: status))
+                .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundStyle(color)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(color.opacity(0.12), in: Capsule())
+    }
+
+    private func activityText(for session: Session, status: SessionDisplayStatus) -> String {
+        switch status {
+        case .attention:
+            if session.attentionReason == .awaitingQuestion {
+                return "Question"
+            }
+            if let tool = session.pendingToolName {
+                return tool
+            }
+            return "Attention"
+        case .working:
+            if let tool = session.lastTool {
+                return tool
+            }
+            return "Working"
+        case .ready:
+            return "Ready"
+        case .ended:
+            return "Ended"
+        }
+    }
+
+    private func activityIcon(for session: Session, status: SessionDisplayStatus) -> String {
+        switch status {
+        case .attention:
+            if session.attentionReason == .awaitingQuestion {
+                return "questionmark.bubble"
+            }
+            return "lock.fill"
+        case .working:
+            if let tool = session.lastTool {
+                return toolIcon(for: tool)
+            }
+            return "bolt.fill"
+        case .ready:
+            return "checkmark.circle"
+        case .ended:
+            return "moon.fill"
+        }
+    }
+
+    private func toolIcon(for tool: String) -> String {
+        switch tool.lowercased() {
+        case "read": return "doc.text"
+        case "edit": return "pencil"
+        case "write": return "square.and.pencil"
+        case "bash": return "terminal"
+        case "glob": return "folder.badge.gearshape"
+        case "grep": return "magnifyingglass"
+        case "task": return "person.2"
+        case "webfetch": return "globe"
+        case "websearch": return "magnifyingglass.circle"
+        case "skill": return "sparkles"
+        default: return "gearshape"
+        }
     }
 }
 

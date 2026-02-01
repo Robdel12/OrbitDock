@@ -136,7 +136,8 @@ struct Session: Identifiable, Hashable {
     }
 
     var displayName: String {
-        customName ?? summary ?? firstPrompt ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
+        let raw = customName ?? summary ?? firstPrompt ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
+        return raw.strippingXMLTags()
     }
 
     /// For backward compatibility
@@ -214,5 +215,23 @@ struct Session: Identifiable, Hashable {
     var lastToolDisplay: String? {
         guard let tool = lastTool, !tool.isEmpty else { return nil }
         return tool
+    }
+}
+
+// MARK: - String Extensions
+
+extension String {
+    /// Strips XML/HTML tags from a string
+    /// e.g., "<bash-input>git checkout</bash-input>" → "git checkout"
+    func strippingXMLTags() -> String {
+        // Remove XML/HTML tags using regex
+        guard let regex = try? NSRegularExpression(pattern: "<[^>]+>", options: []) else {
+            return self
+        }
+        let range = NSRange(startIndex..<endIndex, in: self)
+        let stripped = regex.stringByReplacingMatches(in: self, options: [], range: range, withTemplate: "")
+
+        // Clean up any extra whitespace
+        return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
