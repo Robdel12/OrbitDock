@@ -43,8 +43,16 @@ struct Workstream: Identifiable, Equatable {
   var reviewApprovals: Int
   var reviewComments: Int
 
-  /// Lifecycle
+  // Lifecycle - legacy single stage (computed from flags for backwards compat)
   var stage: Stage
+
+  // Lifecycle - combinable state flags
+  var isWorking: Bool = true
+  var hasOpenPR: Bool = false
+  var inReview: Bool = false
+  var hasApproval: Bool = false
+  var isMerged: Bool = false
+  var isClosed: Bool = false
 
   // Stats
   var sessionCount: Int
@@ -77,13 +85,82 @@ struct Workstream: Identifiable, Equatable {
     case approved
   }
 
-  enum Stage: String {
+  enum Stage: String, CaseIterable {
     case working
     case prOpen = "pr_open"
     case inReview = "in_review"
     case approved
     case merged
     case closed
+
+    var icon: String {
+      switch self {
+      case .working: "hammer.fill"
+      case .prOpen: "arrow.up.circle.fill"
+      case .inReview: "eye.fill"
+      case .approved: "checkmark.seal.fill"
+      case .merged: "arrow.triangle.merge"
+      case .closed: "xmark.circle.fill"
+      }
+    }
+  }
+
+  /// Combinable state flags - can have multiple active at once
+  enum StateFlag: String, CaseIterable, Identifiable {
+    case working
+    case hasOpenPR = "has_open_pr"
+    case inReview = "in_review"
+    case hasApproval = "has_approval"
+    case merged
+    case closed
+
+    var id: String { rawValue }
+
+    var label: String {
+      switch self {
+      case .working: "Working"
+      case .hasOpenPR: "PR Open"
+      case .inReview: "In Review"
+      case .hasApproval: "Approved"
+      case .merged: "Merged"
+      case .closed: "Closed"
+      }
+    }
+
+    var icon: String {
+      switch self {
+      case .working: "hammer.fill"
+      case .hasOpenPR: "arrow.up.circle.fill"
+      case .inReview: "eye.fill"
+      case .hasApproval: "checkmark.seal.fill"
+      case .merged: "arrow.triangle.merge"
+      case .closed: "xmark.circle.fill"
+      }
+    }
+
+    /// Whether this flag can be combined with others
+    var isCombinable: Bool {
+      switch self {
+      case .working, .hasOpenPR, .inReview, .hasApproval: true
+      case .merged, .closed: false
+      }
+    }
+
+    /// Terminal flags that end the workstream
+    var isTerminal: Bool {
+      switch self {
+      case .merged, .closed: true
+      default: false
+      }
+    }
+
+    static var combinableFlags: [StateFlag] {
+      allCases.filter(\.isCombinable)
+    }
+
+    static var terminalFlags: [StateFlag] {
+      allCases.filter(\.isTerminal)
+    }
   }
 
   // MARK: - Computed Properties
@@ -145,7 +222,41 @@ struct Workstream: Identifiable, Equatable {
   }
 
   var isActive: Bool {
-    stage == .working || stage == .prOpen || stage == .inReview
+    !isMerged && !isClosed
+  }
+
+  /// Get all currently active state flags
+  var activeFlags: [StateFlag] {
+    var flags: [StateFlag] = []
+    if isWorking { flags.append(.working) }
+    if hasOpenPR { flags.append(.hasOpenPR) }
+    if inReview { flags.append(.inReview) }
+    if hasApproval { flags.append(.hasApproval) }
+    if isMerged { flags.append(.merged) }
+    if isClosed { flags.append(.closed) }
+    return flags
+  }
+
+  /// Check if a specific flag is active
+  func hasFlag(_ flag: StateFlag) -> Bool {
+    switch flag {
+    case .working: isWorking
+    case .hasOpenPR: hasOpenPR
+    case .inReview: inReview
+    case .hasApproval: hasApproval
+    case .merged: isMerged
+    case .closed: isClosed
+    }
+  }
+
+  /// Primary flag for display (most "advanced" active state)
+  var primaryFlag: StateFlag {
+    if isClosed { return .closed }
+    if isMerged { return .merged }
+    if hasApproval { return .hasApproval }
+    if inReview { return .inReview }
+    if hasOpenPR { return .hasOpenPR }
+    return .working
   }
 
   var stageIcon: String {

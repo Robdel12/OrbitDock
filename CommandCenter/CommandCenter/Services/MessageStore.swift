@@ -107,10 +107,25 @@ final class MessageStore {
     })
 
     // Migrations for existing tables
-    _ = try? db.run("ALTER TABLE messages ADD COLUMN sequence INTEGER DEFAULT 0")
-    _ = try? db.run("ALTER TABLE messages ADD COLUMN thinking TEXT")
-    _ = try? db.run("ALTER TABLE messages ADD COLUMN tool_duration REAL")
-    _ = try? db.run("ALTER TABLE messages ADD COLUMN images_json TEXT")
+    addColumnIfMissing(
+      db,
+      table: "messages",
+      column: "sequence",
+      sql: "ALTER TABLE messages ADD COLUMN sequence INTEGER DEFAULT 0"
+    )
+    addColumnIfMissing(db, table: "messages", column: "thinking", sql: "ALTER TABLE messages ADD COLUMN thinking TEXT")
+    addColumnIfMissing(
+      db,
+      table: "messages",
+      column: "tool_duration",
+      sql: "ALTER TABLE messages ADD COLUMN tool_duration REAL"
+    )
+    addColumnIfMissing(
+      db,
+      table: "messages",
+      column: "images_json",
+      sql: "ALTER TABLE messages ADD COLUMN images_json TEXT"
+    )
 
     // Indexes for fast queries
     try db.run(messages.createIndex(sessionId, ifNotExists: true))
@@ -131,6 +146,22 @@ final class MessageStore {
       t.column(lastSyncTime)
     })
 
+  }
+
+  private func addColumnIfMissing(_ db: Connection, table: String, column: String, sql: String) {
+    guard !hasColumn(db, table: table, column: column) else { return }
+    _ = try? db.run(sql)
+  }
+
+  private func hasColumn(_ db: Connection, table: String, column: String) -> Bool {
+    do {
+      for row in try db.prepare("PRAGMA table_info(\(table))") {
+        if let name = row[1] as? String, name == column { return true }
+      }
+    } catch {
+      return false
+    }
+    return false
   }
 
   // MARK: - Write Operations

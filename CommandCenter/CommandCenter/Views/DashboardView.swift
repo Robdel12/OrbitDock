@@ -109,6 +109,9 @@ struct DashboardView: View {
         // Command bar - rich stats strip
         CommandBar(sessions: sessions)
 
+        // Active workstreams strip
+        ActiveWorkstreamsSection(onSelectSession: onSelectSession)
+
         // Active sessions (flat list, sorted by start time)
         ActiveSessionsSection(
           sessions: sessions,

@@ -67,6 +67,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     )
 
     UNUserNotificationCenter.current().setNotificationCategories([category])
+
+    CodexRolloutWatcher.shared.start()
+  }
+
+  func applicationWillTerminate(_ notification: Notification) {
+    CodexRolloutWatcher.shared.stop()
   }
 
   /// Handle notification when app is in foreground

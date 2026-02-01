@@ -601,15 +601,30 @@ enum TranscriptParser {
           return shortenPath(path)
         }
       case "edit":
+        // Handle both Claude Code edit (file_path) and Codex apply_patch (patch with file path extracted)
         if let path = input["file_path"] as? String {
           return shortenPath(path)
+        }
+        if let patch = input["patch"] as? String {
+          // Extract first file from patch for summary
+          for line in patch.components(separatedBy: "\n") {
+            if line.hasPrefix("*** Add File:") || line.hasPrefix("*** Update File:") {
+              let path = line
+                .replacingOccurrences(of: "*** Add File:", with: "")
+                .replacingOccurrences(of: "*** Update File:", with: "")
+                .trimmingCharacters(in: .whitespaces)
+              return shortenPath(path)
+            }
+          }
         }
       case "write":
         if let path = input["file_path"] as? String {
           return shortenPath(path)
         }
       case "bash":
-        if let command = input["command"] as? String {
+        // Handle both Claude Code ("command") and Codex ("cmd") parameter names
+        let command = (input["command"] as? String) ?? (input["cmd"] as? String)
+        if let command {
           let truncated = command.count > 60 ? String(command.prefix(60)) + "..." : command
           return truncated.replacingOccurrences(of: "\n", with: " ")
         }
@@ -637,6 +652,9 @@ enum TranscriptParser {
   /// Parse everything in ONE pass - messages, stats, prompt, last tool
   /// Uses cache to avoid redundant parses of unchanged files
   static func parseAll(transcriptPath: String) -> TranscriptParseResult {
+    if isCodexTranscript(transcriptPath) {
+      return parseCodexAll(transcriptPath: transcriptPath)
+    }
     // Quick cache check (no lock)
     if let cached = ParseCache.shared.getCached(path: transcriptPath) {
       return cached
@@ -881,6 +899,303 @@ enum TranscriptParser {
     )
     ParseCache.shared.set(path: transcriptPath, result: result)
     return result
+  }
+
+  // MARK: - Codex Transcript Parsing
+
+  private static func isCodexTranscript(_ path: String) -> Bool {
+    path.contains("/.codex/sessions/") || path.contains("/.codex/archived_sessions/")
+  }
+
+  private static func parseCodexAll(transcriptPath: String) -> TranscriptParseResult {
+    if let cached = ParseCache.shared.getCached(path: transcriptPath) {
+      return cached
+    }
+
+    let pathLock = ParseCache.shared.acquireParseLock(path: transcriptPath)
+    defer { pathLock.unlock() }
+
+    if let cached = ParseCache.shared.getCached(path: transcriptPath) {
+      return cached
+    }
+
+    let start = CFAbsoluteTimeGetCurrent()
+
+    guard FileManager.default.fileExists(atPath: transcriptPath) else {
+      return TranscriptParseResult(messages: [], stats: TranscriptUsageStats(), lastUserPrompt: nil, lastTool: nil)
+    }
+
+    guard let content = try? String(contentsOfFile: transcriptPath, encoding: .utf8) else {
+      return TranscriptParseResult(messages: [], stats: TranscriptUsageStats(), lastUserPrompt: nil, lastTool: nil)
+    }
+
+    let lines = content.components(separatedBy: "\n").filter { !$0.isEmpty }
+    var messages: [TranscriptMessage] = []
+    var stats = TranscriptUsageStats()
+    var lastUserPrompt: String?
+    var lastTool: String?
+    var pendingReasoning: String?
+    var messageIndex = 0
+    var toolCallTimestamps: [String: Date] = [:]
+    var toolCallOutputs: [String: (output: String, timestamp: Date)] = [:]
+
+    // First pass: capture tool outputs + call timestamps for durations
+    for line in lines {
+      guard let data = line.data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      else {
+        continue
+      }
+
+      guard let type = json["type"] as? String, type == "response_item",
+            let payload = json["payload"] as? [String: Any],
+            let payloadType = payload["type"] as? String
+      else {
+        continue
+      }
+
+      let timestamp = parseTimestamp(json["timestamp"] as? String)
+
+      if payloadType == "function_call" || payloadType == "custom_tool_call" {
+        if let callId = payload["call_id"] as? String {
+          toolCallTimestamps[callId] = timestamp
+        }
+      } else if payloadType == "function_call_output" || payloadType == "custom_tool_call_output" {
+        if let callId = payload["call_id"] as? String,
+           let output = payload["output"] as? String {
+          toolCallOutputs[callId] = (output: output, timestamp: timestamp)
+        }
+      }
+    }
+
+    for line in lines {
+      guard let data = line.data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      else {
+        continue
+      }
+
+      let timestamp = parseTimestamp(json["timestamp"] as? String)
+      guard let type = json["type"] as? String else { continue }
+
+      if type == "event_msg", let payload = json["payload"] as? [String: Any] {
+        let eventType = payload["type"] as? String
+        switch eventType {
+          case "token_count":
+            if let info = payload["info"] as? [String: Any],
+               let total = info["total_token_usage"] as? [String: Any]
+            {
+              stats.inputTokens = intValue(total["input_tokens"])
+              stats.outputTokens = intValue(total["output_tokens"])
+              stats.cacheReadTokens = intValue(total["cached_input_tokens"])
+              stats.cacheCreationTokens = 0
+              if let window = info["model_context_window"] as? Int {
+                stats.contextUsed = window
+              }
+            }
+          case "agent_reasoning":
+            if let text = payload["text"] as? String, !text.isEmpty {
+              pendingReasoning = text
+            }
+          case "user_message":
+            // User input from event_msg
+            if let messageText = payload["message"] as? String, !messageText.isEmpty {
+              let id = "\(timestamp.timeIntervalSince1970)-user-\(messageIndex)"
+              messageIndex += 1
+
+              messages.append(TranscriptMessage(
+                id: id,
+                type: .user,
+                content: messageText,
+                timestamp: timestamp,
+                toolName: nil,
+                toolInput: nil,
+                toolOutput: nil,
+                toolDuration: nil,
+                inputTokens: nil,
+                outputTokens: nil
+              ))
+
+              lastUserPrompt = messageText
+            }
+          case "agent_message":
+            // Final assistant response at end of turn
+            if let messageText = payload["message"] as? String, !messageText.isEmpty {
+              let id = "\(timestamp.timeIntervalSince1970)-agent-\(messageIndex)"
+              messageIndex += 1
+
+              var message = TranscriptMessage(
+                id: id,
+                type: .assistant,
+                content: messageText,
+                timestamp: timestamp,
+                toolName: nil,
+                toolInput: nil,
+                toolOutput: nil,
+                toolDuration: nil,
+                inputTokens: nil,
+                outputTokens: nil
+              )
+
+              if let reasoning = pendingReasoning {
+                message.thinking = reasoning
+                pendingReasoning = nil
+              }
+
+              messages.append(message)
+            }
+          default:
+            break
+        }
+      }
+
+      if type == "response_item", let payload = json["payload"] as? [String: Any] {
+        guard let payloadType = payload["type"] as? String else { continue }
+        if payloadType == "reasoning" {
+          let summary = extractCodexReasoningSummary(payload)
+          if !summary.isEmpty {
+            pendingReasoning = summary
+          }
+          continue
+        }
+
+        // Handle both function_call and custom_tool_call (apply_patch)
+        if payloadType == "function_call" || payloadType == "custom_tool_call" {
+          guard let toolNameRaw = payload["name"] as? String,
+                let callId = payload["call_id"] as? String
+          else { continue }
+
+          let mappedTool = mapCodexToolName(toolNameRaw)
+          // custom_tool_call uses "input" directly, function_call uses "arguments"
+          let input = payloadType == "custom_tool_call"
+            ? parseCodexPatchInput(payload["input"])
+            : parseCodexArguments(payload["arguments"])
+          let summary = createToolSummary(toolName: mappedTool, input: input)
+          let outputInfo = toolCallOutputs[callId]
+          let duration: TimeInterval? = {
+            guard let start = toolCallTimestamps[callId], let end = outputInfo?.timestamp else { return nil }
+            let diff = end.timeIntervalSince(start)
+            return diff > 0 ? diff : nil
+          }()
+
+          var toolMessage = TranscriptMessage(
+            id: "\(timestamp.timeIntervalSince1970)-tool-\(messageIndex)",
+            type: .tool,
+            content: summary,
+            timestamp: timestamp,
+            toolName: mappedTool,
+            toolInput: input,
+            toolOutput: outputInfo?.output,
+            toolDuration: duration,
+            inputTokens: nil,
+            outputTokens: nil
+          )
+          toolMessage.isInProgress = outputInfo == nil
+          messages.append(toolMessage)
+          messageIndex += 1
+          lastTool = mappedTool
+          continue
+        }
+
+        // Skip response_item messages entirely for Codex - we get these from event_msg instead:
+        // - user_message for user input
+        // - agent_message for assistant responses
+        // response_item.message contains context injection (permissions, AGENTS.md) and intermediate outputs
+        continue
+      }
+    }
+
+    let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1_000
+    if elapsed > 500 {
+      print("⚡ parseCodexAll: \(String(format: "%.1f", elapsed))ms | \(lines.count) lines → \(messages.count) msgs")
+    }
+
+    let result = TranscriptParseResult(
+      messages: messages,
+      stats: stats,
+      lastUserPrompt: lastUserPrompt,
+      lastTool: lastTool
+    )
+    ParseCache.shared.set(path: transcriptPath, result: result)
+    return result
+  }
+
+  private static func extractCodexMessageText(_ payload: [String: Any]) -> String {
+    guard let contentArray = payload["content"] as? [[String: Any]] else { return "" }
+    let parts = contentArray.compactMap { item in
+      item["text"] as? String
+    }
+    return parts.joined()
+  }
+
+  private static func extractCodexReasoningSummary(_ payload: [String: Any]) -> String {
+    guard let summary = payload["summary"] as? [[String: Any]] else { return "" }
+    let parts = summary.compactMap { item in
+      item["text"] as? String
+    }
+    return parts.joined(separator: "\n")
+  }
+
+  private static func intValue(_ value: Any?) -> Int {
+    switch value {
+      case let int as Int: int
+      case let double as Double: Int(double)
+      case let string as String: Int(string) ?? 0
+      default: 0
+    }
+  }
+
+  /// Map Codex tool names to OrbitDock-standard tool names
+  private static func mapCodexToolName(_ rawName: String) -> String {
+    switch rawName.lowercased() {
+      case "exec_command", "shell": return "Bash"
+      case "apply_patch", "patch_apply": return "Edit"
+      case "read_file": return "Read"
+      case "write_file": return "Write"
+      case "web_search": return "WebSearch"
+      case "view_image": return "ViewImage"
+      case "list_dir", "list_directory": return "Glob"
+      case "mcp_tool_call": return "MCP"
+      default: return rawName
+    }
+  }
+
+  /// Parse Codex function arguments (JSON string -> dictionary)
+  private static func parseCodexArguments(_ arguments: Any?) -> [String: Any]? {
+    // Arguments can be a JSON string or already a dictionary
+    if let dict = arguments as? [String: Any] {
+      return dict
+    }
+    guard let jsonString = arguments as? String,
+          let data = jsonString.data(using: .utf8),
+          let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
+      return nil
+    }
+    return dict
+  }
+
+  /// Parse Codex apply_patch input (raw patch string -> dictionary with preview)
+  private static func parseCodexPatchInput(_ input: Any?) -> [String: Any]? {
+    guard let patchString = input as? String else { return nil }
+
+    // Extract file path from patch (e.g., "*** Add File: path" or "*** Update File: path")
+    var filePath: String?
+    let lines = patchString.components(separatedBy: "\n")
+    for line in lines {
+      if line.hasPrefix("*** Add File:") {
+        filePath = line.replacingOccurrences(of: "*** Add File:", with: "").trimmingCharacters(in: .whitespaces)
+        break
+      } else if line.hasPrefix("*** Update File:") {
+        filePath = line.replacingOccurrences(of: "*** Update File:", with: "").trimmingCharacters(in: .whitespaces)
+        break
+      }
+    }
+
+    return [
+      "file_path": filePath ?? "patch",
+      "patch": patchString
+    ]
   }
 
   // MARK: - Subagent Transcript Parsing

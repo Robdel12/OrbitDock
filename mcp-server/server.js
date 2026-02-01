@@ -17,7 +17,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { ensureSchema, getDb } from '../lib/db.js'
-import { addWorkstreamNote, getWorkstreamContext, linkTicket } from '../lib/workstream.js'
+import {
+  addWorkstreamNote,
+  getWorkstreamContext,
+  linkTicket,
+  toggleWorkstreamFlag,
+  updateWorkstreamStage,
+} from '../lib/workstream.js'
 
 // ============================================================================
 // Configuration
@@ -141,6 +147,70 @@ Fails if not on a feature branch (no workstream).`,
       required: ['source', 'external_id'],
     },
   },
+  {
+    name: 'update_workstream_stage',
+    description: `Update the stage of the current workstream.
+
+Stages:
+- **working**: Actively developing (default)
+- **pr_open**: Pull request created and open
+- **in_review**: PR is being reviewed
+- **approved**: PR approved, ready to merge
+- **merged**: Work completed and merged
+- **closed**: Work cancelled or abandoned
+
+Use this to track the lifecycle of your work. The OrbitDock dashboard
+uses this to organize and display workstreams appropriately.
+
+Fails if not on a feature branch (no workstream).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        stage: {
+          type: 'string',
+          enum: ['working', 'pr_open', 'in_review', 'approved', 'merged', 'closed'],
+          description: 'The new stage for this workstream',
+        },
+      },
+      required: ['stage'],
+    },
+  },
+  {
+    name: 'toggle_workstream_flag',
+    description: `Toggle a state flag on the current workstream.
+
+State flags can be combined (unlike stages), allowing you to represent
+complex states like "working on next PR while first PR is in review".
+
+Combinable flags (can have multiple):
+- **working**: Actively coding
+- **has_open_pr**: Have open PR(s)
+- **in_review**: Reviews happening
+- **has_approval**: Has approval(s)
+
+Terminal flags (mutually exclusive, ends workstream):
+- **merged**: All work complete, shipped
+- **closed**: Abandoned/cancelled
+
+Setting a terminal flag clears all combinable flags.
+
+Fails if not on a feature branch (no workstream).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        flag: {
+          type: 'string',
+          enum: ['working', 'has_open_pr', 'in_review', 'has_approval', 'merged', 'closed'],
+          description: 'The flag to toggle',
+        },
+        value: {
+          type: 'boolean',
+          description: 'Whether to enable (true) or disable (false) the flag',
+        },
+      },
+      required: ['flag', 'value'],
+    },
+  },
 ]
 
 // ============================================================================
@@ -175,6 +245,29 @@ const validateTicketInput = (args) => {
       ErrorCode.InvalidParams,
       'Ticket external_id is required and must be non-empty',
     )
+  }
+}
+
+const validateStageInput = (args) => {
+  const validStages = ['working', 'pr_open', 'in_review', 'approved', 'merged', 'closed']
+  if (!args.stage || !validStages.includes(args.stage)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Invalid stage: ${args.stage}. Must be one of: ${validStages.join(', ')}`,
+    )
+  }
+}
+
+const validateFlagInput = (args) => {
+  const validFlags = ['working', 'has_open_pr', 'in_review', 'has_approval', 'merged', 'closed']
+  if (!args.flag || !validFlags.includes(args.flag)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Invalid flag: ${args.flag}. Must be one of: ${validFlags.join(', ')}`,
+    )
+  }
+  if (typeof args.value !== 'boolean') {
+    throw new McpError(ErrorCode.InvalidParams, 'Flag value must be a boolean (true or false)')
   }
 }
 
@@ -276,6 +369,81 @@ const handleLinkTicket = (db, projectPath, args) => {
   }
 }
 
+const handleUpdateStage = (db, projectPath, args) => {
+  validateStageInput(args)
+  log.debug('update_workstream_stage', { projectPath, stage: args.stage })
+
+  try {
+    const workstream = updateWorkstreamStage(db, projectPath, args.stage)
+
+    log.info(`Workstream stage updated: ${args.stage}`)
+
+    const stageLabels = {
+      working: 'Working',
+      pr_open: 'PR Open',
+      in_review: 'In Review',
+      approved: 'Approved',
+      merged: 'Merged',
+      closed: 'Closed',
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `✓ Workstream stage updated to "${stageLabels[args.stage]}"\n\nBranch: ${workstream.branch}`,
+        },
+      ],
+    }
+  } catch (err) {
+    if (err.message.includes('No active workstream')) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        'Cannot update stage: No active workstream. You must be on a feature branch.',
+      )
+    }
+    throw err
+  }
+}
+
+const handleToggleFlag = (db, projectPath, args) => {
+  validateFlagInput(args)
+  log.debug('toggle_workstream_flag', { projectPath, flag: args.flag, value: args.value })
+
+  try {
+    const workstream = toggleWorkstreamFlag(db, projectPath, args.flag, args.value)
+
+    const flagLabels = {
+      working: 'Working',
+      has_open_pr: 'PR Open',
+      in_review: 'In Review',
+      has_approval: 'Approved',
+      merged: 'Merged',
+      closed: 'Closed',
+    }
+
+    const action = args.value ? 'enabled' : 'disabled'
+    log.info(`Workstream flag ${args.flag} ${action}`)
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `✓ Flag "${flagLabels[args.flag]}" ${action}\n\nBranch: ${workstream.branch}`,
+        },
+      ],
+    }
+  } catch (err) {
+    if (err.message.includes('No active workstream')) {
+      throw new McpError(
+        ErrorCode.InvalidRequest,
+        'Cannot toggle flag: No active workstream. You must be on a feature branch.',
+      )
+    }
+    throw err
+  }
+}
+
 // ============================================================================
 // Server Setup
 // ============================================================================
@@ -322,6 +490,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'link_ticket':
         return handleLinkTicket(db, projectPath, args)
+
+      case 'update_workstream_stage':
+        return handleUpdateStage(db, projectPath, args)
+
+      case 'toggle_workstream_flag':
+        return handleToggleFlag(db, projectPath, args)
 
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`)
