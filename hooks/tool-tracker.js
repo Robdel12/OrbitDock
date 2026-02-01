@@ -68,11 +68,22 @@ let main = () => {
     switch (event) {
       case 'PreToolUse': {
         log.info('PreToolUse: updating last tool', { sessionId, toolName })
-        updateSession(database, sessionId, {
+
+        let updates = {
           lastTool: toolName,
           lastToolAt: new Date().toISOString(),
           workStatus: 'working',
-        })
+        }
+
+        // Capture question text from AskUserQuestion tool
+        if (toolName === 'AskUserQuestion' && toolInput?.questions) {
+          let questions = toolInput.questions
+          let questionText = questions.map(q => q.question).join(' | ')
+          updates.pendingQuestion = questionText
+          log.info('PreToolUse: captured AskUserQuestion', { sessionId, questionText })
+        }
+
+        updateSession(database, sessionId, updates)
 
         // Check for branch creation
         let newBranch = git.detectBranchCreation(toolName, toolInput)
@@ -113,6 +124,14 @@ let main = () => {
 
       case 'PostToolUse': {
         log.info('PostToolUse: incrementing tool count', { sessionId, toolName })
+
+        // Clear pending permission state - tool executed successfully
+        updateSession(database, sessionId, {
+          pendingToolName: null,
+          // Keep pendingQuestion if it was AskUserQuestion - the question is still relevant
+          // until the user responds
+        })
+
         incrementToolCount(database, sessionId)
         notifyApp()
         log.debug('PostToolUse: done')
@@ -123,6 +142,16 @@ let main = () => {
         let error = input.error
         let isInterrupt = input.is_interrupt
         log.warn('PostToolUseFailure: tool failed', { sessionId, toolName, error, isInterrupt })
+
+        // Clear pending permission/question state since the tool didn't execute
+        // This handles both denials and other failures
+        updateSession(database, sessionId, {
+          workStatus: 'waiting',
+          attentionReason: 'awaitingReply',
+          pendingToolName: null,
+          pendingQuestion: null,
+        })
+
         // Still increment tool count - it was attempted
         incrementToolCount(database, sessionId)
         notifyApp()

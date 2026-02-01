@@ -163,21 +163,15 @@ struct MenuBarSessionRow: View {
     let isActive: Bool
     @State private var isHovering = false
 
+    private var displayStatus: SessionDisplayStatus {
+        SessionDisplayStatus.from(session)
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            // Status dot
-            ZStack {
-                if isActive {
-                    Circle()
-                        .fill(Color.statusWorking.opacity(0.3))
-                        .frame(width: 12, height: 12)
-                        .blur(radius: 3)
-                }
-                Circle()
-                    .fill(isActive ? Color.statusWorking : Color.secondary.opacity(0.25))
-                    .frame(width: 6, height: 6)
-            }
-            .frame(width: 14)
+            // Status dot - using unified component
+            SessionStatusDot(status: displayStatus, size: 6)
+                .frame(width: 14)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.displayName)

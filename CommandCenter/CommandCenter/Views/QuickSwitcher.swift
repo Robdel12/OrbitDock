@@ -157,16 +157,22 @@ struct QuickSwitcher: View {
 
     private var needsAttention: [Session] {
         // Permission or question - actually needs action
-        filteredSessions.filter { $0.needsAttention }
+        filteredSessions.filter {
+            SessionDisplayStatus.from($0) == .attention
+        }
     }
 
     private var working: [Session] {
-        filteredSessions.filter { $0.isActive && $0.workStatus == .working }
+        filteredSessions.filter {
+            SessionDisplayStatus.from($0) == .working
+        }
     }
 
     private var ready: [Session] {
         // Awaiting reply - Claude is done, low urgency
-        filteredSessions.filter { $0.isActive && $0.isReady }
+        filteredSessions.filter {
+            $0.isActive && SessionDisplayStatus.from($0) == .ready
+        }
     }
 
     private var recent: [Session] {
@@ -375,23 +381,21 @@ struct QuickSwitcher: View {
                     dashboardRow
                         .id("row-\(dashboardIndex)")
 
-                    // Sessions
+                    // Sessions - using unified status colors
                     if !working.isEmpty {
                         sectionView(
                             title: "WORKING",
                             sessions: working,
-                            color: .statusWorking,
-                            icon: "bolt.fill",
+                            status: .working,
                             startIndex: sessionStartIndex
                         )
                     }
 
                     if !needsAttention.isEmpty {
                         sectionView(
-                            title: "NEEDS ATTENTION",
+                            title: "ATTENTION",
                             sessions: needsAttention,
-                            color: .statusWaiting,
-                            icon: "exclamationmark.circle.fill",
+                            status: .attention,
                             startIndex: sessionStartIndex + working.count
                         )
                     }
@@ -400,8 +404,7 @@ struct QuickSwitcher: View {
                         sectionView(
                             title: "READY",
                             sessions: ready,
-                            color: .statusSuccess,
-                            icon: "checkmark.circle",
+                            status: .ready,
                             startIndex: sessionStartIndex + working.count + needsAttention.count
                         )
                     }
@@ -410,8 +413,7 @@ struct QuickSwitcher: View {
                         sectionView(
                             title: "RECENT",
                             sessions: recent,
-                            color: .secondary,
-                            icon: "clock",
+                            status: .ended,
                             startIndex: sessionStartIndex + working.count + needsAttention.count + ready.count
                         )
                     }
@@ -525,8 +527,11 @@ struct QuickSwitcher: View {
 
     // MARK: - Section View
 
-    private func sectionView(title: String, sessions: [Session], color: Color, icon: String, startIndex: Int) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func sectionView(title: String, sessions: [Session], status: SessionDisplayStatus, startIndex: Int) -> some View {
+        let color = status.color
+        let icon = status == .ended ? "clock" : status.icon  // Use clock for Recent section
+
+        return VStack(alignment: .leading, spacing: 4) {
             // Section Header
             HStack(spacing: 8) {
                 Image(systemName: icon)
@@ -563,24 +568,15 @@ struct QuickSwitcher: View {
 
     private func switcherRow(session: Session, index: Int) -> some View {
         let isHighlighted = selectedIndex == index || hoveredIndex == index
+        let displayStatus = SessionDisplayStatus.from(session)
 
         return Button {
             onSelect(session.id)
         } label: {
             HStack(spacing: 14) {
-                // Status indicator
-                ZStack {
-                    Circle()
-                        .fill(statusColor(for: session))
-                        .frame(width: 10, height: 10)
-
-                    if session.isActive && session.workStatus == .working {
-                        Circle()
-                            .stroke(statusColor(for: session).opacity(0.3), lineWidth: 2)
-                            .frame(width: 18, height: 18)
-                    }
-                }
-                .frame(width: 20, height: 20)
+                // Status indicator - using unified component
+                SessionStatusDot(status: displayStatus, size: 10)
+                    .frame(width: 20, height: 20)
 
                 // Content - stacked layout for better hierarchy
                 VStack(alignment: .leading, spacing: 4) {
@@ -608,18 +604,18 @@ struct QuickSwitcher: View {
                             .foregroundStyle(.primary)
                             .lineLimit(1)
 
-                        // Status badge
+                        // Status badge - using unified component
                         if session.isActive {
-                            Text(statusLabel(for: session))
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(statusColor(for: session))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(statusColor(for: session).opacity(0.12), in: Capsule())
-                        } else if let endedAt = session.endedAt {
-                            Text(endedAt, style: .relative)
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
+                            SessionStatusBadge(status: displayStatus, showIcon: false, size: .compact)
+                        } else {
+                            // Ended badge with relative time
+                            HStack(spacing: 4) {
+                                if let endedAt = session.endedAt {
+                                    Text(endedAt, style: .relative)
+                                        .font(.system(size: 10))
+                                }
+                            }
+                            .foregroundStyle(Color.statusEnded)
                         }
                     }
                 }
@@ -813,25 +809,6 @@ struct QuickSwitcher: View {
 
     private func focusTerminal(for session: Session) {
         TerminalService.shared.focusSession(session)
-    }
-
-    private func statusColor(for session: Session) -> Color {
-        guard session.isActive else { return .secondary.opacity(0.3) }
-        switch session.workStatus {
-        case .working: return .statusWorking
-        case .waiting: return .statusWaiting
-        case .permission: return .statusPermission
-        case .unknown: return .secondary
-        }
-    }
-
-    private func statusLabel(for session: Session) -> String {
-        switch session.workStatus {
-        case .working: return "Working"
-        case .waiting: return "Waiting"
-        case .permission: return "Permission"
-        case .unknown: return ""
-        }
     }
 
     private func projectName(for session: Session) -> String {
