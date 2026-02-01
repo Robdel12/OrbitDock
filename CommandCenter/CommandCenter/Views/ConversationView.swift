@@ -13,6 +13,8 @@ struct ConversationView: View {
     var isSessionActive: Bool = false
     var workStatus: Session.WorkStatus = .unknown
     var currentTool: String? = nil
+    var pendingToolName: String? = nil
+    var pendingToolInput: String? = nil
 
     @State private var messages: [TranscriptMessage] = []
     @State private var currentPrompt: String?
@@ -102,7 +104,9 @@ struct ConversationView: View {
                             ActivityBanner(
                                 workStatus: workStatus,
                                 currentTool: currentTool,
-                                currentPrompt: currentPrompt
+                                currentPrompt: currentPrompt,
+                                pendingToolName: pendingToolName,
+                                pendingToolInput: pendingToolInput
                             )
                             .id("activity")
                         }
@@ -833,12 +837,14 @@ struct ActivityBanner: View {
     let workStatus: Session.WorkStatus
     let currentTool: String?
     let currentPrompt: String?
+    var pendingToolName: String? = nil
+    var pendingToolInput: String? = nil
 
     private var color: Color {
         switch workStatus {
         case .working: return .modelOpus
         case .waiting: return .statusWaiting
-        case .permission: return .statusPermission
+        case .permission: return .statusAttention
         case .unknown: return .secondary
         }
     }
@@ -871,9 +877,74 @@ struct ActivityBanner: View {
         case .waiting:
             return "Respond in terminal"
         case .permission:
-            return "Accept or reject in terminal"
+            // Use rich display if we have tool input
+            return nil  // We'll show rich content instead
         case .unknown:
             return nil
+        }
+    }
+
+    /// Parse tool input and extract display-friendly info
+    private var permissionDetail: (icon: String, text: String)? {
+        guard workStatus == .permission else { return nil }
+
+        let toolName = pendingToolName ?? "Tool"
+        guard let inputJson = pendingToolInput,
+              let data = inputJson.data(using: .utf8),
+              let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return (toolIconFor(toolName), "Accept or reject in terminal")
+        }
+
+        switch toolName {
+        case "Bash":
+            if let command = input["command"] as? String {
+                let truncated = command.count > 50 ? String(command.prefix(47)) + "..." : command
+                return ("terminal.fill", truncated)
+            }
+        case "Edit":
+            if let filePath = input["file_path"] as? String {
+                let fileName = (filePath as NSString).lastPathComponent
+                return ("pencil", fileName)
+            }
+        case "Write":
+            if let filePath = input["file_path"] as? String {
+                let fileName = (filePath as NSString).lastPathComponent
+                return ("doc.badge.plus", fileName)
+            }
+        case "Read":
+            if let filePath = input["file_path"] as? String {
+                let fileName = (filePath as NSString).lastPathComponent
+                return ("doc.text", fileName)
+            }
+        case "WebFetch":
+            if let url = input["url"] as? String {
+                if let urlObj = URL(string: url), let host = urlObj.host {
+                    return ("globe", host)
+                }
+                return ("globe", url.count > 40 ? String(url.prefix(37)) + "..." : url)
+            }
+        case "WebSearch":
+            if let query = input["query"] as? String {
+                return ("magnifyingglass", query.count > 40 ? String(query.prefix(37)) + "..." : query)
+            }
+        default:
+            break
+        }
+
+        return (toolIconFor(toolName), "Accept or reject in terminal")
+    }
+
+    private func toolIconFor(_ tool: String) -> String {
+        switch tool {
+        case "Bash": return "terminal.fill"
+        case "Edit": return "pencil"
+        case "Write": return "doc.badge.plus"
+        case "Read": return "doc.text"
+        case "WebFetch": return "globe"
+        case "WebSearch": return "magnifyingglass"
+        case "Glob", "Grep": return "magnifyingglass.circle"
+        case "Task": return "person.2.fill"
+        default: return "gearshape"
         }
     }
 
@@ -898,16 +969,45 @@ struct ActivityBanner: View {
                 }
                 .frame(width: 26, height: 26)
 
-                // Text
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(color)
+                // Text content
+                if workStatus == .permission, let detail = permissionDetail {
+                    // Rich permission display
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(color)
 
-                    if let subtitle = subtitle {
-                        Text(subtitle)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                            if let toolName = pendingToolName {
+                                Text(toolName)
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+
+                        HStack(spacing: 6) {
+                            Image(systemName: detail.icon)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+
+                            Text(detail.text)
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                } else {
+                    // Standard display
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(color)
+
+                        if let subtitle = subtitle {
+                            Text(subtitle)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

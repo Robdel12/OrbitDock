@@ -32,6 +32,7 @@ struct Session: Identifiable, Hashable {
     var workstreamId: String? = nil     // Link to workstream
     var attentionReason: AttentionReason
     var pendingToolName: String?    // Which tool needs permission
+    var pendingToolInput: String?   // JSON string of tool input (for rich permission display)
     var pendingQuestion: String?    // Question text from AskUserQuestion
 
     enum SessionStatus: String {
@@ -101,6 +102,7 @@ struct Session: Identifiable, Hashable {
         workstreamId: String? = nil,
         attentionReason: AttentionReason = .none,
         pendingToolName: String? = nil,
+        pendingToolInput: String? = nil,
         pendingQuestion: String? = nil
     ) {
         self.id = id
@@ -129,6 +131,7 @@ struct Session: Identifiable, Hashable {
         self.workstreamId = workstreamId
         self.attentionReason = attentionReason
         self.pendingToolName = pendingToolName
+        self.pendingToolInput = pendingToolInput
         self.pendingQuestion = pendingQuestion
     }
 

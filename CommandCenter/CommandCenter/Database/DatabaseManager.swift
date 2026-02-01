@@ -48,6 +48,7 @@ class DatabaseManager {
     private let terminalApp = SQLite.Expression<String?>("terminal_app")
     private let attentionReason = SQLite.Expression<String?>("attention_reason")
     private let pendingToolName = SQLite.Expression<String?>("pending_tool_name")
+    private let pendingToolInput = SQLite.Expression<String?>("pending_tool_input")
     private let pendingQuestion = SQLite.Expression<String?>("pending_question")
 
     // Activity columns
@@ -261,6 +262,7 @@ class DatabaseManager {
                     workstreamId: (try? row.get(sessionWorkstreamId)) ?? nil,
                     attentionReason: attentionReasonValue,
                     pendingToolName: (try? row.get(pendingToolName)) ?? nil,
+                    pendingToolInput: (try? row.get(pendingToolInput)) ?? nil,
                     pendingQuestion: (try? row.get(pendingQuestion)) ?? nil
                 )
             }
@@ -387,6 +389,15 @@ class DatabaseManager {
                 try db.run("ALTER TABLE sessions ADD COLUMN pending_tool_name TEXT")
             } catch {
                 print("Failed to add pending_tool_name column: \(error)")
+            }
+        }
+
+        // Add pending_tool_input column if it doesn't exist (JSON string for rich permission display)
+        if !columnExists("pending_tool_input", in: "sessions") {
+            do {
+                try db.run("ALTER TABLE sessions ADD COLUMN pending_tool_input TEXT")
+            } catch {
+                print("Failed to add pending_tool_input column: \(error)")
             }
         }
 
