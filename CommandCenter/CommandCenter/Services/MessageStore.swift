@@ -37,8 +37,9 @@ final class MessageStore {
     private let isInProgress = SQLite.Expression<Int>("is_in_progress")
     private let inputTokens = SQLite.Expression<Int?>("input_tokens")
     private let outputTokens = SQLite.Expression<Int?>("output_tokens")
-    private let imageData = SQLite.Expression<Data?>("image_data")
-    private let imageMimeType = SQLite.Expression<String?>("image_mime_type")
+    private let imageData = SQLite.Expression<Data?>("image_data")  // Legacy single image
+    private let imageMimeType = SQLite.Expression<String?>("image_mime_type")  // Legacy
+    private let imagesJson = SQLite.Expression<String?>("images_json")  // JSON array of {data: base64, mimeType: string}
     private let thinking = SQLite.Expression<String?>("thinking")  // Claude's thinking trace
 
     // Stats table for aggregated message data (separate from main session_stats)
@@ -99,8 +100,9 @@ final class MessageStore {
             t.column(isInProgress, defaultValue: 0)
             t.column(inputTokens)
             t.column(outputTokens)
-            t.column(imageData)
+            t.column(imageData)  // Legacy single image
             t.column(imageMimeType)
+            t.column(imagesJson)  // JSON array of all images
             t.column(thinking)  // Claude's thinking trace
         })
 
@@ -108,6 +110,7 @@ final class MessageStore {
         _ = try? db.run("ALTER TABLE messages ADD COLUMN sequence INTEGER DEFAULT 0")
         _ = try? db.run("ALTER TABLE messages ADD COLUMN thinking TEXT")
         _ = try? db.run("ALTER TABLE messages ADD COLUMN tool_duration REAL")
+        _ = try? db.run("ALTER TABLE messages ADD COLUMN images_json TEXT")
 
         // Indexes for fast queries
         try db.run(messages.createIndex(sessionId, ifNotExists: true))
@@ -170,6 +173,18 @@ final class MessageStore {
                         return String(data: data, encoding: .utf8)
                     }
 
+                    // Serialize all images as JSON array
+                    let imagesJsonString: String? = msg.images.isEmpty ? nil : {
+                        let imagesArray = msg.images.map { image in
+                            [
+                                "data": image.data.base64EncodedString(),
+                                "mimeType": image.mimeType
+                            ]
+                        }
+                        guard let data = try? JSONSerialization.data(withJSONObject: imagesArray) else { return nil }
+                        return String(data: data, encoding: .utf8)
+                    }()
+
                     try db.run(messages.insert(
                         id <- msg.id,
                         sessionId <- sid,
@@ -184,8 +199,9 @@ final class MessageStore {
                         isInProgress <- (msg.isInProgress ? 1 : 0),
                         inputTokens <- msg.inputTokens,
                         outputTokens <- msg.outputTokens,
-                        imageData <- msg.imageData,
+                        imageData <- msg.imageData,  // Legacy - keep for backwards compat
                         imageMimeType <- msg.imageMimeType,
+                        imagesJson <- imagesJsonString,
                         thinking <- msg.thinking
                     ))
                 }
@@ -246,9 +262,20 @@ final class MessageStore {
                     }
                 }()
 
-                // Convert DB single image to images array
+                // Deserialize images from JSON, fallback to legacy single image
                 var images: [MessageImage] = []
-                if let data = row[imageData], let mimeType = row[imageMimeType] {
+                if let jsonString = row[imagesJson],
+                   let jsonData = jsonString.data(using: .utf8),
+                   let jsonArray = try? JSONSerialization.jsonObject(with: jsonData) as? [[String: String]] {
+                    for imageDict in jsonArray {
+                        if let base64 = imageDict["data"],
+                           let mimeType = imageDict["mimeType"],
+                           let data = Data(base64Encoded: base64) {
+                            images.append(MessageImage(data: data, mimeType: mimeType))
+                        }
+                    }
+                } else if let data = row[imageData], let mimeType = row[imageMimeType] {
+                    // Legacy fallback - single image
                     images.append(MessageImage(data: data, mimeType: mimeType))
                 }
 
