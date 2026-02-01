@@ -5,13 +5,13 @@
 //  Created by Robert DeLuca on 1/30/26.
 //
 
-import Testing
 @testable import CommandCenter
+import Testing
 
 struct CommandCenterTests {
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-    }
+  @Test func example() {
+    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+  }
 
 }
