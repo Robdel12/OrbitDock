@@ -114,7 +114,8 @@ struct AgentRowCompact: View {
     }
 
     private var agentName: String {
-        session.customName ?? session.summary ?? "Session"
+        // Use displayName which already strips HTML tags
+        session.displayName
     }
 
     private var backgroundColor: Color {
