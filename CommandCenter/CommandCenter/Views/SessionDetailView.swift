@@ -117,7 +117,8 @@ struct SessionDetailView: View {
                 .foregroundStyle(.primary)
             }
             .buttonStyle(.plain)
-            .help(session.isActive ? "Focus terminal" : "Resume in iTerm")
+            .keyboardShortcut("t", modifiers: .command)
+            .help(session.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
 
             // Secondary actions
             HStack(spacing: 2) {

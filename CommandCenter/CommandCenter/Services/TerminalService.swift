@@ -41,18 +41,23 @@ final class TerminalService {
             .replacingOccurrences(of: "\"", with: "\\\"")
 
         // Write text, activate iTerm, send Return - user stays in iTerm to watch Claude
+        // Use explicit indexing to avoid reference issues when reordering windows
         let script = """
         tell application "iTerm2"
-            repeat with aWindow in windows
-                repeat with aTab in tabs of aWindow
+            repeat with winIdx from 1 to count of windows
+                set aWindow to window winIdx
+                repeat with tabIdx from 1 to count of tabs of aWindow
+                    set aTab to tab tabIdx of aWindow
                     repeat with aSession in sessions of aTab
                         try
                             if "\(terminalId)" contains (unique ID of aSession) then
                                 -- Write the text (no newline yet)
                                 tell aSession to write text "\(escapedText)" newline false
-                                -- Focus this session's window and activate
+                                -- Bring window to front first
                                 set index of aWindow to 1
+                                -- Select the tab
                                 select aTab
+                                -- Select session (for split panes)
                                 select aSession
                                 activate
                                 -- Send Return keystroke
@@ -105,16 +110,22 @@ final class TerminalService {
 
     private func focusBySessionId(_ terminalId: String, completion: @escaping (Bool) -> Void) {
         // terminalId format from hooks: "w9t1p0:UUID" - iTerm only knows the UUID part
+        // Use explicit indexing to avoid reference issues when reordering windows
         let script = """
         tell application "iTerm2"
-            repeat with aWindow in windows
-                repeat with aTab in tabs of aWindow
+            repeat with winIdx from 1 to count of windows
+                set aWindow to window winIdx
+                repeat with tabIdx from 1 to count of tabs of aWindow
+                    set aTab to tab tabIdx of aWindow
                     repeat with aSession in sessions of aTab
                         try
                             if "\(terminalId)" contains (unique ID of aSession) then
-                                select aTab
-                                select aSession
+                                -- Bring window to front first
                                 set index of aWindow to 1
+                                -- Select the tab
+                                select aTab
+                                -- Select session (for split panes)
+                                select aSession
                                 activate
                                 return "found"
                             end if
@@ -139,17 +150,23 @@ final class TerminalService {
     private func focusByPath(_ projectPath: String, completion: @escaping (Bool) -> Void) {
         let escapedPath = projectPath.replacingOccurrences(of: "\"", with: "\\\"")
 
+        // Use explicit indexing to avoid reference issues when reordering windows
         let script = """
         tell application "iTerm2"
-            repeat with aWindow in windows
-                repeat with aTab in tabs of aWindow
+            repeat with winIdx from 1 to count of windows
+                set aWindow to window winIdx
+                repeat with tabIdx from 1 to count of tabs of aWindow
+                    set aTab to tab tabIdx of aWindow
                     repeat with aSession in sessions of aTab
                         try
                             set sessionPath to path of aSession
                             if sessionPath contains "\(escapedPath)" then
-                                select aTab
-                                select aSession
+                                -- Bring window to front first
                                 set index of aWindow to 1
+                                -- Select the tab
+                                select aTab
+                                -- Select session (for split panes)
+                                select aSession
                                 activate
                                 return "found"
                             end if
