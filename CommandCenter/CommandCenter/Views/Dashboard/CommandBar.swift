@@ -144,7 +144,7 @@ private struct SubscriptionUsagePanel: View {
   let service = SubscriptionUsageService.shared
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 10) {
       // Section label
       HStack(spacing: 6) {
         Image(systemName: "gauge.with.needle")
@@ -155,43 +155,34 @@ private struct SubscriptionUsagePanel: View {
           .font(.system(size: 9, weight: .bold, design: .rounded))
           .foregroundStyle(.tertiary)
           .tracking(0.5)
+
+        // Plan badge inline with header
+        if let plan = service.usage?.planName {
+          Text(plan)
+            .font(.system(size: 9, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.accent)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.accent.opacity(0.12), in: Capsule())
+        }
       }
 
       if let usage = service.usage {
         HStack(spacing: 16) {
-          // 5-hour gauge (larger, hero)
-          RateLimitGauge(
-            value: usage.fiveHour.utilization,
-            label: "5h",
-            resetsIn: usage.fiveHour.resetsInDescription,
-            paceStatus: usage.fiveHour.paceStatus,
-            projectedUsage: usage.fiveHour.projectedAtReset,
-            size: .hero
+          // 5-hour window
+          RateLimitCard(
+            window: usage.fiveHour,
+            label: "5-Hour",
+            shortLabel: "5h"
           )
 
-          // 7-day gauge
+          // 7-day window
           if let sevenDay = usage.sevenDay {
-            RateLimitGauge(
-              value: sevenDay.utilization,
-              label: "7d",
-              resetsIn: sevenDay.resetsInDescription,
-              paceStatus: sevenDay.paceStatus,
-              projectedUsage: sevenDay.projectedAtReset,
-              size: .regular
+            RateLimitCard(
+              window: sevenDay,
+              label: "7-Day",
+              shortLabel: "7d"
             )
-          }
-
-          // Plan badge
-          if let plan = usage.planName {
-            VStack(spacing: 2) {
-              Text(plan)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.accent)
-              Text("Plan")
-                .font(.system(size: 8, weight: .medium))
-                .foregroundStyle(.quaternary)
-            }
-            .padding(.horizontal, 8)
           }
         }
       } else if service.isLoading {
@@ -202,7 +193,7 @@ private struct SubscriptionUsagePanel: View {
             .font(.system(size: 11))
             .foregroundStyle(.tertiary)
         }
-        .frame(height: 52)
+        .frame(height: 60)
       } else {
         Text("—")
           .foregroundStyle(.quaternary)
@@ -211,113 +202,132 @@ private struct SubscriptionUsagePanel: View {
   }
 }
 
-// MARK: - Rate Limit Gauge
+// MARK: - Rate Limit Card (Redesigned)
 
-private struct RateLimitGauge: View {
-  let value: Double
+private struct RateLimitCard: View {
+  let window: SubscriptionUsage.Window
   let label: String
-  let resetsIn: String?
-  var paceStatus: SubscriptionUsage.Window.PaceStatus?
-  var projectedUsage: Double?
-  var size: GaugeSize = .regular
+  let shortLabel: String
 
-  enum GaugeSize {
-    case regular, hero
+  private var value: Double { window.utilization }
+  private var projected: Double { window.projectedAtReset }
 
-    var diameter: CGFloat {
-      switch self {
-        case .regular: 44
-        case .hero: 52
-      }
+  /// Format reset time
+  private var resetsAtFormatted: String? {
+    guard let resetsAt = window.resetsAt else { return nil }
+    let formatter = DateFormatter()
+    if shortLabel == "7d", !Calendar.current.isDateInToday(resetsAt) {
+      formatter.dateFormat = "EEE h:mm a"
+    } else {
+      formatter.dateFormat = "h:mm a"
     }
-
-    var lineWidth: CGFloat {
-      switch self {
-        case .regular: 4
-        case .hero: 5
-      }
-    }
-
-    var fontSize: CGFloat {
-      switch self {
-        case .regular: 12
-        case .hero: 14
-      }
-    }
+    return formatter.string(from: resetsAt)
   }
 
-  private var color: Color {
+  /// Time until reset
+  private var timeUntilReset: TimeInterval {
+    guard let resetsAt = window.resetsAt else { return .infinity }
+    return resetsAt.timeIntervalSinceNow
+  }
+
+  /// Color for current usage
+  private var usageColor: Color {
     if value >= 90 { return .statusError }
     if value >= 70 { return .statusWaiting }
     return .accent
   }
 
-  private var paceColor: Color {
-    guard let pace = paceStatus else { return .secondary }
-    switch pace {
-      case .unknown: return .secondary
-      case .relaxed: return .accent
-      case .onTrack: return .statusSuccess
-      case .borderline: return .statusWaiting
-      case .exceeding, .critical: return .statusError
-    }
+  /// Color for projected usage
+  private var projectedColor: Color {
+    if projected >= 100 { return .statusError }
+    if projected >= 90 { return .statusWaiting }
+    return .statusSuccess
+  }
+
+  /// Color for reset time based on urgency
+  private var resetTimeColor: Color {
+    if timeUntilReset < 15 * 60 { return .statusError }
+    if timeUntilReset < 60 * 60 { return .statusWaiting }
+    return .secondary.opacity(0.5)
+  }
+
+  /// Will exceed limit?
+  private var willExceed: Bool { projected > 95 }
+
+  /// Status message
+  private var statusMessage: String {
+    if projected >= 100 { return "Maxing out!" }
+    if projected >= 90 { return "Heavy pace" }
+    if projected >= 70 { return "Moderate" }
+    return "On track"
   }
 
   var body: some View {
-    VStack(spacing: 4) {
-      ZStack {
-        // Background ring
-        Circle()
-          .stroke(Color.primary.opacity(0.06), lineWidth: size.lineWidth)
-
-        // Projected usage (faint)
-        if let projected = projectedUsage, projected > value {
-          Circle()
-            .trim(from: min(1, value / 100), to: min(1, projected / 100))
-            .stroke(
-              paceColor.opacity(0.2),
-              style: StrokeStyle(lineWidth: size.lineWidth, lineCap: .round)
-            )
-            .rotationEffect(.degrees(-90))
-        }
-
-        // Progress arc
-        Circle()
-          .trim(from: 0, to: min(1, value / 100))
-          .stroke(
-            color,
-            style: StrokeStyle(lineWidth: size.lineWidth, lineCap: .round)
-          )
-          .rotationEffect(.degrees(-90))
-
-        // Center value
-        Text("\(Int(value))")
-          .font(.system(size: size.fontSize, weight: .bold, design: .rounded))
-          .foregroundStyle(color)
-      }
-      .frame(width: size.diameter, height: size.diameter)
-
-      // Label + reset
-      VStack(spacing: 1) {
-        Text(label)
-          .font(.system(size: 9, weight: .semibold))
+    VStack(alignment: .leading, spacing: 6) {
+      // Top row: Label + Current usage
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
+        Text(shortLabel)
+          .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(.secondary)
 
-        if let resets = resetsIn {
-          Text(resets)
-            .font(.system(size: 7, weight: .medium))
-            .foregroundStyle(.quaternary)
+        // Current usage - hero number
+        HStack(alignment: .firstTextBaseline, spacing: 1) {
+          Text("\(Int(value))")
+            .font(.system(size: 20, weight: .bold, design: .rounded))
+            .foregroundStyle(usageColor)
+          Text("%")
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundStyle(usageColor.opacity(0.7))
         }
       }
-    }
-    .overlay(alignment: .topTrailing) {
-      if let pace = paceStatus, pace != .unknown, pace != .onTrack, pace != .relaxed {
-        Image(systemName: pace.icon)
-          .font(.system(size: 7, weight: .bold))
-          .foregroundStyle(paceColor)
-          .padding(3)
-          .background(Color.backgroundTertiary, in: Circle())
-          .offset(x: 4, y: -2)
+
+      // Progress bar with projection
+      GeometryReader { geo in
+        ZStack(alignment: .leading) {
+          // Background
+          RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(Color.primary.opacity(0.08))
+
+          // Projected (behind current)
+          if projected > value {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+              .fill(projectedColor.opacity(willExceed ? 0.4 : 0.25))
+              .frame(width: geo.size.width * min(1, projected / 100))
+          }
+
+          // Current usage
+          RoundedRectangle(cornerRadius: 2, style: .continuous)
+            .fill(usageColor)
+            .frame(width: geo.size.width * min(1, value / 100))
+        }
+      }
+      .frame(maxWidth: 140)
+      .frame(height: 5)
+
+      // Bottom row: Status + Reset time
+      HStack(spacing: 6) {
+        if willExceed {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 9))
+            .foregroundStyle(Color.statusError)
+        }
+
+        Text(statusMessage)
+          .font(.system(size: 10, weight: .medium))
+          .foregroundStyle(projectedColor)
+          .fixedSize()
+
+        if projected > value + 5, projected < 100 {
+          Text("→ \(Int(projected))%")
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(projectedColor.opacity(0.8))
+        }
+
+        if let resetTime = resetsAtFormatted {
+          Text("@ \(resetTime)")
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(resetTimeColor)
+        }
       }
     }
   }

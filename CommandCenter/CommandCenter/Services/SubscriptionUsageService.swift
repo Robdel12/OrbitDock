@@ -424,12 +424,16 @@ final class SubscriptionUsageService {
     let fiveHourDuration: TimeInterval = 5 * 3_600 // 5 hours
     let sevenDayDuration: TimeInterval = 7 * 24 * 3_600 // 7 days
 
+    // ISO8601 formatter with fractional seconds support
+    let isoFormatter = ISO8601DateFormatter()
+    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
     func parseWindow(_ dict: [String: Any]?, duration: TimeInterval) -> SubscriptionUsage.Window? {
       guard let dict,
             let utilization = dict["utilization"] as? Double else { return nil }
 
       let resetsAt: Date? = if let resetsAtStr = dict["resets_at"] as? String {
-        ISO8601DateFormatter().date(from: resetsAtStr)
+        isoFormatter.date(from: resetsAtStr)
       } else {
         nil
       }
