@@ -246,6 +246,7 @@ struct SubscriptionUsageCard: View {
           value: usage.fiveHour.utilization,
           label: "5h",
           resetsIn: usage.fiveHour.resetsInDescription,
+          resetsAt: usage.fiveHour.resetsAt,
           paceStatus: usage.fiveHour.paceStatus,
           projectedUsage: usage.fiveHour.projectedAtReset
         )
@@ -256,6 +257,7 @@ struct SubscriptionUsageCard: View {
             value: sevenDay.utilization,
             label: "7d",
             resetsIn: sevenDay.resetsInDescription,
+            resetsAt: sevenDay.resetsAt,
             paceStatus: sevenDay.paceStatus,
             projectedUsage: sevenDay.projectedAtReset
           )
@@ -292,7 +294,7 @@ struct SubscriptionUsageCard: View {
             .foregroundStyle(.tertiary)
         }
       } else {
-        UsageGauge(value: 0, label: "5h", resetsIn: nil)
+        UsageGauge(value: 0, label: "5h", resetsIn: nil, resetsAt: nil)
       }
     }
     .padding(.vertical, 10)
@@ -348,11 +350,24 @@ struct UsageGauge: View {
   let value: Double // 0-100
   let label: String
   let resetsIn: String?
+  var resetsAt: Date?
   var paceStatus: SubscriptionUsage.Window.PaceStatus?
   var projectedUsage: Double?
 
   private let size: CGFloat = 44
   private let lineWidth: CGFloat = 4
+
+  /// Format reset time as "3:45 PM" or "Mon 3:45 PM" for 7d
+  private var resetsAtFormatted: String? {
+    guard let resetsAt else { return nil }
+    let formatter = DateFormatter()
+    if label == "7d", !Calendar.current.isDateInToday(resetsAt) {
+      formatter.dateFormat = "EEE h:mm a"
+    } else {
+      formatter.dateFormat = "h:mm a"
+    }
+    return formatter.string(from: resetsAt)
+  }
 
   private var color: Color {
     if value >= 90 { return .statusError }
@@ -405,16 +420,16 @@ struct UsageGauge: View {
       }
       .frame(width: size, height: size)
 
-      // Label + reset time + pace
-      VStack(spacing: 1) {
+      // Label + reset time
+      VStack(spacing: 2) {
         Text(label)
           .font(.system(size: 9, weight: .semibold))
           .foregroundStyle(.secondary)
 
-        if let resets = resetsIn {
-          Text(resets)
+        if let resetTime = resetsAtFormatted {
+          Text("@ \(resetTime)")
             .font(.system(size: 8, weight: .medium))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(.tertiary)
         }
       }
     }
@@ -445,6 +460,7 @@ struct MenuBarUsageSection: View {
           value: usage.fiveHour.utilization,
           label: "5h Session",
           resetsIn: usage.fiveHour.resetsInDescription,
+          resetsAt: usage.fiveHour.resetsAt,
           paceStatus: usage.fiveHour.paceStatus,
           projectedUsage: usage.fiveHour.projectedAtReset
         )
@@ -457,6 +473,7 @@ struct MenuBarUsageSection: View {
             value: sevenDay.utilization,
             label: "7d Rolling",
             resetsIn: sevenDay.resetsInDescription,
+            resetsAt: sevenDay.resetsAt,
             paceStatus: sevenDay.paceStatus,
             projectedUsage: sevenDay.projectedAtReset
           )
@@ -493,24 +510,53 @@ struct MenuBarGauge: View {
   let value: Double
   let label: String
   let resetsIn: String?
+  let resetsAt: Date?
   var paceStatus: SubscriptionUsage.Window.PaceStatus?
   var projectedUsage: Double?
+
+  /// Format reset time as "3:45 PM" or "Mon 3:45 PM" for 7d
+  private var resetsAtFormatted: String? {
+    guard let resetsAt else { return nil }
+    let formatter = DateFormatter()
+    if label == "7d Rolling", !Calendar.current.isDateInToday(resetsAt) {
+      formatter.dateFormat = "EEE h:mm a"
+    } else {
+      formatter.dateFormat = "h:mm a"
+    }
+    return formatter.string(from: resetsAt)
+  }
+
+  /// Time until reset
+  private var timeUntilReset: TimeInterval {
+    guard let resetsAt else { return .infinity }
+    return resetsAt.timeIntervalSinceNow
+  }
+
+  /// Color for reset time based on urgency
+  private var resetTimeColor: Color {
+    if timeUntilReset < 15 * 60 { return .statusError }
+    if timeUntilReset < 60 * 60 { return .statusWaiting }
+    return .secondary.opacity(0.6)
+  }
+
+  /// Will exceed limit?
+  private var willExceed: Bool {
+    guard let projected = projectedUsage else { return false }
+    return projected > 95
+  }
+
+  /// Projected usage color
+  private var projectedColor: Color {
+    guard let projected = projectedUsage else { return .secondary }
+    if projected > 100 { return .statusError }
+    if projected > 90 { return .statusWaiting }
+    return .statusSuccess
+  }
 
   private var color: Color {
     if value >= 90 { return .statusError }
     if value >= 70 { return .statusWaiting }
     return .accent
-  }
-
-  private var paceColor: Color {
-    guard let pace = paceStatus else { return .secondary }
-    switch pace {
-      case .unknown: return .secondary
-      case .relaxed: return .accent
-      case .onTrack: return .statusSuccess
-      case .borderline: return .statusWaiting
-      case .exceeding, .critical: return .statusError
-    }
   }
 
   var body: some View {
@@ -521,11 +567,11 @@ struct MenuBarGauge: View {
           .font(.system(size: 10, weight: .medium))
           .foregroundStyle(.secondary)
 
-        // Pace indicator
-        if let pace = paceStatus, pace != .unknown {
-          Image(systemName: pace.icon)
+        // Warning if will exceed
+        if willExceed {
+          Image(systemName: "exclamationmark.triangle.fill")
             .font(.system(size: 8, weight: .bold))
-            .foregroundStyle(paceColor)
+            .foregroundStyle(Color.statusError)
         }
 
         Spacer()
@@ -534,10 +580,17 @@ struct MenuBarGauge: View {
           .font(.system(size: 11, weight: .bold, design: .monospaced))
           .foregroundStyle(color)
 
-        if let resets = resetsIn {
-          Text("• \(resets)")
-            .font(.system(size: 9))
-            .foregroundStyle(.quaternary)
+        // Projected usage
+        if let projected = projectedUsage, projected > value + 5 {
+          Text("→ \(Int(projected))%")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(projectedColor)
+        }
+
+        if let resetTime = resetsAtFormatted {
+          Text("@ \(resetTime)")
+            .font(.system(size: 9, weight: .medium))
+            .foregroundStyle(resetTimeColor)
         }
       }
 
@@ -547,10 +600,10 @@ struct MenuBarGauge: View {
           RoundedRectangle(cornerRadius: 2, style: .continuous)
             .fill(Color.primary.opacity(0.08))
 
-          // Projected usage (faint)
+          // Projected usage (more visible)
           if let projected = projectedUsage, projected > value {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
-              .fill(paceColor.opacity(0.25))
+              .fill(projectedColor.opacity(willExceed ? 0.5 : 0.35))
               .frame(width: geo.size.width * min(1, projected / 100))
           }
 
