@@ -453,7 +453,7 @@ struct MenuBarUsageSection: View {
   let service = SubscriptionUsageService.shared
 
   var body: some View {
-    HStack(spacing: 0) {
+    VStack(spacing: 8) {
       if let usage = service.usage {
         // 5h gauge with pace
         MenuBarGauge(
@@ -464,8 +464,6 @@ struct MenuBarUsageSection: View {
           paceStatus: usage.fiveHour.paceStatus,
           projectedUsage: usage.fiveHour.projectedAtReset
         )
-
-        Spacer()
 
         // 7d gauge with pace
         if let sevenDay = usage.sevenDay {
@@ -615,7 +613,6 @@ struct MenuBarGauge: View {
       }
       .frame(height: 4)
     }
-    .frame(width: 120)
   }
 }
 
