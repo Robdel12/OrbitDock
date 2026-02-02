@@ -251,7 +251,7 @@ struct ActiveSessionRow: View {
     ActiveSessionRow(
       session: Session(
         id: "1",
-        projectPath: "/Users/rob/Developer/vizzly-cli",
+        projectPath: "/Users/developer/Developer/vizzly-cli",
         projectName: "vizzly-cli",
         branch: "main",
         model: "claude-opus-4-5-20251101",
@@ -269,7 +269,7 @@ struct ActiveSessionRow: View {
     ActiveSessionRow(
       session: Session(
         id: "2",
-        projectPath: "/Users/rob/Developer/vizzly-core",
+        projectPath: "/Users/developer/Developer/vizzly-core",
         projectName: "vizzly-core",
         branch: "feature/auth",
         model: "claude-sonnet-4-20250514",
@@ -288,7 +288,7 @@ struct ActiveSessionRow: View {
     ActiveSessionRow(
       session: Session(
         id: "3",
-        projectPath: "/Users/rob/Developer/marketing",
+        projectPath: "/Users/developer/Developer/marketing",
         projectName: "marketing",
         model: "claude-sonnet-4-20250514",
         summary: "Landing page redesign",
@@ -306,7 +306,7 @@ struct ActiveSessionRow: View {
     ActiveSessionRow(
       session: Session(
         id: "4",
-        projectPath: "/Users/rob/Developer/docs",
+        projectPath: "/Users/developer/Developer/docs",
         projectName: "docs",
         model: "claude-haiku-3-5-20241022",
         summary: "Documentation updates",

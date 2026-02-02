@@ -7,6 +7,9 @@
 *.p12
 *.cer
 
+# Build artifacts
+*.zip
+
 # Xcode
 *.xcworkspace/
 xcuserdata/

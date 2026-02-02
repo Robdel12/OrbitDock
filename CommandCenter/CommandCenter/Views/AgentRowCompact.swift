@@ -180,7 +180,7 @@ struct ModelBadgeMini: View {
     AgentRowCompact(
       session: Session(
         id: "1",
-        projectPath: "/Users/rob/Developer/vizzly-cli",
+        projectPath: "/Users/developer/Developer/vizzly-cli",
         projectName: "vizzly-cli",
         branch: "feat/auth",
         model: "claude-opus-4-5-20251101",
@@ -208,7 +208,7 @@ struct ModelBadgeMini: View {
     AgentRowCompact(
       session: Session(
         id: "2",
-        projectPath: "/Users/rob/Developer/backchannel",
+        projectPath: "/Users/developer/Developer/backchannel",
         projectName: "backchannel",
         branch: "main",
         model: "claude-sonnet-4-20250514",
@@ -236,7 +236,7 @@ struct ModelBadgeMini: View {
     AgentRowCompact(
       session: Session(
         id: "3",
-        projectPath: "/Users/rob/Developer/docs",
+        projectPath: "/Users/developer/Developer/docs",
         projectName: "docs",
         branch: "main",
         model: "claude-haiku-3-5-20241022",

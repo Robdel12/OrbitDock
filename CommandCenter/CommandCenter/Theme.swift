@@ -637,12 +637,12 @@ struct PermissionBanner: View {
 
     PermissionBanner(
       toolName: "Edit",
-      toolInput: "{\"file_path\": \"/Users/rob/project/src/ConversationView.swift\"}"
+      toolInput: "{\"file_path\": \"/Users/developer/project/src/ConversationView.swift\"}"
     )
 
     PermissionBanner(
       toolName: "Write",
-      toolInput: "{\"file_path\": \"/Users/rob/project/hooks/new-feature.js\"}"
+      toolInput: "{\"file_path\": \"/Users/developer/project/hooks/new-feature.js\"}"
     )
 
     PermissionBanner(

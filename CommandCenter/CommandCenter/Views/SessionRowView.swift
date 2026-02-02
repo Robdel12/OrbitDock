@@ -225,7 +225,7 @@ struct WorkStatusBadge: View {
   VStack(spacing: 2) {
     SessionRowView(session: Session(
       id: "test-123",
-      projectPath: "/Users/rob/Developer/vizzly-cli",
+      projectPath: "/Users/developer/Developer/vizzly-cli",
       projectName: "vizzly-cli",
       branch: "feat/plugin-git-api",
       model: "claude-opus-4-5-20251101",
@@ -247,7 +247,7 @@ struct WorkStatusBadge: View {
 
     SessionRowView(session: Session(
       id: "test-456",
-      projectPath: "/Users/rob/Developer/backchannel",
+      projectPath: "/Users/developer/Developer/backchannel",
       projectName: "backchannel",
       branch: "main",
       model: "claude-sonnet-4-20250514",
@@ -269,7 +269,7 @@ struct WorkStatusBadge: View {
 
     SessionRowView(session: Session(
       id: "test-789",
-      projectPath: "/Users/rob/Developer/marketing",
+      projectPath: "/Users/developer/Developer/marketing",
       projectName: "marketing",
       branch: nil,
       model: "claude-sonnet-4-20250514",
