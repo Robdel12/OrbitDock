@@ -12,9 +12,11 @@ struct MissionControlView: View {
   var onSelectSession: ((String) -> Void)?
 
   @State private var workstreams: [Workstream] = []
+  @State private var archivedWorkstreams: [Workstream] = []
   @State private var repos: [String: Repo] = [:]
   @State private var selectedWorkstream: Workstream?
   @State private var filterStage: Workstream.Stage?
+  @State private var showArchived = false
   @State private var showingCreateSheet = false
 
   private let db = DatabaseManager.shared
@@ -27,7 +29,13 @@ struct MissionControlView: View {
       // Content
       ScrollView {
         LazyVStack(spacing: 16) {
-          if workstreams.isEmpty {
+          if showArchived {
+            if archivedWorkstreams.isEmpty {
+              archivedEmptyState
+            } else {
+              archivedSection
+            }
+          } else if workstreams.isEmpty {
             emptyState
           } else {
             // Group by stage
@@ -41,6 +49,8 @@ struct MissionControlView: View {
     }
     .background(Color.backgroundPrimary)
     .onAppear(perform: loadData)
+    .onChange(of: filterStage) { _, _ in loadData() }
+    .onChange(of: showArchived) { _, _ in loadData() }
     .onReceive(NotificationCenter.default.publisher(for: .init("DatabaseChanged"))) { _ in
       loadData()
     }
@@ -68,7 +78,7 @@ struct MissionControlView: View {
           .font(.title.bold())
           .foregroundStyle(Color.textPrimary)
 
-        Text("\(workstreams.count) active workstreams")
+        Text(headerSubtitle)
           .font(.subheadline)
           .foregroundStyle(Color.textSecondary)
       }
@@ -77,19 +87,36 @@ struct MissionControlView: View {
 
       // Stage filter
       Menu {
-        Button("All Stages") {
+        Button {
           filterStage = nil
+          showArchived = false
+        } label: {
+          Label("Active", systemImage: "bolt.fill")
         }
+
         Divider()
-        ForEach([Workstream.Stage.working, .prOpen, .inReview, .approved], id: \.self) { stage in
-          Button(stage.displayName) {
+
+        ForEach(Workstream.Stage.allCases, id: \.self) { stage in
+          Button {
             filterStage = stage
+            showArchived = false
+          } label: {
+            Label(stage.displayName, systemImage: stage.icon)
           }
+        }
+
+        Divider()
+
+        Button {
+          showArchived = true
+          filterStage = nil
+        } label: {
+          Label("Archived", systemImage: "archivebox")
         }
       } label: {
         HStack(spacing: 6) {
-          Image(systemName: "line.3.horizontal.decrease.circle")
-          Text(filterStage?.displayName ?? "All")
+          Image(systemName: showArchived ? "archivebox" : (filterStage?.icon ?? "line.3.horizontal.decrease.circle"))
+          Text(showArchived ? "Archived" : (filterStage?.displayName ?? "Active"))
         }
         .font(.subheadline.weight(.medium))
         .foregroundStyle(Color.accent)
@@ -120,6 +147,16 @@ struct MissionControlView: View {
     .padding(.horizontal, 20)
     .padding(.vertical, 16)
     .background(Color.backgroundSecondary)
+  }
+
+  private var headerSubtitle: String {
+    if showArchived {
+      return "\(archivedWorkstreams.count) archived"
+    } else if let stage = filterStage {
+      return "\(workstreams.count) \(stage.displayName.lowercased())"
+    } else {
+      return "\(workstreams.count) active workstreams"
+    }
   }
 
   // MARK: - Stage Sections
@@ -200,10 +237,81 @@ struct MissionControlView: View {
     .padding(.vertical, 60)
   }
 
+  private var archivedEmptyState: some View {
+    VStack(spacing: 16) {
+      Image(systemName: "archivebox")
+        .font(.system(size: 48))
+        .foregroundStyle(Color.textTertiary)
+
+      Text("No Archived Workstreams")
+        .font(.headline)
+        .foregroundStyle(Color.textSecondary)
+
+      Text("Archive workstreams you want to hide temporarily")
+        .font(.subheadline)
+        .foregroundStyle(Color.textTertiary)
+        .multilineTextAlignment(.center)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 60)
+  }
+
+  // MARK: - Archived Section
+
+  private var archivedSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      // Section header
+      HStack(spacing: 8) {
+        Image(systemName: "archivebox.fill")
+          .font(.caption)
+          .foregroundStyle(Color.textTertiary)
+
+        Text("ARCHIVED")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(Color.textSecondary)
+          .tracking(1.5)
+
+        Text("\(archivedWorkstreams.count)")
+          .font(.caption.weight(.medium))
+          .foregroundStyle(Color.textTertiary)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(Color.surfaceHover)
+          .clipShape(Capsule())
+
+        Spacer()
+      }
+
+      // Archived workstream cards
+      ForEach(archivedWorkstreams, id: \.id) { workstream in
+        ArchivedWorkstreamCard(
+          workstream: workstream,
+          repo: repos[workstream.repoId],
+          onUnarchive: {
+            db.unarchiveWorkstream(workstream.id)
+            loadData()
+          }
+        )
+        .onTapGesture {
+          selectedWorkstream = workstream
+        }
+      }
+    }
+  }
+
   // MARK: - Data Loading
 
   private func loadData() {
-    workstreams = db.fetchActiveWorkstreams()
+    // Fetch based on current filter
+    if let stage = filterStage {
+      // Specific stage filter - fetch all workstreams in that stage (excluding archived)
+      workstreams = db.fetchWorkstreams(stage: stage).filter { !$0.isArchived }
+    } else {
+      // "Active" filter - fetch non-merged, non-closed, non-archived
+      workstreams = db.fetchActiveWorkstreams()
+    }
+
+    archivedWorkstreams = db.fetchArchivedWorkstreams()
 
     // Load repos for all workstreams
     let allRepos = db.fetchRepos()
@@ -372,7 +480,7 @@ struct WorkstreamCard: View {
         .stroke(workstream.stage.color.opacity(0.3), lineWidth: 1)
     )
     .contextMenu {
-      if workstream.isActive {
+      if workstream.isActive && !workstream.isArchived {
         Button {
           onStageChange?(.merged)
         } label: {
@@ -383,6 +491,20 @@ struct WorkstreamCard: View {
           onStageChange?(.closed)
         } label: {
           Label("Cancel", systemImage: "xmark.circle")
+        }
+
+        Divider()
+
+        Button {
+          DatabaseManager.shared.archiveWorkstream(workstream.id)
+        } label: {
+          Label("Archive", systemImage: "archivebox")
+        }
+      } else if workstream.isArchived {
+        Button {
+          DatabaseManager.shared.unarchiveWorkstream(workstream.id)
+        } label: {
+          Label("Unarchive", systemImage: "archivebox.fill")
         }
       } else {
         Button {
@@ -426,6 +548,149 @@ struct WorkstreamCard: View {
       case .open: Color.statusSuccess
       case .merged: Color.serverGitHub
       case .closed: Color.statusError
+    }
+  }
+}
+
+// MARK: - Archived Workstream Card
+
+struct ArchivedWorkstreamCard: View {
+  let workstream: Workstream
+  let repo: Repo?
+  var onUnarchive: (() -> Void)? = nil
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      // Top row: Branch + Repo
+      HStack {
+        // Archive icon + Branch name
+        HStack(spacing: 6) {
+          Image(systemName: "archivebox.fill")
+            .font(.caption)
+            .foregroundStyle(Color.textTertiary)
+
+          Image(systemName: "arrow.triangle.branch")
+            .font(.caption)
+            .foregroundStyle(Color.gitBranch.opacity(0.6))
+
+          Text(workstream.branch)
+            .font(.headline)
+            .foregroundStyle(Color.textSecondary)
+            .lineLimit(1)
+        }
+
+        Spacer()
+
+        // Stage badge (dimmed)
+        HStack(spacing: 4) {
+          Image(systemName: workstream.stageIcon)
+            .font(.caption2)
+          Text(workstream.stage.displayName)
+            .font(.caption.weight(.medium))
+        }
+        .foregroundStyle(workstream.stage.color.opacity(0.5))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(workstream.stage.color.opacity(0.08))
+        .clipShape(Capsule())
+
+        // Repo badge
+        if let repo {
+          Text(repo.name)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.surfaceHover.opacity(0.5))
+            .clipShape(Capsule())
+        }
+      }
+
+      // Title (from Linear/GitHub or branch)
+      if workstream.displayName != workstream.branch {
+        Text(workstream.displayName)
+          .font(.subheadline)
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(2)
+      }
+
+      // Stats row
+      HStack(spacing: 16) {
+        // Sessions
+        HStack(spacing: 4) {
+          Image(systemName: "cpu")
+            .font(.caption2)
+          Text("\(workstream.sessionCount) sessions")
+            .font(.caption)
+        }
+        .foregroundStyle(Color.textQuaternary)
+
+        // Time spent
+        if workstream.totalSessionSeconds > 0 {
+          HStack(spacing: 4) {
+            Image(systemName: "clock")
+              .font(.caption2)
+            Text(workstream.formattedSessionTime)
+              .font(.caption)
+          }
+          .foregroundStyle(Color.textQuaternary)
+        }
+
+        Spacer()
+
+        // Last activity
+        if let lastActivity = workstream.lastActivityAt {
+          Text(lastActivity.relativeFormatted)
+            .font(.caption)
+            .foregroundStyle(Color.textQuaternary)
+        }
+      }
+    }
+    .padding(16)
+    .background(Color.backgroundTertiary.opacity(0.5))
+    .clipShape(RoundedRectangle(cornerRadius: 12))
+    .overlay(
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(Color.surfaceBorder.opacity(0.3), lineWidth: 1)
+    )
+    .contextMenu {
+      Button {
+        onUnarchive?()
+      } label: {
+        Label("Unarchive", systemImage: "archivebox.fill")
+      }
+
+      Divider()
+
+      Button {
+        DatabaseManager.shared.updateWorkstreamStage(workstream.id, to: .merged)
+      } label: {
+        Label("Complete", systemImage: "checkmark.circle")
+      }
+
+      Button {
+        DatabaseManager.shared.updateWorkstreamStage(workstream.id, to: .closed)
+      } label: {
+        Label("Close", systemImage: "xmark.circle")
+      }
+
+      Divider()
+
+      if let repo {
+        Button {
+          NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: repo.path)
+        } label: {
+          Label("Reveal in Finder", systemImage: "folder")
+        }
+      }
+
+      if let linearURL = workstream.linearIssueURL, let url = URL(string: linearURL) {
+        Button {
+          NSWorkspace.shared.open(url)
+        } label: {
+          Label("Open Linear Issue", systemImage: "link")
+        }
+      }
     }
   }
 }

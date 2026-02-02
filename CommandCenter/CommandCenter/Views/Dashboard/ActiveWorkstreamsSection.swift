@@ -261,7 +261,7 @@ struct WorkstreamRow: View {
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     .contextMenu {
-      if workstream.isActive {
+      if workstream.isActive && !workstream.isArchived {
         Button {
           onStageChange(.merged)
         } label: {
@@ -272,6 +272,20 @@ struct WorkstreamRow: View {
           onStageChange(.closed)
         } label: {
           Label("Cancel", systemImage: "xmark.circle")
+        }
+
+        Divider()
+
+        Button {
+          DatabaseManager.shared.archiveWorkstream(workstream.id)
+        } label: {
+          Label("Archive", systemImage: "archivebox")
+        }
+      } else if workstream.isArchived {
+        Button {
+          DatabaseManager.shared.unarchiveWorkstream(workstream.id)
+        } label: {
+          Label("Unarchive", systemImage: "archivebox.fill")
         }
       } else {
         Button {
@@ -876,6 +890,237 @@ struct RepoRow: View {
       return "~" + path.dropFirst(home.count)
     }
     return path
+  }
+}
+
+// MARK: - Archived Workstreams Section
+
+struct ArchivedWorkstreamsSection: View {
+  var onSelectSession: ((String) -> Void)? = nil
+
+  @State private var workstreams: [Workstream] = []
+  @State private var repos: [String: Repo] = [:]
+  @State private var selectedWorkstream: Workstream?
+  @State private var isExpanded = false
+
+  private let db = DatabaseManager.shared
+
+  var body: some View {
+    if !workstreams.isEmpty {
+      VStack(alignment: .leading, spacing: 0) {
+        // Header
+        Button {
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            isExpanded.toggle()
+          }
+        } label: {
+          HStack(spacing: 10) {
+            Image(systemName: "chevron.right")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(.tertiary)
+              .rotationEffect(.degrees(isExpanded ? 90 : 0))
+
+            Image(systemName: "archivebox")
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+
+            Text("Archived")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(.secondary)
+
+            Text("\(workstreams.count)")
+              .font(.system(size: 11, weight: .medium, design: .rounded))
+              .foregroundStyle(.tertiary)
+              .padding(.horizontal, 7)
+              .padding(.vertical, 2)
+              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+
+            Spacer()
+          }
+          .padding(.vertical, 8)
+          .padding(.horizontal, 14)
+          .background(
+            Color.backgroundTertiary.opacity(0.3),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+          )
+        }
+        .buttonStyle(.plain)
+
+        // Content
+        if isExpanded {
+          VStack(spacing: 6) {
+            ForEach(workstreams, id: \.id) { workstream in
+              ArchivedWorkstreamRow(
+                workstream: workstream,
+                repo: repos[workstream.repoId],
+                onSelect: { selectedWorkstream = workstream }
+              )
+            }
+          }
+          .padding(.top, 10)
+        }
+      }
+      .onAppear(perform: loadData)
+      .onReceive(NotificationCenter.default.publisher(for: .init("DatabaseChanged"))) { _ in
+        loadData()
+      }
+      .sheet(item: $selectedWorkstream) { workstream in
+        WorkstreamDetailView(
+          workstream: workstream,
+          repo: repos[workstream.repoId],
+          onSelectSession: onSelectSession
+        )
+        .frame(minWidth: 600, minHeight: 500)
+      }
+    }
+  }
+
+  private func loadData() {
+    workstreams = db.fetchArchivedWorkstreams()
+    let allRepos = db.fetchRepos()
+    repos = Dictionary(uniqueKeysWithValues: allRepos.map { ($0.id, $0) })
+  }
+}
+
+// MARK: - Archived Workstream Row
+
+struct ArchivedWorkstreamRow: View {
+  let workstream: Workstream
+  let repo: Repo?
+  let onSelect: () -> Void
+
+  @State private var isHovering = false
+
+  var body: some View {
+    Button(action: onSelect) {
+      HStack(spacing: 12) {
+        // Archive indicator
+        Image(systemName: "archivebox.fill")
+          .font(.system(size: 10))
+          .foregroundStyle(Color.textTertiary)
+          .frame(width: 20)
+
+        // Branch + ticket info
+        VStack(alignment: .leading, spacing: 3) {
+          HStack(spacing: 8) {
+            // Branch name
+            HStack(spacing: 5) {
+              Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.gitBranch.opacity(0.6))
+              Text(workstream.branch)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+
+            // Ticket badge
+            if let origin = workstream.originLabel {
+              Text(origin)
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.serverLinear.opacity(0.6))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.serverLinear.opacity(0.08), in: Capsule())
+            }
+          }
+
+          // Stats row
+          HStack(spacing: 10) {
+            // Sessions
+            HStack(spacing: 4) {
+              Image(systemName: "cpu")
+                .font(.system(size: 9))
+              Text("\(workstream.sessionCount)")
+                .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.quaternary)
+
+            // Last activity
+            if let lastActivity = workstream.lastActivityAt {
+              Text(lastActivity.relativeFormatted)
+                .font(.system(size: 10))
+                .foregroundStyle(.quaternary)
+            }
+          }
+        }
+
+        Spacer()
+
+        // Stage badge (dimmed)
+        HStack(spacing: 5) {
+          Image(systemName: workstream.stageIcon)
+            .font(.system(size: 10, weight: .medium))
+          Text(workstream.stage.displayName)
+            .font(.system(size: 10, weight: .semibold))
+        }
+        .foregroundStyle(workstream.stage.color.opacity(0.5))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(workstream.stage.color.opacity(0.08), in: Capsule())
+
+        // Repo badge
+        if let repo = repo {
+          Text(repo.name)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.quaternary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+        }
+      }
+      .padding(.vertical, 10)
+      .padding(.horizontal, 14)
+      .background(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(isHovering ? Color.surfaceSelected.opacity(0.5) : Color.backgroundTertiary.opacity(0.3))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .stroke(Color.surfaceBorder.opacity(isHovering ? 0.2 : 0.1), lineWidth: 1)
+      )
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovering = $0 }
+    .contextMenu {
+      Button {
+        DatabaseManager.shared.unarchiveWorkstream(workstream.id)
+      } label: {
+        Label("Unarchive", systemImage: "archivebox.fill")
+      }
+
+      Divider()
+
+      Button {
+        DatabaseManager.shared.updateWorkstreamStage(workstream.id, to: .merged)
+      } label: {
+        Label("Complete", systemImage: "checkmark.circle")
+      }
+
+      Button {
+        DatabaseManager.shared.updateWorkstreamStage(workstream.id, to: .closed)
+      } label: {
+        Label("Close", systemImage: "xmark.circle")
+      }
+
+      Divider()
+
+      if let repo = repo {
+        Button {
+          NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: repo.path)
+        } label: {
+          Label("Reveal in Finder", systemImage: "folder")
+        }
+      }
+
+      if let linearURL = workstream.linearIssueURL, let url = URL(string: linearURL) {
+        Button {
+          NSWorkspace.shared.open(url)
+        } label: {
+          Label("Open Linear Issue", systemImage: "link")
+        }
+      }
+    }
   }
 }
 

@@ -107,6 +107,7 @@ class DatabaseManager {
   private let workstreamLastActivityAt = SQLite.Expression<String?>("last_activity_at")
   private let workstreamCreatedAt = SQLite.Expression<String>("created_at")
   private let workstreamUpdatedAt = SQLite.Expression<String>("updated_at")
+  private let workstreamIsArchived = SQLite.Expression<Int>("is_archived")
 
   // Workstream tickets table and columns
   private let workstreamTickets = Table("workstream_tickets")
@@ -798,6 +799,7 @@ class DatabaseManager {
           hasApproval: (try? row.get(flagHasApproval)) == 1,
           isMerged: (try? row.get(flagIsMerged)) == 1,
           isClosed: (try? row.get(flagIsClosed)) == 1,
+          isArchived: (try? row.get(workstreamIsArchived)) == 1,
           sessionCount: row[sessionCount],
           totalSessionSeconds: row[totalSessionSeconds],
           commitCount: row[commitCount],
@@ -815,9 +817,9 @@ class DatabaseManager {
   func fetchActiveWorkstreams() -> [Workstream] {
     guard let db else { return [] }
 
-    // Active = not merged AND not closed (using flags, with fallback to stage for migration)
+    // Active = not merged AND not closed AND not archived
     let query = workstreams
-      .filter(flagIsMerged == 0 && flagIsClosed == 0)
+      .filter(flagIsMerged == 0 && flagIsClosed == 0 && workstreamIsArchived == 0)
       .order(workstreamLastActivityAt.desc)
 
     do {
@@ -852,6 +854,7 @@ class DatabaseManager {
           hasApproval: (try? row.get(flagHasApproval)) == 1,
           isMerged: (try? row.get(flagIsMerged)) == 1,
           isClosed: (try? row.get(flagIsClosed)) == 1,
+          isArchived: false, // By definition, active workstreams are not archived
           sessionCount: row[sessionCount],
           totalSessionSeconds: row[totalSessionSeconds],
           commitCount: row[commitCount],
@@ -862,6 +865,61 @@ class DatabaseManager {
       }
     } catch {
       print("Failed to fetch active workstreams: \(error)")
+      return []
+    }
+  }
+
+  func fetchArchivedWorkstreams() -> [Workstream] {
+    guard let db else { return [] }
+
+    // Archived workstreams (not merged/closed, but archived)
+    let query = workstreams
+      .filter(flagIsMerged == 0 && flagIsClosed == 0 && workstreamIsArchived == 1)
+      .order(workstreamLastActivityAt.desc)
+
+    do {
+      return try db.prepare(query).map { row in
+        Workstream(
+          id: row[workstreamId],
+          repoId: row[workstreamRepoId],
+          branch: row[workstreamBranch],
+          directory: row[workstreamDirectory],
+          name: row[workstreamName],
+          description: row[workstreamDescription],
+          linearIssueId: row[linearIssueId],
+          linearIssueTitle: row[linearIssueTitle],
+          linearIssueState: row[linearIssueState],
+          linearIssueURL: row[linearIssueURL],
+          githubIssueNumber: row[githubIssueNumber],
+          githubIssueTitle: row[githubIssueTitle],
+          githubIssueState: row[githubIssueState],
+          githubPRNumber: row[githubPRNumber],
+          githubPRTitle: row[githubPRTitle],
+          githubPRState: Workstream.PRState(rawValue: row[githubPRState] ?? ""),
+          githubPRURL: row[githubPRURL],
+          githubPRAdditions: row[githubPRAdditions],
+          githubPRDeletions: row[githubPRDeletions],
+          reviewState: Workstream.ReviewState(rawValue: row[reviewState] ?? ""),
+          reviewApprovals: row[reviewApprovals],
+          reviewComments: row[reviewComments],
+          stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
+          isWorking: (try? row.get(flagIsWorking)) == 1,
+          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
+          inReview: (try? row.get(flagInReview)) == 1,
+          hasApproval: (try? row.get(flagHasApproval)) == 1,
+          isMerged: (try? row.get(flagIsMerged)) == 1,
+          isClosed: (try? row.get(flagIsClosed)) == 1,
+          isArchived: true, // By definition, these are archived
+          sessionCount: row[sessionCount],
+          totalSessionSeconds: row[totalSessionSeconds],
+          commitCount: row[commitCount],
+          lastActivityAt: parseDate(row[workstreamLastActivityAt]),
+          createdAt: parseDate(row[workstreamCreatedAt]) ?? Date(),
+          updatedAt: parseDate(row[workstreamUpdatedAt]) ?? Date()
+        )
+      }
+    } catch {
+      print("Failed to fetch archived workstreams: \(error)")
       return []
     }
   }
@@ -1203,6 +1261,46 @@ class DatabaseManager {
       }
     } catch {
       print("Failed to toggle workstream flag: \(error)")
+    }
+  }
+
+  func archiveWorkstream(_ workstreamId: String) {
+    guard let db else { return }
+
+    let now = formatDate(Date())
+    let ws = workstreams.filter(self.workstreamId == workstreamId)
+
+    do {
+      try db.run(ws.update(
+        workstreamIsArchived <- 1,
+        workstreamUpdatedAt <- now
+      ))
+
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+      }
+    } catch {
+      print("Failed to archive workstream: \(error)")
+    }
+  }
+
+  func unarchiveWorkstream(_ workstreamId: String) {
+    guard let db else { return }
+
+    let now = formatDate(Date())
+    let ws = workstreams.filter(self.workstreamId == workstreamId)
+
+    do {
+      try db.run(ws.update(
+        workstreamIsArchived <- 0,
+        workstreamUpdatedAt <- now
+      ))
+
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+      }
+    } catch {
+      print("Failed to unarchive workstream: \(error)")
     }
   }
 
