@@ -18,6 +18,7 @@ struct ContentView: View {
   // Panel state
   @State private var showAgentPanel = false
   @State private var showQuickSwitcher = false
+  @State private var showInbox = false
 
   /// Resolve ID to fresh session object from current sessions array
   private var selectedSession: Session? {
@@ -74,6 +75,11 @@ struct ContentView: View {
         quickSwitcherOverlay
       }
 
+      // Inbox overlay
+      if showInbox {
+        inboxOverlay
+      }
+
       // Toast notifications (bottom right)
       VStack {
         Spacer()
@@ -113,6 +119,12 @@ struct ContentView: View {
       if showQuickSwitcher {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
           showQuickSwitcher = false
+        }
+        return .handled
+      }
+      if showInbox {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          showInbox = false
         }
         return .handled
       }
@@ -202,6 +214,11 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
               showAgentPanel = true
             }
+          },
+          onOpenInbox: {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+              showInbox = true
+            }
           }
         )
       }
@@ -237,12 +254,56 @@ struct ContentView: View {
             showQuickSwitcher = false
           }
         },
+        onNavigateToQuest: { questId in
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            selectedSessionId = nil
+            showQuickSwitcher = false
+          }
+          // Post notification for DashboardView to navigate to quest
+          NotificationCenter.default.post(
+            name: .navigateToQuest,
+            object: nil,
+            userInfo: ["questId": questId]
+          )
+        },
+        onOpenInbox: {
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showQuickSwitcher = false
+            showInbox = true
+          }
+        },
         onClose: {
           withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             showQuickSwitcher = false
           }
         }
       )
+    }
+    .transition(.opacity)
+  }
+
+  // MARK: - Inbox Overlay
+
+  private var inboxOverlay: some View {
+    ZStack {
+      // Backdrop
+      Color.black.opacity(0.5)
+        .ignoresSafeArea()
+        .onTapGesture {
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showInbox = false
+          }
+        }
+
+      // Inbox panel
+      InboxView(onClose: {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          showInbox = false
+        }
+      })
+      .frame(width: 500, height: 600)
+      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .shadow(color: .black.opacity(0.5), radius: 40, x: 0, y: 20)
     }
     .transition(.opacity)
   }

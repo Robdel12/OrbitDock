@@ -15,6 +15,8 @@ struct ToolTrackerCommand: ParsableCommand {
             throw CLIError.invalidInput("Missing session_id")
         }
 
+        log("[\(input.hook_event_name)] tool=\(input.tool_name) session=\(input.session_id.prefix(8))")
+
         let db = try CLIDatabase()
 
         switch input.hook_event_name {
@@ -28,7 +30,13 @@ struct ToolTrackerCommand: ParsableCommand {
             )
 
         case "PostToolUse":
-            try handlePostToolUse(db: db, sessionId: input.session_id)
+            try handlePostToolUse(
+                db: db,
+                sessionId: input.session_id,
+                toolName: input.tool_name,
+                toolInput: input.tool_input,
+                toolResponse: input.tool_response
+            )
 
         case "PostToolUseFailure":
             try handlePostToolUseFailure(db: db, sessionId: input.session_id)
@@ -87,28 +95,56 @@ struct ToolTrackerCommand: ParsableCommand {
             pendingToolInput: pendingToolInput,
             pendingQuestion: pendingQuestion
         )
+        log("  → status=working lastTool=\(toolName)")
 
-        // Check for branch creation
+        // Update session branch if changed
         if let command = toolInput?.command {
             if let newBranch = GitOperations.detectBranchCreation(toolName: toolName, command: command) {
-                // Skip main/master branches
+                // Skip main/master branches for branch tracking
                 let mainBranches = ["main", "master", "develop", "dev"]
                 if !mainBranches.contains(newBranch.lowercased()) {
-                    try handleBranchCreation(
-                        db: db,
-                        sessionId: sessionId,
-                        cwd: cwd,
-                        newBranch: newBranch
-                    )
+                    try db.updateSession(id: sessionId, branch: newBranch)
                 }
             }
         }
     }
 
     /// Handle PostToolUse - Tool completed successfully
-    private func handlePostToolUse(db: CLIDatabase, sessionId: String) throws {
+    private func handlePostToolUse(
+        db: CLIDatabase,
+        sessionId: String,
+        toolName: String,
+        toolInput: ToolInput?,
+        toolResponse: ToolResponse?
+    ) throws {
         try db.incrementToolCount(id: sessionId)
         try db.clearPendingFields(id: sessionId)
+        // Set working status - Claude is actively processing the tool result
+        // This clears the "permission" state after a tool runs
+        try db.updateSession(
+            id: sessionId,
+            workStatus: "working",
+            attentionReason: "none"
+        )
+        log("  → status=working reason=none")
+
+        // Detect GitHub PR/issue links from Bash output
+        if toolName == "Bash",
+           let command = toolInput?.command,
+           LinkDetector.isGitHubCreateCommand(command),
+           let stdout = toolResponse?.stdout {
+
+            let links = LinkDetector.detectLinks(from: stdout)
+            for link in links {
+                if let itemId = db.captureToInbox(
+                    content: link.displayContent,
+                    source: "cli_detected",
+                    sessionId: sessionId
+                ) {
+                    log("  → Detected \(link.type.rawValue) #\(link.number), captured to inbox: \(itemId.prefix(8))")
+                }
+            }
+        }
     }
 
     /// Handle PostToolUseFailure - Tool failed or was interrupted
@@ -120,36 +156,6 @@ struct ToolTrackerCommand: ParsableCommand {
             workStatus: "waiting",
             attentionReason: "awaitingReply"
         )
-    }
-
-    /// Handle branch creation - create workstream and link session
-    private func handleBranchCreation(
-        db: CLIDatabase,
-        sessionId: String,
-        cwd: String,
-        newBranch: String
-    ) throws {
-        let repoRoot = GitOperations.getRepoRoot(in: cwd)
-        let repoName = GitOperations.getRepoName(in: cwd)
-        let github = GitOperations.getGitHubRemote(in: cwd)
-
-        // Get or create workstream for the new branch
-        let workstream = try db.getOrCreateWorkstream(
-            projectPath: cwd,
-            branch: newBranch,
-            repoRoot: repoRoot,
-            repoName: repoName,
-            githubOwner: github?.owner,
-            githubName: github?.name
-        )
-
-        // Link session to the new workstream
-        if let ws = workstream {
-            try db.updateSession(
-                id: sessionId,
-                workstreamId: ws.id,
-                branch: newBranch
-            )
-        }
+        log("  → status=waiting reason=awaitingReply (failure)")
     }
 }

@@ -28,6 +28,99 @@ public final class CLIDatabase {
         try connection.execute("PRAGMA journal_mode = WAL")
         try connection.execute("PRAGMA busy_timeout = 5000")
         try connection.execute("PRAGMA synchronous = NORMAL")
+
+        // Run migrations
+        try runMigrations()
+    }
+
+    /// Run any pending migrations
+    private func runMigrations() throws {
+        // Ensure schema_versions table exists
+        try connection.execute("""
+            CREATE TABLE IF NOT EXISTS schema_versions (
+                version INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            )
+        """)
+
+        // Get current version
+        let currentVersion = (try? connection.scalar("SELECT MAX(version) FROM schema_versions") as? Int64) ?? 0
+
+        // Load and apply migrations
+        let migrations = loadMigrations()
+        let pending = migrations.filter { $0.version > Int(currentVersion) }
+
+        for migration in pending {
+            let now = Self.formatDate()
+            try connection.transaction {
+                try connection.execute(migration.sql)
+                try connection.run(
+                    "INSERT INTO schema_versions (version, name, applied_at) VALUES (?, ?, ?)",
+                    migration.version, migration.name, now
+                )
+            }
+            // Log using the shared log function
+            logToFile("[Migration] Applied \(migration.version): \(migration.name)")
+        }
+    }
+
+    /// Load migrations from the repo's migrations folder
+    private func loadMigrations() -> [(version: Int, name: String, sql: String)] {
+        var migrations: [(version: Int, name: String, sql: String)] = []
+
+        // Try common paths
+        let possiblePaths = [
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Developer/claude-dashboard/migrations"),
+        ]
+
+        for migrationsDir in possiblePaths {
+            guard FileManager.default.fileExists(atPath: migrationsDir.path) else { continue }
+
+            do {
+                let files = try FileManager.default.contentsOfDirectory(
+                    at: migrationsDir,
+                    includingPropertiesForKeys: nil
+                ).filter { $0.pathExtension == "sql" }
+
+                for file in files {
+                    let filename = file.deletingPathExtension().lastPathComponent
+                    // Parse "001_initial" format
+                    let parts = filename.split(separator: "_", maxSplits: 1)
+                    guard parts.count == 2,
+                          let version = Int(parts[0]) else { continue }
+
+                    let name = String(parts[1])
+                    let sql = try String(contentsOf: file, encoding: .utf8)
+                    migrations.append((version, name, sql))
+                }
+            } catch {
+                continue
+            }
+        }
+
+        return migrations.sorted { $0.version < $1.version }
+    }
+
+    /// Log to the CLI log file
+    private func logToFile(_ message: String) {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let logPath = "\(home)/.orbitdock/cli.log"
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logPath) {
+                if let handle = FileHandle(forWritingAtPath: logPath) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                try? data.write(to: URL(fileURLWithPath: logPath))
+            }
+        }
     }
 
     /// Notify the OrbitDock app that data has changed
@@ -46,7 +139,7 @@ public final class CLIDatabase {
 extension CLIDatabase {
     static let sessions = Table("sessions")
     static let repos = Table("repos")
-    static let workstreams = Table("workstreams")
+    static let inboxItems = Table("inbox_items")
 
     // Session columns
     static let id = SQLite.Expression<String>("id")
@@ -69,7 +162,6 @@ extension CLIDatabase {
     static let toolCount = SQLite.Expression<Int?>("tool_count")
     static let terminalSessionId = SQLite.Expression<String?>("terminal_session_id")
     static let terminalApp = SQLite.Expression<String?>("terminal_app")
-    static let workstreamId = SQLite.Expression<String?>("workstream_id")
     static let pendingToolName = SQLite.Expression<String?>("pending_tool_name")
     static let pendingToolInput = SQLite.Expression<String?>("pending_tool_input")
     static let pendingQuestion = SQLite.Expression<String?>("pending_question")
@@ -83,18 +175,46 @@ extension CLIDatabase {
     static let githubName = SQLite.Expression<String?>("github_name")
     static let repoCreatedAt = SQLite.Expression<String>("created_at")
 
-    // Workstream columns
-    static let wsId = SQLite.Expression<String>("id")
-    static let wsRepoId = SQLite.Expression<String>("repo_id")
-    static let wsBranch = SQLite.Expression<String>("branch")
-    static let wsDirectory = SQLite.Expression<String?>("directory")
-    static let wsName = SQLite.Expression<String?>("name")
-    static let wsStage = SQLite.Expression<String>("stage")
-    static let wsSessionCount = SQLite.Expression<Int>("session_count")
-    static let wsLastActivityAt = SQLite.Expression<String?>("last_activity_at")
-    static let wsCreatedAt = SQLite.Expression<String>("created_at")
-    static let wsUpdatedAt = SQLite.Expression<String>("updated_at")
-    static let wsIsArchived = SQLite.Expression<Int>("is_archived")
+    // Inbox columns
+    static let inboxId = SQLite.Expression<String>("id")
+    static let inboxContent = SQLite.Expression<String>("content")
+    static let inboxSource = SQLite.Expression<String?>("source")
+    static let inboxSessionId = SQLite.Expression<String?>("session_id")
+    static let inboxQuestId = SQLite.Expression<String?>("quest_id")
+    static let inboxCreatedAt = SQLite.Expression<String?>("created_at")
+    static let inboxAttachedAt = SQLite.Expression<String?>("attached_at")
+    static let inboxStatus = SQLite.Expression<String?>("status")
+}
+
+// MARK: - Inbox Operations
+
+extension CLIDatabase {
+    /// Capture a detected link to the inbox
+    /// - Parameters:
+    ///   - content: The content/description (e.g., "PR #123: Add new feature")
+    ///   - source: Where it was detected from (e.g., "cli_detected")
+    ///   - sessionId: The session that generated this link
+    /// - Returns: The created inbox item ID, or nil if failed
+    @discardableResult
+    public func captureToInbox(content: String, source: String, sessionId: String?) -> String? {
+        let itemId = UUID().uuidString
+        let now = Self.formatDate()
+
+        do {
+            try connection.run(Self.inboxItems.insert(
+                Self.inboxId <- itemId,
+                Self.inboxContent <- content,
+                Self.inboxSource <- source,
+                Self.inboxSessionId <- sessionId,
+                Self.inboxCreatedAt <- now,
+                Self.inboxStatus <- "pending"
+            ))
+            return itemId
+        } catch {
+            logToFile("[Inbox] Failed to capture: \(error.localizedDescription)")
+            return nil
+        }
+    }
 }
 
 // MARK: - Date Formatting
