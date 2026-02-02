@@ -20,9 +20,11 @@ private class ParseCache {
   static let shared = ParseCache()
 
   private var cache: [String: (timestamp: CFAbsoluteTime, result: TranscriptParseResult)] = [:]
+  private var accessOrder: [String] = []  // LRU tracking - most recent at end
   private var pathLocks: [String: NSLock] = [:]
   private let metaLock = NSLock()
   private let cacheValidityMs: Double = 100 // Cache valid for 100ms (just to catch simultaneous calls)
+  private let maxCacheSize = 50  // LRU eviction threshold
 
   /// Get or create a lock for a specific path
   private func lockForPath(_ path: String) -> NSLock {
@@ -46,6 +48,8 @@ private class ParseCache {
 
     let ageMs = (CFAbsoluteTimeGetCurrent() - entry.timestamp) * 1_000
     if ageMs < cacheValidityMs {
+      // Update LRU order on access
+      touchLRU(path: path)
       return entry.result
     }
     return nil
@@ -61,7 +65,12 @@ private class ParseCache {
   func set(path: String, result: TranscriptParseResult) {
     metaLock.lock()
     defer { metaLock.unlock() }
+
+    // Evict oldest entries if at capacity
+    evictIfNeeded()
+
     cache[path] = (timestamp: CFAbsoluteTimeGetCurrent(), result: result)
+    touchLRU(path: path)
   }
 
   /// Invalidate cache for a path (call when file changes)
@@ -69,6 +78,35 @@ private class ParseCache {
     metaLock.lock()
     defer { metaLock.unlock() }
     cache.removeValue(forKey: path)
+    accessOrder.removeAll { $0 == path }
+  }
+
+  /// Clean up expired entries (call periodically to prevent memory bloat)
+  func cleanupExpired() {
+    metaLock.lock()
+    defer { metaLock.unlock() }
+
+    let now = CFAbsoluteTimeGetCurrent()
+    let expiredPaths = cache.filter { (now - $0.value.timestamp) * 1_000 > cacheValidityMs }.map(\.key)
+
+    for path in expiredPaths {
+      cache.removeValue(forKey: path)
+      accessOrder.removeAll { $0 == path }
+    }
+  }
+
+  // MARK: - Private LRU helpers (must hold metaLock)
+
+  private func touchLRU(path: String) {
+    accessOrder.removeAll { $0 == path }
+    accessOrder.append(path)
+  }
+
+  private func evictIfNeeded() {
+    while cache.count >= maxCacheSize, let oldest = accessOrder.first {
+      cache.removeValue(forKey: oldest)
+      accessOrder.removeFirst()
+    }
   }
 }
 
@@ -78,6 +116,12 @@ extension TranscriptParser {
   /// Call this when file changes are detected to ensure fresh data
   static func invalidateCache(for path: String) {
     ParseCache.shared.invalidate(path: path)
+  }
+
+  /// Clean up expired cache entries to free memory
+  /// Call this periodically (e.g., when app enters background or on memory warnings)
+  static func cleanupCache() {
+    ParseCache.shared.cleanupExpired()
   }
 }
 

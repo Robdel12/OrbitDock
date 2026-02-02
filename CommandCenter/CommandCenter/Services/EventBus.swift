@@ -83,7 +83,8 @@ final class EventBus {
 
   /// Called when a specific transcript file changes
   func notifyTranscriptChanged(path: String) {
-    // Debounce per-path - 300ms to batch rapid file system events
+    // Debounce per-path - 150ms for better responsiveness while still batching rapid events
+    // (Reduced from 300ms - fast enough to feel responsive, slow enough to batch tool spam)
     pendingTranscriptUpdates[path]?.cancel()
     let workItem = DispatchWorkItem { [weak self] in
       DispatchQueue.main.async {
@@ -92,7 +93,7 @@ final class EventBus {
       self?.pendingTranscriptUpdates.removeValue(forKey: path)
     }
     pendingTranscriptUpdates[path] = workItem
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: workItem)
   }
 
   /// Called when database file changes
