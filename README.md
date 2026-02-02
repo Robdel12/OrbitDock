@@ -1,23 +1,33 @@
 # OrbitDock
 
-Mission control for AI coding agents. A native macOS app that monitors Claude Code and Codex CLI sessions in real-time.
+Mission control for AI coding agents. A native macOS app that lets you monitor all your Claude Code and Codex CLI sessions from one place—like a cosmic harbor where your AI crews dock and report in.
 
 ![macOS](https://img.shields.io/badge/macOS-14.0+-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.9+-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Why I Built This
+
+I don't write code anymore (like 98% of the time). Agents do. My job now is review, management, and guidance at the right time.
+
+I've got one real SaaS product (with something like 5 repos and 10 SDKs), plus a couple other products I'm building that don't have users yet. That's a lot of projects, a lot of tasks within those projects, and a lot of LLM agents running around in all of them.
+
+The problem? Keeping track of it all. Which session needs permission? Did that refactor finish? Is Claude waiting on me or still working? I'd find myself cycling through terminal tabs trying to figure out what was happening where.
+
+OrbitDock is how I wrangle all that chaos. One dashboard to track every session across every project—live status updates, conversation history, usage limits, and quick terminal access. It's mission control for my new way of working.
+
 ## Features
 
-- **Multi-Provider Support** - Track both Claude Code and Codex CLI sessions
-- **Live Session Monitoring** - See all active AI agent sessions across your machine
-- **Real-time Conversation View** - Watch conversations unfold with smooth animations
-- **Work Status Tracking** - Know when an agent is working, waiting for input, or needs permission
-- **Quick Switcher** - ⌘K to quickly jump between sessions or run commands
-- **Session Management** - Rename, close, or resume sessions from the UI
+- **Multi-Provider Support** - Track Claude Code and Codex CLI sessions together
+- **Live Session Monitoring** - Watch conversations unfold in real-time
+- **5-State Status System** - Working, Permission, Question, Reply, Ended
+- **Quick Switcher (⌘K)** - Jump between sessions or run commands instantly
 - **Workstream Tracking** - Automatic grouping by git branch with PR/issue integration
 - **Usage Tracking** - Monitor rate limits for both Claude and Codex
-- **Focus Terminal** - Jump directly to the iTerm2 tab running a session
-- **Dark Mode** - Cosmic harbor theme optimized for OLED displays
+- **Focus Terminal (⌘T)** - Jump directly to the iTerm2 tab running a session
+- **Cosmic Harbor Theme** - Dark theme optimized for OLED displays
+
+See [FEATURES.md](FEATURES.md) for the full feature list.
 
 ## Supported Providers
 
@@ -45,7 +55,7 @@ cd orbitdock
 node install.js
 ```
 
-The installer:
+The installer handles everything:
 - Installs npm dependencies
 - Configures Claude Code hooks in `~/.claude/settings.json`
 - Sets up the MCP server in `~/.claude/mcp.json`
@@ -57,13 +67,13 @@ Restart Claude Code (or start a new session) to activate the hooks.
 
 ### 3. Build and run the app
 
-Open `CommandCenter/CommandCenter.xcodeproj` in Xcode and build (⌘R).
+Open `CommandCenter/CommandCenter.xcodeproj` in Xcode and hit ⌘R.
 
-**Note:** Codex CLI support is automatic - no hook setup needed. OrbitDock watches `~/.codex/sessions/` using native FSEvents.
+**Note:** Codex CLI support is automatic—no hook setup needed. OrbitDock watches `~/.codex/sessions/` using native FSEvents.
 
-## Manual Installation (Alternative)
+## Manual Installation
 
-If you prefer manual setup:
+If you prefer doing things by hand:
 
 ```bash
 # 1. Install dependencies
@@ -76,19 +86,9 @@ npm install
 # See hooks/README.md for the full hook configuration
 ```
 
-## Database Migrations
-
-OrbitDock uses a migration system for schema management. Migrations live in `migrations/` as numbered SQL files.
-
-```bash
-./scripts/migrate.js status  # Check migration status
-./scripts/migrate.js         # Run pending migrations
-./scripts/migrate.js list    # List all migrations
-```
-
-Migrations run automatically when hooks execute or when the app starts.
-
 ## Architecture
+
+Here's how the pieces fit together:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -120,7 +120,7 @@ Migrations run automatically when hooks execute or when the app starts.
    └───────────────┘                       └───────────────────┘
 ```
 
-### Provider Integration Details
+### Provider Integration
 
 **Claude Code** uses JavaScript hooks configured in `~/.claude/settings.json`:
 - `session-start.js` / `session-end.js` - Lifecycle tracking
@@ -164,6 +164,18 @@ Migrations run automatically when hooks execute or when the app starts.
         └── Usage/          # Provider usage gauges
 ```
 
+## Database Migrations
+
+OrbitDock uses a migration system for schema changes. Migrations live in `migrations/` as numbered SQL files.
+
+```bash
+./scripts/migrate.js status  # Check migration status
+./scripts/migrate.js         # Run pending migrations
+./scripts/migrate.js list    # List all migrations
+```
+
+Migrations run automatically when hooks execute or when the app starts.
+
 ## Development
 
 ### Running tests
@@ -193,7 +205,7 @@ sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, work_status FROM sessions LIMIT 5;
 
 ## Permissions
 
-The app requires **Automation** permission to control iTerm2 for the "Focus" feature:
+The app needs **Automation** permission to control iTerm2 for the Focus feature:
 
 `System Settings → Privacy & Security → Automation → OrbitDock → iTerm`
 
@@ -204,7 +216,7 @@ The app requires **Automation** permission to control iTerm2 for the "Focus" fea
 - For Codex: Check that `~/.codex/sessions/` exists and has JSONL files
 
 **Usage data not loading?**
-- Claude: Ensure you're logged in (`claude login`)
+- Claude: Make sure you're logged in (`claude login`)
 - Codex: Check the app server is reachable
 
 **Hooks not firing?**
