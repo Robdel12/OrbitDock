@@ -2,13 +2,14 @@
 
 ## Project Overview
 
-OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. It monitors sessions from multiple providers (Claude Code, Codex CLI), displaying them as spacecraft docked at your cosmic harbor. Reads from a SQLite database populated by hooks (Claude) and native FSEvents watchers (Codex) with real-time session tracking.
+OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. It monitors sessions from multiple providers (Claude Code, Codex CLI), displaying them as spacecraft docked at your cosmic harbor. Reads from a SQLite database populated by a Swift CLI (Claude) and native FSEvents watchers (Codex) with real-time session tracking.
 
 ## Tech Stack
 
 - **SwiftUI** - macOS 14+ with NavigationSplitView
 - **SQLite.swift** - Database access via SPM package
-- **SQLite WAL mode** - Enables concurrent reads/writes from hooks
+- **SQLite WAL mode** - Enables concurrent reads/writes from CLI and app
+- **Swift Argument Parser** - CLI subcommands
 - **DispatchSource** - File system monitoring for live updates
 
 ## Key Patterns
@@ -20,7 +21,7 @@ OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. 
 ### Database Concurrency
 - All SQLite connections MUST use WAL mode: `PRAGMA journal_mode = WAL`
 - Set busy timeout: `PRAGMA busy_timeout = 5000`
-- This applies to both the Swift app AND all bash hooks
+- This applies to both the Swift app AND the CLI
 
 ### Animations
 - Use `.spring(response: 0.35, dampingFraction: 0.8)` for message animations
@@ -56,11 +57,37 @@ OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. 
 ## File Locations
 
 - **Database**: `~/.orbitdock/orbitdock.db` (separate from CLIs to survive reinstalls)
+- **CLI Logs**: `~/.orbitdock/cli.log` (debug output from orbitdock-cli)
 - **Migrations**: `migrations/` (numbered SQL files, e.g., `001_initial.sql`)
-- **Claude Hooks**: `hooks/` (JS files: session-start.js, session-end.js, status-tracker.js, tool-tracker.js)
+- **CLI Source**: `CommandCenter/OrbitDockCore/` (Swift Package with shared code + CLI)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
 - **Codex Watcher State**: `~/.orbitdock/codex-rollout-state.json` (offset tracking)
+
+## OrbitDockCore Package
+
+The CLI and shared database code live in a local Swift Package:
+
+```
+CommandCenter/OrbitDockCore/
+├── Package.swift
+└── Sources/
+    ├── OrbitDockCore/          # Shared library
+    │   ├── Database/           # CLIDatabase, SessionOperations, WorkstreamOperations
+    │   ├── Git/                # GitOperations (branch detection)
+    │   └── Models/             # Input structs, enums
+    └── OrbitDockCLI/           # CLI executable
+        ├── main.swift          # Entry point with ArgumentParser
+        └── Commands/           # SessionStart, SessionEnd, StatusTracker, ToolTracker
+```
+
+### CLI Commands
+- `orbitdock-cli session-start` - Creates session on SessionStart hook
+- `orbitdock-cli session-end` - Marks session ended on SessionEnd hook
+- `orbitdock-cli status-tracker` - Updates work_status on UserPromptSubmit/Stop/Notification
+- `orbitdock-cli tool-tracker` - Tracks tool usage on PreToolUse/PostToolUse
+
+All commands read JSON from stdin (provided by Claude Code hooks).
 
 ## Database Migrations
 
@@ -71,18 +98,11 @@ Schema changes use a migration system with version tracking.
 2. Write your SQL (CREATE TABLE, ALTER TABLE, etc.)
 3. Update `Session.swift` model if adding session fields
 4. Update `DatabaseManager.swift` column definitions and queries
-5. Update relevant hook in `lib/db.js` if hooks need to write the field
+5. Update `CLIDatabase.swift` if CLI needs to write the field
 
 Migrations run automatically when:
-- Hooks execute (`ensureSchema()` in `lib/db.js`)
-- Swift app starts (`MigrationManager` in `DatabaseManager.swift`)
-
-### Migration CLI
-```bash
-./scripts/migrate.js status  # Check current version
-./scripts/migrate.js         # Run pending migrations
-./scripts/migrate.js list    # List all migrations
-```
+- CLI executes (MigrationRunner in OrbitDockCore)
+- Swift app starts (MigrationManager in DatabaseManager.swift)
 
 ### Legacy database handling
 Existing databases without `schema_versions` table are automatically bootstrapped - migration 001 is marked as applied and any missing columns are added.
@@ -144,6 +164,13 @@ Key UI files:
 3. For Claude: Start a new Claude Code session to trigger hooks
 4. For Codex: Start a Codex session (or modify an existing rollout file)
 5. Verify data appears in OrbitDock
+
+### Testing CLI changes
+```bash
+cd CommandCenter/OrbitDockCore
+swift build
+echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start
+```
 
 ## Don't
 

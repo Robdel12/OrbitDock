@@ -26,6 +26,12 @@ struct SettingsView: View {
           icon: "bell.badge",
           isSelected: selectedTab == 1
         ) { selectedTab = 1 }
+
+        SettingsTabButton(
+          title: "Setup",
+          icon: "wrench.and.screwdriver",
+          isSelected: selectedTab == 2
+        ) { selectedTab = 2 }
       }
       .padding(.horizontal, 16)
       .padding(.top, 16)
@@ -36,15 +42,20 @@ struct SettingsView: View {
 
       // Content
       Group {
-        if selectedTab == 0 {
+        switch selectedTab {
+        case 0:
           GeneralSettingsView()
-        } else {
+        case 1:
           NotificationSettingsView()
+        case 2:
+          SetupSettingsView()
+        default:
+          GeneralSettingsView()
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .frame(width: 480, height: 340)
+    .frame(width: 520, height: 420)
     .background(Color.backgroundPrimary)
   }
 }
@@ -327,6 +338,178 @@ struct NotificationSettingsView: View {
     )
 
     UNUserNotificationCenter.current().add(request)
+  }
+}
+
+// MARK: - Setup Settings
+
+struct SetupSettingsView: View {
+  @State private var copied = false
+  @State private var hooksConfigured: Bool? = nil
+
+  private let cliPath = "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli"
+  private let settingsPath = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent(".claude/settings.json").path
+
+  var body: some View {
+    VStack(spacing: 20) {
+      // Claude Code section
+      SettingsSection(title: "CLAUDE CODE", icon: "terminal") {
+        VStack(alignment: .leading, spacing: 14) {
+          // Status row
+          HStack {
+            if let configured = hooksConfigured {
+              if configured {
+                Image(systemName: "checkmark.circle.fill")
+                  .foregroundStyle(Color.statusSuccess)
+                Text("Hooks configured")
+                  .font(.system(size: 13))
+              } else {
+                Image(systemName: "exclamationmark.circle.fill")
+                  .foregroundStyle(Color.statusPermission)
+                Text("Hooks not configured")
+                  .font(.system(size: 13))
+              }
+            } else {
+              ProgressView()
+                .controlSize(.small)
+              Text("Checking...")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+          }
+
+          Divider()
+            .foregroundStyle(Color.panelBorder)
+
+          // Instructions
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Add hooks to ~/.claude/settings.json:")
+              .font(.system(size: 12))
+              .foregroundStyle(.secondary)
+
+            HStack(spacing: 10) {
+              Button {
+                copyToClipboard()
+              } label: {
+                HStack(spacing: 6) {
+                  Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 12, weight: .medium))
+                  Text(copied ? "Copied!" : "Copy Hook Config")
+                    .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(copied ? Color.statusSuccess : .primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.accent.opacity(copied ? 0.2 : 1), in: RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(copied ? Color.statusSuccess : Color.backgroundPrimary)
+              }
+              .buttonStyle(.plain)
+
+              Button {
+                openSettingsFile()
+              } label: {
+                HStack(spacing: 6) {
+                  Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 11, weight: .medium))
+                  Text("Open File")
+                    .font(.system(size: 12, weight: .medium))
+                }
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6))
+              }
+              .buttonStyle(.plain)
+
+              Spacer()
+
+              Button {
+                checkHooksConfiguration()
+              } label: {
+                Image(systemName: "arrow.clockwise")
+                  .font(.system(size: 11, weight: .medium))
+                  .foregroundStyle(.secondary)
+              }
+              .buttonStyle(.plain)
+              .help("Check configuration")
+            }
+          }
+        }
+      }
+
+      // Codex section
+      SettingsSection(title: "CODEX CLI", icon: "sparkles") {
+        HStack {
+          Image(systemName: "checkmark.circle.fill")
+            .foregroundStyle(Color.statusSuccess)
+          Text("Automatic via FSEvents — no setup needed")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+          Spacer()
+        }
+      }
+
+      Spacer()
+    }
+    .padding(20)
+    .onAppear {
+      checkHooksConfiguration()
+    }
+  }
+
+  private func checkHooksConfiguration() {
+    hooksConfigured = nil
+    DispatchQueue.global(qos: .userInitiated).async {
+      let configured = isHooksConfigured()
+      DispatchQueue.main.async {
+        hooksConfigured = configured
+      }
+    }
+  }
+
+  private func isHooksConfigured() -> Bool {
+    guard FileManager.default.fileExists(atPath: settingsPath),
+          let data = FileManager.default.contents(atPath: settingsPath),
+          let content = String(data: data, encoding: .utf8) else {
+      return false
+    }
+    return content.contains("orbitdock-cli")
+  }
+
+  private func copyToClipboard() {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(hooksConfigJSON, forType: .string)
+    copied = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+      copied = false
+    }
+  }
+
+  private func openSettingsFile() {
+    // Create file if it doesn't exist
+    if !FileManager.default.fileExists(atPath: settingsPath) {
+      let dir = (settingsPath as NSString).deletingLastPathComponent
+      try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+      try? "{}".write(toFile: settingsPath, atomically: true, encoding: .utf8)
+    }
+    NSWorkspace.shared.open(URL(fileURLWithPath: settingsPath))
+  }
+
+  private var hooksConfigJSON: String {
+    """
+    "hooks": {
+      "SessionStart": [{"hooks": [{"type": "command", "command": "\(cliPath) session-start", "async": true}]}],
+      "SessionEnd": [{"hooks": [{"type": "command", "command": "\(cliPath) session-end", "async": true}]}],
+      "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
+      "Stop": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
+      "Notification": {"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]},
+      "PreToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
+      "PostToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
+      "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}]
+    }
+    """
   }
 }
 

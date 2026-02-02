@@ -109,6 +109,7 @@
 				80BCD0BC2F2C834F00D91F91 /* Sources */,
 				80BCD0BD2F2C834F00D91F91 /* Frameworks */,
 				80BCD0BE2F2C834F00D91F91 /* Resources */,
+				80BCD8502F30590000D91F91 /* Build & Embed CLI */,
 			);
 			buildRules = (
 			);
@@ -207,6 +208,7 @@
 			packageReferences = (
 				80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */,
 				80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80BCD0C12F2C834F00D91F91 /* Products */;
@@ -219,6 +221,28 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		80BCD8502F30590000D91F91 /* Build & Embed CLI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build & Embed CLI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"${SRCROOT}/Scripts/build-cli.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
 		80BCD0BE2F2C834F00D91F91 /* Resources */ = {
@@ -321,7 +345,7 @@
 				DEVELOPMENT_TEAM = 8KA99UGE8N;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -387,7 +411,7 @@
 				DEVELOPMENT_TEAM = 8KA99UGE8N;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -600,6 +624,13 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = OrbitDockCore;
+		};
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
 		80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */ = {

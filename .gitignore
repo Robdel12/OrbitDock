@@ -1,10 +1,13 @@
-node_modules/
 .test-workstreams/
 *.db
 *.db-wal
 *.db-shm
 
-# Xcode user data
+# Xcode
 *.xcworkspace/
 xcuserdata/
 .claude/
+
+# Swift Package Manager
+.build/
+.swiftpm/

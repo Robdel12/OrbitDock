@@ -33,13 +33,12 @@ See [FEATURES.md](FEATURES.md) for the full feature list.
 
 | Provider | Session Tracking | Usage Monitoring | Notes |
 |----------|-----------------|------------------|-------|
-| **Claude Code** | Hooks (JS) | OAuth API | Full support via lifecycle hooks |
+| **Claude Code** | Swift CLI hooks | OAuth API | Full support via lifecycle hooks |
 | **Codex CLI** | Native FSEvents | App Server API | Watches `~/.codex/sessions/` rollouts |
 
 ## Requirements
 
 - macOS 14.0+
-- Node.js 18+
 - Xcode 15+ (for building from source)
 - At least one CLI installed:
   - Claude Code: `npm install -g @anthropic-ai/claude-code`
@@ -47,48 +46,46 @@ See [FEATURES.md](FEATURES.md) for the full feature list.
 
 ## Quick Start
 
-### 1. Clone and install
+### Option 1: Download Release
+
+1. Download the latest `.dmg` from [Releases](https://github.com/your-username/orbitdock/releases)
+2. Drag `OrbitDock.app` to `/Applications`
+3. Open the app and go to **Settings → Setup**
+4. Copy the hook configuration and add it to `~/.claude/settings.json`
+5. Restart Claude Code to activate hooks
+
+### Option 2: Build from Source
 
 ```bash
 git clone https://github.com/your-username/orbitdock.git
 cd orbitdock
-node install.js
+open CommandCenter/CommandCenter.xcodeproj
 ```
 
-The installer handles everything:
-- Installs npm dependencies
-- Configures Claude Code hooks in `~/.claude/settings.json`
-- Sets up the MCP server in `~/.claude/mcp.json`
-- Creates the database at `~/.orbitdock/orbitdock.db`
-
-### 2. Restart your CLI
-
-Restart Claude Code (or start a new session) to activate the hooks.
-
-### 3. Build and run the app
-
-Open `CommandCenter/CommandCenter.xcodeproj` in Xcode and hit ⌘R.
+Build and run with ⌘R. The CLI is automatically embedded in the app bundle.
 
 **Note:** Codex CLI support is automatic—no hook setup needed. OrbitDock watches `~/.codex/sessions/` using native FSEvents.
 
-## Manual Installation
+## Hook Configuration
 
-If you prefer doing things by hand:
+Add to `~/.claude/settings.json`:
 
-```bash
-# 1. Install dependencies
-npm install
-
-# 2. Run database migrations
-./scripts/migrate.js
-
-# 3. Add hooks to ~/.claude/settings.json manually
-# See hooks/README.md for the full hook configuration
+```json
+{
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli session-start", "async": true}]}],
+    "SessionEnd": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli session-end", "async": true}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}],
+    "Notification": [{"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker", "async": true}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker", "async": true}]}],
+    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker", "async": true}]}]
+  }
+}
 ```
 
 ## Architecture
-
-Here's how the pieces fit together:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -115,17 +112,17 @@ Here's how the pieces fit together:
            │                                         │
    ┌───────┴───────┐                       ┌─────────┴─────────┐
    │  Claude Code  │                       │    Codex CLI      │
-   │    Hooks      │                       │  FSEvents Watcher │
-   │     (JS)      │                       │     (Swift)       │
+   │   Swift CLI   │                       │  FSEvents Watcher │
+   │  (embedded)   │                       │     (Swift)       │
    └───────────────┘                       └───────────────────┘
 ```
 
 ### Provider Integration
 
-**Claude Code** uses JavaScript hooks configured in `~/.claude/settings.json`:
-- `session-start.js` / `session-end.js` - Lifecycle tracking
-- `status-tracker.js` - Work status and attention states
-- `tool-tracker.js` - Tool usage analytics
+**Claude Code** uses a Swift CLI embedded in the app bundle:
+- `orbitdock-cli session-start/end` - Lifecycle tracking
+- `orbitdock-cli status-tracker` - Work status and attention states
+- `orbitdock-cli tool-tracker` - Tool usage analytics
 
 **Codex CLI** uses native FSEvents watching:
 - Watches `~/.codex/sessions/` for rollout JSONL files
@@ -135,53 +132,43 @@ Here's how the pieces fit together:
 ## Project Structure
 
 ```
-├── install.js               # One-command installer
 ├── migrations/              # Database migrations (SQL)
-├── lib/                     # Shared JS libraries
-│   ├── db.js               # Database operations
-│   ├── migrate.js          # Migration runner
-│   ├── workstream.js       # Workstream logic
-│   └── git.js              # Git utilities
-├── hooks/                   # Claude Code hooks (JS)
-│   ├── session-start.js    # Session lifecycle
-│   ├── session-end.js
-│   ├── status-tracker.js   # Work status tracking
-│   ├── tool-tracker.js     # Tool usage
-│   └── codex-notify.js     # Codex turn-complete hook
-├── scripts/
-│   └── migrate.js          # Migration CLI
-├── mcp-server/             # MCP server for workstreams
-└── CommandCenter/          # SwiftUI macOS app
-    ├── Models/
-    │   ├── Provider.swift  # Multi-provider enum
-    │   └── Session.swift   # Unified session model
-    ├── Services/
-    │   ├── UsageServiceRegistry.swift     # Coordinates all providers
-    │   ├── SubscriptionUsageService.swift # Claude usage API
-    │   ├── CodexUsageService.swift        # Codex usage API
-    │   └── CodexRolloutWatcher.swift      # Native FSEvents watcher
-    └── Views/
-        └── Usage/          # Provider usage gauges
+└── CommandCenter/          # Xcode project
+    ├── OrbitDockCore/      # Shared Swift package
+    │   └── Sources/
+    │       ├── OrbitDockCore/    # Database, Git, Models
+    │       └── OrbitDockCLI/     # CLI hook handler
+    └── CommandCenter/      # SwiftUI macOS app
+        ├── Models/
+        │   ├── Provider.swift    # Multi-provider enum
+        │   └── Session.swift     # Unified session model
+        ├── Services/
+        │   ├── UsageServiceRegistry.swift     # Coordinates all providers
+        │   ├── SubscriptionUsageService.swift # Claude usage API
+        │   ├── CodexUsageService.swift        # Codex usage API
+        │   └── CodexRolloutWatcher.swift      # Native FSEvents watcher
+        └── Views/
+            └── Usage/          # Provider usage gauges
 ```
-
-## Database Migrations
-
-OrbitDock uses a migration system for schema changes. Migrations live in `migrations/` as numbered SQL files.
-
-```bash
-./scripts/migrate.js status  # Check migration status
-./scripts/migrate.js         # Run pending migrations
-./scripts/migrate.js list    # List all migrations
-```
-
-Migrations run automatically when hooks execute or when the app starts.
 
 ## Development
 
-### Running tests
+### Building the CLI standalone
 
 ```bash
-npm test
+cd CommandCenter/OrbitDockCore
+swift build
+.build/debug/orbitdock-cli --help
+```
+
+### Debugging
+
+```bash
+# Check CLI logs
+tail -f ~/.orbitdock/cli.log
+
+# Check database directly
+sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, work_status FROM sessions LIMIT 5;"
 ```
 
 ### Environment variables
@@ -189,19 +176,8 @@ npm test
 | Variable | Description |
 |----------|-------------|
 | `ORBITDOCK_DB_PATH` | Override database path (for testing) |
-| `ORBITDOCK_DEBUG` | Enable debug logging in hooks |
 | `ORBITDOCK_DISABLE_CODEX_WATCHER` | Disable the Codex FSEvents watcher |
 | `ORBITDOCK_CODEX_WATCHER_DEBUG` | Verbose logging for Codex watcher |
-
-### Debugging hooks
-
-```bash
-# Watch hook logs
-tail -f ~/.orbitdock/hooks.log
-
-# Check database directly
-sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, work_status FROM sessions LIMIT 5;"
-```
 
 ## Permissions
 
@@ -212,7 +188,7 @@ The app needs **Automation** permission to control iTerm2 for the Focus feature:
 ## Troubleshooting
 
 **Sessions not appearing?**
-- For Claude Code: Restart the CLI after installing hooks
+- For Claude Code: Restart the CLI after configuring hooks
 - For Codex: Check that `~/.codex/sessions/` exists and has JSONL files
 
 **Usage data not loading?**
@@ -220,8 +196,8 @@ The app needs **Automation** permission to control iTerm2 for the Focus feature:
 - Codex: Check the app server is reachable
 
 **Hooks not firing?**
-- Run `ORBITDOCK_DEBUG=1 claude` to see hook output
-- Check `~/.orbitdock/hooks.log` for errors
+- Check `~/.orbitdock/cli.log` for errors
+- Verify the CLI path in settings.json matches your app location
 
 ## License
 
