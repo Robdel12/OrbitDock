@@ -3,10 +3,19 @@ import { describe, it, beforeEach, afterEach } from 'node:test'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import Database from 'better-sqlite3'
 import { ensureSchema, getSession, upsertSession } from '../lib/db.js'
 
 let __dirname = dirname(fileURLToPath(import.meta.url))
+
+// Create temp directory for test databases
+let testDir = mkdtempSync(join(tmpdir(), 'orbitdock-test-'))
+let testDbPath = join(testDir, 'test.db')
+
+// Set env var so hooks use the test DB
+process.env.ORBITDOCK_DB_PATH = testDbPath
 
 // Helper to run a hook with JSON input
 let runHook = (hookName, input) => {
@@ -14,7 +23,11 @@ let runHook = (hookName, input) => {
     let hookPath = join(__dirname, `${hookName}.js`)
     let proc = spawn('node', [hookPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ORBITDOCK_DEBUG: '1' },
+      env: {
+        ...process.env,
+        ORBITDOCK_DEBUG: '1',
+        ORBITDOCK_DB_PATH: testDbPath, // Ensure spawned process uses test DB
+      },
     })
 
     let stdout = ''
@@ -38,8 +51,6 @@ let runHook = (hookName, input) => {
   })
 }
 
-// Use in-memory DB for tests
-let testDbPath = ':memory:'
 let db
 
 describe('status-tracker hook', () => {
@@ -230,6 +241,35 @@ describe('session-end hook', () => {
     let result = await runHook('session-end', {
       session_id: 'ending-session-102',
       cwd: '/test/project',
+    })
+
+    assert.strictEqual(result.code, 0)
+  })
+})
+
+describe('codex-notify hook', () => {
+  it('handles notify payload with session_id', async () => {
+    let result = await runHook('codex-notify', {
+      session_id: 'codex-session-123',
+      event: 'agent-turn-complete'
+    })
+
+    assert.strictEqual(result.code, 0)
+  })
+
+  it('handles notify payload with conversation_id', async () => {
+    let result = await runHook('codex-notify', {
+      conversation_id: 'codex-session-456',
+      event: 'agent-turn-complete'
+    })
+
+    assert.strictEqual(result.code, 0)
+  })
+
+  it('handles notify payload with thread-id', async () => {
+    let result = await runHook('codex-notify', {
+      'thread-id': 'codex-session-789',
+      event: 'agent-turn-complete'
     })
 
     assert.strictEqual(result.code, 0)

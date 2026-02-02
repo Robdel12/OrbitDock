@@ -2,7 +2,7 @@
 //  ActiveSessionsSection.swift
 //  OrbitDock
 //
-//  Flat list of all active sessions, sorted by start time (stable order)
+//  Flat list of all active sessions, sorted by start time (newest first)
 //
 
 import SwiftUI
@@ -11,11 +11,11 @@ struct ActiveSessionsSection: View {
   let sessions: [Session]
   let onSelectSession: (String) -> Void
 
-  /// All active sessions sorted by start time (oldest first = stable order)
+  /// All active sessions sorted by start time (newest first)
   private var activeSessions: [Session] {
     sessions
       .filter(\.isActive)
-      .sorted { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }
+      .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
   }
 
   /// Count by status for header display

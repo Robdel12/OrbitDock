@@ -50,6 +50,7 @@ class DatabaseManager {
   private let pendingToolName = SQLite.Expression<String?>("pending_tool_name")
   private let pendingToolInput = SQLite.Expression<String?>("pending_tool_input")
   private let pendingQuestion = SQLite.Expression<String?>("pending_question")
+  private let sessionProvider = SQLite.Expression<String?>("provider")
 
   // Activity columns
   private let activityId = SQLite.Expression<Int>("id")
@@ -242,6 +243,16 @@ class DatabaseManager {
           }
         }()
 
+        // Parse provider with fallback to claude
+        let providerValue: Provider = {
+          if let providerStr = try? row.get(sessionProvider),
+             let provider = Provider(rawValue: providerStr)
+          {
+            return provider
+          }
+          return .claude
+        }()
+
         return Session(
           id: row[id],
           projectPath: row[projectPath],
@@ -270,7 +281,8 @@ class DatabaseManager {
           attentionReason: attentionReasonValue,
           pendingToolName: (try? row.get(pendingToolName)) ?? nil,
           pendingToolInput: (try? row.get(pendingToolInput)) ?? nil,
-          pendingQuestion: (try? row.get(pendingQuestion)) ?? nil
+          pendingQuestion: (try? row.get(pendingQuestion)) ?? nil,
+          provider: providerValue
         )
       }
     } catch {
@@ -281,6 +293,48 @@ class DatabaseManager {
 
   func updateContextLabel(sessionId: String, label: String?) {
     updateCustomName(sessionId: sessionId, name: label)
+  }
+
+  /// Manually end a session (close it from the UI)
+  func endSession(sessionId: String) {
+    guard let db else { return }
+
+    // First, get the session to check for workstream
+    let sessionRow = try? db.pluck(sessions.filter(id == sessionId))
+    let linkedWorkstreamId = sessionRow.flatMap { try? $0.get(sessionWorkstreamId) }
+
+    let session = sessions.filter(id == sessionId)
+    let now = formatDate(Date())
+
+    do {
+      // End the session
+      try db.run(session.update(
+        status <- "ended",
+        endedAt <- now,
+        endReason <- "manual",
+        workStatus <- "unknown",
+        attentionReason <- Session.AttentionReason.none.rawValue,
+        pendingToolName <- nil as String?,
+        pendingToolInput <- nil as String?,
+        pendingQuestion <- nil as String?
+      ))
+
+      // Update linked workstream's lastActivityAt (matches hook behavior)
+      if let wsId = linkedWorkstreamId {
+        let ws = workstreams.filter(workstreamId == wsId)
+        try db.run(ws.update(
+          workstreamLastActivityAt <- now,
+          workstreamUpdatedAt <- now
+        ))
+      }
+
+      // Notify views to refresh
+      DispatchQueue.main.async {
+        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+      }
+    } catch {
+      print("Failed to end session: \(error)")
+    }
   }
 
   func updateCustomName(sessionId: String, name: String?) {
@@ -350,84 +404,96 @@ class DatabaseManager {
     return false
   }
 
-  /// Ensure the database has the required columns (migration)
+  /// Ensure the database schema is up to date
   func ensureSchema() {
     guard let db else { return }
 
-    // Add summary column if it doesn't exist
-    if !columnExists("summary", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN summary TEXT")
-      } catch {
-        print("Failed to add summary column: \(error)")
+    let migrationManager = MigrationManager(db: db)
+
+    // Check if this is a pre-migration database (has tables but no schema_versions)
+    let isLegacyDatabase = tableExists("sessions") && !tableExists("schema_versions")
+
+    if isLegacyDatabase {
+      // Bootstrap: mark migration 001 as applied since schema already exists
+      // Then apply any missing columns that 001 would have created
+      bootstrapLegacyDatabase(migrationManager: migrationManager)
+    }
+
+    // Run any pending migrations
+    let applied = migrationManager.migrate()
+    if !applied.isEmpty {
+      print("Applied \(applied.count) migration(s): \(applied.map(\.name).joined(separator: ", "))")
+    }
+
+    let status = migrationManager.getStatus()
+    if status.pending > 0 {
+      print("Warning: \(status.pending) pending migration(s) could not be applied")
+    }
+  }
+
+  /// Bootstrap a legacy database that existed before the migration system
+  private func bootstrapLegacyDatabase(migrationManager: MigrationManager) {
+    guard let db else { return }
+
+    print("Bootstrapping legacy database to migration system...")
+
+    // Create the schema_versions table
+    do {
+      try db.execute("""
+        CREATE TABLE IF NOT EXISTS schema_versions (
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        )
+      """)
+
+      // Mark migration 001 as applied (the schema already exists)
+      let now = ISO8601DateFormatter().string(from: Date())
+      try db.run(
+        "INSERT OR IGNORE INTO schema_versions (version, name, applied_at) VALUES (?, ?, ?)",
+        1, "initial", now
+      )
+
+      print("Marked migration 001_initial as applied (legacy bootstrap)")
+    } catch {
+      print("Failed to bootstrap legacy database: \(error)")
+    }
+
+    // Add any columns that might be missing from older versions
+    // This handles databases created before certain columns were added
+    addMissingColumnsForLegacy()
+  }
+
+  /// Add columns that might be missing from very old databases
+  private func addMissingColumnsForLegacy() {
+    guard let db else { return }
+
+    // Sessions table columns added over time
+    let sessionColumns: [(String, String)] = [
+      ("summary", "TEXT"),
+      ("custom_name", "TEXT"),
+      ("first_prompt", "TEXT"),
+      ("attention_reason", "TEXT"),
+      ("pending_tool_name", "TEXT"),
+      ("pending_tool_input", "TEXT"),
+      ("pending_question", "TEXT"),
+      ("workstream_id", "TEXT REFERENCES workstreams(id)"),
+      ("provider", "TEXT DEFAULT 'claude'"),
+      ("end_reason", "TEXT"),
+    ]
+
+    for (column, type) in sessionColumns {
+      if !columnExists(column, in: "sessions") {
+        do {
+          try db.run("ALTER TABLE sessions ADD COLUMN \(column) \(type)")
+        } catch {
+          // Column might already exist or table doesn't exist yet
+        }
       }
     }
 
-    // Add custom_name column if it doesn't exist
-    if !columnExists("custom_name", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN custom_name TEXT")
-      } catch {
-        print("Failed to add custom_name column: \(error)")
-      }
-    }
-
-    // Add first_prompt column if it doesn't exist
-    if !columnExists("first_prompt", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN first_prompt TEXT")
-      } catch {
-        print("Failed to add first_prompt column: \(error)")
-      }
-    }
-
-    // Add attention_reason column if it doesn't exist
-    if !columnExists("attention_reason", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN attention_reason TEXT")
-      } catch {
-        print("Failed to add attention_reason column: \(error)")
-      }
-    }
-
-    // Add pending_tool_name column if it doesn't exist
-    if !columnExists("pending_tool_name", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN pending_tool_name TEXT")
-      } catch {
-        print("Failed to add pending_tool_name column: \(error)")
-      }
-    }
-
-    // Add pending_tool_input column if it doesn't exist (JSON string for rich permission display)
-    if !columnExists("pending_tool_input", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN pending_tool_input TEXT")
-      } catch {
-        print("Failed to add pending_tool_input column: \(error)")
-      }
-    }
-
-    // Add pending_question column if it doesn't exist
-    if !columnExists("pending_question", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN pending_question TEXT")
-      } catch {
-        print("Failed to add pending_question column: \(error)")
-      }
-    }
-
-    // Add workstream_id to sessions
-    if !columnExists("workstream_id", in: "sessions") {
-      do {
-        try db.run("ALTER TABLE sessions ADD COLUMN workstream_id TEXT REFERENCES workstreams(id)")
-      } catch {
-        print("Failed to add workstream_id column: \(error)")
-      }
-    }
-
-    // Add state flags to workstreams
-    let flagColumns = [
+    // Workstream state flags
+    let workstreamFlags: [(String, String)] = [
       ("is_working", "INTEGER DEFAULT 1"),
       ("has_open_pr", "INTEGER DEFAULT 0"),
       ("in_review", "INTEGER DEFAULT 0"),
@@ -435,26 +501,21 @@ class DatabaseManager {
       ("is_merged", "INTEGER DEFAULT 0"),
       ("is_closed", "INTEGER DEFAULT 0"),
     ]
-    for (column, type) in flagColumns {
-      if !columnExists(column, in: "workstreams") {
+
+    for (column, type) in workstreamFlags {
+      if tableExists("workstreams"), !columnExists(column, in: "workstreams") {
         do {
           try db.run("ALTER TABLE workstreams ADD COLUMN \(column) \(type)")
         } catch {
-          print("Failed to add \(column) column: \(error)")
+          // Column might already exist
         }
       }
     }
 
-    // Create repos table
+    // Ensure dependent tables exist (for very old databases)
     createReposTable()
-
-    // Create workstreams table
     createWorkstreamsTable()
-
-    // Create projects table
     createProjectsTable()
-
-    // Create project_workstreams junction table
     createProjectWorkstreamsTable()
   }
 
@@ -854,7 +915,7 @@ class DatabaseManager {
   ) {
     guard let db else { return }
 
-    let now = dateFormatter.string(from: Date())
+    let now = formatDate(Date())
     let id = UUID().uuidString.lowercased()
 
     do {
@@ -910,7 +971,7 @@ class DatabaseManager {
   func addNote(to workstreamId: String, sessionId: String? = nil, type: WorkstreamNote.NoteType, content: String) {
     guard let db else { return }
 
-    let now = dateFormatter.string(from: Date())
+    let now = formatDate(Date())
     let id = UUID().uuidString.lowercased()
 
     do {
@@ -930,7 +991,7 @@ class DatabaseManager {
   func resolveNote(noteId: String) {
     guard let db else { return }
 
-    let now = dateFormatter.string(from: Date())
+    let now = formatDate(Date())
     let note = workstreamNotes.filter(self.noteId == noteId)
 
     do {

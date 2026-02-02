@@ -23,7 +23,8 @@ struct QuickCommand: Identifiable {
     onRename: @escaping (Session) -> Void,
     onFocus: @escaping (Session) -> Void,
     onOpenFinder: @escaping (Session) -> Void,
-    onCopyResume: @escaping (Session) -> Void
+    onCopyResume: @escaping (Session) -> Void,
+    onClose: @escaping (Session) -> Void
   ) -> [QuickCommand] {
     [
       QuickCommand(
@@ -57,6 +58,14 @@ struct QuickCommand: Identifiable {
         shortcut: nil,
         requiresSession: true,
         action: { session in if let s = session { onCopyResume(s) } }
+      ),
+      QuickCommand(
+        id: "close",
+        name: "Close Session",
+        icon: "xmark.circle",
+        shortcut: nil,
+        requiresSession: true,
+        action: { session in if let s = session { onClose(s) } }
       ),
     ]
   }
@@ -131,6 +140,10 @@ struct QuickSwitcher: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
         onClose()
+      },
+      onClose: { [self] session in
+        database.endSession(sessionId: session.id)
+        onClose()
       }
     )
 
@@ -155,11 +168,11 @@ struct QuickSwitcher: View {
     }
   }
 
-  /// All active sessions sorted by start time (stable order, matches dashboard)
+  /// All active sessions sorted by start time (newest first)
   private var activeSessions: [Session] {
     filteredSessions
       .filter(\.isActive)
-      .sorted { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }
+      .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
   }
 
   /// Recent ended sessions
@@ -655,11 +668,19 @@ struct QuickSwitcher: View {
               NSPasteboard.general.setString(command, forType: .string)
               onClose()
             }
+
+            // Close session (only for active sessions)
+            if session.isActive {
+              actionButton(icon: "xmark.circle", tooltip: "Close Session") {
+                database.endSession(sessionId: session.id)
+                onClose()
+              }
+            }
           }
           .transition(.opacity.combined(with: .scale(scale: 0.9)))
         } else {
-          // Model badge (shown when not highlighted)
-          ModelBadgeMini(model: session.model)
+          // Provider + Model badge (shown when not highlighted)
+          ModelBadgeMini(model: session.model, provider: session.provider)
         }
       }
       .padding(.horizontal, 16)
