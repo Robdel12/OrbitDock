@@ -186,32 +186,75 @@ extension CLIDatabase {
     static let inboxStatus = SQLite.Expression<String?>("status")
 }
 
-// MARK: - Inbox Operations
+// MARK: - Quest Link Operations
 
 extension CLIDatabase {
-    /// Capture a detected link to the inbox
+    static let questSessions = Table("quest_sessions")
+    static let questLinks = Table("quest_links")
+
+    // Quest session columns
+    static let qsQuestId = SQLite.Expression<String>("quest_id")
+    static let qsSessionId = SQLite.Expression<String>("session_id")
+
+    // Quest link columns
+    static let qlId = SQLite.Expression<String>("id")
+    static let qlQuestId = SQLite.Expression<String>("quest_id")
+    static let qlSource = SQLite.Expression<String>("source")
+    static let qlUrl = SQLite.Expression<String>("url")
+    static let qlTitle = SQLite.Expression<String?>("title")
+    static let qlExternalId = SQLite.Expression<String?>("external_id")
+    static let qlDetectedFrom = SQLite.Expression<String?>("detected_from")
+    static let qlCreatedAt = SQLite.Expression<String?>("created_at")
+
+    /// Get the quest ID linked to a session (if any)
+    public func getQuestIdForSession(sessionId: String) -> String? {
+        do {
+            let query = Self.questSessions
+                .filter(Self.qsSessionId == sessionId)
+                .select(Self.qsQuestId)
+            if let row = try connection.pluck(query) {
+                return row[Self.qsQuestId]
+            }
+        } catch {
+            logToFile("[Quest] Failed to get quest for session: \(error.localizedDescription)")
+        }
+        return nil
+    }
+
+    /// Add a detected link to a quest
     /// - Parameters:
-    ///   - content: The content/description (e.g., "PR #123: Add new feature")
-    ///   - source: Where it was detected from (e.g., "cli_detected")
-    ///   - sessionId: The session that generated this link
-    /// - Returns: The created inbox item ID, or nil if failed
+    ///   - questId: The quest to link to
+    ///   - source: Link type (e.g., "github_pr", "github_issue")
+    ///   - url: The URL
+    ///   - title: Optional title
+    ///   - externalId: Optional external ID (e.g., "#123")
+    /// - Returns: The created link ID, or nil if failed
     @discardableResult
-    public func captureToInbox(content: String, source: String, sessionId: String?) -> String? {
-        let itemId = UUID().uuidString
+    public func addQuestLink(
+        questId: String,
+        source: String,
+        url: String,
+        title: String?,
+        externalId: String?
+    ) -> String? {
+        let linkId = UUID().uuidString
         let now = Self.formatDate()
 
         do {
-            try connection.run(Self.inboxItems.insert(
-                Self.inboxId <- itemId,
-                Self.inboxContent <- content,
-                Self.inboxSource <- source,
-                Self.inboxSessionId <- sessionId,
-                Self.inboxCreatedAt <- now,
-                Self.inboxStatus <- "pending"
+            try connection.run(Self.questLinks.insert(
+                or: .ignore,  // Ignore if duplicate (quest_id, url)
+                Self.qlId <- linkId,
+                Self.qlQuestId <- questId,
+                Self.qlSource <- source,
+                Self.qlUrl <- url,
+                Self.qlTitle <- title,
+                Self.qlExternalId <- externalId,
+                Self.qlDetectedFrom <- "cli_output",
+                Self.qlCreatedAt <- now
             ))
-            return itemId
+            return linkId
         } catch {
-            logToFile("[Inbox] Failed to capture: \(error.localizedDescription)")
+            logToFile("[Quest] Failed to add link: \(error.localizedDescription)")
             return nil
         }
     }

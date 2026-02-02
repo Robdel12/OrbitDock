@@ -73,21 +73,30 @@ CommandCenter/OrbitDockCore/
 ├── Package.swift
 └── Sources/
     ├── OrbitDockCore/          # Shared library
-    │   ├── Database/           # CLIDatabase, SessionOperations, WorkstreamOperations
+    │   ├── Database/           # CLIDatabase, SessionOperations (includes migrations)
     │   ├── Git/                # GitOperations (branch detection)
     │   └── Models/             # Input structs, enums
     └── OrbitDockCLI/           # CLI executable
-        ├── main.swift          # Entry point with ArgumentParser
-        └── Commands/           # SessionStart, SessionEnd, StatusTracker, ToolTracker
+        ├── CLI.swift           # Entry point with ArgumentParser
+        └── Commands/
+            ├── SessionStartCommand.swift
+            ├── SessionEndCommand.swift
+            ├── StatusTrackerCommand.swift
+            ├── ToolTrackerCommand.swift
+            └── SubagentTrackerCommand.swift
 ```
 
 ### CLI Commands
-- `orbitdock-cli session-start` - Creates session on SessionStart hook
-- `orbitdock-cli session-end` - Marks session ended on SessionEnd hook
-- `orbitdock-cli status-tracker` - Updates work_status on UserPromptSubmit/Stop/Notification
-- `orbitdock-cli tool-tracker` - Tracks tool usage on PreToolUse/PostToolUse
+| Command | Hooks Handled | Purpose |
+|---------|---------------|---------|
+| `session-start` | SessionStart | Create session, capture model/source/permission_mode/agent_type |
+| `session-end` | SessionEnd | Mark session ended with reason |
+| `status-tracker` | UserPromptSubmit, Stop, Notification, PreCompact | Status transitions, first_prompt, compaction tracking |
+| `tool-tracker` | PreToolUse, PostToolUse, PostToolUseFailure | Tool usage, permission state clearing |
+| `subagent-tracker` | SubagentStart, SubagentStop | Track spawned agents (Explore, Plan, etc.) |
 
 All commands read JSON from stdin (provided by Claude Code hooks).
+All commands log to `~/.orbitdock/cli.log` for debugging.
 
 ## Database Migrations
 

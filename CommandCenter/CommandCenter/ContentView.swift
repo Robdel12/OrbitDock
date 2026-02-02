@@ -313,11 +313,14 @@ struct ContentView: View {
   private func setupEventSubscription() {
     eventSubscription = EventBus.shared.sessionUpdated
       .receive(on: DispatchQueue.main)
-      .sink { _ in
+      .sink { [database] _ in
         loadSessions()
+        database.refreshQuestState()
+        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
       }
 
     database.onDatabaseChanged = {
+      // File monitor detected change - trigger EventBus which handles refresh
       EventBus.shared.notifyDatabaseChanged()
     }
   }

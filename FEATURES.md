@@ -15,7 +15,7 @@ A quick rundown of everything OrbitDock can do.
 - **Active sessions view** - All running sessions at a glance
 - **Session history** - Browse ended sessions by project
 - **Command bar** - Today's stats, usage gauges, model distribution
-- **Workstreams tab** - Feature branch tracking with stages
+- **Quests tab** - Flexible work containers with linked sessions
 - **Keyboard navigation** - Arrow keys + Emacs bindings (C-n, C-p)
 
 ## Conversation View
@@ -34,13 +34,13 @@ A quick rundown of everything OrbitDock can do.
 - **Inline actions** - Focus terminal, rename, copy resume command
 - **Recent sessions** - Quick access to recently ended work
 
-## Workstream Tracking
+## Quest System
 
-- **Automatic grouping** - Sessions grouped by git branch
-- **Stage progression** - Working → PR Open → In Review → Approved → Merged
-- **Issue integration** - Linear and GitHub issue links
-- **PR tracking** - State, review approvals, diff stats
-- **Archive support** - Hide completed workstreams
+- **Flexible work containers** - Group sessions, PRs, and issues however you want
+- **Global inbox** - Quick capture ideas and notes, attach later
+- **High-confidence links** - Only captures created PRs/issues (no false positives)
+- **QuickSwitcher commands** - Create quests, capture to inbox, link sessions
+- **Status tracking** - Active, Paused, Completed states
 
 ## Usage Monitoring
 

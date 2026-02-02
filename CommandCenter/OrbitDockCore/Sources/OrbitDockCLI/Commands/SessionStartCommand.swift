@@ -18,6 +18,8 @@ struct SessionStartCommand: ParsableCommand {
             throw CLIError.invalidInput("Missing cwd")
         }
 
+        log("[SessionStart] source=\(input.source ?? "unknown") model=\(input.model ?? "unknown") session=\(input.session_id.prefix(8))")
+
         let db = try CLIDatabase()
 
         // Clean up stale sessions from this terminal
@@ -28,22 +30,7 @@ struct SessionStartCommand: ParsableCommand {
 
         // Get git info
         let branch = GitOperations.getCurrentBranch(in: input.cwd)
-        let repoRoot = GitOperations.getRepoRoot(in: input.cwd)
         let repoName = GitOperations.getRepoName(in: input.cwd)
-        let github = GitOperations.getGitHubRemote(in: input.cwd)
-
-        // Get or create workstream (returns nil for main/master)
-        var workstream: WorkstreamRow? = nil
-        if let branch = branch, GitOperations.isFeatureBranch(in: input.cwd) {
-            workstream = try db.getOrCreateWorkstream(
-                projectPath: input.cwd,
-                branch: branch,
-                repoRoot: repoRoot,
-                repoName: repoName,
-                githubOwner: github?.owner,
-                githubName: github?.name
-            )
-        }
 
         // Upsert session
         try db.upsertSession(
@@ -57,14 +44,20 @@ struct SessionStartCommand: ParsableCommand {
             status: "active",
             workStatus: "unknown",
             startedAt: CLIDatabase.formatDate(),
-            workstreamId: workstream?.id,
             terminalSessionId: terminalId,
             terminalApp: getTerminalApp()
         )
 
-        // Update workstream stats
-        if let ws = workstream {
-            try db.updateWorkstreamActivity(id: ws.id, incrementSessionCount: true)
+        // Update with additional hook data (source, agent_type, permission_mode)
+        try db.updateSession(
+            id: input.session_id,
+            source: input.source,
+            agentType: input.agent_type,
+            permissionMode: input.permission_mode
+        )
+
+        if let agentType = input.agent_type {
+            log("  → agent_type=\(agentType)")
         }
 
         // Notify the app

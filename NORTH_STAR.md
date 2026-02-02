@@ -18,52 +18,62 @@ The work happens in fragments. The organization lives in your head.
 OrbitDock is **mission control for AI-assisted product development**. It's where you:
 
 1. **See all your agents** - Claude Code, Codex CLI, all in one place
-2. **Manage workstreams** - Multi-week projects that span tickets, branches, and conversations
+2. **Manage quests** - Flexible work containers that span tickets, branches, and conversations
 3. **Preserve context** - Decisions, pivots, blockers persist across sessions
-4. **Connect the dots** - Linear tickets ↔ GitHub PRs ↔ AI sessions ↔ your intent
+4. **Connect the dots** - Linear tickets, GitHub PRs, AI sessions, your intent
 5. **Track rate limits** - Monitor usage across all providers
 
 ## Core Concepts
 
-### Workstream
-A workstream is a **body of work**, not just a branch. It might be:
+### Quest
+A quest is a **flexible work container** you define. It might be:
 - "State machine refactor" (weeks long, multiple tickets, several pivots)
 - "Add OAuth support" (spans design, implementation, testing)
 - "Performance optimization sprint" (exploration, profiling, fixes)
 
-A workstream has:
-- **Linked tickets** - Linear issues, GitHub issues
-- **Sessions** - Claude conversations, with summaries
-- **Decisions & pivots** - Why we changed direction
-- **Artifacts** - PRs, commits, test results
-- **Stage** - Planning → Working → Testing → Review → Shipped
+A quest can have:
+- **0-N linked tickets** - Linear issues, GitHub issues (optional)
+- **0-N sessions** - Claude conversations (optional)
+- **0-N branches** - Feature branches (optional)
+- **Links** - PRs, plan files, any relevant URLs
+- **Inbox items** - Quick notes and ideas
 
-### Agent Awareness
-AI agents know their workstream. They can:
-- Ask "What am I working on? What happened last time?"
-- Log decisions and blockers
-- See linked tickets and their status
-- Resume with full context
+Quests are opt-in. You create them when you want to organize work, not auto-generated.
+
+### Global Inbox
+Quick capture for ideas that float free until you're ready to organize:
+- Rough notes while working
+- Ideas for future sessions
+- Blockers to address later
+- Attach to quests when ready (or never)
+
+### Agent Sessions
+AI agents work on your code. Sessions can be:
+- Linked to a quest (organized work)
+- Standalone (ad-hoc tasks)
+
+OrbitDock shows you what each agent is doing, what needs attention, and preserves the conversation history.
 
 ### Multi-Product
 You manage multiple products. Each has:
 - Its own repos
 - Its own agents/sessions
-- Its own workstreams
+- Its own quests
 
 OrbitDock gives you the unified view across all of them.
 
 ## North Star UX
 
 Open OrbitDock and immediately see:
-- Which workstreams need attention
+- Which quests need attention
 - What agents are actively working
 - Where you left off yesterday
 - What's blocked, what's ready for review
 
-Click into a workstream and see:
-- The full journey: tickets → sessions → PRs → decisions
-- Resume any session with context preserved
+Click into a quest and see:
+- Linked sessions with their transcripts
+- Connected PRs and issues
+- Inbox items and notes
 - The "story" of how this feature came to be
 
 ## What This Is NOT

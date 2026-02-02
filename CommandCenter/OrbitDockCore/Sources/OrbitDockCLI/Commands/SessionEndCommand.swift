@@ -17,16 +17,8 @@ struct SessionEndCommand: ParsableCommand {
 
         let db = try CLIDatabase()
 
-        // Get session to find linked workstream
-        let session = db.getSession(id: input.session_id)
-
         // End the session
         try db.endSession(id: input.session_id, reason: input.reason)
-
-        // Update workstream activity if linked
-        if let wsId = session?.workstreamId {
-            try db.updateWorkstreamActivity(id: wsId)
-        }
 
         // Notify the app
         db.notifyApp()

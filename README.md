@@ -22,7 +22,7 @@ OrbitDock is how I wrangle all that chaos. One dashboard to track every session 
 - **Live Session Monitoring** - Watch conversations unfold in real-time
 - **5-State Status System** - Working, Permission, Question, Reply, Ended
 - **Quick Switcher (⌘K)** - Jump between sessions or run commands instantly
-- **Workstream Tracking** - Automatic grouping by git branch with PR/issue integration
+- **Quest System** - Flexible work containers with linked sessions, PRs, and inbox
 - **Usage Tracking** - Monitor rate limits for both Claude and Codex
 - **Focus Terminal (⌘T)** - Jump directly to the iTerm2 tab running a session
 - **Cosmic Harbor Theme** - Dark theme optimized for OLED displays
@@ -77,13 +77,32 @@ Add to `~/.claude/settings.json`:
     "SessionEnd": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli session-end", "async": true}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}],
     "Stop": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}],
-    "Notification": [{"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}],
+    "Notification": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}],
     "PreToolUse": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker", "async": true}]}],
     "PostToolUse": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker", "async": true}]}],
-    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker", "async": true}]}]
+    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker", "async": true}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli subagent-tracker", "async": true}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli subagent-tracker", "async": true}]}],
+    "PreCompact": [{"hooks": [{"type": "command", "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker", "async": true}]}]
   }
 }
 ```
+
+### What Each Hook Does
+
+| Hook | Command | Purpose |
+|------|---------|---------|
+| `SessionStart` | session-start | Creates session, captures model & permission mode |
+| `SessionEnd` | session-end | Marks session ended with reason |
+| `UserPromptSubmit` | status-tracker | Sets status to "working", captures first prompt |
+| `Stop` | status-tracker | Sets status to "waiting" (reply or question) |
+| `Notification` | status-tracker | Handles permission prompts, idle prompts, auth |
+| `PreToolUse` | tool-tracker | Tracks tool usage, sets "working" status |
+| `PostToolUse` | tool-tracker | Clears permission state after tool runs |
+| `PostToolUseFailure` | tool-tracker | Handles failed/interrupted tools |
+| `SubagentStart` | subagent-tracker | Tracks when Claude spawns agents (Explore, Plan) |
+| `SubagentStop` | subagent-tracker | Tracks when agents finish |
+| `PreCompact` | status-tracker | Records context compaction events |
 
 ## Architecture
 
@@ -120,9 +139,10 @@ Add to `~/.claude/settings.json`:
 ### Provider Integration
 
 **Claude Code** uses a Swift CLI embedded in the app bundle:
-- `orbitdock-cli session-start/end` - Lifecycle tracking
-- `orbitdock-cli status-tracker` - Work status and attention states
-- `orbitdock-cli tool-tracker` - Tool usage analytics
+- `orbitdock-cli session-start/end` - Lifecycle tracking (model, source, permission mode)
+- `orbitdock-cli status-tracker` - Work status, attention states, compaction events
+- `orbitdock-cli tool-tracker` - Tool usage and permission state management
+- `orbitdock-cli subagent-tracker` - Track spawned agents (Explore, Plan, etc.)
 
 **Codex CLI** uses native FSEvents watching:
 - Watches `~/.codex/sessions/` for rollout JSONL files

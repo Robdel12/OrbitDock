@@ -64,89 +64,7 @@ final class CodexSessionStore {
         prompt_count INTEGER DEFAULT 0,
         tool_count INTEGER DEFAULT 0,
         terminal_session_id TEXT,
-        terminal_app TEXT,
-        workstream_id TEXT
-      )
-    """)
-
-    // Workstream tables are managed by DatabaseManager; keep them in sync here too.
-    try? db.execute("""
-      CREATE TABLE IF NOT EXISTS repos (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        path TEXT NOT NULL UNIQUE,
-        github_owner TEXT,
-        github_name TEXT,
-        created_at TEXT DEFAULT (datetime('now'))
-      )
-    """)
-
-    try? db.execute("""
-      CREATE TABLE IF NOT EXISTS workstreams (
-        id TEXT PRIMARY KEY,
-        repo_id TEXT NOT NULL REFERENCES repos(id),
-        branch TEXT NOT NULL,
-        directory TEXT,
-        name TEXT,
-        description TEXT,
-        linear_issue_id TEXT,
-        linear_issue_title TEXT,
-        linear_issue_state TEXT,
-        linear_issue_url TEXT,
-        github_issue_number INTEGER,
-        github_issue_title TEXT,
-        github_issue_state TEXT,
-        github_pr_number INTEGER,
-        github_pr_title TEXT,
-        github_pr_state TEXT,
-        github_pr_url TEXT,
-        github_pr_additions INTEGER,
-        github_pr_deletions INTEGER,
-        review_state TEXT,
-        review_approvals INTEGER DEFAULT 0,
-        review_comments INTEGER DEFAULT 0,
-        stage TEXT DEFAULT 'working',
-        is_working INTEGER DEFAULT 1,
-        has_open_pr INTEGER DEFAULT 0,
-        in_review INTEGER DEFAULT 0,
-        has_approval INTEGER DEFAULT 0,
-        is_merged INTEGER DEFAULT 0,
-        is_closed INTEGER DEFAULT 0,
-        session_count INTEGER DEFAULT 0,
-        total_session_seconds INTEGER DEFAULT 0,
-        commit_count INTEGER DEFAULT 0,
-        last_activity_at TEXT,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now')),
-        UNIQUE(repo_id, branch)
-      )
-    """)
-
-    try? db.execute("""
-      CREATE TABLE IF NOT EXISTS workstream_tickets (
-        id TEXT PRIMARY KEY,
-        workstream_id TEXT NOT NULL REFERENCES workstreams(id),
-        source TEXT NOT NULL,
-        external_id TEXT NOT NULL,
-        title TEXT,
-        state TEXT,
-        url TEXT,
-        is_primary INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')),
-        UNIQUE(workstream_id, source, external_id)
-      )
-    """)
-
-    try? db.execute("""
-      CREATE TABLE IF NOT EXISTS workstream_notes (
-        id TEXT PRIMARY KEY,
-        workstream_id TEXT NOT NULL REFERENCES workstreams(id),
-        type TEXT NOT NULL DEFAULT 'note',
-        content TEXT NOT NULL,
-        session_id TEXT,
-        metadata TEXT,
-        created_at TEXT NOT NULL,
-        resolved_at TEXT
+        terminal_app TEXT
       )
     """)
   }
@@ -172,15 +90,13 @@ final class CodexSessionStore {
     transcriptPath: String?,
     status: String,
     workStatus: String,
-    startedAt: String?,
-    workstreamId: String?
+    startedAt: String?
   ) {
     let sql = """
       INSERT INTO sessions (
         id, project_path, project_name, branch, model, context_label,
-        transcript_path, status, work_status, started_at, last_activity_at,
-        workstream_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+        transcript_path, status, work_status, started_at, last_activity_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(id) DO UPDATE SET
         project_path = excluded.project_path,
         project_name = excluded.project_name,
@@ -190,8 +106,7 @@ final class CodexSessionStore {
         transcript_path = excluded.transcript_path,
         status = excluded.status,
         work_status = excluded.work_status,
-        last_activity_at = datetime('now'),
-        workstream_id = COALESCE(excluded.workstream_id, workstream_id)
+        last_activity_at = datetime('now')
     """
 
     do {
@@ -206,8 +121,7 @@ final class CodexSessionStore {
         transcriptPath,
         status,
         workStatus,
-        startedAt ?? isoFormatter.string(from: Date()),
-        workstreamId
+        startedAt ?? isoFormatter.string(from: Date())
       )
     } catch {
       print("CodexSessionStore: upsert failed - \(error)")
@@ -297,61 +211,6 @@ final class CodexSessionStore {
     return (nil, nil, nil)
   }
 
-  // MARK: - Workstreams
-
-  func ensureWorkstream(repoPath: String, repoName: String, branch: String, directory: String?) -> String? {
-    guard !branch.isEmpty else { return nil }
-
-    guard let repoId = findOrCreateRepo(path: repoPath, name: repoName) else { return nil }
-
-    if let existing = findWorkstream(repoId: repoId, branch: branch) {
-      return existing
-    }
-
-    let now = isoFormatter.string(from: Date())
-    let workstreamId = "ws-\(Int(Date().timeIntervalSince1970 * 1000))-\(randomSuffix())"
-
-    let name: String? = nil
-
-    do {
-      try db.run(
-        """
-          INSERT INTO workstreams (
-            id, repo_id, branch, directory, name, stage,
-            review_approvals, review_comments, is_working, has_open_pr,
-            in_review, has_approval, is_merged, is_closed,
-            session_count, total_session_seconds, commit_count,
-            last_activity_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'working', 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, ?, ?, ?)
-        """,
-        workstreamId,
-        repoId,
-        branch,
-        directory,
-        name,
-        now,
-        now,
-        now
-      )
-    } catch {
-      print("CodexSessionStore: create workstream failed - \(error)")
-      return nil
-    }
-
-    return workstreamId
-  }
-
-  func incrementWorkstreamSessionCount(_ workstreamId: String) {
-    do {
-      try db.run(
-        "UPDATE workstreams SET session_count = session_count + 1, last_activity_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
-        workstreamId
-      )
-    } catch {
-      print("CodexSessionStore: workstream session_count failed - \(error)")
-    }
-  }
-
   // MARK: - Helpers
 
   private func findOrCreateRepo(path: String, name: String) -> String? {
@@ -378,21 +237,6 @@ final class CodexSessionStore {
       print("CodexSessionStore: create repo failed - \(error)")
       return nil
     }
-  }
-
-  private func findWorkstream(repoId: String, branch: String) -> String? {
-    do {
-      if let row = try db.prepare(
-        "SELECT id FROM workstreams WHERE repo_id = ? AND branch = ? LIMIT 1",
-        repoId,
-        branch
-      ).makeIterator().next(),
-        let wsId = row[0] as? String {
-        return wsId
-      }
-    } catch {}
-
-    return nil
   }
 
   private func mapUpdates(_ updates: [String: Any?]) -> (setters: [String], bindings: [Binding?]) {
@@ -422,8 +266,7 @@ final class CodexSessionStore {
       "pendingQuestion": "pending_question",
       "customName": "custom_name",
       "summary": "summary",
-      "firstPrompt": "first_prompt",
-      "workstreamId": "workstream_id"
+      "firstPrompt": "first_prompt"
     ]
 
     var setters: [String] = []

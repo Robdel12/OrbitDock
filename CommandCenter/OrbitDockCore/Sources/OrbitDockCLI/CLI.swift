@@ -12,7 +12,8 @@ struct OrbitDockCLI: ParsableCommand {
             SessionStartCommand.self,
             SessionEndCommand.self,
             StatusTrackerCommand.self,
-            ToolTrackerCommand.self
+            ToolTrackerCommand.self,
+            SubagentTrackerCommand.self
         ]
     )
 }

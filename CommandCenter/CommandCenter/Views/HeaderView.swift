@@ -11,16 +11,13 @@ struct HeaderView: View {
   let session: Session
   let usageStats: TranscriptUsageStats
   let currentTool: String?
-  let workstream: Workstream?
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
   let onFocusTerminal: () -> Void
   let onGoToDashboard: () -> Void
-  let onOpenWorkstream: () -> Void
 
   @State private var isHoveringPath = false
   @State private var isHoveringProject = false
-  @State private var isHoveringWorkstream = false
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
 
   private var statusColor: Color {
@@ -173,34 +170,6 @@ struct HeaderView: View {
               .font(.system(size: 11, weight: .medium))
           }
           .foregroundStyle(Color.gitBranch)
-        }
-
-        // Workstream (clickable, if linked)
-        if let ws = workstream {
-          Text("›")
-            .font(.system(size: 12, weight: .light))
-            .foregroundStyle(.quaternary)
-
-          Button(action: onOpenWorkstream) {
-            HStack(spacing: 5) {
-              Image(systemName: "scope")
-                .font(.system(size: 10, weight: .semibold))
-              Text(ws.name ?? "Workstream")
-                .font(.system(size: 11, weight: .medium))
-              Image(systemName: "chevron.right")
-                .font(.system(size: 8, weight: .bold))
-            }
-            .foregroundStyle(isHoveringWorkstream ? Color.accent : Color.accent.opacity(0.8))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(
-              RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(isHoveringWorkstream ? Color.accent.opacity(0.15) : Color.accent.opacity(0.08))
-            )
-          }
-          .buttonStyle(.plain)
-          .onHover { isHoveringWorkstream = $0 }
-          .help("View workstream details")
         }
 
         // Separator
@@ -471,26 +440,10 @@ struct ContextGaugeCompact: View {
         return stats
       }(),
       currentTool: "Edit",
-      workstream: Workstream(
-        id: "ws-1",
-        repoId: "repo-1",
-        branch: "feat/auth-system",
-        directory: nil,
-        name: "Auth System Refactor",
-        reviewApprovals: 0,
-        reviewComments: 0,
-        stage: .working,
-        sessionCount: 3,
-        totalSessionSeconds: 7_200,
-        commitCount: 5,
-        createdAt: Date(),
-        updatedAt: Date()
-      ),
       onTogglePanel: {},
       onOpenSwitcher: {},
       onFocusTerminal: {},
-      onGoToDashboard: {},
-      onOpenWorkstream: {}
+      onGoToDashboard: {}
     )
 
     Divider().opacity(0.3)
