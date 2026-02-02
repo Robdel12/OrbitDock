@@ -2,11 +2,16 @@ import Foundation
 import SQLite
 
 /// Lightweight database wrapper for CLI use
-/// No @Observable, no file monitoring, just fast database access
+/// No schema management - the App owns migrations via MigrationManager
+/// CLI just reads/writes data, assuming schema exists
 public final class CLIDatabase {
     public let connection: Connection
 
     private static let defaultPath: String = {
+        // Support ORBITDOCK_TEST_DB for testing with alternate database
+        if let testPath = ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] {
+            return testPath
+        }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return "\(home)/.orbitdock/orbitdock.db"
     }()
@@ -28,79 +33,6 @@ public final class CLIDatabase {
         try connection.execute("PRAGMA journal_mode = WAL")
         try connection.execute("PRAGMA busy_timeout = 5000")
         try connection.execute("PRAGMA synchronous = NORMAL")
-
-        // Run migrations
-        try runMigrations()
-    }
-
-    /// Run any pending migrations
-    private func runMigrations() throws {
-        // Ensure schema_versions table exists
-        try connection.execute("""
-            CREATE TABLE IF NOT EXISTS schema_versions (
-                version INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                applied_at TEXT NOT NULL
-            )
-        """)
-
-        // Get current version
-        let currentVersion = (try? connection.scalar("SELECT MAX(version) FROM schema_versions") as? Int64) ?? 0
-
-        // Load and apply migrations
-        let migrations = loadMigrations()
-        let pending = migrations.filter { $0.version > Int(currentVersion) }
-
-        for migration in pending {
-            let now = Self.formatDate()
-            try connection.transaction {
-                try connection.execute(migration.sql)
-                try connection.run(
-                    "INSERT INTO schema_versions (version, name, applied_at) VALUES (?, ?, ?)",
-                    migration.version, migration.name, now
-                )
-            }
-            // Log using the shared log function
-            logToFile("[Migration] Applied \(migration.version): \(migration.name)")
-        }
-    }
-
-    /// Load migrations from the repo's migrations folder
-    private func loadMigrations() -> [(version: Int, name: String, sql: String)] {
-        var migrations: [(version: Int, name: String, sql: String)] = []
-
-        // Try common paths
-        let possiblePaths = [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Developer/claude-dashboard/migrations"),
-        ]
-
-        for migrationsDir in possiblePaths {
-            guard FileManager.default.fileExists(atPath: migrationsDir.path) else { continue }
-
-            do {
-                let files = try FileManager.default.contentsOfDirectory(
-                    at: migrationsDir,
-                    includingPropertiesForKeys: nil
-                ).filter { $0.pathExtension == "sql" }
-
-                for file in files {
-                    let filename = file.deletingPathExtension().lastPathComponent
-                    // Parse "001_initial" format
-                    let parts = filename.split(separator: "_", maxSplits: 1)
-                    guard parts.count == 2,
-                          let version = Int(parts[0]) else { continue }
-
-                    let name = String(parts[1])
-                    let sql = try String(contentsOf: file, encoding: .utf8)
-                    migrations.append((version, name, sql))
-                }
-            } catch {
-                continue
-            }
-        }
-
-        return migrations.sorted { $0.version < $1.version }
     }
 
     /// Log to the CLI log file

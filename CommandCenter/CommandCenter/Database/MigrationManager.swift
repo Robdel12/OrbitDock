@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  Database migration system - applies schema changes in order.
-//  Migration files are bundled in the app and also live in the repo's migrations/ folder.
+//  Uses embedded migrations (no external files needed).
 //
 
 import Foundation
@@ -71,100 +71,10 @@ class MigrationManager {
 
   // MARK: - Migration Discovery
 
-  /// Get all available migrations from bundled resources
+  /// Get all available migrations from embedded sources
   func getAvailableMigrations() -> [Migration] {
-    var migrations: [Migration] = []
-
-    // Look for bundled SQL files in the app bundle
-    guard let resourcePath = Bundle.main.resourcePath else {
-      // Fallback: try to load from the repo's migrations folder (for development)
-      return loadMigrationsFromRepo()
-    }
-
-    let resourceURL = URL(fileURLWithPath: resourcePath)
-    let fileManager = FileManager.default
-
-    do {
-      let files = try fileManager.contentsOfDirectory(at: resourceURL, includingPropertiesForKeys: nil)
-      for file in files where file.pathExtension == "sql" {
-        if let migration = parseMigrationFile(file) {
-          migrations.append(migration)
-        }
-      }
-    } catch {
-      // Fallback to repo migrations
-      return loadMigrationsFromRepo()
-    }
-
-    return migrations.sorted { $0.version < $1.version }
-  }
-
-  /// Load migrations from the repo's migrations/ folder (development fallback)
-  private func loadMigrationsFromRepo() -> [Migration] {
-    var migrations: [Migration] = []
-
-    // Try common development paths
-    let possiblePaths = [
-      FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Developer/claude-dashboard/migrations"),
-      URL(fileURLWithPath: #file)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("migrations"),
-    ]
-
-    for migrationsDir in possiblePaths {
-      if FileManager.default.fileExists(atPath: migrationsDir.path) {
-        do {
-          let files = try FileManager.default.contentsOfDirectory(
-            at: migrationsDir,
-            includingPropertiesForKeys: nil
-          )
-          for file in files where file.pathExtension == "sql" {
-            if let migration = parseMigrationFile(file) {
-              migrations.append(migration)
-            }
-          }
-          if !migrations.isEmpty {
-            break
-          }
-        } catch {
-          continue
-        }
-      }
-    }
-
-    return migrations.sorted { $0.version < $1.version }
-  }
-
-  /// Parse a migration filename like "001_initial.sql"
-  private func parseMigrationFile(_ url: URL) -> Migration? {
-    let filename = url.deletingPathExtension().lastPathComponent
-    let pattern = #"^(\d+)_(.+)$"#
-
-    guard let regex = try? NSRegularExpression(pattern: pattern),
-          let match = regex.firstMatch(
-            in: filename,
-            range: NSRange(filename.startIndex..., in: filename)
-          ),
-          let versionRange = Range(match.range(at: 1), in: filename),
-          let nameRange = Range(match.range(at: 2), in: filename),
-          let version = Int(filename[versionRange])
-    else {
-      return nil
-    }
-
-    let name = String(filename[nameRange])
-
-    do {
-      let sql = try String(contentsOf: url, encoding: .utf8)
-      return Migration(id: version, name: name, sql: sql)
-    } catch {
-      logger.error("Failed to read migration file \(url.lastPathComponent): \(error.localizedDescription)")
-      return nil
-    }
+    // Use embedded migrations (always available, no external files needed)
+    AppEmbeddedMigrations.all.map { Migration(id: $0.version, name: $0.name, sql: $0.sql) }
   }
 
   // MARK: - Migration Execution
@@ -175,19 +85,48 @@ class MigrationManager {
     return getAvailableMigrations().filter { $0.version > currentVersion }
   }
 
-  /// Apply a single migration within a transaction
+  /// Apply a single migration, handling idempotent failures gracefully
   private func applyMigration(_ migration: Migration) throws {
     let now = ISO8601DateFormatter().string(from: Date())
 
-    try db.transaction {
-      // Execute the migration SQL
-      try db.execute(migration.sql)
+    // Execute statements one at a time to handle partial schema state gracefully
+    // This allows migrations to succeed even if some tables/columns already exist
+    try applyMigrationStatements(migration.sql)
 
-      // Record that it was applied
-      try db.run("""
-        INSERT INTO schema_versions (version, name, applied_at)
-        VALUES (?, ?, ?)
-      """, migration.version, migration.name, now)
+    // Record that it was applied
+    try db.run("""
+      INSERT INTO schema_versions (version, name, applied_at)
+      VALUES (?, ?, ?)
+    """, migration.version, migration.name, now)
+  }
+
+  /// Apply migration SQL statements individually, handling idempotent failures gracefully
+  private func applyMigrationStatements(_ sql: String) throws {
+    // Split SQL into individual statements
+    let statements = sql.components(separatedBy: ";")
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+
+    for statement in statements {
+      do {
+        try db.execute(statement)
+      } catch {
+        let errorMsg = error.localizedDescription.lowercased()
+
+        // These errors are OK - they mean the schema already has what we're trying to add
+        let isIdempotentError =
+          errorMsg.contains("duplicate column name") ||
+          errorMsg.contains("table") && errorMsg.contains("already exists") ||
+          errorMsg.contains("index") && errorMsg.contains("already exists")
+
+        if isIdempotentError {
+          // Schema already has this, continue
+          logger.debug("Migration skipped (already exists): \(statement.prefix(60))...")
+        } else {
+          // Real error, propagate it
+          throw error
+        }
+      }
     }
   }
 
