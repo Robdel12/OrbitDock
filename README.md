@@ -33,7 +33,7 @@ See [FEATURES.md](FEATURES.md) for the full feature list.
 
 | Provider | Session Tracking | Usage Monitoring | Notes |
 |----------|-----------------|------------------|-------|
-| **Claude Code** | Swift CLI hooks | OAuth API | Full support via lifecycle hooks |
+| **Claude Code** | CLI hooks + FSEvents | OAuth API | Hooks for status, FSEvents for transcripts |
 | **Codex CLI** | Native FSEvents | App Server API | Watches `~/.codex/sessions/` rollouts |
 
 ## Requirements
