@@ -1,4 +1,4 @@
-# Command Center
+# OrbitDock
 
 A native macOS SwiftUI app for monitoring and managing multiple Claude Code CLI sessions in real-time.
 
@@ -11,113 +11,122 @@ A native macOS SwiftUI app for monitoring and managing multiple Claude Code CLI 
 - **Live Session Monitoring** - See all active Claude Code sessions across your machine
 - **Real-time Conversation View** - Watch conversations unfold with smooth animations
 - **Work Status Tracking** - Know when Claude is working, waiting for input, or needs permission
-- **Context Window Usage** - Visual indicator showing how much context is used
-- **Cost Tracking** - Monitor token usage and estimated costs per session
+- **Quick Switcher** - ⌘K to quickly jump between sessions or run commands
+- **Session Management** - Rename, close, or resume sessions from the UI
+- **Workstream Tracking** - Automatic grouping by git branch with PR/issue integration
+- **Usage Tracking** - Monitor Anthropic API usage and rate limits
 - **Focus Terminal** - Jump directly to the iTerm2 tab running a session
-- **Resume Sessions** - Open ended sessions in a new terminal with one click
-- **Session Labels** - Tag sessions with custom labels for organization
-- **Dark Mode** - True black/dark gray theme optimized for OLED displays
+- **Dark Mode** - Cosmic harbor theme optimized for OLED displays
 
 ## Requirements
 
 - macOS 14.0+
 - Claude Code CLI installed (`npm install -g @anthropic-ai/claude-code`)
+- Node.js 18+ (for hooks)
 - Xcode 15+ (for building)
-- SQLite (included with macOS)
 
 ## Installation
 
-### 1. Set up the database
+### 1. Install dependencies
 
 ```bash
-sqlite3 ~/.claude/dashboard.db << 'EOF'
-CREATE TABLE IF NOT EXISTS sessions (
-  id TEXT PRIMARY KEY,
-  project_path TEXT NOT NULL,
-  project_name TEXT,
-  branch TEXT,
-  model TEXT,
-  context_label TEXT,
-  transcript_path TEXT,
-  status TEXT DEFAULT 'active',
-  started_at DATETIME,
-  ended_at DATETIME,
-  end_reason TEXT,
-  total_tokens INTEGER DEFAULT 0,
-  total_cost_usd REAL DEFAULT 0,
-  last_activity_at DATETIME,
-  work_status TEXT DEFAULT 'unknown',
-  last_tool TEXT,
-  last_tool_at DATETIME,
-  prompt_count INTEGER DEFAULT 0,
-  tool_count INTEGER DEFAULT 0,
-  terminal_session_id TEXT,
-  terminal_app TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_path);
-PRAGMA journal_mode = WAL;
-EOF
+npm install
 ```
 
-### 2. Install the Claude Code hooks
+### 2. Run database migrations
 
-Copy the hooks from `hooks/` to `~/.claude/hooks/`:
+```bash
+./scripts/migrate.js
+```
+
+This creates the database at `~/.orbitdock/orbitdock.db` with the full schema.
+
+### 3. Install the Claude Code hooks
+
+Create a symlink to use hooks from this repo:
+
+```bash
+# Link the hooks directory
+ln -sf "$(pwd)/hooks" ~/.claude/hooks
+```
+
+Or copy them manually:
 
 ```bash
 mkdir -p ~/.claude/hooks
-cp hooks/*.sh ~/.claude/hooks/
-chmod +x ~/.claude/hooks/*.sh
+cp hooks/*.js ~/.claude/hooks/
 ```
 
-### 3. Configure Claude Code to use the hooks
+### 4. Configure Claude Code to use the hooks
 
 Add to your `~/.claude/settings.json`:
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "command": "~/.claude/hooks/session-start.sh" }],
-    "SessionEnd": [{ "command": "~/.claude/hooks/session-end.sh" }],
-    "PreToolUse": [{ "command": "~/.claude/hooks/status-tracker.sh" }],
-    "PostToolUse": [{ "command": "~/.claude/hooks/tool-tracker.sh" }]
+    "SessionStart": [{ "command": "node ~/.claude/hooks/session-start.js" }],
+    "SessionEnd": [{ "command": "node ~/.claude/hooks/session-end.js" }],
+    "PreToolUse": [{ "command": "node ~/.claude/hooks/tool-tracker.js" }],
+    "PostToolUse": [{ "command": "node ~/.claude/hooks/tool-tracker.js" }],
+    "Notification": [{ "command": "node ~/.claude/hooks/status-tracker.js" }],
+    "Stop": [{ "command": "node ~/.claude/hooks/status-tracker.js" }]
   }
 }
 ```
 
-### 4. Build and run the app
+### 5. Build and run the app
 
-Open `CommandCenter/CommandCenter.xcodeproj` in Xcode and build (Cmd+R).
+Open `CommandCenter/CommandCenter.xcodeproj` in Xcode and build (⌘R).
 
-## Codex CLI Integration (rollout watcher)
+## Database Migrations
 
-Codex does not yet expose Claude-style hooks, but its CLI writes rich session rollouts to
-`~/.codex/sessions/**/rollout-*.jsonl`. OrbitDock watches those files **inside the app** using
-native file events and maps them into the same SQLite schema.
+OrbitDock uses a migration system for schema management. Migrations live in `migrations/` as numbered SQL files.
+
+```bash
+# Check migration status
+./scripts/migrate.js status
+
+# Run pending migrations
+./scripts/migrate.js
+
+# List all migrations
+./scripts/migrate.js list
+```
+
+### Adding a new migration
+
+1. Create a new file: `migrations/003_your_change.sql`
+2. Write your SQL (tables, columns, indexes)
+3. Run `./scripts/migrate.js` to apply
+
+Migrations run automatically when hooks execute or when the app starts.
+
+## Codex CLI Integration
+
+Codex CLI writes session rollouts to `~/.codex/sessions/**/rollout-*.jsonl`. OrbitDock watches these files using native FSEvents and maps them into the same database schema.
 
 **Notes:**
-- The watcher keeps offsets in `~/.orbitdock/codex-rollout-state.json` to avoid double-counting.
-- It only reacts to file changes (no polling/backfill), so old sessions appear only after new activity.
+- The watcher stores offsets in `~/.orbitdock/codex-rollout-state.json`
+- Only reacts to file changes (no polling), so old sessions appear after new activity
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Command Center App                       │
+│                      OrbitDock App                          │
 │  ┌─────────────┐  ┌─────────────────────────────────────┐  │
-│  │  Sidebar    │  │         Session Detail              │  │
-│  │  - Sessions │  │  - Header (status, model, branch)   │  │
-│  │  - Filter   │  │  - Stats (duration, cost, context)  │  │
-│  │             │  │  - Conversation View                │  │
-│  │             │  │  - Action Bar                       │  │
+│  │  Dashboard  │  │         Session Detail              │  │
+│  │  - Active   │  │  - Header (status, model, branch)   │  │
+│  │  - History  │  │  - Conversation View                │  │
+│  │  - Streams  │  │  - Quick Actions                    │  │
 │  └─────────────┘  └─────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
                     ┌─────────────────┐
                     │  SQLite + WAL   │
-                    │  ~/.claude/     │
-                    │  dashboard.db   │
+                    │  ~/.orbitdock/  │
+                    │  orbitdock.db   │
                     └─────────────────┘
                               ▲
                               │
@@ -125,49 +134,55 @@ native file events and maps them into the same SQLite schema.
          │                    │                    │
     ┌────┴────┐         ┌────┴────┐         ┌────┴────┐
     │ Session │         │ Status  │         │  Tool   │
-    │  Start  │         │ Tracker │         │ Tracker │
-    │  Hook   │         │  Hook   │         │  Hook   │
+    │  Hooks  │         │ Tracker │         │ Tracker │
+    │  (JS)   │         │  (JS)   │         │  (JS)   │
     └─────────┘         └─────────┘         └─────────┘
 ```
-
-## How It Works
-
-1. **Hooks** - Claude Code triggers shell hooks at key events (session start/end, tool use)
-2. **Database** - Hooks write session data to a SQLite database with WAL mode for concurrency
-3. **File Monitoring** - The app watches the database file for changes using DispatchSource
-4. **Transcript Parsing** - Conversations are read directly from Claude's JSONL transcript files
-5. **Real-time Updates** - UI updates automatically via file system monitoring and timers
 
 ## Project Structure
 
 ```
-CommandCenter/
-├── CommandCenterApp.swift    # App entry point
-├── ContentView.swift         # Main NavigationSplitView
-├── Theme.swift               # Dark mode color definitions
-├── Info.plist                # App permissions (AppleEvents)
-├── Database/
-│   └── DatabaseManager.swift # SQLite connection and queries
-├── Models/
-│   ├── Session.swift         # Session data model
-│   ├── Activity.swift        # Activity event model
-│   └── TranscriptMessage.swift # Chat message model
-├── Services/
-│   ├── TranscriptParser.swift  # JSONL transcript parsing
-│   ├── NotificationManager.swift # macOS notifications
-│   └── UsageManager.swift      # Token/cost tracking
-└── Views/
-    ├── SessionRowView.swift    # Sidebar row component
-    ├── SessionDetailView.swift # Main detail view
-    ├── ConversationView.swift  # Chat UI with animations
-    └── MenuBarView.swift       # Menu bar extra (optional)
+├── migrations/              # Database migrations (SQL)
+├── lib/                     # Shared JS libraries
+│   ├── db.js               # Database operations
+│   ├── migrate.js          # Migration runner
+│   ├── workstream.js       # Workstream logic
+│   └── git.js              # Git utilities
+├── hooks/                   # Claude Code hooks (JS)
+│   ├── session-start.js
+│   ├── session-end.js
+│   ├── status-tracker.js
+│   └── tool-tracker.js
+├── scripts/                 # CLI tools
+│   └── migrate.js          # Migration CLI
+├── mcp-server/             # MCP server for workstreams
+└── CommandCenter/          # SwiftUI macOS app
+    ├── Database/
+    │   ├── DatabaseManager.swift
+    │   └── MigrationManager.swift
+    ├── Models/
+    ├── Services/
+    └── Views/
 ```
+
+## Development
+
+### Running tests
+
+```bash
+npm test
+```
+
+### Environment variables
+
+- `ORBITDOCK_DB_PATH` - Override database path (for testing)
+- `ORBITDOCK_DEBUG` - Enable debug logging in hooks
 
 ## Permissions
 
-The app requires **Automation** permission to control iTerm2 for the "Focus" feature. Grant this in:
+The app requires **Automation** permission to control iTerm2 for the "Focus" feature:
 
-`System Settings → Privacy & Security → Automation → Command Center → iTerm`
+`System Settings → Privacy & Security → Automation → OrbitDock → iTerm`
 
 ## License
 

@@ -38,16 +38,34 @@ OrbitDock is a native macOS SwiftUI app - a "cosmic harbor" for AI agent session
 ## File Locations
 
 - **Database**: `~/.orbitdock/orbitdock.db` (separate from Claude to survive reinstalls)
-- **Hooks**: `~/.claude/hooks/` (session-start.sh, session-end.sh, status-tracker.sh, tool-tracker.sh)
+- **Migrations**: `migrations/` (numbered SQL files, e.g., `001_initial.sql`)
+- **Hooks**: `hooks/` (JS files: session-start.js, session-end.js, status-tracker.js, tool-tracker.js)
 - **Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only, Claude's data)
 
-## Common Tasks
+## Database Migrations
 
-### Adding a new session field
-1. Add column to SQLite: `ALTER TABLE sessions ADD COLUMN field_name TYPE`
-2. Update `Session.swift` model
-3. Update `DatabaseManager.swift` column definition and fetchSessions query
-4. Update relevant hook to write the field
+Schema changes use a migration system with version tracking.
+
+### Adding a new migration
+1. Create `migrations/NNN_description.sql` (next number in sequence)
+2. Write your SQL (CREATE TABLE, ALTER TABLE, etc.)
+3. Update `Session.swift` model if adding session fields
+4. Update `DatabaseManager.swift` column definitions and queries
+5. Update relevant hook in `lib/db.js` if hooks need to write the field
+
+Migrations run automatically when:
+- Hooks execute (`ensureSchema()` in `lib/db.js`)
+- Swift app starts (`MigrationManager` in `DatabaseManager.swift`)
+
+### Migration CLI
+```bash
+./scripts/migrate.js status  # Check current version
+./scripts/migrate.js         # Run pending migrations
+./scripts/migrate.js list    # List all migrations
+```
+
+### Legacy database handling
+Existing databases without `schema_versions` table are automatically bootstrapped - migration 001 is marked as applied and any missing columns are added.
 
 ### Message Storage Architecture
 The app uses a two-layer architecture for message display:
