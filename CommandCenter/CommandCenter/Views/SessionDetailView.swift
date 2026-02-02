@@ -18,8 +18,6 @@ struct SessionDetailView: View {
   @State private var transcriptSubscription: AnyCancellable?
   @State private var terminalActionFailed = false
   @State private var copiedResume = false
-  @State private var workstream: Workstream?
-  @State private var showingWorkstreamDetail = false
 
   // Chat scroll state
   @State private var isPinned = true
@@ -28,17 +26,15 @@ struct SessionDetailView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      // Compact header with integrated workstream
+      // Compact header
       HeaderView(
         session: session,
         usageStats: usageStats,
         currentTool: currentTool,
-        workstream: workstream,
         onTogglePanel: onTogglePanel,
         onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
-        onGoToDashboard: onGoToDashboard,
-        onOpenWorkstream: { showingWorkstreamDetail = true }
+        onGoToDashboard: onGoToDashboard
       )
 
       Divider()
@@ -67,7 +63,6 @@ struct SessionDetailView: View {
     .onAppear {
       loadUsageStats()
       setupSubscription()
-      loadWorkstream()
     }
     .onDisappear {
       transcriptSubscription?.cancel()
@@ -76,19 +71,9 @@ struct SessionDetailView: View {
       transcriptSubscription?.cancel()
       loadUsageStats()
       setupSubscription()
-      loadWorkstream()
       // Reset scroll state for new session
       isPinned = true
       unreadCount = 0
-    }
-    .sheet(isPresented: $showingWorkstreamDetail) {
-      if let ws = workstream {
-        WorkstreamDetailView(
-          workstream: ws,
-          repo: DatabaseManager.shared.fetchRepos().first { $0.id == ws.repoId }
-        )
-        .frame(minWidth: 600, minHeight: 500)
-      }
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
       Button("Open New") { TerminalService.shared.focusSession(session) }
@@ -241,14 +226,6 @@ struct SessionDetailView: View {
           currentTool = info.lastTool
         }
       }
-    }
-  }
-
-  private func loadWorkstream() {
-    if let wsId = session.workstreamId {
-      workstream = DatabaseManager.shared.fetchWorkstreamWithRelations(id: wsId)
-    } else {
-      workstream = nil
     }
   }
 

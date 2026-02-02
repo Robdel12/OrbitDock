@@ -13,7 +13,12 @@ OrbitDockCore/
     │   ├── Git/                # Git utilities
     │   └── Models/             # Input models
     └── OrbitDockCLI/           # CLI executable
-        └── Commands/           # Subcommands
+        └── Commands/
+            ├── SessionStartCommand.swift   # session-start
+            ├── SessionEndCommand.swift     # session-end
+            ├── StatusTrackerCommand.swift  # status-tracker
+            ├── ToolTrackerCommand.swift    # tool-tracker
+            └── SubagentTrackerCommand.swift # subagent-tracker
 ```
 
 ## Building
@@ -64,20 +69,42 @@ To embed the CLI in the OrbitDock app bundle:
 3. Navigate to Contents/MacOS/
 4. Verify `orbitdock-cli` exists alongside `OrbitDock`
 
-## CLI Usage
+## CLI Commands
 
 The CLI handles Claude Code hooks via stdin JSON:
 
+| Command | Hooks Handled | Purpose |
+|---------|---------------|---------|
+| `session-start` | SessionStart | Create session, capture model/source/permission_mode |
+| `session-end` | SessionEnd | Mark session ended with reason |
+| `status-tracker` | UserPromptSubmit, Stop, Notification, PreCompact | Status transitions & compaction |
+| `tool-tracker` | PreToolUse, PostToolUse, PostToolUseFailure | Tool usage & permission clearing |
+| `subagent-tracker` | SubagentStart, SubagentStop | Track spawned agents (Explore, Plan) |
+
+### Example Usage
+
 ```bash
 # Session lifecycle
-echo '{"session_id":"abc","cwd":"/path"}' | orbitdock-cli session-start
+echo '{"session_id":"abc","cwd":"/path","source":"startup","model":"claude-sonnet-4"}' | orbitdock-cli session-start
 echo '{"session_id":"abc","cwd":"/path","reason":"logout"}' | orbitdock-cli session-end
 
 # Status tracking
 echo '{"session_id":"abc","cwd":"/path","hook_event_name":"Stop"}' | orbitdock-cli status-tracker
+echo '{"session_id":"abc","cwd":"/path","hook_event_name":"PreCompact","trigger":"auto"}' | orbitdock-cli status-tracker
 
 # Tool tracking
 echo '{"session_id":"abc","cwd":"/path","hook_event_name":"PreToolUse","tool_name":"Bash"}' | orbitdock-cli tool-tracker
+
+# Subagent tracking
+echo '{"session_id":"abc","cwd":"/path","hook_event_name":"SubagentStart","agent_id":"xyz","agent_type":"Explore"}' | orbitdock-cli subagent-tracker
+```
+
+### Debugging
+
+All CLI commands log to `~/.orbitdock/cli.log`:
+
+```bash
+tail -f ~/.orbitdock/cli.log
 ```
 
 ## User Configuration

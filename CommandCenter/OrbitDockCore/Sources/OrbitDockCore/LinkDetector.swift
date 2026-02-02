@@ -40,8 +40,14 @@ public struct LinkDetector {
 
     /// Detect GitHub PR/issue URLs from command output
     /// Works with `gh pr create` and `gh issue create` output
-    public static func detectLinks(from output: String) -> [DetectedLink] {
+    /// - Parameters:
+    ///   - output: The stdout from the command
+    ///   - command: The original command (to extract --title)
+    public static func detectLinks(from output: String, command: String? = nil) -> [DetectedLink] {
         var links: [DetectedLink] = []
+
+        // Extract title from command's --title flag
+        let title = command.flatMap { extractTitleFromCommand($0) }
 
         // Pattern: https://github.com/owner/repo/pull/123
         let prPattern = #"https://github\.com/([^/]+/[^/]+)/pull/(\d+)"#
@@ -53,10 +59,6 @@ public struct LinkDetector {
                    let number = Int(output[numberRange]) {
                     let repo = String(output[repoRange])
                     let url = String(output[Range(match.range, in: output)!])
-
-                    // Try to extract title from gh pr create output
-                    // Format: "Creating pull request for branch...\n\nhttps://..."
-                    let title = extractPRTitle(from: output)
 
                     links.append(DetectedLink(
                         url: url,
@@ -80,9 +82,6 @@ public struct LinkDetector {
                     let repo = String(output[repoRange])
                     let url = String(output[Range(match.range, in: output)!])
 
-                    // Try to extract title from gh issue create output
-                    let title = extractIssueTitle(from: output)
-
                     links.append(DetectedLink(
                         url: url,
                         type: .issue,
@@ -103,18 +102,24 @@ public struct LinkDetector {
         return trimmed.hasPrefix("gh pr create") || trimmed.hasPrefix("gh issue create")
     }
 
-    /// Extract PR title from gh pr create output
-    /// Output format varies, but title is often in the --title flag or output
-    private static func extractPRTitle(from output: String) -> String? {
-        // gh pr create output doesn't include title in URL response
-        // Title would need to come from command input, not output
-        // For now, return nil - we show "PR #N - owner/repo" as fallback
-        return nil
-    }
+    /// Extract title from --title "..." or -t "..." flag in command
+    private static func extractTitleFromCommand(_ command: String) -> String? {
+        // Match --title "..." or --title '...' or -t "..." or -t '...'
+        // Also handle --title="...." format
+        let patterns = [
+            #"--title[=\s]+[\"']([^\"']+)[\"']"#,
+            #"-t\s+[\"']([^\"']+)[\"']"#,
+            #"--title[=\s]+(\S+)"#,  // unquoted
+        ]
 
-    /// Extract issue title from gh issue create output
-    private static func extractIssueTitle(from output: String) -> String? {
-        // Same as PR - title not in output
+        for pattern in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: command, range: NSRange(command.startIndex..., in: command)),
+               let titleRange = Range(match.range(at: 1), in: command) {
+                return String(command[titleRange])
+            }
+        }
+
         return nil
     }
 }

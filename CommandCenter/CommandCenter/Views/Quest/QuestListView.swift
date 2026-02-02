@@ -30,98 +30,114 @@ struct QuestListView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        // Header with create button
-        HStack {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Quests")
-              .font(.system(size: 20, weight: .bold))
-              .foregroundStyle(.primary)
+    ZStack {
+      // Main content
+      ScrollView {
+        VStack(alignment: .leading, spacing: 24) {
+          // Header with create button
+          HStack {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Quests")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.primary)
 
-            Text("Organize your work into flexible containers")
-              .font(.system(size: 13))
-              .foregroundStyle(.secondary)
+              Text("Organize your work into flexible containers")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+              showingCreateSheet = true
+            } label: {
+              HStack(spacing: 6) {
+                Image(systemName: "plus")
+                  .font(.system(size: 11, weight: .semibold))
+                Text("New Quest")
+                  .font(.system(size: 12, weight: .semibold))
+              }
+              .padding(.horizontal, 12)
+              .padding(.vertical, 8)
+              .background(Color.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+              .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
           }
 
-          Spacer()
-
-          Button {
-            showingCreateSheet = true
-          } label: {
-            HStack(spacing: 6) {
-              Image(systemName: "plus")
-                .font(.system(size: 11, weight: .semibold))
-              Text("New Quest")
-                .font(.system(size: 12, weight: .semibold))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .foregroundStyle(.white)
+          // Active quests
+          if !activeQuests.isEmpty {
+            QuestSection(
+              title: "Active",
+              icon: "bolt.fill",
+              color: .accent,
+              quests: activeQuests,
+              onSelectQuest: { quest in
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                  selectedQuest = quest
+                  showingDetailSheet = true
+                }
+              }
+            )
           }
-          .buttonStyle(.plain)
-        }
 
-        // Active quests
-        if !activeQuests.isEmpty {
-          QuestSection(
-            title: "Active",
-            icon: "bolt.fill",
-            color: .accent,
-            quests: activeQuests,
-            onSelectQuest: { quest in
-              selectedQuest = quest
-              showingDetailSheet = true
-            }
-          )
-        }
+          // Paused quests
+          if !pausedQuests.isEmpty {
+            QuestSection(
+              title: "Paused",
+              icon: "pause.fill",
+              color: .statusReply,
+              quests: pausedQuests,
+              onSelectQuest: { quest in
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                  selectedQuest = quest
+                  showingDetailSheet = true
+                }
+              }
+            )
+          }
 
-        // Paused quests
-        if !pausedQuests.isEmpty {
-          QuestSection(
-            title: "Paused",
-            icon: "pause.fill",
-            color: .statusReply,
-            quests: pausedQuests,
-            onSelectQuest: { quest in
-              selectedQuest = quest
-              showingDetailSheet = true
-            }
-          )
-        }
+          // Completed quests
+          if !completedQuests.isEmpty {
+            QuestSection(
+              title: "Completed",
+              icon: "checkmark.circle.fill",
+              color: .statusEnded,
+              quests: completedQuests,
+              onSelectQuest: { quest in
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                  selectedQuest = quest
+                  showingDetailSheet = true
+                }
+              },
+              isCollapsible: true
+            )
+          }
 
-        // Completed quests
-        if !completedQuests.isEmpty {
-          QuestSection(
-            title: "Completed",
-            icon: "checkmark.circle.fill",
-            color: .statusEnded,
-            quests: completedQuests,
-            onSelectQuest: { quest in
-              selectedQuest = quest
-              showingDetailSheet = true
-            },
-            isCollapsible: true
-          )
+          // Empty state
+          if db.allQuests.isEmpty {
+            emptyState
+          }
         }
-
-        // Empty state
-        if db.allQuests.isEmpty {
-          emptyState
-        }
+        .padding(24)
       }
-      .padding(24)
+      .scrollContentBackground(.hidden)
+      .background(Color.backgroundPrimary)
+
+      // Quest detail overlay
+      if showingDetailSheet, let quest = selectedQuest {
+        questDetailOverlay(quest: quest)
+      }
     }
-    .scrollContentBackground(.hidden)
-    .background(Color.backgroundPrimary)
     .onAppear {
       // Handle initial quest navigation
       if let questId = initialQuestId, !didHandleInitialQuest {
         didHandleInitialQuest = true
         if let quest = db.allQuests.first(where: { $0.id == questId }) {
-          selectedQuest = quest
-          showingDetailSheet = true
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            selectedQuest = quest
+            showingDetailSheet = true
+          }
         }
       }
     }
@@ -130,25 +146,61 @@ struct QuestListView: View {
       if let questId = initialQuestId, !didHandleInitialQuest {
         didHandleInitialQuest = true
         if let quest = newQuests.first(where: { $0.id == questId }) {
-          selectedQuest = quest
-          showingDetailSheet = true
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            selectedQuest = quest
+            showingDetailSheet = true
+          }
         }
       }
     }
     .sheet(isPresented: $showingCreateSheet) {
       CreateQuestSheet(onCreated: { quest in
-        selectedQuest = quest
-        showingDetailSheet = true
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          selectedQuest = quest
+          showingDetailSheet = true
+        }
       })
     }
-    .sheet(isPresented: $showingDetailSheet) {
-      if let quest = selectedQuest {
-        QuestDetailView(
-          questId: quest.id,
-          onSelectSession: onSelectSession,
-          onDismiss: { showingDetailSheet = false }
-        )
+  }
+
+  // MARK: - Quest Detail Overlay
+
+  @ViewBuilder
+  private func questDetailOverlay(quest: Quest) -> some View {
+    ZStack {
+      // Backdrop
+      Color.black.opacity(0.5)
+        .ignoresSafeArea()
+        .onTapGesture {
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showingDetailSheet = false
+          }
+        }
+
+      // Detail view
+      QuestDetailView(
+        questId: quest.id,
+        onSelectSession: { sessionId in
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showingDetailSheet = false
+          }
+          onSelectSession(sessionId)
+        },
+        onDismiss: {
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            showingDetailSheet = false
+          }
+        }
+      )
+      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+      .shadow(color: .black.opacity(0.5), radius: 40, x: 0, y: 20)
+    }
+    .transition(.opacity)
+    .onKeyPress(keys: [.escape]) { _ in
+      withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        showingDetailSheet = false
       }
+      return .handled
     }
   }
 

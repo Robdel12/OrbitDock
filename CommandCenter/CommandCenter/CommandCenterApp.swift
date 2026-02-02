@@ -116,4 +116,5 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
 extension Notification.Name {
   static let selectSession = Notification.Name("selectSession")
+  static let navigateToQuest = Notification.Name("navigateToQuest")
 }

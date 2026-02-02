@@ -128,20 +128,31 @@ struct ToolTrackerCommand: ParsableCommand {
         )
         log("  → status=working reason=none")
 
-        // Detect GitHub PR/issue links from Bash output
+        // Detect GitHub PR/issue links from Bash output and link to quest
         if toolName == "Bash",
            let command = toolInput?.command,
            LinkDetector.isGitHubCreateCommand(command),
            let stdout = toolResponse?.stdout {
 
-            let links = LinkDetector.detectLinks(from: stdout)
-            for link in links {
-                if let itemId = db.captureToInbox(
-                    content: link.displayContent,
-                    source: "cli_detected",
-                    sessionId: sessionId
-                ) {
-                    log("  → Detected \(link.type.rawValue) #\(link.number), captured to inbox: \(itemId.prefix(8))")
+            let links = LinkDetector.detectLinks(from: stdout, command: command)
+
+            // Only link if session has a quest
+            if let questId = db.getQuestIdForSession(sessionId: sessionId) {
+                for link in links {
+                    if let linkId = db.addQuestLink(
+                        questId: questId,
+                        source: link.type.rawValue,
+                        url: link.url,
+                        title: link.title,
+                        externalId: "#\(link.number)"
+                    ) {
+                        log("  → Detected \(link.type.rawValue) #\(link.number), linked to quest: \(linkId.prefix(8))")
+                    }
+                }
+            } else {
+                // No quest linked - just log for now
+                for link in links {
+                    log("  → Detected \(link.type.rawValue) #\(link.number) (no quest linked)")
                 }
             }
         }

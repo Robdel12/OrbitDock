@@ -2,7 +2,7 @@
 //
 // This package provides:
 // - CLIDatabase: Lightweight SQLite wrapper with WAL mode
-// - Session/Workstream operations
+// - Session operations
 // - Git utilities for branch detection
 // - Input models for Claude Code hooks
 

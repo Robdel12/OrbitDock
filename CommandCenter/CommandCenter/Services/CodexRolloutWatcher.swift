@@ -280,14 +280,6 @@ final class CodexRolloutWatcher {
     let projectName = gitInfo?.repoName ?? URL(fileURLWithPath: projectPath).lastPathComponent
     let branch = gitInfo?.branch
 
-    let workstreamId: String? = {
-      guard let info = gitInfo, info.isFeatureBranch, let repoRoot = info.repoRoot, let repoName = info.repoName else {
-        return nil
-      }
-      let directory = projectPath == repoRoot ? nil : projectPath
-      return store.ensureWorkstream(repoPath: repoRoot, repoName: repoName, branch: info.branch ?? "", directory: directory)
-    }()
-
     store.upsertSession(
       sessionId: sessionId,
       projectPath: projectPath,
@@ -298,13 +290,8 @@ final class CodexRolloutWatcher {
       transcriptPath: path,
       status: "active",
       workStatus: "unknown",
-      startedAt: startedAt,
-      workstreamId: workstreamId
+      startedAt: startedAt
     )
-
-    if !exists, let workstreamId {
-      store.incrementWorkstreamSessionCount(workstreamId)
-    }
 
     state.sessionId = sessionId
     state.projectPath = projectPath

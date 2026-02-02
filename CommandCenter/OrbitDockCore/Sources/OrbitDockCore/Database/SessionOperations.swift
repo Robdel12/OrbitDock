@@ -17,7 +17,6 @@ extension CLIDatabase {
         status sessionStatus: String,
         workStatus work: String,
         startedAt started: String?,
-        workstreamId wsId: String?,
         terminalSessionId terminalId: String?,
         terminalApp terminal: String?
     ) throws {
@@ -27,8 +26,8 @@ extension CLIDatabase {
             INSERT INTO sessions (
                 id, project_path, project_name, branch, model, context_label,
                 transcript_path, status, work_status, started_at, last_activity_at,
-                workstream_id, terminal_session_id, terminal_app, provider
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude')
+                terminal_session_id, terminal_app, provider
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude')
             ON CONFLICT(id) DO UPDATE SET
                 project_path = excluded.project_path,
                 project_name = excluded.project_name,
@@ -39,13 +38,12 @@ extension CLIDatabase {
                 status = excluded.status,
                 work_status = excluded.work_status,
                 last_activity_at = excluded.last_activity_at,
-                workstream_id = COALESCE(excluded.workstream_id, workstream_id),
                 terminal_session_id = COALESCE(excluded.terminal_session_id, terminal_session_id),
                 terminal_app = COALESCE(excluded.terminal_app, terminal_app)
             """,
             sessionId, path, name, branchName, modelName, label,
             transcript, sessionStatus, work, started ?? now, now,
-            wsId, terminalId, terminal
+            terminalId, terminal
         )
     }
 
@@ -59,8 +57,14 @@ extension CLIDatabase {
         pendingToolName: String? = nil,
         pendingToolInput: String? = nil,
         pendingQuestion: String? = nil,
-        workstreamId: String? = nil,
-        branch: String? = nil
+        branch: String? = nil,
+        source: String? = nil,
+        agentType: String? = nil,
+        permissionMode: String? = nil,
+        activeSubagentId: String? = nil,
+        activeSubagentType: String? = nil,
+        firstPrompt: String? = nil,
+        workstreamId: String? = nil
     ) throws {
         var updates: [String] = ["last_activity_at = ?"]
         var values: [Binding?] = [Self.formatDate()]
@@ -95,19 +99,68 @@ extension CLIDatabase {
             updates.append("pending_question = ?")
             values.append(pq)
         }
-        if let wsId = workstreamId {
-            updates.append("workstream_id = ?")
-            values.append(wsId)
-        }
         if let br = branch {
             updates.append("branch = ?")
             values.append(br)
+        }
+        if let src = source {
+            updates.append("source = ?")
+            values.append(src)
+        }
+        if let at = agentType {
+            updates.append("agent_type = ?")
+            values.append(at)
+        }
+        if let pm = permissionMode {
+            updates.append("permission_mode = ?")
+            values.append(pm)
+        }
+        if let asid = activeSubagentId {
+            updates.append("active_subagent_id = ?")
+            values.append(asid)
+        }
+        if let ast = activeSubagentType {
+            updates.append("active_subagent_type = ?")
+            values.append(ast)
+        }
+        if let fp = firstPrompt {
+            updates.append("first_prompt = COALESCE(first_prompt, ?)")
+            values.append(fp)
+        }
+        if let wsid = workstreamId {
+            updates.append("workstream_id = ?")
+            values.append(wsid)
         }
 
         values.append(sessionId)
 
         let sql = "UPDATE sessions SET \(updates.joined(separator: ", ")) WHERE id = ?"
         try connection.run(sql, values)
+    }
+
+    /// Clear active subagent
+    public func clearActiveSubagent(id sessionId: String) throws {
+        try connection.run("""
+            UPDATE sessions SET
+                active_subagent_id = NULL,
+                active_subagent_type = NULL,
+                last_activity_at = ?
+            WHERE id = ?
+            """,
+            Self.formatDate(), sessionId
+        )
+    }
+
+    /// Increment compact count
+    public func incrementCompactCount(id sessionId: String) throws {
+        try connection.run("""
+            UPDATE sessions SET
+                compact_count = COALESCE(compact_count, 0) + 1,
+                last_activity_at = ?
+            WHERE id = ?
+            """,
+            Self.formatDate(), sessionId
+        )
     }
 
     /// Clear pending tool/question fields
@@ -174,7 +227,6 @@ extension CLIDatabase {
 
         return SessionRow(
             id: row[Self.id],
-            workstreamId: row[Self.workstreamId],
             lastTool: row[Self.lastTool],
             workStatus: row[Self.workStatus]
         )
@@ -184,7 +236,7 @@ extension CLIDatabase {
     /// A terminal can only run one Claude session at a time
     public func cleanupStaleSessions(terminalId: String, currentSessionId: String) throws -> Int {
         let now = Self.formatDate()
-        let result = try connection.run("""
+        _ = try connection.run("""
             UPDATE sessions SET
                 status = 'ended',
                 ended_at = ?,
@@ -203,7 +255,65 @@ extension CLIDatabase {
 
 public struct SessionRow {
     public let id: String
-    public let workstreamId: String?
     public let lastTool: String?
     public let workStatus: String?
+}
+
+// MARK: - Subagent Operations
+
+extension CLIDatabase {
+
+    /// Create a subagent record when SubagentStart fires
+    public func createSubagent(
+        id agentId: String,
+        sessionId: String,
+        agentType: String
+    ) throws {
+        let now = Self.formatDate()
+        try connection.run("""
+            INSERT INTO subagents (id, session_id, agent_type, started_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                agent_type = excluded.agent_type,
+                started_at = excluded.started_at
+            """,
+            agentId, sessionId, agentType, now
+        )
+    }
+
+    /// End a subagent when SubagentStop fires
+    public func endSubagent(
+        id agentId: String,
+        transcriptPath: String?
+    ) throws {
+        let now = Self.formatDate()
+        try connection.run("""
+            UPDATE subagents SET
+                ended_at = ?,
+                transcript_path = ?
+            WHERE id = ?
+            """,
+            now, transcriptPath, agentId
+        )
+    }
+}
+
+// MARK: - Compaction Operations
+
+extension CLIDatabase {
+
+    /// Record a context compaction event
+    public func recordCompaction(
+        sessionId: String,
+        trigger: String,
+        customInstructions: String?
+    ) throws {
+        let now = Self.formatDate()
+        try connection.run("""
+            INSERT INTO compactions (session_id, trigger, custom_instructions, compacted_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            sessionId, trigger, customInstructions, now
+        )
+    }
 }
