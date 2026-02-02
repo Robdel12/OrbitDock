@@ -29,7 +29,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		80BCD0C02F2C834F00D91F91 /* CommandCenter.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CommandCenter.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		80BCD0C02F2C834F00D91F91 /* OrbitDock.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitDock.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BCD0CD2F2C834F00D91F91 /* CommandCenterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CommandCenterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BCD0D72F2C834F00D91F91 /* CommandCenterUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CommandCenterUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -92,7 +92,7 @@
 		80BCD0C12F2C834F00D91F91 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				80BCD0C02F2C834F00D91F91 /* CommandCenter.app */,
+				80BCD0C02F2C834F00D91F91 /* OrbitDock.app */,
 				80BCD0CD2F2C834F00D91F91 /* CommandCenterTests.xctest */,
 				80BCD0D72F2C834F00D91F91 /* CommandCenterUITests.xctest */,
 			);
@@ -123,7 +123,7 @@
 				80BCD0FF2F2C900000D91F91 /* MarkdownUI */,
 			);
 			productName = CommandCenter;
-			productReference = 80BCD0C02F2C834F00D91F91 /* CommandCenter.app */;
+			productReference = 80BCD0C02F2C834F00D91F91 /* OrbitDock.app */;
 			productType = "com.apple.product-type.application";
 		};
 		80BCD0CC2F2C834F00D91F91 /* CommandCenterTests */ = {
@@ -411,6 +411,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = YES;
 				CODE_SIGN_ENTITLEMENTS = CommandCenter/CommandCenter.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -429,7 +430,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = OrbitDock;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -445,6 +446,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = YES;
 				CODE_SIGN_ENTITLEMENTS = CommandCenter/CommandCenter.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -463,7 +465,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = OrbitDock;
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
