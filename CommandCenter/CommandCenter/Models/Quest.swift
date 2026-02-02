@@ -19,6 +19,7 @@ struct Quest: Identifiable, Hashable {
   var links: [QuestLink]?
   var sessions: [Session]?
   var inboxItems: [InboxItem]?
+  var notes: [QuestNote]?
 
   enum Status: String, CaseIterable {
     case active
@@ -49,6 +50,7 @@ struct Quest: Identifiable, Hashable {
   var sessionCount: Int { sessions?.count ?? 0 }
   var linkCount: Int { links?.count ?? 0 }
   var inboxCount: Int { inboxItems?.count ?? 0 }
+  var noteCount: Int { notes?.count ?? 0 }
 
   // Hashable conformance (ignore relationships)
   func hash(into hasher: inout Hasher) {
@@ -57,5 +59,29 @@ struct Quest: Identifiable, Hashable {
 
   static func == (lhs: Quest, rhs: Quest) -> Bool {
     lhs.id == rhs.id
+  }
+}
+
+// MARK: - Quest Note
+
+struct QuestNote: Identifiable, Hashable {
+  let id: String
+  let questId: String
+  var title: String?
+  var content: String
+  let createdAt: Date
+  var updatedAt: Date
+
+  var displayTitle: String {
+    if let title, !title.isEmpty {
+      return title
+    }
+    // Use first line of content as title
+    let firstLine = content.components(separatedBy: .newlines).first ?? content
+    return String(firstLine.prefix(50))
+  }
+
+  var preview: String {
+    String(content.prefix(100))
   }
 }

@@ -54,6 +54,7 @@ class DatabaseManager {
   private let inboxItems = Table("inbox_items")
   private let questLinks = Table("quest_links")
   private let questSessions = Table("quest_sessions")
+  private let questNotes = Table("quest_notes")
 
   // Quest columns
   private let questId = SQLite.Expression<String>("id")
@@ -87,6 +88,14 @@ class DatabaseManager {
   private let linkExternalId = SQLite.Expression<String?>("external_id")
   private let linkDetectedFrom = SQLite.Expression<String?>("detected_from")
   private let linkCreatedAt = SQLite.Expression<String>("created_at")
+
+  // Quest note columns
+  private let noteId = SQLite.Expression<String>("id")
+  private let noteQuestId = SQLite.Expression<String>("quest_id")
+  private let noteTitle = SQLite.Expression<String?>("title")
+  private let noteContent = SQLite.Expression<String>("content")
+  private let noteCreatedAt = SQLite.Expression<String>("created_at")
+  private let noteUpdatedAt = SQLite.Expression<String>("updated_at")
 
   // Quest-session junction columns
   private let qsQuestId = SQLite.Expression<String>("quest_id")
@@ -686,6 +695,7 @@ class DatabaseManager {
     quest.links = fetchQuestLinks(questId: questIdValue)
     quest.sessions = fetchSessionsForQuest(questId: questIdValue)
     quest.inboxItems = fetchInboxItems(questId: questIdValue)
+    quest.notes = fetchQuestNotes(questId: questIdValue)
 
     return quest
   }
@@ -1181,6 +1191,103 @@ class DatabaseManager {
       }
     } catch {
       print("Failed to remove quest link: \(error)")
+    }
+  }
+
+  // MARK: - Quest Note Operations
+
+  func fetchQuestNotes(questId questIdValue: String) -> [QuestNote] {
+    guard let db else { return [] }
+
+    let query = questNotes
+      .filter(noteQuestId == questIdValue)
+      .order(noteUpdatedAt.desc)
+
+    do {
+      return try db.prepare(query).map { row in
+        QuestNote(
+          id: row[noteId],
+          questId: row[noteQuestId],
+          title: row[noteTitle],
+          content: row[noteContent],
+          createdAt: parseDate(row[noteCreatedAt]) ?? Date(),
+          updatedAt: parseDate(row[noteUpdatedAt]) ?? Date()
+        )
+      }
+    } catch {
+      print("Failed to fetch quest notes: \(error)")
+      return []
+    }
+  }
+
+  func createQuestNote(questId questIdValue: String, title: String? = nil, content: String) -> QuestNote? {
+    guard let db else { return nil }
+
+    let newId = UUID().uuidString.lowercased()
+    let now = formatDate(Date())
+
+    do {
+      try db.run(questNotes.insert(
+        noteId <- newId,
+        noteQuestId <- questIdValue,
+        noteTitle <- title,
+        noteContent <- content,
+        noteCreatedAt <- now,
+        noteUpdatedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+
+      return QuestNote(
+        id: newId,
+        questId: questIdValue,
+        title: title,
+        content: content,
+        createdAt: Date(),
+        updatedAt: Date()
+      )
+    } catch {
+      print("Failed to create quest note: \(error)")
+      return nil
+    }
+  }
+
+  func updateQuestNote(id noteIdValue: String, title: String? = nil, content: String? = nil) {
+    guard let db else { return }
+
+    let note = questNotes.filter(noteId == noteIdValue)
+    let now = formatDate(Date())
+
+    var setters: [Setter] = [noteUpdatedAt <- now]
+    if let title { setters.append(noteTitle <- title) }
+    if let content { setters.append(noteContent <- content) }
+
+    do {
+      try db.run(note.update(setters))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update quest note: \(error)")
+    }
+  }
+
+  func deleteQuestNote(id noteIdValue: String) {
+    guard let db else { return }
+
+    let note = questNotes.filter(noteId == noteIdValue)
+
+    do {
+      try db.run(note.delete())
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to delete quest note: \(error)")
     }
   }
 

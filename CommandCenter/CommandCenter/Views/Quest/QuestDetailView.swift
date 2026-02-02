@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct QuestDetailView: View {
   let questId: String
@@ -15,8 +16,13 @@ struct QuestDetailView: View {
   @Environment(DatabaseManager.self) private var db
   @State private var showingAddLink = false
   @State private var showingLinkSession = false
+  @State private var showingAddNote = false
+  @State private var showingDeleteConfirm = false
   @State private var isEditingName = false
   @State private var editedName = ""
+  @State private var isEditingDescription = false
+  @State private var editedDescription = ""
+  @State private var selectedNote: QuestNote?
 
   /// Computed from @Observable - updates automatically when db.questDetails changes
   private var quest: Quest? {
@@ -35,24 +41,17 @@ struct QuestDetailView: View {
         // Content
         ScrollView {
           VStack(alignment: .leading, spacing: 24) {
-            // Description
-            if let description = quest.description, !description.isEmpty {
-              VStack(alignment: .leading, spacing: 8) {
-                Text("Description")
-                  .font(.system(size: 12, weight: .semibold))
-                  .foregroundStyle(.secondary)
-
-                Text(description)
-                  .font(.system(size: 14))
-                  .foregroundStyle(.primary)
-              }
-            }
+            // Description (editable)
+            descriptionSection(quest)
 
             // Linked Sessions
             sessionsSection(quest)
 
             // Links (PRs, Issues, etc.)
             linksSection(quest)
+
+            // Notes
+            notesSection(quest)
 
             // Attached Inbox Items
             inboxSection(quest)
@@ -72,6 +71,20 @@ struct QuestDetailView: View {
     }
     .sheet(isPresented: $showingLinkSession) {
       LinkSessionSheet(questId: questId)
+    }
+    .sheet(isPresented: $showingAddNote) {
+      QuestNoteSheet(questId: questId, note: nil)
+    }
+    .sheet(item: $selectedNote) { note in
+      QuestNoteSheet(questId: questId, note: note)
+    }
+    .alert("Delete Quest?", isPresented: $showingDeleteConfirm) {
+      Button("Cancel", role: .cancel) {}
+      Button("Delete", role: .destructive) {
+        deleteQuest()
+      }
+    } message: {
+      Text("This will permanently delete this quest and unlink all sessions. This cannot be undone.")
     }
   }
 
@@ -105,6 +118,23 @@ struct QuestDetailView: View {
 
       // Status toggle
       statusMenu(quest)
+
+      // More actions menu
+      Menu {
+        Button(role: .destructive) {
+          showingDeleteConfirm = true
+        } label: {
+          Label("Delete Quest", systemImage: "trash")
+        }
+      } label: {
+        Image(systemName: "ellipsis")
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(.secondary)
+          .frame(width: 28, height: 28)
+          .background(Color.backgroundTertiary, in: Circle())
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
 
       // Close button
       Button {
@@ -152,6 +182,87 @@ struct QuestDetailView: View {
       .background(statusColor(for: quest).opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
     .menuStyle(.borderlessButton)
+  }
+
+  // MARK: - Description Section
+
+  private func descriptionSection(_ quest: Quest) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Text("Description")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(.secondary)
+
+        Spacer()
+
+        if !isEditingDescription {
+          Button {
+            editedDescription = quest.description ?? ""
+            isEditingDescription = true
+          } label: {
+            Image(systemName: "pencil")
+              .font(.system(size: 10, weight: .medium))
+              .foregroundStyle(.tertiary)
+          }
+          .buttonStyle(.plain)
+        }
+      }
+
+      if isEditingDescription {
+        VStack(alignment: .trailing, spacing: 8) {
+          TextEditor(text: $editedDescription)
+            .font(.system(size: 14))
+            .scrollContentBackground(.hidden)
+            .padding(10)
+            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .frame(minHeight: 80)
+
+          HStack(spacing: 8) {
+            Button("Cancel") {
+              isEditingDescription = false
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .font(.system(size: 12))
+
+            Button {
+              saveDescription()
+            } label: {
+              Text("Save")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(Color.accent, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      } else if let description = quest.description, !description.isEmpty {
+        Text(description)
+          .font(.system(size: 14))
+          .foregroundStyle(.primary)
+          .onTapGesture(count: 2) {
+            editedDescription = description
+            isEditingDescription = true
+          }
+      } else {
+        Button {
+          editedDescription = ""
+          isEditingDescription = true
+        } label: {
+          HStack(spacing: 6) {
+            Image(systemName: "plus")
+              .font(.system(size: 10, weight: .medium))
+            Text("Add description")
+              .font(.system(size: 12))
+          }
+          .foregroundStyle(.tertiary)
+          .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
+      }
+    }
   }
 
   // MARK: - Sessions Section
@@ -264,6 +375,62 @@ struct QuestDetailView: View {
     }
   }
 
+  // MARK: - Notes Section
+
+  private func notesSection(_ quest: Quest) -> some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack {
+        HStack(spacing: 6) {
+          Image(systemName: "note.text")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+          Text("Notes")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.primary)
+          Text("\(quest.notes?.count ?? 0)")
+            .font(.system(size: 11, weight: .medium, design: .rounded))
+            .foregroundStyle(.tertiary)
+        }
+
+        Spacer()
+
+        Button {
+          showingAddNote = true
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: "plus")
+              .font(.system(size: 10, weight: .semibold))
+            Text("Add Note")
+              .font(.system(size: 11, weight: .medium))
+          }
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 10)
+          .padding(.vertical, 5)
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+      }
+
+      if let notes = quest.notes, !notes.isEmpty {
+        VStack(spacing: 6) {
+          ForEach(notes) { note in
+            QuestNoteRow(note: note) {
+              selectedNote = note
+            } onDelete: {
+              db.deleteQuestNote(id: note.id)
+            }
+          }
+        }
+      } else {
+        emptyPlaceholder(
+          icon: "note.text",
+          text: "No notes yet",
+          hint: "Add context, decisions, or reference material"
+        )
+      }
+    }
+  }
+
   // MARK: - Inbox Section
 
   private func inboxSection(_ quest: Quest) -> some View {
@@ -272,7 +439,7 @@ struct QuestDetailView: View {
         Image(systemName: "tray")
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(.secondary)
-        Text("Attached Notes")
+        Text("Inbox Items")
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.primary)
         Text("\(quest.inboxItems?.count ?? 0)")
@@ -291,7 +458,7 @@ struct QuestDetailView: View {
       } else {
         emptyPlaceholder(
           icon: "tray",
-          text: "No notes attached",
+          text: "No inbox items attached",
           hint: "Capture ideas with the inbox and attach them here"
         )
       }
@@ -340,6 +507,17 @@ struct QuestDetailView: View {
   private func cancelEditName() {
     isEditingName = false
     editedName = quest?.name ?? ""
+  }
+
+  private func saveDescription() {
+    let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    db.updateQuest(id: questId, description: trimmed.isEmpty ? nil : trimmed)
+    isEditingDescription = false
+  }
+
+  private func deleteQuest() {
+    db.deleteQuest(id: questId)
+    onDismiss()
   }
 }
 
@@ -545,10 +723,23 @@ struct AddLinkSheet: View {
 
   @Environment(\.dismiss) private var dismiss
   @State private var url = ""
+  @State private var planPath = ""
   @State private var title = ""
   @State private var selectedSource: QuestLink.Source = .githubPR
 
   private let db = DatabaseManager.shared
+
+  private var isPlanType: Bool {
+    selectedSource == .planFile
+  }
+
+  private var canAdd: Bool {
+    if isPlanType {
+      return !planPath.trimmingCharacters(in: .whitespaces).isEmpty
+    } else {
+      return !url.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -592,17 +783,52 @@ struct AddLinkSheet: View {
           .pickerStyle(.segmented)
         }
 
-        // URL
-        VStack(alignment: .leading, spacing: 8) {
-          Text("URL")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
+        if isPlanType {
+          // Plan file picker
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Plan File")
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(.secondary)
 
-          TextField("https://...", text: $url)
-            .textFieldStyle(.plain)
-            .font(.system(size: 14))
-            .padding(12)
-            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            HStack(spacing: 10) {
+              Text(planPath.isEmpty ? "No file selected" : URL(fileURLWithPath: planPath).lastPathComponent)
+                .font(.system(size: 14))
+                .foregroundStyle(planPath.isEmpty ? .tertiary : .primary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+              Button {
+                browsePlanFile()
+              } label: {
+                Text("Browse...")
+                  .font(.system(size: 12, weight: .medium))
+                  .foregroundStyle(.secondary)
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 8)
+                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              }
+              .buttonStyle(.plain)
+            }
+
+            Text("Plans are typically in the plan/ directory")
+              .font(.system(size: 11))
+              .foregroundStyle(.tertiary)
+          }
+        } else {
+          // URL input
+          VStack(alignment: .leading, spacing: 8) {
+            Text("URL")
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(.secondary)
+
+            TextField("https://...", text: $url)
+              .textFieldStyle(.plain)
+              .font(.system(size: 14))
+              .padding(12)
+              .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+          }
         }
 
         // Title (optional)
@@ -646,22 +872,60 @@ struct AddLinkSheet: View {
             .foregroundStyle(.white)
         }
         .buttonStyle(.plain)
-        .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty)
+        .disabled(!canAdd)
       }
       .padding(20)
     }
-    .frame(width: 400, height: 380)
+    .frame(width: 400, height: 420)
     .background(Color.backgroundSecondary)
   }
 
+  private func browsePlanFile() {
+    let panel = NSOpenPanel()
+    panel.allowsMultipleSelection = false
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowedContentTypes = [.init(filenameExtension: "md")!]
+    panel.title = "Select Plan File"
+    panel.message = "Choose a markdown plan file"
+
+    // Try to start in a plan/ directory if we can find one
+    if let quest = db.fetchQuest(id: questId),
+       let session = quest.sessions?.first {
+      let planDir = URL(fileURLWithPath: session.projectPath).appendingPathComponent("plan")
+      if FileManager.default.fileExists(atPath: planDir.path) {
+        panel.directoryURL = planDir
+      } else {
+        panel.directoryURL = URL(fileURLWithPath: session.projectPath)
+      }
+    }
+
+    if panel.runModal() == .OK, let selectedURL = panel.url {
+      planPath = selectedURL.path
+      // Auto-fill title from filename if empty
+      if title.isEmpty {
+        title = selectedURL.deletingPathExtension().lastPathComponent
+          .replacingOccurrences(of: "-", with: " ")
+          .replacingOccurrences(of: "_", with: " ")
+          .capitalized
+      }
+    }
+  }
+
   private func addLink() {
-    let trimmedUrl = url.trimmingCharacters(in: .whitespaces)
     let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
+
+    let linkUrl: String
+    if isPlanType {
+      linkUrl = "file://" + planPath.trimmingCharacters(in: .whitespaces)
+    } else {
+      linkUrl = url.trimmingCharacters(in: .whitespaces)
+    }
 
     _ = db.addQuestLink(
       questId: questId,
       source: selectedSource,
-      url: trimmedUrl,
+      url: linkUrl,
       title: trimmedTitle.isEmpty ? nil : trimmedTitle,
       detectedFrom: .manual
     )
@@ -777,6 +1041,215 @@ struct LinkSessionSheet: View {
     .onAppear {
       sessions = db.fetchSessions()
     }
+  }
+}
+
+// MARK: - Quest Note Row
+
+struct QuestNoteRow: View {
+  let note: QuestNote
+  let onEdit: () -> Void
+  let onDelete: () -> Void
+
+  @State private var isHovering = false
+
+  var body: some View {
+    HStack(spacing: 12) {
+      // Note icon
+      Image(systemName: "note.text")
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.tertiary)
+
+      // Content
+      VStack(alignment: .leading, spacing: 4) {
+        Text(note.displayTitle)
+          .font(.system(size: 13, weight: .medium))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+
+        Text(note.updatedAt, style: .relative)
+          .font(.system(size: 10))
+          .foregroundStyle(.quaternary)
+      }
+
+      Spacer()
+
+      // Actions (on hover)
+      if isHovering {
+        HStack(spacing: 6) {
+          Button {
+            onEdit()
+          } label: {
+            Image(systemName: "pencil")
+              .font(.system(size: 10, weight: .medium))
+              .foregroundStyle(.secondary)
+              .frame(width: 24, height: 24)
+              .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .help("Edit note")
+
+          Button {
+            onDelete()
+          } label: {
+            Image(systemName: "trash")
+              .font(.system(size: 10, weight: .medium))
+              .foregroundStyle(.red.opacity(0.8))
+              .frame(width: 24, height: 24)
+              .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .help("Delete note")
+        }
+      }
+    }
+    .padding(.vertical, 10)
+    .padding(.horizontal, 12)
+    .background(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(isHovering ? Color.surfaceHover : Color.backgroundTertiary.opacity(0.5))
+    )
+    .onTapGesture { onEdit() }
+    .onHover { isHovering = $0 }
+  }
+}
+
+// MARK: - Quest Note Sheet
+
+struct QuestNoteSheet: View {
+  let questId: String
+  let note: QuestNote?
+
+  @Environment(\.dismiss) private var dismiss
+  @State private var title = ""
+  @State private var content = ""
+
+  private let db = DatabaseManager.shared
+
+  private var isEditing: Bool { note != nil }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      // Header
+      HStack {
+        Text(isEditing ? "Edit Note" : "Add Note")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(.primary)
+
+        Spacer()
+
+        Button {
+          dismiss()
+        } label: {
+          Image(systemName: "xmark")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(width: 28, height: 28)
+            .background(Color.backgroundTertiary, in: Circle())
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(20)
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+
+      // Form
+      VStack(alignment: .leading, spacing: 16) {
+        // Title (optional)
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Title (optional)")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+
+          TextField("Note title", text: $title)
+            .textFieldStyle(.plain)
+            .font(.system(size: 14))
+            .padding(12)
+            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+
+        // Content
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Content")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+
+          TextEditor(text: $content)
+            .font(.system(size: 14, design: .monospaced))
+            .scrollContentBackground(.hidden)
+            .padding(12)
+            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .frame(minHeight: 200)
+
+          Text("Markdown supported")
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
+        }
+      }
+      .padding(20)
+
+      Spacer()
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+
+      // Actions
+      HStack {
+        Spacer()
+
+        Button("Cancel") {
+          dismiss()
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+
+        Button {
+          saveNote()
+        } label: {
+          Text(isEditing ? "Save" : "Add Note")
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color.accent, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(.white)
+        }
+        .buttonStyle(.plain)
+        .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      }
+      .padding(20)
+    }
+    .frame(width: 500, height: 500)
+    .background(Color.backgroundSecondary)
+    .onAppear {
+      if let note {
+        title = note.title ?? ""
+        content = note.content
+      }
+    }
+  }
+
+  private func saveNote() {
+    let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
+    let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard !trimmedContent.isEmpty else { return }
+
+    if let note {
+      db.updateQuestNote(
+        id: note.id,
+        title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+        content: trimmedContent
+      )
+    } else {
+      _ = db.createQuestNote(
+        questId: questId,
+        title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+        content: trimmedContent
+      )
+    }
+
+    dismiss()
   }
 }
 
