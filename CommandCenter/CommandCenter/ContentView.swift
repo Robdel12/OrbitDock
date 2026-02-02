@@ -245,7 +245,7 @@ struct ContentView: View {
     let oldWaitingIds = Set(waitingSessions.map(\.id))
     sessions = database.fetchSessions()
 
-    // Track work status for "Claude finished" notifications
+    // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {
       NotificationManager.shared.updateSessionWorkStatus(session: session)
     }

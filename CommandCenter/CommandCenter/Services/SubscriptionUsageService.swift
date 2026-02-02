@@ -127,6 +127,17 @@ struct SubscriptionUsage: Sendable {
     if tier.contains("enterprise") { return "Enterprise" }
     return nil
   }
+
+  /// Convert to unified RateLimitWindow array for generic UI components
+  var windows: [RateLimitWindow] {
+    var result: [RateLimitWindow] = [
+      .fiveHour(utilization: fiveHour.utilization, resetsAt: fiveHour.resetsAt)
+    ]
+    if let sevenDay {
+      result.append(.sevenDay(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
+    }
+    return result
+  }
 }
 
 enum SubscriptionUsageError: LocalizedError {

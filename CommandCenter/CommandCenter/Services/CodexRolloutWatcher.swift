@@ -16,6 +16,7 @@ final class CodexRolloutWatcher {
   private var stream: FSEventStreamRef?
   private var pendingWork: [String: DispatchWorkItem] = [:]
   private var fileStates: [String: FileState] = [:]
+  private var sessionTimeouts: [String: DispatchWorkItem] = [:]
 
   private let sessionsDir: URL
   private let stateURL: URL
@@ -23,6 +24,7 @@ final class CodexRolloutWatcher {
   private let watcherStartedAt: Date
   private let debug: Bool
   private let store: CodexSessionStore?
+  private let sessionTimeoutSeconds: TimeInterval = 120
 
   private init() {
     let homeDir = FileManager.default.homeDirectoryForCurrentUser
@@ -104,6 +106,8 @@ final class CodexRolloutWatcher {
     FSEventStreamInvalidate(stream)
     FSEventStreamRelease(stream)
     self.stream = nil
+    sessionTimeouts.values.forEach { $0.cancel() }
+    sessionTimeouts.removeAll()
     pendingWork.removeAll()
     fileStates.removeAll()
     print("CodexRolloutWatcher: stopped")
@@ -306,6 +310,7 @@ final class CodexRolloutWatcher {
     state.projectPath = projectPath
     state.modelProvider = modelProvider
 
+    scheduleSessionTimeout(sessionId: sessionId)
     notifySessionUpdated()
 
     if debug {
@@ -330,6 +335,7 @@ final class CodexRolloutWatcher {
 
     if !updates.isEmpty {
       store.updateSession(sessionId, updates: updates)
+      scheduleSessionTimeout(sessionId: sessionId)
       notifySessionUpdated()
     }
   }
@@ -340,36 +346,49 @@ final class CodexRolloutWatcher {
 
     switch eventType {
     case "task_started", "turn_started":
+      state.sawAgentEvent = false
+      state.sawUserEvent = false
       markWorking(sessionId: sessionId, tool: nil, store: store)
       clearPending(sessionId: sessionId, store: store)
     case "task_complete", "turn_complete", "turn_aborted":
+      state.sawAgentEvent = true
       markWaiting(sessionId: sessionId, store: store)
     case "user_message":
       state.sawUserEvent = true
+      state.sawAgentEvent = false
       let message = payload["message"] as? String
       handleUserMessage(sessionId: sessionId, message: message, store: store)
     case "agent_message":
       state.sawAgentEvent = true
       markWaiting(sessionId: sessionId, store: store)
     case "exec_command_begin":
+      if state.sawAgentEvent { return }
       markWorking(sessionId: sessionId, tool: "Shell", store: store)
     case "exec_command_end":
+      if state.sawAgentEvent { return }
       markToolCompleted(sessionId: sessionId, tool: "Shell", store: store)
     case "patch_apply_begin":
+      if state.sawAgentEvent { return }
       markWorking(sessionId: sessionId, tool: "Edit", store: store)
     case "patch_apply_end":
+      if state.sawAgentEvent { return }
       markToolCompleted(sessionId: sessionId, tool: "Edit", store: store)
     case "mcp_tool_call_begin":
+      if state.sawAgentEvent { return }
       let label = mcpToolLabel(payload["invocation"] as? [String: Any])
       markWorking(sessionId: sessionId, tool: label, store: store)
     case "mcp_tool_call_end":
+      if state.sawAgentEvent { return }
       let label = mcpToolLabel(payload["invocation"] as? [String: Any])
       markToolCompleted(sessionId: sessionId, tool: label, store: store)
     case "web_search_begin":
+      if state.sawAgentEvent { return }
       markWorking(sessionId: sessionId, tool: "WebSearch", store: store)
     case "web_search_end":
+      if state.sawAgentEvent { return }
       markToolCompleted(sessionId: sessionId, tool: "WebSearch", store: store)
     case "view_image_tool_call":
+      if state.sawAgentEvent { return }
       markToolCompleted(sessionId: sessionId, tool: "ViewImage", store: store)
     case "exec_approval_request":
       let payloadJson = jsonString(from: payload)
@@ -411,6 +430,7 @@ final class CodexRolloutWatcher {
       // Real assistant responses come from event_msg.agent_message
       break
     case "function_call":
+      if state.sawAgentEvent { return }
       guard let callId = payload["call_id"] as? String else { return }
       let toolName = toolLabel(from: payload["name"] as? String)
       if let toolName {
@@ -418,6 +438,7 @@ final class CodexRolloutWatcher {
         markWorking(sessionId: sessionId, tool: toolName, store: store)
       }
     case "function_call_output":
+      if state.sawAgentEvent { return }
       if let callId = payload["call_id"] as? String,
          let toolName = state.pendingToolCalls.removeValue(forKey: callId) {
         markToolCompleted(sessionId: sessionId, tool: toolName, store: store)
@@ -446,6 +467,7 @@ final class CodexRolloutWatcher {
       "pendingQuestion": NSNull()
     ])
 
+    scheduleSessionTimeout(sessionId: sessionId)
     notifySessionUpdated()
   }
 
@@ -457,6 +479,7 @@ final class CodexRolloutWatcher {
       "pendingToolInput": payload ?? NSNull()
     ])
 
+    scheduleSessionTimeout(sessionId: sessionId)
     notifySessionUpdated()
   }
 
@@ -467,6 +490,7 @@ final class CodexRolloutWatcher {
       "pendingQuestion": question ?? NSNull()
     ])
 
+    scheduleSessionTimeout(sessionId: sessionId)
     notifySessionUpdated()
   }
 
@@ -490,6 +514,7 @@ final class CodexRolloutWatcher {
     }
 
     store.updateSession(sessionId, updates: updates)
+    scheduleSessionTimeout(sessionId: sessionId)
     notifySessionUpdated()
   }
 
@@ -507,6 +532,7 @@ final class CodexRolloutWatcher {
     }
 
     store.updateSession(sessionId, updates: updates)
+    scheduleSessionTimeout(sessionId: sessionId)
     notifySessionUpdated()
   }
 
@@ -520,7 +546,24 @@ final class CodexRolloutWatcher {
     ])
 
     ensureSessionName(sessionId: sessionId, store: store)
+    scheduleSessionTimeout(sessionId: sessionId)
     notifySessionUpdated()
+  }
+
+  private func scheduleSessionTimeout(sessionId: String) {
+    sessionTimeouts[sessionId]?.cancel()
+
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, let store = self.store else { return }
+      _ = store.endSessionIfActive(sessionId: sessionId, reason: "timeout")
+      if self.debug {
+        print("CodexRolloutWatcher: timed out \(sessionId)")
+      }
+      self.sessionTimeouts[sessionId] = nil
+    }
+
+    sessionTimeouts[sessionId] = work
+    queue.asyncAfter(deadline: .now() + sessionTimeoutSeconds, execute: work)
   }
 
   // MARK: - Utilities

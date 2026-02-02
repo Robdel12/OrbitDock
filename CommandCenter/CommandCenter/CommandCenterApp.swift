@@ -69,6 +69,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     UNUserNotificationCenter.current().setNotificationCategories([category])
 
     CodexRolloutWatcher.shared.start()
+
+    // Fetch latest model pricing in background
+    ModelPricingService.shared.fetchPrices()
   }
 
   func applicationWillTerminate(_ notification: Notification) {

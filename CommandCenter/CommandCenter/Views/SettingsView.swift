@@ -208,7 +208,7 @@ struct NotificationSettingsView: View {
 
             VStack(alignment: .leading, spacing: 6) {
               Toggle(isOn: $notifyOnWorkComplete) {
-                Text("Notify When Claude Finishes")
+                Text("Notify When Agent Finishes")
                   .font(.system(size: 13))
               }
               .toggleStyle(.switch)

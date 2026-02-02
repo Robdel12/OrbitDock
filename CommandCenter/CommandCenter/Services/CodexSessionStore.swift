@@ -265,6 +265,20 @@ final class CodexSessionStore {
     }
   }
 
+  func endSessionIfActive(sessionId: String, reason: String?) -> Int {
+    do {
+      try db.run(
+        "UPDATE sessions SET status = 'ended', ended_at = datetime('now'), end_reason = ? WHERE id = ? AND status = 'active'",
+        reason,
+        sessionId
+      )
+      return db.changes
+    } catch {
+      print("CodexSessionStore: end session if active failed - \(error)")
+      return 0
+    }
+  }
+
   func fetchSessionNameInfo(_ sessionId: String) -> (customName: String?, summary: String?, firstPrompt: String?) {
     do {
       let stmt = try db.prepare(

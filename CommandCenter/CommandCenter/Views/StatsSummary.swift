@@ -37,9 +37,16 @@ struct StatsSummary: View {
     let stats = aggregateStats
 
     HStack(spacing: 12) {
-      // Subscription usage cards
-      SubscriptionUsageCard()
-      CodexUsageCard()
+      // Provider usage cards
+      ForEach(UsageServiceRegistry.shared.allProviders) { provider in
+        ProviderUsageCard(
+          provider: provider,
+          windows: UsageServiceRegistry.shared.windows(for: provider),
+          planName: UsageServiceRegistry.shared.planName(for: provider),
+          isLoading: UsageServiceRegistry.shared.isLoading(for: provider),
+          error: UsageServiceRegistry.shared.error(for: provider)
+        )
+      }
 
       Divider()
         .frame(height: 40)

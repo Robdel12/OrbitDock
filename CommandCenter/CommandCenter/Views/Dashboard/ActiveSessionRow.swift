@@ -103,8 +103,8 @@ struct ActiveSessionRow: View {
           statsSection
         }
 
-        // Model badge
-        ModelBadgeMini(model: session.model)
+        // Provider + Model badge
+        ModelBadgeMini(model: session.model, provider: session.provider)
       }
       .padding(.vertical, 10)
       .padding(.horizontal, 14)

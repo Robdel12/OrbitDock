@@ -227,7 +227,7 @@ struct CompactSessionRow: View {
           .foregroundStyle(.quaternary)
 
         // Model badge
-        ModelBadgeMini(model: session.model)
+        ModelBadgeMini(model: session.model, provider: session.provider)
       }
       .padding(.vertical, 5)
       .padding(.horizontal, 10)

@@ -111,23 +111,15 @@ struct TranscriptUsageStats: Equatable {
     return String(format: "%.0fk", k)
   }
 
-  /// Pricing per million tokens (approximate, as of Jan 2025)
+  /// Estimated cost using ModelPricingService (fetches from LiteLLM)
   var estimatedCostUSD: Double {
-    let isOpus = model?.contains("opus") ?? false
-
-    if isOpus {
-      let inputCost = Double(inputTokens) / 1_000_000 * 15.0
-      let outputCost = Double(outputTokens) / 1_000_000 * 75.0
-      let cacheReadCost = Double(cacheReadTokens) / 1_000_000 * 1.875
-      let cacheWriteCost = Double(cacheCreationTokens) / 1_000_000 * 18.75
-      return inputCost + outputCost + cacheReadCost + cacheWriteCost
-    } else {
-      let inputCost = Double(inputTokens) / 1_000_000 * 3.0
-      let outputCost = Double(outputTokens) / 1_000_000 * 15.0
-      let cacheReadCost = Double(cacheReadTokens) / 1_000_000 * 0.30
-      let cacheWriteCost = Double(cacheCreationTokens) / 1_000_000 * 3.75
-      return inputCost + outputCost + cacheReadCost + cacheWriteCost
-    }
+    ModelPricingService.shared.calculateCost(
+      model: model,
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cacheReadTokens: cacheReadTokens,
+      cacheCreationTokens: cacheCreationTokens
+    )
   }
 
   var formattedCost: String {

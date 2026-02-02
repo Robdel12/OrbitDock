@@ -79,6 +79,20 @@ extension Color {
   static let textQuaternary = Color.white.opacity(0.20)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Provider Colors - Multi-Provider Support
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// Claude accent - uses brand cyan
+  static let providerClaude = accent
+
+  /// Codex/OpenAI accent - green (#4AC78F)
+  static let providerCodex = Color(red: 0.29, green: 0.78, blue: 0.56)
+
+  /// Gemini accent - purple/blue
+  static let providerGemini = Color(red: 0.4, green: 0.5, blue: 0.9)
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Status - Mission Control Indicators
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
