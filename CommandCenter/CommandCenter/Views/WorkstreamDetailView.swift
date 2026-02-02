@@ -1255,7 +1255,7 @@ struct AddNoteSheet: View {
       githubPRNumber: 127,
       githubPRTitle: "feat: Visual diff annotations",
       githubPRState: .open,
-      githubPRURL: "https://github.com/vizzly-testing/vizzly/pull/127",
+      githubPRURL: "https://github.com/octocat/Hello-World/pull/127",
       githubPRAdditions: 847,
       githubPRDeletions: 234,
       reviewState: .pending,
@@ -1272,8 +1272,8 @@ struct AddNoteSheet: View {
     repo: Repo(
       id: "repo1",
       name: "vizzly",
-      path: "/Users/rob/Dev/vizzly",
-      githubOwner: "vizzly-testing",
+      path: "/Users/developer/Dev/vizzly",
+      githubOwner: "octocat",
       githubName: "vizzly",
       createdAt: Date()
     )

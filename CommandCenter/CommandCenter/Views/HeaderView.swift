@@ -441,7 +441,7 @@ struct ContextGaugeCompact: View {
     HeaderView(
       session: Session(
         id: "test-123",
-        projectPath: "/Users/rob/Developer/vizzly-cli",
+        projectPath: "/Users/developer/Developer/vizzly-cli",
         projectName: "vizzly-cli",
         branch: "feat/auth-system",
         model: "claude-opus-4-5-20251101",

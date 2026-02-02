@@ -135,7 +135,7 @@ struct StatCard: View {
   StatsSummary(sessions: [
     Session(
       id: "1",
-      projectPath: "/Users/rob/Developer/vizzly-cli",
+      projectPath: "/Users/developer/Developer/vizzly-cli",
       projectName: "vizzly-cli",
       model: "claude-opus-4-5-20251101",
       status: .active,
@@ -146,7 +146,7 @@ struct StatCard: View {
     ),
     Session(
       id: "2",
-      projectPath: "/Users/rob/Developer/backchannel",
+      projectPath: "/Users/developer/Developer/backchannel",
       projectName: "backchannel",
       model: "claude-sonnet-4-20250514",
       status: .active,
@@ -157,7 +157,7 @@ struct StatCard: View {
     ),
     Session(
       id: "3",
-      projectPath: "/Users/rob/Developer/docs",
+      projectPath: "/Users/developer/Developer/docs",
       projectName: "docs",
       model: "claude-haiku-3-5-20241022",
       status: .ended,

@@ -720,7 +720,7 @@ struct TaskRow: View {
     sessions: [
       Session(
         id: "1",
-        projectPath: "/Users/rob/Developer/claude-dashboard",
+        projectPath: "/Users/developer/Developer/claude-dashboard",
         projectName: "claude-dashboard",
         branch: "main",
         model: "claude-opus-4-5-20251101",
@@ -732,7 +732,7 @@ struct TaskRow: View {
       ),
       Session(
         id: "2",
-        projectPath: "/Users/rob/Developer/claude-dashboard",
+        projectPath: "/Users/developer/Developer/claude-dashboard",
         projectName: "claude-dashboard",
         branch: "main",
         model: "claude-sonnet-4-20250514",
@@ -744,7 +744,7 @@ struct TaskRow: View {
       ),
       Session(
         id: "3",
-        projectPath: "/Users/rob/Developer/claude-dashboard",
+        projectPath: "/Users/developer/Developer/claude-dashboard",
         projectName: "claude-dashboard",
         model: "claude-sonnet-4-20250514",
         summary: "Quick Capture System for In-Progress sessions",
@@ -755,7 +755,7 @@ struct TaskRow: View {
       ),
       Session(
         id: "4",
-        projectPath: "/Users/rob/Developer/vizzly",
+        projectPath: "/Users/developer/Developer/vizzly",
         projectName: "vizzly",
         model: "claude-sonnet-4-20250514",
         summary: "Vizzly Enterprise Lunch & Learn presentation",
@@ -766,7 +766,7 @@ struct TaskRow: View {
       ),
       Session(
         id: "5",
-        projectPath: "/Users/rob/Developer/claude-dashboard",
+        projectPath: "/Users/developer/Developer/claude-dashboard",
         projectName: "claude-dashboard",
         model: "claude-opus-4-5-20251101",
         summary: "Message truncation & conversation view fixes",
@@ -778,7 +778,7 @@ struct TaskRow: View {
       ),
       Session(
         id: "6",
-        projectPath: "/Users/rob/Developer/vizzly",
+        projectPath: "/Users/developer/Developer/vizzly",
         projectName: "vizzly",
         model: "claude-haiku-3-5-20241022",
         status: .ended,

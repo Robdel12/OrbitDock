@@ -553,14 +553,14 @@ struct CompactHistoryRow: View {
         sessions: [
           Session(
             id: "active-1",
-            projectPath: "/Users/rob/Developer/vizzly",
+            projectPath: "/Users/developer/Developer/vizzly",
             projectName: "vizzly",
             status: .active,
             workStatus: .working
           ),
           Session(
             id: "1",
-            projectPath: "/Users/rob/Developer/vizzly",
+            projectPath: "/Users/developer/Developer/vizzly",
             projectName: "vizzly",
             branch: "feat/auth",
             model: "claude-opus-4-5-20251101",
@@ -571,7 +571,7 @@ struct CompactHistoryRow: View {
           ),
           Session(
             id: "2",
-            projectPath: "/Users/rob/Developer/vizzly",
+            projectPath: "/Users/developer/Developer/vizzly",
             projectName: "vizzly",
             model: "claude-sonnet-4-20250514",
             summary: "Bug fixes",
@@ -581,7 +581,7 @@ struct CompactHistoryRow: View {
           ),
           Session(
             id: "3",
-            projectPath: "/Users/rob/Developer/docs",
+            projectPath: "/Users/developer/Developer/docs",
             projectName: "docs",
             model: "claude-haiku-3-5-20241022",
             summary: "README updates",
@@ -591,7 +591,7 @@ struct CompactHistoryRow: View {
           ),
           Session(
             id: "4",
-            projectPath: "/Users/rob/Developer/vizzly",
+            projectPath: "/Users/developer/Developer/vizzly",
             projectName: "vizzly",
             model: "claude-sonnet-4-20250514",
             summary: "Tests",
@@ -601,7 +601,7 @@ struct CompactHistoryRow: View {
           ),
           Session(
             id: "5",
-            projectPath: "/Users/rob/Developer/cli",
+            projectPath: "/Users/developer/Developer/cli",
             projectName: "cli",
             model: "claude-opus-4-5-20251101",
             summary: "CLI restructure",
