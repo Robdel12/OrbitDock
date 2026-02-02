@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		80BCD0FD2F2C854300D91F91 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCD0FC2F2C854300D91F91 /* SQLite */; };
 		80BCD1002F2C900000D91F91 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCD0FF2F2C900000D91F91 /* MarkdownUI */; };
+		80BCDA942F3113B700D91F91 /* Vizzly in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCDA932F3113B700D91F91 /* Vizzly */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -73,6 +74,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				80BCDA942F3113B700D91F91 /* Vizzly in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -168,6 +170,7 @@
 			);
 			name = CommandCenterUITests;
 			packageProductDependencies = (
+				80BCDA932F3113B700D91F91 /* Vizzly */,
 			);
 			productName = CommandCenterUITests;
 			productReference = 80BCD0D72F2C834F00D91F91 /* CommandCenterUITests.xctest */;
@@ -209,6 +212,7 @@
 				80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */,
 				80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */,
+				80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80BCD0C12F2C834F00D91F91 /* Products */;
@@ -649,6 +653,14 @@
 				minimumVersion = 2.4.1;
 			};
 		};
+		80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/vizzly-testing/cli";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -661,6 +673,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 			productName = MarkdownUI;
+		};
+		80BCDA932F3113B700D91F91 /* Vizzly */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */;
+			productName = Vizzly;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

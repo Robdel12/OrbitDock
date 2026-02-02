@@ -161,9 +161,19 @@ class DatabaseManager {
     NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
   }
 
+  // Allow custom path for UI testing
+  static var testDatabasePath: String?
+
   private init() {
-    let homeDir = FileManager.default.homeDirectoryForCurrentUser
-    dbPath = homeDir.appendingPathComponent(".orbitdock/orbitdock.db").path
+    // Check for test database path (set via launch arguments or static property)
+    if let testPath = Self.testDatabasePath {
+      dbPath = testPath
+    } else if let testPath = ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] {
+      dbPath = testPath
+    } else {
+      let homeDir = FileManager.default.homeDirectoryForCurrentUser
+      dbPath = homeDir.appendingPathComponent(".orbitdock/orbitdock.db").path
+    }
 
     do {
       db = try Connection(dbPath)
