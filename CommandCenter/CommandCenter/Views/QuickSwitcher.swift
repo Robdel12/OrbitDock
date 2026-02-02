@@ -180,7 +180,7 @@ struct QuickSwitcher: View {
     filteredSessions
       .filter { !$0.isActive }
       .sorted { ($0.endedAt ?? .distantPast) > ($1.endedAt ?? .distantPast) }
-      .prefix(8)
+      .prefix(20)
       .map { $0 }
   }
 
@@ -259,7 +259,7 @@ struct QuickSwitcher: View {
 
       footerHint
     }
-    .frame(width: 640)
+    .frame(width: 720)
     .background(Color.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -403,7 +403,7 @@ struct QuickSwitcher: View {
         }
         .padding(.vertical, 8)
       }
-      .frame(maxHeight: 480)
+      .frame(maxHeight: 620)
       .onChange(of: selectedIndex) { _, newIndex in
         proxy.scrollTo("row-\(newIndex)", anchor: .center)
       }
@@ -862,20 +862,19 @@ struct QuickSwitcher: View {
 
   private func activityText(for session: Session, status: SessionDisplayStatus) -> String {
     switch status {
-      case .attention:
-        if session.attentionReason == .awaitingQuestion {
-          return "Question"
-        }
+      case .permission:
         if let tool = session.pendingToolName {
           return tool
         }
-        return "Attention"
+        return "Permission"
+      case .question:
+        return "Question"
       case .working:
         if let tool = session.lastTool {
           return tool
         }
         return "Working"
-      case .ready:
+      case .reply:
         return "Ready"
       case .ended:
         return "Ended"
@@ -884,17 +883,16 @@ struct QuickSwitcher: View {
 
   private func activityIcon(for session: Session, status: SessionDisplayStatus) -> String {
     switch status {
-      case .attention:
-        if session.attentionReason == .awaitingQuestion {
-          return "questionmark.bubble"
-        }
+      case .permission:
         return "lock.fill"
+      case .question:
+        return "questionmark.bubble"
       case .working:
         if let tool = session.lastTool {
           return toolIcon(for: tool)
         }
         return "bolt.fill"
-      case .ready:
+      case .reply:
         return "checkmark.circle"
       case .ended:
         return "moon.fill"

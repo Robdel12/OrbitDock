@@ -11,6 +11,7 @@ struct ActiveSessionRow: View {
   let session: Session
   let onSelect: () -> Void
   let onFocusTerminal: (() -> Void)?
+  var isSelected: Bool = false
 
   @State private var isHovering = false
 
@@ -23,51 +24,59 @@ struct ActiveSessionRow: View {
   }
 
   private var activityText: String {
-    // For attention items, show what needs action
-    if displayStatus == .attention {
-      if session.attentionReason == .awaitingQuestion {
+    switch displayStatus {
+      case .permission:
+        if let tool = session.pendingToolName {
+          return "Permission: \(tool)"
+        }
+        return "Needs permission"
+
+      case .question:
         if let question = session.pendingQuestion {
           let truncated = question.count > 40 ? String(question.prefix(37)) + "..." : question
-          return "Question: \"\(truncated)\""
+          return "Q: \"\(truncated)\""
         }
         return "Question waiting"
-      }
-      if let tool = session.pendingToolName {
-        return "Permission: \(tool)"
-      }
-      return "Needs attention"
-    }
 
-    // For working, show current tool
-    if isWorking, let tool = session.lastTool {
-      return "\(tool)"
-    }
+      case .working:
+        if let tool = session.lastTool {
+          return tool
+        }
+        return "Working"
 
-    // For ready, show awaiting reply
-    if displayStatus == .ready {
-      return "Awaiting reply"
-    }
+      case .reply:
+        return "Awaiting reply"
 
-    return "Active"
+      case .ended:
+        return "Ended"
+    }
   }
 
   private var activityIcon: String {
-    if displayStatus == .attention {
-      if session.attentionReason == .awaitingQuestion {
+    switch displayStatus {
+      case .permission:
+        return "lock.fill"
+
+      case .question:
         return "questionmark.bubble"
-      }
-      return "lock.fill"
-    }
 
-    if isWorking, let tool = session.lastTool {
-      return toolIcon(for: tool)
-    }
+      case .working:
+        if let tool = session.lastTool {
+          return toolIcon(for: tool)
+        }
+        return "bolt.fill"
 
-    if displayStatus == .ready {
-      return "bubble.left"
-    }
+      case .reply:
+        return "bubble.left"
 
-    return "bolt"
+      case .ended:
+        return "moon.fill"
+    }
+  }
+
+  /// Whether this status needs the user to take action (permission or question)
+  private var needsAttention: Bool {
+    displayStatus.needsAttention
   }
 
   var body: some View {
@@ -91,13 +100,13 @@ struct ActiveSessionRow: View {
               .font(.system(size: 11, weight: .medium))
               .lineLimit(1)
           }
-          .foregroundStyle(displayStatus == .attention ? Color.statusAttention : .secondary)
+          .foregroundStyle(needsAttention ? displayStatus.color : .secondary)
         }
 
         Spacer()
 
         // Right side: inline action OR stats
-        if displayStatus == .attention {
+        if needsAttention {
           inlineActionButton
         } else {
           statsSection
@@ -146,15 +155,15 @@ struct ActiveSessionRow: View {
       onSelect()
     } label: {
       HStack(spacing: 4) {
-        Image(systemName: session.attentionReason == .awaitingQuestion ? "eye" : "arrow.right.circle")
+        Image(systemName: displayStatus == .question ? "eye" : "arrow.right.circle")
           .font(.system(size: 10, weight: .semibold))
-        Text(session.attentionReason == .awaitingQuestion ? "View" : "Review")
+        Text(displayStatus == .question ? "View" : "Review")
           .font(.system(size: 10, weight: .semibold))
       }
-      .foregroundStyle(Color.statusAttention)
+      .foregroundStyle(displayStatus.color)
       .padding(.horizontal, 10)
       .padding(.vertical, 5)
-      .background(Color.statusAttention.opacity(0.15), in: Capsule())
+      .background(displayStatus.color.opacity(0.15), in: Capsule())
     }
     .buttonStyle(.plain)
   }
@@ -189,17 +198,29 @@ struct ActiveSessionRow: View {
   // MARK: - Background & Border
 
   private var rowBackground: some View {
-    RoundedRectangle(cornerRadius: 10, style: .continuous)
-      .fill(isHovering ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.6))
+    ZStack(alignment: .leading) {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .fill(isSelected ? Color.accent.opacity(0.15) : (isHovering ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.6)))
+
+      // Left accent bar when selected
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .fill(Color.accent)
+        .frame(width: 3)
+        .padding(.leading, 4)
+        .padding(.vertical, 6)
+        .opacity(isSelected ? 1 : 0)
+        .scaleEffect(x: 1, y: isSelected ? 1 : 0.5, anchor: .center)
+    }
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isSelected)
   }
 
   private var rowBorder: some View {
     RoundedRectangle(cornerRadius: 10, style: .continuous)
       .stroke(
-        displayStatus == .attention
-          ? Color.statusAttention.opacity(isHovering ? 0.4 : 0.25)
+        needsAttention
+          ? displayStatus.color.opacity(isHovering ? 0.5 : 0.35)
           : displayStatus.color.opacity(isHovering ? 0.2 : 0.1),
-        lineWidth: 1
+        lineWidth: needsAttention ? 1.5 : 1
       )
   }
 

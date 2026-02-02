@@ -10,6 +10,7 @@ import SwiftUI
 struct ActiveSessionsSection: View {
   let sessions: [Session]
   let onSelectSession: (String) -> Void
+  var selectedIndex: Int? = nil
 
   /// All active sessions sorted by start time (newest first)
   private var activeSessions: [Session] {
@@ -18,22 +19,24 @@ struct ActiveSessionsSection: View {
       .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
   }
 
-  /// Count by status for header display
-  private var statusCounts: (working: Int, attention: Int, ready: Int) {
+  /// Count by status for header display (5 distinct states)
+  private var statusCounts: (working: Int, permission: Int, question: Int, reply: Int) {
     var working = 0
-    var attention = 0
-    var ready = 0
+    var permission = 0
+    var question = 0
+    var reply = 0
 
     for session in activeSessions {
       switch SessionDisplayStatus.from(session) {
         case .working: working += 1
-        case .attention: attention += 1
-        case .ready: ready += 1
+        case .permission: permission += 1
+        case .question: question += 1
+        case .reply: reply += 1
         case .ended: break
       }
     }
 
-    return (working, attention, ready)
+    return (working, permission, question, reply)
   }
 
   var body: some View {
@@ -46,12 +49,14 @@ struct ActiveSessionsSection: View {
       } else {
         // Session rows
         VStack(spacing: 6) {
-          ForEach(activeSessions, id: \.id) { session in
+          ForEach(Array(activeSessions.enumerated()), id: \.element.id) { index, session in
             ActiveSessionRow(
               session: session,
               onSelect: { onSelectSession(session.id) },
-              onFocusTerminal: nil
+              onFocusTerminal: nil,
+              isSelected: selectedIndex == index
             )
+            .id("active-session-\(index)")
           }
         }
         .padding(.top, 12)
@@ -83,7 +88,7 @@ struct ActiveSessionsSection: View {
 
       Spacer()
 
-      // Status summary chips
+      // Status summary chips (5 distinct states)
       HStack(spacing: 8) {
         let counts = statusCounts
 
@@ -91,12 +96,16 @@ struct ActiveSessionsSection: View {
           statusChip(count: counts.working, status: .working)
         }
 
-        if counts.attention > 0 {
-          statusChip(count: counts.attention, status: .attention)
+        if counts.permission > 0 {
+          statusChip(count: counts.permission, status: .permission)
         }
 
-        if counts.ready > 0 {
-          statusChip(count: counts.ready, status: .ready)
+        if counts.question > 0 {
+          statusChip(count: counts.question, status: .question)
+        }
+
+        if counts.reply > 0 {
+          statusChip(count: counts.reply, status: .reply)
         }
       }
     }
