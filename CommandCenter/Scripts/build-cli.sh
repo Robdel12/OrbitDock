@@ -50,10 +50,23 @@ cp "$BUILT_CLI" "$DEST_DIR/"
 
 echo "Installed $CLI_NAME to $DEST_DIR"
 
-# Code sign the CLI (inherits from app)
-if [ -n "$CODE_SIGN_IDENTITY" ] && [ "$CODE_SIGN_IDENTITY" != "-" ]; then
-    echo "Signing $CLI_NAME..."
-    codesign --force --sign "$CODE_SIGN_IDENTITY" "$DEST_DIR/$CLI_NAME" 2>&1 || true
+# Code sign the CLI with Hardened Runtime (required for notarization)
+# Use EXPANDED_CODE_SIGN_IDENTITY which is more reliable during Archive builds
+SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:-$CODE_SIGN_IDENTITY}"
+
+echo "CODE_SIGN_IDENTITY: $CODE_SIGN_IDENTITY"
+echo "EXPANDED_CODE_SIGN_IDENTITY: $EXPANDED_CODE_SIGN_IDENTITY"
+echo "Using identity: $SIGN_IDENTITY"
+
+if [ -n "$SIGN_IDENTITY" ] && [ "$SIGN_IDENTITY" != "-" ]; then
+    echo "Signing $CLI_NAME with Hardened Runtime..."
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$DEST_DIR/$CLI_NAME"
+
+    # Verify the signature includes hardened runtime
+    echo "Verifying signature..."
+    codesign -dv --verbose=4 "$DEST_DIR/$CLI_NAME" 2>&1 | grep -E "(flags|runtime)"
+else
+    echo "warning: No code signing identity available, CLI will not be signed"
 fi
 
 echo "Done!"

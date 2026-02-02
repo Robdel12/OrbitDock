@@ -3,6 +3,10 @@
 *.db-wal
 *.db-shm
 
+# Certificates (NEVER commit these)
+*.p12
+*.cer
+
 # Xcode
 *.xcworkspace/
 xcuserdata/
