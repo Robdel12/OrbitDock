@@ -27,11 +27,29 @@ OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. 
 - Add `.transition()` modifiers to ForEach items for smooth insertions
 - Avoid timers for animations - use SwiftUI's declarative animation system
 
+### Keyboard Navigation
+- Dashboard and QuickSwitcher support keyboard navigation
+- Use `KeyboardNavigationModifier` for arrow keys + Emacs bindings (C-n/p, C-a/e)
+- Pattern: `@State selectedIndex` + `ScrollViewReader` for auto-scroll
+- Selection highlight: cyan accent bar + `Color.accent.opacity(0.15)` background
+
+### Toast Notifications
+- `ToastManager` shows non-intrusive toasts when sessions need attention
+- Triggers on `.permission` or `.question` status transitions
+- Only shows when viewing a different session
+- Auto-dismisses after 5 seconds, max 3 visible
+- Key files: `ToastManager.swift`, `ToastView.swift`
+
 ### Cosmic Harbor Theme
 - Use custom colors from Theme.swift - deep space backgrounds with nebula undertones
 - `Color.backgroundPrimary` (void black), `Color.backgroundSecondary` (nebula purple), etc.
 - `Color.accent` is the cyan orbit ring - use for active states, links, working sessions
-- Status colors: `.statusWorking` (cyan/in-orbit), `.statusWaiting` (amber/beacon), `.statusSuccess` (green)
+- Status colors (5 distinct states):
+  - `.statusWorking` (cyan) - Claude actively processing
+  - `.statusPermission` (coral) - Needs tool approval - URGENT
+  - `.statusQuestion` (purple) - Claude asked something - URGENT
+  - `.statusReply` (soft blue) - Awaiting your next prompt
+  - `.statusEnded` (gray) - Session finished
 - All backgrounds should use theme colors, not system defaults
 - Never use system colors (.blue, .green, .purple) - use themed equivalents
 
