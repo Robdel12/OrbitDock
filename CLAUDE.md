@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-OrbitDock is a native macOS SwiftUI app - a "cosmic harbor" for AI agent sessions. It monitors Claude Code CLI sessions, displaying them as spacecraft docked at your mission control center. Reads from a SQLite database populated by Claude Code hooks with real-time session tracking.
+OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. It monitors sessions from multiple providers (Claude Code, Codex CLI), displaying them as spacecraft docked at your cosmic harbor. Reads from a SQLite database populated by hooks (Claude) and native FSEvents watchers (Codex) with real-time session tracking.
 
 ## Tech Stack
 
@@ -37,10 +37,12 @@ OrbitDock is a native macOS SwiftUI app - a "cosmic harbor" for AI agent session
 
 ## File Locations
 
-- **Database**: `~/.orbitdock/orbitdock.db` (separate from Claude to survive reinstalls)
+- **Database**: `~/.orbitdock/orbitdock.db` (separate from CLIs to survive reinstalls)
 - **Migrations**: `migrations/` (numbered SQL files, e.g., `001_initial.sql`)
-- **Hooks**: `hooks/` (JS files: session-start.js, session-end.js, status-tracker.js, tool-tracker.js)
-- **Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only, Claude's data)
+- **Claude Hooks**: `hooks/` (JS files: session-start.js, session-end.js, status-tracker.js, tool-tracker.js)
+- **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
+- **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
+- **Codex Watcher State**: `~/.orbitdock/codex-rollout-state.json` (offset tracking)
 
 ## Database Migrations
 
@@ -95,24 +97,35 @@ Key files:
 - Use `NSAppleScript(source:)` with `executeAndReturnError`
 - iTerm2 sessions have `unique ID` and `path` properties
 
-### Subscription Usage API
-- `SubscriptionUsageService.shared` fetches from `api.anthropic.com/api/oauth/usage`
+### Multi-Provider Usage APIs
+
+**Claude** (`SubscriptionUsageService.swift`):
+- Fetches from `api.anthropic.com/api/oauth/usage`
 - Reads OAuth token from Claude CLI keychain (`Claude Code-credentials`)
 - Caches token in app's own keychain (`com.orbitdock.claude-token`) to avoid prompts
 - Auto-refreshes every 60 seconds
-- Tracks: 5h session, 7d rolling, Sonnet/Opus specific limits
-- Pace tracking calculates burn rate and projects usage at reset
+- Tracks: 5h session window, 7d rolling window
 
-Key files:
-- `SubscriptionUsageService.swift` - API fetching, keychain, pace calculations
-- `SubscriptionUsageView.swift` - UI components (gauges, bars, badges)
+**Codex** (`CodexUsageService.swift`):
+- Fetches from Codex app server API
+- Primary and secondary rate limit windows
+- Token-based usage tracking
+
+**Unified Access** (`UsageServiceRegistry.swift`):
+- Coordinates all provider services
+- `activeProviders` returns providers with valid data
+- `windows(for: .claude)` or `windows(for: .codex)` for rate limit windows
+
+Key UI files:
+- `Views/Usage/` - Provider usage gauges, bars, and badges
 
 ## Testing Changes
 
 1. Make changes to Swift code
 2. Build in Xcode (Cmd+R)
-3. Start a new Claude Code session to trigger hooks
-4. Verify data appears in OrbitDock
+3. For Claude: Start a new Claude Code session to trigger hooks
+4. For Codex: Start a Codex session (or modify an existing rollout file)
+5. Verify data appears in OrbitDock
 
 ## Don't
 

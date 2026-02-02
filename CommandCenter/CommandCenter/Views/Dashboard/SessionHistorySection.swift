@@ -364,7 +364,7 @@ struct HistorySessionRow: View {
           .foregroundStyle(.tertiary)
 
         // Model badge
-        ModelBadgeMini(model: session.model)
+        ModelBadgeMini(model: session.model, provider: session.provider)
       }
       .padding(.vertical, 8)
       .padding(.horizontal, 12)
@@ -528,7 +528,7 @@ struct CompactHistoryRow: View {
           .font(.system(size: 10, weight: .medium, design: .monospaced))
           .foregroundStyle(.quaternary)
 
-        ModelBadgeMini(model: session.model)
+        ModelBadgeMini(model: session.model, provider: session.provider)
       }
       .padding(.vertical, 5)
       .padding(.horizontal, 10)

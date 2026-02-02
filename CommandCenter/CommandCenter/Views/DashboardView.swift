@@ -106,7 +106,7 @@ struct DashboardView: View {
   private var sessionsContent: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 20) {
-        // Command bar - rich stats strip
+        // Command bar - stats + usage gauges
         CommandBar(sessions: sessions)
 
         // Active workstreams strip
@@ -258,7 +258,7 @@ struct DashboardView: View {
           .font(.system(size: 16, weight: .semibold))
           .foregroundStyle(.primary)
 
-        Text("Start a Claude Code session to see it here")
+        Text("Start an AI coding session to see it here")
           .font(.system(size: 13))
           .foregroundStyle(.secondary)
       }
@@ -577,7 +577,7 @@ struct TaskRow: View {
           .padding(.vertical, 4)
           .background(statusColor.opacity(0.15), in: Capsule())
 
-        ModelBadgeMini(model: session.model)
+        ModelBadgeMini(model: session.model, provider: session.provider)
       }
     }
     .padding(.vertical, 10)
@@ -623,7 +623,7 @@ struct TaskRow: View {
       // Ended badge - using unified component
       SessionStatusBadge(status: .ended, showIcon: false, size: .compact)
 
-      ModelBadgeMini(model: session.model)
+      ModelBadgeMini(model: session.model, provider: session.provider)
     }
     .padding(.vertical, 5)
     .padding(.horizontal, 12)
@@ -650,6 +650,8 @@ struct TaskRow: View {
     }
   }
 }
+
+// MARK: - Provider Usage Section
 
 // MARK: - Preview
 

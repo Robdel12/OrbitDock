@@ -131,7 +131,7 @@ class NotificationManager {
     guard notifyOnWorkComplete else { return }
 
     let content = UNMutableNotificationContent()
-    content.title = "Claude Finished"
+    content.title = "\(session.provider.displayName) Finished"
     content.subtitle = session.displayName
     content.body = session.workStatus == .permission
       ? "Needs permission to continue"

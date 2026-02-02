@@ -44,10 +44,16 @@ struct MenuBarView: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 14)
 
-      // Subscription Usage
+      // Provider Usage
       VStack(spacing: 8) {
-        MenuBarUsageSection()
-        CodexMenuBarSection()
+        ForEach(UsageServiceRegistry.shared.allProviders) { provider in
+          ProviderMenuBarSection(
+            provider: provider,
+            windows: UsageServiceRegistry.shared.windows(for: provider),
+            isLoading: UsageServiceRegistry.shared.isLoading(for: provider),
+            error: UsageServiceRegistry.shared.error(for: provider)
+          )
+        }
       }
       .padding(.horizontal, 12)
       .padding(.bottom, 10)
@@ -202,7 +208,7 @@ struct MenuBarSessionRow: View {
 
       Spacer(minLength: 4)
 
-      ModelBadge(model: session.model)
+      ModelBadge(model: session.model, provider: session.provider)
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 6)

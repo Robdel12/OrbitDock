@@ -91,6 +91,28 @@ struct CodexUsage: Sendable {
   let primary: RateLimit?
   let secondary: RateLimit?
   let fetchedAt: Date
+
+  /// Convert to unified RateLimitWindow array for generic UI components
+  var windows: [RateLimitWindow] {
+    var result: [RateLimitWindow] = []
+    if let primary {
+      result.append(.fromMinutes(
+        id: "primary",
+        utilization: primary.usedPercent,
+        windowMinutes: primary.windowDurationMins,
+        resetsAt: primary.resetsAt
+      ))
+    }
+    if let secondary {
+      result.append(.fromMinutes(
+        id: "secondary",
+        utilization: secondary.usedPercent,
+        windowMinutes: secondary.windowDurationMins,
+        resetsAt: secondary.resetsAt
+      ))
+    }
+    return result
+  }
 }
 
 enum CodexUsageError: LocalizedError {

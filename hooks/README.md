@@ -1,10 +1,12 @@
 # OrbitDock Hooks
 
-These hooks are the backbone of OrbitDock. They integrate with Claude Code's lifecycle events to track everything happening in your AI coding sessions in real-time.
+These hooks integrate with Claude Code's lifecycle events to track AI coding sessions in real-time.
+
+> **Note:** Codex CLI sessions are tracked via native FSEvents in the SwiftUI app (`CodexRolloutWatcher.swift`), not via hooks. These hooks are specifically for Claude Code integration.
 
 ## Why Hooks Matter
 
-Without hooks, OrbitDock would be blind. Hooks give us:
+Without hooks, OrbitDock would be blind to Claude Code sessions. Hooks give us:
 
 - **Real-time session tracking** - Know exactly when sessions start, end, and what's happening
 - **Tool usage analytics** - See which tools Claude uses most, track command patterns
@@ -100,6 +102,19 @@ This ensures sessions always have meaningful names in the UI.
 
 **Why it matters:** Tool tracking shows what Claude is actually doing - reading files, running commands, making edits. The tool count and last-tool info help you understand session activity at a glance.
 
+### `codex-notify.js`
+**Fires:** Codex CLI notify hook (agent-turn-complete)
+
+**Input fields:**
+- `session_id` (preferred), or `conversation_id`, `thread_id`, `session.id`, `conversation.id`
+
+**Tracks:**
+- Sets `work_status` to `waiting`
+- Clears pending tool/question state
+- Captures `terminal_session_id` and `terminal_app` from environment
+
+**Why it matters:** Codex sessions are detected via FSEvents file watching (`CodexRolloutWatcher.swift`), which runs in the macOS app process and has no access to terminal environment variables. This notify hook runs *inside* the terminal process, so it can capture `ITERM_SESSION_ID` and `TERM_PROGRAM` - enabling the "Find Terminal" feature for Codex sessions.
+
 ## Input Schema
 
 All hooks receive JSON on stdin from Claude Code:
@@ -133,6 +148,8 @@ Hooks update the `sessions` table in `~/.orbitdock/orbitdock.db`:
 | `pending_tool_input` | status-tracker (permission_prompt) - JSON string of tool parameters for rich UI display |
 | `pending_question` | tool-tracker (PreToolUse for AskUserQuestion), cleared on PostToolUseFailure |
 | `summary` | status-tracker (Stop) - synced from Claude's sessions-index.json |
+| `terminal_session_id` | session-start (Claude), codex-notify (Codex) - iTerm2 session UUID |
+| `terminal_app` | session-start (Claude), codex-notify (Codex) - e.g., `iTerm.app` |
 
 ## App Notifications
 
@@ -146,13 +163,32 @@ The OrbitDock macOS app listens for this Darwin notification and refreshes its U
 
 ## Installation
 
-Hooks are configured in `~/.claude/settings.json`. Run the installer to set them up:
+Run the installer from the repository root:
 
 ```bash
 node install.js
 ```
 
-This adds all hooks with `async: true` so they run in the background without blocking Claude.
+This:
+- Configures all hooks in `~/.claude/settings.json`
+- Sets `async: true` so hooks run in background without blocking Claude
+- Sets up the MCP server in `~/.claude/mcp.json`
+
+After installing, restart Claude Code to activate the hooks.
+
+## Codex Notify Hook Setup
+
+Codex CLI supports a notify hook that fires at the end of each agent turn. This hook is **required** for:
+- Marking Codex sessions as "waiting" after each turn
+- **Enabling "Find Terminal" for Codex sessions** (captures iTerm2 session ID)
+
+Configure it in `~/.codex/config.toml`:
+
+```toml
+notify = ["node", "/path/to/claude-dashboard/hooks/codex-notify.js"]
+```
+
+Without this hook, Codex sessions will appear in OrbitDock (via FSEvents watcher) but you won't be able to focus their terminal windows.
 
 ## Debugging
 

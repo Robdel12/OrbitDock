@@ -15,6 +15,7 @@ struct ConversationView: View {
   var currentTool: String?
   var pendingToolName: String?
   var pendingToolInput: String?
+  var provider: Provider = .claude
 
   @State private var messages: [TranscriptMessage] = []
   @State private var currentPrompt: String?
@@ -94,7 +95,7 @@ struct ConversationView: View {
                 ThinkingIndicator(message: message)
                   .id(message.id)
               } else {
-                ThreadMessage(message: message)
+                ThreadMessage(message: message, provider: provider)
                   .id(message.id)
               }
             }
@@ -106,7 +107,8 @@ struct ConversationView: View {
                 currentTool: currentTool,
                 currentPrompt: currentPrompt,
                 pendingToolName: pendingToolName,
-                pendingToolInput: pendingToolInput
+                pendingToolInput: pendingToolInput,
+                provider: provider
               )
               .id("activity")
             }
@@ -353,6 +355,7 @@ struct ConversationView: View {
 
 struct ThreadMessage: View {
   let message: TranscriptMessage
+  var provider: Provider = .claude
   @State private var isContentExpanded = false
   @State private var isThinkingExpanded = false
 
@@ -462,16 +465,16 @@ struct ThreadMessage: View {
 
   private var assistantMessage: some View {
     VStack(alignment: .leading, spacing: 12) {
-      // Meta line - Claude branding with timestamp
+      // Meta line - provider branding with timestamp
       HStack(spacing: 10) {
-        // Claude indicator
+        // Provider indicator
         HStack(spacing: 5) {
-          Image(systemName: "sparkles")
+          Image(systemName: provider == .claude ? "sparkles" : "chevron.left.forwardslash.chevron.right")
             .font(.system(size: 11, weight: .semibold))
-          Text("Claude")
+          Text(provider.displayName)
             .font(.system(size: 12, weight: .semibold))
         }
-        .foregroundStyle(Color.modelOpus)
+        .foregroundStyle(provider.accentColor)
 
         Text(formatTime(message.timestamp))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -1129,6 +1132,7 @@ struct ActivityBanner: View {
   let currentPrompt: String?
   var pendingToolName: String?
   var pendingToolInput: String?
+  var provider: Provider = .claude
 
   private var color: Color {
     switch workStatus {
@@ -1150,7 +1154,7 @@ struct ActivityBanner: View {
 
   private var title: String {
     switch workStatus {
-      case .working: "Claude is working"
+      case .working: "\(provider.displayName) is working"
       case .waiting: "Your turn"
       case .permission: "Permission needed"
       case .unknown: ""

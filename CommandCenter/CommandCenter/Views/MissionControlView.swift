@@ -191,7 +191,7 @@ struct MissionControlView: View {
         .font(.headline)
         .foregroundStyle(Color.textSecondary)
 
-      Text("Start a Claude session on a feature branch to create a workstream")
+      Text("Start an AI session on a feature branch to create a workstream")
         .font(.subheadline)
         .foregroundStyle(Color.textTertiary)
         .multilineTextAlignment(.center)

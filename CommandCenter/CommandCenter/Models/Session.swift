@@ -11,7 +11,7 @@ struct Session: Identifiable, Hashable {
   let projectName: String?
   let branch: String?
   let model: String?
-  var summary: String? // Claude-generated conversation title
+  var summary: String? // AI-generated conversation title
   var customName: String? // User-defined custom name (overrides summary)
   var firstPrompt: String? // First user message (conversation-specific fallback)
   let transcriptPath: String?
@@ -34,6 +34,7 @@ struct Session: Identifiable, Hashable {
   var pendingToolName: String? // Which tool needs permission
   var pendingToolInput: String? // JSON string of tool input (for rich permission display)
   var pendingQuestion: String? // Question text from AskUserQuestion
+  var provider: Provider // AI provider (claude, codex)
 
   enum SessionStatus: String {
     case active
@@ -42,7 +43,7 @@ struct Session: Identifiable, Hashable {
   }
 
   enum WorkStatus: String {
-    case working // Claude is actively processing
+    case working // Agent is actively processing
     case waiting // Waiting for user input
     case permission // Waiting for permission approval
     case unknown // Unknown state
@@ -50,9 +51,9 @@ struct Session: Identifiable, Hashable {
 
   enum AttentionReason: String {
     case none // Working or ended - no attention needed
-    case awaitingReply // Claude finished, waiting for next prompt
+    case awaitingReply // Agent finished, waiting for next prompt
     case awaitingPermission // Tool needs approval (Bash, Write, etc.)
-    case awaitingQuestion // AskUserQuestion tool - Claude asked a question
+    case awaitingQuestion // AskUserQuestion tool - agent asked a question
 
     var label: String {
       switch self {
@@ -103,7 +104,8 @@ struct Session: Identifiable, Hashable {
     attentionReason: AttentionReason = .none,
     pendingToolName: String? = nil,
     pendingToolInput: String? = nil,
-    pendingQuestion: String? = nil
+    pendingQuestion: String? = nil,
+    provider: Provider = .claude
   ) {
     self.id = id
     self.projectPath = projectPath
@@ -135,6 +137,7 @@ struct Session: Identifiable, Hashable {
     self.pendingToolName = pendingToolName
     self.pendingToolInput = pendingToolInput
     self.pendingQuestion = pendingQuestion
+    self.provider = provider
   }
 
   var displayName: String {

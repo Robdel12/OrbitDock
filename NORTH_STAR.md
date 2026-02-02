@@ -9,6 +9,7 @@ Building multiple SaaS products (Vizzly, Snoot, Moonbun, Backchannel, Pitstop) w
 - Context lost between sessions
 - Linear tickets disconnected from the actual work
 - No unified view of "what's the state of this multi-week project?"
+- Multiple AI providers (Claude, Codex) with different rate limits to track
 
 The work happens in fragments. The organization lives in your head.
 
@@ -16,10 +17,11 @@ The work happens in fragments. The organization lives in your head.
 
 OrbitDock is **mission control for AI-assisted product development**. It's where you:
 
-1. **See all your agents** - What's working, what's waiting, what needs attention
+1. **See all your agents** - Claude Code, Codex CLI, all in one place
 2. **Manage workstreams** - Multi-week projects that span tickets, branches, and conversations
 3. **Preserve context** - Decisions, pivots, blockers persist across sessions
-4. **Connect the dots** - Linear tickets ↔ GitHub PRs ↔ Claude sessions ↔ your intent
+4. **Connect the dots** - Linear tickets ↔ GitHub PRs ↔ AI sessions ↔ your intent
+5. **Track rate limits** - Monitor usage across all providers
 
 ## Core Concepts
 
@@ -37,7 +39,7 @@ A workstream has:
 - **Stage** - Planning → Working → Testing → Review → Shipped
 
 ### Agent Awareness
-Claude knows its workstream. It can:
+AI agents know their workstream. They can:
 - Ask "What am I working on? What happened last time?"
 - Log decisions and blockers
 - See linked tickets and their status
@@ -75,3 +77,12 @@ It's the **orchestration layer** that connects them and gives you the 10,000-foo
 ---
 
 *"A cosmic harbor for AI agent sessions - spacecraft docked at your mission control center."*
+
+## Multi-Provider Philosophy
+
+OrbitDock treats all AI coding agents as first-class citizens:
+- **Claude Code** - Full integration via lifecycle hooks
+- **Codex CLI** - Native FSEvents watching of rollout files
+- **Future providers** - Pluggable architecture via `UsageServiceRegistry`
+
+The goal is one unified dashboard regardless of which AI you're working with.

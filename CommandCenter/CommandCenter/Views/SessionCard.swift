@@ -67,7 +67,7 @@ struct SessionCard: View {
 
           Spacer()
 
-          ModelBadgeMini(model: session.model)
+          ModelBadge(model: session.model, provider: session.provider)
         }
 
         // Agent name/summary

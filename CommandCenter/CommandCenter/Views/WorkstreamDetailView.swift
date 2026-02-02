@@ -745,7 +745,7 @@ struct WorkstreamDetailView: View {
             Text("No sessions yet")
               .font(.subheadline.weight(.medium))
               .foregroundStyle(Color.textSecondary)
-            Text("Claude sessions on this branch will appear here")
+            Text("AI sessions on this branch will appear here")
               .font(.caption)
               .foregroundStyle(Color.textTertiary)
           }

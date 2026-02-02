@@ -98,8 +98,8 @@ struct HeaderView: View {
         .buttonStyle(.plain)
         .onHover { isHoveringProject = $0 }
 
-        // Model badge
-        ModelBadgeCompact(model: session.model)
+        // Provider + Model badge
+        ModelBadgeCompact(model: session.model, provider: session.provider)
 
         // Status pill (only when active)
         if session.isActive {
@@ -110,8 +110,14 @@ struct HeaderView: View {
 
         // Stats row (compact)
         HStack(spacing: 14) {
-          SubscriptionUsageCompact()
-          CodexUsageCompact()
+          // Show usage for this session's provider only
+          ProviderUsageCompact(
+            provider: session.provider,
+            windows: UsageServiceRegistry.shared.windows(for: session.provider),
+            isLoading: UsageServiceRegistry.shared.isLoading(for: session.provider),
+            error: UsageServiceRegistry.shared.error(for: session.provider),
+            isStale: UsageServiceRegistry.shared.isStale(for: session.provider)
+          )
 
           Divider()
             .frame(height: 12)
@@ -299,30 +305,44 @@ struct HeaderView: View {
 
 struct ModelBadgeCompact: View {
   let model: String?
+  let provider: Provider
 
   private var displayModel: String {
-    guard let model = model?.lowercased() else { return "?" }
+    guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
+    // Claude models
     if model.contains("opus") { return "Opus" }
     if model.contains("sonnet") { return "Sonnet" }
     if model.contains("haiku") { return "Haiku" }
-    return String(model.prefix(6))
+    // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
+    if model.hasPrefix("gpt-") {
+      let version = model.dropFirst(4).split(separator: "-").first ?? ""
+      return "GPT-\(version)"
+    }
+    if model == "openai" { return "OpenAI" }
+    return String(model.prefix(8))
   }
 
   private var modelColor: Color {
-    guard let model = model?.lowercased() else { return .secondary }
+    guard let model = model?.lowercased() else { return provider.accentColor }
+    // Claude-specific model colors
     if model.contains("opus") { return .modelOpus }
     if model.contains("sonnet") { return .modelSonnet }
     if model.contains("haiku") { return .modelHaiku }
-    return .secondary
+    // For other providers, use their accent color
+    return provider.accentColor
   }
 
   var body: some View {
-    Text(displayModel)
-      .font(.system(size: 10, weight: .semibold))
-      .foregroundStyle(modelColor)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(modelColor.opacity(0.12), in: Capsule())
+    HStack(spacing: 5) {
+      Image(systemName: provider.icon)
+        .font(.system(size: 9, weight: .bold))
+      Text(displayModel)
+        .font(.system(size: 10, weight: .semibold))
+    }
+    .foregroundStyle(modelColor)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(modelColor.opacity(0.12), in: Capsule())
   }
 }
 

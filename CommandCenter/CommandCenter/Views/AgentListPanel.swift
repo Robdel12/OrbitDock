@@ -252,7 +252,7 @@ struct AgentListPanel: View {
           .font(.system(size: 13, weight: .medium))
           .foregroundStyle(.secondary)
 
-        Text("Start a Claude session\nto see it here")
+        Text("Start an AI session\nto see it here")
           .font(.system(size: 11))
           .foregroundStyle(.tertiary)
           .multilineTextAlignment(.center)
@@ -387,10 +387,10 @@ struct RenameSessionSheet: View {
             .foregroundStyle(.primary)
         }
 
-        // Show Claude's generated title if available
+        // Show AI-generated title if available
         if let summary = session.summary {
           VStack(alignment: .leading, spacing: 6) {
-            Text("Claude's Title")
+            Text("\(session.provider.displayName)'s Title")
               .font(.system(size: 11, weight: .medium))
               .foregroundStyle(.secondary)
 
@@ -420,7 +420,7 @@ struct RenameSessionSheet: View {
             .focused($isFocused)
         }
 
-        Text("Leave empty to use Claude's title, or set a custom name.")
+        Text("Leave empty to use the AI-generated title, or set a custom name.")
           .font(.system(size: 11))
           .foregroundStyle(.tertiary)
           .fixedSize(horizontal: false, vertical: true)

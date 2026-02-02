@@ -134,7 +134,7 @@ struct ActiveSessionsSection: View {
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.secondary)
 
-        Text("Start a Claude Code session to see it here")
+        Text("Start an AI coding session to see it here")
           .font(.system(size: 11))
           .foregroundStyle(.tertiary)
       }

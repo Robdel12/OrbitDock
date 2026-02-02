@@ -1,11 +1,15 @@
 # Repository Guidelines
 
+## Overview
+OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude Code (via hooks) and Codex CLI (via native FSEvents watching).
+
 ## Project Structure & Module Organization
 - `CommandCenter/` is the macOS SwiftUI app (views, models, services, database layer, tests).
-- `hooks/` contains Claude Code hook scripts plus tests and a small README for setup.
+- `hooks/` contains Claude Code hook scripts plus tests and a README for setup.
 - `mcp-server/` hosts the Node MCP server entrypoint and README.
 - `lib/` provides shared JS utilities and tests.
 - `docs/` holds additional documentation; `orbitdock.png` is a repository asset.
+- `install.js` is the one-command installer for hooks and dependencies.
 
 ## Build, Test, and Development Commands
 - `npm run install-hooks` installs the Claude Code hooks via `install.js`.
@@ -30,5 +34,8 @@
 - Link related issues or include a short rationale if no issue exists.
 
 ## Architecture & App-Specific Notes
-- The app reads Claude session data from a local SQLite DB and JSONL transcripts; review `README.md` and `CLAUDE.md` for schema, paths, and update flow.
+- The app reads AI agent session data from a local SQLite DB and JSONL transcripts.
+- Claude Code sessions: populated via JS hooks configured in `~/.claude/settings.json`.
+- Codex CLI sessions: populated via native FSEvents watcher (`CodexRolloutWatcher.swift`).
+- Review `README.md` and `CLAUDE.md` for schema, paths, and update flow.
 - `CLAUDE.md` documents UI theme constraints and data consistency rules (e.g., WAL mode, status colors).
