@@ -24,6 +24,8 @@ struct ConversationView: View {
   @State private var loadedSessionId: String?
   @State private var displayedCount: Int = 50
   @State private var fileMonitor: DispatchSourceFileSystemObject?
+  @State private var isVisible = false  // Track visibility to avoid background work
+  @State private var needsRefreshOnVisible = false  // Flag when we missed updates while hidden
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool
@@ -56,11 +58,20 @@ struct ConversationView: View {
       }
     }
     .onAppear {
+      isVisible = true
       loadMessagesIfNeeded()
       setupSubscriptions()
+      resumeWatchingIfNeeded()
+      // If we missed updates while hidden, refresh now
+      if needsRefreshOnVisible {
+        needsRefreshOnVisible = false
+        syncAndReload()
+      }
     }
     .onDisappear {
-      cleanupSubscriptions()
+      isVisible = false
+      // Stop watching when hidden to avoid background parsing
+      stopWatchingFile()
     }
     .onChange(of: sessionId) { _, _ in
       cleanupSubscriptions()
@@ -222,12 +233,15 @@ struct ConversationView: View {
   // (Same as original - keeping the proven data layer)
 
   private func setupSubscriptions() {
-    startWatchingFile()
+    // Only start file watching if visible
+    if isVisible {
+      startWatchingFile()
+    }
     if let path = transcriptPath {
       transcriptSubscription = EventBus.shared.transcriptUpdated
         .filter { $0 == path }
         .receive(on: DispatchQueue.main)
-        .sink { _ in syncAndReload() }
+        .sink { [self] _ in syncAndReload() }
     }
   }
 
@@ -235,6 +249,12 @@ struct ConversationView: View {
     stopWatchingFile()
     transcriptSubscription?.cancel()
     transcriptSubscription = nil
+  }
+
+  /// Resume file watching when view becomes visible again
+  private func resumeWatchingIfNeeded() {
+    guard isVisible, fileMonitor == nil else { return }
+    startWatchingFile()
   }
 
   private func startWatchingFile() {
@@ -270,6 +290,13 @@ struct ConversationView: View {
 
   private func syncAndReload() {
     guard let path = transcriptPath, let sid = sessionId else { return }
+
+    // Skip parsing if view is not visible - flag for refresh when it becomes visible
+    guard isVisible else {
+      needsRefreshOnVisible = true
+      return
+    }
+
     let targetPath = path
     let targetSid = sid
 
