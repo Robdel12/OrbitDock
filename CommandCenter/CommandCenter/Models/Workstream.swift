@@ -54,6 +54,9 @@ struct Workstream: Identifiable, Equatable {
   var isMerged: Bool = false
   var isClosed: Bool = false
 
+  // Archive state - hides from active list without changing stage
+  var isArchived: Bool = false
+
   // Stats
   var sessionCount: Int
   var totalSessionSeconds: Int
@@ -222,7 +225,7 @@ struct Workstream: Identifiable, Equatable {
   }
 
   var isActive: Bool {
-    !isMerged && !isClosed
+    !isMerged && !isClosed && !isArchived
   }
 
   /// Get all currently active state flags
