@@ -144,9 +144,28 @@ final class CodexUsageService {
 
   private let refreshInterval: TimeInterval = 300 // 5 minutes
   private let staleThreshold: TimeInterval = 600 // 10 minutes
+  private let cacheValidDuration: TimeInterval = 180 // 3 minutes - use cached data without fetching
   private var refreshTask: Task<Void, Never>?
 
+  // Disk cache for usage data
+  private nonisolated static let cacheURL: URL = {
+    let cacheDir = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".orbitdock/cache", isDirectory: true)
+    try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+    return cacheDir.appendingPathComponent("codex-usage.json")
+  }()
+
+  private var isTestMode: Bool {
+    ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
+  }
+
   private init() {
+    // Load cached data first
+    loadCachedUsage()
+
+    // Skip API calls in test mode
+    guard !isTestMode else { return }
+
     startAutoRefresh()
   }
 
@@ -170,6 +189,7 @@ final class CodexUsageService {
       case let .success(newUsage):
         usage = newUsage
         error = nil
+        saveCachedUsage()
         logger.info("refresh: success, primary=\(newUsage.primary?.usedPercent ?? -1)%")
       case let .failure(err):
         error = err
@@ -179,9 +199,71 @@ final class CodexUsageService {
     isLoading = false
   }
 
+  // MARK: - Disk Cache
+
+  private func loadCachedUsage() {
+    guard let data = try? Data(contentsOf: Self.cacheURL),
+          let cached = try? JSONDecoder().decode(CachedCodexUsage.self, from: data)
+    else { return }
+
+    usage = CodexUsage(
+      primary: cached.primaryUsedPercent.map {
+        .init(
+          usedPercent: $0,
+          windowDurationMins: cached.primaryWindowMins ?? 60,
+          resetsAt: cached.primaryResetsAt ?? Date()
+        )
+      },
+      secondary: cached.secondaryUsedPercent.map {
+        .init(
+          usedPercent: $0,
+          windowDurationMins: cached.secondaryWindowMins ?? 1440,
+          resetsAt: cached.secondaryResetsAt ?? Date()
+        )
+      },
+      fetchedAt: cached.fetchedAt
+    )
+  }
+
+  private func saveCachedUsage() {
+    guard let usage else { return }
+
+    let cached = CachedCodexUsage(
+      primaryUsedPercent: usage.primary?.usedPercent,
+      primaryWindowMins: usage.primary?.windowDurationMins,
+      primaryResetsAt: usage.primary?.resetsAt,
+      secondaryUsedPercent: usage.secondary?.usedPercent,
+      secondaryWindowMins: usage.secondary?.windowDurationMins,
+      secondaryResetsAt: usage.secondary?.resetsAt,
+      fetchedAt: usage.fetchedAt
+    )
+
+    if let data = try? JSONEncoder().encode(cached) {
+      try? data.write(to: Self.cacheURL)
+    }
+  }
+
+  private struct CachedCodexUsage: Codable {
+    let primaryUsedPercent: Double?
+    let primaryWindowMins: Int?
+    let primaryResetsAt: Date?
+    let secondaryUsedPercent: Double?
+    let secondaryWindowMins: Int?
+    let secondaryResetsAt: Date?
+    let fetchedAt: Date
+  }
+
+  private var isCacheValid: Bool {
+    guard let fetchedAt = usage?.fetchedAt else { return false }
+    return Date().timeIntervalSince(fetchedAt) < cacheValidDuration
+  }
+
   private func startAutoRefresh() {
     refreshTask = Task { [weak self] in
-      await self?.refresh()
+      // Skip initial fetch if cache is still valid
+      if self?.isCacheValid != true {
+        await self?.refresh()
+      }
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(self?.refreshInterval ?? 300))
         await self?.refresh()

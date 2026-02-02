@@ -181,10 +181,29 @@ final class SubscriptionUsageService {
   // Refresh interval
   private let refreshInterval: TimeInterval = 60 // 1 minute
   private let staleThreshold: TimeInterval = 300 // 5 minutes before showing stale
+  private let cacheValidDuration: TimeInterval = 120 // 2 minutes - use cached data without fetching
 
   private var refreshTask: Task<Void, Never>?
 
+  // Disk cache for usage data
+  private let cacheURL: URL = {
+    let cacheDir = FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".orbitdock/cache", isDirectory: true)
+    try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+    return cacheDir.appendingPathComponent("claude-usage.json")
+  }()
+
+  private var isTestMode: Bool {
+    ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
+  }
+
   private init() {
+    // Load cached data first
+    loadCachedUsage()
+
+    // Skip API calls in test mode
+    guard !isTestMode else { return }
+
     // Start background refresh
     startAutoRefresh()
   }
@@ -208,6 +227,7 @@ final class SubscriptionUsageService {
 
       usage = parseResponse(response, rateLimitTier: tier)
       error = nil
+      saveCachedUsage()
     } catch let e as SubscriptionUsageError {
       error = e
     } catch {
@@ -222,12 +242,69 @@ final class SubscriptionUsageService {
     return Date().timeIntervalSince(fetched) > staleThreshold
   }
 
+  // MARK: - Disk Cache
+
+  private func loadCachedUsage() {
+    guard let data = try? Data(contentsOf: cacheURL),
+          let cached = try? JSONDecoder().decode(CachedUsage.self, from: data)
+    else { return }
+
+    // Reconstruct usage from cache
+    usage = SubscriptionUsage(
+      fiveHour: .init(
+        utilization: cached.fiveHourUtilization,
+        resetsAt: cached.fiveHourResetsAt,
+        windowDuration: 5 * 3_600
+      ),
+      sevenDay: cached.sevenDayUtilization.map {
+        .init(utilization: $0, resetsAt: cached.sevenDayResetsAt, windowDuration: 7 * 24 * 3_600)
+      },
+      sevenDaySonnet: nil,
+      sevenDayOpus: nil,
+      fetchedAt: cached.fetchedAt,
+      rateLimitTier: cached.rateLimitTier
+    )
+  }
+
+  private func saveCachedUsage() {
+    guard let usage else { return }
+
+    let cached = CachedUsage(
+      fiveHourUtilization: usage.fiveHour.utilization,
+      fiveHourResetsAt: usage.fiveHour.resetsAt,
+      sevenDayUtilization: usage.sevenDay?.utilization,
+      sevenDayResetsAt: usage.sevenDay?.resetsAt,
+      fetchedAt: usage.fetchedAt,
+      rateLimitTier: usage.rateLimitTier
+    )
+
+    if let data = try? JSONEncoder().encode(cached) {
+      try? data.write(to: cacheURL)
+    }
+  }
+
+  private struct CachedUsage: Codable {
+    let fiveHourUtilization: Double
+    let fiveHourResetsAt: Date?
+    let sevenDayUtilization: Double?
+    let sevenDayResetsAt: Date?
+    let fetchedAt: Date
+    let rateLimitTier: String?
+  }
+
+  private var isCacheValid: Bool {
+    guard let fetchedAt = usage?.fetchedAt else { return false }
+    return Date().timeIntervalSince(fetchedAt) < cacheValidDuration
+  }
+
   // MARK: - Auto Refresh
 
   private func startAutoRefresh() {
     refreshTask = Task { [weak self] in
-      // Initial fetch
-      await self?.refresh()
+      // Skip initial fetch if cache is still valid
+      if self?.isCacheValid != true {
+        await self?.refresh()
+      }
 
       // Periodic refresh
       while !Task.isCancelled {

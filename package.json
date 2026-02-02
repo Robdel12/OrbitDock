@@ -1,0 +1,15 @@
+{
+  "name": "orbitdock",
+  "private": true,
+  "devDependencies": {
+    "@vizzly-testing/cli": "^0.1.0"
+  },
+  "scripts": {
+    "test": "./scripts/test-ui.sh",
+    "test:vizzly": "./scripts/test-ui.sh --vizzly tdd",
+    "test:ci": "./scripts/test-ui.sh --vizzly ci",
+    "test:quiet": "./scripts/test-ui.sh --quiet",
+    "vizzly": "vizzly",
+    "vizzly:tdd": "vizzly tdd start"
+  }
+}

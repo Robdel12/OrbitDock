@@ -18,3 +18,12 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
+
+# Node.js (Vizzly CLI)
+node_modules/
+
+# Vizzly
+.vizzly/
+
+# Test results
+*.xcresult
