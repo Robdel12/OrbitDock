@@ -8,6 +8,9 @@
 
 import Foundation
 import SQLite
+import os.log
+
+private let logger = Logger(subsystem: "com.orbitdock", category: "migrations")
 
 struct Migration: Identifiable {
   let id: Int // version number
@@ -40,9 +43,11 @@ class MigrationManager {
     do {
       try ensureVersionTable()
       let row = try db.scalar("SELECT MAX(version) FROM schema_versions") as? Int64
-      return Int(row ?? 0)
+      let version = Int(row ?? 0)
+      logger.debug("Current schema version: \(version)")
+      return version
     } catch {
-      print("Failed to get schema version: \(error)")
+      logger.error("Failed to get schema version: \(error.localizedDescription)")
       return 0
     }
   }
@@ -59,7 +64,7 @@ class MigrationManager {
         return (Int(version), name, appliedAt)
       }
     } catch {
-      print("Failed to get applied migrations: \(error)")
+      logger.error("Failed to get applied migrations: \(error.localizedDescription)")
       return []
     }
   }
@@ -157,7 +162,7 @@ class MigrationManager {
       let sql = try String(contentsOf: url, encoding: .utf8)
       return Migration(id: version, name: name, sql: sql)
     } catch {
-      print("Failed to read migration file \(url.lastPathComponent): \(error)")
+      logger.error("Failed to read migration file \(url.lastPathComponent): \(error.localizedDescription)")
       return nil
     }
   }
@@ -193,22 +198,33 @@ class MigrationManager {
     do {
       try ensureVersionTable()
     } catch {
-      print("Failed to ensure version table: \(error)")
+      logger.error("Failed to ensure version table: \(error.localizedDescription)")
       return []
     }
 
     let pending = getPendingMigrations()
+    if pending.isEmpty {
+      logger.info("No pending migrations")
+      return []
+    }
+
+    logger.info("Found \(pending.count) pending migration(s)")
     var applied: [Migration] = []
 
     for migration in pending {
       do {
+        logger.info("Applying migration \(migration.version): \(migration.name)")
         try applyMigration(migration)
         applied.append(migration)
-        print("Applied migration \(migration.version): \(migration.name)")
+        logger.info("Successfully applied migration \(migration.version): \(migration.name)")
       } catch {
-        print("Failed to apply migration \(migration.version) (\(migration.name)): \(error)")
+        logger.error("Failed to apply migration \(migration.version) (\(migration.name)): \(error.localizedDescription)")
         break // Stop on first failure
       }
+    }
+
+    if !applied.isEmpty {
+      logger.info("Applied \(applied.count) migration(s). New schema version: \(self.getCurrentVersion())")
     }
 
     return applied

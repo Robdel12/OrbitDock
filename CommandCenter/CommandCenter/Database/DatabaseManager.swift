@@ -17,9 +17,6 @@ class DatabaseManager {
   private let sessions = Table("sessions")
   private let activities = Table("activities")
   private let repos = Table("repos")
-  private let workstreams = Table("workstreams")
-  private let projects = Table("projects")
-  private let projectWorkstreams = Table("project_workstreams")
 
   // Session columns
   private let id = SQLite.Expression<String>("id")
@@ -52,6 +49,59 @@ class DatabaseManager {
   private let pendingQuestion = SQLite.Expression<String?>("pending_question")
   private let sessionProvider = SQLite.Expression<String?>("provider")
 
+  // Quest tables
+  private let quests = Table("quests")
+  private let inboxItems = Table("inbox_items")
+  private let questLinks = Table("quest_links")
+  private let questSessions = Table("quest_sessions")
+  private let questNotes = Table("quest_notes")
+
+  // Quest columns
+  private let questId = SQLite.Expression<String>("id")
+  private let questName = SQLite.Expression<String>("name")
+  private let questDescription = SQLite.Expression<String?>("description")
+  private let questStatus = SQLite.Expression<String>("status")
+  private let questColor = SQLite.Expression<String?>("color")
+  private let questCreatedAt = SQLite.Expression<String>("created_at")
+  private let questUpdatedAt = SQLite.Expression<String>("updated_at")
+  private let questCompletedAt = SQLite.Expression<String?>("completed_at")
+
+  // Inbox item columns
+  private let inboxId = SQLite.Expression<String>("id")
+  private let inboxContent = SQLite.Expression<String>("content")
+  private let inboxSource = SQLite.Expression<String>("source")
+  private let inboxSessionId = SQLite.Expression<String?>("session_id")
+  private let inboxQuestId = SQLite.Expression<String?>("quest_id")
+  private let inboxStatus = SQLite.Expression<String>("status")
+  private let inboxLinearIssueId = SQLite.Expression<String?>("linear_issue_id")
+  private let inboxLinearIssueUrl = SQLite.Expression<String?>("linear_issue_url")
+  private let inboxCreatedAt = SQLite.Expression<String>("created_at")
+  private let inboxAttachedAt = SQLite.Expression<String?>("attached_at")
+  private let inboxCompletedAt = SQLite.Expression<String?>("completed_at")
+
+  // Quest link columns
+  private let linkId = SQLite.Expression<String>("id")
+  private let linkQuestId = SQLite.Expression<String>("quest_id")
+  private let linkSource = SQLite.Expression<String>("source")
+  private let linkUrl = SQLite.Expression<String>("url")
+  private let linkTitle = SQLite.Expression<String?>("title")
+  private let linkExternalId = SQLite.Expression<String?>("external_id")
+  private let linkDetectedFrom = SQLite.Expression<String?>("detected_from")
+  private let linkCreatedAt = SQLite.Expression<String>("created_at")
+
+  // Quest note columns
+  private let noteId = SQLite.Expression<String>("id")
+  private let noteQuestId = SQLite.Expression<String>("quest_id")
+  private let noteTitle = SQLite.Expression<String?>("title")
+  private let noteContent = SQLite.Expression<String>("content")
+  private let noteCreatedAt = SQLite.Expression<String>("created_at")
+  private let noteUpdatedAt = SQLite.Expression<String>("updated_at")
+
+  // Quest-session junction columns
+  private let qsQuestId = SQLite.Expression<String>("quest_id")
+  private let qsSessionId = SQLite.Expression<String>("session_id")
+  private let qsLinkedAt = SQLite.Expression<String>("linked_at")
+
   // Activity columns
   private let activityId = SQLite.Expression<Int>("id")
   private let sessionId = SQLite.Expression<String>("session_id")
@@ -71,90 +121,45 @@ class DatabaseManager {
   private let githubName = SQLite.Expression<String?>("github_name")
   private let repoCreatedAt = SQLite.Expression<String>("created_at")
 
-  // Workstream columns
-  private let workstreamId = SQLite.Expression<String>("id")
-  private let workstreamRepoId = SQLite.Expression<String>("repo_id")
-  private let workstreamBranch = SQLite.Expression<String>("branch")
-  private let workstreamDirectory = SQLite.Expression<String?>("directory")
-  private let workstreamName = SQLite.Expression<String?>("name")
-  private let workstreamDescription = SQLite.Expression<String?>("description")
-  private let linearIssueId = SQLite.Expression<String?>("linear_issue_id")
-  private let linearIssueTitle = SQLite.Expression<String?>("linear_issue_title")
-  private let linearIssueState = SQLite.Expression<String?>("linear_issue_state")
-  private let linearIssueURL = SQLite.Expression<String?>("linear_issue_url")
-  private let githubIssueNumber = SQLite.Expression<Int?>("github_issue_number")
-  private let githubIssueTitle = SQLite.Expression<String?>("github_issue_title")
-  private let githubIssueState = SQLite.Expression<String?>("github_issue_state")
-  private let githubPRNumber = SQLite.Expression<Int?>("github_pr_number")
-  private let githubPRTitle = SQLite.Expression<String?>("github_pr_title")
-  private let githubPRState = SQLite.Expression<String?>("github_pr_state")
-  private let githubPRURL = SQLite.Expression<String?>("github_pr_url")
-  private let githubPRAdditions = SQLite.Expression<Int?>("github_pr_additions")
-  private let githubPRDeletions = SQLite.Expression<Int?>("github_pr_deletions")
-  private let reviewState = SQLite.Expression<String?>("review_state")
-  private let reviewApprovals = SQLite.Expression<Int>("review_approvals")
-  private let reviewComments = SQLite.Expression<Int>("review_comments")
-  private let workstreamStage = SQLite.Expression<String>("stage")
-  private let flagIsWorking = SQLite.Expression<Int>("is_working")
-  private let flagHasOpenPR = SQLite.Expression<Int>("has_open_pr")
-  private let flagInReview = SQLite.Expression<Int>("in_review")
-  private let flagHasApproval = SQLite.Expression<Int>("has_approval")
-  private let flagIsMerged = SQLite.Expression<Int>("is_merged")
-  private let flagIsClosed = SQLite.Expression<Int>("is_closed")
-  private let sessionCount = SQLite.Expression<Int>("session_count")
-  private let totalSessionSeconds = SQLite.Expression<Int>("total_session_seconds")
-  private let commitCount = SQLite.Expression<Int>("commit_count")
-  private let workstreamLastActivityAt = SQLite.Expression<String?>("last_activity_at")
-  private let workstreamCreatedAt = SQLite.Expression<String>("created_at")
-  private let workstreamUpdatedAt = SQLite.Expression<String>("updated_at")
-  private let workstreamIsArchived = SQLite.Expression<Int>("is_archived")
-
-  // Workstream tickets table and columns
-  private let workstreamTickets = Table("workstream_tickets")
-  private let ticketId = SQLite.Expression<String>("id")
-  private let ticketWorkstreamId = SQLite.Expression<String>("workstream_id")
-  private let ticketSource = SQLite.Expression<String>("source")
-  private let ticketLinearIssueId = SQLite.Expression<String?>("linear_issue_id")
-  private let ticketLinearTeamId = SQLite.Expression<String?>("linear_team_id")
-  private let ticketGithubOwner = SQLite.Expression<String?>("github_owner")
-  private let ticketGithubRepo = SQLite.Expression<String?>("github_repo")
-  private let ticketGithubNumber = SQLite.Expression<Int?>("github_number")
-  private let ticketTitle = SQLite.Expression<String?>("title")
-  private let ticketState = SQLite.Expression<String?>("state")
-  private let ticketUrl = SQLite.Expression<String?>("url")
-  private let ticketIsPrimary = SQLite.Expression<Int>("is_primary")
-  private let ticketLinkedAt = SQLite.Expression<String>("linked_at")
-  private let ticketUpdatedAt = SQLite.Expression<String>("updated_at")
-
-  // Workstream notes table and columns
-  private let workstreamNotes = Table("workstream_notes")
-  private let noteId = SQLite.Expression<String>("id")
-  private let noteWorkstreamId = SQLite.Expression<String>("workstream_id")
-  private let noteSessionId = SQLite.Expression<String?>("session_id")
-  private let noteType = SQLite.Expression<String>("type")
-  private let noteContent = SQLite.Expression<String>("content")
-  private let noteMetadata = SQLite.Expression<String?>("metadata")
-  private let noteCreatedAt = SQLite.Expression<String>("created_at")
-  private let noteResolvedAt = SQLite.Expression<String?>("resolved_at")
-
-  // Project columns
-  private let projectId = SQLite.Expression<String>("id")
-  private let projectDisplayName = SQLite.Expression<String>("name")
-  private let projectDescription = SQLite.Expression<String?>("description")
-  private let projectColor = SQLite.Expression<String?>("color")
-  private let projectStatus = SQLite.Expression<String>("status")
-  private let projectCreatedAt = SQLite.Expression<String>("created_at")
-  private let projectUpdatedAt = SQLite.Expression<String>("updated_at")
-
-  // Project-Workstream junction columns
-  private let pwProjectId = SQLite.Expression<String>("project_id")
-  private let pwWorkstreamId = SQLite.Expression<String>("workstream_id")
-
-  /// Session-Workstream link
-  private let sessionWorkstreamId = SQLite.Expression<String?>("workstream_id")
-
   private var fileMonitor: DispatchSourceFileSystemObject?
   var onDatabaseChanged: (() -> Void)?
+
+  // MARK: - Observable State (SwiftUI reactive)
+
+  /// All quests - views should read from this instead of fetching
+  var allQuests: [Quest] = []
+
+  /// All inbox items - views should read from this instead of fetching
+  var allInboxItems: [InboxItem] = []
+
+  /// Detailed quest cache - keyed by quest ID, includes links and sessions
+  var questDetails: [String: Quest] = [:]
+
+  /// Refresh quest and inbox state from database
+  func refreshQuestState() {
+    allQuests = fetchQuests()
+    allInboxItems = fetchInboxItems()
+    // Refresh any cached quest details
+    for questId in questDetails.keys {
+      if let quest = fetchQuest(id: questId) {
+        questDetails[questId] = quest
+      }
+    }
+  }
+
+  /// Get quest details - loads into cache if needed, returns from @Observable state
+  func questDetail(id: String) -> Quest? {
+    if questDetails[id] == nil {
+      questDetails[id] = fetchQuest(id: id)
+    }
+    return questDetails[id]
+  }
+
+  /// Notify views that database changed and refresh observable state
+  private func notifyChange() {
+    refreshQuestState()
+    NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+  }
 
   private init() {
     let homeDir = FileManager.default.homeDirectoryForCurrentUser
@@ -174,6 +179,9 @@ class DatabaseManager {
 
       // Sync summaries from Claude's sessions-index.json
       syncSummariesFromClaude()
+
+      // Initialize reactive state
+      refreshQuestState()
     } catch {
       print("Failed to connect to database: \(error)")
     }
@@ -278,7 +286,6 @@ class DatabaseManager {
           toolCount: row[toolCount] ?? 0,
           terminalSessionId: row[terminalSessionId],
           terminalApp: row[terminalApp],
-          workstreamId: (try? row.get(sessionWorkstreamId)) ?? nil,
           attentionReason: attentionReasonValue,
           pendingToolName: (try? row.get(pendingToolName)) ?? nil,
           pendingToolInput: (try? row.get(pendingToolInput)) ?? nil,
@@ -300,15 +307,10 @@ class DatabaseManager {
   func endSession(sessionId: String) {
     guard let db else { return }
 
-    // First, get the session to check for workstream
-    let sessionRow = try? db.pluck(sessions.filter(id == sessionId))
-    let linkedWorkstreamId = sessionRow.flatMap { try? $0.get(sessionWorkstreamId) }
-
     let session = sessions.filter(id == sessionId)
     let now = formatDate(Date())
 
     do {
-      // End the session
       try db.run(session.update(
         status <- "ended",
         endedAt <- now,
@@ -320,18 +322,9 @@ class DatabaseManager {
         pendingQuestion <- nil as String?
       ))
 
-      // Update linked workstream's lastActivityAt (matches hook behavior)
-      if let wsId = linkedWorkstreamId {
-        let ws = workstreams.filter(workstreamId == wsId)
-        try db.run(ws.update(
-          workstreamLastActivityAt <- now,
-          workstreamUpdatedAt <- now
-        ))
-      }
-
       // Notify views to refresh
-      DispatchQueue.main.async {
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
       }
     } catch {
       print("Failed to end session: \(error)")
@@ -478,7 +471,6 @@ class DatabaseManager {
       ("pending_tool_name", "TEXT"),
       ("pending_tool_input", "TEXT"),
       ("pending_question", "TEXT"),
-      ("workstream_id", "TEXT REFERENCES workstreams(id)"),
       ("provider", "TEXT DEFAULT 'claude'"),
       ("end_reason", "TEXT"),
     ]
@@ -493,31 +485,8 @@ class DatabaseManager {
       }
     }
 
-    // Workstream state flags
-    let workstreamFlags: [(String, String)] = [
-      ("is_working", "INTEGER DEFAULT 1"),
-      ("has_open_pr", "INTEGER DEFAULT 0"),
-      ("in_review", "INTEGER DEFAULT 0"),
-      ("has_approval", "INTEGER DEFAULT 0"),
-      ("is_merged", "INTEGER DEFAULT 0"),
-      ("is_closed", "INTEGER DEFAULT 0"),
-    ]
-
-    for (column, type) in workstreamFlags {
-      if tableExists("workstreams"), !columnExists(column, in: "workstreams") {
-        do {
-          try db.run("ALTER TABLE workstreams ADD COLUMN \(column) \(type)")
-        } catch {
-          // Column might already exist
-        }
-      }
-    }
-
     // Ensure dependent tables exist (for very old databases)
     createReposTable()
-    createWorkstreamsTable()
-    createProjectsTable()
-    createProjectWorkstreamsTable()
   }
 
   private func tableExists(_ tableName: String) -> Bool {
@@ -549,83 +518,6 @@ class DatabaseManager {
       """)
     } catch {
       print("Failed to create repos table: \(error)")
-    }
-  }
-
-  private func createWorkstreamsTable() {
-    guard let db, !tableExists("workstreams") else { return }
-
-    do {
-      try db.run("""
-          CREATE TABLE workstreams (
-              id TEXT PRIMARY KEY,
-              repo_id TEXT NOT NULL REFERENCES repos(id),
-              branch TEXT NOT NULL,
-              directory TEXT,
-              linear_issue_id TEXT,
-              linear_issue_title TEXT,
-              linear_issue_state TEXT,
-              linear_issue_url TEXT,
-              github_issue_number INTEGER,
-              github_issue_title TEXT,
-              github_issue_state TEXT,
-              github_pr_number INTEGER,
-              github_pr_title TEXT,
-              github_pr_state TEXT,
-              github_pr_url TEXT,
-              github_pr_additions INTEGER,
-              github_pr_deletions INTEGER,
-              review_state TEXT,
-              review_approvals INTEGER DEFAULT 0,
-              review_comments INTEGER DEFAULT 0,
-              stage TEXT DEFAULT 'working',
-              session_count INTEGER DEFAULT 0,
-              total_session_seconds INTEGER DEFAULT 0,
-              commit_count INTEGER DEFAULT 0,
-              last_activity_at TEXT,
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL,
-              UNIQUE(repo_id, branch)
-          )
-      """)
-    } catch {
-      print("Failed to create workstreams table: \(error)")
-    }
-  }
-
-  private func createProjectsTable() {
-    guard let db, !tableExists("projects") else { return }
-
-    do {
-      try db.run("""
-          CREATE TABLE projects (
-              id TEXT PRIMARY KEY,
-              name TEXT NOT NULL,
-              description TEXT,
-              color TEXT,
-              status TEXT DEFAULT 'active',
-              created_at TEXT NOT NULL,
-              updated_at TEXT NOT NULL
-          )
-      """)
-    } catch {
-      print("Failed to create projects table: \(error)")
-    }
-  }
-
-  private func createProjectWorkstreamsTable() {
-    guard let db, !tableExists("project_workstreams") else { return }
-
-    do {
-      try db.run("""
-          CREATE TABLE project_workstreams (
-              project_id TEXT NOT NULL REFERENCES projects(id),
-              workstream_id TEXT NOT NULL REFERENCES workstreams(id),
-              PRIMARY KEY (project_id, workstream_id)
-          )
-      """)
-    } catch {
-      print("Failed to create project_workstreams table: \(error)")
     }
   }
 
@@ -751,794 +643,651 @@ class DatabaseManager {
       return nil
     }
   }
+  // MARK: - Quest Operations
 
-  // MARK: - Workstream Operations
-
-  func fetchWorkstreams(repoId: String? = nil, stage: Workstream.Stage? = nil) -> [Workstream] {
+  func fetchQuests(status: Quest.Status? = nil) -> [Quest] {
     guard let db else { return [] }
 
-    var query = workstreams.order(workstreamLastActivityAt.desc)
-
-    if let repoId {
-      query = query.filter(workstreamRepoId == repoId)
-    }
-
-    if let stage {
-      query = query.filter(workstreamStage == stage.rawValue)
-    }
-
-    do {
-      return try db.prepare(query).map { row in
-        Workstream(
-          id: row[workstreamId],
-          repoId: row[workstreamRepoId],
-          branch: row[workstreamBranch],
-          directory: row[workstreamDirectory],
-          name: row[workstreamName],
-          description: row[workstreamDescription],
-          linearIssueId: row[linearIssueId],
-          linearIssueTitle: row[linearIssueTitle],
-          linearIssueState: row[linearIssueState],
-          linearIssueURL: row[linearIssueURL],
-          githubIssueNumber: row[githubIssueNumber],
-          githubIssueTitle: row[githubIssueTitle],
-          githubIssueState: row[githubIssueState],
-          githubPRNumber: row[githubPRNumber],
-          githubPRTitle: row[githubPRTitle],
-          githubPRState: Workstream.PRState(rawValue: row[githubPRState] ?? ""),
-          githubPRURL: row[githubPRURL],
-          githubPRAdditions: row[githubPRAdditions],
-          githubPRDeletions: row[githubPRDeletions],
-          reviewState: Workstream.ReviewState(rawValue: row[reviewState] ?? ""),
-          reviewApprovals: row[reviewApprovals],
-          reviewComments: row[reviewComments],
-          stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
-          isWorking: (try? row.get(flagIsWorking)) == 1,
-          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
-          inReview: (try? row.get(flagInReview)) == 1,
-          hasApproval: (try? row.get(flagHasApproval)) == 1,
-          isMerged: (try? row.get(flagIsMerged)) == 1,
-          isClosed: (try? row.get(flagIsClosed)) == 1,
-          isArchived: (try? row.get(workstreamIsArchived)) == 1,
-          sessionCount: row[sessionCount],
-          totalSessionSeconds: row[totalSessionSeconds],
-          commitCount: row[commitCount],
-          lastActivityAt: parseDate(row[workstreamLastActivityAt]),
-          createdAt: parseDate(row[workstreamCreatedAt]) ?? Date(),
-          updatedAt: parseDate(row[workstreamUpdatedAt]) ?? Date()
-        )
-      }
-    } catch {
-      print("Failed to fetch workstreams: \(error)")
-      return []
-    }
-  }
-
-  func fetchActiveWorkstreams() -> [Workstream] {
-    guard let db else { return [] }
-
-    // Active = not merged AND not closed AND not archived
-    let query = workstreams
-      .filter(flagIsMerged == 0 && flagIsClosed == 0 && workstreamIsArchived == 0)
-      .order(workstreamLastActivityAt.desc)
-
-    do {
-      return try db.prepare(query).map { row in
-        Workstream(
-          id: row[workstreamId],
-          repoId: row[workstreamRepoId],
-          branch: row[workstreamBranch],
-          directory: row[workstreamDirectory],
-          name: row[workstreamName],
-          description: row[workstreamDescription],
-          linearIssueId: row[linearIssueId],
-          linearIssueTitle: row[linearIssueTitle],
-          linearIssueState: row[linearIssueState],
-          linearIssueURL: row[linearIssueURL],
-          githubIssueNumber: row[githubIssueNumber],
-          githubIssueTitle: row[githubIssueTitle],
-          githubIssueState: row[githubIssueState],
-          githubPRNumber: row[githubPRNumber],
-          githubPRTitle: row[githubPRTitle],
-          githubPRState: Workstream.PRState(rawValue: row[githubPRState] ?? ""),
-          githubPRURL: row[githubPRURL],
-          githubPRAdditions: row[githubPRAdditions],
-          githubPRDeletions: row[githubPRDeletions],
-          reviewState: Workstream.ReviewState(rawValue: row[reviewState] ?? ""),
-          reviewApprovals: row[reviewApprovals],
-          reviewComments: row[reviewComments],
-          stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
-          isWorking: (try? row.get(flagIsWorking)) == 1,
-          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
-          inReview: (try? row.get(flagInReview)) == 1,
-          hasApproval: (try? row.get(flagHasApproval)) == 1,
-          isMerged: (try? row.get(flagIsMerged)) == 1,
-          isClosed: (try? row.get(flagIsClosed)) == 1,
-          isArchived: false, // By definition, active workstreams are not archived
-          sessionCount: row[sessionCount],
-          totalSessionSeconds: row[totalSessionSeconds],
-          commitCount: row[commitCount],
-          lastActivityAt: parseDate(row[workstreamLastActivityAt]),
-          createdAt: parseDate(row[workstreamCreatedAt]) ?? Date(),
-          updatedAt: parseDate(row[workstreamUpdatedAt]) ?? Date()
-        )
-      }
-    } catch {
-      print("Failed to fetch active workstreams: \(error)")
-      return []
-    }
-  }
-
-  func fetchArchivedWorkstreams() -> [Workstream] {
-    guard let db else { return [] }
-
-    // Archived workstreams (not merged/closed, but archived)
-    let query = workstreams
-      .filter(flagIsMerged == 0 && flagIsClosed == 0 && workstreamIsArchived == 1)
-      .order(workstreamLastActivityAt.desc)
-
-    do {
-      return try db.prepare(query).map { row in
-        Workstream(
-          id: row[workstreamId],
-          repoId: row[workstreamRepoId],
-          branch: row[workstreamBranch],
-          directory: row[workstreamDirectory],
-          name: row[workstreamName],
-          description: row[workstreamDescription],
-          linearIssueId: row[linearIssueId],
-          linearIssueTitle: row[linearIssueTitle],
-          linearIssueState: row[linearIssueState],
-          linearIssueURL: row[linearIssueURL],
-          githubIssueNumber: row[githubIssueNumber],
-          githubIssueTitle: row[githubIssueTitle],
-          githubIssueState: row[githubIssueState],
-          githubPRNumber: row[githubPRNumber],
-          githubPRTitle: row[githubPRTitle],
-          githubPRState: Workstream.PRState(rawValue: row[githubPRState] ?? ""),
-          githubPRURL: row[githubPRURL],
-          githubPRAdditions: row[githubPRAdditions],
-          githubPRDeletions: row[githubPRDeletions],
-          reviewState: Workstream.ReviewState(rawValue: row[reviewState] ?? ""),
-          reviewApprovals: row[reviewApprovals],
-          reviewComments: row[reviewComments],
-          stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
-          isWorking: (try? row.get(flagIsWorking)) == 1,
-          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
-          inReview: (try? row.get(flagInReview)) == 1,
-          hasApproval: (try? row.get(flagHasApproval)) == 1,
-          isMerged: (try? row.get(flagIsMerged)) == 1,
-          isClosed: (try? row.get(flagIsClosed)) == 1,
-          isArchived: true, // By definition, these are archived
-          sessionCount: row[sessionCount],
-          totalSessionSeconds: row[totalSessionSeconds],
-          commitCount: row[commitCount],
-          lastActivityAt: parseDate(row[workstreamLastActivityAt]),
-          createdAt: parseDate(row[workstreamCreatedAt]) ?? Date(),
-          updatedAt: parseDate(row[workstreamUpdatedAt]) ?? Date()
-        )
-      }
-    } catch {
-      print("Failed to fetch archived workstreams: \(error)")
-      return []
-    }
-  }
-
-  // MARK: - Workstream Tickets
-
-  func fetchTickets(workstreamId: String) -> [WorkstreamTicket] {
-    guard let db else { return [] }
-
-    let query = workstreamTickets
-      .filter(ticketWorkstreamId == workstreamId)
-      .order(ticketIsPrimary.desc, ticketLinkedAt.desc)
-
-    do {
-      return try db.prepare(query).map { row in
-        WorkstreamTicket(
-          id: row[ticketId],
-          workstreamId: row[ticketWorkstreamId],
-          source: WorkstreamTicket.Source(rawValue: row[ticketSource]) ?? .linear,
-          linearIssueId: row[ticketLinearIssueId],
-          linearTeamId: row[ticketLinearTeamId],
-          githubOwner: row[ticketGithubOwner],
-          githubRepo: row[ticketGithubRepo],
-          githubNumber: row[ticketGithubNumber],
-          title: row[ticketTitle],
-          state: row[ticketState],
-          url: row[ticketUrl],
-          isPrimary: row[ticketIsPrimary] == 1,
-          linkedAt: parseDate(row[ticketLinkedAt]) ?? Date(),
-          updatedAt: parseDate(row[ticketUpdatedAt]) ?? Date()
-        )
-      }
-    } catch {
-      print("Failed to fetch tickets: \(error)")
-      return []
-    }
-  }
-
-  func addTicket(
-    to workstreamId: String,
-    source: WorkstreamTicket.Source,
-    linearIssueId: String? = nil,
-    linearTeamId: String? = nil,
-    githubOwner: String? = nil,
-    githubRepo: String? = nil,
-    githubNumber: Int? = nil,
-    title: String? = nil,
-    state: String? = nil,
-    url: String? = nil,
-    isPrimary: Bool = false
-  ) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let id = UUID().uuidString.lowercased()
-
-    do {
-      try db.run(workstreamTickets.insert(
-        or: .ignore,
-        ticketId <- id,
-        ticketWorkstreamId <- workstreamId,
-        ticketSource <- source.rawValue,
-        ticketLinearIssueId <- linearIssueId,
-        ticketLinearTeamId <- linearTeamId,
-        ticketGithubOwner <- githubOwner,
-        ticketGithubRepo <- githubRepo,
-        ticketGithubNumber <- githubNumber,
-        ticketTitle <- title,
-        ticketState <- state,
-        ticketUrl <- url,
-        ticketIsPrimary <- (isPrimary ? 1 : 0),
-        ticketLinkedAt <- now,
-        ticketUpdatedAt <- now
-      ))
-    } catch {
-      print("Failed to add ticket: \(error)")
-    }
-  }
-
-  // MARK: - Workstream Notes
-
-  func fetchNotes(workstreamId: String) -> [WorkstreamNote] {
-    guard let db else { return [] }
-
-    let query = workstreamNotes
-      .filter(noteWorkstreamId == workstreamId)
-      .order(noteCreatedAt.desc)
-
-    do {
-      return try db.prepare(query).map { row in
-        WorkstreamNote(
-          id: row[noteId],
-          workstreamId: row[noteWorkstreamId],
-          sessionId: row[noteSessionId],
-          type: WorkstreamNote.NoteType(rawValue: row[noteType]) ?? .note,
-          content: row[noteContent],
-          createdAt: parseDate(row[noteCreatedAt]) ?? Date(),
-          resolvedAt: parseDate(row[noteResolvedAt])
-        )
-      }
-    } catch {
-      print("Failed to fetch notes: \(error)")
-      return []
-    }
-  }
-
-  func addNote(to workstreamId: String, sessionId: String? = nil, type: WorkstreamNote.NoteType, content: String) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let id = UUID().uuidString.lowercased()
-
-    do {
-      try db.run(workstreamNotes.insert(
-        noteId <- id,
-        noteWorkstreamId <- workstreamId,
-        noteSessionId <- sessionId,
-        noteType <- type.rawValue,
-        noteContent <- content,
-        noteCreatedAt <- now
-      ))
-    } catch {
-      print("Failed to add note: \(error)")
-    }
-  }
-
-  func resolveNote(noteId: String) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let note = workstreamNotes.filter(self.noteId == noteId)
-
-    do {
-      try db.run(note.update(noteResolvedAt <- now))
-    } catch {
-      print("Failed to resolve note: \(error)")
-    }
-  }
-
-  // MARK: - Workstream with Relations
-
-  func fetchWorkstreamWithRelations(id workstreamIdValue: String) -> Workstream? {
-    var workstream = fetchWorkstreams().first { $0.id == workstreamIdValue }
-    guard workstream != nil else { return nil }
-
-    workstream?.tickets = fetchTickets(workstreamId: workstreamIdValue)
-    workstream?.notes = fetchNotes(workstreamId: workstreamIdValue)
-
-    return workstream
-  }
-
-  func findOrCreateWorkstream(repoId: String, branch: String, directory: String?) -> Workstream? {
-    guard let db else { return nil }
-
-    // Skip main branches - they're not workstreams
-    let mainBranches = ["main", "master", "develop", "development"]
-    if mainBranches.contains(branch.lowercased()) {
-      return nil
-    }
-
-    // Try to find existing workstream
-    if let existing = try? db.pluck(workstreams.filter(workstreamRepoId == repoId && workstreamBranch == branch)) {
-      return Workstream(
-        id: existing[workstreamId],
-        repoId: existing[workstreamRepoId],
-        branch: existing[workstreamBranch],
-        directory: existing[workstreamDirectory],
-        linearIssueId: existing[linearIssueId],
-        linearIssueTitle: existing[linearIssueTitle],
-        linearIssueState: existing[linearIssueState],
-        linearIssueURL: existing[linearIssueURL],
-        githubIssueNumber: existing[githubIssueNumber],
-        githubIssueTitle: existing[githubIssueTitle],
-        githubIssueState: existing[githubIssueState],
-        githubPRNumber: existing[githubPRNumber],
-        githubPRTitle: existing[githubPRTitle],
-        githubPRState: Workstream.PRState(rawValue: existing[githubPRState] ?? ""),
-        githubPRURL: existing[githubPRURL],
-        githubPRAdditions: existing[githubPRAdditions],
-        githubPRDeletions: existing[githubPRDeletions],
-        reviewState: Workstream.ReviewState(rawValue: existing[reviewState] ?? ""),
-        reviewApprovals: existing[reviewApprovals],
-        reviewComments: existing[reviewComments],
-        stage: Workstream.Stage(rawValue: existing[workstreamStage]) ?? .working,
-        isWorking: (try? existing.get(flagIsWorking)) == 1,
-        hasOpenPR: (try? existing.get(flagHasOpenPR)) == 1,
-        inReview: (try? existing.get(flagInReview)) == 1,
-        hasApproval: (try? existing.get(flagHasApproval)) == 1,
-        isMerged: (try? existing.get(flagIsMerged)) == 1,
-        isClosed: (try? existing.get(flagIsClosed)) == 1,
-        sessionCount: existing[sessionCount],
-        totalSessionSeconds: existing[totalSessionSeconds],
-        commitCount: existing[commitCount],
-        lastActivityAt: parseDate(existing[workstreamLastActivityAt]),
-        createdAt: parseDate(existing[workstreamCreatedAt]) ?? Date(),
-        updatedAt: parseDate(existing[workstreamUpdatedAt]) ?? Date()
-      )
-    }
-
-    // Create new workstream
-    let newId = UUID().uuidString
-    let now = formatDate(Date())
-
-    // Parse Linear issue from branch name
-    let parsedLinearId = Workstream.parseLinearIssue(from: branch)
-
-    do {
-      try db.run(workstreams.insert(
-        workstreamId <- newId,
-        workstreamRepoId <- repoId,
-        workstreamBranch <- branch,
-        workstreamDirectory <- directory,
-        linearIssueId <- parsedLinearId,
-        workstreamStage <- "working",
-        reviewApprovals <- 0,
-        reviewComments <- 0,
-        sessionCount <- 0,
-        totalSessionSeconds <- 0,
-        commitCount <- 0,
-        workstreamCreatedAt <- now,
-        workstreamUpdatedAt <- now
-      ))
-
-      return Workstream(
-        id: newId,
-        repoId: repoId,
-        branch: branch,
-        directory: directory,
-        linearIssueId: parsedLinearId,
-        reviewApprovals: 0,
-        reviewComments: 0,
-        stage: .working,
-        sessionCount: 0,
-        totalSessionSeconds: 0,
-        commitCount: 0,
-        createdAt: Date(),
-        updatedAt: Date()
-      )
-    } catch {
-      print("Failed to create workstream: \(error)")
-      return nil
-    }
-  }
-
-  func updateWorkstreamActivity(workstreamId: String) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let ws = workstreams.filter(self.workstreamId == workstreamId)
-
-    do {
-      try db.run(ws.update(
-        workstreamLastActivityAt <- now,
-        workstreamUpdatedAt <- now
-      ))
-    } catch {
-      print("Failed to update workstream activity: \(error)")
-    }
-  }
-
-  func incrementWorkstreamSessionCount(workstreamId: String) {
-    guard let db else { return }
-
-    let ws = workstreams.filter(self.workstreamId == workstreamId)
-    let now = formatDate(Date())
-
-    do {
-      try db.run(ws.update(
-        sessionCount += 1,
-        workstreamLastActivityAt <- now,
-        workstreamUpdatedAt <- now
-      ))
-    } catch {
-      print("Failed to increment session count: \(error)")
-    }
-  }
-
-  func updateWorkstreamStage(_ workstreamId: String, to stage: Workstream.Stage) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let ws = workstreams.filter(self.workstreamId == workstreamId)
-
-    do {
-      try db.run(ws.update(
-        workstreamStage <- stage.rawValue,
-        workstreamUpdatedAt <- now
-      ))
-
-      // Notify views to refresh
-      DispatchQueue.main.async {
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-      }
-    } catch {
-      print("Failed to update workstream stage: \(error)")
-    }
-  }
-
-  func toggleWorkstreamFlag(_ workstreamId: String, flag: Workstream.StateFlag, value: Bool) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let ws = workstreams.filter(self.workstreamId == workstreamId)
-
-    do {
-      // If setting a terminal flag, clear other flags
-      if flag.isTerminal && value {
-        try db.run(ws.update(
-          flagIsWorking <- 0,
-          flagHasOpenPR <- 0,
-          flagInReview <- 0,
-          flagHasApproval <- 0,
-          flagIsMerged <- (flag == .merged ? 1 : 0),
-          flagIsClosed <- (flag == .closed ? 1 : 0),
-          workstreamUpdatedAt <- now
-        ))
-      } else {
-        // Toggle the specific flag
-        let flagValue = value ? 1 : 0
-        switch flag {
-        case .working:
-          try db.run(ws.update(flagIsWorking <- flagValue, workstreamUpdatedAt <- now))
-        case .hasOpenPR:
-          try db.run(ws.update(flagHasOpenPR <- flagValue, workstreamUpdatedAt <- now))
-        case .inReview:
-          try db.run(ws.update(flagInReview <- flagValue, workstreamUpdatedAt <- now))
-        case .hasApproval:
-          try db.run(ws.update(flagHasApproval <- flagValue, workstreamUpdatedAt <- now))
-        case .merged:
-          try db.run(ws.update(flagIsMerged <- flagValue, workstreamUpdatedAt <- now))
-        case .closed:
-          try db.run(ws.update(flagIsClosed <- flagValue, workstreamUpdatedAt <- now))
-        }
-      }
-
-      // Notify views to refresh
-      DispatchQueue.main.async {
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-      }
-    } catch {
-      print("Failed to toggle workstream flag: \(error)")
-    }
-  }
-
-  func archiveWorkstream(_ workstreamId: String) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let ws = workstreams.filter(self.workstreamId == workstreamId)
-
-    do {
-      try db.run(ws.update(
-        workstreamIsArchived <- 1,
-        workstreamUpdatedAt <- now
-      ))
-
-      DispatchQueue.main.async {
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-      }
-    } catch {
-      print("Failed to archive workstream: \(error)")
-    }
-  }
-
-  func unarchiveWorkstream(_ workstreamId: String) {
-    guard let db else { return }
-
-    let now = formatDate(Date())
-    let ws = workstreams.filter(self.workstreamId == workstreamId)
-
-    do {
-      try db.run(ws.update(
-        workstreamIsArchived <- 0,
-        workstreamUpdatedAt <- now
-      ))
-
-      DispatchQueue.main.async {
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-      }
-    } catch {
-      print("Failed to unarchive workstream: \(error)")
-    }
-  }
-
-  func linkSessionToWorkstream(sessionId: String, workstreamId: String) {
-    guard let db else { return }
-
-    let session = sessions.filter(id == sessionId)
-
-    do {
-      try db.run(session.update(sessionWorkstreamId <- workstreamId))
-    } catch {
-      print("Failed to link session to workstream: \(error)")
-    }
-  }
-
-  func createWorkstream(repoId: String, branch: String, name: String? = nil) -> Workstream? {
-    guard let db else { return nil }
-
-    let now = formatDate(Date())
-    let wsId = UUID().uuidString
-
-    do {
-      try db.run(workstreams.insert(
-        workstreamId <- wsId,
-        workstreamRepoId <- repoId,
-        workstreamBranch <- branch,
-        workstreamName <- name,
-        workstreamStage <- "working",
-        flagIsWorking <- 1,
-        flagHasOpenPR <- 0,
-        flagInReview <- 0,
-        flagHasApproval <- 0,
-        flagIsMerged <- 0,
-        flagIsClosed <- 0,
-        workstreamCreatedAt <- now,
-        workstreamUpdatedAt <- now,
-        workstreamLastActivityAt <- now
-      ))
-
-      // Notify views to refresh
-      DispatchQueue.main.async {
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-      }
-
-      return Workstream(
-        id: wsId,
-        repoId: repoId,
-        branch: branch,
-        directory: nil,
-        name: name,
-        reviewApprovals: 0,
-        reviewComments: 0,
-        stage: .working,
-        isWorking: true,
-        sessionCount: 0,
-        totalSessionSeconds: 0,
-        commitCount: 0,
-        createdAt: Date(),
-        updatedAt: Date()
-      )
-    } catch {
-      print("Failed to create workstream: \(error)")
-      return nil
-    }
-  }
-
-  func findOrCreateRepo(path: String, name: String) -> Repo? {
-    guard let db else { return nil }
-
-    // Check if repo exists
-    let existing = repos.filter(repoPath == path)
-    do {
-      if let row = try db.pluck(existing) {
-        return Repo(
-          id: row[repoId],
-          name: row[repoName],
-          path: row[repoPath],
-          githubOwner: row[githubOwner],
-          githubName: row[githubName],
-          createdAt: parseDate(row[repoCreatedAt]) ?? Date()
-        )
-      }
-    } catch {
-      print("Failed to find repo: \(error)")
-    }
-
-    // Create new repo
-    let now = formatDate(Date())
-    let newId = UUID().uuidString
-
-    do {
-      try db.run(repos.insert(
-        repoId <- newId,
-        repoName <- name,
-        repoPath <- path,
-        repoCreatedAt <- now
-      ))
-
-      return Repo(
-        id: newId,
-        name: name,
-        path: path,
-        githubOwner: nil,
-        githubName: nil,
-        createdAt: Date()
-      )
-    } catch {
-      print("Failed to create repo: \(error)")
-      return nil
-    }
-  }
-
-  // MARK: - Project Operations
-
-  func fetchProjects(status: Project.Status? = nil) -> [Project] {
-    guard let db else { return [] }
-
-    var query = projects.order(projectUpdatedAt.desc)
+    var query = quests.order(questUpdatedAt.desc)
 
     if let status {
-      query = query.filter(projectStatus == status.rawValue)
+      query = query.filter(questStatus == status.rawValue)
     }
 
     do {
       return try db.prepare(query).map { row in
-        Project(
-          id: row[projectId],
-          name: row[projectDisplayName],
-          description: row[projectDescription],
-          color: row[projectColor],
-          status: Project.Status(rawValue: row[projectStatus]) ?? .active,
-          createdAt: parseDate(row[projectCreatedAt]) ?? Date(),
-          updatedAt: parseDate(row[projectUpdatedAt]) ?? Date()
+        Quest(
+          id: row[questId],
+          name: row[questName],
+          description: row[questDescription],
+          status: Quest.Status(rawValue: row[questStatus]) ?? .active,
+          color: row[questColor],
+          createdAt: parseDate(row[questCreatedAt]) ?? Date(),
+          updatedAt: parseDate(row[questUpdatedAt]) ?? Date(),
+          completedAt: parseDate(row[questCompletedAt])
         )
       }
     } catch {
-      print("Failed to fetch projects: \(error)")
+      print("Failed to fetch quests: \(error)")
       return []
     }
   }
 
-  func createProject(name: String, description: String? = nil, color: String? = nil) -> Project? {
+  func fetchQuest(id questIdValue: String) -> Quest? {
     guard let db else { return nil }
 
-    let newId = UUID().uuidString
+    guard let row = try? db.pluck(quests.filter(questId == questIdValue)) else {
+      return nil
+    }
+
+    var quest = Quest(
+      id: row[questId],
+      name: row[questName],
+      description: row[questDescription],
+      status: Quest.Status(rawValue: row[questStatus]) ?? .active,
+      color: row[questColor],
+      createdAt: parseDate(row[questCreatedAt]) ?? Date(),
+      updatedAt: parseDate(row[questUpdatedAt]) ?? Date(),
+      completedAt: parseDate(row[questCompletedAt])
+    )
+
+    // Populate relationships
+    quest.links = fetchQuestLinks(questId: questIdValue)
+    quest.sessions = fetchSessionsForQuest(questId: questIdValue)
+    quest.inboxItems = fetchInboxItems(questId: questIdValue)
+    quest.notes = fetchQuestNotes(questId: questIdValue)
+
+    return quest
+  }
+
+  func createQuest(name: String, description: String? = nil, color: String? = nil) -> Quest? {
+    guard let db else { return nil }
+
+    let newId = UUID().uuidString.lowercased()
     let now = formatDate(Date())
 
     do {
-      try db.run(projects.insert(
-        projectId <- newId,
-        projectDisplayName <- name,
-        projectDescription <- description,
-        projectColor <- color,
-        projectStatus <- "active",
-        projectCreatedAt <- now,
-        projectUpdatedAt <- now
+      try db.run(quests.insert(
+        questId <- newId,
+        questName <- name,
+        questDescription <- description,
+        questStatus <- "active",
+        questColor <- color,
+        questCreatedAt <- now,
+        questUpdatedAt <- now
       ))
 
-      return Project(
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+
+      return Quest(
         id: newId,
         name: name,
         description: description,
-        color: color,
         status: .active,
+        color: color,
         createdAt: Date(),
         updatedAt: Date()
       )
     } catch {
-      print("Failed to create project: \(error)")
+      print("Failed to create quest: \(error)")
       return nil
     }
   }
 
-  func addWorkstreamToProject(workstreamId: String, projectId: String) {
+  func updateQuest(id questIdValue: String, name: String? = nil, description: String? = nil, status: Quest.Status? = nil, color: String? = nil) {
     guard let db else { return }
 
+    let quest = quests.filter(questId == questIdValue)
+    let now = formatDate(Date())
+
     do {
-      try db.run(projectWorkstreams.insert(
-        or: .ignore,
-        pwProjectId <- projectId,
-        pwWorkstreamId <- workstreamId
-      ))
+      var setters: [Setter] = [questUpdatedAt <- now]
+
+      if let name {
+        setters.append(questName <- name)
+      }
+      if let description {
+        setters.append(questDescription <- description)
+      }
+      if let status {
+        setters.append(questStatus <- status.rawValue)
+        if status == .completed {
+          setters.append(questCompletedAt <- now)
+        }
+      }
+      if let color {
+        setters.append(questColor <- color)
+      }
+
+      try db.run(quest.update(setters))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
     } catch {
-      print("Failed to add workstream to project: \(error)")
+      print("Failed to update quest: \(error)")
     }
   }
 
-  func fetchWorkstreamsForProject(projectId: String) -> [Workstream] {
+  func deleteQuest(id questIdValue: String) {
+    guard let db else { return }
+
+    let quest = quests.filter(questId == questIdValue)
+
+    do {
+      try db.run(quest.delete())
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to delete quest: \(error)")
+    }
+  }
+
+  // MARK: - Inbox Operations
+
+  func fetchInboxItems(status: InboxItem.Status? = nil, questId questIdValue: String? = nil) -> [InboxItem] {
     guard let db else { return [] }
 
-    let query = workstreams
-      .join(projectWorkstreams, on: workstreamId == pwWorkstreamId)
-      .filter(pwProjectId == projectId)
-      .order(workstreamLastActivityAt.desc)
+    var query = inboxItems.order(inboxCreatedAt.desc)
+
+    if let status {
+      query = query.filter(inboxStatus == status.rawValue)
+    }
+
+    if let questIdValue {
+      query = query.filter(inboxQuestId == questIdValue)
+    }
 
     do {
       return try db.prepare(query).map { row in
-        Workstream(
-          id: row[workstreamId],
-          repoId: row[workstreamRepoId],
-          branch: row[workstreamBranch],
-          directory: row[workstreamDirectory],
-          name: row[workstreamName],
-          description: row[workstreamDescription],
-          linearIssueId: row[linearIssueId],
-          linearIssueTitle: row[linearIssueTitle],
-          linearIssueState: row[linearIssueState],
-          linearIssueURL: row[linearIssueURL],
-          githubIssueNumber: row[githubIssueNumber],
-          githubIssueTitle: row[githubIssueTitle],
-          githubIssueState: row[githubIssueState],
-          githubPRNumber: row[githubPRNumber],
-          githubPRTitle: row[githubPRTitle],
-          githubPRState: Workstream.PRState(rawValue: row[githubPRState] ?? ""),
-          githubPRURL: row[githubPRURL],
-          githubPRAdditions: row[githubPRAdditions],
-          githubPRDeletions: row[githubPRDeletions],
-          reviewState: Workstream.ReviewState(rawValue: row[reviewState] ?? ""),
-          reviewApprovals: row[reviewApprovals],
-          reviewComments: row[reviewComments],
-          stage: Workstream.Stage(rawValue: row[workstreamStage]) ?? .working,
-          isWorking: (try? row.get(flagIsWorking)) == 1,
-          hasOpenPR: (try? row.get(flagHasOpenPR)) == 1,
-          inReview: (try? row.get(flagInReview)) == 1,
-          hasApproval: (try? row.get(flagHasApproval)) == 1,
-          isMerged: (try? row.get(flagIsMerged)) == 1,
-          isClosed: (try? row.get(flagIsClosed)) == 1,
-          sessionCount: row[sessionCount],
-          totalSessionSeconds: row[totalSessionSeconds],
-          commitCount: row[commitCount],
-          lastActivityAt: parseDate(row[workstreamLastActivityAt]),
-          createdAt: parseDate(row[workstreamCreatedAt]) ?? Date(),
-          updatedAt: parseDate(row[workstreamUpdatedAt]) ?? Date()
+        InboxItem(
+          id: row[inboxId],
+          content: row[inboxContent],
+          source: InboxItem.Source(rawValue: row[inboxSource]) ?? .manual,
+          sessionId: row[inboxSessionId],
+          questId: row[inboxQuestId],
+          status: InboxItem.Status(rawValue: row[inboxStatus]) ?? .pending,
+          linearIssueId: row[inboxLinearIssueId],
+          linearIssueUrl: row[inboxLinearIssueUrl],
+          createdAt: parseDate(row[inboxCreatedAt]) ?? Date(),
+          attachedAt: parseDate(row[inboxAttachedAt]),
+          completedAt: parseDate(row[inboxCompletedAt])
         )
       }
     } catch {
-      print("Failed to fetch workstreams for project: \(error)")
+      print("Failed to fetch inbox items: \(error)")
       return []
+    }
+  }
+
+  func captureToInbox(content: String, source: InboxItem.Source = .manual, sessionId: String? = nil) -> InboxItem? {
+    guard let db else { return nil }
+
+    let newId = UUID().uuidString.lowercased()
+    let now = formatDate(Date())
+
+    do {
+      try db.run(inboxItems.insert(
+        inboxId <- newId,
+        inboxContent <- content,
+        inboxSource <- source.rawValue,
+        inboxSessionId <- sessionId,
+        inboxStatus <- InboxItem.Status.pending.rawValue,
+        inboxCreatedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+
+      return InboxItem(
+        id: newId,
+        content: content,
+        source: source,
+        sessionId: sessionId,
+        questId: nil,
+        status: .pending,
+        linearIssueId: nil,
+        linearIssueUrl: nil,
+        createdAt: Date(),
+        attachedAt: nil,
+        completedAt: nil
+      )
+    } catch {
+      print("Failed to capture to inbox: \(error)")
+      return nil
+    }
+  }
+
+  func attachInboxItem(id itemId: String, toQuest questIdValue: String) {
+    guard let db else { return }
+
+    let item = inboxItems.filter(inboxId == itemId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(item.update(
+        inboxQuestId <- questIdValue,
+        inboxStatus <- InboxItem.Status.attached.rawValue,
+        inboxAttachedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to attach inbox item: \(error)")
+    }
+  }
+
+  func detachInboxItem(id itemId: String) {
+    guard let db else { return }
+
+    let item = inboxItems.filter(inboxId == itemId)
+
+    do {
+      try db.run(item.update(
+        inboxQuestId <- nil as String?,
+        inboxStatus <- InboxItem.Status.pending.rawValue,
+        inboxAttachedAt <- nil as String?
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to detach inbox item: \(error)")
+    }
+  }
+
+  func markInboxItemDone(id itemId: String) {
+    guard let db else { return }
+
+    let item = inboxItems.filter(inboxId == itemId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(item.update(
+        inboxStatus <- InboxItem.Status.completed.rawValue,
+        inboxCompletedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to mark inbox item done: \(error)")
+    }
+  }
+
+  func archiveInboxItem(id itemId: String) {
+    guard let db else { return }
+
+    let item = inboxItems.filter(inboxId == itemId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(item.update(
+        inboxStatus <- InboxItem.Status.archived.rawValue,
+        inboxCompletedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to archive inbox item: \(error)")
+    }
+  }
+
+  func convertInboxItemToLinear(id itemId: String, issueId: String, issueUrl: String) {
+    guard let db else { return }
+
+    let item = inboxItems.filter(inboxId == itemId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(item.update(
+        inboxStatus <- InboxItem.Status.converted.rawValue,
+        inboxLinearIssueId <- issueId,
+        inboxLinearIssueUrl <- issueUrl,
+        inboxCompletedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to convert inbox item to Linear: \(error)")
+    }
+  }
+
+  func updateInboxItem(id itemId: String, content: String) {
+    guard let db else { return }
+
+    let item = inboxItems.filter(inboxId == itemId)
+
+    do {
+      try db.run(item.update(
+        inboxContent <- content
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update inbox item: \(error)")
+    }
+  }
+
+  func deleteInboxItem(id itemId: String) {
+    guard let db else { return }
+
+    let item = inboxItems.filter(inboxId == itemId)
+
+    do {
+      try db.run(item.delete())
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to delete inbox item: \(error)")
+    }
+  }
+
+  // MARK: - Quest-Session Operations
+
+  func linkSessionToQuest(sessionId sessionIdValue: String, questId questIdValue: String) {
+    guard let db else { return }
+
+    let now = formatDate(Date())
+
+    do {
+      try db.run(questSessions.insert(
+        or: .ignore,
+        qsQuestId <- questIdValue,
+        qsSessionId <- sessionIdValue,
+        qsLinkedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to link session to quest: \(error)")
+    }
+  }
+
+  func unlinkSessionFromQuest(sessionId sessionIdValue: String, questId questIdValue: String) {
+    guard let db else { return }
+
+    let link = questSessions.filter(qsQuestId == questIdValue && qsSessionId == sessionIdValue)
+
+    do {
+      try db.run(link.delete())
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to unlink session from quest: \(error)")
+    }
+  }
+
+  func fetchQuestsForSession(sessionId sessionIdValue: String) -> [Quest] {
+    guard let db else { return [] }
+
+    let query = quests
+      .join(questSessions, on: questId == qsQuestId)
+      .filter(qsSessionId == sessionIdValue)
+      .order(questUpdatedAt.desc)
+
+    do {
+      return try db.prepare(query).map { row in
+        Quest(
+          id: row[questId],
+          name: row[questName],
+          description: row[questDescription],
+          status: Quest.Status(rawValue: row[questStatus]) ?? .active,
+          color: row[questColor],
+          createdAt: parseDate(row[questCreatedAt]) ?? Date(),
+          updatedAt: parseDate(row[questUpdatedAt]) ?? Date(),
+          completedAt: parseDate(row[questCompletedAt])
+        )
+      }
+    } catch {
+      print("Failed to fetch quests for session: \(error)")
+      return []
+    }
+  }
+
+  func fetchSessionsForQuest(questId questIdValue: String) -> [Session] {
+    guard let db else { return [] }
+
+    let query = sessions
+      .join(questSessions, on: id == qsSessionId)
+      .filter(qsQuestId == questIdValue)
+      .order(lastActivityAt.desc)
+
+    do {
+      return try db.prepare(query).map { row in
+        Session(
+          id: row[id],
+          projectPath: row[projectPath],
+          projectName: row[projectName],
+          branch: row[branch],
+          model: row[model],
+          summary: (try? row.get(sessionSummary)) ?? nil,
+          customName: (try? row.get(customName)) ?? nil,
+          firstPrompt: (try? row.get(firstPrompt)) ?? nil,
+          transcriptPath: row[transcriptPath],
+          status: Session.SessionStatus(rawValue: row[status]) ?? .ended,
+          workStatus: Session.WorkStatus(rawValue: row[workStatus] ?? "unknown") ?? .unknown,
+          startedAt: parseDate(row[startedAt]),
+          endedAt: parseDate(row[endedAt]),
+          totalTokens: row[totalTokens],
+          totalCostUSD: row[totalCostUSD],
+          lastActivityAt: parseDate(row[lastActivityAt]),
+          promptCount: row[promptCount] ?? 0,
+          toolCount: row[toolCount] ?? 0,
+          provider: Provider(rawValue: (try? row.get(sessionProvider)) ?? "claude") ?? .claude
+        )
+      }
+    } catch {
+      print("Failed to fetch sessions for quest: \(error)")
+      return []
+    }
+  }
+
+  // MARK: - Quest Link Operations
+
+  func fetchQuestLinks(questId questIdValue: String) -> [QuestLink] {
+    guard let db else { return [] }
+
+    let query = questLinks
+      .filter(linkQuestId == questIdValue)
+      .order(linkCreatedAt.desc)
+
+    do {
+      return try db.prepare(query).map { row in
+        QuestLink(
+          id: row[linkId],
+          questId: row[linkQuestId],
+          source: QuestLink.Source(rawValue: row[linkSource]) ?? .githubPR,
+          url: row[linkUrl],
+          title: row[linkTitle],
+          externalId: row[linkExternalId],
+          detectedFrom: QuestLink.Detection(rawValue: row[linkDetectedFrom] ?? "manual") ?? .manual,
+          createdAt: parseDate(row[linkCreatedAt]) ?? Date()
+        )
+      }
+    } catch {
+      print("Failed to fetch quest links: \(error)")
+      return []
+    }
+  }
+
+  func addQuestLink(
+    questId questIdValue: String,
+    source: QuestLink.Source,
+    url: String,
+    title: String? = nil,
+    externalId: String? = nil,
+    detectedFrom: QuestLink.Detection = .manual
+  ) -> QuestLink? {
+    guard let db else { return nil }
+
+    let newId = UUID().uuidString.lowercased()
+    let now = formatDate(Date())
+
+    do {
+      try db.run(questLinks.insert(
+        or: .ignore,
+        linkId <- newId,
+        linkQuestId <- questIdValue,
+        linkSource <- source.rawValue,
+        linkUrl <- url,
+        linkTitle <- title,
+        linkExternalId <- externalId,
+        linkDetectedFrom <- detectedFrom.rawValue,
+        linkCreatedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+
+      return QuestLink(
+        id: newId,
+        questId: questIdValue,
+        source: source,
+        url: url,
+        title: title,
+        externalId: externalId,
+        detectedFrom: detectedFrom,
+        createdAt: Date()
+      )
+    } catch {
+      print("Failed to add quest link: \(error)")
+      return nil
+    }
+  }
+
+  func removeQuestLink(id linkIdValue: String) {
+    guard let db else { return }
+
+    let link = questLinks.filter(linkId == linkIdValue)
+
+    do {
+      try db.run(link.delete())
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to remove quest link: \(error)")
+    }
+  }
+
+  // MARK: - Quest Note Operations
+
+  func fetchQuestNotes(questId questIdValue: String) -> [QuestNote] {
+    guard let db else { return [] }
+
+    let query = questNotes
+      .filter(noteQuestId == questIdValue)
+      .order(noteUpdatedAt.desc)
+
+    do {
+      return try db.prepare(query).map { row in
+        QuestNote(
+          id: row[noteId],
+          questId: row[noteQuestId],
+          title: row[noteTitle],
+          content: row[noteContent],
+          createdAt: parseDate(row[noteCreatedAt]) ?? Date(),
+          updatedAt: parseDate(row[noteUpdatedAt]) ?? Date()
+        )
+      }
+    } catch {
+      print("Failed to fetch quest notes: \(error)")
+      return []
+    }
+  }
+
+  func createQuestNote(questId questIdValue: String, title: String? = nil, content: String) -> QuestNote? {
+    guard let db else { return nil }
+
+    let newId = UUID().uuidString.lowercased()
+    let now = formatDate(Date())
+
+    do {
+      try db.run(questNotes.insert(
+        noteId <- newId,
+        noteQuestId <- questIdValue,
+        noteTitle <- title,
+        noteContent <- content,
+        noteCreatedAt <- now,
+        noteUpdatedAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+
+      return QuestNote(
+        id: newId,
+        questId: questIdValue,
+        title: title,
+        content: content,
+        createdAt: Date(),
+        updatedAt: Date()
+      )
+    } catch {
+      print("Failed to create quest note: \(error)")
+      return nil
+    }
+  }
+
+  func updateQuestNote(id noteIdValue: String, title: String? = nil, content: String? = nil) {
+    guard let db else { return }
+
+    let note = questNotes.filter(noteId == noteIdValue)
+    let now = formatDate(Date())
+
+    var setters: [Setter] = [noteUpdatedAt <- now]
+    if let title { setters.append(noteTitle <- title) }
+    if let content { setters.append(noteContent <- content) }
+
+    do {
+      try db.run(note.update(setters))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update quest note: \(error)")
+    }
+  }
+
+  func deleteQuestNote(id noteIdValue: String) {
+    guard let db else { return }
+
+    let note = questNotes.filter(noteId == noteIdValue)
+
+    do {
+      try db.run(note.delete())
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to delete quest note: \(error)")
     }
   }
 

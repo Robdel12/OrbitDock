@@ -12,14 +12,16 @@ struct DashboardView: View {
   let onSelectSession: (String) -> Void
   let onOpenQuickSwitcher: () -> Void
   let onOpenPanel: () -> Void
+  let onOpenInbox: () -> Void
 
   enum Tab: String, CaseIterable {
     case sessions = "Sessions"
-    case workstreams = "Workstreams"
+    case quests = "Quests"
   }
 
   @State private var selectedTab: Tab = .sessions
   @State private var selectedIndex = 0
+  @State private var pendingQuestId: String?
   @FocusState private var isDashboardFocused: Bool
 
   /// Active sessions for keyboard navigation (sorted by start time, newest first)
@@ -103,11 +105,26 @@ struct DashboardView: View {
       switch selectedTab {
         case .sessions:
           sessionsContent
-        case .workstreams:
-          MissionControlView(onSelectSession: onSelectSession)
+        case .quests:
+          QuestListView(
+            onSelectSession: onSelectSession,
+            initialQuestId: pendingQuestId
+          )
+          .onAppear {
+            // Clear pending quest after navigation
+            pendingQuestId = nil
+          }
       }
     }
     .background(Color.backgroundPrimary)
+    .onReceive(NotificationCenter.default.publisher(for: .navigateToQuest)) { notification in
+      if let questId = notification.userInfo?["questId"] as? String {
+        pendingQuestId = questId
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          selectedTab = .quests
+        }
+      }
+    }
   }
 
   // MARK: - Sessions Content
@@ -119,8 +136,8 @@ struct DashboardView: View {
           // Command bar - stats + usage gauges
           CommandBar(sessions: sessions)
 
-          // Active workstreams strip
-          ActiveWorkstreamsSection(onSelectSession: onSelectSession)
+          // Inbox preview (if there are pending items)
+          InboxPreviewSection(onOpenInbox: onOpenInbox)
 
           // Active sessions (flat list, sorted by start time)
           ActiveSessionsSection(
@@ -711,7 +728,105 @@ struct TaskRow: View {
   }
 }
 
-// MARK: - Provider Usage Section
+// MARK: - Inbox Preview Section
+
+struct InboxPreviewSection: View {
+  let onOpenInbox: () -> Void
+
+  @Environment(DatabaseManager.self) private var db
+
+  private var pendingItems: [InboxItem] {
+    db.allInboxItems.filter { $0.status == .pending }
+  }
+
+  private var recentItems: [InboxItem] {
+    Array(pendingItems.prefix(3))
+  }
+
+  var body: some View {
+    if !pendingItems.isEmpty {
+      VStack(alignment: .leading, spacing: 12) {
+        // Header
+        Button {
+          onOpenInbox()
+        } label: {
+          HStack(spacing: 8) {
+            Image(systemName: "tray.and.arrow.down")
+              .font(.system(size: 12, weight: .semibold))
+              .foregroundStyle(Color.accent)
+
+            Text("Inbox")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(.primary)
+
+            Text("\(pendingItems.count)")
+              .font(.system(size: 11, weight: .bold, design: .rounded))
+              .foregroundStyle(.white)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(Color.accent, in: Capsule())
+
+            Spacer()
+
+            HStack(spacing: 4) {
+              Text("View All")
+                .font(.system(size: 11, weight: .medium))
+              Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(.secondary)
+          }
+        }
+        .buttonStyle(.plain)
+
+        // Recent items preview
+        VStack(spacing: 6) {
+          ForEach(recentItems) { item in
+            Button {
+              onOpenInbox()
+            } label: {
+              HStack(spacing: 10) {
+                Circle()
+                  .fill(Color.accent.opacity(0.3))
+                  .frame(width: 6, height: 6)
+
+                Text(item.content)
+                  .font(.system(size: 12))
+                  .foregroundStyle(.secondary)
+                  .lineLimit(1)
+
+                Spacer()
+
+                Text(item.createdAt, style: .relative)
+                  .font(.system(size: 10))
+                  .foregroundStyle(.quaternary)
+              }
+              .padding(.vertical, 8)
+              .padding(.horizontal, 12)
+              .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+          }
+
+          // Show more indicator
+          if pendingItems.count > 3 {
+            Text("+\(pendingItems.count - 3) more")
+              .font(.system(size: 10, weight: .medium))
+              .foregroundStyle(.tertiary)
+              .frame(maxWidth: .infinity, alignment: .center)
+              .padding(.top, 4)
+          }
+        }
+      }
+      .padding(16)
+      .background(Color.backgroundSecondary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+          .stroke(Color.accent.opacity(0.2), lineWidth: 1)
+      )
+    }
+  }
+}
 
 // MARK: - Preview
 
@@ -790,8 +905,10 @@ struct TaskRow: View {
     ],
     onSelectSession: { _ in },
     onOpenQuickSwitcher: {},
-    onOpenPanel: {}
+    onOpenPanel: {},
+    onOpenInbox: {}
   )
+  .environment(DatabaseManager.shared)
   .frame(width: 900, height: 700)
 }
 
@@ -800,7 +917,9 @@ struct TaskRow: View {
     sessions: [],
     onSelectSession: { _ in },
     onOpenQuickSwitcher: {},
-    onOpenPanel: {}
+    onOpenPanel: {},
+    onOpenInbox: {}
   )
+  .environment(DatabaseManager.shared)
   .frame(width: 900, height: 500)
 }
