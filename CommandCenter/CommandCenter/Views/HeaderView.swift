@@ -111,6 +111,7 @@ struct HeaderView: View {
         // Stats row (compact)
         HStack(spacing: 14) {
           SubscriptionUsageCompact()
+          CodexUsageCompact()
 
           Divider()
             .frame(height: 12)

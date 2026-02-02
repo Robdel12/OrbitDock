@@ -37,8 +37,9 @@ struct StatsSummary: View {
     let stats = aggregateStats
 
     HStack(spacing: 12) {
-      // Subscription usage card
+      // Subscription usage cards
       SubscriptionUsageCard()
+      CodexUsageCard()
 
       Divider()
         .frame(height: 40)

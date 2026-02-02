@@ -45,9 +45,12 @@ struct MenuBarView: View {
       .padding(.vertical, 14)
 
       // Subscription Usage
-      MenuBarUsageSection()
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+      VStack(spacing: 8) {
+        MenuBarUsageSection()
+        CodexMenuBarSection()
+      }
+      .padding(.horizontal, 12)
+      .padding(.bottom, 10)
 
       Divider()
 
