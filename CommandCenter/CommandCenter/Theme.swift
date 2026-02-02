@@ -97,38 +97,42 @@ extension Color {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //
-  // Status color hierarchy (from most to least urgent):
-  // 1. Attention (amber) - Needs YOUR action: permission, question
-  // 2. Working (cyan)    - Claude actively processing
-  // 3. Ready (green)     - Claude done, ball in your court (low urgency)
-  // 4. Ended (gray)      - Session finished
+  // 5 distinct status states for maximum clarity:
+  // 1. Permission (coral) - Needs tool approval - URGENT
+  // 2. Question (purple)  - Claude asked you something - URGENT
+  // 3. Working (cyan)     - Claude actively processing
+  // 4. Reply (soft blue)  - Awaiting your next prompt
+  // 5. Ended (gray)       - Session finished
   //
 
-  /// Active/Working - Cyan orbit (session in flight)
+  /// Active/Working - Cyan orbit (Claude is doing stuff)
   static let statusWorking = accent
 
-  /// Needs attention - Amber beacon (permission OR question - you need to act)
-  static let statusAttention = Color(red: 1.0, green: 0.7, blue: 0.25)
+  /// Permission required - Warm coral (distinct from question, urgent)
+  static let statusPermission = Color(red: 1.0, green: 0.55, blue: 0.4)
 
-  /// Waiting for input - Amber beacon (legacy alias)
-  static let statusWaiting = statusAttention
+  /// Question waiting - Nebula purple (Claude asked something)
+  static let statusQuestion = Color(red: 0.75, green: 0.5, blue: 0.95)
 
-  /// Permission required - Same as attention (consolidated)
-  static let statusPermission = statusAttention
+  /// Awaiting reply - Soft blue (your turn to type, lower urgency)
+  static let statusReply = Color(red: 0.45, green: 0.7, blue: 1.0)
 
   /// Error - Red warning
   static let statusError = Color(red: 0.95, green: 0.4, blue: 0.45)
 
-  /// Ready/Complete - Soft green (Claude finished, low urgency)
-  static let statusReady = Color(red: 0.35, green: 0.85, blue: 0.55)
-
-  /// Success - Alias for ready
-  static let statusSuccess = statusReady
-
   /// Ended/Idle - Muted purple-gray (inactive but not invisible)
   static let statusEnded = Color(red: 0.45, green: 0.42, blue: 0.55)
 
-  /// Idle - Alias for ended
+  // Legacy aliases for backward compatibility
+  /// @deprecated Use statusPermission or statusQuestion instead
+  static let statusAttention = statusPermission
+  /// @deprecated Use statusReply instead
+  static let statusReady = statusReply
+  /// @deprecated Use statusReply instead
+  static let statusWaiting = statusReply
+  /// @deprecated Use statusReply instead
+  static let statusSuccess = statusReply
+  /// @deprecated Use statusEnded instead
   static let statusIdle = statusEnded
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -231,8 +235,8 @@ extension Color {
   /// For active session "in orbit" glow rings
   static let orbitGlow = accent.opacity(0.4)
 
-  /// For attention-needed pulsing
-  static let beaconPulse = statusWaiting
+  /// For attention-needed pulsing (permission state)
+  static let beaconPulse = statusPermission
 
   /// Nebula gradient start (purple)
   static let nebulaStart = Color(red: 0.25, green: 0.15, blue: 0.4)
@@ -268,17 +272,20 @@ extension View {
 // MARK: - Unified Session Status
 
 /// Unified session status for consistent badge display across the app
+/// 5 distinct states for maximum visual clarity
 enum SessionDisplayStatus {
-  case working // Claude actively processing (cyan)
-  case attention // Needs your action: permission or question (amber)
-  case ready // Claude done, waiting for your next prompt (green)
-  case ended // Session finished (muted purple-gray)
+  case working    // Claude actively processing (cyan)
+  case permission // Needs tool approval (coral) - URGENT
+  case question   // Claude asked you something (purple) - URGENT
+  case reply      // Awaiting your next prompt (soft blue)
+  case ended      // Session finished (muted gray)
 
   var color: Color {
     switch self {
       case .working: .statusWorking
-      case .attention: .statusAttention
-      case .ready: .statusReady
+      case .permission: .statusPermission
+      case .question: .statusQuestion
+      case .reply: .statusReply
       case .ended: .statusEnded
     }
   }
@@ -286,8 +293,9 @@ enum SessionDisplayStatus {
   var label: String {
     switch self {
       case .working: "Working"
-      case .attention: "Attention"
-      case .ready: "Ready"
+      case .permission: "Permission"
+      case .question: "Question"
+      case .reply: "Ready"
       case .ended: "Ended"
     }
   }
@@ -295,9 +303,18 @@ enum SessionDisplayStatus {
   var icon: String {
     switch self {
       case .working: "bolt.fill"
-      case .attention: "exclamationmark.circle.fill"
-      case .ready: "checkmark.circle"
+      case .permission: "lock.fill"
+      case .question: "questionmark.bubble.fill"
+      case .reply: "bubble.left"
       case .ended: "moon.fill"
+    }
+  }
+
+  /// Whether this status requires user attention (shows in attention count)
+  var needsAttention: Bool {
+    switch self {
+      case .permission, .question: true
+      default: false
     }
   }
 
@@ -307,15 +324,21 @@ enum SessionDisplayStatus {
 
     // Check attention reason first (more specific)
     switch session.attentionReason {
-      case .awaitingPermission, .awaitingQuestion:
-        return .attention
+      case .awaitingPermission:
+        return .permission
+      case .awaitingQuestion:
+        return .question
       case .awaitingReply:
-        return .ready
+        return .reply
       case .none:
         // Fall back to work status
-        return session.workStatus == .working ? .working : .ready
+        return session.workStatus == .working ? .working : .reply
     }
   }
+
+  // Legacy support
+  static let attention = permission
+  static let ready = reply
 }
 
 // MARK: - Session Status Badge (Design System Component)
@@ -406,7 +429,7 @@ struct SessionStatusBadge: View {
 
 // MARK: - Session Status Dot (for indicators)
 
-/// Status dot indicator with optional glow for working state
+/// Status dot indicator with optional glow for active states
 struct SessionStatusDot: View {
   let status: SessionDisplayStatus
   var size: CGFloat = 8
@@ -426,7 +449,7 @@ struct SessionStatusDot: View {
 
   var body: some View {
     ZStack {
-      // Glow ring for working status
+      // Glow ring for working status (cyan active glow)
       if showGlow, status == .working {
         Circle()
           .fill(status.color.opacity(0.2))
@@ -438,11 +461,25 @@ struct SessionStatusDot: View {
           .frame(width: size * 1.75, height: size * 1.75)
       }
 
-      // Attention ring
-      if showGlow, status == .attention {
+      // Permission ring (coral urgent ring)
+      if showGlow, status == .permission {
+        Circle()
+          .stroke(status.color.opacity(0.6), lineWidth: 2)
+          .frame(width: size * 1.75, height: size * 1.75)
+      }
+
+      // Question ring (purple ring)
+      if showGlow, status == .question {
         Circle()
           .stroke(status.color.opacity(0.5), lineWidth: 1.5)
           .frame(width: size * 1.75, height: size * 1.75)
+      }
+
+      // Reply ring (subtle blue ring)
+      if showGlow, status == .reply {
+        Circle()
+          .stroke(status.color.opacity(0.3), lineWidth: 1)
+          .frame(width: size * 1.6, height: size * 1.6)
       }
 
       // Core dot
@@ -624,13 +661,14 @@ struct PermissionBanner: View {
 
 #Preview("Status Badges") {
   VStack(alignment: .leading, spacing: 20) {
-    Text("Status Badges")
+    Text("5-State Status System")
       .font(.headline)
 
     HStack(spacing: 12) {
       SessionStatusBadge(status: .working)
-      SessionStatusBadge(status: .attention)
-      SessionStatusBadge(status: .ready)
+      SessionStatusBadge(status: .permission)
+      SessionStatusBadge(status: .question)
+      SessionStatusBadge(status: .reply)
       SessionStatusBadge(status: .ended)
     }
 
@@ -639,8 +677,9 @@ struct PermissionBanner: View {
 
     HStack(spacing: 12) {
       SessionStatusBadge(status: .working, size: .compact)
-      SessionStatusBadge(status: .attention, size: .compact)
-      SessionStatusBadge(status: .ready, size: .compact)
+      SessionStatusBadge(status: .permission, size: .compact)
+      SessionStatusBadge(status: .question, size: .compact)
+      SessionStatusBadge(status: .reply, size: .compact)
       SessionStatusBadge(status: .ended, size: .compact)
     }
 
@@ -649,8 +688,9 @@ struct PermissionBanner: View {
 
     HStack(spacing: 20) {
       SessionStatusDot(status: .working)
-      SessionStatusDot(status: .attention)
-      SessionStatusDot(status: .ready)
+      SessionStatusDot(status: .permission)
+      SessionStatusDot(status: .question)
+      SessionStatusDot(status: .reply)
       SessionStatusDot(status: .ended)
     }
   }

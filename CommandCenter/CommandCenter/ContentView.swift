@@ -13,6 +13,7 @@ struct ContentView: View {
   @State private var sessions: [Session] = []
   @State private var selectedSessionId: String?
   @State private var eventSubscription: AnyCancellable?
+  @StateObject private var toastManager = ToastManager.shared
 
   // Panel state
   @State private var showAgentPanel = false
@@ -72,8 +73,27 @@ struct ContentView: View {
       if showQuickSwitcher {
         quickSwitcherOverlay
       }
+
+      // Toast notifications (bottom right)
+      VStack {
+        Spacer()
+        HStack {
+          Spacer()
+          ToastContainer(
+            toastManager: toastManager,
+            onSelectSession: { id in
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                selectedSessionId = id
+              }
+            }
+          )
+        }
+      }
     }
     .background(Color.backgroundPrimary)
+    .onChange(of: selectedSessionId) { _, newId in
+      toastManager.currentSessionId = newId
+    }
     .onAppear {
       loadSessions()
       setupEventSubscription()
@@ -243,6 +263,7 @@ struct ContentView: View {
 
   private func loadSessions() {
     let oldWaitingIds = Set(waitingSessions.map(\.id))
+    let oldSessions = sessions
     sessions = database.fetchSessions()
 
     // Track work status for "agent finished" notifications
@@ -263,6 +284,9 @@ struct ContentView: View {
         NotificationManager.shared.resetNotificationState(for: oldId)
       }
     }
+
+    // Check for in-app toast notifications
+    toastManager.checkForAttentionChanges(sessions: sessions, previousSessions: oldSessions)
   }
 }
 

@@ -19,6 +19,15 @@ struct DashboardView: View {
   }
 
   @State private var selectedTab: Tab = .sessions
+  @State private var selectedIndex = 0
+  @FocusState private var isDashboardFocused: Bool
+
+  /// Active sessions for keyboard navigation (sorted by start time, newest first)
+  private var activeSessions: [Session] {
+    sessions
+      .filter(\.isActive)
+      .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
+  }
 
   /// Group sessions by project
   private var projectGroups: [ProjectGroup] {
@@ -104,29 +113,80 @@ struct DashboardView: View {
   // MARK: - Sessions Content
 
   private var sessionsContent: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        // Command bar - stats + usage gauges
-        CommandBar(sessions: sessions)
+    ScrollViewReader { proxy in
+      ScrollView {
+        VStack(alignment: .leading, spacing: 20) {
+          // Command bar - stats + usage gauges
+          CommandBar(sessions: sessions)
 
-        // Active workstreams strip
-        ActiveWorkstreamsSection(onSelectSession: onSelectSession)
+          // Active workstreams strip
+          ActiveWorkstreamsSection(onSelectSession: onSelectSession)
 
-        // Active sessions (flat list, sorted by start time)
-        ActiveSessionsSection(
-          sessions: sessions,
-          onSelectSession: onSelectSession
-        )
+          // Active sessions (flat list, sorted by start time)
+          ActiveSessionsSection(
+            sessions: sessions,
+            onSelectSession: onSelectSession,
+            selectedIndex: selectedIndex
+          )
 
-        // Session history (ended sessions, chronological)
-        SessionHistorySection(
-          sessions: sessions,
-          onSelectSession: onSelectSession
-        )
+          // Session history (ended sessions, chronological)
+          SessionHistorySection(
+            sessions: sessions,
+            onSelectSession: onSelectSession
+          )
+        }
+        .padding(24)
       }
-      .padding(24)
+      .scrollContentBackground(.hidden)
+      .onChange(of: selectedIndex) { _, newIndex in
+        withAnimation(.easeOut(duration: 0.15)) {
+          proxy.scrollTo("active-session-\(newIndex)", anchor: .center)
+        }
+      }
     }
-    .scrollContentBackground(.hidden)
+    .focusable()
+    .focused($isDashboardFocused)
+    .onAppear {
+      isDashboardFocused = true
+    }
+    .onChange(of: activeSessions.count) { oldCount, newCount in
+      // Clamp selectedIndex if sessions were removed
+      if selectedIndex >= newCount, newCount > 0 {
+        selectedIndex = newCount - 1
+      }
+    }
+    .modifier(KeyboardNavigationModifier(
+      onMoveUp: { moveSelection(by: -1) },
+      onMoveDown: { moveSelection(by: 1) },
+      onMoveToFirst: { selectedIndex = 0 },
+      onMoveToLast: {
+        if !activeSessions.isEmpty {
+          selectedIndex = activeSessions.count - 1
+        }
+      },
+      onSelect: { selectCurrentSession() },
+      onRename: { } // No rename action on dashboard
+    ))
+  }
+
+  // MARK: - Keyboard Navigation Helpers
+
+  private func moveSelection(by delta: Int) {
+    guard !activeSessions.isEmpty else { return }
+    let newIndex = selectedIndex + delta
+    if newIndex < 0 {
+      selectedIndex = activeSessions.count - 1
+    } else if newIndex >= activeSessions.count {
+      selectedIndex = 0
+    } else {
+      selectedIndex = newIndex
+    }
+  }
+
+  private func selectCurrentSession() {
+    guard selectedIndex >= 0, selectedIndex < activeSessions.count else { return }
+    let session = activeSessions[selectedIndex]
+    onSelectSession(session.id)
   }
 
   // MARK: - Dashboard Header
