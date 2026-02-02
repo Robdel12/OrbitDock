@@ -13,11 +13,15 @@ struct QuestDetailView: View {
   let onDismiss: () -> Void
 
   @Environment(DatabaseManager.self) private var db
-  @State private var quest: Quest?
   @State private var showingAddLink = false
   @State private var showingLinkSession = false
   @State private var isEditingName = false
   @State private var editedName = ""
+
+  /// Computed from @Observable - updates automatically when db.questDetails changes
+  private var quest: Quest? {
+    db.questDetail(id: questId)
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -63,10 +67,6 @@ struct QuestDetailView: View {
     }
     .frame(width: 600, height: 700)
     .background(Color.backgroundSecondary)
-    .onAppear { loadQuest() }
-    .onReceive(NotificationCenter.default.publisher(for: Notification.Name("DatabaseChanged"))) { _ in
-      loadQuest()
-    }
     .sheet(isPresented: $showingAddLink) {
       AddLinkSheet(questId: questId)
     }
@@ -327,10 +327,6 @@ struct QuestDetailView: View {
     case .paused: Color.statusReply
     case .completed: Color.statusEnded
     }
-  }
-
-  private func loadQuest() {
-    quest = db.fetchQuest(id: questId)
   }
 
   private func saveName() {

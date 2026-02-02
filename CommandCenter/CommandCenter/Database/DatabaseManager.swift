@@ -123,10 +123,27 @@ class DatabaseManager {
   /// All inbox items - views should read from this instead of fetching
   var allInboxItems: [InboxItem] = []
 
+  /// Detailed quest cache - keyed by quest ID, includes links and sessions
+  var questDetails: [String: Quest] = [:]
+
   /// Refresh quest and inbox state from database
   func refreshQuestState() {
     allQuests = fetchQuests()
     allInboxItems = fetchInboxItems()
+    // Refresh any cached quest details
+    for questId in questDetails.keys {
+      if let quest = fetchQuest(id: questId) {
+        questDetails[questId] = quest
+      }
+    }
+  }
+
+  /// Get quest details - loads into cache if needed, returns from @Observable state
+  func questDetail(id: String) -> Quest? {
+    if questDetails[id] == nil {
+      questDetails[id] = fetchQuest(id: id)
+    }
+    return questDetails[id]
   }
 
   /// Notify views that database changed and refresh observable state
