@@ -32,6 +32,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for tags
 
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -103,7 +105,7 @@ jobs:
           git config user.name "Robert DeLuca"
           git config user.email "$GIT_USER_EMAIL"
 
-          # Update version in project, reset build to 1
+          # Update version in project using agvtool
           cd CommandCenter
           agvtool new-marketing-version "$VERSION"
           agvtool new-version -all 1
