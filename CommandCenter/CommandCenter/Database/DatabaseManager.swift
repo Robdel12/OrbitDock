@@ -49,6 +49,11 @@ class DatabaseManager {
   private let pendingQuestion = SQLite.Expression<String?>("pending_question")
   private let sessionProvider = SQLite.Expression<String?>("provider")
 
+  // Codex direct integration columns
+  private let codexIntegrationMode = SQLite.Expression<String?>("codex_integration_mode")
+  private let codexThreadId = SQLite.Expression<String?>("codex_thread_id")
+  private let pendingApprovalId = SQLite.Expression<String?>("pending_approval_id")
+
   // Quest tables
   private let quests = Table("quests")
   private let inboxItems = Table("inbox_items")
@@ -272,6 +277,16 @@ class DatabaseManager {
           return .claude
         }()
 
+        // Parse Codex integration mode
+        let integrationModeValue: CodexIntegrationMode? = {
+          if let modeStr = try? row.get(codexIntegrationMode),
+             let mode = CodexIntegrationMode(rawValue: modeStr)
+          {
+            return mode
+          }
+          return nil
+        }()
+
         return Session(
           id: row[id],
           projectPath: row[projectPath],
@@ -300,7 +315,10 @@ class DatabaseManager {
           pendingToolName: (try? row.get(pendingToolName)) ?? nil,
           pendingToolInput: (try? row.get(pendingToolInput)) ?? nil,
           pendingQuestion: (try? row.get(pendingQuestion)) ?? nil,
-          provider: providerValue
+          provider: providerValue,
+          codexIntegrationMode: integrationModeValue,
+          codexThreadId: (try? row.get(codexThreadId)) ?? nil,
+          pendingApprovalId: (try? row.get(pendingApprovalId)) ?? nil
         )
       }
     } catch {
@@ -329,7 +347,8 @@ class DatabaseManager {
         attentionReason <- Session.AttentionReason.none.rawValue,
         pendingToolName <- nil as String?,
         pendingToolInput <- nil as String?,
-        pendingQuestion <- nil as String?
+        pendingQuestion <- nil as String?,
+        pendingApprovalId <- nil as String?
       ))
 
       // Notify views to refresh
@@ -338,6 +357,263 @@ class DatabaseManager {
       }
     } catch {
       print("Failed to end session: \(error)")
+    }
+  }
+
+  // MARK: - Codex Direct Session Operations
+
+  /// Create a new Codex direct session (app-server JSON-RPC integration)
+  func createCodexDirectSession(
+    threadId: String,
+    cwd: String,
+    model: String? = nil,
+    projectName: String? = nil,
+    branch: String? = nil,
+    transcriptPath rolloutPath: String? = nil
+  ) -> Session? {
+    guard let db else { return nil }
+
+    let sessionId = "codex-direct-\(threadId)"
+    let now = formatDate(Date())
+    let computedProjectName = projectName ?? URL(fileURLWithPath: cwd).lastPathComponent
+
+    do {
+      try db.run(sessions.insert(
+        or: .replace,
+        id <- sessionId,
+        projectPath <- cwd,
+        self.projectName <- computedProjectName,
+        self.branch <- branch,
+        self.model <- model,
+        transcriptPath <- rolloutPath,
+        status <- Session.SessionStatus.active.rawValue,
+        workStatus <- Session.WorkStatus.waiting.rawValue,
+        startedAt <- now,
+        totalTokens <- 0,
+        totalCostUSD <- 0.0,
+        lastActivityAt <- now,
+        promptCount <- 0,
+        toolCount <- 0,
+        attentionReason <- Session.AttentionReason.awaitingReply.rawValue,
+        sessionProvider <- Provider.codex.rawValue,
+        codexIntegrationMode <- CodexIntegrationMode.direct.rawValue,
+        codexThreadId <- threadId
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+
+      return Session(
+        id: sessionId,
+        projectPath: cwd,
+        projectName: computedProjectName,
+        branch: branch,
+        model: model,
+        transcriptPath: rolloutPath,
+        status: .active,
+        workStatus: .waiting,
+        startedAt: Date(),
+        totalTokens: 0,
+        totalCostUSD: 0,
+        lastActivityAt: Date(),
+        promptCount: 0,
+        toolCount: 0,
+        attentionReason: .awaitingReply,
+        provider: .codex,
+        codexIntegrationMode: .direct,
+        codexThreadId: threadId
+      )
+    } catch {
+      print("Failed to create Codex direct session: \(error)")
+      return nil
+    }
+  }
+
+  /// Update session's transcript path
+  func updateSessionTranscriptPath(sessionId: String, path: String) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(session.update(
+        transcriptPath <- path,
+        lastActivityAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update transcript path: \(error)")
+    }
+  }
+
+  /// Update Codex direct session work status
+  func updateCodexDirectSessionStatus(
+    sessionId: String,
+    workStatus: Session.WorkStatus,
+    attentionReason: Session.AttentionReason,
+    pendingToolName: String? = nil,
+    pendingToolInput: String? = nil,
+    pendingQuestion: String? = nil,
+    pendingApprovalId: String? = nil
+  ) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(session.update(
+        self.workStatus <- workStatus.rawValue,
+        self.attentionReason <- attentionReason.rawValue,
+        self.pendingToolName <- pendingToolName,
+        self.pendingToolInput <- pendingToolInput,
+        self.pendingQuestion <- pendingQuestion,
+        self.pendingApprovalId <- pendingApprovalId,
+        lastActivityAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update Codex direct session status: \(error)")
+    }
+  }
+
+  /// Clear pending approval state for a Codex direct session
+  func clearCodexPendingApproval(sessionId: String) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(session.update(
+        workStatus <- Session.WorkStatus.working.rawValue,
+        attentionReason <- Session.AttentionReason.none.rawValue,
+        pendingToolName <- nil as String?,
+        pendingToolInput <- nil as String?,
+        pendingQuestion <- nil as String?,
+        pendingApprovalId <- nil as String?,
+        lastActivityAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to clear Codex pending approval: \(error)")
+    }
+  }
+
+  /// Increment prompt count for Codex direct session
+  func incrementCodexPromptCount(sessionId: String) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+
+    do {
+      try db.run(session.update(
+        promptCount <- promptCount + 1
+      ))
+    } catch {
+      print("Failed to increment prompt count: \(error)")
+    }
+  }
+
+  /// Increment tool count for Codex direct session
+  func incrementCodexToolCount(sessionId: String) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+
+    do {
+      try db.run(session.update(
+        toolCount <- toolCount + 1
+      ))
+    } catch {
+      print("Failed to increment tool count: \(error)")
+    }
+  }
+
+  /// Update last tool for Codex direct session
+  func updateCodexLastTool(sessionId: String, tool: String) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(session.update(
+        lastTool <- tool,
+        lastToolAt <- now,
+        lastActivityAt <- now
+      ))
+    } catch {
+      print("Failed to update last tool: \(error)")
+    }
+  }
+
+  /// Fetch session by Codex thread ID
+  func fetchSessionByThreadId(_ threadId: String) -> Session? {
+    guard let db else { return nil }
+
+    let query = sessions.filter(codexThreadId == threadId)
+
+    do {
+      guard let row = try db.pluck(query) else { return nil }
+
+      let providerValue = Provider(rawValue: (try? row.get(sessionProvider)) ?? "codex") ?? .codex
+      let integrationModeValue: CodexIntegrationMode? = {
+        if let modeStr = try? row.get(codexIntegrationMode),
+           let mode = CodexIntegrationMode(rawValue: modeStr)
+        {
+          return mode
+        }
+        return nil
+      }()
+
+      return Session(
+        id: row[id],
+        projectPath: row[projectPath],
+        projectName: row[projectName],
+        branch: row[branch],
+        model: row[model],
+        summary: (try? row.get(sessionSummary)) ?? nil,
+        customName: (try? row.get(customName)) ?? nil,
+        firstPrompt: (try? row.get(firstPrompt)) ?? nil,
+        transcriptPath: row[transcriptPath],
+        status: Session.SessionStatus(rawValue: row[status]) ?? .ended,
+        workStatus: Session.WorkStatus(rawValue: row[workStatus] ?? "unknown") ?? .unknown,
+        startedAt: parseDate(row[startedAt]),
+        endedAt: parseDate(row[endedAt]),
+        endReason: row[endReason],
+        totalTokens: row[totalTokens],
+        totalCostUSD: row[totalCostUSD],
+        lastActivityAt: parseDate(row[lastActivityAt]),
+        lastTool: row[lastTool],
+        lastToolAt: parseDate(row[lastToolAt]),
+        promptCount: row[promptCount] ?? 0,
+        toolCount: row[toolCount] ?? 0,
+        terminalSessionId: row[terminalSessionId],
+        terminalApp: row[terminalApp],
+        attentionReason: Session.AttentionReason(rawValue: (try? row.get(attentionReason)) ?? "none") ?? .none,
+        pendingToolName: (try? row.get(pendingToolName)) ?? nil,
+        pendingToolInput: (try? row.get(pendingToolInput)) ?? nil,
+        pendingQuestion: (try? row.get(pendingQuestion)) ?? nil,
+        provider: providerValue,
+        codexIntegrationMode: integrationModeValue,
+        codexThreadId: (try? row.get(codexThreadId)) ?? nil,
+        pendingApprovalId: (try? row.get(pendingApprovalId)) ?? nil
+      )
+    } catch {
+      print("Failed to fetch session by thread ID: \(error)")
+      return nil
     }
   }
 
@@ -483,6 +759,10 @@ class DatabaseManager {
       ("pending_question", "TEXT"),
       ("provider", "TEXT DEFAULT 'claude'"),
       ("end_reason", "TEXT"),
+      // Codex direct integration (migration 008)
+      ("codex_integration_mode", "TEXT"),
+      ("codex_thread_id", "TEXT"),
+      ("pending_approval_id", "TEXT"),
     ]
 
     for (column, type) in sessionColumns {

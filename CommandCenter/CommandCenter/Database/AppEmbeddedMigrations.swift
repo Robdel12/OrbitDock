@@ -26,6 +26,7 @@ enum AppEmbeddedMigrations {
     migration005,
     migration006,
     migration007,
+    migration008,
   ]
 
   // MARK: - Migration 001: Initial schema
@@ -343,6 +344,19 @@ enum AppEmbeddedMigrations {
       );
 
       CREATE INDEX IF NOT EXISTS idx_quest_notes_quest_id ON quest_notes(quest_id);
+      """
+  )
+
+  // MARK: - Migration 008: Codex direct integration
+
+  static let migration008 = Migration(
+    version: 8,
+    name: "codex_direct_integration",
+    sql: """
+      ALTER TABLE sessions ADD COLUMN codex_integration_mode TEXT;
+      ALTER TABLE sessions ADD COLUMN codex_thread_id TEXT;
+      ALTER TABLE sessions ADD COLUMN pending_approval_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_sessions_codex_thread_id ON sessions(codex_thread_id);
       """
   )
 }

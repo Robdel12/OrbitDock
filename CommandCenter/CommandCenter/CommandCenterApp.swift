@@ -12,13 +12,19 @@ import UserNotifications
 struct OrbitDockApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   private let database = DatabaseManager.shared
+  @State private var codexManager = CodexDirectSessionManager()
 
   var body: some Scene {
     // Main window
     WindowGroup {
       ContentView()
         .environment(database)
+        .environment(codexManager)
         .preferredColorScheme(.dark)
+        .onAppear {
+          // Share manager reference with AppDelegate for recovery
+          AppDelegate.codexManager = codexManager
+        }
     }
     .windowStyle(.automatic)
     .defaultSize(width: 1_000, height: 700)
@@ -33,6 +39,7 @@ struct OrbitDockApp: App {
     MenuBarExtra {
       MenuBarView()
         .environment(database)
+        .environment(codexManager)
     } label: {
       Image(systemName: "terminal.fill")
         .symbolRenderingMode(.monochrome)
@@ -44,6 +51,9 @@ struct OrbitDockApp: App {
 // MARK: - App Delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+
+  /// Shared Codex direct session manager for recovery
+  static var codexManager: CodexDirectSessionManager?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     // Set up notification delegate
@@ -72,10 +82,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     // Fetch latest model pricing in background
     ModelPricingService.shared.fetchPrices()
+
+    // Recover active Codex direct sessions in background
+    Task {
+      if let manager = AppDelegate.codexManager {
+        await manager.recoverActiveSessions()
+      }
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {
     CodexRolloutWatcher.shared.stop()
+    AppDelegate.codexManager?.disconnect()
   }
 
   func applicationWillResignActive(_ notification: Notification) {

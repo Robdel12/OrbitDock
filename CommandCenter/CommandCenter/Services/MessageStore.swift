@@ -446,6 +446,80 @@ final class MessageStore {
     return nil
   }
 
+  // MARK: - Codex Direct Session Operations
+
+  /// Append a single message for Codex direct sessions (no JSONL sync)
+  func appendCodexMessage(_ msg: TranscriptMessage, sessionId sid: String) {
+    guard let db = writeDb else { return }
+
+    do {
+      let toolInputJson: String? = msg.toolInput.flatMap { input in
+        guard let data = try? JSONSerialization.data(withJSONObject: input) else { return nil }
+        return String(data: data, encoding: .utf8)
+      }
+
+      // Get current max sequence for this session
+      let maxSeq = try db.scalar(
+        messages.filter(sessionId == sid).select(sequence.max)
+      ) ?? -1
+
+      try db.run(messages.insert(
+        id <- msg.id,
+        sessionId <- sid,
+        type <- msg.type.rawValue,
+        content <- msg.content,
+        timestamp <- msg.timestamp,
+        sequence <- maxSeq + 1,
+        toolName <- msg.toolName,
+        toolInput <- toolInputJson,
+        toolOutput <- msg.toolOutput,
+        toolDuration <- msg.toolDuration,
+        isInProgress <- (msg.isInProgress ? 1 : 0),
+        inputTokens <- msg.inputTokens,
+        outputTokens <- msg.outputTokens,
+        imageData <- nil,
+        imageMimeType <- nil,
+        imagesJson <- nil,
+        thinking <- msg.thinking
+      ))
+    } catch {
+      print("❌ MessageStore: appendCodexMessage failed: \(error)")
+    }
+  }
+
+  /// Update an existing message for Codex direct sessions (e.g., tool output)
+  func updateCodexMessage(_ msg: TranscriptMessage, sessionId sid: String) {
+    guard let db = writeDb else { return }
+
+    do {
+      let query = messages.filter(id == msg.id && sessionId == sid)
+
+      // Build update setters - only update non-nil fields
+      var setters: [Setter] = []
+
+      if !msg.content.isEmpty {
+        setters.append(content <- msg.content)
+      }
+      if let output = msg.toolOutput {
+        setters.append(toolOutput <- output)
+      }
+      if let duration = msg.toolDuration {
+        setters.append(toolDuration <- duration)
+      }
+      setters.append(isInProgress <- (msg.isInProgress ? 1 : 0))
+
+      if let thinkingText = msg.thinking {
+        setters.append(thinking <- thinkingText)
+      }
+
+      if !setters.isEmpty {
+        try db.run(query.update(setters))
+      }
+    } catch {
+      print("❌ MessageStore: updateCodexMessage failed: \(error)")
+    }
+  }
+
   // MARK: - Utility
 
   /// Clear all data for a session (for re-sync)

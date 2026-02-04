@@ -8,6 +8,7 @@ import SwiftUI
 
 struct SessionDetailView: View {
   @Environment(DatabaseManager.self) private var database
+  @Environment(CodexDirectSessionManager.self) private var codexManager
   let session: Session
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
@@ -29,12 +30,12 @@ struct SessionDetailView: View {
       // Compact header
       HeaderView(
         session: session,
-        usageStats: usageStats,
         currentTool: currentTool,
         onTogglePanel: onTogglePanel,
         onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
-        onGoToDashboard: onGoToDashboard
+        onGoToDashboard: onGoToDashboard,
+        onEndSession: session.isDirectCodex ? { endCodexSession() } : nil
       )
 
       Divider()
@@ -56,8 +57,25 @@ struct SessionDetailView: View {
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      // Action bar
-      actionBar
+      // Codex direct: Approval or question UI when needed
+      if session.isDirectCodex {
+        if session.canApprove {
+          CodexApprovalView(session: session)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        } else if session.canAnswer {
+          CodexQuestionView(session: session)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+      }
+
+      // Action bar (or input bar for direct Codex)
+      if session.isDirectCodex {
+        codexActionBar
+      } else {
+        actionBar
+      }
     }
     .background(Color.backgroundPrimary)
     .onAppear {
@@ -133,6 +151,17 @@ struct SessionDetailView: View {
       .padding(2)
       .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
+      // Context stats
+      HStack(spacing: 12) {
+        ContextGaugeCompact(stats: usageStats)
+
+        if usageStats.estimatedCostUSD > 0 {
+          Text(usageStats.formattedCost)
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary.opacity(0.8))
+        }
+      }
+
       Spacer()
 
       // Right: Chat scroll + timestamp
@@ -198,6 +227,96 @@ struct SessionDetailView: View {
     .background(Color.backgroundSecondary)
   }
 
+  // MARK: - Codex Direct Action Bar
+
+  private var codexActionBar: some View {
+    VStack(spacing: 0) {
+      // Input bar when waiting for input
+      if session.workStatus == .waiting || session.workStatus == .unknown {
+        CodexInputBar(sessionId: session.id)
+      }
+
+      // Status bar
+      HStack(spacing: 16) {
+        // Interrupt button when working
+        if session.workStatus == .working {
+          CodexInterruptButton(sessionId: session.id)
+        }
+
+        // Context stats
+        HStack(spacing: 12) {
+          ContextGaugeCompact(stats: usageStats)
+
+          if usageStats.estimatedCostUSD > 0 {
+            Text(usageStats.formattedCost)
+              .font(.system(size: 12, weight: .semibold, design: .monospaced))
+              .foregroundStyle(.primary.opacity(0.8))
+          }
+        }
+
+        Spacer()
+
+        // Chat scroll controls + timestamp
+        HStack(spacing: 16) {
+          // New messages button
+          if !isPinned, unreadCount > 0 {
+            Button {
+              isPinned = true
+              unreadCount = 0
+              scrollToBottomTrigger += 1
+            } label: {
+              HStack(spacing: 5) {
+                Image(systemName: "arrow.down")
+                  .font(.system(size: 10, weight: .bold))
+                Text("\(unreadCount) new")
+                  .font(.system(size: 12, weight: .semibold))
+              }
+              .foregroundStyle(.white)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 8)
+              .background(Color.accent, in: Capsule())
+            }
+            .buttonStyle(.plain)
+          }
+
+          // Scroll toggle
+          Button {
+            isPinned.toggle()
+            if isPinned {
+              unreadCount = 0
+              scrollToBottomTrigger += 1
+            }
+          } label: {
+            HStack(spacing: 5) {
+              Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
+                .font(.system(size: 11, weight: .medium))
+              Text(isPinned ? "Following" : "Paused")
+                .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(isPinned ? .secondary : .primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+              RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isPinned ? Color.clear : Color.backgroundTertiary)
+            )
+          }
+          .buttonStyle(.plain)
+
+          // Last activity timestamp
+          if let lastActivity = session.lastActivityAt {
+            Text(lastActivity, style: .relative)
+              .font(.system(size: 11, design: .monospaced))
+              .foregroundStyle(.tertiary)
+          }
+        }
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+      .background(Color.backgroundSecondary)
+    }
+  }
+
   // MARK: - Helpers
 
   private func setupSubscription() {
@@ -247,6 +366,18 @@ struct SessionDetailView: View {
   private func openInITerm() {
     TerminalService.shared.focusSession(session)
   }
+
+  private func endCodexSession() {
+    Task {
+      do {
+        try await codexManager.endSession(session.id)
+      } catch {
+        print("[Codex] Failed to end session: \(error)")
+        // Fall back to just ending in database
+        database.endSession(sessionId: session.id)
+      }
+    }
+  }
 }
 
 #Preview {
@@ -263,5 +394,6 @@ struct SessionDetailView: View {
     onGoToDashboard: {}
   )
   .environment(DatabaseManager.shared)
+  .environment(CodexDirectSessionManager())
   .frame(width: 800, height: 600)
 }

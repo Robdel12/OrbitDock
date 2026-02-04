@@ -376,18 +376,19 @@ struct ConversationView: View {
     isLoading = true
     // Note: isPinned and unreadCount are now managed by parent
 
-    guard let path = transcriptPath, let sid = sessionId else {
+    guard let sid = sessionId else {
       isLoading = false
       return
     }
 
-    let targetPath = path
+    let targetPath = transcriptPath
     let targetSid = sid
 
     DispatchQueue.global(qos: .userInitiated).async {
       let hasData = MessageStore.shared.hasData(sessionId: targetSid)
 
       if hasData {
+        // Load from MessageStore (works for both Claude and direct Codex sessions)
         let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
         let info = MessageStore.shared.readSessionInfo(sessionId: targetSid)
 
@@ -399,20 +400,24 @@ struct ConversationView: View {
           isLoading = false
         }
 
-        DispatchQueue.global(qos: .utility).async {
-          let result = TranscriptParser.parseAll(transcriptPath: targetPath)
-          MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-          let updatedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-          if updatedMessages.count != loadedMessages.count {
-            DispatchQueue.main.async {
-              guard sessionId == targetSid else { return }
-              messages = updatedMessages
-              displayedCount = updatedMessages.count
+        // For Claude sessions, also sync from transcript in background
+        if let path = targetPath {
+          DispatchQueue.global(qos: .utility).async {
+            let result = TranscriptParser.parseAll(transcriptPath: path)
+            MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
+            let updatedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
+            if updatedMessages.count != loadedMessages.count {
+              DispatchQueue.main.async {
+                guard sessionId == targetSid else { return }
+                messages = updatedMessages
+                displayedCount = updatedMessages.count
+              }
             }
           }
         }
-      } else {
-        let result = TranscriptParser.parseAll(transcriptPath: targetPath)
+      } else if let path = targetPath {
+        // No data in MessageStore, try parsing transcript (Claude sessions)
+        let result = TranscriptParser.parseAll(transcriptPath: path)
         MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
         let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
 
@@ -421,6 +426,13 @@ struct ConversationView: View {
           messages = loadedMessages
           currentPrompt = result.lastUserPrompt
           displayedCount = loadedMessages.count
+          isLoading = false
+        }
+      } else {
+        // No data and no transcript path - just show empty
+        DispatchQueue.main.async {
+          guard sessionId == targetSid else { return }
+          messages = []
           isLoading = false
         }
       }

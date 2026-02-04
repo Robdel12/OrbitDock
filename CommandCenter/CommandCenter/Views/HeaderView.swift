@@ -9,12 +9,12 @@ import SwiftUI
 
 struct HeaderView: View {
   let session: Session
-  let usageStats: TranscriptUsageStats
   let currentTool: String?
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
   let onFocusTerminal: () -> Void
   let onGoToDashboard: () -> Void
+  var onEndSession: (() -> Void)?
 
   @State private var isHoveringPath = false
   @State private var isHoveringProject = false
@@ -105,33 +105,10 @@ struct HeaderView: View {
 
         Spacer()
 
-        // Stats row (compact)
-        HStack(spacing: 14) {
-          // Show usage for this session's provider only
-          ProviderUsageCompact(
-            provider: session.provider,
-            windows: UsageServiceRegistry.shared.windows(for: session.provider),
-            isLoading: UsageServiceRegistry.shared.isLoading(for: session.provider),
-            error: UsageServiceRegistry.shared.error(for: session.provider),
-            isStale: UsageServiceRegistry.shared.isStale(for: session.provider)
-          )
-
-          Divider()
-            .frame(height: 12)
-            .opacity(0.3)
-
-          ContextGaugeCompact(stats: usageStats)
-
-          if usageStats.estimatedCostUSD > 0 {
-            Text(usageStats.formattedCost)
-              .font(.system(size: 12, weight: .semibold, design: .monospaced))
-              .foregroundStyle(.primary.opacity(0.8))
-          }
-
-          Text(session.formattedDuration)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundStyle(.secondary)
-        }
+        // Duration only (usage stats moved to bottom bar)
+        Text(session.formattedDuration)
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .foregroundStyle(.secondary)
 
         // Quick actions
         HStack(spacing: 4) {
@@ -154,6 +131,19 @@ struct HeaderView: View {
           }
           .buttonStyle(.plain)
           .help(session.isActive ? "Focus terminal" : "Resume in terminal")
+
+          // End session button for Codex direct sessions
+          if session.isDirectCodex, session.isActive, let onEnd = onEndSession {
+            Button(action: onEnd) {
+              Image(systemName: "stop.circle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.statusPermission)
+                .frame(width: 28, height: 28)
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("End session")
+          }
         }
       }
       .padding(.horizontal, 16)
@@ -431,14 +421,6 @@ struct ContextGaugeCompact: View {
         terminalSessionId: nil,
         terminalApp: nil
       ),
-      usageStats: {
-        var stats = TranscriptUsageStats()
-        stats.inputTokens = 100_000
-        stats.outputTokens = 50_000
-        stats.contextUsed = 150_000
-        stats.model = "opus"
-        return stats
-      }(),
       currentTool: "Edit",
       onTogglePanel: {},
       onOpenSwitcher: {},

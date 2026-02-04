@@ -5,6 +5,14 @@
 
 import Foundation
 
+// MARK: - Codex Integration Mode
+
+/// Distinguishes passive (file watching) from direct (app-server JSON-RPC) Codex sessions
+enum CodexIntegrationMode: String, Hashable {
+  case passive // FSEvents watching of rollout files (current behavior)
+  case direct // App-server JSON-RPC (full bidirectional control)
+}
+
 struct Session: Identifiable, Hashable {
   let id: String
   let projectPath: String
@@ -34,6 +42,12 @@ struct Session: Identifiable, Hashable {
   var pendingToolInput: String? // JSON string of tool input (for rich permission display)
   var pendingQuestion: String? // Question text from AskUserQuestion
   var provider: Provider // AI provider (claude, codex)
+
+  // MARK: - Codex Direct Integration
+
+  var codexIntegrationMode: CodexIntegrationMode? // nil for non-Codex sessions
+  var codexThreadId: String? // Thread ID for direct Codex sessions
+  var pendingApprovalId: String? // Request ID for approval correlation
 
   enum SessionStatus: String {
     case active
@@ -103,7 +117,10 @@ struct Session: Identifiable, Hashable {
     pendingToolName: String? = nil,
     pendingToolInput: String? = nil,
     pendingQuestion: String? = nil,
-    provider: Provider = .claude
+    provider: Provider = .claude,
+    codexIntegrationMode: CodexIntegrationMode? = nil,
+    codexThreadId: String? = nil,
+    pendingApprovalId: String? = nil
   ) {
     self.id = id
     self.projectPath = projectPath
@@ -135,6 +152,9 @@ struct Session: Identifiable, Hashable {
     self.pendingToolInput = pendingToolInput
     self.pendingQuestion = pendingQuestion
     self.provider = provider
+    self.codexIntegrationMode = codexIntegrationMode
+    self.codexThreadId = codexThreadId
+    self.pendingApprovalId = pendingApprovalId
   }
 
   var displayName: String {
@@ -159,6 +179,29 @@ struct Session: Identifiable, Hashable {
   /// Returns true if session is waiting but not blocking (just needs a reply)
   var isReady: Bool {
     isActive && attentionReason == .awaitingReply
+  }
+
+  // MARK: - Codex Direct Integration
+
+  /// Returns true if this is a direct Codex session (not passive file watching)
+  var isDirectCodex: Bool {
+    provider == .codex && codexIntegrationMode == .direct
+  }
+
+  /// Returns true if user can send input to this session (direct Codex only)
+  var canSendInput: Bool {
+    guard isActive else { return false }
+    return isDirectCodex
+  }
+
+  /// Returns true if user can approve/reject a pending tool (direct Codex only)
+  var canApprove: Bool {
+    canSendInput && attentionReason == .awaitingPermission && pendingApprovalId != nil
+  }
+
+  /// Returns true if user can answer a pending question (direct Codex only)
+  var canAnswer: Bool {
+    canSendInput && attentionReason == .awaitingQuestion && pendingApprovalId != nil
   }
 
   var statusIcon: String {

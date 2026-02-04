@@ -22,6 +22,7 @@ struct DashboardView: View {
   @State private var selectedTab: Tab = .sessions
   @State private var selectedIndex = 0
   @State private var pendingQuestId: String?
+  @State private var showNewCodexSheet = false
   @FocusState private var isDashboardFocused: Bool
 
   /// Active sessions for keyboard navigation (sorted by start time, newest first)
@@ -123,6 +124,12 @@ struct DashboardView: View {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
           selectedTab = .quests
         }
+      }
+    }
+    .sheet(isPresented: $showNewCodexSheet) {
+      NewCodexSessionSheet { session in
+        // Select the newly created session
+        onSelectSession(session.id)
       }
     }
   }
@@ -294,6 +301,24 @@ struct DashboardView: View {
           }
         }
       }
+
+      // New Codex Session button
+      Button {
+        showNewCodexSheet = true
+      } label: {
+        HStack(spacing: 6) {
+          Image(systemName: "plus")
+            .font(.system(size: 11, weight: .bold))
+          Text("Codex")
+            .font(.system(size: 11, weight: .medium))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .foregroundStyle(Color.accent)
+      }
+      .buttonStyle(.plain)
+      .help("Create new Codex session")
 
       // Quick switch button
       Button {
