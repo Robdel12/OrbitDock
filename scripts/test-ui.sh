@@ -95,6 +95,15 @@ XCODE_CMD=(
   "PRODUCT_BUNDLE_IDENTIFIER=$TEST_BUNDLE_ID"
 )
 
+# In CI, disable code signing
+if [[ -n "${CI:-}" ]]; then
+  XCODE_CMD+=(
+    "CODE_SIGN_IDENTITY=-"
+    "CODE_SIGNING_REQUIRED=NO"
+    "CODE_SIGNING_ALLOWED=NO"
+  )
+fi
+
 # Add test filter if specified
 if [[ -n "$FILTER" ]]; then
   XCODE_CMD+=(-only-testing:"$TEST_TARGET/$FILTER")
