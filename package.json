@@ -2,7 +2,7 @@
   "name": "orbitdock",
   "private": true,
   "devDependencies": {
-    "@vizzly-testing/cli": "^0.1.0"
+    "@vizzly-testing/cli": "^0.26.2"
   },
   "scripts": {
     "test": "./scripts/test-ui.sh",
