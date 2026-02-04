@@ -231,6 +231,18 @@ struct TranscriptMessage: Identifiable, Hashable {
     return output
   }
 
+  /// Tool output with ANSI escape codes stripped for clean display
+  var sanitizedToolOutput: String? {
+    guard let output = toolOutput else { return nil }
+    // Match ANSI escape sequences: ESC[ followed by params and command letter
+    let pattern = "\u{1b}\\[[0-9;?]*[a-zA-Z]"
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+      return output
+    }
+    let range = NSRange(output.startIndex..., in: output)
+    return regex.stringByReplacingMatches(in: output, range: range, withTemplate: "")
+  }
+
   // MARK: - Duration & Statistics
 
   /// Format duration for display (e.g., "245ms", "1.2s", "2m 15s")

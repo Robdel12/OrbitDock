@@ -111,7 +111,7 @@ struct StandardToolCard: View {
         }
       }
 
-      if let output = message.toolOutput, !output.isEmpty {
+      if let output = message.sanitizedToolOutput, !output.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           Text("OUTPUT")
             .font(.system(size: 9, weight: .bold, design: .rounded))

@@ -83,7 +83,7 @@ struct BashCard: View {
       .onHover { isHovering = $0 }
 
       // Output
-      if isExpanded, let output = message.toolOutput, !output.isEmpty {
+      if isExpanded, let output = message.sanitizedToolOutput, !output.isEmpty {
         ScrollView {
           Text(output.count > 2_000 ? String(output.prefix(2_000)) + "\n[...]" : output)
             .font(.system(size: 10, design: .monospaced))
