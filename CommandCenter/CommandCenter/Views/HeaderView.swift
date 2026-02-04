@@ -105,7 +105,7 @@ struct HeaderView: View {
 
         Spacer()
 
-        // Duration only (usage stats moved to bottom bar)
+        // Duration only (usage stats in bottom bar)
         Text(session.formattedDuration)
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
@@ -390,6 +390,86 @@ struct ContextGaugeCompact: View {
         .font(.system(size: 10, weight: .medium, design: .monospaced))
         .foregroundStyle(progressColor)
     }
+  }
+}
+
+struct CodexTokenBadge: View {
+  let session: Session
+
+  var body: some View {
+    HStack(spacing: 6) {
+      // Token count with input/output breakdown
+      HStack(spacing: 3) {
+        Image(systemName: "arrow.down.circle.fill")
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(.cyan.opacity(0.8))
+        Text(formatTokenCount(session.codexInputTokens ?? 0))
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(.secondary)
+
+        Image(systemName: "arrow.up.circle.fill")
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(.orange.opacity(0.8))
+        Text(formatTokenCount(session.codexOutputTokens ?? 0))
+          .font(.system(size: 10, weight: .medium, design: .monospaced))
+          .foregroundStyle(.secondary)
+      }
+
+      // Cached savings indicator (if any)
+      if let cached = session.codexCachedTokens, cached > 0 {
+        HStack(spacing: 2) {
+          Image(systemName: "bolt.fill")
+            .font(.system(size: 7, weight: .bold))
+          Text("\(cacheSavingsPercent)%")
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+        }
+        .foregroundStyle(.green.opacity(0.9))
+      }
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(Color.surfaceHover, in: Capsule())
+    .help(tokenTooltip)
+  }
+
+  /// Cache savings as percentage of input tokens
+  private var cacheSavingsPercent: Int {
+    guard let cached = session.codexCachedTokens,
+          let input = session.codexInputTokens,
+          input > 0
+    else { return 0 }
+    return Int(Double(cached) / Double(input) * 100)
+  }
+
+  private var tokenTooltip: String {
+    var parts: [String] = []
+
+    if let input = session.codexInputTokens {
+      parts.append("Input: \(formatTokenCount(input))")
+    }
+    if let output = session.codexOutputTokens {
+      parts.append("Output: \(formatTokenCount(output))")
+    }
+    if let cached = session.codexCachedTokens, cached > 0,
+       let input = session.codexInputTokens, input > 0
+    {
+      let percent = Int(Double(cached) / Double(input) * 100)
+      parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
+    }
+    if let window = session.codexContextWindow {
+      parts.append("Context window: \(formatTokenCount(window))")
+    }
+
+    return parts.isEmpty ? "Token usage" : parts.joined(separator: "\n")
+  }
+
+  private func formatTokenCount(_ count: Int) -> String {
+    if count >= 1_000_000 {
+      return String(format: "%.1fM", Double(count) / 1_000_000)
+    } else if count >= 1000 {
+      return String(format: "%.1fk", Double(count) / 1000)
+    }
+    return "\(count)"
   }
 }
 

@@ -488,15 +488,22 @@ final class CodexEventHandler {
   // MARK: - Usage Events
 
   private func handleTokenUsageUpdated(_ event: TokenUsageEvent, sessionId: String) {
-    // Extract token counts from the event
-    let inputTokens = event.lastTokenUsage?.inputTokens ?? event.inputTokens
-    let outputTokens = event.lastTokenUsage?.outputTokens ?? event.outputTokens
-    let cachedTokens = event.lastTokenUsage?.cachedInputTokens ?? event.cachedInputTokens
+    // Extract token counts from the event - use total for cumulative session usage
+    let inputTokens = event.totalInputTokens
+    let outputTokens = event.totalOutputTokens
+    let cachedTokens = event.totalCachedTokens
+    let contextWindow = event.contextWindow
 
-    logger.debug("Token usage: input=\(inputTokens ?? 0), output=\(outputTokens ?? 0), cached=\(cachedTokens ?? 0)")
+    logger.debug("Token usage: input=\(inputTokens ?? 0), output=\(outputTokens ?? 0), cached=\(cachedTokens ?? 0), window=\(contextWindow ?? 0)")
 
-    // TODO: Could update session with token counts for display
-    // db.updateCodexTokenUsage(sessionId: sessionId, inputTokens: input, outputTokens: output)
+    // Update session with token counts for display
+    db.updateCodexTokenUsage(
+      sessionId: sessionId,
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cachedTokens: cachedTokens,
+      contextWindow: contextWindow
+    )
   }
 
   private func handleRateLimitsUpdated(_ event: RateLimitsEvent, sessionId: String) {

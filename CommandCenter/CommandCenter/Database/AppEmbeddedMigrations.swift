@@ -27,6 +27,7 @@ enum AppEmbeddedMigrations {
     migration006,
     migration007,
     migration008,
+    migration009,
   ]
 
   // MARK: - Migration 001: Initial schema
@@ -357,6 +358,19 @@ enum AppEmbeddedMigrations {
       ALTER TABLE sessions ADD COLUMN codex_thread_id TEXT;
       ALTER TABLE sessions ADD COLUMN pending_approval_id TEXT;
       CREATE INDEX IF NOT EXISTS idx_sessions_codex_thread_id ON sessions(codex_thread_id);
+      """
+  )
+
+  // MARK: - Migration 009: Codex token usage tracking
+
+  static let migration009 = Migration(
+    version: 9,
+    name: "codex_token_usage",
+    sql: """
+      ALTER TABLE sessions ADD COLUMN codex_input_tokens INTEGER;
+      ALTER TABLE sessions ADD COLUMN codex_output_tokens INTEGER;
+      ALTER TABLE sessions ADD COLUMN codex_cached_tokens INTEGER;
+      ALTER TABLE sessions ADD COLUMN codex_context_window INTEGER;
       """
   )
 }

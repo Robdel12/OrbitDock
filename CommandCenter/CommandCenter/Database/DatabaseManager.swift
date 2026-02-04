@@ -54,6 +54,12 @@ class DatabaseManager {
   private let codexThreadId = SQLite.Expression<String?>("codex_thread_id")
   private let pendingApprovalId = SQLite.Expression<String?>("pending_approval_id")
 
+  // Codex token usage columns
+  private let codexInputTokens = SQLite.Expression<Int?>("codex_input_tokens")
+  private let codexOutputTokens = SQLite.Expression<Int?>("codex_output_tokens")
+  private let codexCachedTokens = SQLite.Expression<Int?>("codex_cached_tokens")
+  private let codexContextWindow = SQLite.Expression<Int?>("codex_context_window")
+
   // Quest tables
   private let quests = Table("quests")
   private let inboxItems = Table("inbox_items")
@@ -318,7 +324,11 @@ class DatabaseManager {
           provider: providerValue,
           codexIntegrationMode: integrationModeValue,
           codexThreadId: (try? row.get(codexThreadId)) ?? nil,
-          pendingApprovalId: (try? row.get(pendingApprovalId)) ?? nil
+          pendingApprovalId: (try? row.get(pendingApprovalId)) ?? nil,
+          codexInputTokens: (try? row.get(codexInputTokens)) ?? nil,
+          codexOutputTokens: (try? row.get(codexOutputTokens)) ?? nil,
+          codexCachedTokens: (try? row.get(codexCachedTokens)) ?? nil,
+          codexContextWindow: (try? row.get(codexContextWindow)) ?? nil
         )
       }
     } catch {
@@ -357,6 +367,93 @@ class DatabaseManager {
       }
     } catch {
       print("Failed to end session: \(error)")
+    }
+  }
+
+  /// Fetch a single session by ID
+  func fetchSession(id sessionId: String) -> Session? {
+    guard let db else { return nil }
+
+    let query = sessions.filter(id == sessionId)
+
+    do {
+      guard let row = try db.pluck(query) else { return nil }
+
+      let providerValue = Provider(rawValue: (try? row.get(sessionProvider)) ?? "claude") ?? .claude
+      let integrationModeValue: CodexIntegrationMode? = {
+        if let modeStr = try? row.get(codexIntegrationMode),
+           let mode = CodexIntegrationMode(rawValue: modeStr)
+        {
+          return mode
+        }
+        return nil
+      }()
+
+      return Session(
+        id: row[id],
+        projectPath: row[projectPath],
+        projectName: row[projectName],
+        branch: row[branch],
+        model: row[model],
+        summary: (try? row.get(sessionSummary)) ?? nil,
+        customName: (try? row.get(customName)) ?? nil,
+        firstPrompt: (try? row.get(firstPrompt)) ?? nil,
+        transcriptPath: row[transcriptPath],
+        status: Session.SessionStatus(rawValue: row[status]) ?? .ended,
+        workStatus: Session.WorkStatus(rawValue: row[workStatus] ?? "unknown") ?? .unknown,
+        startedAt: parseDate(row[startedAt]),
+        endedAt: parseDate(row[endedAt]),
+        endReason: row[endReason],
+        totalTokens: row[totalTokens],
+        totalCostUSD: row[totalCostUSD],
+        lastActivityAt: parseDate(row[lastActivityAt]),
+        lastTool: row[lastTool],
+        lastToolAt: parseDate(row[lastToolAt]),
+        promptCount: row[promptCount] ?? 0,
+        toolCount: row[toolCount] ?? 0,
+        terminalSessionId: row[terminalSessionId],
+        terminalApp: row[terminalApp],
+        attentionReason: Session.AttentionReason(rawValue: (try? row.get(attentionReason)) ?? "none") ?? .none,
+        pendingToolName: (try? row.get(pendingToolName)) ?? nil,
+        pendingToolInput: (try? row.get(pendingToolInput)) ?? nil,
+        pendingQuestion: (try? row.get(pendingQuestion)) ?? nil,
+        provider: providerValue,
+        codexIntegrationMode: integrationModeValue,
+        codexThreadId: (try? row.get(codexThreadId)) ?? nil,
+        pendingApprovalId: (try? row.get(pendingApprovalId)) ?? nil,
+        codexInputTokens: (try? row.get(codexInputTokens)) ?? nil,
+        codexOutputTokens: (try? row.get(codexOutputTokens)) ?? nil,
+        codexCachedTokens: (try? row.get(codexCachedTokens)) ?? nil,
+        codexContextWindow: (try? row.get(codexContextWindow)) ?? nil
+      )
+    } catch {
+      print("Failed to fetch session by ID: \(error)")
+      return nil
+    }
+  }
+
+  /// Reactivate an ended session (for resuming Codex threads)
+  func reactivateSession(sessionId: String) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+    let now = formatDate(Date())
+
+    do {
+      try db.run(session.update(
+        status <- Session.SessionStatus.active.rawValue,
+        workStatus <- Session.WorkStatus.waiting.rawValue,
+        attentionReason <- Session.AttentionReason.awaitingReply.rawValue,
+        endedAt <- nil as String?,
+        endReason <- nil as String?,
+        lastActivityAt <- now
+      ))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to reactivate session: \(error)")
     }
   }
 
@@ -559,6 +656,46 @@ class DatabaseManager {
     }
   }
 
+  /// Update token usage for a Codex session
+  func updateCodexTokenUsage(
+    sessionId: String,
+    inputTokens: Int?,
+    outputTokens: Int?,
+    cachedTokens: Int?,
+    contextWindow: Int?
+  ) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+
+    do {
+      var setters: [Setter] = []
+
+      if let input = inputTokens {
+        setters.append(codexInputTokens <- input)
+      }
+      if let output = outputTokens {
+        setters.append(codexOutputTokens <- output)
+      }
+      if let cached = cachedTokens {
+        setters.append(codexCachedTokens <- cached)
+      }
+      if let window = contextWindow {
+        setters.append(codexContextWindow <- window)
+      }
+
+      guard !setters.isEmpty else { return }
+
+      try db.run(session.update(setters))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update Codex token usage: \(error)")
+    }
+  }
+
   /// Fetch session by Codex thread ID
   func fetchSessionByThreadId(_ threadId: String) -> Session? {
     guard let db else { return nil }
@@ -609,7 +746,11 @@ class DatabaseManager {
         provider: providerValue,
         codexIntegrationMode: integrationModeValue,
         codexThreadId: (try? row.get(codexThreadId)) ?? nil,
-        pendingApprovalId: (try? row.get(pendingApprovalId)) ?? nil
+        pendingApprovalId: (try? row.get(pendingApprovalId)) ?? nil,
+        codexInputTokens: (try? row.get(codexInputTokens)) ?? nil,
+        codexOutputTokens: (try? row.get(codexOutputTokens)) ?? nil,
+        codexCachedTokens: (try? row.get(codexCachedTokens)) ?? nil,
+        codexContextWindow: (try? row.get(codexContextWindow)) ?? nil
       )
     } catch {
       print("Failed to fetch session by thread ID: \(error)")

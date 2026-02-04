@@ -586,42 +586,30 @@ struct CodexErrorEvent: Decodable {
 
 struct TokenUsageEvent: Decodable {
   let threadId: String?
-  let inputTokens: Int?
-  let outputTokens: Int?
-  let cachedInputTokens: Int?
-  let totalTokens: Int?
-  let modelContextWindow: Int?
+  let turnId: String?
+  let tokenUsage: TokenUsageData?
 
-  // Nested structure from the API
-  struct TokenUsageInfo: Decodable {
+  // Nested token usage data
+  struct TokenUsageData: Decodable {
+    let total: TokenCounts?
+    let last: TokenCounts?
+    let modelContextWindow: Int?
+  }
+
+  // Individual token counts
+  struct TokenCounts: Decodable {
     let inputTokens: Int?
     let outputTokens: Int?
-    let reasoningOutputTokens: Int?
     let totalTokens: Int?
+    let reasoningOutputTokens: Int?
     let cachedInputTokens: Int?
-
-    enum CodingKeys: String, CodingKey {
-      case inputTokens = "input_tokens"
-      case outputTokens = "output_tokens"
-      case reasoningOutputTokens = "reasoning_output_tokens"
-      case totalTokens = "total_tokens"
-      case cachedInputTokens = "cached_input_tokens"
-    }
   }
 
-  let lastTokenUsage: TokenUsageInfo?
-  let totalTokenUsage: TokenUsageInfo?
-
-  enum CodingKeys: String, CodingKey {
-    case threadId
-    case inputTokens
-    case outputTokens
-    case cachedInputTokens
-    case totalTokens
-    case modelContextWindow
-    case lastTokenUsage
-    case totalTokenUsage
-  }
+  // Convenience accessors
+  var totalInputTokens: Int? { tokenUsage?.total?.inputTokens }
+  var totalOutputTokens: Int? { tokenUsage?.total?.outputTokens }
+  var totalCachedTokens: Int? { tokenUsage?.total?.cachedInputTokens }
+  var contextWindow: Int? { tokenUsage?.modelContextWindow }
 }
 
 struct RateLimitsEvent: Decodable {

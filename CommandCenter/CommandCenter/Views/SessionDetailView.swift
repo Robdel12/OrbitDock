@@ -243,15 +243,9 @@ struct SessionDetailView: View {
           CodexInterruptButton(sessionId: session.id)
         }
 
-        // Context stats
-        HStack(spacing: 12) {
-          ContextGaugeCompact(stats: usageStats)
-
-          if usageStats.estimatedCostUSD > 0 {
-            Text(usageStats.formattedCost)
-              .font(.system(size: 12, weight: .semibold, design: .monospaced))
-              .foregroundStyle(.primary.opacity(0.8))
-          }
+        // Token usage for this session
+        if session.hasTokenUsage {
+          CodexTokenBadge(session: session)
         }
 
         Spacer()

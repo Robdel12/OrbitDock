@@ -49,6 +49,13 @@ struct Session: Identifiable, Hashable {
   var codexThreadId: String? // Thread ID for direct Codex sessions
   var pendingApprovalId: String? // Request ID for approval correlation
 
+  // MARK: - Codex Token Usage
+
+  var codexInputTokens: Int? // Input tokens used in session
+  var codexOutputTokens: Int? // Output tokens generated
+  var codexCachedTokens: Int? // Cached input tokens (cost savings)
+  var codexContextWindow: Int? // Model context window size
+
   enum SessionStatus: String {
     case active
     case idle
@@ -120,7 +127,11 @@ struct Session: Identifiable, Hashable {
     provider: Provider = .claude,
     codexIntegrationMode: CodexIntegrationMode? = nil,
     codexThreadId: String? = nil,
-    pendingApprovalId: String? = nil
+    pendingApprovalId: String? = nil,
+    codexInputTokens: Int? = nil,
+    codexOutputTokens: Int? = nil,
+    codexCachedTokens: Int? = nil,
+    codexContextWindow: Int? = nil
   ) {
     self.id = id
     self.projectPath = projectPath
@@ -155,6 +166,10 @@ struct Session: Identifiable, Hashable {
     self.codexIntegrationMode = codexIntegrationMode
     self.codexThreadId = codexThreadId
     self.pendingApprovalId = pendingApprovalId
+    self.codexInputTokens = codexInputTokens
+    self.codexOutputTokens = codexOutputTokens
+    self.codexCachedTokens = codexCachedTokens
+    self.codexContextWindow = codexContextWindow
   }
 
   var displayName: String {
@@ -260,6 +275,34 @@ struct Session: Identifiable, Hashable {
   var lastToolDisplay: String? {
     guard let tool = lastTool, !tool.isEmpty else { return nil }
     return tool
+  }
+
+  // MARK: - Codex Token Usage Computed Properties
+
+  /// Total tokens used (input + output)
+  var codexTotalTokens: Int {
+    (codexInputTokens ?? 0) + (codexOutputTokens ?? 0)
+  }
+
+  /// Percentage of context window used (0-100)
+  var codexContextUsagePercent: Double {
+    guard let contextWindow = codexContextWindow, contextWindow > 0 else { return 0 }
+    return Double(codexTotalTokens) / Double(contextWindow) * 100
+  }
+
+  /// Whether token usage data is available
+  var hasTokenUsage: Bool {
+    codexInputTokens != nil || codexOutputTokens != nil
+  }
+
+  /// Formatted token count string
+  var formattedTokenUsage: String {
+    guard hasTokenUsage else { return "--" }
+    let total = codexTotalTokens
+    if total >= 1000 {
+      return String(format: "%.1fk", Double(total) / 1000)
+    }
+    return "\(total)"
   }
 }
 

@@ -121,6 +121,17 @@ final class CodexDirectSessionManager {
         if let threadId = e.threadId {
           return threadSessionMap[threadId]
         }
+      case let .tokenUsageUpdated(e):
+        if let threadId = e.threadId {
+          return threadSessionMap[threadId]
+        }
+      case .rateLimitsUpdated:
+        // Rate limits are account-wide, not per-thread
+        // Use first session as fallback (could be improved to update all sessions)
+        return threadSessionMap.values.first
+      case .mcpStartupUpdate, .mcpStartupComplete:
+        // MCP events are global, use first session
+        return threadSessionMap.values.first
       default:
         // For events without thread ID, use the most recent active session
         // This is a fallback for approval requests and similar events
@@ -169,18 +180,23 @@ final class CodexDirectSessionManager {
       throw CodexClientError.requestFailed(code: -1, message: "Session has no thread ID")
     }
 
+    try await resumeSessionById(session.id, threadId: threadId, cwd: session.projectPath)
+  }
+
+  /// Resume a session by its IDs (internal helper)
+  private func resumeSessionById(_ sessionId: String, threadId: String, cwd: String) async throws {
     // Ensure connected
     if client.state != .connected {
       try await connect()
     }
 
     // Resume thread via app-server
-    _ = try await client.resumeThread(threadId: threadId, cwd: session.projectPath)
+    _ = try await client.resumeThread(threadId: threadId, cwd: cwd)
 
     // Update mapping
-    threadSessionMap[threadId] = session.id
+    threadSessionMap[threadId] = sessionId
 
-    logger.info("Resumed session: \(session.id) for thread: \(threadId)")
+    logger.info("Resumed session: \(sessionId) for thread: \(threadId)")
   }
 
   /// End a Codex direct session
@@ -212,8 +228,27 @@ final class CodexDirectSessionManager {
 
   /// Send a user message to start a new turn
   func sendMessage(_ sessionId: String, message: String) async throws {
-    guard let threadId = threadIdForSession(sessionId) else {
-      throw CodexClientError.requestFailed(code: -1, message: "Session not found or not active")
+    // Try to get thread ID from active sessions
+    var threadId = threadIdForSession(sessionId)
+
+    // If not in active map, try to resume the session
+    if threadId == nil {
+      // Look up session from database to get thread ID
+      if let session = db.fetchSession(id: sessionId),
+         let storedThreadId = session.codexThreadId
+      {
+        // Resume the thread with app-server
+        try await resumeSessionById(sessionId, threadId: storedThreadId, cwd: session.projectPath)
+        threadId = storedThreadId
+
+        // Reactivate session in database
+        db.reactivateSession(sessionId: sessionId)
+        logger.info("Auto-resumed session: \(sessionId) for thread: \(storedThreadId)")
+      }
+    }
+
+    guard let threadId else {
+      throw CodexClientError.requestFailed(code: -1, message: "Session not found or has no thread ID")
     }
 
     // Update session to working state
