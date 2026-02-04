@@ -91,6 +91,7 @@ struct QuickSwitcher: View {
   @State private var targetSession: Session? // Session that commands will act on
   @State private var showingCreateQuest = false
   @State private var showingLinkToQuest = false
+  @State private var isRecentExpanded = false // Recent section collapsed by default
   @FocusState private var isSearchFocused: Bool
 
   /// The session currently being viewed (for commands to act on)
@@ -221,8 +222,10 @@ struct QuickSwitcher: View {
   }
 
   /// Flat list for keyboard navigation (matches display order)
+  /// Only includes recent sessions if searching or if the section is expanded
   private var allVisibleSessions: [Session] {
-    activeSessions + recentSessions
+    let showRecent = !searchQuery.isEmpty || isRecentExpanded
+    return showRecent ? activeSessions + recentSessions : activeSessions
   }
 
   // Total items for navigation
@@ -500,35 +503,58 @@ struct QuickSwitcher: View {
   // MARK: - Recent Sessions Section
 
   private var recentSessionsSection: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      // Section Header
-      HStack(spacing: 8) {
-        Image(systemName: "clock")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(Color.statusEnded)
+    let isSearching = !searchQuery.isEmpty
 
-        Text("RECENT")
-          .font(.system(size: 11, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.statusEnded)
-          .tracking(0.8)
+    return VStack(alignment: .leading, spacing: 4) {
+      // Section Header - collapsible when not searching
+      Button {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          isRecentExpanded.toggle()
+        }
+      } label: {
+        HStack(spacing: 8) {
+          // Chevron indicator (only when not searching)
+          if !isSearching {
+            Image(systemName: "chevron.right")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(.tertiary)
+              .rotationEffect(.degrees(isRecentExpanded ? 90 : 0))
+          }
 
-        // Count badge
-        Text("\(recentSessions.count)")
-          .font(.system(size: 10, weight: .bold, design: .rounded))
-          .foregroundStyle(Color.statusEnded)
-          .padding(.horizontal, 6)
-          .padding(.vertical, 2)
-          .background(Color.statusEnded.opacity(0.15), in: Capsule())
+          Image(systemName: "clock")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.statusEnded)
+
+          Text("RECENT")
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.statusEnded)
+            .tracking(0.8)
+
+          // Count badge
+          Text("\(recentSessions.count)")
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.statusEnded)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.statusEnded.opacity(0.15), in: Capsule())
+
+          Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+        .contentShape(Rectangle())
       }
-      .padding(.horizontal, 20)
-      .padding(.top, 16)
-      .padding(.bottom, 8)
+      .buttonStyle(.plain)
+      .disabled(isSearching) // Can't collapse while searching
 
-      // Session Rows
-      ForEach(Array(recentSessions.enumerated()), id: \.element.id) { index, session in
-        let globalIndex = sessionStartIndex + activeSessions.count + index
-        switcherRow(session: session, index: globalIndex)
-          .id("row-\(globalIndex)")
+      // Session Rows - shown when expanded OR searching
+      if isRecentExpanded || isSearching {
+        ForEach(Array(recentSessions.enumerated()), id: \.element.id) { index, session in
+          let globalIndex = sessionStartIndex + activeSessions.count + index
+          switcherRow(session: session, index: globalIndex)
+            .id("row-\(globalIndex)")
+        }
       }
     }
   }
