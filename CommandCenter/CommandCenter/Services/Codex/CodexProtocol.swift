@@ -605,11 +605,16 @@ struct TokenUsageEvent: Decodable {
     let cachedInputTokens: Int?
   }
 
-  // Convenience accessors
+  // Convenience accessors - cumulative session totals
   var totalInputTokens: Int? { tokenUsage?.total?.inputTokens }
   var totalOutputTokens: Int? { tokenUsage?.total?.outputTokens }
   var totalCachedTokens: Int? { tokenUsage?.total?.cachedInputTokens }
   var contextWindow: Int? { tokenUsage?.modelContextWindow }
+
+  // Last turn only
+  var lastInputTokens: Int? { tokenUsage?.last?.inputTokens }
+  var lastOutputTokens: Int? { tokenUsage?.last?.outputTokens }
+  var lastCachedTokens: Int? { tokenUsage?.last?.cachedInputTokens }
 }
 
 struct RateLimitsEvent: Decodable {

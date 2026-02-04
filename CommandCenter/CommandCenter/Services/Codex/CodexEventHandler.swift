@@ -488,13 +488,21 @@ final class CodexEventHandler {
   // MARK: - Usage Events
 
   private func handleTokenUsageUpdated(_ event: TokenUsageEvent, sessionId: String) {
-    // Extract token counts from the event - use total for cumulative session usage
-    let inputTokens = event.totalInputTokens
-    let outputTokens = event.totalOutputTokens
-    let cachedTokens = event.totalCachedTokens
+    // Use LAST turn tokens for context fill (what's actually in the context window)
+    // Total is cumulative across the session and can exceed the window due to compaction
+    let inputTokens = event.lastInputTokens
+    let outputTokens = event.lastOutputTokens
+    let cachedTokens = event.lastCachedTokens  // Cache for this turn
     let contextWindow = event.contextWindow
 
-    logger.debug("Token usage: input=\(inputTokens ?? 0), output=\(outputTokens ?? 0), cached=\(cachedTokens ?? 0), window=\(contextWindow ?? 0)")
+    // Detailed logging to understand token data
+    logger.info("""
+      [TokenUsage] session=\(sessionId)
+        last.input=\(inputTokens ?? -1) (context fill)
+        last.output=\(outputTokens ?? -1)
+        last.cached=\(cachedTokens ?? -1)
+        contextWindow=\(contextWindow ?? -1)
+      """)
 
     // Update session with token counts for display
     db.updateCodexTokenUsage(

@@ -397,39 +397,55 @@ struct CodexTokenBadge: View {
   let session: Session
 
   var body: some View {
-    HStack(spacing: 6) {
-      // Token count with input/output breakdown
-      HStack(spacing: 3) {
-        Image(systemName: "arrow.down.circle.fill")
-          .font(.system(size: 8, weight: .bold))
-          .foregroundStyle(.cyan.opacity(0.8))
-        Text(formatTokenCount(session.codexInputTokens ?? 0))
-          .font(.system(size: 10, weight: .medium, design: .monospaced))
-          .foregroundStyle(.secondary)
+    HStack(spacing: 8) {
+      // Context fill percentage
+      if let window = session.codexContextWindow, window > 0 {
+        Text("\(contextPercent)%")
+          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .foregroundStyle(contextColor)
 
-        Image(systemName: "arrow.up.circle.fill")
-          .font(.system(size: 8, weight: .bold))
-          .foregroundStyle(.orange.opacity(0.8))
-        Text(formatTokenCount(session.codexOutputTokens ?? 0))
-          .font(.system(size: 10, weight: .medium, design: .monospaced))
+        Text("of \(formatTokenCount(window))")
+          .font(.system(size: 10))
+          .foregroundStyle(.tertiary)
+      } else {
+        // Fallback if no window info yet
+        Text(formatTokenCount(session.codexInputTokens ?? 0))
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
+        Text("tokens")
+          .font(.system(size: 10))
+          .foregroundStyle(.tertiary)
       }
 
-      // Cached savings indicator (if any)
-      if let cached = session.codexCachedTokens, cached > 0 {
+      // Cache savings (compact)
+      if cacheSavingsPercent >= 10 {
         HStack(spacing: 2) {
           Image(systemName: "bolt.fill")
-            .font(.system(size: 7, weight: .bold))
+            .font(.system(size: 8))
           Text("\(cacheSavingsPercent)%")
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: 10, design: .monospaced))
         }
-        .foregroundStyle(.green.opacity(0.9))
+        .foregroundStyle(.green.opacity(0.85))
       }
     }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
+    .padding(.horizontal, 10)
+    .padding(.vertical, 5)
     .background(Color.surfaceHover, in: Capsule())
     .help(tokenTooltip)
+  }
+
+  /// Context fill: input tokens / context window
+  private var contextPercent: Int {
+    guard let window = session.codexContextWindow, window > 0,
+          let input = session.codexInputTokens
+    else { return 0 }
+    return min(100, Int(Double(input) / Double(window) * 100))
+  }
+
+  private var contextColor: Color {
+    if contextPercent >= 90 { return .statusError }
+    if contextPercent >= 70 { return .statusWaiting }
+    return .secondary
   }
 
   /// Cache savings as percentage of input tokens
