@@ -67,8 +67,24 @@ final class CodexEventHandler {
       case let .threadNameUpdated(e):
         handleThreadNameUpdated(e, sessionId: sessionId)
 
+      case let .tokenUsageUpdated(e):
+        handleTokenUsageUpdated(e, sessionId: sessionId)
+
+      case let .rateLimitsUpdated(e):
+        handleRateLimitsUpdated(e, sessionId: sessionId)
+
+      case let .mcpStartupUpdate(e):
+        handleMCPStartupUpdate(e, sessionId: sessionId)
+
+      case let .mcpStartupComplete(e):
+        handleMCPStartupComplete(e, sessionId: sessionId)
+
       case let .error(e):
         handleError(e, sessionId: sessionId)
+
+      case .ignored:
+        // Silently drop streaming deltas and legacy duplicates
+        return
 
       case let .unknown(method, _):
         logger.debug("Unhandled event: \(method)")
@@ -142,6 +158,9 @@ final class CodexEventHandler {
       case "reasoning":
         handleReasoning(item, sessionId: sessionId)
 
+      case "webSearch":
+        handleWebSearch(item, sessionId: sessionId)
+
       default:
         logger.debug("Unhandled item type: \(item.type)")
     }
@@ -157,6 +176,8 @@ final class CodexEventHandler {
         handleAgentMessage(item, sessionId: sessionId, isUpdate: true)
       case "reasoning":
         handleReasoning(item, sessionId: sessionId, isUpdate: true)
+      case "webSearch":
+        handleWebSearch(item, sessionId: sessionId, isUpdate: true)
       default:
         break
     }
@@ -249,6 +270,28 @@ final class CodexEventHandler {
     )
 
     messageStore.appendCodexMessage(message, sessionId: sessionId)
+  }
+
+  private func handleWebSearch(_ item: ThreadItem, sessionId: String, isUpdate: Bool = false) {
+    // Web search shows as tool use
+    let message = TranscriptMessage(
+      id: item.id,
+      type: .tool,
+      content: "",
+      timestamp: Date(),
+      toolName: "WebSearch",
+      toolInput: ["query": item.query ?? "search"],
+      toolOutput: item.searchResults,
+      toolDuration: nil,
+      inputTokens: nil,
+      outputTokens: nil
+    )
+
+    if isUpdate {
+      messageStore.updateCodexMessage(message, sessionId: sessionId)
+    } else {
+      messageStore.appendCodexMessage(message, sessionId: sessionId)
+    }
   }
 
   private func handleFunctionCall(_ item: ThreadItem, sessionId: String) {
@@ -440,6 +483,51 @@ final class CodexEventHandler {
     )
 
     messageStore.appendCodexMessage(message, sessionId: sessionId)
+  }
+
+  // MARK: - Usage Events
+
+  private func handleTokenUsageUpdated(_ event: TokenUsageEvent, sessionId: String) {
+    // Extract token counts from the event
+    let inputTokens = event.lastTokenUsage?.inputTokens ?? event.inputTokens
+    let outputTokens = event.lastTokenUsage?.outputTokens ?? event.outputTokens
+    let cachedTokens = event.lastTokenUsage?.cachedInputTokens ?? event.cachedInputTokens
+
+    logger.debug("Token usage: input=\(inputTokens ?? 0), output=\(outputTokens ?? 0), cached=\(cachedTokens ?? 0)")
+
+    // TODO: Could update session with token counts for display
+    // db.updateCodexTokenUsage(sessionId: sessionId, inputTokens: input, outputTokens: output)
+  }
+
+  private func handleRateLimitsUpdated(_ event: RateLimitsEvent, sessionId: String) {
+    guard let limits = event.rateLimits else { return }
+
+    let primaryPercent = limits.primary?.usedPercent ?? 0
+    let secondaryPercent = limits.secondary?.usedPercent ?? 0
+    logger.debug("Rate limits updated: primary=\(primaryPercent)%, secondary=\(secondaryPercent)%")
+
+    // Could update usage display here - for now just log
+    // The CodexUsageService already fetches this periodically
+  }
+
+  // MARK: - MCP Events
+
+  private func handleMCPStartupUpdate(_ event: MCPStartupEvent, sessionId: String) {
+    let server = event.server ?? "unknown"
+    let state = event.status?.state ?? "unknown"
+
+    logger.debug("MCP startup update: \(server) - \(state)")
+
+    // Could show MCP connection status in UI
+    // For now just log - MCP servers typically start quickly
+  }
+
+  private func handleMCPStartupComplete(_ event: MCPStartupEvent, sessionId: String) {
+    let server = event.server ?? "unknown"
+
+    logger.debug("MCP startup complete: \(server)")
+
+    // MCP server is ready - no action needed
   }
 
   // MARK: - Helpers

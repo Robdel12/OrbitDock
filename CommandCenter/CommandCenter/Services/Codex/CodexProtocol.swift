@@ -349,8 +349,19 @@ enum CodexServerEvent {
   case sessionConfigured(SessionConfiguredEvent)
   case threadNameUpdated(ThreadNameUpdatedEvent)
 
+  // Usage tracking
+  case tokenUsageUpdated(TokenUsageEvent)
+  case rateLimitsUpdated(RateLimitsEvent)
+
+  // MCP lifecycle
+  case mcpStartupUpdate(MCPStartupEvent)
+  case mcpStartupComplete(MCPStartupEvent)
+
   // Errors
   case error(CodexErrorEvent)
+
+  // Ignored events (streaming deltas, legacy duplicates)
+  case ignored
 
   // Unknown
   case unknown(method: String, params: AnyCodable?)
@@ -429,6 +440,10 @@ struct ThreadItem: Decodable {
 
   // fileChange fields
   let changes: [FileChange]?
+
+  // webSearch fields
+  let query: String?
+  let searchResults: String?
 
   // API uses camelCase throughout
 
@@ -564,6 +579,77 @@ struct CodexErrorEvent: Decodable {
     case code
     case message
     case httpStatusCode = "http_status_code"
+  }
+}
+
+// MARK: - Token Usage Events
+
+struct TokenUsageEvent: Decodable {
+  let threadId: String?
+  let inputTokens: Int?
+  let outputTokens: Int?
+  let cachedInputTokens: Int?
+  let totalTokens: Int?
+  let modelContextWindow: Int?
+
+  // Nested structure from the API
+  struct TokenUsageInfo: Decodable {
+    let inputTokens: Int?
+    let outputTokens: Int?
+    let reasoningOutputTokens: Int?
+    let totalTokens: Int?
+    let cachedInputTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+      case inputTokens = "input_tokens"
+      case outputTokens = "output_tokens"
+      case reasoningOutputTokens = "reasoning_output_tokens"
+      case totalTokens = "total_tokens"
+      case cachedInputTokens = "cached_input_tokens"
+    }
+  }
+
+  let lastTokenUsage: TokenUsageInfo?
+  let totalTokenUsage: TokenUsageInfo?
+
+  enum CodingKeys: String, CodingKey {
+    case threadId
+    case inputTokens
+    case outputTokens
+    case cachedInputTokens
+    case totalTokens
+    case modelContextWindow
+    case lastTokenUsage
+    case totalTokenUsage
+  }
+}
+
+struct RateLimitsEvent: Decodable {
+  let threadId: String?
+  let rateLimits: CodexRateLimits?
+}
+
+// MARK: - MCP Startup Events
+
+struct MCPStartupEvent: Decodable {
+  let server: String?
+  let status: MCPServerStatus?
+
+  struct MCPServerStatus: Decodable {
+    let state: String?  // "starting", "connected", "failed"
+    let error: String?
+  }
+
+  // Handle nested msg structure from codex/event format
+  struct LegacyParams: Decodable {
+    let msg: MCPStartupMessage?
+    let conversationId: String?
+
+    struct MCPStartupMessage: Decodable {
+      let type: String?
+      let server: String?
+      let status: MCPServerStatus?
+    }
   }
 }
 
@@ -734,7 +820,23 @@ extension CodexServerEvent {
     }
 
     switch method {
-      // Turn lifecycle (docs: turn/started, turn/completed)
+      // === IGNORED EVENTS (streaming deltas, high frequency noise) ===
+      case "codex/event/agent_message_delta",
+           "codex/event/agent_message_content_delta",
+           "item/agentMessage/delta",
+           "codex/event/reasoning_delta",
+           "codex/event/reasoning_content_delta",
+           "codex/event/agent_reasoning_delta",
+           "item/reasoning/delta",
+           "item/reasoning/summaryTextDelta",
+           "item/reasoning/summaryPartAdded",
+           "codex/event/agent_reasoning",
+           "codex/event/agent_reasoning_section_break",
+           "codex/event/web_search_begin",
+           "codex/event/web_search_end":
+        return .ignored
+
+      // === TURN LIFECYCLE ===
       case "turn/started":
         if let event = decode(TurnStartedEvent.self) {
           return .turnStarted(event)
@@ -750,7 +852,14 @@ extension CodexServerEvent {
           return .turnAborted(event)
         }
 
-      // Item lifecycle (docs: item/started, item/completed)
+      // Legacy turn events (route to same handlers)
+      case "codex/event/task_started":
+        return .ignored  // Duplicate of turn/started
+
+      case "codex/event/task_complete":
+        return .ignored  // Duplicate of turn/completed
+
+      // === ITEM LIFECYCLE ===
       case "item/started":
         if let event = decode(ItemCreatedEvent.self) {
           return .itemCreated(event)
@@ -761,7 +870,16 @@ extension CodexServerEvent {
           return .itemUpdated(event)
         }
 
-      // Approvals (these are JSON-RPC requests, not notifications)
+      // Legacy item events (duplicates)
+      case "codex/event/item_started",
+           "codex/event/item_completed",
+           "codex/event/user_message",
+           "codex/event/agent_message",
+           "codex/event/exec_command_begin",
+           "codex/event/exec_command_end":
+        return .ignored  // Handled by item/started and item/completed
+
+      // === APPROVALS (JSON-RPC requests, not notifications) ===
       case "item/commandExecution/requestApproval":
         if let event = decode(ExecApprovalRequestEvent.self) {
           return .execApprovalRequest(event)
@@ -782,6 +900,7 @@ extension CodexServerEvent {
           return .elicitationRequest(event)
         }
 
+      // === SESSION ===
       case "session_configured":
         if let event = decode(SessionConfiguredEvent.self) {
           return .sessionConfigured(event)
@@ -792,6 +911,39 @@ extension CodexServerEvent {
           return .threadNameUpdated(event)
         }
 
+      // === TOKEN USAGE & RATE LIMITS ===
+      case "thread/tokenUsage/updated":
+        if let event = decode(TokenUsageEvent.self) {
+          return .tokenUsageUpdated(event)
+        }
+
+      case "account/rateLimits/updated":
+        if let event = decode(RateLimitsEvent.self) {
+          return .rateLimitsUpdated(event)
+        }
+
+      // Legacy token count (duplicate)
+      case "codex/event/token_count":
+        return .ignored  // Handled by thread/tokenUsage/updated
+
+      // === MCP LIFECYCLE ===
+      case "codex/event/mcp_startup_update":
+        if let legacyParams = decode(MCPStartupEvent.LegacyParams.self),
+           let msg = legacyParams.msg
+        {
+          let event = MCPStartupEvent(server: msg.server, status: msg.status)
+          return .mcpStartupUpdate(event)
+        }
+
+      case "codex/event/mcp_startup_complete":
+        if let legacyParams = decode(MCPStartupEvent.LegacyParams.self),
+           let msg = legacyParams.msg
+        {
+          let event = MCPStartupEvent(server: msg.server, status: msg.status)
+          return .mcpStartupComplete(event)
+        }
+
+      // === ERRORS ===
       case "error":
         if let event = decode(CodexErrorEvent.self) {
           return .error(event)

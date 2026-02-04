@@ -314,8 +314,11 @@ final class CodexAppServerClient: @unchecked Sendable {
   }
 
   private func handleNotification(method: String, json: [String: Any]) {
-    // Log incoming event
-    print("[Codex] ⚡ Event: \(method)")
+    // Skip logging for high-frequency streaming events
+    let isStreamingDelta = method.contains("delta") || method.contains("_delta")
+    if !isStreamingDelta {
+      print("[Codex] ⚡ Event: \(method)")
+    }
 
     let params: AnyCodable? = {
       if let paramsDict = json["params"] {
@@ -325,6 +328,12 @@ final class CodexAppServerClient: @unchecked Sendable {
     }()
 
     let event = CodexServerEvent.parse(method: method, params: params)
+
+    // Don't yield ignored events to save processing
+    if case .ignored = event {
+      return
+    }
+
     eventContinuation?.yield(event)
   }
 
