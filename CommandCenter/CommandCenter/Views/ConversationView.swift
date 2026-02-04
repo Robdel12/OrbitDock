@@ -36,7 +36,57 @@ struct ConversationView: View {
 
   var displayedMessages: [TranscriptMessage] {
     let startIndex = max(0, messages.count - displayedCount)
-    return Array(messages[startIndex...])
+    let sliced = Array(messages[startIndex...])
+    return combineBashMessages(sliced)
+  }
+
+  /// Combines consecutive bash input/output messages into single messages
+  /// e.g., [bash-input msg, bash-stdout msg] → [combined bash msg]
+  private func combineBashMessages(_ messages: [TranscriptMessage]) -> [TranscriptMessage] {
+    var result: [TranscriptMessage] = []
+    var i = 0
+
+    while i < messages.count {
+      let current = messages[i]
+
+      // Check if current is bash-input-only
+      if current.isUser,
+         let bash = ParsedBashContent.parse(from: current.content),
+         bash.hasInput, !bash.hasOutput
+      {
+        // Look ahead for bash-output-only
+        if i + 1 < messages.count {
+          let next = messages[i + 1]
+          if next.isUser,
+             let nextBash = ParsedBashContent.parse(from: next.content),
+             !nextBash.hasInput, nextBash.hasOutput
+          {
+            // Combine: create merged content
+            let combinedContent = current.content + next.content
+            let combined = TranscriptMessage(
+              id: current.id,
+              type: current.type,
+              content: combinedContent,
+              timestamp: current.timestamp,
+              toolName: nil,
+              toolInput: nil,
+              toolOutput: nil,
+              toolDuration: nil,
+              inputTokens: nil,
+              outputTokens: nil
+            )
+            result.append(combined)
+            i += 2 // Skip both messages
+            continue
+          }
+        }
+      }
+
+      result.append(current)
+      i += 1
+    }
+
+    return result
   }
 
   var hasMoreMessages: Bool {
