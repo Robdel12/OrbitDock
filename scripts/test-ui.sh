@@ -134,7 +134,7 @@ case "$VIZZLY_MODE" in
     fi
     log "Running with Vizzly CI..."
     cd "$PROJECT_ROOT"
-    npx vizzly run "set -o pipefail; ${XCODE_CMD[*]} 2>&1 | xcbeautify"
+    npx vizzly run --verbose "set -o pipefail; ${XCODE_CMD[*]} 2>&1 | xcbeautify"
     ;;
   "")
     # No Vizzly, just run tests
