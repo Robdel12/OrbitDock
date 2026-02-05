@@ -1,0 +1,10 @@
+/Users/robertdeluca/Developer/claude-dashboard/orbitdock-server/target/x86_64-apple-darwin/release/deps/sha1-0e3e3c0bf1e06a5d.d: /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/x86.rs
+
+/Users/robertdeluca/Developer/claude-dashboard/orbitdock-server/target/x86_64-apple-darwin/release/deps/libsha1-0e3e3c0bf1e06a5d.rlib: /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/x86.rs
+
+/Users/robertdeluca/Developer/claude-dashboard/orbitdock-server/target/x86_64-apple-darwin/release/deps/libsha1-0e3e3c0bf1e06a5d.rmeta: /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs /Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/x86.rs
+
+/Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/lib.rs:
+/Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress.rs:
+/Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/soft.rs:
+/Users/robertdeluca/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha1-0.10.6/src/compress/x86.rs:

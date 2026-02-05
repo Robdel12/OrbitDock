@@ -758,7 +758,7 @@ struct TaskRow: View {
 struct InboxPreviewSection: View {
   let onOpenInbox: () -> Void
 
-  @Environment(DatabaseManager.self) private var db
+  @Environment(SessionStore.self) private var db
 
   private var pendingItems: [InboxItem] {
     db.allInboxItems.filter { $0.status == .pending }
@@ -933,7 +933,7 @@ struct InboxPreviewSection: View {
     onOpenPanel: {},
     onOpenInbox: {}
   )
-  .environment(DatabaseManager.shared)
+  .environment(SessionStore.shared)
   .frame(width: 900, height: 700)
 }
 
@@ -945,6 +945,6 @@ struct InboxPreviewSection: View {
     onOpenPanel: {},
     onOpenInbox: {}
   )
-  .environment(DatabaseManager.shared)
+  .environment(SessionStore.shared)
   .frame(width: 900, height: 500)
 }

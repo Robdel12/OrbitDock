@@ -288,11 +288,17 @@ final class CodexAppServerClient: @unchecked Sendable {
   private func handleServerRequest(id: Int, method: String, json: [String: Any]) {
     print("[Codex] ⚡ Server Request: \(method) (id=\(id))")
 
+    // Server requests may have params at root level or in "params" key
     let params: AnyCodable? = {
       if let paramsDict = json["params"] {
         return AnyCodable(paramsDict)
       }
-      return nil
+      // Fall back to using the whole JSON (minus id/method) as params
+      var rootParams = json
+      rootParams.removeValue(forKey: "id")
+      rootParams.removeValue(forKey: "method")
+      rootParams.removeValue(forKey: "jsonrpc")
+      return rootParams.isEmpty ? nil : AnyCodable(rootParams)
     }()
 
     // Store the request ID for later response

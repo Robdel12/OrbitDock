@@ -189,7 +189,7 @@ final class MCPBridge {
        pathParts[0] == "api",
        pathParts[1] == "sessions"
     {
-      let response = handleListSessions()
+      let response = await handleListSessions()
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -200,7 +200,7 @@ final class MCPBridge {
        pathParts[0] == "api",
        pathParts[1] == "sessions"
     {
-      let response = handleGetSession(sessionId: pathParts[2])
+      let response = await handleGetSession(sessionId: pathParts[2])
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -283,12 +283,12 @@ final class MCPBridge {
     do {
       switch approvalType {
         case "patch":
-          try manager.approvePatch(sessionId, requestId: requestId, approved: approved)
+          try await manager.approvePatch(sessionId, requestId: requestId, approved: approved)
         case "question":
           let answers = body["answers"] as? [String: String] ?? [:]
-          try manager.answerQuestion(sessionId, requestId: requestId, answers: answers)
+          try await manager.answerQuestion(sessionId, requestId: requestId, answers: answers)
         default:
-          try manager.approveExec(sessionId, requestId: requestId, approved: approved)
+          try await manager.approveExec(sessionId, requestId: requestId, approved: approved)
       }
       return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId])
     } catch {
@@ -296,9 +296,9 @@ final class MCPBridge {
     }
   }
 
-  private func handleListSessions() -> HTTPResponse {
+  private func handleListSessions() async -> HTTPResponse {
     let db = DatabaseManager.shared
-    let sessions = db.fetchSessions(statusFilter: .active)
+    let sessions = await db.fetchSessions(statusFilter: .active)
 
     let sessionData = sessions.map { session -> [String: Any] in
       [
@@ -317,10 +317,10 @@ final class MCPBridge {
     return HTTPResponse(status: 200, body: ["sessions": sessionData])
   }
 
-  private func handleGetSession(sessionId: String) -> HTTPResponse {
+  private func handleGetSession(sessionId: String) async -> HTTPResponse {
     let db = DatabaseManager.shared
 
-    guard let session = db.fetchSession(id: sessionId) else {
+    guard let session = await db.fetchSession(id: sessionId) else {
       return HTTPResponse(status: 404, body: ["error": "Session not found"])
     }
 

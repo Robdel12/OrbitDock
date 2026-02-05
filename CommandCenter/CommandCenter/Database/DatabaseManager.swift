@@ -6,8 +6,7 @@
 import Foundation
 import SQLite
 
-@Observable
-class DatabaseManager {
+actor DatabaseManager {
   static let shared = DatabaseManager()
 
   private var db: Connection?
@@ -137,47 +136,13 @@ class DatabaseManager {
   private let repoCreatedAt = SQLite.Expression<String>("created_at")
 
   private var fileMonitor: DispatchSourceFileSystemObject?
-  var onDatabaseChanged: (() -> Void)?
 
-  // MARK: - Observable State (SwiftUI reactive)
-
-  /// All quests - views should read from this instead of fetching
-  var allQuests: [Quest] = []
-
-  /// All inbox items - views should read from this instead of fetching
-  var allInboxItems: [InboxItem] = []
-
-  /// Detailed quest cache - keyed by quest ID, includes links and sessions
-  var questDetails: [String: Quest] = [:]
-
-  /// Refresh quest and inbox state from database
-  func refreshQuestState() {
-    allQuests = fetchQuests()
-    allInboxItems = fetchInboxItems()
-    // Refresh any cached quest details
-    for questId in questDetails.keys {
-      if let quest = fetchQuest(id: questId) {
-        questDetails[questId] = quest
-      }
-    }
-  }
-
-  /// Get quest details - loads into cache if needed, returns from @Observable state
-  func questDetail(id: String) -> Quest? {
-    if questDetails[id] == nil {
-      questDetails[id] = fetchQuest(id: id)
-    }
-    return questDetails[id]
-  }
-
-  /// Notify views that database changed and refresh observable state
-  private func notifyChange() {
-    refreshQuestState()
-    NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-  }
+  /// Callback for external change notifications (file watcher detected CLI writes)
+  /// SessionStore subscribes to this to know when to reload
+  nonisolated(unsafe) static var onExternalChange: (() -> Void)?
 
   // Allow custom path for UI testing
-  static var testDatabasePath: String?
+  nonisolated(unsafe) static var testDatabasePath: String?
 
   private init() {
     // Check for test database path (set via launch arguments or static property)
@@ -198,19 +163,20 @@ class DatabaseManager {
       try db?.execute("PRAGMA busy_timeout = 5000")
       // Synchronous NORMAL is safer with WAL and still fast
       try db?.execute("PRAGMA synchronous = NORMAL")
-
-      // Ensure schema has new columns
-      ensureSchema()
-
-      // Sync summaries from Claude's sessions-index.json
-      syncSummariesFromClaude()
-
-      // Initialize reactive state
-      refreshQuestState()
     } catch {
       print("Failed to connect to database: \(error)")
     }
 
+    // Kick off async initialization work
+    Task { [weak self] in
+      await self?.performSetup()
+    }
+  }
+
+  /// Performs async setup work after actor initialization
+  private func performSetup() {
+    ensureSchema()
+    syncSummariesFromClaude()
     startFileMonitoring()
   }
 
@@ -232,8 +198,8 @@ class DatabaseManager {
       queue: .main
     )
 
-    fileMonitor?.setEventHandler { [weak self] in
-      self?.onDatabaseChanged?()
+    fileMonitor?.setEventHandler {
+      Self.onExternalChange?()
     }
 
     fileMonitor?.setCancelHandler {
@@ -366,9 +332,6 @@ class DatabaseManager {
       ))
 
       // Notify views to refresh
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to end session: \(error)")
     }
@@ -453,9 +416,6 @@ class DatabaseManager {
         lastActivityAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to reactivate session: \(error)")
     }
@@ -501,9 +461,6 @@ class DatabaseManager {
         codexThreadId <- threadId
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
 
       return Session(
         id: sessionId,
@@ -544,9 +501,6 @@ class DatabaseManager {
         lastActivityAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to update transcript path: \(error)")
     }
@@ -562,10 +516,19 @@ class DatabaseManager {
     pendingQuestion: String? = nil,
     pendingApprovalId: String? = nil
   ) {
-    guard let db else { return }
+    guard let db else {
+      CodexFileLogger.shared.log(.error, category: .session, message: "updateCodexDirectSessionStatus: no db", sessionId: sessionId)
+      return
+    }
 
     let session = sessions.filter(id == sessionId)
     let now = formatDate(Date())
+
+    CodexFileLogger.shared.log(.debug, category: .session, message: "DB update starting", sessionId: sessionId, data: [
+      "workStatus": workStatus.rawValue,
+      "attentionReason": attentionReason.rawValue,
+      "dbPath": dbPath,
+    ])
 
     do {
       try db.run(session.update(
@@ -578,11 +541,28 @@ class DatabaseManager {
         lastActivityAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
+      let rowsChanged = db.changes
+      CodexFileLogger.shared.log(.info, category: .session, message: "DB update complete", sessionId: sessionId, data: [
+        "dbPath": dbPath,
+        "rowsChanged": rowsChanged,
+        "workStatusSet": workStatus.rawValue,
+        "attentionReasonSet": attentionReason.rawValue,
+      ])
+
+      // Verification read
+      if let row = try? db.pluck(session) {
+        let actualWorkStatus = try? row.get(self.workStatus)
+        let actualAttention = try? row.get(self.attentionReason)
+        CodexFileLogger.shared.log(.debug, category: .session, message: "DB verification read", sessionId: sessionId, data: [
+          "actualWorkStatus": actualWorkStatus ?? "nil",
+          "actualAttention": actualAttention ?? "nil",
+        ])
       }
+
     } catch {
-      print("Failed to update Codex direct session status: \(error)")
+      CodexFileLogger.shared.log(.error, category: .session, message: "DB update failed", sessionId: sessionId, data: [
+        "error": error.localizedDescription,
+      ])
     }
   }
 
@@ -604,9 +584,6 @@ class DatabaseManager {
         lastActivityAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to clear Codex pending approval: \(error)")
     }
@@ -692,9 +669,6 @@ class DatabaseManager {
 
       try db.run(session.update(setters))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to update Codex token usage: \(error)")
     }
@@ -709,9 +683,6 @@ class DatabaseManager {
     do {
       try db.run(session.update(currentDiff <- diff))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to update Codex diff: \(error)")
     }
@@ -734,9 +705,6 @@ class DatabaseManager {
 
       try db.run(session.update(currentPlan <- planJson))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to update Codex plan: \(error)")
     }
@@ -1237,9 +1205,6 @@ class DatabaseManager {
         questUpdatedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
 
       return Quest(
         id: newId,
@@ -1283,9 +1248,6 @@ class DatabaseManager {
 
       try db.run(quest.update(setters))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to update quest: \(error)")
     }
@@ -1299,9 +1261,6 @@ class DatabaseManager {
     do {
       try db.run(quest.delete())
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to delete quest: \(error)")
     }
@@ -1360,9 +1319,6 @@ class DatabaseManager {
         inboxCreatedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
 
       return InboxItem(
         id: newId,
@@ -1396,9 +1352,6 @@ class DatabaseManager {
         inboxAttachedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to attach inbox item: \(error)")
     }
@@ -1416,9 +1369,6 @@ class DatabaseManager {
         inboxAttachedAt <- nil as String?
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to detach inbox item: \(error)")
     }
@@ -1436,9 +1386,6 @@ class DatabaseManager {
         inboxCompletedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to mark inbox item done: \(error)")
     }
@@ -1456,9 +1403,6 @@ class DatabaseManager {
         inboxCompletedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to archive inbox item: \(error)")
     }
@@ -1478,9 +1422,6 @@ class DatabaseManager {
         inboxCompletedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to convert inbox item to Linear: \(error)")
     }
@@ -1496,9 +1437,6 @@ class DatabaseManager {
         inboxContent <- content
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to update inbox item: \(error)")
     }
@@ -1512,9 +1450,6 @@ class DatabaseManager {
     do {
       try db.run(item.delete())
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to delete inbox item: \(error)")
     }
@@ -1535,9 +1470,6 @@ class DatabaseManager {
         qsLinkedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to link session to quest: \(error)")
     }
@@ -1551,9 +1483,6 @@ class DatabaseManager {
     do {
       try db.run(link.delete())
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to unlink session from quest: \(error)")
     }
@@ -1678,9 +1607,6 @@ class DatabaseManager {
         linkCreatedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
 
       return QuestLink(
         id: newId,
@@ -1706,9 +1632,6 @@ class DatabaseManager {
     do {
       try db.run(link.delete())
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to remove quest link: \(error)")
     }
@@ -1756,9 +1679,6 @@ class DatabaseManager {
         noteUpdatedAt <- now
       ))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
 
       return QuestNote(
         id: newId,
@@ -1787,9 +1707,6 @@ class DatabaseManager {
     do {
       try db.run(note.update(setters))
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to update quest note: \(error)")
     }
@@ -1803,9 +1720,6 @@ class DatabaseManager {
     do {
       try db.run(note.delete())
 
-      DispatchQueue.main.async { [weak self] in
-        self?.notifyChange()
-      }
     } catch {
       print("Failed to delete quest note: \(error)")
     }

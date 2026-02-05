@@ -6,15 +6,14 @@
 import SwiftUI
 
 struct MenuBarView: View {
-  @Environment(DatabaseManager.self) private var database
-  @State private var sessions: [Session] = []
+  @Environment(SessionStore.self) private var store
 
   var activeSessions: [Session] {
-    sessions.filter(\.isActive)
+    store.sessions.filter(\.isActive)
   }
 
   var recentSessions: [Session] {
-    sessions.filter { !$0.isActive }.prefix(5).map { $0 }
+    store.sessions.filter { !$0.isActive }.prefix(5).map { $0 }
   }
 
   var body: some View {
@@ -84,7 +83,7 @@ struct MenuBarView: View {
             }
           }
 
-          if sessions.isEmpty {
+          if store.sessions.isEmpty {
             emptyView
           }
         }
@@ -120,7 +119,7 @@ struct MenuBarView: View {
         Spacer()
 
         Button {
-          loadSessions()
+          Task { await store.reloadSessions() }
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: 11, weight: .semibold))
@@ -132,12 +131,6 @@ struct MenuBarView: View {
       .padding(.vertical, 12)
     }
     .frame(width: 300)
-    .onAppear {
-      loadSessions()
-      database.onDatabaseChanged = { [self] in
-        loadSessions()
-      }
-    }
   }
 
   private func sectionHeader(_ title: String) -> some View {
@@ -162,9 +155,6 @@ struct MenuBarView: View {
     .padding(.vertical, 32)
   }
 
-  private func loadSessions() {
-    sessions = database.fetchSessions()
-  }
 }
 
 struct MenuBarSessionRow: View {
@@ -222,5 +212,5 @@ struct MenuBarSessionRow: View {
 
 #Preview {
   MenuBarView()
-    .environment(DatabaseManager.shared)
+    .environment(SessionStore.shared)
 }

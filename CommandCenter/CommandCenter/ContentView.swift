@@ -9,7 +9,7 @@ import Combine
 import SwiftUI
 
 struct ContentView: View {
-  @Environment(DatabaseManager.self) private var database
+  @Environment(SessionStore.self) private var database
   @State private var sessions: [Session] = []
   @State private var selectedSessionId: String?
   @State private var eventSubscription: AnyCancellable?
@@ -101,7 +101,7 @@ struct ContentView: View {
       toastManager.currentSessionId = newId
     }
     .onAppear {
-      loadSessions()
+      Task { await loadSessions() }
       setupEventSubscription()
     }
     .onDisappear {
@@ -313,9 +313,10 @@ struct ContentView: View {
   private func setupEventSubscription() {
     eventSubscription = EventBus.shared.sessionUpdated
       .receive(on: DispatchQueue.main)
-      .sink { [database] _ in
-        loadSessions()
-        database.refreshQuestState()
+      .sink { _ in
+        Task { @MainActor in
+          await loadSessions()
+        }
         NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
       }
 
@@ -325,10 +326,10 @@ struct ContentView: View {
     }
   }
 
-  private func loadSessions() {
+  private func loadSessions() async {
     let oldWaitingIds = Set(waitingSessions.map(\.id))
     let oldSessions = sessions
-    sessions = database.fetchSessions()
+    sessions = database.sessions
 
     // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {
@@ -356,6 +357,6 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
-    .environment(DatabaseManager.shared)
+    .environment(SessionStore.shared)
     .frame(width: 1_000, height: 700)
 }

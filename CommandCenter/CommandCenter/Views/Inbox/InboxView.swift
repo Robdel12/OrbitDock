@@ -10,7 +10,7 @@ import SwiftUI
 struct InboxView: View {
   var onClose: (() -> Void)? = nil
 
-  @Environment(DatabaseManager.self) private var db
+  @Environment(SessionStore.self) private var db
   @State private var newItemText = ""
   @State private var showingAttachSheet = false
   @State private var showingEditSheet = false
@@ -84,17 +84,17 @@ struct InboxView: View {
                         let encodedTitle = String(title).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                         if let url = URL(string: "https://linear.app/new?title=\(encodedTitle)") {
                           NSWorkspace.shared.open(url)
-                          db.convertInboxItemToLinear(id: item.id, issueId: "", issueUrl: "")
+                          Task { await db.convertInboxItemToLinear(id: item.id, issueId: "", issueUrl: "") }
                         }
                       },
                       onDone: {
-                        db.markInboxItemDone(id: item.id)
+                        Task { await db.markInboxItemDone(id: item.id) }
                       },
                       onArchive: {
-                        db.archiveInboxItem(id: item.id)
+                        Task { await db.archiveInboxItem(id: item.id) }
                       },
                       onDelete: {
-                        db.deleteInboxItem(id: item.id)
+                        Task { await db.deleteInboxItem(id: item.id) }
                       }
                     )
                     .id("item-\(index)")
@@ -221,7 +221,7 @@ struct InboxView: View {
   private func deleteSelectedItem() {
     guard selectedIndex < pendingItems.count else { return }
     let item = pendingItems[selectedIndex]
-    db.deleteInboxItem(id: item.id)
+    Task { await db.deleteInboxItem(id: item.id) }
   }
 
   // MARK: - Header
@@ -385,7 +385,7 @@ struct InboxView: View {
     let trimmed = newItemText.trimmingCharacters(in: .whitespaces)
     guard !trimmed.isEmpty else { return }
 
-    _ = db.captureToInbox(content: trimmed, source: .manual)
+    Task { _ = await db.captureToInbox(content: trimmed, source: .manual) }
     newItemText = ""
   }
 }
@@ -634,7 +634,7 @@ struct AttachToQuestSheet: View {
   @Environment(\.dismiss) private var dismiss
   @State private var searchText = ""
 
-  private let db = DatabaseManager.shared
+  private let db = SessionStore.shared
 
   private var filteredQuests: [Quest] {
     if searchText.isEmpty {
@@ -697,7 +697,7 @@ struct AttachToQuestSheet: View {
         LazyVStack(spacing: 6) {
           ForEach(filteredQuests) { quest in
             Button {
-              db.attachInboxItem(id: item.id, toQuest: quest.id)
+              Task { await db.attachInboxItem(id: item.id, toQuest: quest.id) }
               dismiss()
             } label: {
               HStack(spacing: 12) {
@@ -740,7 +740,7 @@ struct EditInboxItemSheet: View {
   @Environment(\.dismiss) private var dismiss
   @State private var content: String = ""
 
-  private let db = DatabaseManager.shared
+  private let db = SessionStore.shared
 
   var body: some View {
     VStack(spacing: 0) {
@@ -824,7 +824,7 @@ struct EditInboxItemSheet: View {
     let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
 
-    db.updateInboxItem(id: item.id, content: trimmed)
+    Task { await db.updateInboxItem(id: item.id, content: trimmed) }
     dismiss()
   }
 }
@@ -917,6 +917,6 @@ struct InboxKeyboardModifier: ViewModifier {
 
 #Preview {
   InboxView(onClose: {})
-    .environment(DatabaseManager.shared)
+    .environment(SessionStore.shared)
     .frame(width: 500, height: 600)
 }

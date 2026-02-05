@@ -15,8 +15,8 @@ import Foundation
 
 /// Centralized file logger for Codex debugging
 /// Writes structured JSON logs to ~/.orbitdock/logs/
-final class CodexFileLogger {
-  static let shared = CodexFileLogger()
+final class CodexFileLogger: @unchecked Sendable {
+  nonisolated(unsafe) static let shared = CodexFileLogger()
 
   enum Level: String {
     case debug
@@ -84,7 +84,7 @@ final class CodexFileLogger {
 
   // MARK: - Public API
 
-  func log(
+  nonisolated func log(
     _ level: Level,
     category: Category,
     message: String,
@@ -97,7 +97,7 @@ final class CodexFileLogger {
   }
 
   /// Log a raw event with full payload (for debugging)
-  func logEvent(
+  nonisolated func logEvent(
     _ eventType: String,
     sessionId: String?,
     payload: [String: Any]
@@ -106,7 +106,7 @@ final class CodexFileLogger {
   }
 
   /// Log a decode error with raw JSON
-  func logDecodeError(
+  nonisolated func logDecodeError(
     _ error: Error,
     rawJson: String,
     context: String
@@ -123,7 +123,7 @@ final class CodexFileLogger {
   }
 
   /// Log connection state change
-  func logConnectionState(
+  nonisolated func logConnectionState(
     _ state: String,
     details: String? = nil
   ) {
@@ -135,7 +135,7 @@ final class CodexFileLogger {
   }
 
   /// Log MCP bridge request/response
-  func logBridgeRequest(
+  nonisolated func logBridgeRequest(
     method: String,
     path: String,
     body: [String: Any]?,
@@ -165,7 +165,7 @@ final class CodexFileLogger {
   }
 
   /// Log message store operation
-  func logMessageOp(
+  nonisolated func logMessageOp(
     _ op: String,
     messageId: String,
     sessionId: String,

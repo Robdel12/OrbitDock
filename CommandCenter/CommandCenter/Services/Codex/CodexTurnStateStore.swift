@@ -43,7 +43,8 @@ final class CodexTurnStateStore {
 
     // Try loading from database if we haven't already
     if !loadedFromDB.contains(sessionId) {
-      loadFromDatabase(sessionId: sessionId)
+      loadedFromDB.insert(sessionId)
+      Task { await loadFromDatabase(sessionId: sessionId) }
     }
 
     return diffs[sessionId]
@@ -67,7 +68,8 @@ final class CodexTurnStateStore {
 
     // Try loading from database if we haven't already
     if !loadedFromDB.contains(sessionId) {
-      loadFromDatabase(sessionId: sessionId)
+      loadedFromDB.insert(sessionId)
+      Task { await loadFromDatabase(sessionId: sessionId) }
     }
 
     return plans[sessionId]
@@ -82,11 +84,9 @@ final class CodexTurnStateStore {
 
   // MARK: - Database Loading
 
-  private func loadFromDatabase(sessionId: String) {
-    loadedFromDB.insert(sessionId)
-
+  private func loadFromDatabase(sessionId: String) async {
     // Load diff and plan from database
-    let (diff, plan) = DatabaseManager.shared.fetchCodexTurnState(sessionId: sessionId)
+    let (diff, plan) = await DatabaseManager.shared.fetchCodexTurnState(sessionId: sessionId)
 
     if let diff, !diff.isEmpty {
       diffs[sessionId] = diff

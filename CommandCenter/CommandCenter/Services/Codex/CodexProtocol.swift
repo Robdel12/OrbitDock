@@ -541,14 +541,15 @@ struct ContentBlock: Decodable {
 }
 
 struct ExecApprovalRequestEvent: Decodable {
-  let id: String
-  let command: CommandInfo?
+  let threadId: String?
+  let turnId: String?
+  let itemId: String
+  let command: String?
   let cwd: String?
+  let reason: String?
 
-  struct CommandInfo: Decodable {
-    let command: [String]?
-    let workdir: String?
-  }
+  // Convenience alias for handler compatibility
+  var id: String { itemId }
 }
 
 struct PatchApprovalRequestEvent: Decodable {

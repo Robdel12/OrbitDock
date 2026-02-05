@@ -11,19 +11,21 @@ import UserNotifications
 @main
 struct OrbitDockApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-  private let database = DatabaseManager.shared
+  private let sessionStore = SessionStore.shared
   @State private var codexManager = CodexDirectSessionManager()
 
   var body: some Scene {
     // Main window
     WindowGroup {
       ContentView()
-        .environment(database)
+        .environment(sessionStore)
         .environment(codexManager)
         .preferredColorScheme(.dark)
-        .onAppear {
-          // Share manager reference with AppDelegate for recovery
+        .task {
+          // Share manager reference with AppDelegate and start MCP bridge
           AppDelegate.codexManager = codexManager
+          await codexManager.recoverActiveSessions()
+          MCPBridge.shared.start(sessionManager: codexManager)
         }
     }
     .windowStyle(.automatic)
@@ -38,7 +40,7 @@ struct OrbitDockApp: App {
     // Menu bar
     MenuBarExtra {
       MenuBarView()
-        .environment(database)
+        .environment(sessionStore)
         .environment(codexManager)
     } label: {
       Image(systemName: "terminal.fill")
@@ -83,13 +85,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     // Fetch latest model pricing in background
     ModelPricingService.shared.fetchPrices()
 
-    // Recover active Codex direct sessions in background
-    Task {
-      if let manager = AppDelegate.codexManager {
-        await manager.recoverActiveSessions()
+    // Start the Rust server
+    Task { @MainActor in
+      ServerManager.shared.start()
 
-        // Start MCP Bridge HTTP server
-        await MCPBridge.shared.start(sessionManager: manager)
+      // Connect WebSocket client once server is ready
+      let ready = await ServerManager.shared.waitForReady(timeout: 5)
+      if ready {
+        ServerConnection.shared.connect()
       }
     }
   }
@@ -98,9 +101,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     CodexRolloutWatcher.shared.stop()
     AppDelegate.codexManager?.disconnect()
 
-    // Stop MCP Bridge
+    // Stop MCP Bridge and Rust server
     Task { @MainActor in
       MCPBridge.shared.stop()
+      ServerConnection.shared.disconnect()
+      ServerManager.shared.stop()
     }
   }
 

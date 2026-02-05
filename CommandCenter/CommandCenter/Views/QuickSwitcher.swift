@@ -74,7 +74,7 @@ struct QuickCommand: Identifiable {
 // MARK: - Quick Switcher
 
 struct QuickSwitcher: View {
-  @Environment(DatabaseManager.self) private var database
+  @Environment(SessionStore.self) private var database
   let sessions: [Session]
   let currentSessionId: String? // Currently selected session in ContentView
   let onSelect: (String) -> Void
@@ -179,7 +179,7 @@ struct QuickSwitcher: View {
         onClose()
       },
       onClose: { [self] session in
-        database.endSession(sessionId: session.id)
+        Task { await database.endSession(sessionId: session.id) }
         onClose()
       }
     )
@@ -270,10 +270,12 @@ struct QuickSwitcher: View {
           session: session,
           initialText: renameText,
           onSave: { newName in
-            database.updateCustomName(
-              sessionId: session.id,
-              name: newName.isEmpty ? nil : newName
-            )
+            Task {
+              await database.updateCustomName(
+                sessionId: session.id,
+                name: newName.isEmpty ? nil : newName
+              )
+            }
             renamingSession = nil
           },
           onCancel: {
@@ -749,7 +751,7 @@ struct QuickSwitcher: View {
             // Close session (only for active sessions)
             if session.isActive {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
-                database.endSession(sessionId: session.id)
+                Task { await database.endSession(sessionId: session.id) }
                 onClose()
               }
             }
@@ -1187,7 +1189,7 @@ struct QuickLinkToQuestSheet: View {
   @State private var quests: [Quest] = []
   @State private var searchText = ""
 
-  private let db = DatabaseManager.shared
+  private let db = SessionStore.shared
 
   private var filteredQuests: [Quest] {
     let active = quests.filter { $0.status != .completed }
@@ -1255,7 +1257,7 @@ struct QuickLinkToQuestSheet: View {
         LazyVStack(spacing: 6) {
           ForEach(filteredQuests) { quest in
             Button {
-              db.linkSessionToQuest(sessionId: session.id, questId: quest.id)
+              Task { await db.linkSessionToQuest(sessionId: session.id, questId: quest.id) }
               onDone()
               dismiss()
             } label: {
@@ -1301,8 +1303,8 @@ struct QuickLinkToQuestSheet: View {
     }
     .frame(width: 400, height: 450)
     .background(Color.backgroundSecondary)
-    .onAppear {
-      quests = db.fetchQuests()
+    .task {
+      quests = await db.fetchQuests()
     }
   }
 }

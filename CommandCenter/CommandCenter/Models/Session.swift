@@ -8,12 +8,12 @@ import Foundation
 // MARK: - Codex Integration Mode
 
 /// Distinguishes passive (file watching) from direct (app-server JSON-RPC) Codex sessions
-enum CodexIntegrationMode: String, Hashable {
+enum CodexIntegrationMode: String, Hashable, Sendable {
   case passive // FSEvents watching of rollout files (current behavior)
   case direct // App-server JSON-RPC (full bidirectional control)
 }
 
-struct Session: Identifiable, Hashable {
+struct Session: Identifiable, Hashable, Sendable {
   let id: String
   let projectPath: String
   let projectName: String?
@@ -61,7 +61,7 @@ struct Session: Identifiable, Hashable {
   var currentDiff: String? // Aggregated diff for current turn
   var currentPlan: [PlanStep]? // Agent's plan for current turn
 
-  struct PlanStep: Codable, Hashable, Identifiable {
+  struct PlanStep: Codable, Hashable, Identifiable, Sendable {
     let step: String
     let status: String
 
@@ -70,20 +70,20 @@ struct Session: Identifiable, Hashable {
     var isInProgress: Bool { status == "inProgress" }
   }
 
-  enum SessionStatus: String {
+  enum SessionStatus: String, Sendable {
     case active
     case idle
     case ended
   }
 
-  enum WorkStatus: String {
+  enum WorkStatus: String, Sendable {
     case working // Agent is actively processing
     case waiting // Waiting for user input
     case permission // Waiting for permission approval
     case unknown // Unknown state
   }
 
-  enum AttentionReason: String {
+  enum AttentionReason: String, Sendable {
     case none // Working or ended - no attention needed
     case awaitingReply // Agent finished, waiting for next prompt
     case awaitingPermission // Tool needs approval (Bash, Write, etc.)

@@ -10,18 +10,18 @@ import Foundation
 import SQLite
 import os.log
 
-private let logger = Logger(subsystem: "com.orbitdock", category: "migrations")
+private nonisolated(unsafe) let logger = Logger(subsystem: "com.orbitdock", category: "migrations")
 
-struct Migration: Identifiable {
+struct Migration: Identifiable, Sendable {
   let id: Int // version number
   let name: String
   let sql: String
 
-  var version: Int { id }
+  nonisolated var version: Int { id }
 }
 
-class MigrationManager {
-  private let db: Connection
+final class MigrationManager: @unchecked Sendable {
+  private nonisolated(unsafe) let db: Connection
 
   init(db: Connection) {
     self.db = db
@@ -29,7 +29,7 @@ class MigrationManager {
 
   // MARK: - Schema Version Table
 
-  private func ensureVersionTable() throws {
+  private nonisolated func ensureVersionTable() throws {
     try db.execute("""
       CREATE TABLE IF NOT EXISTS schema_versions (
         version INTEGER PRIMARY KEY,
@@ -39,7 +39,7 @@ class MigrationManager {
     """)
   }
 
-  func getCurrentVersion() -> Int {
+  nonisolated func getCurrentVersion() -> Int {
     do {
       try ensureVersionTable()
       let row = try db.scalar("SELECT MAX(version) FROM schema_versions") as? Int64
@@ -52,7 +52,7 @@ class MigrationManager {
     }
   }
 
-  func getAppliedMigrations() -> [(version: Int, name: String, appliedAt: String)] {
+  nonisolated func getAppliedMigrations() -> [(version: Int, name: String, appliedAt: String)] {
     do {
       try ensureVersionTable()
       let rows = try db.prepare("SELECT version, name, applied_at FROM schema_versions ORDER BY version")
@@ -72,7 +72,7 @@ class MigrationManager {
   // MARK: - Migration Discovery
 
   /// Get all available migrations from embedded sources
-  func getAvailableMigrations() -> [Migration] {
+  nonisolated func getAvailableMigrations() -> [Migration] {
     // Use embedded migrations (always available, no external files needed)
     AppEmbeddedMigrations.all.map { Migration(id: $0.version, name: $0.name, sql: $0.sql) }
   }
@@ -80,13 +80,13 @@ class MigrationManager {
   // MARK: - Migration Execution
 
   /// Get migrations that haven't been applied yet
-  func getPendingMigrations() -> [Migration] {
+  nonisolated func getPendingMigrations() -> [Migration] {
     let currentVersion = getCurrentVersion()
     return getAvailableMigrations().filter { $0.version > currentVersion }
   }
 
   /// Apply a single migration, handling idempotent failures gracefully
-  private func applyMigration(_ migration: Migration) throws {
+  private nonisolated func applyMigration(_ migration: Migration) throws {
     let now = ISO8601DateFormatter().string(from: Date())
 
     // Execute statements one at a time to handle partial schema state gracefully
@@ -101,7 +101,7 @@ class MigrationManager {
   }
 
   /// Apply migration SQL statements individually, handling idempotent failures gracefully
-  private func applyMigrationStatements(_ sql: String) throws {
+  private nonisolated func applyMigrationStatements(_ sql: String) throws {
     // Split SQL into individual statements
     let statements = sql.components(separatedBy: ";")
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -133,7 +133,7 @@ class MigrationManager {
   /// Run all pending migrations
   /// Returns the list of migrations that were applied
   @discardableResult
-  func migrate() -> [Migration] {
+  nonisolated func migrate() -> [Migration] {
     do {
       try ensureVersionTable()
     } catch {
@@ -170,12 +170,12 @@ class MigrationManager {
   }
 
   /// Check if there are pending migrations
-  func needsMigration() -> Bool {
+  nonisolated func needsMigration() -> Bool {
     !getPendingMigrations().isEmpty
   }
 
   /// Get migration status summary
-  func getStatus() -> (current: Int, latest: Int, pending: Int) {
+  nonisolated func getStatus() -> (current: Int, latest: Int, pending: Int) {
     let current = getCurrentVersion()
     let all = getAvailableMigrations()
     let latest = all.last?.version ?? 0

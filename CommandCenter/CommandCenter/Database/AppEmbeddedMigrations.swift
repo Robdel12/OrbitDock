@@ -11,14 +11,14 @@ import Foundation
 /// Embedded database migrations for the app
 /// Note: This mirrors OrbitDockCore/EmbeddedMigrations for the CLI
 /// When adding new migrations, update BOTH files
-enum AppEmbeddedMigrations {
-  struct Migration {
+enum AppEmbeddedMigrations: Sendable {
+  struct Migration: Sendable {
     let version: Int
     let name: String
     let sql: String
   }
 
-  static let all: [Migration] = [
+  nonisolated(unsafe) static let all: [Migration] = [
     migration001,
     migration002,
     migration003,

@@ -11,7 +11,7 @@ struct QuestListView: View {
   let onSelectSession: (String) -> Void
   var initialQuestId: String? = nil
 
-  @Environment(DatabaseManager.self) private var db
+  @Environment(SessionStore.self) private var db
   @State private var selectedQuest: Quest?
   @State private var showingCreateSheet = false
   @State private var showingDetailSheet = false
@@ -317,7 +317,7 @@ struct CreateQuestSheet: View {
   @State private var name = ""
   @State private var description = ""
 
-  private let db = DatabaseManager.shared
+  private let db = SessionStore.shared
 
   var body: some View {
     VStack(spacing: 0) {
@@ -412,18 +412,21 @@ struct CreateQuestSheet: View {
     let trimmedName = name.trimmingCharacters(in: .whitespaces)
     let trimmedDesc = description.trimmingCharacters(in: .whitespaces)
 
-    if let quest = db.createQuest(
-      name: trimmedName,
-      description: trimmedDesc.isEmpty ? nil : trimmedDesc
-    ) {
-      onCreated(quest)
-      dismiss()
+    Task {
+      if let quest = await db.createQuest(
+        name: trimmedName,
+        description: trimmedDesc.isEmpty ? nil : trimmedDesc,
+        color: nil
+      ) {
+        onCreated(quest)
+        dismiss()
+      }
     }
   }
 }
 
 #Preview {
   QuestListView(onSelectSession: { _ in })
-    .environment(DatabaseManager.shared)
+    .environment(SessionStore.shared)
     .frame(width: 800, height: 600)
 }

@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct AgentListPanel: View {
-  @Environment(DatabaseManager.self) private var database
+  @Environment(SessionStore.self) private var database
   let sessions: [Session]
   let selectedSessionId: String?
   let onSelectSession: (String) -> Void
@@ -120,10 +120,12 @@ struct AgentListPanel: View {
         session: session,
         initialText: renameText,
         onSave: { newName in
-          database.updateContextLabel(
-            sessionId: session.id,
-            label: newName.isEmpty ? nil : newName
-          )
+          Task {
+            await database.updateContextLabel(
+              sessionId: session.id,
+              label: newName.isEmpty ? nil : newName
+            )
+          }
           renamingSession = nil
         },
         onCancel: {

@@ -44,7 +44,7 @@ final class CodexEventHandler {
           "threadId": e.threadId ?? "nil",
           "turnId": e.turnId ?? "nil",
         ])
-        handleTurnStarted(e, sessionId: sessionId)
+        await handleTurnStarted(e, sessionId: sessionId)
 
       case let .turnCompleted(e):
         fileLogger.log(.info, category: .event, message: "turn/completed", sessionId: sessionId, data: [
@@ -52,13 +52,13 @@ final class CodexEventHandler {
           "hasError": e.error != nil,
           "errorMessage": e.error?.message ?? "nil",
         ])
-        handleTurnCompleted(e, sessionId: sessionId)
+        await handleTurnCompleted(e, sessionId: sessionId)
 
       case let .turnAborted(e):
         fileLogger.log(.info, category: .event, message: "turn/aborted", sessionId: sessionId, data: [
           "threadId": e.threadId ?? "nil",
         ])
-        handleTurnAborted(e, sessionId: sessionId)
+        await handleTurnAborted(e, sessionId: sessionId)
 
       case let .itemCreated(e):
         let item = e.item
@@ -78,7 +78,7 @@ final class CodexEventHandler {
           itemData["textPreview"] = String((item.text ?? "").prefix(200))
         }
         fileLogger.log(.info, category: .event, message: "item/created", sessionId: sessionId, data: itemData)
-        handleItemCreated(e, sessionId: sessionId)
+        await handleItemCreated(e, sessionId: sessionId)
 
       case let .itemUpdated(e):
         let item = e.item
@@ -97,16 +97,16 @@ final class CodexEventHandler {
           updateData["textPreview"] = String((item.text ?? "").prefix(200))
         }
         fileLogger.log(.debug, category: .event, message: "item/updated", sessionId: sessionId, data: updateData)
-        handleItemUpdated(e, sessionId: sessionId)
+        await handleItemUpdated(e, sessionId: sessionId)
 
       case let .execApprovalRequest(e):
-        let command = e.command?.command?.joined(separator: " ") ?? "unknown"
+        let command = e.command ?? "unknown"
         fileLogger.log(.warning, category: .event, message: "exec_approval_request", sessionId: sessionId, data: [
           "requestId": e.id,
           "command": String(command.prefix(200)),
           "cwd": e.cwd ?? "nil",
         ])
-        handleExecApprovalRequest(e, sessionId: sessionId)
+        await handleExecApprovalRequest(e, sessionId: sessionId)
 
       case let .patchApprovalRequest(e):
         fileLogger.log(.warning, category: .event, message: "patch_approval_request", sessionId: sessionId, data: [
@@ -115,14 +115,14 @@ final class CodexEventHandler {
           "turnId": e.turnId,
           "reason": e.reason ?? "nil",
         ])
-        handlePatchApprovalRequest(e, sessionId: sessionId)
+        await handlePatchApprovalRequest(e, sessionId: sessionId)
 
       case let .userInputRequest(e):
         fileLogger.log(.warning, category: .event, message: "user_input_request", sessionId: sessionId, data: [
           "requestId": e.id,
           "questionsCount": e.questions?.count ?? 0,
         ])
-        handleUserInputRequest(e, sessionId: sessionId)
+        await handleUserInputRequest(e, sessionId: sessionId)
 
       case let .elicitationRequest(e):
         fileLogger.log(.warning, category: .event, message: "elicitation_request", sessionId: sessionId, data: [
@@ -130,7 +130,7 @@ final class CodexEventHandler {
           "serverName": e.serverName ?? "nil",
           "message": e.message ?? "nil",
         ])
-        handleElicitationRequest(e, sessionId: sessionId)
+        await handleElicitationRequest(e, sessionId: sessionId)
 
       case let .sessionConfigured(e):
         fileLogger.log(.info, category: .event, message: "session/configured", sessionId: sessionId, data: [
@@ -143,7 +143,7 @@ final class CodexEventHandler {
         fileLogger.log(.info, category: .event, message: "thread/name_updated", sessionId: sessionId, data: [
           "threadName": e.threadName ?? "nil",
         ])
-        handleThreadNameUpdated(e, sessionId: sessionId)
+        await handleThreadNameUpdated(e, sessionId: sessionId)
 
       case let .diffUpdated(e):
         fileLogger.log(.info, category: .event, message: "turn/diff/updated", sessionId: sessionId, data: [
@@ -151,14 +151,14 @@ final class CodexEventHandler {
           "diffLen": e.diff?.count ?? 0,
           "diffPreview": String(e.diff?.prefix(100) ?? "nil"),
         ])
-        handleDiffUpdated(e, sessionId: sessionId)
+        await handleDiffUpdated(e, sessionId: sessionId)
 
       case let .planUpdated(e):
         fileLogger.log(.info, category: .event, message: "turn/plan/updated", sessionId: sessionId, data: [
           "turnId": e.turnId ?? "nil",
           "stepsCount": e.plan?.count ?? 0,
         ])
-        handlePlanUpdated(e, sessionId: sessionId)
+        await handlePlanUpdated(e, sessionId: sessionId)
 
       case let .tokenUsageUpdated(e):
         fileLogger.log(.debug, category: .event, message: "token_usage/updated", sessionId: sessionId, data: [
@@ -167,7 +167,7 @@ final class CodexEventHandler {
           "lastCached": e.lastCachedTokens ?? -1,
           "contextWindow": e.contextWindow ?? -1,
         ])
-        handleTokenUsageUpdated(e, sessionId: sessionId)
+        await handleTokenUsageUpdated(e, sessionId: sessionId)
 
       case let .rateLimitsUpdated(e):
         fileLogger.log(.debug, category: .event, message: "rate_limits/updated", sessionId: sessionId, data: [
@@ -241,17 +241,17 @@ final class CodexEventHandler {
 
   // MARK: - Turn Events
 
-  private func handleTurnStarted(_ event: TurnStartedEvent, sessionId: String) {
+  private func handleTurnStarted(_ event: TurnStartedEvent, sessionId: String) async {
     logger.debug("Turn started for session: \(sessionId)")
 
-    db.updateCodexDirectSessionStatus(
+    await db.updateCodexDirectSessionStatus(
       sessionId: sessionId,
       workStatus: .working,
       attentionReason: .none
     )
   }
 
-  private func handleTurnCompleted(_ event: TurnCompletedEvent, sessionId: String) {
+  private func handleTurnCompleted(_ event: TurnCompletedEvent, sessionId: String) async {
     logger.debug("Turn completed for session: \(sessionId)")
 
     // Check for error
@@ -259,17 +259,17 @@ final class CodexEventHandler {
       logger.warning("Turn completed with error: \(error.message ?? "unknown")")
     }
 
-    db.updateCodexDirectSessionStatus(
+    await db.updateCodexDirectSessionStatus(
       sessionId: sessionId,
       workStatus: .waiting,
       attentionReason: .awaitingReply
     )
   }
 
-  private func handleTurnAborted(_ event: TurnAbortedEvent, sessionId: String) {
+  private func handleTurnAborted(_ event: TurnAbortedEvent, sessionId: String) async {
     logger.debug("Turn aborted for session: \(sessionId)")
 
-    db.updateCodexDirectSessionStatus(
+    await db.updateCodexDirectSessionStatus(
       sessionId: sessionId,
       workStatus: .waiting,
       attentionReason: .awaitingReply
@@ -278,7 +278,7 @@ final class CodexEventHandler {
 
   // MARK: - Item Events
 
-  private func handleItemCreated(_ event: ItemCreatedEvent, sessionId: String) {
+  private func handleItemCreated(_ event: ItemCreatedEvent, sessionId: String) async {
     let item = event.item
     logger.info("Item created: type=\(item.type), id=\(item.id), status=\(item.status ?? "nil")")
 
@@ -292,10 +292,10 @@ final class CodexEventHandler {
         handleAgentMessage(item, sessionId: sessionId)
 
       case "commandExecution":
-        handleCommandExecution(item, sessionId: sessionId)
+        await handleCommandExecution(item, sessionId: sessionId)
 
       case "mcpToolCall":
-        handleFunctionCall(item, sessionId: sessionId)
+        await handleFunctionCall(item, sessionId: sessionId)
 
       case "fileChange":
         handleFileChange(item, sessionId: sessionId)
@@ -311,7 +311,7 @@ final class CodexEventHandler {
     }
   }
 
-  private func handleItemUpdated(_ event: ItemUpdatedEvent, sessionId: String) {
+  private func handleItemUpdated(_ event: ItemUpdatedEvent, sessionId: String) async {
     let item = event.item
     logger.debug("Item updated: type=\(item.type), id=\(item.id)")
 
@@ -324,16 +324,16 @@ final class CodexEventHandler {
       case "webSearch":
         handleWebSearch(item, sessionId: sessionId, isUpdate: true)
       case "commandExecution":
-        handleCommandExecutionUpdate(item, sessionId: sessionId)
+        await handleCommandExecutionUpdate(item, sessionId: sessionId)
       case "fileChange":
         // item/completed has the final diff data
-        handleFileChangeUpdate(item, sessionId: sessionId)
+        await handleFileChangeUpdate(item, sessionId: sessionId)
       default:
         break
     }
   }
 
-  private func handleCommandExecutionUpdate(_ item: ThreadItem, sessionId: String) {
+  private func handleCommandExecutionUpdate(_ item: ThreadItem, sessionId: String) async {
     // Update shell command with output when complete
     let command = item.command ?? "shell"
 
@@ -366,7 +366,7 @@ final class CodexEventHandler {
 
     // Increment tool count if we have output (command finished)
     if item.aggregatedOutput != nil {
-      db.incrementCodexToolCount(sessionId: sessionId)
+      await db.incrementCodexToolCount(sessionId: sessionId)
     }
 
     logger.debug("Command execution updated: \(command.prefix(50)), output: \(item.aggregatedOutput?.count ?? 0) chars")
@@ -430,7 +430,7 @@ final class CodexEventHandler {
     ])
   }
 
-  private func handleCommandExecution(_ item: ThreadItem, sessionId: String) {
+  private func handleCommandExecution(_ item: ThreadItem, sessionId: String) async {
     // Shell command execution with output
     let command = item.command ?? "shell"
 
@@ -438,7 +438,7 @@ final class CodexEventHandler {
     inProgressTools[item.id] = (name: "Shell", startTime: Date())
 
     // Update last tool
-    db.updateCodexLastTool(sessionId: sessionId, tool: "Shell")
+    await db.updateCodexLastTool(sessionId: sessionId, tool: "Shell")
 
     // Build tool input for BashCard display
     var toolInput: [String: Any] = ["command": command]
@@ -476,7 +476,7 @@ final class CodexEventHandler {
           outputTokens: nil
         )
       }
-      db.incrementCodexToolCount(sessionId: sessionId)
+      await db.incrementCodexToolCount(sessionId: sessionId)
     } else {
       message.isInProgress = true
     }
@@ -552,7 +552,7 @@ final class CodexEventHandler {
     }
   }
 
-  private func handleFileChangeUpdate(_ item: ThreadItem, sessionId: String) {
+  private func handleFileChangeUpdate(_ item: ThreadItem, sessionId: String) async {
     // item/completed: Update with final diff data
     let changesCount = item.changes?.count ?? 0
     logger.info("FileChange UPDATE: changes=\(changesCount), status=\(item.status ?? "nil")")
@@ -626,7 +626,7 @@ final class CodexEventHandler {
     }
 
     // Increment tool count
-    db.incrementCodexToolCount(sessionId: sessionId)
+    await db.incrementCodexToolCount(sessionId: sessionId)
   }
 
   /// Parse unified diff format into old and new strings for EditCard display
@@ -683,7 +683,7 @@ final class CodexEventHandler {
     }
   }
 
-  private func handleFunctionCall(_ item: ThreadItem, sessionId: String) {
+  private func handleFunctionCall(_ item: ThreadItem, sessionId: String) async {
     guard let name = item.name else { return }
 
     // Track start time for duration calculation
@@ -693,7 +693,7 @@ final class CodexEventHandler {
     let toolName = mapToolName(name)
 
     // Update last tool
-    db.updateCodexLastTool(sessionId: sessionId, tool: toolName)
+    await db.updateCodexLastTool(sessionId: sessionId, tool: toolName)
 
     // Parse arguments for display
     let toolInputDict = item.arguments?.dictionary as? [String: Any]
@@ -717,7 +717,7 @@ final class CodexEventHandler {
     logger.debug("Tool call started: \(toolName)")
   }
 
-  private func handleFunctionCallOutput(_ item: ThreadItem, sessionId: String) {
+  private func handleFunctionCallOutput(_ item: ThreadItem, sessionId: String) async {
     guard let callId = item.callId else { return }
 
     // Calculate duration
@@ -745,7 +745,7 @@ final class CodexEventHandler {
     messageStore.updateCodexMessage(message, sessionId: sessionId)
 
     // Increment tool count
-    db.incrementCodexToolCount(sessionId: sessionId)
+    await db.incrementCodexToolCount(sessionId: sessionId)
 
     logger.debug("Tool call completed: \(callId)")
   }
@@ -778,14 +778,14 @@ final class CodexEventHandler {
 
   // MARK: - Approval Events
 
-  private func handleExecApprovalRequest(_ event: ExecApprovalRequestEvent, sessionId: String) {
+  private func handleExecApprovalRequest(_ event: ExecApprovalRequestEvent, sessionId: String) async {
     logger.info("Exec approval requested for session: \(sessionId)")
 
     // Extract command info
-    let command = event.command?.command?.joined(separator: " ")
+    let command = event.command
     let inputJson = encodeToolInput(["command": command ?? "unknown", "cwd": event.cwd ?? ""])
 
-    db.updateCodexDirectSessionStatus(
+    await db.updateCodexDirectSessionStatus(
       sessionId: sessionId,
       workStatus: .permission,
       attentionReason: .awaitingPermission,
@@ -795,7 +795,7 @@ final class CodexEventHandler {
     )
   }
 
-  private func handlePatchApprovalRequest(_ event: PatchApprovalRequestEvent, sessionId: String) {
+  private func handlePatchApprovalRequest(_ event: PatchApprovalRequestEvent, sessionId: String) async {
     logger.info("Patch approval requested for session: \(sessionId), itemId: \(event.itemId)")
 
     // The new API uses itemId to reference the fileChange item
@@ -805,7 +805,7 @@ final class CodexEventHandler {
       "reason": event.reason ?? ""
     ])
 
-    db.updateCodexDirectSessionStatus(
+    await db.updateCodexDirectSessionStatus(
       sessionId: sessionId,
       workStatus: .permission,
       attentionReason: .awaitingPermission,
@@ -815,12 +815,12 @@ final class CodexEventHandler {
     )
   }
 
-  private func handleUserInputRequest(_ event: UserInputRequestEvent, sessionId: String) {
+  private func handleUserInputRequest(_ event: UserInputRequestEvent, sessionId: String) async {
     logger.info("User input requested for session: \(sessionId)")
 
     let question = event.questions?.first?.question ?? event.questions?.first?.header
 
-    db.updateCodexDirectSessionStatus(
+    await db.updateCodexDirectSessionStatus(
       sessionId: sessionId,
       workStatus: .waiting,
       attentionReason: .awaitingQuestion,
@@ -829,12 +829,12 @@ final class CodexEventHandler {
     )
   }
 
-  private func handleElicitationRequest(_ event: ElicitationRequestEvent, sessionId: String) {
+  private func handleElicitationRequest(_ event: ElicitationRequestEvent, sessionId: String) async {
     logger.info("Elicitation requested for session: \(sessionId)")
 
     let question = event.message ?? "MCP server \(event.serverName ?? "unknown") requires input"
 
-    db.updateCodexDirectSessionStatus(
+    await db.updateCodexDirectSessionStatus(
       sessionId: sessionId,
       workStatus: .waiting,
       attentionReason: .awaitingQuestion,
@@ -850,10 +850,10 @@ final class CodexEventHandler {
     // Could update session model/cwd if different
   }
 
-  private func handleThreadNameUpdated(_ event: ThreadNameUpdatedEvent, sessionId: String) {
+  private func handleThreadNameUpdated(_ event: ThreadNameUpdatedEvent, sessionId: String) async {
     if let name = event.threadName {
       logger.debug("Thread name updated: \(name)")
-      db.updateCustomName(sessionId: sessionId, name: name)
+      await db.updateCustomName(sessionId: sessionId, name: name)
     }
   }
 
@@ -881,7 +881,7 @@ final class CodexEventHandler {
 
   // MARK: - Usage Events
 
-  private func handleTokenUsageUpdated(_ event: TokenUsageEvent, sessionId: String) {
+  private func handleTokenUsageUpdated(_ event: TokenUsageEvent, sessionId: String) async {
     // Use LAST turn tokens for context fill (what's actually in the context window)
     // Total is cumulative across the session and can exceed the window due to compaction
     let inputTokens = event.lastInputTokens
@@ -899,7 +899,7 @@ final class CodexEventHandler {
       """)
 
     // Update session with token counts for display
-    db.updateCodexTokenUsage(
+    await db.updateCodexTokenUsage(
       sessionId: sessionId,
       inputTokens: inputTokens,
       outputTokens: outputTokens,
@@ -921,7 +921,7 @@ final class CodexEventHandler {
 
   // MARK: - Diff & Plan Events
 
-  private func handleDiffUpdated(_ event: DiffUpdatedEvent, sessionId: String) {
+  private func handleDiffUpdated(_ event: DiffUpdatedEvent, sessionId: String) async {
     guard let diff = event.diff, !diff.isEmpty else { return }
 
     logger.debug("Diff updated for session \(sessionId): \(diff.count) chars")
@@ -930,7 +930,7 @@ final class CodexEventHandler {
     CodexTurnStateStore.shared.updateDiff(sessionId: sessionId, diff: diff)
 
     // Persist to database for app restart
-    db.updateCodexDiff(sessionId: sessionId, diff: diff)
+    await db.updateCodexDiff(sessionId: sessionId, diff: diff)
 
     // Create/update a synthetic Edit message for inline display
     // Parse files from the unified diff
@@ -995,7 +995,7 @@ final class CodexEventHandler {
     return files
   }
 
-  private func handlePlanUpdated(_ event: PlanUpdatedEvent, sessionId: String) {
+  private func handlePlanUpdated(_ event: PlanUpdatedEvent, sessionId: String) async {
     guard let steps = event.plan, !steps.isEmpty else { return }
 
     logger.debug("Plan updated for session \(sessionId): \(steps.count) steps")
@@ -1007,7 +1007,7 @@ final class CodexEventHandler {
     CodexTurnStateStore.shared.updatePlan(sessionId: sessionId, plan: sessionSteps)
 
     // Persist to database for app restart
-    db.updateCodexPlan(sessionId: sessionId, plan: sessionSteps)
+    await db.updateCodexPlan(sessionId: sessionId, plan: sessionSteps)
   }
 
   // MARK: - MCP Events

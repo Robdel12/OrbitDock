@@ -175,13 +175,11 @@ final class CodexDirectSessionManager {
     let branch = resolveGitBranch(cwd: cwd)
 
     // Create session in database with rollout path for transcript
-    guard let session = db.createCodexDirectSession(
-      threadId: threadInfo.id,
-      cwd: cwd,
-      model: model,
-      branch: branch,
-      transcriptPath: threadInfo.path
-    ) else {
+    guard let session = await db.createCodexDirectSession(threadId: threadInfo.id,
+    cwd: cwd,
+    model: model,
+    branch: branch,
+    transcriptPath: threadInfo.path) else {
       fileLogger.log(.error, category: .session, message: "createSession failed: DB insert failed", data: ["threadId": threadInfo.id])
       throw CodexClientError.requestFailed(code: -1, message: "Failed to create session in database")
     }
@@ -228,7 +226,7 @@ final class CodexDirectSessionManager {
     // Find thread ID
     guard let threadId = threadSessionMap.first(where: { $0.value == sessionId })?.key else {
       // Just end in database
-      db.endSession(sessionId: sessionId)
+      await db.endSession(sessionId: sessionId)
       return
     }
 
@@ -243,7 +241,7 @@ final class CodexDirectSessionManager {
     threadSessionMap.removeValue(forKey: threadId)
 
     // End in database
-    db.endSession(sessionId: sessionId)
+    await db.endSession(sessionId: sessionId)
 
     logger.info("Ended session: \(sessionId)")
   }
@@ -265,7 +263,7 @@ final class CodexDirectSessionManager {
       fileLogger.log(.debug, category: .session, message: "sendMessage: thread not in active map, checking DB", sessionId: sessionId)
 
       // Look up session from database to get thread ID
-      if let session = db.fetchSession(id: sessionId),
+      if let session = await db.fetchSession(id: sessionId),
          let storedThreadId = session.codexThreadId
       {
         // Resume the thread with app-server
@@ -273,7 +271,7 @@ final class CodexDirectSessionManager {
         threadId = storedThreadId
 
         // Reactivate session in database
-        db.reactivateSession(sessionId: sessionId)
+        await db.reactivateSession(sessionId: sessionId)
         fileLogger.log(.info, category: .session, message: "sendMessage: auto-resumed session", sessionId: sessionId, data: ["threadId": storedThreadId])
         logger.info("Auto-resumed session: \(sessionId) for thread: \(storedThreadId)")
       }
@@ -285,14 +283,12 @@ final class CodexDirectSessionManager {
     }
 
     // Update session to working state
-    db.updateCodexDirectSessionStatus(
-      sessionId: sessionId,
-      workStatus: .working,
-      attentionReason: .none
-    )
+    await db.updateCodexDirectSessionStatus(sessionId: sessionId,
+    workStatus: .working,
+    attentionReason: .none)
 
     // Increment prompt count
-    db.incrementCodexPromptCount(sessionId: sessionId)
+    await db.incrementCodexPromptCount(sessionId: sessionId)
 
     // Store user message
     let userMessage = TranscriptMessage(
@@ -327,11 +323,9 @@ final class CodexDirectSessionManager {
     try await client.interruptTurn(threadId: threadId)
 
     // Update session to waiting state
-    db.updateCodexDirectSessionStatus(
-      sessionId: sessionId,
-      workStatus: .waiting,
-      attentionReason: .awaitingReply
-    )
+    await db.updateCodexDirectSessionStatus(sessionId: sessionId,
+    workStatus: .waiting,
+    attentionReason: .awaitingReply)
 
     logger.info("Interrupted turn for session: \(sessionId)")
   }
@@ -339,31 +333,31 @@ final class CodexDirectSessionManager {
   // MARK: - Approvals
 
   /// Approve or reject an exec command
-  func approveExec(_ sessionId: String, requestId: String, approved: Bool) throws {
+  func approveExec(_ sessionId: String, requestId: String, approved: Bool) async throws {
     try client.approveExec(requestId: requestId, approved: approved)
 
     // Clear pending state
-    db.clearCodexPendingApproval(sessionId: sessionId)
+    await db.clearCodexPendingApproval(sessionId: sessionId)
 
     logger.info("Exec approval sent for session: \(sessionId), approved: \(approved)")
   }
 
   /// Approve or reject a patch
-  func approvePatch(_ sessionId: String, requestId: String, approved: Bool) throws {
+  func approvePatch(_ sessionId: String, requestId: String, approved: Bool) async throws {
     try client.approvePatch(requestId: requestId, approved: approved)
 
     // Clear pending state
-    db.clearCodexPendingApproval(sessionId: sessionId)
+    await db.clearCodexPendingApproval(sessionId: sessionId)
 
     logger.info("Patch approval sent for session: \(sessionId), approved: \(approved)")
   }
 
   /// Answer a question prompt
-  func answerQuestion(_ sessionId: String, requestId: String, answers: [String: String]) throws {
+  func answerQuestion(_ sessionId: String, requestId: String, answers: [String: String]) async throws {
     try client.answerQuestion(requestId: requestId, answers: answers)
 
     // Clear pending state
-    db.clearCodexPendingApproval(sessionId: sessionId)
+    await db.clearCodexPendingApproval(sessionId: sessionId)
 
     logger.info("Question answered for session: \(sessionId)")
   }
@@ -404,7 +398,7 @@ final class CodexDirectSessionManager {
 
   /// Recover session mappings on app restart
   func recoverActiveSessions() async {
-    let sessions = db.fetchSessions(statusFilter: .active)
+    let sessions = await db.fetchSessions(statusFilter: .active)
     let directSessions = sessions.filter { $0.isDirectCodex && $0.codexThreadId != nil }
 
     guard !directSessions.isEmpty else { return }
@@ -434,19 +428,17 @@ final class CodexDirectSessionManager {
 
         // Update transcript path if we didn't have it
         if session.transcriptPath == nil, let path = threadInfo.path {
-          db.updateSessionTranscriptPath(sessionId: session.id, path: path)
+          await db.updateSessionTranscriptPath(sessionId: session.id, path: path)
         }
 
         // Reset status to waiting since no turn is active
-        db.updateCodexDirectSessionStatus(
-          sessionId: session.id,
-          workStatus: .waiting,
-          attentionReason: .awaitingReply
-        )
+        await db.updateCodexDirectSessionStatus(sessionId: session.id,
+        workStatus: .waiting,
+        attentionReason: .awaitingReply)
       } catch {
         // Thread may no longer exist - mark session as ended
         logger.warning("Failed to resume thread \(threadId): \(error.localizedDescription)")
-        db.endSession(sessionId: session.id)
+        await db.endSession(sessionId: session.id)
       }
     }
   }

@@ -13,7 +13,7 @@ struct QuestDetailView: View {
   let onSelectSession: (String) -> Void
   let onDismiss: () -> Void
 
-  @Environment(DatabaseManager.self) private var db
+  @Environment(SessionStore.self) private var db
   @State private var showingAddLink = false
   @State private var showingLinkSession = false
   @State private var showingAddNote = false
@@ -23,11 +23,7 @@ struct QuestDetailView: View {
   @State private var isEditingDescription = false
   @State private var editedDescription = ""
   @State private var selectedNote: QuestNote?
-
-  /// Computed from @Observable - updates automatically when db.questDetails changes
-  private var quest: Quest? {
-    db.questDetail(id: questId)
-  }
+  @State private var quest: Quest?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -85,6 +81,12 @@ struct QuestDetailView: View {
       }
     } message: {
       Text("This will permanently delete this quest and unlink all sessions. This cannot be undone.")
+    }
+    .task {
+      quest = await db.questDetail(id: questId)
+    }
+    .onChange(of: db.allQuests) { _, _ in
+      Task { quest = await db.questDetail(id: questId) }
     }
   }
 
@@ -155,7 +157,7 @@ struct QuestDetailView: View {
     Menu {
       ForEach(Quest.Status.allCases, id: \.self) { status in
         Button {
-          db.updateQuest(id: questId, status: status)
+          Task { await db.updateQuest(id: questId, status: status) }
         } label: {
           HStack {
             Image(systemName: status.icon)
@@ -307,7 +309,7 @@ struct QuestDetailView: View {
             QuestSessionRow(session: session) {
               onSelectSession(session.id)
             } onUnlink: {
-              db.unlinkSessionFromQuest(sessionId: session.id, questId: questId)
+              Task { await db.unlinkSessionFromQuest(sessionId: session.id, questId: questId) }
             }
           }
         }
@@ -361,7 +363,7 @@ struct QuestDetailView: View {
         VStack(spacing: 6) {
           ForEach(links) { link in
             QuestLinkRow(link: link) {
-              db.removeQuestLink(id: link.id)
+              Task { await db.removeQuestLink(id: link.id) }
             }
           }
         }
@@ -417,7 +419,7 @@ struct QuestDetailView: View {
             QuestNoteRow(note: note) {
               selectedNote = note
             } onDelete: {
-              db.deleteQuestNote(id: note.id)
+              Task { await db.deleteQuestNote(id: note.id) }
             }
           }
         }
@@ -451,7 +453,7 @@ struct QuestDetailView: View {
         VStack(spacing: 6) {
           ForEach(items) { item in
             InboxItemRow(item: item) {
-              db.detachInboxItem(id: item.id)
+              Task { await db.detachInboxItem(id: item.id) }
             }
           }
         }
@@ -499,7 +501,7 @@ struct QuestDetailView: View {
   private func saveName() {
     let trimmed = editedName.trimmingCharacters(in: .whitespaces)
     if !trimmed.isEmpty {
-      db.updateQuest(id: questId, name: trimmed)
+      Task { await db.updateQuest(id: questId, name: trimmed) }
     }
     isEditingName = false
   }
@@ -511,12 +513,12 @@ struct QuestDetailView: View {
 
   private func saveDescription() {
     let trimmed = editedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-    db.updateQuest(id: questId, description: trimmed.isEmpty ? nil : trimmed)
+    Task { await db.updateQuest(id: questId, description: trimmed.isEmpty ? nil : trimmed) }
     isEditingDescription = false
   }
 
   private func deleteQuest() {
-    db.deleteQuest(id: questId)
+    Task { await db.deleteQuest(id: questId) }
     onDismiss()
   }
 }
@@ -727,7 +729,7 @@ struct AddLinkSheet: View {
   @State private var title = ""
   @State private var selectedSource: QuestLink.Source = .githubPR
 
-  private let db = DatabaseManager.shared
+  private let db = SessionStore.shared
 
   private var isPlanType: Bool {
     selectedSource == .planFile
@@ -890,7 +892,8 @@ struct AddLinkSheet: View {
     panel.message = "Choose a markdown plan file"
 
     // Try to start in a plan/ directory if we can find one
-    if let quest = db.fetchQuest(id: questId),
+    // Use the cached quest from allQuests (observable state)
+    if let quest = db.allQuests.first(where: { $0.id == questId }),
        let session = quest.sessions?.first {
       let planDir = URL(fileURLWithPath: session.projectPath).appendingPathComponent("plan")
       if FileManager.default.fileExists(atPath: planDir.path) {
@@ -922,13 +925,15 @@ struct AddLinkSheet: View {
       linkUrl = url.trimmingCharacters(in: .whitespaces)
     }
 
-    _ = db.addQuestLink(
-      questId: questId,
-      source: selectedSource,
-      url: linkUrl,
-      title: trimmedTitle.isEmpty ? nil : trimmedTitle,
-      detectedFrom: .manual
-    )
+    Task {
+      _ = await db.addQuestLink(
+        questId: questId,
+        source: selectedSource,
+        url: linkUrl,
+        title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+        detectedFrom: .manual
+      )
+    }
 
     dismiss()
   }
@@ -943,7 +948,7 @@ struct LinkSessionSheet: View {
   @State private var sessions: [Session] = []
   @State private var searchText = ""
 
-  private let db = DatabaseManager.shared
+  private let db = SessionStore.shared
 
   private var filteredSessions: [Session] {
     if searchText.isEmpty {
@@ -1000,7 +1005,7 @@ struct LinkSessionSheet: View {
         LazyVStack(spacing: 6) {
           ForEach(filteredSessions) { session in
             Button {
-              db.linkSessionToQuest(sessionId: session.id, questId: questId)
+              Task { await db.linkSessionToQuest(sessionId: session.id, questId: questId) }
               dismiss()
             } label: {
               HStack(spacing: 12) {
@@ -1038,8 +1043,8 @@ struct LinkSessionSheet: View {
     }
     .frame(width: 450, height: 500)
     .background(Color.backgroundSecondary)
-    .onAppear {
-      sessions = db.fetchSessions()
+    .task {
+      sessions = await db.fetchSessions()
     }
   }
 }
@@ -1124,7 +1129,7 @@ struct QuestNoteSheet: View {
   @State private var title = ""
   @State private var content = ""
 
-  private let db = DatabaseManager.shared
+  private let db = SessionStore.shared
 
   private var isEditing: Bool { note != nil }
 
@@ -1235,18 +1240,20 @@ struct QuestNoteSheet: View {
 
     guard !trimmedContent.isEmpty else { return }
 
-    if let note {
-      db.updateQuestNote(
-        id: note.id,
-        title: trimmedTitle.isEmpty ? nil : trimmedTitle,
-        content: trimmedContent
-      )
-    } else {
-      _ = db.createQuestNote(
-        questId: questId,
-        title: trimmedTitle.isEmpty ? nil : trimmedTitle,
-        content: trimmedContent
-      )
+    Task {
+      if let note {
+        await db.updateQuestNote(
+          id: note.id,
+          title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+          content: trimmedContent
+        )
+      } else {
+        _ = await db.createQuestNote(
+          questId: questId,
+          title: trimmedTitle.isEmpty ? nil : trimmedTitle,
+          content: trimmedContent
+        )
+      }
     }
 
     dismiss()

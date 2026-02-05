@@ -185,9 +185,9 @@ struct CodexApprovalView: View {
     Task {
       do {
         if session.pendingToolName == "Edit" {
-          try manager.approvePatch(session.id, requestId: requestId, approved: approved)
+          try await manager.approvePatch(session.id, requestId: requestId, approved: approved)
         } else {
-          try manager.approveExec(session.id, requestId: requestId, approved: approved)
+          try await manager.approveExec(session.id, requestId: requestId, approved: approved)
         }
       } catch {
         await MainActor.run {
@@ -280,7 +280,7 @@ struct CodexQuestionView: View {
     Task {
       do {
         // For simple questions, use "answer" as the key
-        try manager.answerQuestion(session.id, requestId: requestId, answers: ["answer": trimmed])
+        try await manager.answerQuestion(session.id, requestId: requestId, answers: ["answer": trimmed])
       } catch {
         await MainActor.run {
           errorMessage = error.localizedDescription
