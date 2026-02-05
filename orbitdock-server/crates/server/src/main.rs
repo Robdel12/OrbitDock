@@ -16,8 +16,11 @@ use axum::{response::IntoResponse, routing::get, Router};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing::info;
+use tracing_subscriber::fmt;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
 
 use crate::persistence::{create_persistence_channel, PersistenceWriter};
 use crate::state::AppState;
@@ -25,14 +28,38 @@ use crate::websocket::ws_handler;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::DEBUG)
-        .with_target(false)
-        .with_file(true)
-        .with_line_number(true)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    // Ensure log directory exists
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let log_dir = std::path::PathBuf::from(home).join(".orbitdock").join("logs");
+    std::fs::create_dir_all(&log_dir)?;
+
+    // File appender - writes JSON to ~/.orbitdock/logs/server.log
+    let file_appender = tracing_appender::rolling::never(&log_dir, "server.log");
+
+    // Combined subscriber: stderr (human-readable) + file (JSON, greppable)
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("debug,tower_http=info,hyper=info"));
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(
+            fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_file(true)
+                .with_line_number(true)
+                .with_target(false)
+                .compact(),
+        )
+        .with(
+            fmt::layer()
+                .with_writer(file_appender)
+                .json()
+                .with_file(true)
+                .with_line_number(true)
+                .with_target(true)
+                .with_current_span(false),
+        )
+        .init();
 
     info!("Starting OrbitDock Server...");
 

@@ -7,7 +7,6 @@
 //  All DB operations go through DatabaseManager actor.
 //
 
-import Combine
 import Foundation
 import SwiftUI
 
@@ -36,22 +35,18 @@ final class SessionStore {
   // MARK: - Private
 
   private let db = DatabaseManager.shared
-  private var eventSubscription: AnyCancellable?
 
   private init() {
     // Subscribe to external changes (CLI writes detected by file watcher)
+    // This is the ONLY path for session reloads - all DB writes trigger the file watcher
     DatabaseManager.onExternalChange = { [weak self] in
       self?.notifyExternalChange()
     }
 
-    // Subscribe to EventBus for internal changes (Codex events, etc.)
-    eventSubscription = EventBus.shared.sessionUpdated
-      .receive(on: DispatchQueue.main)
-      .sink { [weak self] _ in
-        Task { @MainActor [weak self] in
-          await self?.reloadSessions()
-        }
-      }
+    // NOTE: Removed EventBus.sessionUpdated subscription - it was causing a feedback loop:
+    // 1. File watcher → reload() → onDatabaseChanged?() → EventBus.notifyDatabaseChanged()
+    // 2. EventBus fires sessionUpdated → reloadSessions() → fetches AGAIN
+    // The file watcher already handles all DB changes, so EventBus subscription was redundant.
 
     // Initial load
     Task {

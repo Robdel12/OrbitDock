@@ -97,6 +97,11 @@ impl SessionHandle {
         self.subscribers.retain(|s| !s.same_channel(tx));
     }
 
+    /// Clean up any closed subscriber channels
+    pub fn unsubscribe_by_closed(&mut self) {
+        self.subscribers.retain(|tx| !tx.is_closed());
+    }
+
     /// Set work status
     pub fn set_work_status(&mut self, status: WorkStatus) {
         self.work_status = status;

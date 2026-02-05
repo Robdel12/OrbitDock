@@ -176,9 +176,11 @@ struct ServerTestView: View {
     switch connection.status {
     case .connected:
       return .green
-    case .connecting, .reconnecting:
+    case .connecting:
       return .yellow
     case .disconnected:
+      return .gray
+    case .failed:
       return .red
     }
   }
@@ -189,10 +191,10 @@ struct ServerTestView: View {
       return "Connected"
     case .connecting:
       return "Connecting..."
-    case .reconnecting(let attempt):
-      return "Reconnecting (\(attempt))..."
     case .disconnected:
       return "Disconnected"
+    case .failed(let reason):
+      return "Failed: \(reason)"
     }
   }
 

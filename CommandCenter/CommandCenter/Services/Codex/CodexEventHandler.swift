@@ -209,8 +209,11 @@ final class CodexEventHandler {
         logger.debug("Unhandled event: \(method)")
     }
 
-    // Notify UI to refresh
-    notifyTranscriptUpdated()
+    // NOTE: We no longer call notifyTranscriptUpdated() here.
+    // Session state changes (turn started/completed, approvals) already update the database
+    // which triggers EventBus via DatabaseManager's file monitor.
+    // Message updates go directly to MessageStore which has its own observers.
+    // Calling notifyDatabaseChanged() on every event was causing 20+ DB queries/second.
   }
 
   /// Get a readable name for an event type
@@ -1057,10 +1060,5 @@ final class CodexEventHandler {
   private func encodeToolInput(_ dict: [String: Any]) -> String? {
     guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
     return String(data: data, encoding: .utf8)
-  }
-
-  /// Notify UI of transcript changes
-  private func notifyTranscriptUpdated() {
-    EventBus.shared.notifyDatabaseChanged()
   }
 }

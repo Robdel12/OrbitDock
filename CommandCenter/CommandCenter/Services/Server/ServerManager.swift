@@ -3,7 +3,8 @@
 //  OrbitDock
 //
 //  Manages the embedded Rust server process lifecycle.
-//  Spawns on app launch, monitors health, restarts on crash.
+//  Spawns on app launch, restarts on crash (with limits).
+//  NO continuous polling - uses process termination handler only.
 //
 
 import Combine
@@ -19,14 +20,13 @@ final class ServerManager: ObservableObject {
 
   @Published private(set) var isRunning = false
   @Published private(set) var lastError: String?
+  @Published private(set) var gaveUp = false  // True if we stopped trying
 
   private var serverProcess: Process?
-  private var healthCheckTask: Task<Void, Never>?
   private var outputPipe: Pipe?
   private var errorPipe: Pipe?
 
   private let serverPort = 4000
-  private let healthCheckInterval: TimeInterval = 5.0
   private let maxRestartAttempts = 3
   private var restartAttempts = 0
 
@@ -42,6 +42,10 @@ final class ServerManager: ObservableObject {
     }
 
     lastError = nil
+    gaveUp = false
+
+    // Kill any zombie processes on our port first
+    killExistingServer()
 
     // Find the server binary
     guard let serverPath = findServerBinary() else {
@@ -55,8 +59,8 @@ final class ServerManager: ObservableObject {
     do {
       try launchServer(at: serverPath)
       isRunning = true
-      restartAttempts = 0
-      startHealthCheck()
+      // NOTE: Don't reset restartAttempts here - only reset when we confirm server is healthy
+      // Otherwise the crash -> restart -> crash loop never hits max attempts
       logger.info("Server started successfully")
     } catch {
       lastError = error.localizedDescription
@@ -66,22 +70,48 @@ final class ServerManager: ObservableObject {
 
   /// Stop the server process
   func stop() {
-    healthCheckTask?.cancel()
-    healthCheckTask = nil
-
+    // Stop our tracked process
     if let process = serverProcess, process.isRunning {
       logger.info("Stopping server...")
       process.terminate()
-      serverProcess = nil
+      process.waitUntilExit()  // Wait for clean shutdown
     }
+    serverProcess = nil
+
+    // Also kill any other processes on our port (handles zombies from previous runs)
+    killExistingServer()
 
     isRunning = false
+    restartAttempts = 0  // Reset counter when explicitly stopped
   }
 
-  /// Restart the server
+  /// Restart the server (resets restart counter)
   func restart() {
+    restartAttempts = 0
+    gaveUp = false
     stop()
     start()
+  }
+
+  /// Kill any existing process on our server port
+  private func killExistingServer() {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+    process.arguments = ["-f", "orbitdock-server"]
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+
+    do {
+      try process.run()
+      process.waitUntilExit()
+      // Give the port time to be released
+      if process.terminationStatus == 0 {
+        Thread.sleep(forTimeInterval: 0.5)
+        logger.info("Killed existing orbitdock-server process")
+      }
+    } catch {
+      // Ignore - no process to kill
+    }
   }
 
   // MARK: - Private
@@ -102,21 +132,22 @@ final class ServerManager: ObservableObject {
 
     // 3. Development paths - try repo location
     let homeDir = FileManager.default.homeDirectoryForCurrentUser
+    let repoBase = homeDir.appendingPathComponent("Developer/claude-dashboard/orbitdock-server/target")
+
+    // Try debug binary first (faster builds during development)
+    let debugPath = repoBase.appendingPathComponent("debug/orbitdock-server").path
+    if FileManager.default.fileExists(atPath: debugPath) {
+      return debugPath
+    }
 
     // Try release binary
-    let repoPath = homeDir
-      .appendingPathComponent("Developer/claude-dashboard/orbitdock-server/target/release/orbitdock-server")
-      .path
-
-    if FileManager.default.fileExists(atPath: repoPath) {
-      return repoPath
+    let releasePath = repoBase.appendingPathComponent("release/orbitdock-server").path
+    if FileManager.default.fileExists(atPath: releasePath) {
+      return releasePath
     }
 
     // Try universal binary
-    let universalPath = homeDir
-      .appendingPathComponent("Developer/claude-dashboard/orbitdock-server/target/universal/orbitdock-server")
-      .path
-
+    let universalPath = repoBase.appendingPathComponent("universal/orbitdock-server").path
     if FileManager.default.fileExists(atPath: universalPath) {
       return universalPath
     }
@@ -140,7 +171,7 @@ final class ServerManager: ObservableObject {
 
     // Set up environment
     var env = ProcessInfo.processInfo.environment
-    env["RUST_LOG"] = "info"
+    env["RUST_LOG"] = "debug,tower_http=info,hyper=info"
     process.environment = env
 
     // Capture output for logging
@@ -182,20 +213,39 @@ final class ServerManager: ObservableObject {
     isRunning = false
     serverProcess = nil
 
-    // Attempt restart if unexpected termination
-    if exitCode != 0 && restartAttempts < maxRestartAttempts {
-      restartAttempts += 1
-      logger.info("Attempting restart (\(self.restartAttempts)/\(self.maxRestartAttempts))...")
+    // Exit code 0 = clean shutdown (we called stop()), don't restart
+    guard exitCode != 0 else {
+      logger.info("Server stopped cleanly")
+      return
+    }
 
-      Task {
-        try? await Task.sleep(for: .seconds(1))
-        await MainActor.run {
-          self.start()
-        }
-      }
-    } else if restartAttempts >= maxRestartAttempts {
+    // Already gave up - don't try again
+    guard !gaveUp else {
+      logger.debug("Already gave up, not restarting")
+      return
+    }
+
+    // Check restart limit
+    guard restartAttempts < maxRestartAttempts else {
       lastError = "Server crashed repeatedly, giving up"
-      logger.error("Max restart attempts reached")
+      gaveUp = true
+      logger.error("Max restart attempts reached (\(self.maxRestartAttempts)) - not retrying")
+      return
+    }
+
+    // Attempt restart with exponential backoff
+    restartAttempts += 1
+    logger.info("Attempting restart (\(self.restartAttempts)/\(self.maxRestartAttempts))...")
+
+    // Exponential backoff: 1s, 2s, 4s
+    let delay = pow(2.0, Double(restartAttempts - 1))
+
+    Task {
+      try? await Task.sleep(for: .seconds(delay))
+      await MainActor.run {
+        guard !self.gaveUp else { return }  // Double-check we haven't given up
+        self.start()
+      }
     }
   }
 
@@ -210,22 +260,16 @@ final class ServerManager: ObservableObject {
     }
   }
 
-  // MARK: - Health Check
+  // MARK: - Health Check (one-shot, not polling)
 
-  private func startHealthCheck() {
-    healthCheckTask = Task {
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(healthCheckInterval))
-
-        guard !Task.isCancelled else { break }
-
-        let healthy = await checkHealth()
-        if !healthy && isRunning {
-          logger.warning("Health check failed, server may have crashed")
-        }
-      }
-    }
-  }
+  /// URLSession with short timeout for health checks
+  private lazy var healthCheckSession: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.timeoutIntervalForRequest = 2
+    config.timeoutIntervalForResource = 2
+    config.waitsForConnectivity = false
+    return URLSession(configuration: config)
+  }()
 
   private func checkHealth() async -> Bool {
     guard let url = URL(string: "http://127.0.0.1:\(serverPort)/health") else {
@@ -233,7 +277,7 @@ final class ServerManager: ObservableObject {
     }
 
     do {
-      let (_, response) = try await URLSession.shared.data(from: url)
+      let (_, response) = try await healthCheckSession.data(from: url)
       if let httpResponse = response as? HTTPURLResponse {
         return httpResponse.statusCode == 200
       }
@@ -243,17 +287,30 @@ final class ServerManager: ObservableObject {
     }
   }
 
-  /// Wait for server to be ready (for startup sequencing)
-  func waitForReady(timeout: TimeInterval = 10) async -> Bool {
-    let startTime = Date()
-
-    while Date().timeIntervalSince(startTime) < timeout {
+  /// Wait for server to be ready (called once at startup, not continuously)
+  /// Tries up to maxAttempts times with 500ms between attempts, then gives up.
+  func waitForReady(maxAttempts: Int = 10) async -> Bool {
+    for attempt in 1...maxAttempts {
       if await checkHealth() {
+        // Server is healthy - reset restart counter
+        restartAttempts = 0
+        gaveUp = false
+        logger.info("Server is healthy")
         return true
       }
-      try? await Task.sleep(for: .milliseconds(100))
+
+      if attempt < maxAttempts {
+        try? await Task.sleep(for: .milliseconds(500))
+      }
     }
 
+    logger.warning("Server not ready after \(maxAttempts) attempts")
     return false
+  }
+
+  /// Reset restart counter (call this to allow retries after user intervention)
+  func resetRestartCounter() {
+    restartAttempts = 0
+    gaveUp = false
   }
 }

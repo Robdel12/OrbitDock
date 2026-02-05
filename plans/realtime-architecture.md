@@ -330,7 +330,7 @@ enum Provider {
 
 - [x] Create basic Axum server with WebSocket endpoint
 - [x] Implement protocol types in `protocol` crate
-- [x] Add tracing/logging
+- [x] Add tracing/logging (dual: stderr compact + JSON file at `~/.orbitdock/logs/server.log`)
 - [x] Handle client messages (subscribe, create session, etc.)
 
 #### Client (Swift) ✅ COMPLETE
@@ -345,8 +345,9 @@ enum Provider {
 - [x] Health endpoint responds (GET /health → 200)
 - [x] Swift app connects (WebSocket 101 upgrade confirmed in logs)
 - [x] Server auto-starts on app launch via ServerManager
-- [ ] Real-time updates (requires Phase 2 session management)
-- [ ] Bidirectional communication test UI (ServerTestView exists but needs session)
+- [x] WebSocket ping/pong handling (server responds to Swift client pings)
+- [x] Bidirectional round trip: Swift sends `subscribe_list`, server responds with `sessions_list`
+- [ ] Real-time updates flowing to UI (requires Phase 4 state management)
 
 ---
 
@@ -490,7 +491,15 @@ enum Provider {
 - [x] Stop server on app termination
 - [x] Connect WebSocket after server ready
 - [x] Debug settings page with server status (`SettingsView` → Debug tab)
-- [x] Find binary in dev paths (`~/Developer/claude-dashboard/orbitdock-server/target/release/`)
+- [x] Find binary in dev paths (debug → release → universal priority)
+- [x] RUST_LOG=debug for development builds
+
+#### WebSocket Connection ✅ COMPLETE
+
+- [x] Stable connection with proper ping/pong handling
+- [x] Auto-subscribe to session list on connect
+- [x] No resource timeout on long-lived WebSocket (`timeoutIntervalForResource = 0`)
+- [x] Message routing with logging
 
 #### New State Management (TODO - depends on Phase 2)
 

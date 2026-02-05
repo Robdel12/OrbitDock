@@ -3,7 +3,8 @@
 //  OrbitDock
 //
 //  WebSocket client for the OrbitDock Rust server.
-//  Handles connection lifecycle, message routing, and reconnection.
+//  Handles connection lifecycle with LIMITED reconnection attempts.
+//  After max attempts, stops trying - user must manually reconnect.
 //
 
 import Combine
@@ -17,7 +18,7 @@ enum ConnectionStatus: Equatable {
   case disconnected
   case connecting
   case connected
-  case reconnecting(attempt: Int)
+  case failed(String)  // Connection failed, not retrying
 }
 
 /// WebSocket connection to OrbitDock server
@@ -30,12 +31,12 @@ final class ServerConnection: ObservableObject {
 
   private var webSocket: URLSessionWebSocketTask?
   private var session: URLSession?
-  private var reconnectTask: Task<Void, Never>?
   private var receiveTask: Task<Void, Never>?
+  private var connectTask: Task<Void, Never>?
 
   private let serverURL = URL(string: "ws://127.0.0.1:4000/ws")!
-  private let maxReconnectAttempts = 5
-  private let reconnectDelay: TimeInterval = 2.0
+  private let maxConnectAttempts = 3
+  private var connectAttempts = 0
 
   /// Callbacks for received messages
   var onSessionsList: (([ServerSessionSummary]) -> Void)?
@@ -53,33 +54,81 @@ final class ServerConnection: ObservableObject {
 
   // MARK: - Connection Lifecycle
 
-  /// Connect to the server
+  /// Connect to the server (retries up to maxConnectAttempts, then gives up)
   func connect() {
-    guard status == .disconnected else {
+    switch status {
+    case .disconnected, .failed:
+      // OK to connect
+      connectAttempts = 0
+    case .connecting, .connected:
       logger.debug("Already connected or connecting")
       return
     }
 
+    attemptConnect()
+  }
+
+  private func attemptConnect() {
+    guard connectAttempts < maxConnectAttempts else {
+      status = .failed("Failed to connect after \(maxConnectAttempts) attempts")
+      lastError = "Server unavailable"
+      logger.error("Max connect attempts reached - giving up")
+      return
+    }
+
+    connectAttempts += 1
     status = .connecting
     lastError = nil
 
+    logger.info("Connecting to server (attempt \(self.connectAttempts)/\(self.maxConnectAttempts))...")
+
+    // Clean up any previous connection
+    webSocket?.cancel()
+    session?.invalidateAndCancel()
+
     let configuration = URLSessionConfiguration.default
-    configuration.waitsForConnectivity = true
+    configuration.timeoutIntervalForRequest = 5  // 5 second connect timeout
+    configuration.timeoutIntervalForResource = 0  // No resource timeout (WebSocket is long-lived)
     session = URLSession(configuration: configuration)
 
     webSocket = session?.webSocketTask(with: serverURL)
     webSocket?.resume()
 
-    status = .connected
-    logger.info("Connected to server")
+    // Verify connection with a ping
+    connectTask = Task {
+      do {
+        try await ping()
 
-    startReceiving()
+        await MainActor.run {
+          self.status = .connected
+          self.connectAttempts = 0
+          logger.info("Connected to server")
+          self.startReceiving()
+
+          // Auto-subscribe to session list
+          self.subscribeList()
+        }
+      } catch {
+        logger.warning("Connect attempt \(self.connectAttempts) failed: \(error.localizedDescription)")
+
+        // Exponential backoff: 1s, 2s, 4s
+        let delay = pow(2.0, Double(connectAttempts - 1))
+
+        try? await Task.sleep(for: .seconds(delay))
+
+        guard !Task.isCancelled else { return }
+
+        await MainActor.run {
+          self.attemptConnect()
+        }
+      }
+    }
   }
 
   /// Disconnect from the server
   func disconnect() {
-    reconnectTask?.cancel()
-    reconnectTask = nil
+    connectTask?.cancel()
+    connectTask = nil
     receiveTask?.cancel()
     receiveTask = nil
 
@@ -88,47 +137,9 @@ final class ServerConnection: ObservableObject {
     session?.invalidateAndCancel()
     session = nil
 
+    connectAttempts = 0
     status = .disconnected
     logger.info("Disconnected from server")
-  }
-
-  /// Reconnect with exponential backoff
-  private func scheduleReconnect(attempt: Int) {
-    guard attempt < maxReconnectAttempts else {
-      logger.error("Max reconnect attempts reached")
-      status = .disconnected
-      lastError = "Failed to reconnect after \(maxReconnectAttempts) attempts"
-      return
-    }
-
-    status = .reconnecting(attempt: attempt + 1)
-    let delay = reconnectDelay * Double(attempt + 1)
-
-    reconnectTask = Task {
-      try? await Task.sleep(for: .seconds(delay))
-
-      guard !Task.isCancelled else { return }
-
-      logger.info("Reconnecting (attempt \(attempt + 1))...")
-      webSocket?.cancel()
-
-      webSocket = session?.webSocketTask(with: serverURL)
-      webSocket?.resume()
-
-      // Check if connected
-      do {
-        try await ping()
-        await MainActor.run {
-          self.status = .connected
-          self.startReceiving()
-        }
-        logger.info("Reconnected successfully")
-      } catch {
-        await MainActor.run {
-          self.scheduleReconnect(attempt: attempt + 1)
-        }
-      }
-    }
   }
 
   private func ping() async throws {
@@ -172,8 +183,10 @@ final class ServerConnection: ObservableObject {
         logger.error("Receive error: \(error.localizedDescription)")
 
         await MainActor.run {
-          if self.status == .connected {
-            self.scheduleReconnect(attempt: 0)
+          // Connection lost - try to reconnect (with limits)
+          if case .connected = self.status {
+            self.status = .disconnected
+            self.attemptConnect()
           }
         }
         break
@@ -194,8 +207,11 @@ final class ServerConnection: ObservableObject {
   }
 
   private func routeMessage(_ message: ServerToClientMessage) {
+    logger.info("Server message: \(String(describing: message).prefix(200))")
+
     switch message {
     case .sessionsList(let sessions):
+      logger.info("Received sessions list: \(sessions.count) sessions")
       onSessionsList?(sessions)
 
     case .sessionSnapshot(let session):
@@ -232,7 +248,7 @@ final class ServerConnection: ObservableObject {
 
   /// Send a message to the server
   func send(_ message: ClientToServerMessage) {
-    guard status == .connected else {
+    guard case .connected = status else {
       logger.warning("Cannot send - not connected")
       return
     }
@@ -241,12 +257,10 @@ final class ServerConnection: ObservableObject {
       let data = try JSONEncoder().encode(message)
       guard let text = String(data: data, encoding: .utf8) else { return }
 
-      webSocket?.send(.string(text)) { [weak self] error in
+      webSocket?.send(.string(text)) { error in
         if let error {
           logger.error("Send error: \(error.localizedDescription)")
-          Task { @MainActor in
-            self?.scheduleReconnect(attempt: 0)
-          }
+          // Don't auto-reconnect on send errors - let receiveLoop handle it
         }
       }
     } catch {

@@ -643,10 +643,12 @@ struct DebugSettingsView: View {
     switch serverConnection.status {
     case .connected:
       return .statusSuccess
-    case .connecting, .reconnecting:
+    case .connecting:
       return .yellow
     case .disconnected:
       return .statusEnded
+    case .failed:
+      return .statusError
     }
   }
 
@@ -656,10 +658,10 @@ struct DebugSettingsView: View {
       return "Connected"
     case .connecting:
       return "Connecting..."
-    case .reconnecting(let attempt):
-      return "Reconnecting (\(attempt))..."
     case .disconnected:
       return "Disconnected"
+    case .failed(let reason):
+      return "Failed: \(reason)"
     }
   }
 }

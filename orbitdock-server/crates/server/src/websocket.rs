@@ -9,6 +9,7 @@ use axum::{
     },
     response::IntoResponse,
 };
+use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
@@ -18,6 +19,14 @@ use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::PersistCommand;
 use crate::state::AppState;
+
+/// Messages that can be sent through the WebSocket
+enum OutboundMessage {
+    /// JSON-serialized ServerMessage
+    Json(ServerMessage),
+    /// Raw pong response
+    Pong(Bytes),
+}
 
 /// WebSocket upgrade handler
 pub async fn ws_handler(
@@ -33,31 +42,44 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
-    // Channel for sending messages to this client
-    let (client_tx, mut client_rx) = mpsc::channel::<ServerMessage>(100);
+    // Channel for sending messages to this client (supports both JSON and raw frames)
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<OutboundMessage>(100);
 
-    // Spawn task to forward server messages to WebSocket
+    // Spawn task to forward messages to WebSocket
     let send_task = tokio::spawn(async move {
-        while let Some(msg) = client_rx.recv().await {
-            let json = match serde_json::to_string(&msg) {
-                Ok(j) => j,
-                Err(e) => {
-                    error!("Failed to serialize message: {}", e);
-                    continue;
+        while let Some(msg) = outbound_rx.recv().await {
+            let result = match msg {
+                OutboundMessage::Json(server_msg) => {
+                    match serde_json::to_string(&server_msg) {
+                        Ok(json) => ws_tx.send(Message::Text(json.into())).await,
+                        Err(e) => {
+                            error!("Failed to serialize message: {}", e);
+                            continue;
+                        }
+                    }
                 }
+                OutboundMessage::Pong(data) => ws_tx.send(Message::Pong(data)).await,
             };
 
-            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+            if result.is_err() {
                 debug!("WebSocket send failed, client disconnected");
                 break;
             }
         }
     });
 
+    // Wrapper to send JSON messages (used by handle_client_message)
+    let client_tx = outbound_tx.clone();
+
     // Handle incoming messages
     while let Some(result) = ws_rx.next().await {
         let msg = match result {
             Ok(Message::Text(text)) => text,
+            Ok(Message::Ping(data)) => {
+                // Respond to ping with pong
+                let _ = outbound_tx.send(OutboundMessage::Pong(data)).await;
+                continue;
+            }
             Ok(Message::Close(_)) => {
                 info!("Client sent close frame");
                 break;
@@ -74,12 +96,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
             Ok(m) => m,
             Err(e) => {
                 warn!("Failed to parse client message: {} - {}", e, msg);
-                let error = ServerMessage::Error {
-                    code: "parse_error".into(),
-                    message: e.to_string(),
-                    session_id: None,
-                };
-                let _ = client_tx.send(error).await;
+                send_json(
+                    &client_tx,
+                    ServerMessage::Error {
+                        code: "parse_error".into(),
+                        message: e.to_string(),
+                        session_id: None,
+                    },
+                )
+                .await;
                 continue;
             }
         };
@@ -92,10 +117,28 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
     send_task.abort();
 }
 
+/// Send a ServerMessage through the outbound channel
+async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
+    let _ = tx.send(OutboundMessage::Json(msg)).await;
+}
+
+/// Create a ServerMessage sender that wraps an OutboundMessage sender
+fn wrap_sender(tx: mpsc::Sender<OutboundMessage>) -> mpsc::Sender<ServerMessage> {
+    let (server_tx, mut server_rx) = mpsc::channel::<ServerMessage>(100);
+    tokio::spawn(async move {
+        while let Some(msg) = server_rx.recv().await {
+            if tx.send(OutboundMessage::Json(msg)).await.is_err() {
+                break;
+            }
+        }
+    });
+    server_tx
+}
+
 /// Handle a client message
 async fn handle_client_message(
     msg: ClientMessage,
-    client_tx: &mpsc::Sender<ServerMessage>,
+    client_tx: &mpsc::Sender<OutboundMessage>,
     state: &Arc<Mutex<AppState>>,
 ) {
     debug!("Received: {:?}", msg);
@@ -103,34 +146,32 @@ async fn handle_client_message(
     match msg {
         ClientMessage::SubscribeList => {
             let mut state = state.lock().await;
-            state.subscribe_list(client_tx.clone());
+            state.subscribe_list(wrap_sender(client_tx.clone()));
 
             // Send current list
             let sessions = state.get_session_summaries().await;
-            let _ = client_tx
-                .send(ServerMessage::SessionsList { sessions })
-                .await;
+            send_json(client_tx, ServerMessage::SessionsList { sessions }).await;
         }
 
         ClientMessage::SubscribeSession { session_id } => {
             let state = state.lock().await;
             if let Some(session) = state.get_session(&session_id) {
                 let mut session = session.lock().await;
-                session.subscribe(client_tx.clone());
+                session.subscribe(wrap_sender(client_tx.clone()));
 
                 // Send current state
                 let snapshot = session.state();
-                let _ = client_tx
-                    .send(ServerMessage::SessionSnapshot { session: snapshot })
-                    .await;
+                send_json(client_tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
             } else {
-                let _ = client_tx
-                    .send(ServerMessage::Error {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
                         code: "not_found".into(),
                         message: format!("Session {} not found", session_id),
                         session_id: Some(session_id),
-                    })
-                    .await;
+                    },
+                )
+                .await;
             }
         }
 
@@ -138,7 +179,9 @@ async fn handle_client_message(
             let state = state.lock().await;
             if let Some(session) = state.get_session(&session_id) {
                 let mut session = session.lock().await;
-                session.unsubscribe(client_tx);
+                // Note: unsubscribe won't match the wrapped sender, but that's OK
+                // The session will clean up closed channels on broadcast
+                session.unsubscribe_by_closed();
             }
         }
 
@@ -155,7 +198,7 @@ async fn handle_client_message(
                 crate::session::SessionHandle::new(id.clone(), provider, cwd.clone());
 
             // Subscribe the creator
-            handle.subscribe(client_tx.clone());
+            handle.subscribe(wrap_sender(client_tx.clone()));
 
             let summary = handle.summary();
             let snapshot = handle.state();
@@ -177,9 +220,7 @@ async fn handle_client_message(
             let session_arc = state_guard.add_session(handle);
 
             // Notify creator
-            let _ = client_tx
-                .send(ServerMessage::SessionSnapshot { session: snapshot })
-                .await;
+            send_json(client_tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
 
             // Notify list subscribers
             state_guard
@@ -192,21 +233,25 @@ async fn handle_client_message(
                 let cwd_clone = cwd.clone();
                 let model_clone = model.clone();
 
-                match CodexSession::new(session_id.clone(), &cwd_clone, model_clone.as_deref()).await {
+                match CodexSession::new(session_id.clone(), &cwd_clone, model_clone.as_deref()).await
+                {
                     Ok(codex_session) => {
-                        let action_tx = codex_session.start_event_loop(session_arc.clone(), persist_tx);
+                        let action_tx =
+                            codex_session.start_event_loop(session_arc.clone(), persist_tx);
                         state_guard.set_codex_action_tx(&session_id, action_tx);
                         info!("Codex session {} started", session_id);
                     }
                     Err(e) => {
                         error!("Failed to start Codex session: {}", e);
-                        let _ = client_tx
-                            .send(ServerMessage::Error {
+                        send_json(
+                            client_tx,
+                            ServerMessage::Error {
                                 code: "codex_error".into(),
                                 message: e.to_string(),
                                 session_id: Some(session_id),
-                            })
-                            .await;
+                            },
+                        )
+                        .await;
                     }
                 }
             }

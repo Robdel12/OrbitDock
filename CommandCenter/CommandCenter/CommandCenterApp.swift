@@ -85,12 +85,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     // Fetch latest model pricing in background
     ModelPricingService.shared.fetchPrices()
 
-    // Start the Rust server
+    // Start the Rust server (limited retries, won't poll forever)
     Task { @MainActor in
       ServerManager.shared.start()
 
-      // Connect WebSocket client once server is ready
-      let ready = await ServerManager.shared.waitForReady(timeout: 5)
+      // Connect WebSocket client once server is ready (max 10 attempts = 5 seconds)
+      let ready = await ServerManager.shared.waitForReady(maxAttempts: 10)
       if ready {
         ServerConnection.shared.connect()
       }
