@@ -28,6 +28,7 @@ enum AppEmbeddedMigrations {
     migration007,
     migration008,
     migration009,
+    migration010,
   ]
 
   // MARK: - Migration 001: Initial schema
@@ -371,6 +372,17 @@ enum AppEmbeddedMigrations {
       ALTER TABLE sessions ADD COLUMN codex_output_tokens INTEGER;
       ALTER TABLE sessions ADD COLUMN codex_cached_tokens INTEGER;
       ALTER TABLE sessions ADD COLUMN codex_context_window INTEGER;
+      """
+  )
+
+  // MARK: - Migration 010: Codex turn state (diff/plan)
+
+  static let migration010 = Migration(
+    version: 10,
+    name: "codex_turn_state",
+    sql: """
+      ALTER TABLE sessions ADD COLUMN current_diff TEXT;
+      ALTER TABLE sessions ADD COLUMN current_plan TEXT;
       """
   )
 }

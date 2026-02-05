@@ -25,6 +25,9 @@ struct SessionDetailView: View {
   @State private var unreadCount = 0
   @State private var scrollToBottomTrigger = 0
 
+  // Diff panel state - starts closed, user must trigger it
+  @State private var showDiffPanel = false
+
   var body: some View {
     VStack(spacing: 0) {
       // Compact header
@@ -41,21 +44,36 @@ struct SessionDetailView: View {
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      // Conversation (hero)
-      ConversationView(
-        transcriptPath: session.transcriptPath,
-        sessionId: session.id,
-        isSessionActive: session.isActive,
-        workStatus: session.workStatus,
-        currentTool: currentTool,
-        pendingToolName: session.pendingToolName,
-        pendingToolInput: session.pendingToolInput,
-        provider: session.provider,
-        isPinned: $isPinned,
-        unreadCount: $unreadCount,
-        scrollToBottomTrigger: $scrollToBottomTrigger
-      )
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      // Main content area with optional diff sidebar
+      HStack(spacing: 0) {
+        // Conversation (hero)
+        ConversationView(
+          transcriptPath: session.transcriptPath,
+          sessionId: session.id,
+          isSessionActive: session.isActive,
+          workStatus: session.workStatus,
+          currentTool: currentTool,
+          pendingToolName: session.pendingToolName,
+          pendingToolInput: session.pendingToolInput,
+          provider: session.provider,
+          isPinned: $isPinned,
+          unreadCount: $unreadCount,
+          scrollToBottomTrigger: $scrollToBottomTrigger
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        // Diff sidebar (Codex direct only)
+        if session.isDirectCodex,
+           showDiffPanel,
+           let diff = CodexTurnStateStore.shared.getDiff(sessionId: session.id)
+        {
+          Divider()
+            .foregroundStyle(Color.panelBorder)
+
+          CodexDiffSidebar(diff: diff, onClose: { showDiffPanel = false })
+            .frame(width: 350)
+        }
+      }
 
       // Codex direct: Approval or question UI when needed
       if session.isDirectCodex {
@@ -246,6 +264,30 @@ struct SessionDetailView: View {
         // Token usage for this session
         if session.hasTokenUsage {
           CodexTokenBadge(session: session)
+        }
+
+        // Diff panel toggle
+        if CodexTurnStateStore.shared.getDiff(sessionId: session.id) != nil {
+          Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+              showDiffPanel.toggle()
+            }
+          } label: {
+            HStack(spacing: 4) {
+              Image(systemName: "doc.badge.plus")
+                .font(.system(size: 11, weight: .medium))
+              Text("Changes")
+                .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(showDiffPanel ? Color.accent : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+              showDiffPanel ? Color.accent.opacity(0.15) : Color.surfaceHover,
+              in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+          }
+          .buttonStyle(.plain)
         }
 
         Spacer()

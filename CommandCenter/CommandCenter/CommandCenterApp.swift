@@ -87,6 +87,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     Task {
       if let manager = AppDelegate.codexManager {
         await manager.recoverActiveSessions()
+
+        // Start MCP Bridge HTTP server
+        await MCPBridge.shared.start(sessionManager: manager)
       }
     }
   }
@@ -94,6 +97,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   func applicationWillTerminate(_ notification: Notification) {
     CodexRolloutWatcher.shared.stop()
     AppDelegate.codexManager?.disconnect()
+
+    // Stop MCP Bridge
+    Task { @MainActor in
+      MCPBridge.shared.stop()
+    }
   }
 
   func applicationWillResignActive(_ notification: Notification) {

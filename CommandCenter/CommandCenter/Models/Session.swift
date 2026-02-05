@@ -56,6 +56,20 @@ struct Session: Identifiable, Hashable {
   var codexCachedTokens: Int? // Cached input tokens (cost savings)
   var codexContextWindow: Int? // Model context window size
 
+  // MARK: - Codex Turn State (transient, updated during turns)
+
+  var currentDiff: String? // Aggregated diff for current turn
+  var currentPlan: [PlanStep]? // Agent's plan for current turn
+
+  struct PlanStep: Codable, Hashable, Identifiable {
+    let step: String
+    let status: String
+
+    var id: String { step }
+    var isCompleted: Bool { status == "completed" }
+    var isInProgress: Bool { status == "inProgress" }
+  }
+
   enum SessionStatus: String {
     case active
     case idle

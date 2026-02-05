@@ -161,6 +161,17 @@ struct TranscriptMessage: Identifiable, Hashable {
     return input["content"] as? String
   }
 
+  /// Extract unified diff (from Codex fileChange)
+  var unifiedDiff: String? {
+    guard let input = toolInput else { return nil }
+    return input["unified_diff"] as? String
+  }
+
+  /// Check if this is a Codex file change with diff
+  var hasUnifiedDiff: Bool {
+    unifiedDiff != nil && !(unifiedDiff?.isEmpty ?? true)
+  }
+
   /// Extract glob pattern
   var globPattern: String? {
     guard toolName?.lowercased() == "glob", let input = toolInput else { return nil }

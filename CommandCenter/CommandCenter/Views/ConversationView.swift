@@ -339,7 +339,7 @@ struct ConversationView: View {
   }
 
   private func syncAndReload() {
-    guard let path = transcriptPath, let sid = sessionId else { return }
+    guard let sid = sessionId else { return }
 
     // Skip parsing if view is not visible - flag for refresh when it becomes visible
     guard isVisible else {
@@ -347,8 +347,24 @@ struct ConversationView: View {
       return
     }
 
-    let targetPath = path
     let targetSid = sid
+
+    // For direct Codex sessions, skip transcript parsing - messages come via app-server events
+    if sid.hasPrefix("codex-direct-") {
+      DispatchQueue.global(qos: .utility).async {
+        let newMessages = MessageStore.shared.readMessages(sessionId: targetSid)
+        DispatchQueue.main.async {
+          guard sessionId == targetSid else { return }
+          messages = newMessages
+          displayedCount = max(displayedCount, newMessages.count)
+        }
+      }
+      return
+    }
+
+    // For other sessions, sync from transcript file
+    guard let path = transcriptPath else { return }
+    let targetPath = path
 
     // Invalidate cache to ensure fresh parse
     TranscriptParser.invalidateCache(for: targetPath)
@@ -400,8 +416,9 @@ struct ConversationView: View {
           isLoading = false
         }
 
-        // For Claude sessions, also sync from transcript in background
-        if let path = targetPath {
+        // For non-direct sessions, also sync from transcript in background
+        // Skip for codex-direct-* sessions - they get messages via app-server events
+        if let path = targetPath, !targetSid.hasPrefix("codex-direct-") {
           DispatchQueue.global(qos: .utility).async {
             let result = TranscriptParser.parseAll(transcriptPath: path)
             MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
@@ -415,8 +432,8 @@ struct ConversationView: View {
             }
           }
         }
-      } else if let path = targetPath {
-        // No data in MessageStore, try parsing transcript (Claude sessions)
+      } else if let path = targetPath, !targetSid.hasPrefix("codex-direct-") {
+        // No data in MessageStore, try parsing transcript (non-direct sessions only)
         let result = TranscriptParser.parseAll(transcriptPath: path)
         MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
         let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)

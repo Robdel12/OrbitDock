@@ -60,6 +60,10 @@ class DatabaseManager {
   private let codexCachedTokens = SQLite.Expression<Int?>("codex_cached_tokens")
   private let codexContextWindow = SQLite.Expression<Int?>("codex_context_window")
 
+  // Codex turn state columns
+  private let currentDiff = SQLite.Expression<String?>("current_diff")
+  private let currentPlan = SQLite.Expression<String?>("current_plan")
+
   // Quest tables
   private let quests = Table("quests")
   private let inboxItems = Table("inbox_items")
@@ -693,6 +697,91 @@ class DatabaseManager {
       }
     } catch {
       print("Failed to update Codex token usage: \(error)")
+    }
+  }
+
+  /// Update the aggregated diff for the current turn
+  func updateCodexDiff(sessionId: String, diff: String?) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+
+    do {
+      try db.run(session.update(currentDiff <- diff))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update Codex diff: \(error)")
+    }
+  }
+
+  /// Update the agent's plan for the current turn
+  func updateCodexPlan(sessionId: String, plan: [Session.PlanStep]?) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+
+    do {
+      let planJson: String?
+      if let plan {
+        let data = try JSONEncoder().encode(plan)
+        planJson = String(data: data, encoding: .utf8)
+      } else {
+        planJson = nil
+      }
+
+      try db.run(session.update(currentPlan <- planJson))
+
+      DispatchQueue.main.async { [weak self] in
+        self?.notifyChange()
+      }
+    } catch {
+      print("Failed to update Codex plan: \(error)")
+    }
+  }
+
+  /// Clear turn state (diff/plan) when turn completes
+  func clearCodexTurnState(sessionId: String) {
+    guard let db else { return }
+
+    let session = sessions.filter(id == sessionId)
+
+    do {
+      try db.run(session.update(
+        currentDiff <- nil as String?,
+        currentPlan <- nil as String?
+      ))
+    } catch {
+      print("Failed to clear turn state: \(error)")
+    }
+  }
+
+  /// Fetch turn state (diff/plan) for a session
+  func fetchCodexTurnState(sessionId: String) -> (diff: String?, plan: [Session.PlanStep]?) {
+    guard let db else { return (nil, nil) }
+
+    let query = sessions.filter(id == sessionId)
+
+    do {
+      guard let row = try db.pluck(query) else { return (nil, nil) }
+
+      let diff = (try? row.get(currentDiff)) ?? nil
+      let planJson = (try? row.get(currentPlan)) ?? nil
+
+      var plan: [Session.PlanStep]?
+      if let json = planJson,
+         let data = json.data(using: .utf8),
+         let steps = try? JSONDecoder().decode([Session.PlanStep].self, from: data)
+      {
+        plan = steps
+      }
+
+      return (diff, plan)
+    } catch {
+      print("Failed to fetch turn state: \(error)")
+      return (nil, nil)
     }
   }
 

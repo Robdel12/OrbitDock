@@ -450,7 +450,10 @@ final class MessageStore {
 
   /// Append a single message for Codex direct sessions (no JSONL sync)
   func appendCodexMessage(_ msg: TranscriptMessage, sessionId sid: String) {
-    guard let db = writeDb else { return }
+    guard let db = writeDb else {
+      print("❌ MessageStore.append: writeDb is nil!")
+      return
+    }
 
     do {
       let toolInputJson: String? = msg.toolInput.flatMap { input in
@@ -482,6 +485,7 @@ final class MessageStore {
         imagesJson <- nil,
         thinking <- msg.thinking
       ))
+      print("✅ MessageStore.append: inserted id=\(msg.id), seq=\(maxSeq + 1)")
     } catch {
       print("❌ MessageStore: appendCodexMessage failed: \(error)")
     }
@@ -500,6 +504,15 @@ final class MessageStore {
       if !msg.content.isEmpty {
         setters.append(content <- msg.content)
       }
+
+      // Serialize toolInput to JSON if present
+      if let input = msg.toolInput,
+         let data = try? JSONSerialization.data(withJSONObject: input),
+         let inputJson = String(data: data, encoding: .utf8)
+      {
+        setters.append(toolInput <- inputJson)
+      }
+
       if let output = msg.toolOutput {
         setters.append(toolOutput <- output)
       }
@@ -513,10 +526,57 @@ final class MessageStore {
       }
 
       if !setters.isEmpty {
-        try db.run(query.update(setters))
+        let rowsUpdated = try db.run(query.update(setters))
+        if rowsUpdated > 0 {
+          print("✅ MessageStore.update: updated id=\(msg.id)")
+        } else {
+          print("⚠️ MessageStore.update: no rows matched id=\(msg.id)")
+        }
       }
     } catch {
       print("❌ MessageStore: updateCodexMessage failed: \(error)")
+    }
+  }
+
+  /// Insert or update a message for Codex direct sessions (upsert)
+  func upsertCodexMessage(_ msg: TranscriptMessage, sessionId sid: String) {
+    guard let db = writeDb else {
+      print("❌ MessageStore.upsert: writeDb is nil!")
+      return
+    }
+
+    do {
+      // Check if message exists
+      let query = messages.filter(id == msg.id && sessionId == sid)
+      let exists = try db.scalar(query.count) > 0
+
+      print("🔍 MessageStore.upsert: id=\(msg.id), session=\(sid), exists=\(exists)")
+
+      if exists {
+        // Update existing
+        let toolInputJson: String? = msg.toolInput.flatMap { input in
+          guard let data = try? JSONSerialization.data(withJSONObject: input) else { return nil }
+          return String(data: data, encoding: .utf8)
+        }
+
+        try db.run(query.update(
+          type <- msg.type.rawValue,
+          content <- msg.content,
+          timestamp <- msg.timestamp,
+          toolName <- msg.toolName,
+          toolInput <- toolInputJson,
+          toolOutput <- msg.toolOutput,
+          toolDuration <- msg.toolDuration,
+          isInProgress <- (msg.isInProgress ? 1 : 0)
+        ))
+        print("✅ MessageStore.upsert: updated existing")
+      } else {
+        // Insert new
+        print("📝 MessageStore.upsert: inserting new message")
+        appendCodexMessage(msg, sessionId: sid)
+      }
+    } catch {
+      print("❌ MessageStore: upsertCodexMessage failed: \(error)")
     }
   }
 
