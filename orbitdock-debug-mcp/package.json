@@ -1,0 +1,16 @@
+{
+  "name": "orbitdock-mcp",
+  "version": "0.2.0",
+  "description": "MCP for controlling Codex sessions through OrbitDock",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "orbitdock-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
