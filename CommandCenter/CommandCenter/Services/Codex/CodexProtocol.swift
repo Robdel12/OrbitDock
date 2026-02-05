@@ -349,6 +349,10 @@ enum CodexServerEvent {
   case sessionConfigured(SessionConfiguredEvent)
   case threadNameUpdated(ThreadNameUpdatedEvent)
 
+  // Turn updates
+  case diffUpdated(DiffUpdatedEvent)
+  case planUpdated(PlanUpdatedEvent)
+
   // Usage tracking
   case tokenUsageUpdated(TokenUsageEvent)
   case rateLimitsUpdated(RateLimitsEvent)
@@ -395,6 +399,34 @@ struct TurnAbortedEvent: Decodable {
 
   // API uses camelCase
   var turnId: String? { turn?.id }
+}
+
+// MARK: - Diff & Plan Events
+
+/// Aggregated diff across all file changes in a turn
+struct DiffUpdatedEvent: Decodable {
+  let threadId: String?
+  let turnId: String?
+  let diff: String?  // Unified diff format
+}
+
+/// Agent's plan with step statuses
+struct PlanUpdatedEvent: Decodable {
+  let threadId: String?
+  let turnId: String?
+  let explanation: String?
+  let plan: [PlanStep]?
+
+  struct PlanStep: Decodable, Identifiable {
+    let step: String
+    let status: String  // "pending", "inProgress", "completed"
+
+    var id: String { step }
+
+    var isCompleted: Bool { status == "completed" }
+    var isInProgress: Bool { status == "inProgress" }
+    var isPending: Bool { status == "pending" }
+  }
 }
 
 struct ItemCreatedEvent: Decodable {
@@ -489,8 +521,18 @@ struct ThreadItem: Decodable {
 
 struct FileChange: Decodable {
   let path: String?
-  let kind: String?
+  let kind: FileChangeKind?
   let diff: String?
+}
+
+struct FileChangeKind: Decodable {
+  let type: String?  // "create", "update", "delete", "rename"
+  let movePath: String?
+
+  enum CodingKeys: String, CodingKey {
+    case type
+    case movePath = "move_path"
+  }
 }
 
 struct ContentBlock: Decodable {
@@ -510,16 +552,21 @@ struct ExecApprovalRequestEvent: Decodable {
 }
 
 struct PatchApprovalRequestEvent: Decodable {
-  let id: String
-  let path: String?
-  let patch: String?
-  let autoApprove: Bool?
+  let threadId: String
+  let turnId: String
+  let itemId: String
+  let reason: String?
+  let grantRoot: String?
+
+  // Convenience alias for handler compatibility
+  var id: String { itemId }
 
   enum CodingKeys: String, CodingKey {
-    case id
-    case path
-    case patch
-    case autoApprove = "auto_approve"
+    case threadId = "thread_id"
+    case turnId = "turn_id"
+    case itemId = "item_id"
+    case reason
+    case grantRoot = "grant_root"
   }
 }
 
@@ -803,13 +850,22 @@ struct AnyCodable: Codable {
 extension CodexServerEvent {
   static func parse(method: String, params: AnyCodable?) -> CodexServerEvent {
     let decoder = JSONDecoder()
+    let fileLogger = CodexFileLogger.shared
 
-    // Helper to decode params
-    func decode<T: Decodable>(_ type: T.Type) -> T? {
+    // Helper to decode params with error logging
+    func decode<T: Decodable>(_ type: T.Type, context: String) -> T? {
       guard let params,
             let data = try? JSONSerialization.data(withJSONObject: params.value)
       else { return nil }
-      return try? decoder.decode(type, from: data)
+
+      do {
+        return try decoder.decode(type, from: data)
+      } catch {
+        // Log decode failure with raw JSON for debugging
+        let rawJson = String(data: data, encoding: .utf8) ?? "nil"
+        fileLogger.logDecodeError(error, rawJson: rawJson, context: context)
+        return nil
+      }
     }
 
     switch method {
@@ -831,18 +887,28 @@ extension CodexServerEvent {
 
       // === TURN LIFECYCLE ===
       case "turn/started":
-        if let event = decode(TurnStartedEvent.self) {
+        if let event = decode(TurnStartedEvent.self, context: "turn/started") {
           return .turnStarted(event)
         }
 
       case "turn/completed":
-        if let event = decode(TurnCompletedEvent.self) {
+        if let event = decode(TurnCompletedEvent.self, context: "turn/completed") {
           return .turnCompleted(event)
         }
 
       case "turn/aborted":
-        if let event = decode(TurnAbortedEvent.self) {
+        if let event = decode(TurnAbortedEvent.self, context: "turn/aborted") {
           return .turnAborted(event)
+        }
+
+      case "turn/diff/updated":
+        if let event = decode(DiffUpdatedEvent.self, context: "turn/diff/updated") {
+          return .diffUpdated(event)
+        }
+
+      case "turn/plan/updated":
+        if let event = decode(PlanUpdatedEvent.self, context: "turn/plan/updated") {
+          return .planUpdated(event)
         }
 
       // Legacy turn events (route to same handlers)
@@ -854,12 +920,12 @@ extension CodexServerEvent {
 
       // === ITEM LIFECYCLE ===
       case "item/started":
-        if let event = decode(ItemCreatedEvent.self) {
+        if let event = decode(ItemCreatedEvent.self, context: "item/started") {
           return .itemCreated(event)
         }
 
       case "item/completed":
-        if let event = decode(ItemUpdatedEvent.self) {
+        if let event = decode(ItemUpdatedEvent.self, context: "item/completed") {
           return .itemUpdated(event)
         }
 
@@ -874,44 +940,44 @@ extension CodexServerEvent {
 
       // === APPROVALS (JSON-RPC requests, not notifications) ===
       case "item/commandExecution/requestApproval":
-        if let event = decode(ExecApprovalRequestEvent.self) {
+        if let event = decode(ExecApprovalRequestEvent.self, context: "exec_approval_request") {
           return .execApprovalRequest(event)
         }
 
       case "item/fileChange/requestApproval":
-        if let event = decode(PatchApprovalRequestEvent.self) {
+        if let event = decode(PatchApprovalRequestEvent.self, context: "patch_approval_request") {
           return .patchApprovalRequest(event)
         }
 
       case "tool/requestUserInput":
-        if let event = decode(UserInputRequestEvent.self) {
+        if let event = decode(UserInputRequestEvent.self, context: "user_input_request") {
           return .userInputRequest(event)
         }
 
       case "elicitation_request":
-        if let event = decode(ElicitationRequestEvent.self) {
+        if let event = decode(ElicitationRequestEvent.self, context: "elicitation_request") {
           return .elicitationRequest(event)
         }
 
       // === SESSION ===
       case "session_configured":
-        if let event = decode(SessionConfiguredEvent.self) {
+        if let event = decode(SessionConfiguredEvent.self, context: "session_configured") {
           return .sessionConfigured(event)
         }
 
       case "thread/name/updated":
-        if let event = decode(ThreadNameUpdatedEvent.self) {
+        if let event = decode(ThreadNameUpdatedEvent.self, context: "thread/name/updated") {
           return .threadNameUpdated(event)
         }
 
       // === TOKEN USAGE & RATE LIMITS ===
       case "thread/tokenUsage/updated":
-        if let event = decode(TokenUsageEvent.self) {
+        if let event = decode(TokenUsageEvent.self, context: "thread/tokenUsage/updated") {
           return .tokenUsageUpdated(event)
         }
 
       case "account/rateLimits/updated":
-        if let event = decode(RateLimitsEvent.self) {
+        if let event = decode(RateLimitsEvent.self, context: "account/rateLimits/updated") {
           return .rateLimitsUpdated(event)
         }
 
@@ -921,7 +987,7 @@ extension CodexServerEvent {
 
       // === MCP LIFECYCLE ===
       case "codex/event/mcp_startup_update":
-        if let legacyParams = decode(MCPStartupEvent.LegacyParams.self),
+        if let legacyParams = decode(MCPStartupEvent.LegacyParams.self, context: "mcp_startup_update"),
            let msg = legacyParams.msg
         {
           let event = MCPStartupEvent(server: msg.server, status: msg.status)
@@ -929,7 +995,7 @@ extension CodexServerEvent {
         }
 
       case "codex/event/mcp_startup_complete":
-        if let legacyParams = decode(MCPStartupEvent.LegacyParams.self),
+        if let legacyParams = decode(MCPStartupEvent.LegacyParams.self, context: "mcp_startup_complete"),
            let msg = legacyParams.msg
         {
           let event = MCPStartupEvent(server: msg.server, status: msg.status)
@@ -938,7 +1004,7 @@ extension CodexServerEvent {
 
       // === ERRORS ===
       case "error":
-        if let event = decode(CodexErrorEvent.self) {
+        if let event = decode(CodexErrorEvent.self, context: "error") {
           return .error(event)
         }
 

@@ -11,58 +11,7 @@ import Foundation
 import os.log
 
 private let logger = Logger(subsystem: "com.orbitdock", category: "CodexAppServer")
-
-/// File logger for debugging Codex server events
-private class CodexFileLogger {
-  static let shared = CodexFileLogger()
-
-  private let logPath: URL
-  private let queue = DispatchQueue(label: "codex-file-logger")
-  private var fileHandle: FileHandle?
-
-  init() {
-    let orbitDockDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".orbitdock")
-    try? FileManager.default.createDirectory(at: orbitDockDir, withIntermediateDirectories: true)
-    logPath = orbitDockDir.appendingPathComponent("codex-server.log")
-
-    // Create or truncate log file on init
-    FileManager.default.createFile(atPath: logPath.path, contents: nil)
-    fileHandle = try? FileHandle(forWritingTo: logPath)
-    fileHandle?.seekToEndOfFile()
-
-    log("=== Codex Server Log Started at \(Date()) ===")
-  }
-
-  func log(_ message: String) {
-    queue.async { [weak self] in
-      guard let self else { return }
-      let timestamp = ISO8601DateFormatter().string(from: Date())
-      let line = "[\(timestamp)] \(message)\n"
-      if let data = line.data(using: .utf8) {
-        self.fileHandle?.write(data)
-      }
-    }
-  }
-
-  func logJSON(_ label: String, _ json: [String: Any]) {
-    queue.async { [weak self] in
-      guard let self else { return }
-      let timestamp = ISO8601DateFormatter().string(from: Date())
-      var line = "[\(timestamp)] \(label):\n"
-      if let data = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted),
-         let jsonString = String(data: data, encoding: .utf8)
-      {
-        line += jsonString + "\n"
-      } else {
-        line += "  <failed to serialize>\n"
-      }
-      line += "---\n"
-      if let data = line.data(using: .utf8) {
-        self.fileHandle?.write(data)
-      }
-    }
-  }
-}
+private let fileLogger = CodexFileLogger.shared
 
 @Observable
 final class CodexAppServerClient: @unchecked Sendable {
@@ -262,7 +211,9 @@ final class CodexAppServerClient: @unchecked Sendable {
           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else {
       logger.warning("Failed to parse JSON line: \(line.prefix(100))")
-      CodexFileLogger.shared.log("PARSE ERROR: \(line.prefix(200))")
+      fileLogger.log(.warning, category: .decode, message: "Failed to parse JSON line", data: [
+        "preview": String(line.prefix(200)),
+      ])
       return
     }
 
@@ -273,22 +224,18 @@ final class CodexAppServerClient: @unchecked Sendable {
     if hasId && hasResult {
       // Response to one of our requests
       if let id = json["id"] as? Int {
-        CodexFileLogger.shared.logJSON("RESPONSE (id=\(id))", json)
+        fileLogger.log(.debug, category: .connection, message: "Response received", data: ["id": id])
         handleResponse(id: id, json: json, data: data)
       }
     } else if hasId && hasMethod {
       // Server-initiated request (e.g., approval requests) - needs response
       if let id = json["id"] as? Int, let method = json["method"] as? String {
-        CodexFileLogger.shared.logJSON("SERVER REQUEST: \(method) (id=\(id))", json)
+        fileLogger.log(.info, category: .connection, message: "Server request", data: ["id": id, "method": method])
         handleServerRequest(id: id, method: method, json: json)
       }
     } else if hasMethod {
       // Notification (no response needed)
       if let method = json["method"] as? String {
-        // Only log non-delta events to avoid spam (deltas are streaming tokens)
-        if !method.contains("delta") {
-          CodexFileLogger.shared.logJSON("EVENT: \(method)", json)
-        }
         handleNotification(method: method, json: json)
       }
     }
@@ -471,7 +418,7 @@ final class CodexAppServerClient: @unchecked Sendable {
 
     // Log outgoing request
     print("[Codex] → \(method) (id=\(id))")
-    CodexFileLogger.shared.logJSON("REQUEST: \(method) (id=\(id))", request)
+    fileLogger.log(.debug, category: .connection, message: "Request sent", data: ["method": method, "id": id])
     if let prettyParams = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(params)) as? [String: Any] {
       let keys = prettyParams.keys.joined(separator: ", ")
       print("[Codex]   params: {\(keys)}")

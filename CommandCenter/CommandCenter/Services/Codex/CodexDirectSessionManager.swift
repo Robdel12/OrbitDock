@@ -10,6 +10,7 @@ import Foundation
 import os.log
 
 private let logger = Logger(subsystem: "com.orbitdock", category: "CodexDirectSession")
+private let fileLogger = CodexFileLogger.shared
 
 @Observable
 @MainActor
@@ -52,17 +53,21 @@ final class CodexDirectSessionManager {
 
   /// Connect to app-server and start listening for events
   func connect() async throws {
+    fileLogger.logConnectionState("connecting")
     try await client.connect()
     startListening()
+    fileLogger.logConnectionState("connected", details: "Event listener started")
     logger.info("Connected and listening for events")
   }
 
   /// Disconnect and stop listening
   func disconnect() {
+    fileLogger.logConnectionState("disconnecting", details: "Active threads: \(threadSessionMap.keys.joined(separator: ", "))")
     eventTask?.cancel()
     eventTask = nil
     isListening = false
     client.disconnect()
+    fileLogger.logConnectionState("disconnected")
     logger.info("Disconnected")
   }
 
@@ -125,6 +130,14 @@ final class CodexDirectSessionManager {
         if let threadId = e.threadId {
           return threadSessionMap[threadId]
         }
+      case let .diffUpdated(e):
+        if let threadId = e.threadId {
+          return threadSessionMap[threadId]
+        }
+      case let .planUpdated(e):
+        if let threadId = e.threadId {
+          return threadSessionMap[threadId]
+        }
       case .rateLimitsUpdated:
         // Rate limits are account-wide, not per-thread
         // Use first session as fallback (could be improved to update all sessions)
@@ -144,6 +157,11 @@ final class CodexDirectSessionManager {
 
   /// Create a new Codex direct session
   func createSession(cwd: String, model: String? = nil) async throws -> Session {
+    fileLogger.log(.info, category: .session, message: "createSession", data: [
+      "cwd": cwd,
+      "model": model ?? "default",
+    ])
+
     // Ensure connected
     if client.state != .connected {
       try await connect()
@@ -164,12 +182,18 @@ final class CodexDirectSessionManager {
       branch: branch,
       transcriptPath: threadInfo.path
     ) else {
+      fileLogger.log(.error, category: .session, message: "createSession failed: DB insert failed", data: ["threadId": threadInfo.id])
       throw CodexClientError.requestFailed(code: -1, message: "Failed to create session in database")
     }
 
     // Update mapping
     threadSessionMap[threadInfo.id] = session.id
 
+    fileLogger.log(.info, category: .session, message: "createSession success", sessionId: session.id, data: [
+      "threadId": threadInfo.id,
+      "branch": branch ?? "nil",
+      "transcriptPath": threadInfo.path ?? "nil",
+    ])
     logger.info("Created session: \(session.id) for thread: \(threadInfo.id)")
     return session
   }
@@ -228,11 +252,18 @@ final class CodexDirectSessionManager {
 
   /// Send a user message to start a new turn
   func sendMessage(_ sessionId: String, message: String) async throws {
+    fileLogger.log(.info, category: .session, message: "sendMessage", sessionId: sessionId, data: [
+      "messageLen": message.count,
+      "messagePreview": String(message.prefix(100)),
+    ])
+
     // Try to get thread ID from active sessions
     var threadId = threadIdForSession(sessionId)
 
     // If not in active map, try to resume the session
     if threadId == nil {
+      fileLogger.log(.debug, category: .session, message: "sendMessage: thread not in active map, checking DB", sessionId: sessionId)
+
       // Look up session from database to get thread ID
       if let session = db.fetchSession(id: sessionId),
          let storedThreadId = session.codexThreadId
@@ -243,11 +274,13 @@ final class CodexDirectSessionManager {
 
         // Reactivate session in database
         db.reactivateSession(sessionId: sessionId)
+        fileLogger.log(.info, category: .session, message: "sendMessage: auto-resumed session", sessionId: sessionId, data: ["threadId": storedThreadId])
         logger.info("Auto-resumed session: \(sessionId) for thread: \(storedThreadId)")
       }
     }
 
     guard let threadId else {
+      fileLogger.log(.error, category: .session, message: "sendMessage failed: no thread ID", sessionId: sessionId)
       throw CodexClientError.requestFailed(code: -1, message: "Session not found or has no thread ID")
     }
 
@@ -278,6 +311,10 @@ final class CodexDirectSessionManager {
 
     // Start turn via app-server
     let turnId = try await client.startTurn(threadId: threadId, message: message)
+    fileLogger.log(.info, category: .session, message: "sendMessage: turn started", sessionId: sessionId, data: [
+      "turnId": turnId,
+      "threadId": threadId,
+    ])
     logger.info("Started turn: \(turnId) for session: \(sessionId)")
   }
 
