@@ -441,54 +441,36 @@ enum Provider {
 
 ---
 
-### Phase 3: Codex Connector
+### Phase 3: Codex Connector ✅ COMPLETE
 > Goal: Codex sessions work through the new architecture.
 
 **Deliverable**: Codex sessions running through Rust server.
 
-#### Option A: Subprocess (Start here)
+#### Subprocess Connector ✅ COMPLETE
 
-- [ ] Port `CodexAppServerClient` logic to Rust
-  ```rust
-  pub struct CodexSubprocessConnector {
-      process: Child,
-      stdin: ChildStdin,
-      stdout: BufReader<ChildStdout>,
-  }
+- [x] Port `CodexAppServerClient` logic to Rust (`connectors/src/codex.rs`)
+  - Process spawning with `codex app-server`
+  - JSON-RPC request/response with correlation
+  - Event reading and translation
+  - Binary discovery (homebrew, /usr/local, which)
+- [x] Translate Codex events to OrbitDock events
+  - Turn lifecycle (started, completed, aborted)
+  - Items (created, updated) → Messages
+  - Token usage, diff, plan updates
+  - Approval requests (exec, patch, question)
+- [x] Handle approval flow via submissions
+- [x] Handle user messages via turn/start
+- [x] Wire into WebSocket handler (`codex_session.rs`)
+  - Event loop forwards events to session subscribers
+  - Action channel receives commands from WebSocket
 
-  impl CodexSubprocessConnector {
-      pub async fn spawn(cwd: &str) -> Result<Self> {
-          let mut process = Command::new("codex")
-              .args(["app-server", "--cwd", cwd])
-              .stdin(Stdio::piped())
-              .stdout(Stdio::piped())
-              .spawn()?;
-          // ...
-      }
-
-      pub async fn send_request(&mut self, method: &str, params: Value) -> Result<Value> {
-          // JSON-RPC over stdio
-      }
-  }
-  ```
-
-- [ ] Translate Codex events to OrbitDock events
-- [ ] Handle approval flow
-- [ ] Handle user messages
-
-#### Option B: Direct Integration (Future)
+#### Direct Integration (Future - Phase 7)
 
 - [ ] Add codex-rs as dependency
-  ```toml
-  [dependencies]
-  codex-core = { git = "https://github.com/openai/codex", branch = "main" }
-  ```
-
 - [ ] Use Codex types directly
 - [ ] Subscribe to events without IPC
-- [ ] Significant performance improvement
 
-#### Testing
+#### Testing (TODO)
 - [ ] Create Codex session through server
 - [ ] Verify events flow to Swift UI
 - [ ] Test approval flow

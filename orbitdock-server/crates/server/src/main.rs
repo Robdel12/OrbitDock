@@ -3,6 +3,7 @@
 //! Mission control for AI coding agents.
 //! Provides real-time session management via WebSocket.
 
+mod codex_session;
 mod persistence;
 mod session;
 mod state;

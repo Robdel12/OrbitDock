@@ -13,8 +13,9 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
-use orbitdock_protocol::{ClientMessage, ServerMessage};
+use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
 
+use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::PersistCommand;
 use crate::state::AppState;
 
@@ -105,15 +106,16 @@ async fn handle_client_message(
             state.subscribe_list(client_tx.clone());
 
             // Send current list
-            let sessions = state.get_session_summaries();
+            let sessions = state.get_session_summaries().await;
             let _ = client_tx
                 .send(ServerMessage::SessionsList { sessions })
                 .await;
         }
 
         ClientMessage::SubscribeSession { session_id } => {
-            let mut state = state.lock().await;
-            if let Some(session) = state.get_session_mut(&session_id) {
+            let state = state.lock().await;
+            if let Some(session) = state.get_session(&session_id) {
+                let mut session = session.lock().await;
                 session.subscribe(client_tx.clone());
 
                 // Send current state
@@ -133,8 +135,9 @@ async fn handle_client_message(
         }
 
         ClientMessage::UnsubscribeSession { session_id } => {
-            let mut state = state.lock().await;
-            if let Some(session) = state.get_session_mut(&session_id) {
+            let state = state.lock().await;
+            if let Some(session) = state.get_session(&session_id) {
+                let mut session = session.lock().await;
                 session.unsubscribe(client_tx);
             }
         }
@@ -157,21 +160,21 @@ async fn handle_client_message(
             let summary = handle.summary();
             let snapshot = handle.state();
 
-            let mut state = state.lock().await;
+            let mut state_guard = state.lock().await;
 
             // Persist session creation
-            let _ = state
-                .persist()
+            let persist_tx = state_guard.persist().clone();
+            let _ = persist_tx
                 .send(PersistCommand::SessionCreate {
                     id: id.clone(),
                     provider,
-                    project_path: cwd,
+                    project_path: cwd.clone(),
                     project_name,
                     model: model.clone(),
                 })
                 .await;
 
-            state.add_session(handle);
+            let session_arc = state_guard.add_session(handle);
 
             // Notify creator
             let _ = client_tx
@@ -179,16 +182,43 @@ async fn handle_client_message(
                 .await;
 
             // Notify list subscribers
-            state
+            state_guard
                 .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
                 .await;
 
-            // TODO: Actually spawn the connector
+            // Spawn Codex connector if it's a Codex session
+            if provider == Provider::Codex {
+                let session_id = id.clone();
+                let cwd_clone = cwd.clone();
+                let model_clone = model.clone();
+
+                match CodexSession::new(session_id.clone(), &cwd_clone, model_clone.as_deref()).await {
+                    Ok(codex_session) => {
+                        let action_tx = codex_session.start_event_loop(session_arc.clone(), persist_tx);
+                        state_guard.set_codex_action_tx(&session_id, action_tx);
+                        info!("Codex session {} started", session_id);
+                    }
+                    Err(e) => {
+                        error!("Failed to start Codex session: {}", e);
+                        let _ = client_tx
+                            .send(ServerMessage::Error {
+                                code: "codex_error".into(),
+                                message: e.to_string(),
+                                session_id: Some(session_id),
+                            })
+                            .await;
+                    }
+                }
+            }
         }
 
         ClientMessage::SendMessage { session_id, content } => {
             info!("Sending message to {}: {}", session_id, content);
-            // TODO: Forward to connector
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx.send(CodexAction::SendMessage { content }).await;
+            }
         }
 
         ClientMessage::ApproveTool {
@@ -200,7 +230,15 @@ async fn handle_client_message(
                 "Approval for {} in {}: {}",
                 request_id, session_id, approved
             );
-            // TODO: Forward to connector
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                // Try exec first, then patch
+                let _ = tx.send(CodexAction::ApproveExec {
+                    request_id: request_id.clone(),
+                    approved,
+                }).await;
+            }
         }
 
         ClientMessage::AnswerQuestion {
@@ -209,12 +247,22 @@ async fn handle_client_message(
             answer,
         } => {
             info!("Answer for {} in {}: {}", request_id, session_id, answer);
-            // TODO: Forward to connector
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let mut answers = std::collections::HashMap::new();
+                answers.insert("0".to_string(), answer);
+                let _ = tx.send(CodexAction::AnswerQuestion { request_id, answers }).await;
+            }
         }
 
         ClientMessage::InterruptSession { session_id } => {
             info!("Interrupting session {}", session_id);
-            // TODO: Forward to connector
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx.send(CodexAction::Interrupt).await;
+            }
         }
 
         ClientMessage::EndSession { session_id } => {
