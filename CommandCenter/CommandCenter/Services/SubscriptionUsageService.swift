@@ -56,7 +56,7 @@ struct SubscriptionUsage: Sendable {
     var projectedAtReset: Double {
       guard timeElapsed > 60 else { return utilization } // Need at least 1 min of data
       let rate = utilization / timeElapsed
-      return min(100, rate * windowDuration)
+      return max(0, rate * windowDuration)
     }
 
     /// Whether on track to exceed the limit

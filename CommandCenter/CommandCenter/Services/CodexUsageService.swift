@@ -41,7 +41,7 @@ struct CodexUsage: Sendable {
     var projectedAtReset: Double {
       guard timeElapsed > 60 else { return usedPercent }
       let rate = usedPercent / timeElapsed
-      return min(100, rate * windowDuration)
+      return max(0, rate * windowDuration)
     }
 
     var willExceed: Bool { projectedAtReset > 95 }

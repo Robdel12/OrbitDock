@@ -120,7 +120,7 @@ struct ProviderUsageCard: View {
       if window.paceStatus != .unknown {
         text += "\n  Pace: \(window.paceStatus.rawValue)"
         if window.projectedAtReset > window.utilization {
-          text += " → projected \(Int(window.projectedAtReset))% at reset"
+          text += " → projected \(Int(window.projectedAtReset.rounded()))% at reset"
         }
       }
       lines.append(text)

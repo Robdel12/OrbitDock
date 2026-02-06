@@ -44,7 +44,7 @@ struct MenuBarView: View {
       .padding(.vertical, 14)
 
       // Provider Usage
-      VStack(spacing: 8) {
+      VStack(spacing: 6) {
         ForEach(UsageServiceRegistry.shared.allProviders) { provider in
           ProviderMenuBarSection(
             provider: provider,
@@ -54,8 +54,8 @@ struct MenuBarView: View {
           )
         }
       }
-      .padding(.horizontal, 12)
-      .padding(.bottom, 10)
+      .padding(.horizontal, 8)
+      .padding(.bottom, 8)
 
       Divider()
 
@@ -90,7 +90,8 @@ struct MenuBarView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
       }
-      .frame(maxHeight: 320)
+      .frame(minHeight: 150, maxHeight: 320)
+      .layoutPriority(1)
 
       Divider()
 
@@ -130,7 +131,7 @@ struct MenuBarView: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
     }
-    .frame(width: 300)
+    .frame(width: 332)
   }
 
   private func sectionHeader(_ title: String) -> some View {

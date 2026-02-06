@@ -21,18 +21,16 @@ struct ProviderMenuBarSection: View {
   }
 
   var body: some View {
-    HStack(spacing: 0) {
-      // Provider branding
-      HStack(spacing: 4) {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack(spacing: 6) {
         Image(systemName: provider.icon)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(provider.accentColor)
 
         Text(provider.displayName)
-          .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.secondary)
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(.primary)
       }
-      .frame(width: 60, alignment: .leading)
 
       if !windows.isEmpty {
         VStack(spacing: 8) {
@@ -47,8 +45,9 @@ struct ProviderMenuBarSection: View {
             .controlSize(.small)
           Spacer()
         }
+        .padding(.vertical, 6)
       } else if let error {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
           if isApiKeyMode {
             Image(systemName: "key.fill")
               .font(.system(size: 9))
@@ -61,9 +60,9 @@ struct ProviderMenuBarSection: View {
         }
       }
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
-    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .padding(.horizontal, 9)
+    .padding(.vertical, 8)
+    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
   }
 }
 

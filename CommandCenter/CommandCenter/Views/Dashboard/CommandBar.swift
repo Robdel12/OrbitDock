@@ -287,7 +287,7 @@ private struct MiniGauge: View {
         }
 
         if showProjection {
-          Text("→\(Int(window.projectedAtReset))%")
+          Text("→\(Int(window.projectedAtReset.rounded()))%")
             .font(.system(size: 9, weight: .medium, design: .monospaced))
             .foregroundStyle(projectedColor.opacity(0.8))
         }

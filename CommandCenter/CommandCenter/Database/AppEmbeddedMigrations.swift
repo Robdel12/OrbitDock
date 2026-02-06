@@ -29,6 +29,7 @@ enum AppEmbeddedMigrations: Sendable {
     migration008,
     migration009,
     migration010,
+    migration011,
   ]
 
   // MARK: - Migration 001: Initial schema
@@ -383,6 +384,17 @@ enum AppEmbeddedMigrations: Sendable {
     sql: """
       ALTER TABLE sessions ADD COLUMN current_diff TEXT;
       ALTER TABLE sessions ADD COLUMN current_plan TEXT;
+      """
+  )
+
+  // MARK: - Migration 011: Session autonomy config
+
+  static let migration011 = Migration(
+    version: 11,
+    name: "session_autonomy",
+    sql: """
+      ALTER TABLE sessions ADD COLUMN approval_policy TEXT;
+      ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT;
       """
   )
 }
