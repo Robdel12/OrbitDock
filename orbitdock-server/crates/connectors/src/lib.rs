@@ -13,12 +13,6 @@ use thiserror::Error;
 /// Errors that can occur in connectors
 #[derive(Debug, Error)]
 pub enum ConnectorError {
-    #[error("Failed to spawn process: {0}")]
-    SpawnError(String),
-
-    #[error("Process communication error: {0}")]
-    IoError(#[from] std::io::Error),
-
     #[error("JSON serialization error: {0}")]
     JsonError(#[from] serde_json::Error),
 

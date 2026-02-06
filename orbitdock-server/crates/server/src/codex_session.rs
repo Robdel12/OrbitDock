@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use orbitdock_connectors::{ApprovalType, CodexConnector, ConnectorEvent};
-use orbitdock_protocol::{Message, ServerMessage, WorkStatus};
+use orbitdock_protocol::{ServerMessage, WorkStatus};
 use tokio::sync::{mpsc, Mutex};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
@@ -26,10 +26,7 @@ impl CodexSession {
         cwd: &str,
         model: Option<&str>,
     ) -> Result<Self, orbitdock_connectors::ConnectorError> {
-        let mut connector = CodexConnector::spawn(cwd).await?;
-
-        // Start a thread
-        connector.start_thread(cwd, model).await?;
+        let connector = CodexConnector::new(cwd, model).await?;
 
         Ok(Self {
             session_id,
@@ -304,13 +301,16 @@ impl CodexSession {
                 connector.interrupt().await?;
             }
             CodexAction::ApproveExec { request_id, approved } => {
-                connector.approve_exec(&request_id, approved)?;
+                connector.approve_exec(&request_id, approved).await?;
             }
             CodexAction::ApprovePatch { request_id, approved } => {
-                connector.approve_patch(&request_id, approved)?;
+                connector.approve_patch(&request_id, approved).await?;
             }
             CodexAction::AnswerQuestion { request_id, answers } => {
-                connector.answer_question(&request_id, answers)?;
+                connector.answer_question(&request_id, answers).await?;
+            }
+            CodexAction::EndSession => {
+                connector.shutdown().await?;
             }
         }
         Ok(())
@@ -325,6 +325,7 @@ pub enum CodexAction {
     ApproveExec { request_id: String, approved: bool },
     ApprovePatch { request_id: String, approved: bool },
     AnswerQuestion { request_id: String, answers: HashMap<String, String> },
+    EndSession,
 }
 
 /// Get current time as ISO 8601 string

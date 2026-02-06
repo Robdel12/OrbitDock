@@ -269,12 +269,6 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 MessageType::ToolResult => "toolResult",
             };
 
-            // Serialize tool_input to JSON string
-            let tool_input_str = message
-                .tool_input
-                .as_ref()
-                .map(|v| serde_json::to_string(v).unwrap_or_default());
-
             // Get next sequence number
             let seq: i64 = conn.query_row(
                 "SELECT COALESCE(MAX(sequence), -1) + 1 FROM messages WHERE session_id = ?",
@@ -293,7 +287,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     message.timestamp,
                     seq,
                     message.tool_name,
-                    tool_input_str,
+                    message.tool_input,
                     message.tool_output,
                     message.duration_ms.map(|d| d as f64 / 1000.0),
                     if message.is_error { 1 } else { 0 },

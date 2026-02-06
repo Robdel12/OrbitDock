@@ -55,11 +55,10 @@ pub enum MessageType {
 pub struct Message {
     pub id: String,
     pub session_id: String,
-    #[serde(rename = "type")]
     pub message_type: MessageType,
     pub content: String,
     pub tool_name: Option<String>,
-    pub tool_input: Option<serde_json::Value>,
+    pub tool_input: Option<String>,
     pub tool_output: Option<String>,
     pub is_error: bool,
     pub timestamp: String,

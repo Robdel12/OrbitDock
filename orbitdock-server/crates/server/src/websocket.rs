@@ -263,6 +263,17 @@ async fn handle_client_message(
             let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::SendMessage { content }).await;
+            } else {
+                warn!("No action channel for session {}", session_id);
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".into(),
+                        message: format!("Session {} not found or has no active connector", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
             }
         }
 
@@ -314,6 +325,11 @@ async fn handle_client_message(
             info!("Ending session {}", session_id);
 
             let mut state = state.lock().await;
+
+            // Tell the connector to shutdown gracefully
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx.send(CodexAction::EndSession).await;
+            }
 
             // Persist session end
             let _ = state
