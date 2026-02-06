@@ -86,10 +86,10 @@ impl CodexConnector {
             toml::Value::String(policy.to_string()),
         ));
 
-        // Set sandbox policy if specified
+        // Set sandbox mode if specified (config key is "sandbox_mode", not "sandbox_policy")
         if let Some(sandbox) = sandbox_mode {
             cli_overrides.push((
-                "sandbox_policy".to_string(),
+                "sandbox_mode".to_string(),
                 toml::Value::String(sandbox.to_string()),
             ));
         }
