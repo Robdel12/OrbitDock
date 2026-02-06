@@ -46,6 +46,35 @@ impl SessionHandle {
         }
     }
 
+    /// Restore a session from the database (for server restart recovery)
+    pub fn restore(
+        id: String,
+        provider: Provider,
+        project_path: String,
+        project_name: Option<String>,
+        model: Option<String>,
+        started_at: Option<String>,
+        last_activity_at: Option<String>,
+        messages: Vec<Message>,
+    ) -> Self {
+        Self {
+            id,
+            provider,
+            project_path,
+            project_name,
+            model,
+            status: SessionStatus::Active,
+            work_status: WorkStatus::Waiting,
+            messages,
+            token_usage: TokenUsage::default(),
+            current_diff: None,
+            current_plan: None,
+            started_at,
+            last_activity_at,
+            subscribers: Vec::new(),
+        }
+    }
+
     /// Get session ID
     pub fn id(&self) -> &str {
         &self.id

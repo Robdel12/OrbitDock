@@ -236,6 +236,15 @@ async fn handle_client_message(
                 match CodexSession::new(session_id.clone(), &cwd_clone, model_clone.as_deref()).await
                 {
                     Ok(codex_session) => {
+                        // Persist the codex-core thread ID so the watcher can skip this session
+                        let thread_id = codex_session.thread_id().to_string();
+                        let _ = persist_tx
+                            .send(PersistCommand::SetThreadId {
+                                session_id: session_id.clone(),
+                                thread_id,
+                            })
+                            .await;
+
                         let action_tx =
                             codex_session.start_event_loop(session_arc.clone(), persist_tx);
                         state_guard.set_codex_action_tx(&session_id, action_tx);

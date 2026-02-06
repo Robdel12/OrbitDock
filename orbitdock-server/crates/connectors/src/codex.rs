@@ -4,11 +4,12 @@
 //! No subprocess, no JSON-RPC — just Rust function calls.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use codex_core::auth::AuthCredentialsStoreMode;
-use codex_core::config::find_codex_home;
+use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::{AuthManager, CodexThread, ThreadManager};
 use codex_protocol::protocol::{
     Event, EventMsg, FileChange, Op, ReviewDecision, SessionSource,
@@ -21,11 +22,22 @@ use tracing::{debug, error, info};
 
 use crate::{ApprovalType, ConnectorError, ConnectorEvent};
 
+/// Tracks an in-progress assistant message being streamed via deltas
+struct StreamingMessage {
+    message_id: String,
+    content: String,
+    last_broadcast: std::time::Instant,
+}
+
+/// Minimum interval between streaming content broadcasts (ms)
+const STREAM_THROTTLE_MS: u128 = 50;
+
 /// Codex connector using direct codex-core integration
 pub struct CodexConnector {
     thread: Arc<CodexThread>,
     _thread_manager: Arc<ThreadManager>,
     event_rx: Option<mpsc::Receiver<ConnectorEvent>>,
+    thread_id: String,
 }
 
 impl CodexConnector {
@@ -54,10 +66,7 @@ impl CodexConnector {
         // Load config from user's existing setup (~/.codex/config.toml)
         let mut cli_overrides = Vec::new();
 
-        // Override cwd
-        cli_overrides.push(("cwd".to_string(), toml::Value::String(cwd.to_string())));
-
-        // Override model if specified
+        // Override model if specified (model IS a TOML config field)
         if let Some(m) = model {
             cli_overrides.push(("model".to_string(), toml::Value::String(m.to_string())));
         }
@@ -68,9 +77,18 @@ impl CodexConnector {
             toml::Value::String("untrusted".to_string()),
         ));
 
-        let config = codex_core::config::Config::load_with_cli_overrides(cli_overrides)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+        // cwd is a ConfigOverrides field, not a TOML config field
+        let harness_overrides = ConfigOverrides {
+            cwd: Some(std::path::PathBuf::from(cwd)),
+            ..Default::default()
+        };
+
+        let config = Config::load_with_cli_overrides_and_harness_overrides(
+            cli_overrides,
+            harness_overrides,
+        )
+        .await
+        .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
 
         // Start a thread
         let new_thread = thread_manager
@@ -84,19 +102,24 @@ impl CodexConnector {
 
         let (event_tx, event_rx) = mpsc::channel(256);
         let output_buffers = Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new()));
+        let streaming_message = Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None));
+        let msg_counter = Arc::new(AtomicU64::new(0));
 
         // Spawn async event loop
         let tx = event_tx.clone();
         let t = thread.clone();
         let buffers = output_buffers.clone();
+        let streaming = streaming_message.clone();
+        let counter = msg_counter.clone();
         tokio::spawn(async move {
-            Self::event_loop(t, tx, buffers).await;
+            Self::event_loop(t, tx, buffers, streaming, counter).await;
         });
 
         Ok(Self {
             thread,
             _thread_manager: thread_manager,
             event_rx: Some(event_rx),
+            thread_id: thread_id.to_string(),
         })
     }
 
@@ -105,11 +128,13 @@ impl CodexConnector {
         thread: Arc<CodexThread>,
         tx: mpsc::Sender<ConnectorEvent>,
         output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+        streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
+        msg_counter: Arc<AtomicU64>,
     ) {
         loop {
             match thread.next_event().await {
                 Ok(event) => {
-                    let events = Self::translate_event(event, &output_buffers).await;
+                    let events = Self::translate_event(event, &output_buffers, &streaming_message, &msg_counter).await;
                     for ev in events {
                         if tx.send(ev).await.is_err() {
                             debug!("Event channel closed, stopping event loop");
@@ -132,8 +157,28 @@ impl CodexConnector {
     async fn translate_event(
         event: Event,
         output_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+        streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
+        msg_counter: &AtomicU64,
     ) -> Vec<ConnectorEvent> {
         match event.msg {
+            EventMsg::UserMessage(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let msg_id = format!("user-{}-{}", event.id, seq);
+                let message = orbitdock_protocol::Message {
+                    id: msg_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::User,
+                    content: e.message,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
             EventMsg::TurnStarted(_) => {
                 vec![ConnectorEvent::TurnStarted]
             }
@@ -149,24 +194,38 @@ impl CodexConnector {
             }
 
             EventMsg::AgentMessage(e) => {
-                let message = orbitdock_protocol::Message {
-                    id: event.id.clone(),
-                    session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Assistant,
-                    content: e.message,
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: false,
-                    timestamp: iso_now(),
-                    duration_ms: None,
-                };
-                vec![ConnectorEvent::MessageCreated(message)]
+                // If we were streaming deltas, finalize that message with the complete text
+                let mut streaming = streaming_message.lock().await;
+                if let Some(s) = streaming.take() {
+                    vec![ConnectorEvent::MessageUpdated {
+                        message_id: s.message_id,
+                        content: Some(e.message),
+                        tool_output: None,
+                        is_error: None,
+                        duration_ms: None,
+                    }]
+                } else {
+                    // No streaming was in progress — create a fresh message
+                    let message = orbitdock_protocol::Message {
+                        id: event.id.clone(),
+                        session_id: String::new(),
+                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        content: e.message,
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
             }
 
             EventMsg::AgentReasoning(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
                 let message = orbitdock_protocol::Message {
-                    id: event.id.clone(),
+                    id: format!("thinking-{}-{}", event.id, seq),
                     session_id: String::new(),
                     message_type: orbitdock_protocol::MessageType::Thinking,
                     content: e.text,
@@ -400,9 +459,98 @@ impl CodexConnector {
                 vec![ConnectorEvent::Error(e.message)]
             }
 
-            // Ignore streaming deltas and other high-frequency events
-            EventMsg::AgentMessageDelta(_)
-            | EventMsg::AgentReasoningDelta(_)
+            EventMsg::AgentMessageContentDelta(e) => {
+                let mut streaming = streaming_message.lock().await;
+                match streaming.as_mut() {
+                    None => {
+                        // First delta — create the message bubble using item_id as unique ID
+                        let msg_id = e.item_id.clone();
+                        let message = orbitdock_protocol::Message {
+                            id: msg_id.clone(),
+                            session_id: String::new(),
+                            message_type: orbitdock_protocol::MessageType::Assistant,
+                            content: e.delta.clone(),
+                            tool_name: None,
+                            tool_input: None,
+                            tool_output: None,
+                            is_error: false,
+                            timestamp: iso_now(),
+                            duration_ms: None,
+                        };
+                        *streaming = Some(StreamingMessage {
+                            message_id: msg_id,
+                            content: e.delta,
+                            last_broadcast: std::time::Instant::now(),
+                        });
+                        vec![ConnectorEvent::MessageCreated(message)]
+                    }
+                    Some(s) => {
+                        // Accumulate content always
+                        s.content.push_str(&e.delta);
+
+                        // Only broadcast if enough time has passed
+                        let now = std::time::Instant::now();
+                        if now.duration_since(s.last_broadcast).as_millis() >= STREAM_THROTTLE_MS {
+                            s.last_broadcast = now;
+                            vec![ConnectorEvent::MessageUpdated {
+                                message_id: s.message_id.clone(),
+                                content: Some(s.content.clone()),
+                                tool_output: None,
+                                is_error: None,
+                                duration_ms: None,
+                            }]
+                        } else {
+                            vec![]
+                        }
+                    }
+                }
+            }
+
+            // Legacy fallback — older codex-core versions send this instead
+            EventMsg::AgentMessageDelta(e) => {
+                let mut streaming = streaming_message.lock().await;
+                match streaming.as_mut() {
+                    None => {
+                        let msg_id = event.id.clone();
+                        let message = orbitdock_protocol::Message {
+                            id: msg_id.clone(),
+                            session_id: String::new(),
+                            message_type: orbitdock_protocol::MessageType::Assistant,
+                            content: e.delta.clone(),
+                            tool_name: None,
+                            tool_input: None,
+                            tool_output: None,
+                            is_error: false,
+                            timestamp: iso_now(),
+                            duration_ms: None,
+                        };
+                        *streaming = Some(StreamingMessage {
+                            message_id: msg_id,
+                            content: e.delta,
+                            last_broadcast: std::time::Instant::now(),
+                        });
+                        vec![ConnectorEvent::MessageCreated(message)]
+                    }
+                    Some(s) => {
+                        s.content.push_str(&e.delta);
+                        let now = std::time::Instant::now();
+                        if now.duration_since(s.last_broadcast).as_millis() < STREAM_THROTTLE_MS {
+                            return vec![];
+                        }
+                        s.last_broadcast = now;
+                        vec![ConnectorEvent::MessageUpdated {
+                            message_id: s.message_id.clone(),
+                            content: Some(s.content.clone()),
+                            tool_output: None,
+                            is_error: None,
+                            duration_ms: None,
+                        }]
+                    }
+                }
+            }
+
+            // Ignore other high-frequency streaming events
+            EventMsg::AgentReasoningDelta(_)
             | EventMsg::AgentReasoningRawContent(_)
             | EventMsg::AgentReasoningRawContentDelta(_)
             | EventMsg::AgentReasoningSectionBreak(_)
@@ -410,7 +558,9 @@ impl CodexConnector {
 
             // Log but ignore other events
             other => {
-                debug!("Unhandled codex event: {:?}", std::mem::discriminant(&other));
+                let name = format!("{:?}", other);
+                let variant = name.split('(').next().unwrap_or(&name);
+                debug!("Unhandled codex event: {}", variant);
                 vec![]
             }
         }
@@ -419,6 +569,11 @@ impl CodexConnector {
     /// Get the event receiver (can only be called once)
     pub fn take_event_rx(&mut self) -> Option<mpsc::Receiver<ConnectorEvent>> {
         self.event_rx.take()
+    }
+
+    /// Get the codex-core thread ID (used to link with rollout files)
+    pub fn thread_id(&self) -> &str {
+        &self.thread_id
     }
 
     // MARK: - Actions

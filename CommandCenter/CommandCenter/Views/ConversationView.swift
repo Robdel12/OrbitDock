@@ -1290,7 +1290,7 @@ struct ActivityBanner: View {
         }
         return nil
       case .waiting:
-        return "Respond in terminal"
+        return provider == .codex ? "Send a message below" : "Respond in terminal"
       case .permission:
         // Use rich display if we have tool input
         return nil // We'll show rich content instead

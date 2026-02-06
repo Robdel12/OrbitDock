@@ -80,6 +80,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     UNUserNotificationCenter.current().setNotificationCategories([category])
 
+    // Watcher monitors CLI-started Codex sessions (skips server-managed ones)
     CodexRolloutWatcher.shared.start()
 
     // Fetch latest model pricing in background

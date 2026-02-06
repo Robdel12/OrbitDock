@@ -66,6 +66,12 @@ pub enum PersistCommand {
         diff: Option<String>,
         plan: Option<String>,
     },
+
+    /// Store codex-core thread ID for a session
+    SetThreadId {
+        session_id: String,
+        thread_id: String,
+    },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -192,15 +198,19 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             };
 
             let now = chrono_now();
+            let integration_mode: Option<&str> = match provider {
+                Provider::Codex => Some("direct"),
+                Provider::Claude => None,
+            };
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, model, provider, status, work_status, started_at, last_activity_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'active', 'waiting', ?6, ?6)
+                "INSERT INTO sessions (id, project_path, project_name, model, provider, status, work_status, codex_integration_mode, started_at, last_activity_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'active', 'waiting', ?7, ?6, ?6)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    model = COALESCE(?4, model),
                    last_activity_at = ?6",
-                params![id, project_path, project_name, model, provider_str, now],
+                params![id, project_path, project_name, model, provider_str, now, integration_mode],
             )?;
         }
 
@@ -387,6 +397,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
             }
         }
+
+        PersistCommand::SetThreadId {
+            session_id,
+            thread_id,
+        } => {
+            conn.execute(
+                "UPDATE sessions SET codex_thread_id = ? WHERE id = ?",
+                params![thread_id, session_id],
+            )?;
+        }
     }
 
     Ok(())
@@ -454,6 +474,114 @@ fn time_to_iso8601(secs: u64) -> String {
 
 fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// A session restored from the database on startup
+#[derive(Debug)]
+pub struct RestoredSession {
+    pub id: String,
+    pub project_path: String,
+    pub project_name: Option<String>,
+    pub model: Option<String>,
+    pub started_at: Option<String>,
+    pub last_activity_at: Option<String>,
+    pub messages: Vec<Message>,
+}
+
+/// Load active Codex sessions from the database (for server restart recovery)
+pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow::Error> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+
+    let sessions = tokio::task::spawn_blocking(move || -> Result<Vec<RestoredSession>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;"
+        )?;
+
+        // Load active codex sessions
+        let mut stmt = conn.prepare(
+            "SELECT id, project_path, project_name, model, started_at, last_activity_at
+             FROM sessions
+             WHERE provider = 'codex' AND status = 'active'"
+        )?;
+
+        let session_rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut sessions = Vec::new();
+
+        for (id, project_path, project_name, model, started_at, last_activity_at) in session_rows {
+            // Load messages for this session
+            let mut msg_stmt = conn.prepare(
+                "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
+                 FROM messages
+                 WHERE session_id = ?
+                 ORDER BY sequence"
+            )?;
+
+            let messages: Vec<Message> = msg_stmt
+                .query_map(params![&id], |row| {
+                    let type_str: String = row.get(1)?;
+                    let message_type = match type_str.as_str() {
+                        "user" => MessageType::User,
+                        "assistant" => MessageType::Assistant,
+                        "thinking" => MessageType::Thinking,
+                        "tool" => MessageType::Tool,
+                        "toolResult" => MessageType::ToolResult,
+                        _ => MessageType::Assistant,
+                    };
+
+                    let duration_secs: Option<f64> = row.get(7)?;
+                    let is_error_int: i32 = row.get(8)?;
+
+                    Ok(Message {
+                        id: row.get(0)?,
+                        session_id: id.clone(),
+                        message_type,
+                        content: row.get(2)?,
+                        timestamp: row.get(3)?,
+                        tool_name: row.get(4)?,
+                        tool_input: row.get(5)?,
+                        tool_output: row.get(6)?,
+                        duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
+                        is_error: is_error_int != 0,
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            sessions.push(RestoredSession {
+                id,
+                project_path,
+                project_name,
+                model,
+                started_at,
+                last_activity_at,
+                messages,
+            });
+        }
+
+        Ok(sessions)
+    }).await??;
+
+    Ok(sessions)
 }
 
 /// Create a sender for the persistence writer

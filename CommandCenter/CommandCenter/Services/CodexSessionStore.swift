@@ -80,6 +80,19 @@ final class CodexSessionStore {
     }
   }
 
+  /// Check if a codex-core thread ID is already managed by the Rust server
+  func isServerManaged(threadId: String) -> Bool {
+    do {
+      let stmt = try db.prepare(
+        "SELECT id FROM sessions WHERE codex_thread_id = ? LIMIT 1",
+        threadId
+      )
+      return stmt.makeIterator().next() != nil
+    } catch {
+      return false
+    }
+  }
+
   func upsertSession(
     sessionId: String,
     projectPath: String,

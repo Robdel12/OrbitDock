@@ -34,6 +34,11 @@ impl CodexSession {
         })
     }
 
+    /// Get the codex-core thread ID (used to link with rollout files)
+    pub fn thread_id(&self) -> &str {
+        self.connector.thread_id()
+    }
+
     /// Start the event forwarding loop
     pub fn start_event_loop(
         mut self,
@@ -144,6 +149,30 @@ impl CodexSession {
             ConnectorEvent::TurnAborted { reason } => {
                 info!("Turn aborted: {}", reason);
                 session.set_work_status(WorkStatus::Waiting);
+
+                let _ = persist_tx
+                    .send(PersistCommand::SessionUpdate {
+                        id: session_id.to_string(),
+                        status: None,
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.to_string(),
+                        changes: orbitdock_protocol::StateChanges {
+                            status: None,
+                            work_status: Some(WorkStatus::Waiting),
+                            pending_approval: None,
+                            token_usage: None,
+                            current_diff: None,
+                            current_plan: None,
+                            last_activity_at: Some(chrono_now()),
+                        },
+                    })
+                    .await;
             }
 
             ConnectorEvent::MessageCreated(mut message) => {
@@ -280,10 +309,51 @@ impl CodexSession {
 
             ConnectorEvent::SessionEnded { reason } => {
                 info!("Session ended: {}", reason);
+                session.set_work_status(WorkStatus::Ended);
+
+                let _ = persist_tx
+                    .send(PersistCommand::SessionEnd {
+                        id: session_id.to_string(),
+                        reason: reason.clone(),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionEnded {
+                        session_id: session_id.to_string(),
+                        reason,
+                    })
+                    .await;
             }
 
             ConnectorEvent::Error(msg) => {
                 warn!("Connector error: {}", msg);
+                // Transition to waiting so the UI isn't stuck on "working"
+                session.set_work_status(WorkStatus::Waiting);
+
+                let _ = persist_tx
+                    .send(PersistCommand::SessionUpdate {
+                        id: session_id.to_string(),
+                        status: None,
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.to_string(),
+                        changes: orbitdock_protocol::StateChanges {
+                            status: None,
+                            work_status: Some(WorkStatus::Waiting),
+                            pending_approval: None,
+                            token_usage: None,
+                            current_diff: None,
+                            current_plan: None,
+                            last_activity_at: Some(chrono_now()),
+                        },
+                    })
+                    .await;
             }
         }
     }

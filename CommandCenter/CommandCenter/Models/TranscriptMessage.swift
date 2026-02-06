@@ -90,6 +90,9 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   static func == (lhs: TranscriptMessage, rhs: TranscriptMessage) -> Bool {
     lhs.id == rhs.id
+      && lhs.content == rhs.content
+      && lhs.toolOutput == rhs.toolOutput
+      && lhs.isInProgress == rhs.isInProgress
   }
 
   var preview: String {

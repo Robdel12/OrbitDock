@@ -269,11 +269,19 @@ final class CodexRolloutWatcher {
     guard let sessionId = payload["id"] as? String,
           let cwd = payload["cwd"] as? String else { return }
 
+    // Skip sessions already managed by the Rust server (direct integration)
+    if store.isServerManaged(threadId: sessionId) {
+      state.sessionId = sessionId
+      if debug {
+        print("CodexRolloutWatcher: skipping server-managed session \(sessionId)")
+      }
+      return
+    }
+
     let modelProvider = payload["model_provider"] as? String
     let originator = payload["originator"] as? String ?? "codex"
     let startedAt = payload["timestamp"] as? String
 
-    let exists = store.sessionExists(sessionId)
     let gitInfo = GitInfo.resolve(for: cwd)
 
     let projectPath = cwd

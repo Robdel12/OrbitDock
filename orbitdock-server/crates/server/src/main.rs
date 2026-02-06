@@ -16,13 +16,15 @@ use axum::{response::IntoResponse, routing::get, Router};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use crate::persistence::{create_persistence_channel, PersistenceWriter};
+use crate::codex_session::CodexSession;
+use crate::persistence::{create_persistence_channel, load_active_codex_sessions, PersistenceWriter};
+use crate::session::SessionHandle;
 use crate::state::AppState;
 use crate::websocket::ws_handler;
 
@@ -36,20 +38,12 @@ async fn main() -> anyhow::Result<()> {
     // File appender - writes JSON to ~/.orbitdock/logs/server.log
     let file_appender = tracing_appender::rolling::never(&log_dir, "server.log");
 
-    // Combined subscriber: stderr (human-readable) + file (JSON, greppable)
+    // File-only logging — debug with: tail -f ~/.orbitdock/logs/server.log | jq .
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("debug,tower_http=info,hyper=info"));
+        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=warn,hyper=warn"));
 
     tracing_subscriber::registry()
         .with(filter)
-        .with(
-            fmt::layer()
-                .with_writer(std::io::stderr)
-                .with_file(true)
-                .with_line_number(true)
-                .with_target(false)
-                .compact(),
-        )
         .with(
             fmt::layer()
                 .with_writer(file_appender)
@@ -70,6 +64,63 @@ async fn main() -> anyhow::Result<()> {
 
     // Create app state with persistence sender
     let state = Arc::new(Mutex::new(AppState::new(persist_tx)));
+
+    // Restore active Codex sessions from database
+    match load_active_codex_sessions().await {
+        Ok(restored) if !restored.is_empty() => {
+            info!("Restoring {} active Codex session(s)...", restored.len());
+
+            for rs in restored {
+                let msg_count = rs.messages.len();
+                let handle = SessionHandle::restore(
+                    rs.id.clone(),
+                    orbitdock_protocol::Provider::Codex,
+                    rs.project_path.clone(),
+                    rs.project_name,
+                    rs.model.clone(),
+                    rs.started_at,
+                    rs.last_activity_at,
+                    rs.messages,
+                );
+
+                let mut app = state.lock().await;
+                let session_arc = app.add_session(handle);
+
+                // Try to reconnect a CodexConnector
+                match CodexSession::new(
+                    rs.id.clone(),
+                    &rs.project_path,
+                    rs.model.as_deref(),
+                ).await {
+                    Ok(codex) => {
+                        let persist = app.persist().clone();
+                        let action_tx = codex.start_event_loop(session_arc, persist);
+                        app.set_codex_action_tx(&rs.id, action_tx);
+                        info!(
+                            session_id = %rs.id,
+                            messages = msg_count,
+                            "Restored session with live connector"
+                        );
+                    }
+                    Err(e) => {
+                        // Session visible with messages but not interactive
+                        info!(
+                            session_id = %rs.id,
+                            messages = msg_count,
+                            error = %e,
+                            "Restored session (connector unavailable)"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(_) => {
+            info!("No active Codex sessions to restore");
+        }
+        Err(e) => {
+            warn!("Failed to load sessions for restoration: {}", e);
+        }
+    }
 
     // Build router
     let app = Router::new()
