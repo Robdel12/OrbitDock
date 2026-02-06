@@ -49,6 +49,7 @@ final class ServerConnection: ObservableObject {
   var onSessionCreated: ((ServerSessionSummary) -> Void)?
   var onSessionEnded: ((String, String) -> Void)?
   var onError: ((String, String, String?) -> Void)?
+  var onConnected: (() -> Void)?
 
   private init() {}
 
@@ -107,6 +108,9 @@ final class ServerConnection: ObservableObject {
 
           // Auto-subscribe to session list
           self.subscribeList()
+
+          // Notify observers (e.g. to re-subscribe to sessions)
+          self.onConnected?()
         }
       } catch {
         logger.warning("Connect attempt \(self.connectAttempts) failed: \(error.localizedDescription)")

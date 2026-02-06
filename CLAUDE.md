@@ -59,6 +59,7 @@ OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. 
 - **Database**: `~/.orbitdock/orbitdock.db` (separate from CLIs to survive reinstalls)
 - **CLI Logs**: `~/.orbitdock/cli.log` (debug output from orbitdock-cli)
 - **Codex App Logs**: `~/.orbitdock/logs/codex.log` (structured JSON logs for Codex debugging)
+- **Rust Server Logs**: `~/.orbitdock/logs/server.log` (structured JSON logs from orbitdock-server)
 - **Migrations**: `migrations/` (numbered SQL files, e.g., `001_initial.sql`)
 - **CLI Source**: `CommandCenter/OrbitDockCore/` (Swift Package with shared code + CLI)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
@@ -129,6 +130,41 @@ tail -100 ~/.orbitdock/logs/codex.log | jq 'select(.category == "decode")'
 ```
 
 This shows the exact payload that failed to parse, making it easy to fix struct definitions.
+
+## Debugging Rust Server
+
+The Rust server (`orbitdock-server`) logs to a file only — no stderr output. All logs are structured JSON.
+
+### Log Location
+`~/.orbitdock/logs/server.log`
+
+### Viewing Logs
+```bash
+# Watch all server logs live
+tail -f ~/.orbitdock/logs/server.log | jq .
+
+# Filter by keyword (sessions, codex events, restore, etc.)
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.fields.message | strings | test("codex|session|restore"))'
+
+# Errors only
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
+
+# Filter by source file
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.filename | strings | test("codex"))'
+```
+
+### Verbose Debug Logs
+Default log level is `info`. For verbose output, set `RUST_LOG` before launching:
+```bash
+RUST_LOG=debug cargo run
+```
+
+### Key Log Sources
+- `crates/server/src/main.rs` - Startup, session restoration
+- `crates/server/src/websocket.rs` - WebSocket messages, session creation
+- `crates/server/src/persistence.rs` - SQLite writes, batch flushes
+- `crates/server/src/codex_session.rs` - Codex event handling, approvals
+- `crates/connectors/src/codex.rs` - codex-core events, message translation
 
 ## OrbitDockCore Package
 

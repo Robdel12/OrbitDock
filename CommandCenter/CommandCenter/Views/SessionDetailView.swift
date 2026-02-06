@@ -104,14 +104,27 @@ struct SessionDetailView: View {
     .onAppear {
       loadUsageStats()
       setupSubscription()
+      if session.isDirectCodex {
+        serverState.subscribeToSession(session.id)
+      }
     }
     .onDisappear {
       transcriptSubscription?.cancel()
+      if session.isDirectCodex {
+        serverState.unsubscribeFromSession(session.id)
+      }
     }
-    .onChange(of: session.id) { _, _ in
+    .onChange(of: session.id) { oldId, newId in
       transcriptSubscription?.cancel()
+      // Unsubscribe from old session if it was server-managed
+      if serverState.isServerSession(oldId) {
+        serverState.unsubscribeFromSession(oldId)
+      }
       loadUsageStats()
       setupSubscription()
+      if session.isDirectCodex {
+        serverState.subscribeToSession(newId)
+      }
       // Reset scroll state for new session
       isPinned = true
       unreadCount = 0

@@ -297,12 +297,54 @@ async fn handle_client_message(
             );
 
             let state = state.lock().await;
+
+            // Look up approval type from session state
+            let approval_type = if let Some(session) = state.get_session(&session_id) {
+                let mut session = session.lock().await;
+                session.take_pending_approval(&request_id)
+            } else {
+                None
+            };
+
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                // Try exec first, then patch
-                let _ = tx.send(CodexAction::ApproveExec {
-                    request_id: request_id.clone(),
-                    approved,
-                }).await;
+                let action = match approval_type {
+                    Some(orbitdock_protocol::ApprovalType::Patch) => {
+                        info!("Dispatching patch approval for {}", request_id);
+                        CodexAction::ApprovePatch {
+                            request_id,
+                            approved,
+                        }
+                    }
+                    _ => {
+                        // Default to exec for exec and unknown types
+                        CodexAction::ApproveExec {
+                            request_id,
+                            approved,
+                        }
+                    }
+                };
+                let _ = tx.send(action).await;
+            }
+
+            // Clear pending approval and transition back to working
+            if let Some(session) = state.get_session(&session_id) {
+                let mut session = session.lock().await;
+                session.set_work_status(orbitdock_protocol::WorkStatus::Working);
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            status: None,
+                            work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                            pending_approval: Some(None), // Explicitly clear
+                            token_usage: None,
+                            current_diff: None,
+                            current_plan: None,
+                            last_activity_at: None,
+                        },
+                    })
+                    .await;
             }
         }
 

@@ -1,10 +1,12 @@
 //! Session management
 
+use std::collections::HashMap;
+
 use orbitdock_protocol::{
-    Message, Provider, SessionState, SessionStatus, SessionSummary, TokenUsage, WorkStatus,
+    ApprovalType, Message, Provider, SessionState, SessionStatus, SessionSummary, TokenUsage,
+    WorkStatus,
 };
 use tokio::sync::mpsc;
-// Note: debug, info will be used when connectors are wired up
 
 /// Handle to a running session
 pub struct SessionHandle {
@@ -22,6 +24,8 @@ pub struct SessionHandle {
     started_at: Option<String>,
     last_activity_at: Option<String>,
     subscribers: Vec<mpsc::Sender<orbitdock_protocol::ServerMessage>>,
+    /// Track approval type by request_id so we can dispatch correctly
+    pending_approval_types: HashMap<String, ApprovalType>,
 }
 
 impl SessionHandle {
@@ -43,6 +47,7 @@ impl SessionHandle {
             started_at: Some(now.clone()),
             last_activity_at: Some(now),
             subscribers: Vec::new(),
+            pending_approval_types: HashMap::new(),
         }
     }
 
@@ -72,6 +77,7 @@ impl SessionHandle {
             started_at,
             last_activity_at,
             subscribers: Vec::new(),
+            pending_approval_types: HashMap::new(),
         }
     }
 
@@ -156,6 +162,16 @@ impl SessionHandle {
     /// Update plan
     pub fn update_plan(&mut self, plan: String) {
         self.current_plan = Some(plan);
+    }
+
+    /// Register a pending approval
+    pub fn set_pending_approval(&mut self, request_id: String, approval_type: ApprovalType) {
+        self.pending_approval_types.insert(request_id, approval_type);
+    }
+
+    /// Get and remove the approval type for a request
+    pub fn take_pending_approval(&mut self, request_id: &str) -> Option<ApprovalType> {
+        self.pending_approval_types.remove(request_id)
     }
 
     /// Broadcast a message to all subscribers

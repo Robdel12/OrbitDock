@@ -27,6 +27,9 @@ struct StreamingMessage {
     message_id: String,
     content: String,
     last_broadcast: std::time::Instant,
+    /// True if started by AgentMessageContentDelta (newer path).
+    /// When set, AgentMessageDelta events are skipped to avoid doubling.
+    from_content_delta: bool,
 }
 
 /// Minimum interval between streaming content broadcasts (ms)
@@ -299,9 +302,32 @@ impl CodexConnector {
             }
 
             EventMsg::PatchApplyBegin(e) => {
-                // Build a summary of file changes
+                // Build diff and file info from changes
                 let files: Vec<String> = e.changes.keys().map(|p| p.display().to_string()).collect();
+                let first_file = files.first().cloned().unwrap_or_default();
                 let content = files.join(", ");
+
+                // Build unified diff from all changes
+                let unified_diff = e.changes.iter().map(|(path, change)| {
+                    match change {
+                        FileChange::Add { content } => {
+                            format!("--- /dev/null\n+++ {}\n{}", path.display(),
+                                content.lines().map(|l| format!("+{}", l)).collect::<Vec<_>>().join("\n"))
+                        }
+                        FileChange::Delete { content } => {
+                            format!("--- {}\n+++ /dev/null\n{}", path.display(),
+                                content.lines().map(|l| format!("-{}", l)).collect::<Vec<_>>().join("\n"))
+                        }
+                        FileChange::Update { unified_diff, .. } => {
+                            format!("--- {}\n+++ {}\n{}", path.display(), path.display(), unified_diff)
+                        }
+                    }
+                }).collect::<Vec<_>>().join("\n\n");
+
+                let tool_input = serde_json::to_string(&json!({
+                    "file_path": first_file,
+                    "unified_diff": unified_diff,
+                })).unwrap_or_default();
 
                 let message = orbitdock_protocol::Message {
                     id: e.call_id.clone(),
@@ -309,7 +335,7 @@ impl CodexConnector {
                     message_type: orbitdock_protocol::MessageType::Tool,
                     content,
                     tool_name: Some("Edit".to_string()),
-                    tool_input: None,
+                    tool_input: Some(tool_input),
                     tool_output: None,
                     is_error: false,
                     timestamp: iso_now(),
@@ -377,8 +403,9 @@ impl CodexConnector {
 
             EventMsg::ExecApprovalRequest(e) => {
                 let command = e.command.join(" ");
+                // Use event.id (sub_id) as request_id — codex-core keys approvals by sub_id, not call_id
                 vec![ConnectorEvent::ApprovalRequested {
-                    request_id: e.call_id,
+                    request_id: event.id.clone(),
                     approval_type: ApprovalType::Exec,
                     command: Some(command),
                     file_path: Some(e.cwd.display().to_string()),
@@ -388,26 +415,32 @@ impl CodexConnector {
             }
 
             EventMsg::ApplyPatchApprovalRequest(e) => {
-                // Build diff from changes
-                let diff = e
-                    .changes
-                    .iter()
-                    .map(|(path, change)| {
-                        let change_desc = match change {
-                            FileChange::Add { .. } => "add",
-                            FileChange::Delete { .. } => "delete",
-                            FileChange::Update { .. } => "update",
-                        };
-                        format!("{}: {}", change_desc, path.display())
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
+                // Build full diff from changes
+                let files: Vec<String> = e.changes.keys().map(|p| p.display().to_string()).collect();
+                let first_file = files.first().cloned();
 
+                let diff = e.changes.iter().map(|(path, change)| {
+                    match change {
+                        FileChange::Add { content } => {
+                            format!("--- /dev/null\n+++ {}\n{}", path.display(),
+                                content.lines().map(|l| format!("+{}", l)).collect::<Vec<_>>().join("\n"))
+                        }
+                        FileChange::Delete { content } => {
+                            format!("--- {}\n+++ /dev/null\n{}", path.display(),
+                                content.lines().map(|l| format!("-{}", l)).collect::<Vec<_>>().join("\n"))
+                        }
+                        FileChange::Update { unified_diff, .. } => {
+                            format!("--- {}\n+++ {}\n{}", path.display(), path.display(), unified_diff)
+                        }
+                    }
+                }).collect::<Vec<_>>().join("\n\n");
+
+                // Use event.id (sub_id) as request_id — codex-core keys approvals by sub_id, not call_id
                 vec![ConnectorEvent::ApprovalRequested {
-                    request_id: e.call_id,
+                    request_id: event.id.clone(),
                     approval_type: ApprovalType::Patch,
                     command: None,
-                    file_path: None,
+                    file_path: first_file,
                     diff: Some(diff),
                     question: None,
                 }]
@@ -481,6 +514,7 @@ impl CodexConnector {
                             message_id: msg_id,
                             content: e.delta,
                             last_broadcast: std::time::Instant::now(),
+                            from_content_delta: true,
                         });
                         vec![ConnectorEvent::MessageCreated(message)]
                     }
@@ -506,7 +540,8 @@ impl CodexConnector {
                 }
             }
 
-            // Legacy fallback — older codex-core versions send this instead
+            // Legacy fallback — older codex-core versions send this instead.
+            // Skipped when AgentMessageContentDelta is active (both fire simultaneously).
             EventMsg::AgentMessageDelta(e) => {
                 let mut streaming = streaming_message.lock().await;
                 match streaming.as_mut() {
@@ -528,10 +563,15 @@ impl CodexConnector {
                             message_id: msg_id,
                             content: e.delta,
                             last_broadcast: std::time::Instant::now(),
+                            from_content_delta: false,
                         });
                         vec![ConnectorEvent::MessageCreated(message)]
                     }
                     Some(s) => {
+                        // Skip if AgentMessageContentDelta is already handling streaming
+                        if s.from_content_delta {
+                            return vec![];
+                        }
                         s.content.push_str(&e.delta);
                         let now = std::time::Instant::now();
                         if now.duration_since(s.last_broadcast).as_millis() < STREAM_THROTTLE_MS {

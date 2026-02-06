@@ -113,6 +113,12 @@ final class ServerAppState {
       }
     }
 
+    conn.onConnected = { [weak self] in
+      Task { @MainActor in
+        self?.resubscribeAll()
+      }
+    }
+
     logger.info("ServerAppState callbacks wired")
   }
 
@@ -172,6 +178,18 @@ final class ServerAppState {
   /// Check if a session ID belongs to a server-managed session
   func isServerSession(_ sessionId: String) -> Bool {
     sessions.contains { $0.id == sessionId }
+  }
+
+  // MARK: - Reconnection
+
+  /// Re-subscribe to all previously subscribed sessions after reconnect
+  private func resubscribeAll() {
+    let sessions = subscribedSessions
+    subscribedSessions.removeAll()
+    logger.info("Re-subscribing to \(sessions.count) session(s) after reconnect")
+    for sessionId in sessions {
+      subscribeToSession(sessionId)
+    }
   }
 
   // MARK: - Message Handlers

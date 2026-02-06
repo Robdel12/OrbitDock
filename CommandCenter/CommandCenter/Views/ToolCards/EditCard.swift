@@ -205,7 +205,7 @@ struct EditCard: View {
           language: language
         )
       }
-      // For Edit tool, show unified diff
+      // For Edit tool, show unified diff (old_string/new_string)
       else if !oldString.isEmpty || !newString.isEmpty {
         UnifiedDiffView(
           oldString: oldString,
@@ -213,6 +213,10 @@ struct EditCard: View {
           language: language,
           maxLines: maxLines
         )
+      }
+      // For Codex file changes, render unified_diff via existing CodexDiffView
+      else if let diff = message.unifiedDiff, !diff.isEmpty {
+        CodexDiffView(diff: diff)
       }
       // Fallback
       else if let input = message.formattedToolInput {

@@ -247,6 +247,9 @@ impl CodexSession {
 
                 session.set_work_status(work_status);
 
+                // Track the approval type so websocket handler can dispatch correctly
+                session.set_pending_approval(request_id.clone(), approval_type_proto);
+
                 let request = orbitdock_protocol::ApprovalRequest {
                     id: request_id.clone(),
                     session_id: session_id.to_string(),
