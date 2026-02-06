@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  Inline approval UI for Codex direct sessions.
-//  Shows tool details with Approve/Reject buttons.
+//  Shows tool details with contextual decision buttons matching codex-core's ReviewDecision.
 //
 
 import SwiftUI
@@ -14,6 +14,16 @@ struct CodexApprovalView: View {
 
   @State private var isProcessing = false
   @State private var errorMessage: String?
+
+  /// Whether this approval has a proposed exec policy amendment (enables "Always Allow")
+  private var hasAmendment: Bool {
+    serverState.pendingApprovals[session.id]?.proposedAmendment != nil
+  }
+
+  /// Whether this is an exec approval (vs patch)
+  private var isExecApproval: Bool {
+    serverState.pendingApprovals[session.id]?.type == .exec
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -46,12 +56,12 @@ struct CodexApprovalView: View {
           .foregroundStyle(.red)
       }
 
-      // Action buttons
+      // Primary action buttons
       HStack(spacing: 12) {
-        Button(action: reject) {
+        Button(action: { sendDecision("denied") }) {
           HStack(spacing: 4) {
             Image(systemName: "xmark")
-            Text("Reject")
+            Text("Deny")
           }
           .frame(maxWidth: .infinity)
         }
@@ -59,7 +69,7 @@ struct CodexApprovalView: View {
         .tint(.red)
         .disabled(isProcessing)
 
-        Button(action: approve) {
+        Button(action: { sendDecision("approved") }) {
           HStack(spacing: 4) {
             Image(systemName: "checkmark")
             Text("Approve")
@@ -68,6 +78,34 @@ struct CodexApprovalView: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(Color.accent)
+        .disabled(isProcessing)
+      }
+
+      // Secondary options row
+      HStack(spacing: 16) {
+        Button("Allow for Session") {
+          sendDecision("approved_for_session")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .disabled(isProcessing)
+
+        if isExecApproval, hasAmendment {
+          Button("Always Allow") {
+            sendDecision("approved_always")
+          }
+          .font(.caption)
+          .foregroundStyle(Color.accent)
+          .disabled(isProcessing)
+        }
+
+        Spacer()
+
+        Button("Deny & Stop") {
+          sendDecision("abort")
+        }
+        .font(.caption)
+        .foregroundStyle(.red.opacity(0.8))
         .disabled(isProcessing)
       }
     }
@@ -168,18 +206,9 @@ struct CodexApprovalView: View {
     return dict
   }
 
-  private func approve() {
+  private func sendDecision(_ decision: String) {
     guard let requestId = session.pendingApprovalId else { return }
-    processApproval(approved: true, requestId: requestId)
-  }
-
-  private func reject() {
-    guard let requestId = session.pendingApprovalId else { return }
-    processApproval(approved: false, requestId: requestId)
-  }
-
-  private func processApproval(approved: Bool, requestId: String) {
-    serverState.approveTool(sessionId: session.id, requestId: requestId, approved: approved)
+    serverState.approveTool(sessionId: session.id, requestId: requestId, decision: decision)
   }
 }
 

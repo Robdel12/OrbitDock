@@ -91,6 +91,8 @@ async fn main() -> anyhow::Result<()> {
                     rs.id.clone(),
                     &rs.project_path,
                     rs.model.as_deref(),
+                    None,
+                    None,
                 ).await {
                     Ok(codex) => {
                         let persist = app.persist().clone();

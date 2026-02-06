@@ -266,8 +266,14 @@ final class MCPBridge {
       return HTTPResponse(status: 400, body: ["error": "Missing 'request_id' field"])
     }
 
-    guard let approved = body["approved"] as? Bool else {
-      return HTTPResponse(status: 400, body: ["error": "Missing 'approved' field"])
+    // Support both "decision" string and legacy "approved" bool
+    let decision: String
+    if let d = body["decision"] as? String {
+      decision = d
+    } else if let approved = body["approved"] as? Bool {
+      decision = approved ? "approved" : "denied"
+    } else {
+      return HTTPResponse(status: 400, body: ["error": "Missing 'approved' or 'decision' field"])
     }
 
     let approvalType = body["type"] as? String ?? "exec"
@@ -276,7 +282,7 @@ final class MCPBridge {
       let answer = body["answer"] as? String ?? ""
       state.answerQuestion(sessionId: sessionId, requestId: requestId, answer: answer)
     } else {
-      state.approveTool(sessionId: sessionId, requestId: requestId, approved: approved)
+      state.approveTool(sessionId: sessionId, requestId: requestId, decision: decision)
     }
 
     return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId])

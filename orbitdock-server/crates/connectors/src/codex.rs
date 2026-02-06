@@ -12,7 +12,7 @@ use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::{AuthManager, CodexThread, ThreadManager};
 use codex_protocol::protocol::{
-    Event, EventMsg, FileChange, Op, ReviewDecision, SessionSource,
+    AskForApproval, Event, EventMsg, FileChange, Op, ReviewDecision, SandboxPolicy, SessionSource,
 };
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
@@ -45,7 +45,12 @@ pub struct CodexConnector {
 
 impl CodexConnector {
     /// Create a new Codex connector with direct codex-core integration
-    pub async fn new(cwd: &str, model: Option<&str>) -> Result<Self, ConnectorError> {
+    pub async fn new(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+    ) -> Result<Self, ConnectorError> {
         info!("Creating codex-core connector for {}", cwd);
 
         // Resolve codex home directory (~/.codex)
@@ -74,11 +79,20 @@ impl CodexConnector {
             cli_overrides.push(("model".to_string(), toml::Value::String(m.to_string())));
         }
 
-        // Set approval policy to UnlessTrusted (safe default for OrbitDock)
+        // Set approval policy (defaults to "untrusted" if not specified)
+        let policy = approval_policy.unwrap_or("untrusted");
         cli_overrides.push((
             "approval_policy".to_string(),
-            toml::Value::String("untrusted".to_string()),
+            toml::Value::String(policy.to_string()),
         ));
+
+        // Set sandbox policy if specified
+        if let Some(sandbox) = sandbox_mode {
+            cli_overrides.push((
+                "sandbox_policy".to_string(),
+                toml::Value::String(sandbox.to_string()),
+            ));
+        }
 
         // cwd is a ConfigOverrides field, not a TOML config field
         let harness_overrides = ConfigOverrides {
@@ -403,6 +417,9 @@ impl CodexConnector {
 
             EventMsg::ExecApprovalRequest(e) => {
                 let command = e.command.join(" ");
+                let amendment = e
+                    .proposed_execpolicy_amendment
+                    .map(|a| a.command().to_vec());
                 // Use event.id (sub_id) as request_id — codex-core keys approvals by sub_id, not call_id
                 vec![ConnectorEvent::ApprovalRequested {
                     request_id: event.id.clone(),
@@ -411,6 +428,7 @@ impl CodexConnector {
                     file_path: Some(e.cwd.display().to_string()),
                     diff: None,
                     question: None,
+                    proposed_amendment: amendment,
                 }]
             }
 
@@ -443,6 +461,7 @@ impl CodexConnector {
                     file_path: first_file,
                     diff: Some(diff),
                     question: None,
+                    proposed_amendment: None,
                 }]
             }
 
@@ -455,6 +474,7 @@ impl CodexConnector {
                     file_path: None,
                     diff: None,
                     question: question_text,
+                    proposed_amendment: None,
                 }]
             }
 
@@ -648,17 +668,33 @@ impl CodexConnector {
         Ok(())
     }
 
-    /// Approve or reject an exec request
-    pub async fn approve_exec(&self, request_id: &str, approved: bool) -> Result<(), ConnectorError> {
-        let decision = if approved {
-            ReviewDecision::Approved
-        } else {
-            ReviewDecision::Denied
+    /// Approve or reject an exec request with a specific decision
+    pub async fn approve_exec(
+        &self,
+        request_id: &str,
+        decision: &str,
+        proposed_amendment: Option<Vec<String>>,
+    ) -> Result<(), ConnectorError> {
+        let review = match decision {
+            "approved" => ReviewDecision::Approved,
+            "approved_for_session" => ReviewDecision::ApprovedForSession,
+            "approved_always" => {
+                if let Some(cmd) = proposed_amendment {
+                    ReviewDecision::ApprovedExecpolicyAmendment {
+                        proposed_execpolicy_amendment: codex_protocol::approvals::ExecPolicyAmendment::new(cmd),
+                    }
+                } else {
+                    // Fallback to session-level if no amendment available
+                    ReviewDecision::ApprovedForSession
+                }
+            }
+            "abort" => ReviewDecision::Abort,
+            _ => ReviewDecision::Denied,
         };
 
         let op = Op::ExecApproval {
             id: request_id.to_string(),
-            decision,
+            decision: review,
         };
 
         self.thread
@@ -666,21 +702,22 @@ impl CodexConnector {
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve exec: {}", e)))?;
 
-        info!("Sent exec approval: {} = {}", request_id, approved);
+        info!("Sent exec approval: {} = {}", request_id, decision);
         Ok(())
     }
 
-    /// Approve or reject a patch request
-    pub async fn approve_patch(&self, request_id: &str, approved: bool) -> Result<(), ConnectorError> {
-        let decision = if approved {
-            ReviewDecision::Approved
-        } else {
-            ReviewDecision::Denied
+    /// Approve or reject a patch request with a specific decision
+    pub async fn approve_patch(&self, request_id: &str, decision: &str) -> Result<(), ConnectorError> {
+        let review = match decision {
+            "approved" => ReviewDecision::Approved,
+            "approved_for_session" => ReviewDecision::ApprovedForSession,
+            "abort" => ReviewDecision::Abort,
+            _ => ReviewDecision::Denied,
         };
 
         let op = Op::PatchApproval {
             id: request_id.to_string(),
-            decision,
+            decision: review,
         };
 
         self.thread
@@ -688,7 +725,7 @@ impl CodexConnector {
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve patch: {}", e)))?;
 
-        info!("Sent patch approval: {} = {}", request_id, approved);
+        info!("Sent patch approval: {} = {}", request_id, decision);
         Ok(())
     }
 
@@ -723,6 +760,63 @@ impl CodexConnector {
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to answer question: {}", e)))?;
 
         info!("Sent question answer: {}", request_id);
+        Ok(())
+    }
+
+    /// Update session config (approval policy and/or sandbox mode) mid-session
+    pub async fn update_config(
+        &self,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+    ) -> Result<(), ConnectorError> {
+        let policy = approval_policy.map(|p| match p {
+            "untrusted" => AskForApproval::UnlessTrusted,
+            "on-failure" => AskForApproval::OnFailure,
+            "on-request" => AskForApproval::OnRequest,
+            "never" => AskForApproval::Never,
+            _ => AskForApproval::OnRequest,
+        });
+
+        let sandbox = sandbox_mode.map(|s| match s {
+            "danger-full-access" => SandboxPolicy::DangerFullAccess,
+            "read-only" => SandboxPolicy::ReadOnly,
+            "workspace-write" => SandboxPolicy::WorkspaceWrite {
+                writable_roots: Vec::new(),
+                network_access: false,
+                exclude_tmpdir_env_var: false,
+                exclude_slash_tmp: false,
+            },
+            _ => SandboxPolicy::WorkspaceWrite {
+                writable_roots: Vec::new(),
+                network_access: false,
+                exclude_tmpdir_env_var: false,
+                exclude_slash_tmp: false,
+            },
+        });
+
+        let op = Op::OverrideTurnContext {
+            cwd: None,
+            approval_policy: policy,
+            sandbox_policy: sandbox,
+            windows_sandbox_level: None,
+            model: None,
+            effort: None,
+            summary: None,
+            collaboration_mode: None,
+            personality: None,
+        };
+
+        self.thread
+            .submit(op)
+            .await
+            .map_err(|e| {
+                ConnectorError::ProviderError(format!("Failed to update config: {}", e))
+            })?;
+
+        info!(
+            "Updated session config: approval={:?}, sandbox={:?}",
+            approval_policy, sandbox_mode
+        );
         Ok(())
     }
 

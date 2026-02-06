@@ -284,6 +284,9 @@ struct SessionDetailView: View {
           CodexTokenBadge(session: session)
         }
 
+        // Autonomy level pill
+        AutonomyPill(sessionId: session.id)
+
         // Turn sidebar toggle (plan + changes)
         if hasTurnStateContent {
           Button {

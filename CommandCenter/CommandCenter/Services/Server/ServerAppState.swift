@@ -39,6 +39,9 @@ final class ServerAppState {
   /// Revision counter per session - incremented on message append/update for change tracking
   private(set) var messageRevisions: [String: Int] = [:]
 
+  /// Current autonomy level per session
+  private(set) var currentAutonomy: [String: AutonomyLevel] = [:]
+
   // MARK: - Internal State
 
   /// Full session state cache (from snapshots)
@@ -46,6 +49,9 @@ final class ServerAppState {
 
   /// Track which sessions we're subscribed to
   private var subscribedSessions: Set<String> = []
+
+  /// Temporary: autonomy level from the most recent createSession call
+  private var pendingCreationAutonomy: AutonomyLevel?
 
   // MARK: - Setup
 
@@ -125,9 +131,12 @@ final class ServerAppState {
   // MARK: - Actions
 
   /// Create a new Codex session
-  func createSession(cwd: String, model: String? = nil) {
+  func createSession(cwd: String, model: String? = nil, approvalPolicy: String? = nil, sandboxMode: String? = nil) {
     logger.info("Creating Codex session in \(cwd)")
-    ServerConnection.shared.createSession(provider: .codex, cwd: cwd, model: model)
+    // Track the initial autonomy level so we can show it in the UI
+    let autonomy = AutonomyLevel.from(approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
+    pendingCreationAutonomy = autonomy
+    ServerConnection.shared.createSession(provider: .codex, cwd: cwd, model: model, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
   }
 
   /// Send a message to a session
@@ -136,10 +145,10 @@ final class ServerAppState {
     ServerConnection.shared.sendMessage(sessionId: sessionId, content: content)
   }
 
-  /// Approve or reject a tool
-  func approveTool(sessionId: String, requestId: String, approved: Bool) {
-    logger.info("Approving tool \(requestId) in \(sessionId): \(approved)")
-    ServerConnection.shared.approveTool(sessionId: sessionId, requestId: requestId, approved: approved)
+  /// Approve or reject a tool with a specific decision
+  func approveTool(sessionId: String, requestId: String, decision: String) {
+    logger.info("Approving tool \(requestId) in \(sessionId): \(decision)")
+    ServerConnection.shared.approveTool(sessionId: sessionId, requestId: requestId, decision: decision)
   }
 
   /// Answer a question
@@ -158,6 +167,17 @@ final class ServerAppState {
   func endSession(_ sessionId: String) {
     logger.info("Ending session \(sessionId)")
     ServerConnection.shared.endSession(sessionId)
+  }
+
+  /// Update session config (change autonomy level mid-session)
+  func updateSessionConfig(sessionId: String, autonomy: AutonomyLevel) {
+    logger.info("Updating session config \(sessionId) to \(autonomy.displayName)")
+    currentAutonomy[sessionId] = autonomy
+    ServerConnection.shared.updateSessionConfig(
+      sessionId: sessionId,
+      approvalPolicy: autonomy.approvalPolicy,
+      sandboxMode: autonomy.sandboxMode
+    )
   }
 
   /// Subscribe to a session's updates (called when viewing a session)
@@ -379,6 +399,12 @@ final class ServerAppState {
     // Add if not already present
     if !sessions.contains(where: { $0.id == session.id }) {
       sessions.append(session)
+    }
+
+    // Set initial autonomy level from creation
+    if let autonomy = pendingCreationAutonomy {
+      currentAutonomy[summary.id] = autonomy
+      pendingCreationAutonomy = nil
     }
 
     // Auto-subscribe to get detailed updates

@@ -103,6 +103,8 @@ pub struct ApprovalRequest {
     pub file_path: Option<String>,
     pub diff: Option<String>,
     pub question: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proposed_amendment: Option<Vec<String>>,
 }
 
 /// Type of approval being requested

@@ -14,6 +14,7 @@ struct NewCodexSessionSheet: View {
 
   @State private var selectedPath: String = ""
   @State private var selectedModel: CodexModel = .default
+  @State private var selectedAutonomy: AutonomyLevel = .suggest
   @State private var isCreating = false
   @State private var errorMessage: String?
 
@@ -96,6 +97,32 @@ struct NewCodexSessionSheet: View {
           .labelsHidden()
         }
 
+        // Autonomy picker
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Autonomy")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+
+          Picker("Autonomy", selection: $selectedAutonomy) {
+            ForEach(AutonomyLevel.allCases) { level in
+              Label(level.displayName, systemImage: level.icon)
+                .tag(level)
+            }
+          }
+          .pickerStyle(.segmented)
+          .labelsHidden()
+
+          HStack(spacing: 6) {
+            Image(systemName: selectedAutonomy.icon)
+              .font(.caption)
+              .foregroundStyle(selectedAutonomy == .fullAccess ? Color.statusPermission : .secondary)
+
+            Text(selectedAutonomy.description)
+              .font(.caption)
+              .foregroundStyle(selectedAutonomy == .fullAccess ? Color.statusPermission : .secondary)
+          }
+        }
+
         // Error message
         if let error = errorMessage {
           HStack(spacing: 8) {
@@ -143,7 +170,7 @@ struct NewCodexSessionSheet: View {
       }
       .padding()
     }
-    .frame(width: 450, height: 320)
+    .frame(width: 450, height: 400)
     .background(Color.backgroundSecondary)
   }
 
@@ -170,7 +197,12 @@ struct NewCodexSessionSheet: View {
     guard !selectedPath.isEmpty else { return }
 
     let model = selectedModel == .default ? nil : selectedModel.rawValue
-    serverState.createSession(cwd: selectedPath, model: model)
+    serverState.createSession(
+      cwd: selectedPath,
+      model: model,
+      approvalPolicy: selectedAutonomy.approvalPolicy,
+      sandboxMode: selectedAutonomy.sandboxMode
+    )
     dismiss()
   }
 }

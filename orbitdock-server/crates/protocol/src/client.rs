@@ -25,7 +25,7 @@ pub enum ClientMessage {
     ApproveTool {
         session_id: String,
         request_id: String,
-        approved: bool,
+        decision: String,
     },
     AnswerQuestion {
         session_id: String,
@@ -39,10 +39,19 @@ pub enum ClientMessage {
         session_id: String,
     },
 
+    // Session config
+    UpdateSessionConfig {
+        session_id: String,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
+    },
+
     // Session management
     CreateSession {
         provider: Provider,
         cwd: String,
         model: Option<String>,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
     },
 }

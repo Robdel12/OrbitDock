@@ -55,6 +55,7 @@ pub enum ConnectorEvent {
         file_path: Option<String>,
         diff: Option<String>,
         question: Option<String>,
+        proposed_amendment: Option<Vec<String>>,
     },
 
     /// Token usage updated

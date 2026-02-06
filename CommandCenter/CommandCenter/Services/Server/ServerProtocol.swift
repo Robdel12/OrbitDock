@@ -111,6 +111,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let filePath: String?
   let diff: String?
   let question: String?
+  let proposedAmendment: [String]?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -120,6 +121,7 @@ struct ServerApprovalRequest: Codable, Identifiable {
     case filePath = "file_path"
     case diff
     case question
+    case proposedAmendment = "proposed_amendment"
   }
 }
 
@@ -383,12 +385,13 @@ enum ClientToServerMessage: Codable {
   case subscribeList
   case subscribeSession(sessionId: String)
   case unsubscribeSession(sessionId: String)
-  case createSession(provider: ServerProvider, cwd: String, model: String?)
+  case createSession(provider: ServerProvider, cwd: String, model: String?, approvalPolicy: String?, sandboxMode: String?)
   case sendMessage(sessionId: String, content: String)
-  case approveTool(sessionId: String, requestId: String, approved: Bool)
+  case approveTool(sessionId: String, requestId: String, decision: String)
   case answerQuestion(sessionId: String, requestId: String, answer: String)
   case interruptSession(sessionId: String)
   case endSession(sessionId: String)
+  case updateSessionConfig(sessionId: String, approvalPolicy: String?, sandboxMode: String?)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -396,9 +399,11 @@ enum ClientToServerMessage: Codable {
     case provider
     case cwd
     case model
+    case approvalPolicy = "approval_policy"
+    case sandboxMode = "sandbox_mode"
     case content
     case requestId = "request_id"
-    case approved
+    case decision
     case answer
   }
 
@@ -417,22 +422,24 @@ enum ClientToServerMessage: Codable {
       try container.encode("unsubscribe_session", forKey: .type)
       try container.encode(sessionId, forKey: .sessionId)
 
-    case .createSession(let provider, let cwd, let model):
+    case .createSession(let provider, let cwd, let model, let approvalPolicy, let sandboxMode):
       try container.encode("create_session", forKey: .type)
       try container.encode(provider, forKey: .provider)
       try container.encode(cwd, forKey: .cwd)
       try container.encodeIfPresent(model, forKey: .model)
+      try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+      try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
 
     case .sendMessage(let sessionId, let content):
       try container.encode("send_message", forKey: .type)
       try container.encode(sessionId, forKey: .sessionId)
       try container.encode(content, forKey: .content)
 
-    case .approveTool(let sessionId, let requestId, let approved):
+    case .approveTool(let sessionId, let requestId, let decision):
       try container.encode("approve_tool", forKey: .type)
       try container.encode(sessionId, forKey: .sessionId)
       try container.encode(requestId, forKey: .requestId)
-      try container.encode(approved, forKey: .approved)
+      try container.encode(decision, forKey: .decision)
 
     case .answerQuestion(let sessionId, let requestId, let answer):
       try container.encode("answer_question", forKey: .type)
@@ -447,6 +454,12 @@ enum ClientToServerMessage: Codable {
     case .endSession(let sessionId):
       try container.encode("end_session", forKey: .type)
       try container.encode(sessionId, forKey: .sessionId)
+
+    case .updateSessionConfig(let sessionId, let approvalPolicy, let sandboxMode):
+      try container.encode("update_session_config", forKey: .type)
+      try container.encode(sessionId, forKey: .sessionId)
+      try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+      try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
     }
   }
 
@@ -465,7 +478,9 @@ enum ClientToServerMessage: Codable {
       self = .createSession(
         provider: try container.decode(ServerProvider.self, forKey: .provider),
         cwd: try container.decode(String.self, forKey: .cwd),
-        model: try container.decodeIfPresent(String.self, forKey: .model)
+        model: try container.decodeIfPresent(String.self, forKey: .model),
+        approvalPolicy: try container.decodeIfPresent(String.self, forKey: .approvalPolicy),
+        sandboxMode: try container.decodeIfPresent(String.self, forKey: .sandboxMode)
       )
     case "send_message":
       self = .sendMessage(
@@ -476,7 +491,7 @@ enum ClientToServerMessage: Codable {
       self = .approveTool(
         sessionId: try container.decode(String.self, forKey: .sessionId),
         requestId: try container.decode(String.self, forKey: .requestId),
-        approved: try container.decode(Bool.self, forKey: .approved)
+        decision: try container.decode(String.self, forKey: .decision)
       )
     case "answer_question":
       self = .answerQuestion(
@@ -488,6 +503,12 @@ enum ClientToServerMessage: Codable {
       self = .interruptSession(sessionId: try container.decode(String.self, forKey: .sessionId))
     case "end_session":
       self = .endSession(sessionId: try container.decode(String.self, forKey: .sessionId))
+    case "update_session_config":
+      self = .updateSessionConfig(
+        sessionId: try container.decode(String.self, forKey: .sessionId),
+        approvalPolicy: try container.decodeIfPresent(String.self, forKey: .approvalPolicy),
+        sandboxMode: try container.decodeIfPresent(String.self, forKey: .sandboxMode)
+      )
     default:
       throw DecodingError.dataCorrupted(
         DecodingError.Context(

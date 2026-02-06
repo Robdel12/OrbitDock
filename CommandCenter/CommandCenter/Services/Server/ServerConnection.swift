@@ -290,8 +290,8 @@ final class ServerConnection: ObservableObject {
   }
 
   /// Create a new session
-  func createSession(provider: ServerProvider, cwd: String, model: String? = nil) {
-    send(.createSession(provider: provider, cwd: cwd, model: model))
+  func createSession(provider: ServerProvider, cwd: String, model: String? = nil, approvalPolicy: String? = nil, sandboxMode: String? = nil) {
+    send(.createSession(provider: provider, cwd: cwd, model: model, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode))
   }
 
   /// Send a message to a session
@@ -299,9 +299,9 @@ final class ServerConnection: ObservableObject {
     send(.sendMessage(sessionId: sessionId, content: content))
   }
 
-  /// Approve or reject a tool
-  func approveTool(sessionId: String, requestId: String, approved: Bool) {
-    send(.approveTool(sessionId: sessionId, requestId: requestId, approved: approved))
+  /// Approve or reject a tool with a specific decision
+  func approveTool(sessionId: String, requestId: String, decision: String) {
+    send(.approveTool(sessionId: sessionId, requestId: requestId, decision: decision))
   }
 
   /// Answer a question
@@ -317,5 +317,10 @@ final class ServerConnection: ObservableObject {
   /// End a session
   func endSession(_ sessionId: String) {
     send(.endSession(sessionId: sessionId))
+  }
+
+  /// Update session config (autonomy level change)
+  func updateSessionConfig(sessionId: String, approvalPolicy: String?, sandboxMode: String?) {
+    send(.updateSessionConfig(sessionId: sessionId, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode))
   }
 }

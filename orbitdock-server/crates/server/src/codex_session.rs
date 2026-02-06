@@ -25,8 +25,10 @@ impl CodexSession {
         session_id: String,
         cwd: &str,
         model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
     ) -> Result<Self, orbitdock_connectors::ConnectorError> {
-        let connector = CodexConnector::new(cwd, model).await?;
+        let connector = CodexConnector::new(cwd, model, approval_policy, sandbox_mode).await?;
 
         Ok(Self {
             session_id,
@@ -233,6 +235,7 @@ impl CodexSession {
                 file_path,
                 diff,
                 question,
+                proposed_amendment,
             } => {
                 let approval_type_proto = match approval_type {
                     ApprovalType::Exec => orbitdock_protocol::ApprovalType::Exec,
@@ -247,8 +250,12 @@ impl CodexSession {
 
                 session.set_work_status(work_status);
 
-                // Track the approval type so websocket handler can dispatch correctly
-                session.set_pending_approval(request_id.clone(), approval_type_proto);
+                // Track the approval type and proposed amendment so websocket handler can dispatch correctly
+                session.set_pending_approval(
+                    request_id.clone(),
+                    approval_type_proto,
+                    proposed_amendment.clone(),
+                );
 
                 let request = orbitdock_protocol::ApprovalRequest {
                     id: request_id.clone(),
@@ -258,6 +265,7 @@ impl CodexSession {
                     file_path,
                     diff,
                     question,
+                    proposed_amendment,
                 };
 
                 session
@@ -373,14 +381,22 @@ impl CodexSession {
             CodexAction::Interrupt => {
                 connector.interrupt().await?;
             }
-            CodexAction::ApproveExec { request_id, approved } => {
-                connector.approve_exec(&request_id, approved).await?;
+            CodexAction::ApproveExec { request_id, decision, proposed_amendment } => {
+                connector.approve_exec(&request_id, &decision, proposed_amendment).await?;
             }
-            CodexAction::ApprovePatch { request_id, approved } => {
-                connector.approve_patch(&request_id, approved).await?;
+            CodexAction::ApprovePatch { request_id, decision } => {
+                connector.approve_patch(&request_id, &decision).await?;
             }
             CodexAction::AnswerQuestion { request_id, answers } => {
                 connector.answer_question(&request_id, answers).await?;
+            }
+            CodexAction::UpdateConfig { approval_policy, sandbox_mode } => {
+                connector
+                    .update_config(
+                        approval_policy.as_deref(),
+                        sandbox_mode.as_deref(),
+                    )
+                    .await?;
             }
             CodexAction::EndSession => {
                 connector.shutdown().await?;
@@ -395,9 +411,20 @@ impl CodexSession {
 pub enum CodexAction {
     SendMessage { content: String },
     Interrupt,
-    ApproveExec { request_id: String, approved: bool },
-    ApprovePatch { request_id: String, approved: bool },
+    ApproveExec {
+        request_id: String,
+        decision: String,
+        proposed_amendment: Option<Vec<String>>,
+    },
+    ApprovePatch {
+        request_id: String,
+        decision: String,
+    },
     AnswerQuestion { request_id: String, answers: HashMap<String, String> },
+    UpdateConfig {
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
+    },
     EndSession,
 }
 

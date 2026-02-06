@@ -26,6 +26,8 @@ pub struct SessionHandle {
     subscribers: Vec<mpsc::Sender<orbitdock_protocol::ServerMessage>>,
     /// Track approval type by request_id so we can dispatch correctly
     pending_approval_types: HashMap<String, ApprovalType>,
+    /// Store proposed amendment by request_id for "always allow" decisions
+    pending_amendments: HashMap<String, Vec<String>>,
 }
 
 impl SessionHandle {
@@ -48,6 +50,7 @@ impl SessionHandle {
             last_activity_at: Some(now),
             subscribers: Vec::new(),
             pending_approval_types: HashMap::new(),
+            pending_amendments: HashMap::new(),
         }
     }
 
@@ -78,6 +81,7 @@ impl SessionHandle {
             last_activity_at,
             subscribers: Vec::new(),
             pending_approval_types: HashMap::new(),
+            pending_amendments: HashMap::new(),
         }
     }
 
@@ -164,14 +168,28 @@ impl SessionHandle {
         self.current_plan = Some(plan);
     }
 
-    /// Register a pending approval
-    pub fn set_pending_approval(&mut self, request_id: String, approval_type: ApprovalType) {
-        self.pending_approval_types.insert(request_id, approval_type);
+    /// Register a pending approval with optional proposed amendment
+    pub fn set_pending_approval(
+        &mut self,
+        request_id: String,
+        approval_type: ApprovalType,
+        proposed_amendment: Option<Vec<String>>,
+    ) {
+        self.pending_approval_types
+            .insert(request_id.clone(), approval_type);
+        if let Some(amendment) = proposed_amendment {
+            self.pending_amendments.insert(request_id, amendment);
+        }
     }
 
     /// Get and remove the approval type for a request
     pub fn take_pending_approval(&mut self, request_id: &str) -> Option<ApprovalType> {
         self.pending_approval_types.remove(request_id)
+    }
+
+    /// Get and remove the proposed amendment for a request
+    pub fn take_pending_amendment(&mut self, request_id: &str) -> Option<Vec<String>> {
+        self.pending_amendments.remove(request_id)
     }
 
     /// Broadcast a message to all subscribers

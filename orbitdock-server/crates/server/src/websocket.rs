@@ -189,6 +189,8 @@ async fn handle_client_message(
             provider,
             cwd,
             model,
+            approval_policy,
+            sandbox_mode,
         } => {
             info!("Creating {:?} session in {}", provider, cwd);
 
@@ -232,8 +234,16 @@ async fn handle_client_message(
                 let session_id = id.clone();
                 let cwd_clone = cwd.clone();
                 let model_clone = model.clone();
+                let approval_clone = approval_policy.clone();
+                let sandbox_clone = sandbox_mode.clone();
 
-                match CodexSession::new(session_id.clone(), &cwd_clone, model_clone.as_deref()).await
+                match CodexSession::new(
+                    session_id.clone(),
+                    &cwd_clone,
+                    model_clone.as_deref(),
+                    approval_clone.as_deref(),
+                    sandbox_clone.as_deref(),
+                ).await
                 {
                     Ok(codex_session) => {
                         // Persist the codex-core thread ID so the watcher can skip this session
@@ -289,21 +299,23 @@ async fn handle_client_message(
         ClientMessage::ApproveTool {
             session_id,
             request_id,
-            approved,
+            decision,
         } => {
             info!(
                 "Approval for {} in {}: {}",
-                request_id, session_id, approved
+                request_id, session_id, decision
             );
 
             let state = state.lock().await;
 
-            // Look up approval type from session state
-            let approval_type = if let Some(session) = state.get_session(&session_id) {
+            // Look up approval type and proposed amendment from session state
+            let (approval_type, proposed_amendment) = if let Some(session) = state.get_session(&session_id) {
                 let mut session = session.lock().await;
-                session.take_pending_approval(&request_id)
+                let atype = session.take_pending_approval(&request_id);
+                let amendment = session.take_pending_amendment(&request_id);
+                (atype, amendment)
             } else {
-                None
+                (None, None)
             };
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
@@ -312,14 +324,15 @@ async fn handle_client_message(
                         info!("Dispatching patch approval for {}", request_id);
                         CodexAction::ApprovePatch {
                             request_id,
-                            approved,
+                            decision,
                         }
                     }
                     _ => {
                         // Default to exec for exec and unknown types
                         CodexAction::ApproveExec {
                             request_id,
-                            approved,
+                            decision,
+                            proposed_amendment,
                         }
                     }
                 };
@@ -369,6 +382,27 @@ async fn handle_client_message(
             let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Interrupt).await;
+            }
+        }
+
+        ClientMessage::UpdateSessionConfig {
+            session_id,
+            approval_policy,
+            sandbox_mode,
+        } => {
+            info!(
+                "Updating session config for {}: approval={:?}, sandbox={:?}",
+                session_id, approval_policy, sandbox_mode
+            );
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx
+                    .send(CodexAction::UpdateConfig {
+                        approval_policy,
+                        sandbox_mode,
+                    })
+                    .await;
             }
         }
 
