@@ -40,8 +40,22 @@ struct EditCard: View {
     newString.components(separatedBy: "\n").filter { !$0.isEmpty }
   }
 
+  /// Parse addition/deletion counts from unified diff format
+  private var unifiedDiffStats: (additions: Int, deletions: Int) {
+    guard let diff = message.unifiedDiff else { return (0, 0) }
+    var additions = 0
+    var deletions = 0
+    for line in diff.components(separatedBy: "\n") {
+      if line.hasPrefix("+"), !line.hasPrefix("+++") { additions += 1 }
+      else if line.hasPrefix("-"), !line.hasPrefix("---") { deletions += 1 }
+    }
+    return (additions, deletions)
+  }
+
   private var isTruncated: Bool {
-    oldLines.count > 25 || newLines.count > 25
+    let totalOld = oldLines.isEmpty ? unifiedDiffStats.deletions : oldLines.count
+    let totalNew = newLines.isEmpty ? unifiedDiffStats.additions : newLines.count
+    return totalOld > 25 || totalNew > 25
   }
 
   var body: some View {
@@ -108,15 +122,23 @@ struct EditCard: View {
 
   // MARK: - Diff Stats
 
+  private var effectiveAdditions: Int {
+    newLines.isEmpty ? unifiedDiffStats.additions : newLines.count
+  }
+
+  private var effectiveDeletions: Int {
+    oldLines.isEmpty ? unifiedDiffStats.deletions : oldLines.count
+  }
+
   private var diffStats: some View {
     HStack(spacing: 12) {
-      if !oldLines.isEmpty {
-        Text("−\(oldLines.count)")
+      if effectiveDeletions > 0 {
+        Text("−\(effectiveDeletions)")
           .font(.system(size: 11, weight: .semibold, design: .monospaced))
           .foregroundStyle(Color(red: 1.0, green: 0.45, blue: 0.45))
       }
-      if !newLines.isEmpty {
-        Text("+\(newLines.count)")
+      if effectiveAdditions > 0 {
+        Text("+\(effectiveAdditions)")
           .font(.system(size: 11, weight: .semibold, design: .monospaced))
           .foregroundStyle(Color(red: 0.4, green: 0.9, blue: 0.5))
       }
@@ -214,9 +236,15 @@ struct EditCard: View {
           maxLines: maxLines
         )
       }
-      // For Codex file changes, render unified_diff via existing CodexDiffView
+      // For Codex file changes, parse unified diff into old/new for consistent rendering
       else if let diff = message.unifiedDiff, !diff.isEmpty {
-        CodexDiffView(diff: diff)
+        let (old, new) = Self.parseUnifiedDiff(diff)
+        UnifiedDiffView(
+          oldString: old,
+          newString: new,
+          language: language,
+          maxLines: maxLines
+        )
       }
       // Fallback
       else if let input = message.formattedToolInput {
@@ -232,6 +260,31 @@ struct EditCard: View {
           .padding(14)
       }
     }
+  }
+
+  /// Parse unified diff format into old/new content strings for UnifiedDiffView
+  static func parseUnifiedDiff(_ diff: String) -> (old: String, new: String) {
+    var oldLines: [String] = []
+    var newLines: [String] = []
+
+    for line in diff.components(separatedBy: "\n") {
+      if line.hasPrefix("---") || line.hasPrefix("+++") || line.hasPrefix("@@") {
+        continue
+      } else if line.hasPrefix("-") {
+        oldLines.append(String(line.dropFirst()))
+      } else if line.hasPrefix("+") {
+        newLines.append(String(line.dropFirst()))
+      } else if line.hasPrefix(" ") {
+        let content = String(line.dropFirst())
+        oldLines.append(content)
+        newLines.append(content)
+      } else if !line.isEmpty {
+        oldLines.append(line)
+        newLines.append(line)
+      }
+    }
+
+    return (oldLines.joined(separator: "\n"), newLines.joined(separator: "\n"))
   }
 }
 
