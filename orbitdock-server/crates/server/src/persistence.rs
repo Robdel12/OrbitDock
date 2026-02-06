@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -73,6 +73,11 @@ pub enum PersistCommand {
     SetThreadId {
         session_id: String,
         thread_id: String,
+    },
+
+    /// Reactivate an ended session (for resume)
+    ReactivateSession {
+        id: String,
     },
 }
 
@@ -411,6 +416,14 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 params![thread_id, session_id],
             )?;
         }
+
+        PersistCommand::ReactivateSession { id } => {
+            let now = chrono_now();
+            conn.execute(
+                "UPDATE sessions SET status = 'active', work_status = 'waiting', ended_at = NULL, end_reason = NULL, last_activity_at = ?1 WHERE id = ?2",
+                params![now, id],
+            )?;
+        }
     }
 
     Ok(())
@@ -593,6 +606,103 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
     }).await??;
 
     Ok(sessions)
+}
+
+/// Load a specific session by ID (for resume — includes ended sessions)
+pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, anyhow::Error> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let id_owned = id.to_string();
+
+    let result = tokio::task::spawn_blocking(move || -> Result<Option<RestoredSession>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;"
+        )?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, project_path, project_name, model, started_at, last_activity_at, approval_policy, sandbox_mode
+             FROM sessions
+             WHERE id = ?1 AND provider = 'codex'"
+        )?;
+
+        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
+            .query_row(params![&id_owned], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            })
+            .optional()?;
+
+        let Some((id, project_path, project_name, model, started_at, last_activity_at, approval_policy, sandbox_mode)) = row else {
+            return Ok(None);
+        };
+
+        // Load messages
+        let mut msg_stmt = conn.prepare(
+            "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
+             FROM messages
+             WHERE session_id = ?
+             ORDER BY sequence"
+        )?;
+
+        let messages: Vec<Message> = msg_stmt
+            .query_map(params![&id], |row| {
+                let type_str: String = row.get(1)?;
+                let message_type = match type_str.as_str() {
+                    "user" => MessageType::User,
+                    "assistant" => MessageType::Assistant,
+                    "thinking" => MessageType::Thinking,
+                    "tool" => MessageType::Tool,
+                    "toolResult" => MessageType::ToolResult,
+                    _ => MessageType::Assistant,
+                };
+
+                let duration_secs: Option<f64> = row.get(7)?;
+                let is_error_int: i32 = row.get(8)?;
+
+                Ok(Message {
+                    id: row.get(0)?,
+                    session_id: id.clone(),
+                    message_type,
+                    content: row.get(2)?,
+                    timestamp: row.get(3)?,
+                    tool_name: row.get(4)?,
+                    tool_input: row.get(5)?,
+                    tool_output: row.get(6)?,
+                    duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
+                    is_error: is_error_int != 0,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(Some(RestoredSession {
+            id,
+            project_path,
+            project_name,
+            model,
+            started_at,
+            last_activity_at,
+            approval_policy,
+            sandbox_mode,
+            messages,
+        }))
+    }).await??;
+
+    Ok(result)
 }
 
 /// Create a sender for the persistence writer

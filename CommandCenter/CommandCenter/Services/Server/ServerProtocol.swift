@@ -392,6 +392,7 @@ enum ClientToServerMessage: Codable {
   case interruptSession(sessionId: String)
   case endSession(sessionId: String)
   case updateSessionConfig(sessionId: String, approvalPolicy: String?, sandboxMode: String?)
+  case resumeSession(sessionId: String)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -460,6 +461,10 @@ enum ClientToServerMessage: Codable {
       try container.encode(sessionId, forKey: .sessionId)
       try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
       try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+
+    case .resumeSession(let sessionId):
+      try container.encode("resume_session", forKey: .type)
+      try container.encode(sessionId, forKey: .sessionId)
     }
   }
 
@@ -509,6 +514,8 @@ enum ClientToServerMessage: Codable {
         approvalPolicy: try container.decodeIfPresent(String.self, forKey: .approvalPolicy),
         sandboxMode: try container.decodeIfPresent(String.self, forKey: .sandboxMode)
       )
+    case "resume_session":
+      self = .resumeSession(sessionId: try container.decode(String.self, forKey: .sessionId))
     default:
       throw DecodingError.dataCorrupted(
         DecodingError.Context(

@@ -169,6 +169,13 @@ final class ServerAppState {
     ServerConnection.shared.endSession(sessionId)
   }
 
+  /// Resume an ended session
+  func resumeSession(_ sessionId: String) {
+    logger.info("Resuming session \(sessionId)")
+    subscribedSessions.insert(sessionId)
+    ServerConnection.shared.resumeSession(sessionId)
+  }
+
   /// Update session config (change autonomy level mid-session)
   func updateSessionConfig(sessionId: String, autonomy: AutonomyLevel) {
     logger.info("Updating session config \(sessionId) to \(autonomy.displayName)")

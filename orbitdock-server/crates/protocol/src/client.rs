@@ -54,4 +54,7 @@ pub enum ClientMessage {
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
     },
+    ResumeSession {
+        session_id: String,
+    },
 }

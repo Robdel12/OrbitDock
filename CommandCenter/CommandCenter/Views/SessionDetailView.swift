@@ -267,110 +267,142 @@ struct SessionDetailView: View {
 
   private var codexActionBar: some View {
     VStack(spacing: 0) {
-      // Input bar when waiting for input
-      if session.workStatus == .waiting || session.workStatus == .unknown {
-        CodexInputBar(sessionId: session.id)
-      }
-
-      // Status bar
-      HStack(spacing: 16) {
-        // Interrupt button when working
-        if session.workStatus == .working {
-          CodexInterruptButton(sessionId: session.id)
-        }
-
-        // Token usage for this session
-        if session.hasTokenUsage {
-          CodexTokenBadge(session: session)
-        }
-
-        // Autonomy level pill
-        AutonomyPill(sessionId: session.id)
-
-        // Turn sidebar toggle (plan + changes)
-        if hasTurnStateContent {
+      if !session.isActive {
+        // Resume button when session is ended
+        HStack {
           Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-              showTurnSidebar.toggle()
-            }
+            serverState.resumeSession(session.id)
           } label: {
-            HStack(spacing: 4) {
-              Image(systemName: turnSidebarIcon)
-                .font(.system(size: 11, weight: .medium))
-              Text(turnSidebarLabel)
-                .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(showTurnSidebar ? Color.accent : .secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-              showTurnSidebar ? Color.accent.opacity(0.15) : Color.surfaceHover,
-              in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-            )
-          }
-          .buttonStyle(.plain)
-        }
-
-        Spacer()
-
-        // Chat scroll controls + timestamp
-        HStack(spacing: 16) {
-          // New messages button
-          if !isPinned, unreadCount > 0 {
-            Button {
-              isPinned = true
-              unreadCount = 0
-              scrollToBottomTrigger += 1
-            } label: {
-              HStack(spacing: 5) {
-                Image(systemName: "arrow.down")
-                  .font(.system(size: 10, weight: .bold))
-                Text("\(unreadCount) new")
-                  .font(.system(size: 12, weight: .semibold))
-              }
-              .foregroundStyle(.white)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 8)
-              .background(Color.accent, in: Capsule())
-            }
-            .buttonStyle(.plain)
-          }
-
-          // Scroll toggle
-          Button {
-            isPinned.toggle()
-            if isPinned {
-              unreadCount = 0
-              scrollToBottomTrigger += 1
-            }
-          } label: {
-            HStack(spacing: 5) {
-              Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
-                .font(.system(size: 11, weight: .medium))
-              Text(isPinned ? "Following" : "Paused")
+            HStack(spacing: 6) {
+              Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 12, weight: .medium))
+              Text("Resume")
                 .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(isPinned ? .secondary : .primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(
-              RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isPinned ? Color.clear : Color.backgroundTertiary)
-            )
+            .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(Color.accent)
           }
           .buttonStyle(.plain)
 
-          // Last activity timestamp
+          Spacer()
+
           if let lastActivity = session.lastActivityAt {
             Text(lastActivity, style: .relative)
               .font(.system(size: 11, design: .monospaced))
               .foregroundStyle(.tertiary)
           }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.backgroundSecondary)
+      } else {
+        // Input bar when waiting for input
+        if session.workStatus == .waiting || session.workStatus == .unknown {
+          CodexInputBar(sessionId: session.id)
+        }
+
+        // Status bar
+        HStack(spacing: 16) {
+          // Interrupt button when working
+          if session.workStatus == .working {
+            CodexInterruptButton(sessionId: session.id)
+          }
+
+          // Token usage for this session
+          if session.hasTokenUsage {
+            CodexTokenBadge(session: session)
+          }
+
+          // Autonomy level pill
+          AutonomyPill(sessionId: session.id)
+
+          // Turn sidebar toggle (plan + changes)
+          if hasTurnStateContent {
+            Button {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                showTurnSidebar.toggle()
+              }
+            } label: {
+              HStack(spacing: 4) {
+                Image(systemName: turnSidebarIcon)
+                  .font(.system(size: 11, weight: .medium))
+                Text(turnSidebarLabel)
+                  .font(.system(size: 11, weight: .medium))
+              }
+              .foregroundStyle(showTurnSidebar ? Color.accent : .secondary)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
+              .background(
+                showTurnSidebar ? Color.accent.opacity(0.15) : Color.surfaceHover,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              )
+            }
+            .buttonStyle(.plain)
+          }
+
+          Spacer()
+
+          // Chat scroll controls + timestamp
+          HStack(spacing: 16) {
+            // New messages button
+            if !isPinned, unreadCount > 0 {
+              Button {
+                isPinned = true
+                unreadCount = 0
+                scrollToBottomTrigger += 1
+              } label: {
+                HStack(spacing: 5) {
+                  Image(systemName: "arrow.down")
+                    .font(.system(size: 10, weight: .bold))
+                  Text("\(unreadCount) new")
+                    .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.accent, in: Capsule())
+              }
+              .buttonStyle(.plain)
+            }
+
+            // Scroll toggle
+            Button {
+              isPinned.toggle()
+              if isPinned {
+                unreadCount = 0
+                scrollToBottomTrigger += 1
+              }
+            } label: {
+              HStack(spacing: 5) {
+                Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
+                  .font(.system(size: 11, weight: .medium))
+                Text(isPinned ? "Following" : "Paused")
+                  .font(.system(size: 12, weight: .medium))
+              }
+              .foregroundStyle(isPinned ? .secondary : .primary)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 8)
+              .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                  .fill(isPinned ? Color.clear : Color.backgroundTertiary)
+              )
+            }
+            .buttonStyle(.plain)
+
+            // Last activity timestamp
+            if let lastActivity = session.lastActivityAt {
+              Text(lastActivity, style: .relative)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.tertiary)
+            }
+          }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.backgroundSecondary)
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 8)
-      .background(Color.backgroundSecondary)
     }
   }
 

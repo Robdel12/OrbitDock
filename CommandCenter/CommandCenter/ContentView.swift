@@ -341,9 +341,13 @@ struct ContentView: View {
     let serverSessions = serverState.sessions
     let serverIds = Set(serverSessions.map(\.id))
     // Filter out any DB sessions that are also in server (server is source of truth for Codex)
-    // Also exclude old codex-direct sessions from DB - they're dead (no process backing them)
-    let claudeOnly = dbSessions.filter { !serverIds.contains($0.id) && !$0.isDirectCodex }
-    sessions = claudeOnly + serverSessions
+    // Exclude active direct Codex sessions not in server (stale), but keep ended ones (resumable)
+    let nonServerSessions = dbSessions.filter { session in
+      guard !serverIds.contains(session.id) else { return false }
+      if session.isDirectCodex && session.isActive { return false }
+      return true
+    }
+    sessions = nonServerSessions + serverSessions
 
     // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {

@@ -17,7 +17,8 @@ use tracing::{debug, error, info, warn};
 use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
 
 use crate::codex_session::{CodexAction, CodexSession};
-use crate::persistence::PersistCommand;
+use crate::persistence::{load_session_by_id, PersistCommand};
+use crate::session::SessionHandle;
 use crate::state::AppState;
 
 /// Messages that can be sent through the WebSocket
@@ -406,6 +407,137 @@ async fn handle_client_message(
                     })
                     .await;
             }
+        }
+
+        ClientMessage::ResumeSession { session_id } => {
+            info!("Resuming session {}", session_id);
+
+            // Check if session is already active in state
+            {
+                let state_guard = state.lock().await;
+                if state_guard.get_session(&session_id).is_some() {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "already_active".into(),
+                            message: format!("Session {} is already active", session_id),
+                            session_id: Some(session_id),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            }
+
+            // Load session data from DB
+            let restored = match load_session_by_id(&session_id).await {
+                Ok(Some(rs)) => rs,
+                Ok(None) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "not_found".into(),
+                            message: format!("Session {} not found in database", session_id),
+                            session_id: Some(session_id),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+                Err(e) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "db_error".into(),
+                            message: e.to_string(),
+                            session_id: Some(session_id),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let msg_count = restored.messages.len();
+            let handle = SessionHandle::restore(
+                restored.id.clone(),
+                orbitdock_protocol::Provider::Codex,
+                restored.project_path.clone(),
+                restored.project_name,
+                restored.model.clone(),
+                restored.started_at,
+                restored.last_activity_at,
+                restored.messages,
+            );
+
+            let mut state_guard = state.lock().await;
+
+            // Subscribe the requesting client
+            let mut handle = handle;
+            handle.subscribe(wrap_sender(client_tx.clone()));
+
+            let summary = handle.summary();
+            let snapshot = handle.state();
+            let session_arc = state_guard.add_session(handle);
+
+            // Reactivate in DB
+            let persist_tx = state_guard.persist().clone();
+            let _ = persist_tx
+                .send(PersistCommand::ReactivateSession {
+                    id: session_id.clone(),
+                })
+                .await;
+
+            // Start Codex connector
+            match CodexSession::new(
+                session_id.clone(),
+                &restored.project_path,
+                restored.model.as_deref(),
+                restored.approval_policy.as_deref(),
+                restored.sandbox_mode.as_deref(),
+            )
+            .await
+            {
+                Ok(codex_session) => {
+                    let new_thread_id = codex_session.thread_id().to_string();
+                    let _ = persist_tx
+                        .send(PersistCommand::SetThreadId {
+                            session_id: session_id.clone(),
+                            thread_id: new_thread_id.clone(),
+                        })
+                        .await;
+
+                    let action_tx =
+                        codex_session.start_event_loop(session_arc, persist_tx);
+                    state_guard.set_codex_action_tx(&session_id, action_tx);
+                    info!(
+                        session_id = %session_id,
+                        thread_id = %new_thread_id,
+                        messages = msg_count,
+                        "Resumed session with live connector"
+                    );
+                }
+                Err(e) => {
+                    error!("Failed to start Codex connector for resumed session: {}", e);
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "codex_error".into(),
+                            message: e.to_string(),
+                            session_id: Some(session_id.clone()),
+                        },
+                    )
+                    .await;
+                }
+            }
+
+            // Send snapshot to requester
+            send_json(client_tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
+
+            // Broadcast to list subscribers (session reappears in sidebar)
+            state_guard
+                .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                .await;
         }
 
         ClientMessage::EndSession { session_id } => {
