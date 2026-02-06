@@ -23,13 +23,22 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::codex_session::CodexSession;
-use crate::persistence::{create_persistence_channel, load_active_codex_sessions, PersistenceWriter};
+use crate::persistence::{create_persistence_channel, load_active_codex_sessions, PersistCommand, PersistenceWriter};
 use crate::session::SessionHandle;
 use crate::state::AppState;
 use crate::websocket::ws_handler;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    // Handle codex-core self-invocation (apply_patch, linux-sandbox) and
+    // set up PATH so that codex-core can find the apply_patch helper.
+    // This MUST run before the tokio runtime starts (modifies env vars).
+    let _arg0_guard = codex_arg0::arg0_dispatch();
+
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     // Ensure log directory exists
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let log_dir = std::path::PathBuf::from(home).join(".orbitdock").join("logs");
@@ -86,20 +95,31 @@ async fn main() -> anyhow::Result<()> {
                 let mut app = state.lock().await;
                 let session_arc = app.add_session(handle);
 
-                // Try to reconnect a CodexConnector
+                // Try to reconnect a CodexConnector with original autonomy settings
                 match CodexSession::new(
                     rs.id.clone(),
                     &rs.project_path,
                     rs.model.as_deref(),
-                    None,
-                    None,
+                    rs.approval_policy.as_deref(),
+                    rs.sandbox_mode.as_deref(),
                 ).await {
                     Ok(codex) => {
                         let persist = app.persist().clone();
+
+                        // Persist the new thread ID so the rollout watcher skips this session
+                        let new_thread_id = codex.thread_id().to_string();
+                        let _ = persist
+                            .send(PersistCommand::SetThreadId {
+                                session_id: rs.id.clone(),
+                                thread_id: new_thread_id.clone(),
+                            })
+                            .await;
+
                         let action_tx = codex.start_event_loop(session_arc, persist);
                         app.set_codex_action_tx(&rs.id, action_tx);
                         info!(
                             session_id = %rs.id,
+                            thread_id = %new_thread_id,
                             messages = msg_count,
                             "Restored session with live connector"
                         );

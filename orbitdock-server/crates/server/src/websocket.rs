@@ -216,6 +216,8 @@ async fn handle_client_message(
                     project_path: cwd.clone(),
                     project_name,
                     model: model.clone(),
+                    approval_policy: approval_policy.clone(),
+                    sandbox_mode: sandbox_mode.clone(),
                 })
                 .await;
 

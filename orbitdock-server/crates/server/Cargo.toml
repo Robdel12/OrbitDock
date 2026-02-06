@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 orbitdock-protocol = { workspace = true }
 orbitdock-connectors = { workspace = true }
+codex-arg0 = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

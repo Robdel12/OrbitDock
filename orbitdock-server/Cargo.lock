@@ -749,6 +749,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-arg0"
+version = "0.0.0"
+source = "git+https://github.com/openai/codex?rev=4ee0397#4ee039744ef5e1aa16657cb8be06cdc4dc6cdcb1"
+dependencies = [
+ "anyhow",
+ "codex-apply-patch",
+ "codex-core",
+ "codex-linux-sandbox",
+ "dotenvy",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "codex-async-utils"
 version = "0.0.0"
 source = "git+https://github.com/openai/codex?rev=4ee0397#4ee039744ef5e1aa16657cb8be06cdc4dc6cdcb1"
@@ -928,6 +942,22 @@ source = "git+https://github.com/openai/codex?rev=4ee0397#4ee039744ef5e1aa16657c
 dependencies = [
  "keyring",
  "tracing",
+]
+
+[[package]]
+name = "codex-linux-sandbox"
+version = "0.0.0"
+source = "git+https://github.com/openai/codex?rev=4ee0397#4ee039744ef5e1aa16657cb8be06cdc4dc6cdcb1"
+dependencies = [
+ "cc",
+ "clap",
+ "codex-core",
+ "codex-utils-absolute-path",
+ "landlock",
+ "libc",
+ "pkg-config",
+ "seccompiler",
+ "serde_json",
 ]
 
 [[package]]
@@ -3785,6 +3815,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bytes",
+ "codex-arg0",
  "futures",
  "orbitdock-connectors",
  "orbitdock-protocol",
