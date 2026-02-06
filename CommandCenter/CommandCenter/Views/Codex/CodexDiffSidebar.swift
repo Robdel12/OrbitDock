@@ -177,6 +177,22 @@ struct SidebarDiffLine: View {
   }
 }
 
+// MARK: - Parsed Diff Line
+
+struct CodexParsedDiffLine: Identifiable {
+  let id = UUID()
+  let text: String
+  let type: LineType
+
+  enum LineType {
+    case header
+    case hunk
+    case addition
+    case deletion
+    case context
+  }
+}
+
 #Preview {
   CodexDiffSidebar(
     diff: """

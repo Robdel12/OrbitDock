@@ -11,6 +11,22 @@ actor DatabaseManager {
 
   private var db: Connection?
   private let dbPath: String
+  private let iso8601WithFractionalSecondsFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+  private let iso8601Formatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+  }()
+  private let storageDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    formatter.timeZone = TimeZone(identifier: "UTC")
+    return formatter
+  }()
 
   // Table definitions
   private let sessions = Table("sessions")
@@ -1731,30 +1747,20 @@ actor DatabaseManager {
     guard let str = dateString else { return nil }
 
     // Try ISO 8601 first (how Claude Code stores dates)
-    let iso8601Formatter = ISO8601DateFormatter()
-    iso8601Formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = iso8601Formatter.date(from: str) {
+    if let date = iso8601WithFractionalSecondsFormatter.date(from: str) {
       return date
     }
 
     // Fallback: try without fractional seconds
-    iso8601Formatter.formatOptions = [.withInternetDateTime]
     if let date = iso8601Formatter.date(from: str) {
       return date
     }
 
     // Legacy fallback for old format
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    formatter.timeZone = TimeZone(identifier: "UTC")
-
-    return formatter.date(from: str)
+    return storageDateFormatter.date(from: str)
   }
 
   private func formatDate(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-    formatter.timeZone = TimeZone(identifier: "UTC")
-    return formatter.string(from: date)
+    storageDateFormatter.string(from: date)
   }
 }

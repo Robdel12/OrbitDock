@@ -206,7 +206,7 @@ struct CodexTurnSidebar: View {
   }
 
   @ViewBuilder
-  private func emptyState(icon: String, title: String, message: String) -> some View {
+  private func emptyState(icon: String, title: String , message: String) -> some View {
     VStack(spacing: 12) {
       Image(systemName: icon)
         .font(.system(size: 32, weight: .light))
