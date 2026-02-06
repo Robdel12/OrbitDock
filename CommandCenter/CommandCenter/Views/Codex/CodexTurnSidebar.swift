@@ -12,6 +12,7 @@ struct CodexTurnSidebar: View {
   let sessionId: String
   let onClose: () -> Void
 
+  @Environment(ServerAppState.self) private var serverState
   @State private var selectedTab: Tab = .plan
 
   enum Tab: String, CaseIterable {
@@ -27,11 +28,11 @@ struct CodexTurnSidebar: View {
   }
 
   private var plan: [Session.PlanStep]? {
-    CodexTurnStateStore.shared.getPlan(sessionId: sessionId)
+    serverState.getPlanSteps(sessionId: sessionId)
   }
 
   private var diff: String? {
-    CodexTurnStateStore.shared.getDiff(sessionId: sessionId)
+    serverState.getDiff(sessionId: sessionId)
   }
 
   var body: some View {
@@ -492,28 +493,9 @@ private struct SpinningModifier: ViewModifier {
     sessionId: "test",
     onClose: {}
   )
+  .environment(ServerAppState())
   .frame(width: 320, height: 500)
   .background(Color.backgroundPrimary)
-  .onAppear {
-    // Inject test data
-    CodexTurnStateStore.shared.updatePlan(sessionId: "test", plan: [
-      Session.PlanStep(step: "Read the existing implementation", status: "completed"),
-      Session.PlanStep(step: "Add onClick handler", status: "completed"),
-      Session.PlanStep(step: "Update TypeScript types", status: "inProgress"),
-      Session.PlanStep(step: "Add unit tests", status: "pending"),
-    ])
-    CodexTurnStateStore.shared.updateDiff(sessionId: "test", diff: """
---- a/Button.tsx
-+++ b/Button.tsx
-@@ -10,3 +10,5 @@
-   return (
--    <button onClick={onClick}>
-+    <button onClick={(e) => {
-+      e.preventDefault();
-+      onClick();
-+    }}>
-""")
-  }
 }
 
 #Preview("Empty") {
@@ -521,6 +503,7 @@ private struct SpinningModifier: ViewModifier {
     sessionId: "empty",
     onClose: {}
   )
+  .environment(ServerAppState())
   .frame(width: 320, height: 400)
   .background(Color.backgroundPrimary)
 }

@@ -10,6 +10,7 @@ import SwiftUI
 
 struct ContentView: View {
   @Environment(SessionStore.self) private var database
+  @Environment(ServerAppState.self) private var serverState
   @State private var sessions: [Session] = []
   @State private var selectedSessionId: String?
   @State private var eventSubscription: AnyCancellable?
@@ -107,6 +108,9 @@ struct ContentView: View {
     .onDisappear {
       eventSubscription?.cancel()
       eventSubscription = nil
+    }
+    .onChange(of: serverState.sessions) { _, _ in
+      Task { await loadSessions() }
     }
     .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
       if let sessionId = notification.userInfo?["sessionId"] as? String {
@@ -329,7 +333,17 @@ struct ContentView: View {
   private func loadSessions() async {
     let oldWaitingIds = Set(waitingSessions.map(\.id))
     let oldSessions = sessions
-    sessions = database.sessions
+
+    // Merge sessions from both sources:
+    // - Claude sessions from DatabaseManager (via SessionStore)
+    // - Codex sessions from Rust server (via ServerAppState)
+    let dbSessions = database.sessions
+    let serverSessions = serverState.sessions
+    let serverIds = Set(serverSessions.map(\.id))
+    // Filter out any DB sessions that are also in server (server is source of truth for Codex)
+    // Also exclude old codex-direct sessions from DB - they're dead (no process backing them)
+    let claudeOnly = dbSessions.filter { !serverIds.contains($0.id) && !$0.isDirectCodex }
+    sessions = claudeOnly + serverSessions
 
     // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {
@@ -358,5 +372,6 @@ struct ContentView: View {
 #Preview {
   ContentView()
     .environment(SessionStore.shared)
+    .environment(ServerAppState())
     .frame(width: 1_000, height: 700)
 }

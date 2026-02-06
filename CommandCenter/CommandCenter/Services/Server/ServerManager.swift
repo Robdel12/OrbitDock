@@ -169,9 +169,12 @@ final class ServerManager: ObservableObject {
     process.executableURL = URL(fileURLWithPath: path)
     process.arguments = []
 
-    // Set up environment
+    // Set up environment with user's full login shell PATH
     var env = ProcessInfo.processInfo.environment
     env["RUST_LOG"] = "debug,tower_http=info,hyper=info"
+    if let shellPath = Self.resolveLoginShellPath() {
+      env["PATH"] = shellPath
+    }
     process.environment = env
 
     // Capture output for logging
@@ -312,5 +315,33 @@ final class ServerManager: ObservableObject {
   func resetRestartCounter() {
     restartAttempts = 0
     gaveUp = false
+  }
+
+  /// Resolve the user's full PATH from their login shell
+  /// macOS GUI apps have a minimal PATH that misses nvm, homebrew, etc.
+  private nonisolated static func resolveLoginShellPath() -> String? {
+    let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: shell)
+    proc.arguments = ["-i", "-l", "-c", "echo $PATH"]
+    let pipe = Pipe()
+    proc.standardOutput = pipe
+    proc.standardError = FileHandle.nullDevice
+
+    do {
+      try proc.run()
+      proc.waitUntilExit()
+      guard proc.terminationStatus == 0 else { return nil }
+      let data = pipe.fileHandleForReading.readDataToEndOfFile()
+      let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      if let path, !path.isEmpty {
+        logger.debug("Resolved login shell PATH: \(path.prefix(100))...")
+        return path
+      }
+    } catch {
+      logger.warning("Failed to resolve login shell PATH: \(error.localizedDescription)")
+    }
+
+    return nil
   }
 }

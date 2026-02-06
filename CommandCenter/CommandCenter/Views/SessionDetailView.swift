@@ -8,7 +8,7 @@ import SwiftUI
 
 struct SessionDetailView: View {
   @Environment(SessionStore.self) private var database
-  @Environment(CodexDirectSessionManager.self) private var codexManager
+  @Environment(ServerAppState.self) private var serverState
   let session: Session
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
@@ -64,8 +64,8 @@ struct SessionDetailView: View {
 
         // Turn sidebar - plan + diff (Codex direct only)
         if session.isDirectCodex, showTurnSidebar {
-          let hasPlan = CodexTurnStateStore.shared.getPlan(sessionId: session.id) != nil
-          let hasDiff = CodexTurnStateStore.shared.getDiff(sessionId: session.id) != nil
+          let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
+          let hasDiff = serverState.getDiff(sessionId: session.id) != nil
 
           if hasPlan || hasDiff {
             Divider()
@@ -362,17 +362,14 @@ struct SessionDetailView: View {
 
   /// Whether there's any turn state content to show
   private var hasTurnStateContent: Bool {
-    let store = CodexTurnStateStore.shared
-    let hasPlan = store.getPlan(sessionId: session.id) != nil
-    let hasDiff = store.getDiff(sessionId: session.id) != nil
+    let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
+    let hasDiff = serverState.getDiff(sessionId: session.id) != nil
     return session.isDirectCodex && (hasPlan || hasDiff)
   }
 
   /// Icon for the turn sidebar toggle button
   private var turnSidebarIcon: String {
-    let store = CodexTurnStateStore.shared
-    let hasPlan = store.getPlan(sessionId: session.id) != nil
-    if hasPlan {
+    if serverState.getPlanSteps(sessionId: session.id) != nil {
       return "list.bullet.clipboard"
     } else {
       return "doc.badge.plus"
@@ -381,16 +378,15 @@ struct SessionDetailView: View {
 
   /// Label for the turn sidebar toggle button
   private var turnSidebarLabel: String {
-    let store = CodexTurnStateStore.shared
-    let hasPlan = store.getPlan(sessionId: session.id) != nil
-    let hasDiff = store.getDiff(sessionId: session.id) != nil
+    let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
+    let hasDiff = serverState.getDiff(sessionId: session.id) != nil
 
-    if hasPlan && hasDiff {
+    if hasPlan {
       return "Plan"
-    } else if hasPlan {
-      return "Plan"
-    } else {
+    } else if hasDiff {
       return "Changes"
+    } else {
+      return "Plan"
     }
   }
 
@@ -445,15 +441,7 @@ struct SessionDetailView: View {
   }
 
   private func endCodexSession() {
-    Task {
-      do {
-        try await codexManager.endSession(session.id)
-      } catch {
-        print("[Codex] Failed to end session: \(error)")
-        // Fall back to just ending in database
-        await database.endSession(sessionId: session.id)
-      }
-    }
+    serverState.endSession(session.id)
   }
 }
 
@@ -471,6 +459,6 @@ struct SessionDetailView: View {
     onGoToDashboard: {}
   )
   .environment(SessionStore.shared)
-  .environment(CodexDirectSessionManager())
+  .environment(ServerAppState())
   .frame(width: 800, height: 600)
 }

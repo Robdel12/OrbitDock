@@ -10,15 +10,12 @@ import SwiftUI
 
 struct NewCodexSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
-  @Environment(CodexDirectSessionManager.self) private var manager
+  @Environment(ServerAppState.self) private var serverState
 
   @State private var selectedPath: String = ""
   @State private var selectedModel: CodexModel = .default
   @State private var isCreating = false
   @State private var errorMessage: String?
-
-  /// Callback when session is created
-  var onSessionCreated: ((Session) -> Void)?
 
   enum CodexModel: String, CaseIterable, Identifiable {
     case `default` = ""
@@ -172,30 +169,13 @@ struct NewCodexSessionSheet: View {
   private func createSession() {
     guard !selectedPath.isEmpty else { return }
 
-    isCreating = true
-    errorMessage = nil
-
-    Task {
-      do {
-        let model = selectedModel == .default ? nil : selectedModel.rawValue
-        let session = try await manager.createSession(cwd: selectedPath, model: model)
-
-        await MainActor.run {
-          isCreating = false
-          onSessionCreated?(session)
-          dismiss()
-        }
-      } catch {
-        await MainActor.run {
-          isCreating = false
-          errorMessage = error.localizedDescription
-        }
-      }
-    }
+    let model = selectedModel == .default ? nil : selectedModel.rawValue
+    serverState.createSession(cwd: selectedPath, model: model)
+    dismiss()
   }
 }
 
 #Preview {
   NewCodexSessionSheet()
-    .environment(CodexDirectSessionManager())
+    .environment(ServerAppState())
 }

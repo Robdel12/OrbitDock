@@ -17,6 +17,8 @@ struct ConversationView: View {
   var pendingToolInput: String?
   var provider: Provider = .claude
 
+  @Environment(ServerAppState.self) private var serverState
+
   @State private var messages: [TranscriptMessage] = []
   @State private var currentPrompt: String?
   @State private var transcriptSubscription: AnyCancellable?
@@ -127,6 +129,13 @@ struct ConversationView: View {
       cleanupSubscriptions()
       loadMessagesIfNeeded()
       setupSubscriptions()
+    }
+    // Server sessions: observe message changes via revision counter
+    .onChange(of: serverState.messageRevisions[sessionId ?? ""] ?? 0) { _, _ in
+      guard let sid = sessionId, serverState.isServerSession(sid) else { return }
+      let serverMessages = serverState.sessionMessages[sid] ?? []
+      messages = serverMessages
+      displayedCount = max(displayedCount, serverMessages.count)
     }
   }
 
@@ -283,7 +292,12 @@ struct ConversationView: View {
   // (Same as original - keeping the proven data layer)
 
   private func setupSubscriptions() {
-    // Only start file watching if visible
+    // Server sessions don't need file watching - messages come via WebSocket
+    if let sid = sessionId, serverState.isServerSession(sid) {
+      return
+    }
+
+    // Claude sessions: watch transcript file for changes
     if isVisible {
       startWatchingFile()
     }
@@ -349,20 +363,15 @@ struct ConversationView: View {
 
     let targetSid = sid
 
-    // For direct Codex sessions, skip transcript parsing - messages come via app-server events
-    if sid.hasPrefix("codex-direct-") {
-      DispatchQueue.global(qos: .utility).async {
-        let newMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-        DispatchQueue.main.async {
-          guard sessionId == targetSid else { return }
-          messages = newMessages
-          displayedCount = max(displayedCount, newMessages.count)
-        }
-      }
+    // Server sessions: messages come via WebSocket, read from ServerAppState
+    if serverState.isServerSession(sid) {
+      let serverMessages = serverState.sessionMessages[sid] ?? []
+      messages = serverMessages
+      displayedCount = max(displayedCount, serverMessages.count)
       return
     }
 
-    // For other sessions, sync from transcript file
+    // Claude sessions: sync from transcript file
     guard let path = transcriptPath else { return }
     let targetPath = path
 
@@ -397,6 +406,16 @@ struct ConversationView: View {
       return
     }
 
+    // Server sessions: load from ServerAppState (WebSocket messages)
+    if serverState.isServerSession(sid) {
+      let serverMessages = serverState.sessionMessages[sid] ?? []
+      messages = serverMessages
+      displayedCount = serverMessages.count
+      isLoading = false
+      return
+    }
+
+    // Claude sessions: load from MessageStore / transcript files
     let targetPath = transcriptPath
     let targetSid = sid
 
@@ -404,7 +423,6 @@ struct ConversationView: View {
       let hasData = MessageStore.shared.hasData(sessionId: targetSid)
 
       if hasData {
-        // Load from MessageStore (works for both Claude and direct Codex sessions)
         let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
         let info = MessageStore.shared.readSessionInfo(sessionId: targetSid)
 
@@ -416,9 +434,8 @@ struct ConversationView: View {
           isLoading = false
         }
 
-        // For non-direct sessions, also sync from transcript in background
-        // Skip for codex-direct-* sessions - they get messages via app-server events
-        if let path = targetPath, !targetSid.hasPrefix("codex-direct-") {
+        // Also sync from transcript in background
+        if let path = targetPath {
           DispatchQueue.global(qos: .utility).async {
             let result = TranscriptParser.parseAll(transcriptPath: path)
             MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
@@ -433,8 +450,6 @@ struct ConversationView: View {
           }
         }
       } else if let path = targetPath {
-        // No data in MessageStore, try parsing transcript
-        // Note: This works for both Claude sessions AND direct Codex sessions (rollout files)
         let result = TranscriptParser.parseAll(transcriptPath: path)
         MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
         let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
@@ -447,7 +462,6 @@ struct ConversationView: View {
           isLoading = false
         }
       } else {
-        // No data and no transcript path - just show empty
         DispatchQueue.main.async {
           guard sessionId == targetSid else { return }
           messages = []
@@ -1447,6 +1461,7 @@ struct ActivityBanner: View {
     unreadCount: $unreadCount,
     scrollToBottomTrigger: $scrollTrigger
   )
+  .environment(ServerAppState())
   .frame(width: 700, height: 600)
   .background(Color.backgroundPrimary)
 }

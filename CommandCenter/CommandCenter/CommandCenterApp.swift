@@ -12,20 +12,20 @@ import UserNotifications
 struct OrbitDockApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   private let sessionStore = SessionStore.shared
-  @State private var codexManager = CodexDirectSessionManager()
+  @State private var serverAppState = ServerAppState()
 
   var body: some Scene {
     // Main window
     WindowGroup {
       ContentView()
         .environment(sessionStore)
-        .environment(codexManager)
+        .environment(serverAppState)
         .preferredColorScheme(.dark)
         .task {
-          // Share manager reference with AppDelegate and start MCP bridge
-          AppDelegate.codexManager = codexManager
-          await codexManager.recoverActiveSessions()
-          MCPBridge.shared.start(sessionManager: codexManager)
+          // Wire up server state after connection is established
+          serverAppState.setup()
+          // Start MCP Bridge for external tool access
+          MCPBridge.shared.start(serverAppState: serverAppState)
         }
     }
     .windowStyle(.automatic)
@@ -41,7 +41,7 @@ struct OrbitDockApp: App {
     MenuBarExtra {
       MenuBarView()
         .environment(sessionStore)
-        .environment(codexManager)
+        .environment(serverAppState)
     } label: {
       Image(systemName: "terminal.fill")
         .symbolRenderingMode(.monochrome)
@@ -54,8 +54,8 @@ struct OrbitDockApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
-  /// Shared Codex direct session manager for recovery
-  static var codexManager: CodexDirectSessionManager?
+  /// Shared server app state for MCP bridge
+  static var serverAppState: ServerAppState?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     // Set up notification delegate
@@ -99,7 +99,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
   func applicationWillTerminate(_ notification: Notification) {
     CodexRolloutWatcher.shared.stop()
-    AppDelegate.codexManager?.disconnect()
 
     // Stop MCP Bridge and Rust server
     Task { @MainActor in

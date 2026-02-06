@@ -2,15 +2,15 @@
 //  MCPBridge.swift
 //  OrbitDock
 //
-//  Simple HTTP server that exposes CodexDirectSessionManager to MCP clients.
-//  Allows external tools (like Claude via MCP) to send messages to Codex sessions.
+//  Simple HTTP server that exposes session actions to MCP clients.
+//  Routes through ServerAppState which forwards to the Rust server via WebSocket.
 //
 
 import Foundation
 import Network
 import os.log
 
-/// HTTP server that bridges MCP tools to OrbitDock's Codex session management
+/// HTTP server that bridges MCP tools to OrbitDock's session management
 @MainActor
 final class MCPBridge {
 
@@ -18,15 +18,15 @@ final class MCPBridge {
 
   private let logger = Logger(subsystem: "com.orbitdock", category: "MCPBridge")
   private var listener: NWListener?
-  private weak var sessionManager: CodexDirectSessionManager?
+  private weak var serverAppState: ServerAppState?
   private let port: UInt16 = 19384  // ORBIT on phone keypad :)
 
   private init() {}
 
   // MARK: - Lifecycle
 
-  func start(sessionManager: CodexDirectSessionManager) {
-    self.sessionManager = sessionManager
+  func start(serverAppState: ServerAppState) {
+    self.serverAppState = serverAppState
 
     do {
       let params = NWParameters.tcp
@@ -154,7 +154,7 @@ final class MCPBridge {
        pathParts[1] == "sessions",
        pathParts[3] == "message"
     {
-      let response = await handleSendMessage(sessionId: pathParts[2], body: request.body)
+      let response = handleSendMessage(sessionId: pathParts[2], body: request.body)
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -166,7 +166,7 @@ final class MCPBridge {
        pathParts[1] == "sessions",
        pathParts[3] == "interrupt"
     {
-      let response = await handleInterrupt(sessionId: pathParts[2])
+      let response = handleInterrupt(sessionId: pathParts[2])
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -178,7 +178,7 @@ final class MCPBridge {
        pathParts[1] == "sessions",
        pathParts[3] == "approve"
     {
-      let response = await handleApprove(sessionId: pathParts[2], body: request.body)
+      let response = handleApprove(sessionId: pathParts[2], body: request.body)
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -189,7 +189,7 @@ final class MCPBridge {
        pathParts[0] == "api",
        pathParts[1] == "sessions"
     {
-      let response = await handleListSessions()
+      let response = handleListSessions()
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -200,7 +200,7 @@ final class MCPBridge {
        pathParts[0] == "api",
        pathParts[1] == "sessions"
     {
-      let response = await handleGetSession(sessionId: pathParts[2])
+      let response = handleGetSession(sessionId: pathParts[2])
       logResponse(start: start, request: request, response: response)
       return response
     }
@@ -235,39 +235,31 @@ final class MCPBridge {
 
   // MARK: - API Handlers
 
-  private func handleSendMessage(sessionId: String, body: [String: Any]) async -> HTTPResponse {
-    guard let manager = sessionManager else {
-      return HTTPResponse(status: 503, body: ["error": "Session manager not available"])
+  private func handleSendMessage(sessionId: String, body: [String: Any]) -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
     guard let message = body["message"] as? String, !message.isEmpty else {
       return HTTPResponse(status: 400, body: ["error": "Missing 'message' field"])
     }
 
-    do {
-      try await manager.sendMessage(sessionId, message: message)
-      return HTTPResponse(status: 200, body: ["status": "sent", "session_id": sessionId])
-    } catch {
-      return HTTPResponse(status: 500, body: ["error": error.localizedDescription])
-    }
+    state.sendMessage(sessionId: sessionId, content: message)
+    return HTTPResponse(status: 200, body: ["status": "sent", "session_id": sessionId])
   }
 
-  private func handleInterrupt(sessionId: String) async -> HTTPResponse {
-    guard let manager = sessionManager else {
-      return HTTPResponse(status: 503, body: ["error": "Session manager not available"])
+  private func handleInterrupt(sessionId: String) -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
-    do {
-      try await manager.interruptTurn(sessionId)
-      return HTTPResponse(status: 200, body: ["status": "interrupted", "session_id": sessionId])
-    } catch {
-      return HTTPResponse(status: 500, body: ["error": error.localizedDescription])
-    }
+    state.interruptSession(sessionId)
+    return HTTPResponse(status: 200, body: ["status": "interrupted", "session_id": sessionId])
   }
 
-  private func handleApprove(sessionId: String, body: [String: Any]) async -> HTTPResponse {
-    guard let manager = sessionManager else {
-      return HTTPResponse(status: 503, body: ["error": "Session manager not available"])
+  private func handleApprove(sessionId: String, body: [String: Any]) -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
     guard let requestId = body["request_id"] as? String else {
@@ -280,25 +272,22 @@ final class MCPBridge {
 
     let approvalType = body["type"] as? String ?? "exec"
 
-    do {
-      switch approvalType {
-        case "patch":
-          try await manager.approvePatch(sessionId, requestId: requestId, approved: approved)
-        case "question":
-          let answers = body["answers"] as? [String: String] ?? [:]
-          try await manager.answerQuestion(sessionId, requestId: requestId, answers: answers)
-        default:
-          try await manager.approveExec(sessionId, requestId: requestId, approved: approved)
-      }
-      return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId])
-    } catch {
-      return HTTPResponse(status: 500, body: ["error": error.localizedDescription])
+    if approvalType == "question" {
+      let answer = body["answer"] as? String ?? ""
+      state.answerQuestion(sessionId: sessionId, requestId: requestId, answer: answer)
+    } else {
+      state.approveTool(sessionId: sessionId, requestId: requestId, approved: approved)
     }
+
+    return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId])
   }
 
-  private func handleListSessions() async -> HTTPResponse {
-    let db = DatabaseManager.shared
-    let sessions = await db.fetchSessions(statusFilter: .active)
+  private func handleListSessions() -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
+    }
+
+    let sessions = state.sessions.filter { $0.isActive }
 
     let sessionData = sessions.map { session -> [String: Any] in
       [
@@ -309,7 +298,6 @@ final class MCPBridge {
         "provider": session.provider.rawValue,
         "work_status": session.workStatus.rawValue,
         "attention_reason": session.attentionReason.rawValue,
-        "codex_thread_id": session.codexThreadId ?? "",
         "is_direct_codex": session.isDirectCodex,
       ]
     }
@@ -317,10 +305,12 @@ final class MCPBridge {
     return HTTPResponse(status: 200, body: ["sessions": sessionData])
   }
 
-  private func handleGetSession(sessionId: String) async -> HTTPResponse {
-    let db = DatabaseManager.shared
+  private func handleGetSession(sessionId: String) -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
+    }
 
-    guard let session = await db.fetchSession(id: sessionId) else {
+    guard let session = state.sessions.first(where: { $0.id == sessionId }) else {
       return HTTPResponse(status: 404, body: ["error": "Session not found"])
     }
 
@@ -332,7 +322,6 @@ final class MCPBridge {
       "provider": session.provider.rawValue,
       "work_status": session.workStatus.rawValue,
       "attention_reason": session.attentionReason.rawValue,
-      "codex_thread_id": session.codexThreadId ?? "",
       "is_direct_codex": session.isDirectCodex,
     ]
 

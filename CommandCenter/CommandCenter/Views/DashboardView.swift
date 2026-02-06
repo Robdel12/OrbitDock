@@ -127,10 +127,7 @@ struct DashboardView: View {
       }
     }
     .sheet(isPresented: $showNewCodexSheet) {
-      NewCodexSessionSheet { session in
-        // Select the newly created session
-        onSelectSession(session.id)
-      }
+      NewCodexSessionSheet()
     }
   }
 

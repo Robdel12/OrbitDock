@@ -10,7 +10,7 @@ import SwiftUI
 
 struct CodexApprovalView: View {
   let session: Session
-  @Environment(CodexDirectSessionManager.self) private var manager
+  @Environment(ServerAppState.self) private var serverState
 
   @State private var isProcessing = false
   @State private var errorMessage: String?
@@ -179,23 +179,7 @@ struct CodexApprovalView: View {
   }
 
   private func processApproval(approved: Bool, requestId: String) {
-    isProcessing = true
-    errorMessage = nil
-
-    Task {
-      do {
-        if session.pendingToolName == "Edit" {
-          try await manager.approvePatch(session.id, requestId: requestId, approved: approved)
-        } else {
-          try await manager.approveExec(session.id, requestId: requestId, approved: approved)
-        }
-      } catch {
-        await MainActor.run {
-          errorMessage = error.localizedDescription
-          isProcessing = false
-        }
-      }
-    }
+    serverState.approveTool(sessionId: session.id, requestId: requestId, approved: approved)
   }
 }
 
@@ -203,7 +187,7 @@ struct CodexApprovalView: View {
 
 struct CodexQuestionView: View {
   let session: Session
-  @Environment(CodexDirectSessionManager.self) private var manager
+  @Environment(ServerAppState.self) private var serverState
 
   @State private var answer = ""
   @State private var isProcessing = false
@@ -274,20 +258,8 @@ struct CodexQuestionView: View {
     let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
 
-    isProcessing = true
-    errorMessage = nil
-
-    Task {
-      do {
-        // For simple questions, use "answer" as the key
-        try await manager.answerQuestion(session.id, requestId: requestId, answers: ["answer": trimmed])
-      } catch {
-        await MainActor.run {
-          errorMessage = error.localizedDescription
-          isProcessing = false
-        }
-      }
-    }
+    serverState.answerQuestion(sessionId: session.id, requestId: requestId, answer: trimmed)
+    answer = ""
   }
 }
 
@@ -304,7 +276,7 @@ struct CodexQuestionView: View {
       pendingApprovalId: "req-123"
     )
   )
-  .environment(CodexDirectSessionManager())
+  .environment(ServerAppState())
   .frame(width: 400)
   .padding()
 }
@@ -321,7 +293,7 @@ struct CodexQuestionView: View {
       pendingApprovalId: "req-456"
     )
   )
-  .environment(CodexDirectSessionManager())
+  .environment(ServerAppState())
   .frame(width: 400)
   .padding()
 }

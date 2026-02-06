@@ -10,7 +10,7 @@ import SwiftUI
 
 struct CodexInputBar: View {
   let sessionId: String
-  @Environment(CodexDirectSessionManager.self) private var manager
+  @Environment(ServerAppState.self) private var serverState
 
   @State private var message = ""
   @State private var isSending = false
@@ -86,23 +86,8 @@ struct CodexInputBar: View {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty, !isSending else { return }
 
-    isSending = true
-    errorMessage = nil
-
-    Task {
-      do {
-        try await manager.sendMessage(sessionId, message: trimmed)
-        await MainActor.run {
-          message = ""
-          isSending = false
-        }
-      } catch {
-        await MainActor.run {
-          errorMessage = error.localizedDescription
-          isSending = false
-        }
-      }
-    }
+    serverState.sendMessage(sessionId: sessionId, content: trimmed)
+    message = ""
   }
 }
 
@@ -110,7 +95,7 @@ struct CodexInputBar: View {
 
 struct CodexInterruptButton: View {
   let sessionId: String
-  @Environment(CodexDirectSessionManager.self) private var manager
+  @Environment(ServerAppState.self) private var serverState
 
   @State private var isInterrupting = false
 
@@ -137,23 +122,12 @@ struct CodexInterruptButton: View {
   }
 
   private func interrupt() {
-    isInterrupting = true
-
-    Task {
-      do {
-        try await manager.interruptTurn(sessionId)
-      } catch {
-        // Ignore interrupt errors
-      }
-      await MainActor.run {
-        isInterrupting = false
-      }
-    }
+    serverState.interruptSession(sessionId)
   }
 }
 
 #Preview {
   CodexInputBar(sessionId: "test-session")
-    .environment(CodexDirectSessionManager())
+    .environment(ServerAppState())
     .frame(width: 400)
 }
