@@ -109,7 +109,7 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 
   /// Custom initializer with backward compatibility for legacy code using contextLabel
-  init(
+  nonisolated init(
     id: String,
     projectPath: String,
     projectName: String? = nil,

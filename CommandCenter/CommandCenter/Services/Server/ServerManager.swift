@@ -11,7 +11,7 @@ import Combine
 import Foundation
 import os.log
 
-private let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
+private nonisolated(unsafe) let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
 
 /// Manages the embedded orbitdock-server process
 @MainActor
@@ -186,9 +186,10 @@ final class ServerManager: ObservableObject {
     self.errorPipe = errorPipe
 
     // Handle process termination
-    process.terminationHandler = { [weak self] process in
-      Task { @MainActor in
-        self?.handleTermination(exitCode: process.terminationStatus)
+    process.terminationHandler = { [weak self] terminatedProcess in
+      let exitCode = terminatedProcess.terminationStatus
+      Task { @MainActor [weak self] in
+        self?.handleTermination(exitCode: exitCode)
       }
     }
 

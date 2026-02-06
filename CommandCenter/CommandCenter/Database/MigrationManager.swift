@@ -23,7 +23,7 @@ struct Migration: Identifiable, Sendable {
 final class MigrationManager: @unchecked Sendable {
   private nonisolated(unsafe) let db: Connection
 
-  init(db: Connection) {
+  nonisolated init(db: Connection) {
     self.db = db
   }
 
