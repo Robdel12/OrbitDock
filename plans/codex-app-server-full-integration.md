@@ -76,20 +76,21 @@ Key files:
 ### 1. Session Naming
 **API**: `thread/name/set`, `thread/name/updated` event
 
-Let users name sessions. codex-core also auto-generates names via `ThreadNameUpdated`.
+Let users name sessions. codex-core emits `ThreadNameUpdated` when names are set (manual only, no auto-generation).
 
 #### Steps
-- [ ] **Rust connector**: Handle `ThreadNameUpdated` event in `codex.rs` → emit `ConnectorEvent::NameUpdated { name }`
-- [ ] **Rust session**: Store `name: Option<String>` in `SessionHandle`, include in `SessionSummary` and `SessionSnapshot`
-- [ ] **Rust protocol**: Add `SessionNameUpdated { session_id, name }` to `ServerMessage`
-- [ ] **Rust protocol**: Add `RenameSession { session_id, name }` to `ClientMessage`
-- [ ] **Rust websocket**: Handle `RenameSession` → call codex-core `SetThreadName`, broadcast `SessionNameUpdated`
-- [ ] **Rust persistence**: Add `PersistCommand::SessionRename` → `UPDATE sessions SET custom_name = ?`
-- [ ] **Swift protocol**: Add `sessionNameUpdated` and `renameSession` cases
-- [ ] **Swift state**: Handle name updates in `ServerAppState`, update session in list
-- [ ] **Swift UI**: Show name in sidebar row (fall back to first prompt / project name)
-- [ ] **Swift UI**: Inline-editable name field in session header (double-click or pencil icon)
-- [ ] Verify: auto-generated names appear, manual renames persist across restart
+- [x] **Rust connector**: Handle `ThreadNameUpdated` event in `codex.rs` → emit `ConnectorEvent::ThreadNameUpdated(name)`
+- [x] **Rust session**: Store `custom_name: Option<String>` in `SessionHandle`, include in `SessionSummary` and `SessionState`
+- [x] **Rust protocol**: Add `custom_name` to `SessionSummary`, `SessionState`, `StateChanges` — use `SessionDelta` for updates
+- [x] **Rust protocol**: Add `RenameSession { session_id, name }` to `ClientMessage`
+- [x] **Rust websocket**: Handle `RenameSession` → update handle, persist, broadcast delta, call codex-core `SetThreadName`
+- [x] **Rust persistence**: Add `PersistCommand::SetCustomName` → `UPDATE sessions SET custom_name = ?`
+- [x] **Swift protocol**: Add `customName` to summary/state/delta, add `renameSession` to `ClientToServerMessage`
+- [x] **Swift state**: Handle name updates in `ServerAppState` (snapshot + delta), add `renameSession()` action
+- [x] **Swift UI**: Name already flows through `Session.displayName` (customName > summary > firstPrompt > projectName)
+- [x] **Swift UI**: `RenameSessionSheet` in `AgentListPanel` + `QuickSwitcher` routes through `serverState.renameSession()` for server sessions
+- [x] **Bug fix**: ContentView dedup filters passive rollout-watcher sessions by thread ID (not just session ID)
+- [x] Verify: manual renames persist and update UI, no duplicate sessions in sidebar
 
 ---
 

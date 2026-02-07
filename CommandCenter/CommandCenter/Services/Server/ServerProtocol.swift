@@ -139,6 +139,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let projectPath: String
   let projectName: String?
   let model: String?
+  let customName: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let hasPendingApproval: Bool
@@ -151,6 +152,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case projectPath = "project_path"
     case projectName = "project_name"
     case model
+    case customName = "custom_name"
     case status
     case workStatus = "work_status"
     case hasPendingApproval = "has_pending_approval"
@@ -167,6 +169,7 @@ struct ServerSessionState: Codable, Identifiable {
   let projectPath: String
   let projectName: String?
   let model: String?
+  let customName: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let messages: [ServerMessage]
@@ -183,6 +186,7 @@ struct ServerSessionState: Codable, Identifiable {
     case projectPath = "project_path"
     case projectName = "project_name"
     case model
+    case customName = "custom_name"
     case status
     case workStatus = "work_status"
     case messages
@@ -204,6 +208,7 @@ struct ServerStateChanges: Codable {
   let tokenUsage: ServerTokenUsage?
   let currentDiff: String??
   let currentPlan: String??
+  let customName: String??
   let lastActivityAt: String?
 
   enum CodingKeys: String, CodingKey {
@@ -213,6 +218,7 @@ struct ServerStateChanges: Codable {
     case tokenUsage = "token_usage"
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
+    case customName = "custom_name"
     case lastActivityAt = "last_activity_at"
   }
 }
@@ -392,6 +398,7 @@ enum ClientToServerMessage: Codable {
   case interruptSession(sessionId: String)
   case endSession(sessionId: String)
   case updateSessionConfig(sessionId: String, approvalPolicy: String?, sandboxMode: String?)
+  case renameSession(sessionId: String, name: String?)
   case resumeSession(sessionId: String)
 
   enum CodingKeys: String, CodingKey {
@@ -406,6 +413,7 @@ enum ClientToServerMessage: Codable {
     case requestId = "request_id"
     case decision
     case answer
+    case name
   }
 
   func encode(to encoder: Encoder) throws {
@@ -462,6 +470,11 @@ enum ClientToServerMessage: Codable {
       try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
       try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
 
+    case .renameSession(let sessionId, let name):
+      try container.encode("rename_session", forKey: .type)
+      try container.encode(sessionId, forKey: .sessionId)
+      try container.encodeIfPresent(name, forKey: .name)
+
     case .resumeSession(let sessionId):
       try container.encode("resume_session", forKey: .type)
       try container.encode(sessionId, forKey: .sessionId)
@@ -513,6 +526,11 @@ enum ClientToServerMessage: Codable {
         sessionId: try container.decode(String.self, forKey: .sessionId),
         approvalPolicy: try container.decodeIfPresent(String.self, forKey: .approvalPolicy),
         sandboxMode: try container.decodeIfPresent(String.self, forKey: .sandboxMode)
+      )
+    case "rename_session":
+      self = .renameSession(
+        sessionId: try container.decode(String.self, forKey: .sessionId),
+        name: try container.decodeIfPresent(String.self, forKey: .name)
       )
     case "resume_session":
       self = .resumeSession(sessionId: try container.decode(String.self, forKey: .sessionId))

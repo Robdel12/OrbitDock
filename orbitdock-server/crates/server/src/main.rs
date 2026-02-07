@@ -87,6 +87,7 @@ async fn async_main() -> anyhow::Result<()> {
                     rs.project_path.clone(),
                     rs.project_name,
                     rs.model.clone(),
+                    rs.custom_name,
                     rs.started_at,
                     rs.last_activity_at,
                     rs.messages,

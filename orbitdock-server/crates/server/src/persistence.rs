@@ -75,6 +75,12 @@ pub enum PersistCommand {
         thread_id: String,
     },
 
+    /// Set custom name for a session
+    SetCustomName {
+        session_id: String,
+        custom_name: Option<String>,
+    },
+
     /// Reactivate an ended session (for resume)
     ReactivateSession {
         id: String,
@@ -417,6 +423,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             )?;
         }
 
+        PersistCommand::SetCustomName {
+            session_id,
+            custom_name,
+        } => {
+            conn.execute(
+                "UPDATE sessions SET custom_name = ?, last_activity_at = ? WHERE id = ?",
+                params![custom_name, chrono_now(), session_id],
+            )?;
+        }
+
         PersistCommand::ReactivateSession { id } => {
             let now = chrono_now();
             conn.execute(
@@ -500,6 +516,7 @@ pub struct RestoredSession {
     pub project_path: String,
     pub project_name: Option<String>,
     pub model: Option<String>,
+    pub custom_name: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     pub approval_policy: Option<String>,
@@ -525,13 +542,13 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
 
         // Load active codex sessions
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, project_name, model, started_at, last_activity_at, approval_policy, sandbox_mode
+            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode
              FROM sessions
              WHERE provider = 'codex' AND status = 'active'"
         )?;
 
         #[allow(clippy::type_complexity)]
-        let session_rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
+        let session_rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -542,6 +559,7 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
                     row.get(5)?,
                     row.get(6)?,
                     row.get(7)?,
+                    row.get(8)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -549,7 +567,7 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
 
         let mut sessions = Vec::new();
 
-        for (id, project_path, project_name, model, started_at, last_activity_at, approval_policy, sandbox_mode) in session_rows {
+        for (id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode) in session_rows {
             // Load messages for this session
             let mut msg_stmt = conn.prepare(
                 "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
@@ -594,6 +612,7 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
                 project_path,
                 project_name,
                 model,
+                custom_name,
                 started_at,
                 last_activity_at,
                 approval_policy,
@@ -626,12 +645,12 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         )?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, project_name, model, started_at, last_activity_at, approval_policy, sandbox_mode
+            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode
              FROM sessions
              WHERE id = ?1 AND provider = 'codex'"
         )?;
 
-        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
+        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
             .query_row(params![&id_owned], |row| {
                 Ok((
                     row.get(0)?,
@@ -642,11 +661,12 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     row.get(5)?,
                     row.get(6)?,
                     row.get(7)?,
+                    row.get(8)?,
                 ))
             })
             .optional()?;
 
-        let Some((id, project_path, project_name, model, started_at, last_activity_at, approval_policy, sandbox_mode)) = row else {
+        let Some((id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode)) = row else {
             return Ok(None);
         };
 
@@ -694,6 +714,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             project_path,
             project_name,
             model,
+            custom_name,
             started_at,
             last_activity_at,
             approval_policy,

@@ -324,6 +324,11 @@ final class ServerConnection: ObservableObject {
     send(.updateSessionConfig(sessionId: sessionId, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode))
   }
 
+  /// Rename a session
+  func renameSession(sessionId: String, name: String?) {
+    send(.renameSession(sessionId: sessionId, name: name))
+  }
+
   /// Resume an ended session
   func resumeSession(_ sessionId: String) {
     send(.resumeSession(sessionId: sessionId))

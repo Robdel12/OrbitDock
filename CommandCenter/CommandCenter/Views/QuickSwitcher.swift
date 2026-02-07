@@ -75,6 +75,7 @@ struct QuickCommand: Identifiable {
 
 struct QuickSwitcher: View {
   @Environment(SessionStore.self) private var database
+  @Environment(ServerAppState.self) private var serverState
   let sessions: [Session]
   let currentSessionId: String? // Currently selected session in ContentView
   let onSelect: (String) -> Void
@@ -270,11 +271,16 @@ struct QuickSwitcher: View {
           session: session,
           initialText: renameText,
           onSave: { newName in
-            Task {
-              await database.updateCustomName(
-                sessionId: session.id,
-                name: newName.isEmpty ? nil : newName
-              )
+            let name = newName.isEmpty ? nil : newName
+            if serverState.isServerSession(session.id) {
+              serverState.renameSession(sessionId: session.id, name: name)
+            } else {
+              Task {
+                await database.updateCustomName(
+                  sessionId: session.id,
+                  name: name
+                )
+              }
             }
             renamingSession = nil
           },
@@ -1083,6 +1089,7 @@ struct QuickSwitcher: View {
     )
   }
   .frame(width: 800, height: 600)
+  .environment(ServerAppState())
 }
 
 // MARK: - Row Background

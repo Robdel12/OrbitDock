@@ -124,6 +124,8 @@ pub struct SessionSummary {
     pub project_path: String,
     pub project_name: Option<String>,
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     pub has_pending_approval: bool,
@@ -139,6 +141,8 @@ pub struct SessionState {
     pub project_path: String,
     pub project_name: Option<String>,
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     pub messages: Vec<Message>,
@@ -165,6 +169,8 @@ pub struct StateChanges {
     pub current_diff: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_plan: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<String>,
 }

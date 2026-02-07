@@ -108,13 +108,9 @@ impl CodexSession {
                     .broadcast(ServerMessage::SessionDelta {
                         session_id: session_id.to_string(),
                         changes: orbitdock_protocol::StateChanges {
-                            status: None,
                             work_status: Some(WorkStatus::Working),
-                            pending_approval: None,
-                            token_usage: None,
-                            current_diff: None,
-                            current_plan: None,
                             last_activity_at: Some(chrono_now()),
+                            ..Default::default()
                         },
                     })
                     .await;
@@ -136,13 +132,9 @@ impl CodexSession {
                     .broadcast(ServerMessage::SessionDelta {
                         session_id: session_id.to_string(),
                         changes: orbitdock_protocol::StateChanges {
-                            status: None,
                             work_status: Some(WorkStatus::Waiting),
-                            pending_approval: None,
-                            token_usage: None,
-                            current_diff: None,
-                            current_plan: None,
                             last_activity_at: Some(chrono_now()),
+                            ..Default::default()
                         },
                     })
                     .await;
@@ -165,13 +157,9 @@ impl CodexSession {
                     .broadcast(ServerMessage::SessionDelta {
                         session_id: session_id.to_string(),
                         changes: orbitdock_protocol::StateChanges {
-                            status: None,
                             work_status: Some(WorkStatus::Waiting),
-                            pending_approval: None,
-                            token_usage: None,
-                            current_diff: None,
-                            current_plan: None,
                             last_activity_at: Some(chrono_now()),
+                            ..Default::default()
                         },
                     })
                     .await;
@@ -318,6 +306,28 @@ impl CodexSession {
                     .await;
             }
 
+            ConnectorEvent::ThreadNameUpdated(name) => {
+                info!("Thread name updated for {}: {}", session_id, name);
+                session.set_custom_name(Some(name.clone()));
+
+                let _ = persist_tx
+                    .send(PersistCommand::SetCustomName {
+                        session_id: session_id.to_string(),
+                        custom_name: Some(name.clone()),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.to_string(),
+                        changes: orbitdock_protocol::StateChanges {
+                            custom_name: Some(Some(name)),
+                            ..Default::default()
+                        },
+                    })
+                    .await;
+            }
+
             ConnectorEvent::SessionEnded { reason } => {
                 info!("Session ended: {}", reason);
                 session.set_work_status(WorkStatus::Ended);
@@ -355,13 +365,9 @@ impl CodexSession {
                     .broadcast(ServerMessage::SessionDelta {
                         session_id: session_id.to_string(),
                         changes: orbitdock_protocol::StateChanges {
-                            status: None,
                             work_status: Some(WorkStatus::Waiting),
-                            pending_approval: None,
-                            token_usage: None,
-                            current_diff: None,
-                            current_plan: None,
                             last_activity_at: Some(chrono_now()),
+                            ..Default::default()
                         },
                     })
                     .await;
@@ -398,6 +404,9 @@ impl CodexSession {
                     )
                     .await?;
             }
+            CodexAction::SetThreadName { name } => {
+                connector.set_thread_name(&name).await?;
+            }
             CodexAction::EndSession => {
                 connector.shutdown().await?;
             }
@@ -425,6 +434,7 @@ pub enum CodexAction {
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
     },
+    SetThreadName { name: String },
     EndSession,
 }
 

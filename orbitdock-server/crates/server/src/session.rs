@@ -15,6 +15,7 @@ pub struct SessionHandle {
     project_path: String,
     project_name: Option<String>,
     model: Option<String>,
+    custom_name: Option<String>,
     status: SessionStatus,
     work_status: WorkStatus,
     messages: Vec<Message>,
@@ -40,6 +41,7 @@ impl SessionHandle {
             project_path,
             project_name: None,
             model: None,
+            custom_name: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
             messages: Vec::new(),
@@ -61,6 +63,7 @@ impl SessionHandle {
         project_path: String,
         project_name: Option<String>,
         model: Option<String>,
+        custom_name: Option<String>,
         started_at: Option<String>,
         last_activity_at: Option<String>,
         messages: Vec<Message>,
@@ -71,6 +74,7 @@ impl SessionHandle {
             project_path,
             project_name,
             model,
+            custom_name,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
             messages,
@@ -98,6 +102,7 @@ impl SessionHandle {
             project_path: self.project_path.clone(),
             project_name: self.project_name.clone(),
             model: self.model.clone(),
+            custom_name: self.custom_name.clone(),
             status: self.status,
             work_status: self.work_status,
             has_pending_approval: false, // TODO
@@ -114,6 +119,7 @@ impl SessionHandle {
             project_path: self.project_path.clone(),
             project_name: self.project_name.clone(),
             model: self.model.clone(),
+            custom_name: self.custom_name.clone(),
             status: self.status,
             work_status: self.work_status,
             messages: self.messages.clone(),
@@ -139,6 +145,12 @@ impl SessionHandle {
     /// Clean up any closed subscriber channels
     pub fn unsubscribe_by_closed(&mut self) {
         self.subscribers.retain(|tx| !tx.is_closed());
+    }
+
+    /// Set the custom name for this session
+    pub fn set_custom_name(&mut self, name: Option<String>) {
+        self.custom_name = name;
+        self.last_activity_at = Some(chrono_now());
     }
 
     /// Set work status

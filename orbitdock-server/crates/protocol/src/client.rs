@@ -46,6 +46,12 @@ pub enum ClientMessage {
         sandbox_mode: Option<String>,
     },
 
+    // Session naming
+    RenameSession {
+        session_id: String,
+        name: Option<String>,
+    },
+
     // Session management
     CreateSession {
         provider: Provider,

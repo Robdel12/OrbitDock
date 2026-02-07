@@ -351,13 +351,9 @@ async fn handle_client_message(
                     .broadcast(ServerMessage::SessionDelta {
                         session_id: session_id.clone(),
                         changes: orbitdock_protocol::StateChanges {
-                            status: None,
                             work_status: Some(orbitdock_protocol::WorkStatus::Working),
                             pending_approval: Some(None), // Explicitly clear
-                            token_usage: None,
-                            current_diff: None,
-                            current_plan: None,
-                            last_activity_at: None,
+                            ..Default::default()
                         },
                     })
                     .await;
@@ -385,6 +381,52 @@ async fn handle_client_message(
             let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Interrupt).await;
+            }
+        }
+
+        ClientMessage::RenameSession { session_id, name } => {
+            info!("Renaming session {}: {:?}", session_id, name);
+
+            let mut state = state.lock().await;
+            if let Some(session) = state.get_session(&session_id) {
+                let mut session = session.lock().await;
+                session.set_custom_name(name.clone());
+
+                // Persist
+                let _ = state
+                    .persist()
+                    .send(PersistCommand::SetCustomName {
+                        session_id: session_id.clone(),
+                        custom_name: name.clone(),
+                    })
+                    .await;
+
+                // Broadcast delta to session subscribers
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            custom_name: Some(name.clone()),
+                            ..Default::default()
+                        },
+                    })
+                    .await;
+
+                // Update list subscribers with the new summary
+                let summary = session.summary();
+                drop(session);
+                state
+                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                    .await;
+            }
+
+            // Also set in codex-core if it's a Codex session
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                if let Some(ref n) = name {
+                    let _ = tx
+                        .send(CodexAction::SetThreadName { name: n.clone() })
+                        .await;
+                }
             }
         }
 
@@ -465,6 +507,7 @@ async fn handle_client_message(
                 restored.project_path.clone(),
                 restored.project_name,
                 restored.model.clone(),
+                restored.custom_name,
                 restored.started_at,
                 restored.last_activity_at,
                 restored.messages,

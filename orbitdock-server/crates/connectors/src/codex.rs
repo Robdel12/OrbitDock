@@ -502,6 +502,14 @@ impl CodexConnector {
                 vec![ConnectorEvent::PlanUpdated(plan)]
             }
 
+            EventMsg::ThreadNameUpdated(e) => {
+                if let Some(name) = e.thread_name {
+                    vec![ConnectorEvent::ThreadNameUpdated(name)]
+                } else {
+                    vec![]
+                }
+            }
+
             EventMsg::ShutdownComplete => {
                 vec![ConnectorEvent::SessionEnded {
                     reason: "shutdown".to_string(),
@@ -760,6 +768,21 @@ impl CodexConnector {
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to answer question: {}", e)))?;
 
         info!("Sent question answer: {}", request_id);
+        Ok(())
+    }
+
+    /// Set the thread name in codex-core
+    pub async fn set_thread_name(&self, name: &str) -> Result<(), ConnectorError> {
+        let op = Op::SetThreadName {
+            name: name.to_string(),
+        };
+
+        self.thread
+            .submit(op)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to set thread name: {}", e)))?;
+
+        info!("Set thread name: {}", name);
         Ok(())
     }
 

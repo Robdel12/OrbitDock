@@ -176,6 +176,15 @@ final class ServerAppState {
     ServerConnection.shared.resumeSession(sessionId)
   }
 
+  /// Rename a session
+  func renameSession(sessionId: String, name: String?) {
+    logger.info("Renaming session \(sessionId) to '\(name ?? "(cleared)")'")
+    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+      sessions[idx].customName = name
+    }
+    ServerConnection.shared.renameSession(sessionId: sessionId, name: name)
+  }
+
   /// Update session config (change autonomy level mid-session)
   func updateSessionConfig(sessionId: String, autonomy: AutonomyLevel) {
     logger.info("Updating session config \(sessionId) to \(autonomy.displayName)")
@@ -234,7 +243,9 @@ final class ServerAppState {
     subscribedSessions.insert(state.id)
 
     // Update session in list
-    updateSessionInList(state.toSession())
+    var session = state.toSession()
+    session.customName = state.customName
+    updateSessionInList(session)
 
     // Store messages
     sessionMessages[state.id] = state.messages.map { $0.toTranscriptMessage() }
@@ -312,6 +323,14 @@ final class ServerAppState {
         sessionPlans[sessionId] = plan
       } else {
         sessionPlans.removeValue(forKey: sessionId)
+      }
+    }
+    // Handle optional-optional for custom name
+    if let nameOuter = changes.customName {
+      if let name = nameOuter {
+        session.customName = name
+      } else {
+        session.customName = nil
       }
     }
     if let lastActivity = changes.lastActivityAt {

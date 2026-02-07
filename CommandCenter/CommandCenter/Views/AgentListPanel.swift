@@ -9,6 +9,7 @@ import SwiftUI
 
 struct AgentListPanel: View {
   @Environment(SessionStore.self) private var database
+  @Environment(ServerAppState.self) private var serverState
   let sessions: [Session]
   let selectedSessionId: String?
   let onSelectSession: (String) -> Void
@@ -120,11 +121,16 @@ struct AgentListPanel: View {
         session: session,
         initialText: renameText,
         onSave: { newName in
-          Task {
-            await database.updateContextLabel(
-              sessionId: session.id,
-              label: newName.isEmpty ? nil : newName
-            )
+          let name = newName.isEmpty ? nil : newName
+          if serverState.isServerSession(session.id) {
+            serverState.renameSession(sessionId: session.id, name: name)
+          } else {
+            Task {
+              await database.updateContextLabel(
+                sessionId: session.id,
+                label: name
+              )
+            }
           }
           renamingSession = nil
         },
@@ -350,6 +356,7 @@ struct AgentListPanel: View {
       .fill(Color.backgroundPrimary)
   }
   .frame(width: 600, height: 500)
+  .environment(ServerAppState())
 }
 
 // MARK: - Rename Session Sheet

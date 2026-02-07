@@ -340,10 +340,18 @@ struct ContentView: View {
     let dbSessions = database.sessions
     let serverSessions = serverState.sessions
     let serverIds = Set(serverSessions.map(\.id))
+    // Collect thread IDs from server-managed sessions (stored in DB by Rust server)
+    let serverThreadIds = Set(
+      dbSessions
+        .filter { serverIds.contains($0.id) }
+        .compactMap(\.codexThreadId)
+    )
     // Filter out any DB sessions that are also in server (server is source of truth for Codex)
     // Exclude active direct Codex sessions not in server (stale), but keep ended ones (resumable)
+    // Also exclude passive Codex sessions whose ID matches a server session's thread ID (same conversation)
     let nonServerSessions = dbSessions.filter { session in
       guard !serverIds.contains(session.id) else { return false }
+      if serverThreadIds.contains(session.id) { return false }
       if session.isDirectCodex && session.isActive { return false }
       return true
     }
