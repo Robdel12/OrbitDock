@@ -366,8 +366,31 @@ final class ServerAppState {
   private func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {
     logger.debug("Message updated in \(sessionId): \(messageId)")
 
-    guard var messages = sessionMessages[sessionId],
-          let idx = messages.firstIndex(where: { $0.id == messageId }) else { return }
+    var messages = sessionMessages[sessionId] ?? []
+
+    guard let idx = messages.firstIndex(where: { $0.id == messageId }) else {
+      // Streaming edge case: we can receive an update before create (or with a remapped ID).
+      // Upsert an assistant message so content isn't dropped in the UI.
+      guard let content = changes.content else { return }
+      let fallback = TranscriptMessage(
+        id: messageId,
+        type: .assistant,
+        content: content,
+        timestamp: Date(),
+        toolName: nil,
+        toolInput: nil,
+        toolOutput: changes.toolOutput,
+        toolDuration: changes.durationMs.map { Double($0) / 1000.0 },
+        inputTokens: nil,
+        outputTokens: nil,
+        isInProgress: false
+      )
+      messages.append(fallback)
+      sessionMessages[sessionId] = messages
+      messageRevisions[sessionId, default: 0] += 1
+      logger.warning("Message update arrived before create; upserted \(messageId) in \(sessionId)")
+      return
+    }
 
     var msg = messages[idx]
     if let content = changes.content {
