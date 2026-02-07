@@ -71,152 +71,186 @@ Key files:
 
 ---
 
-## Next Up
+## Tasks
 
-### Session Naming
+### 1. Session Naming
 **API**: `thread/name/set`, `thread/name/updated` event
 
-Let users name their sessions for easy identification. codex-core auto-generates names too (via `ThreadNameUpdated` event).
+Let users name sessions. codex-core also auto-generates names via `ThreadNameUpdated`.
 
-- Editable session name in sidebar / session header
-- Auto-update when codex-core generates a name
-- Persist in DB
-
-**Scope**: Small — new protocol message + event, UI edit field.
-
-**Files**: `protocol/client.rs`, `protocol/server.rs`, `websocket.rs`, `codex.rs` (handle `ThreadNameUpdated`), `ServerProtocol.swift`, `ServerAppState.swift`, sidebar session row
-
----
-
-### Per-Turn Config Overrides
-**API**: `turn/start` with `model`, `effort`, `sandbox_policy`, `personality`, `collaboration_mode`
-
-Allow changing model/effort level per message without creating a new session.
-
-codex-core's `TurnStartParams` accepts:
-- `model: Option<String>` — override model for this turn and subsequent
-- `effort: Option<ReasoningEffort>` — low/medium/high (for capable models)
-- `sandbox_policy: Option<SandboxPolicy>` — override sandbox
-- `personality: Option<Personality>` — override personality
-- `collaboration_mode: Option<CollaborationMode>` — experimental preset
-
-UI needs:
-- Collapsible "advanced options" row above the input bar
-- Model dropdown, effort picker
-- Passed through to `SendMessage` → codex-core turn config
-
-**Scope**: Extend `SendMessage` with optional config fields, add UI to `CodexInputBar`.
-
-**Files**: `protocol/client.rs`, `websocket.rs`, `codex.rs`, `ServerProtocol.swift`, `CodexInputBar.swift`
+#### Steps
+- [ ] **Rust connector**: Handle `ThreadNameUpdated` event in `codex.rs` → emit `ConnectorEvent::NameUpdated { name }`
+- [ ] **Rust session**: Store `name: Option<String>` in `SessionHandle`, include in `SessionSummary` and `SessionSnapshot`
+- [ ] **Rust protocol**: Add `SessionNameUpdated { session_id, name }` to `ServerMessage`
+- [ ] **Rust protocol**: Add `RenameSession { session_id, name }` to `ClientMessage`
+- [ ] **Rust websocket**: Handle `RenameSession` → call codex-core `SetThreadName`, broadcast `SessionNameUpdated`
+- [ ] **Rust persistence**: Add `PersistCommand::SessionRename` → `UPDATE sessions SET custom_name = ?`
+- [ ] **Swift protocol**: Add `sessionNameUpdated` and `renameSession` cases
+- [ ] **Swift state**: Handle name updates in `ServerAppState`, update session in list
+- [ ] **Swift UI**: Show name in sidebar row (fall back to first prompt / project name)
+- [ ] **Swift UI**: Inline-editable name field in session header (double-click or pencil icon)
+- [ ] Verify: auto-generated names appear, manual renames persist across restart
 
 ---
 
-### Context Compaction
+### 2. Per-Turn Config Overrides
+**API**: `turn/start` accepts `model`, `effort`, `sandbox_policy`
+
+Change model or effort level per message without creating a new session.
+
+#### Steps
+- [ ] **Rust protocol**: Extend `SendMessage` with optional fields: `model`, `effort`, `sandbox_policy`
+- [ ] **Rust websocket**: Pass overrides through to `CodexAction::SendMessage`
+- [ ] **Rust connector**: Apply overrides in `codex.rs` when calling `UserTurn` op
+- [ ] **Swift protocol**: Extend `sendMessage` encode to include optional `model`, `effort`, `sandbox_policy`
+- [ ] **Swift connection**: Extend `sendMessage()` with optional params
+- [ ] **Swift state**: Extend `sendMessage()` to forward overrides
+- [ ] **Swift UI**: Add collapsible config row above `CodexInputBar` (chevron toggle)
+  - [ ] Model dropdown (populated from session's available models)
+  - [ ] Effort picker (low / medium / high) — only show for models that support it
+- [ ] **Swift UI**: Show current model in the config row as default selection
+- [ ] Verify: sending with a different model actually uses that model (check token badge / response)
+
+---
+
+### 3. Context Compaction
 **API**: `thread/compact/start`, `ContextCompacted` event
 
-When sessions get long, let users (or auto-trigger) context compaction to summarize history.
+Summarize long conversations to free up context window.
 
-- "Compact context" button in session actions
-- Show compaction in progress indicator
-- Update message count / context window after compaction
-
-**Scope**: New protocol message, handle `ContextCompacted` event.
-
-**Files**: `protocol/client.rs`, `websocket.rs`, `codex.rs`, `ServerProtocol.swift`, `SessionDetailView.swift`
-
----
-
-### Turn Steer
-**API**: `turn/steer` — add input to active turn (requires `expected_turn_id` precondition)
-
-Let users send additional context while the agent is still working, instead of waiting for the turn to complete.
-
-- When status is "working", input bar sends via steer instead of new turn
-- Requires tracking current turn_id in session state
-
-**Scope**: Medium — new protocol message, conditional send logic in input bar.
-
-**Files**: `protocol/client.rs`, `websocket.rs`, `codex.rs`, `session.rs` (track turn_id), `ServerProtocol.swift`, `CodexInputBar.swift`
+#### Steps
+- [ ] **Rust connector**: Handle `ContextCompacted` event → emit `ConnectorEvent::ContextCompacted`
+- [ ] **Rust protocol**: Add `CompactSession { session_id }` to `ClientMessage`
+- [ ] **Rust protocol**: Add `SessionCompacted { session_id }` to `ServerMessage` (or use `SessionDelta`)
+- [ ] **Rust websocket**: Handle `CompactSession` → call codex-core `Compact` op
+- [ ] **Rust session**: Update token usage after compaction event
+- [ ] **Swift protocol**: Add `compactSession` and handle compacted response
+- [ ] **Swift state**: Handle compaction — refresh token counts
+- [ ] **Swift UI**: "Compact" button in session action bar or context menu
+- [ ] **Swift UI**: Brief indicator when compaction is in progress
+- [ ] Verify: compaction reduces context window usage, token badge updates
 
 ---
 
-### MCP Server Status
-**API**: `mcpServerStatus/list`, `McpStartupUpdate/Complete` events
+### 4. Turn Steer
+**API**: `turn/steer` — inject input into an active turn
 
-Show connected MCP servers and their tools per session:
-- Server name, connection state (connected/starting/failed)
-- Tool count per server
-- Error details for failed connections
-- OAuth login initiation (`mcpServer/oauth/login`)
+Send additional context while the agent is working instead of waiting.
 
-**Scope**: Add `McpStatusUpdated` event handling, new status view.
-
-**Files**: `connectors/codex.rs`, `session.rs`, `server.rs` (protocol), `ServerAppState.swift`, new `MCPServerStatusView.swift`
+#### Steps
+- [ ] **Rust session**: Track `current_turn_id: Option<String>` — set on `TurnStarted`, clear on `TurnComplete/Aborted`
+- [ ] **Rust protocol**: Add `SteerSession { session_id, content, expected_turn_id }` to `ClientMessage`
+- [ ] **Rust websocket**: Handle `SteerSession` → call codex-core `turn/steer` op
+- [ ] **Rust protocol**: Include `current_turn_id` in `SessionSnapshot` and `StateChanges`
+- [ ] **Swift protocol**: Add `steerSession` case, include `turnId` in session delta handling
+- [ ] **Swift state**: Track `currentTurnId` per session, expose `steerSession()` method
+- [ ] **Swift UI**: When session is `working` and `currentTurnId` is set, input bar calls `steerSession` instead of `sendMessage`
+- [ ] **Swift UI**: Visual indicator that input will steer (not start new turn) — e.g. placeholder text "Add to current turn..."
+- [ ] Verify: steer message appears in conversation, agent incorporates it mid-turn
 
 ---
 
-### Thread Archive/Unarchive
+### 5. MCP Server Status
+**API**: `mcpServerStatus/list`, `McpStartupUpdate`, `McpStartupComplete` events
+
+Show connected MCP servers and their tool counts.
+
+#### Steps
+- [ ] **Rust connector**: Handle `McpStartupUpdate` and `McpStartupComplete` events → emit `ConnectorEvent::McpStatusUpdated`
+- [ ] **Rust connector**: Handle `McpListToolsResponse` to capture tool lists
+- [ ] **Rust session**: Store `mcp_servers: Vec<McpServerInfo>` in `SessionHandle`
+- [ ] **Rust protocol**: Add `McpServerInfo` type (name, state, tool_count, error)
+- [ ] **Rust protocol**: Add `McpStatusUpdated { session_id, servers }` to `ServerMessage`
+- [ ] **Rust protocol**: Include MCP status in `SessionSnapshot`
+- [ ] **Swift protocol**: Add `McpServerInfo` type and `mcpStatusUpdated` case
+- [ ] **Swift state**: Store `mcpServers: [String: [McpServerInfo]]` per session
+- [ ] **Swift UI**: MCP status indicator in session header (e.g. "3 MCP servers" pill)
+- [ ] **Swift UI**: Expandable detail showing each server name, state, tool count, errors
+- [ ] Verify: MCP servers show up after session creation, errors visible for failed servers
+
+---
+
+### 6. Thread Archive / Unarchive
 **API**: `thread/archive`, `thread/unarchive`
 
-Archive old sessions to reduce sidebar clutter, restore when needed.
+Archive old sessions to declutter the sidebar.
 
-- Archive action in session context menu
-- "Archived Sessions" section or filter toggle in sidebar
-- Unarchive action
-- `thread/list` supports `archived` filter
-
-**Scope**: New protocol messages, archive state in session, sidebar filter.
-
-**Files**: `protocol/client.rs`, `websocket.rs`, `persistence.rs`, `ServerProtocol.swift`, `ServerAppState.swift`, `ContentView.swift`
+#### Steps
+- [ ] **Rust protocol**: Add `ArchiveSession { session_id }` and `UnarchiveSession { session_id }` to `ClientMessage`
+- [ ] **Rust websocket**: Handle archive → call codex-core archive op, remove from active sessions, broadcast `SessionEnded` (or new `SessionArchived`)
+- [ ] **Rust websocket**: Handle unarchive → load from DB, re-add to state, broadcast `SessionCreated`
+- [ ] **Rust persistence**: Add `is_archived` column to sessions (or reuse existing), persist on archive/unarchive
+- [ ] **Swift protocol**: Add `archiveSession` and `unarchiveSession` cases
+- [ ] **Swift state**: Add `archiveSession()` and `unarchiveSession()` methods
+- [ ] **Swift UI**: "Archive" action in session row context menu (right-click)
+- [ ] **Swift UI**: Filter toggle in sidebar: "Show Archived" (off by default)
+- [ ] **Swift UI**: Archived sessions show with dimmed style + "Unarchive" action
+- [ ] Verify: archived sessions disappear from sidebar, reappear with toggle, unarchive restores them
 
 ---
 
-### Thread Rollback
+### 7. Thread Rollback
 **API**: `thread/rollback` with `num_turns` — drops last N turns (does NOT revert file changes)
 
-Undo turns when the agent goes in the wrong direction.
+Undo turns when the agent goes wrong.
 
-- Rollback button in session actions
-- Preview of what will be removed
-- Warning: "File changes are not reverted"
-- Sync local message store after rollback (server returns updated thread)
-
-**Scope**: New protocol message, message removal in ServerAppState, confirmation UI.
-
-**Files**: `protocol/client.rs`, `websocket.rs`, `ServerProtocol.swift`, `ServerAppState.swift`, new `ThreadRollbackView.swift`
-
----
-
-### Thread Fork
-**API**: `thread/fork` with full config overrides (model, sandbox, instructions)
-
-Branch a conversation to try alternative approaches without losing progress.
-
-- Fork button in session actions
-- Optional config overrides on the fork (different model, etc.)
-- New session appears linked to parent
-- Visual indicator of forked sessions
-
-**Scope**: New protocol message, fork tracking in DB (forked_from column), UI for fork action.
-
-**Files**: `protocol/client.rs`, `websocket.rs`, `persistence.rs` (new column), `ServerProtocol.swift`, `SessionDetailView.swift`
+#### Steps
+- [ ] **Rust protocol**: Add `RollbackSession { session_id, num_turns }` to `ClientMessage`
+- [ ] **Rust protocol**: Add `SessionRolledBack { session_id, remaining_messages }` to `ServerMessage` (or resend snapshot)
+- [ ] **Rust websocket**: Handle rollback → call codex-core `ThreadRollback` op
+- [ ] **Rust connector**: Handle `ThreadRolledBack` event → rebuild message list from codex-core state
+- [ ] **Rust session**: Remove rolled-back messages from `SessionHandle`, notify subscribers with updated snapshot
+- [ ] **Swift protocol**: Add `rollbackSession` case, handle `sessionRolledBack` response
+- [ ] **Swift state**: On rollback response, replace message list for the session
+- [ ] **Swift UI**: "Undo last turn" button in session action bar or context menu
+- [ ] **Swift UI**: Confirmation dialog: "Undo last N turn(s)? File changes will NOT be reverted."
+- [ ] **Swift UI**: Optional: turn count picker (1, 2, 3, or custom)
+- [ ] Verify: messages removed from UI, new messages sent after rollback work correctly
 
 ---
 
-## Code Review Mode
-**API**: `review/start` with ReviewTarget types
+### 8. Thread Fork
+**API**: `thread/fork` with full config overrides
 
-Run Codex as a code reviewer:
-- `UncommittedChanges` — review working tree
-- `BaseBranch { branch }` — review against a base branch
-- `Commit { sha, title }` — review a specific commit
-- `Custom { instructions }` — freeform review
+Branch a conversation to try alternatives.
 
-Returns review findings as a turn with `review_thread_id`.
+#### Steps
+- [ ] **Rust protocol**: Add `ForkSession { session_id, model, sandbox_mode, approval_policy }` to `ClientMessage`
+- [ ] **Rust websocket**: Handle fork → call codex-core `thread/fork`, create new `SessionHandle` from forked thread
+- [ ] **Rust websocket**: Broadcast `SessionCreated` for the forked session, send `SessionSnapshot` to requesting client
+- [ ] **Rust persistence**: Add `forked_from_session_id` column to sessions table (migration 012)
+- [ ] **Rust persistence**: Persist fork relationship on session create
+- [ ] **Swift protocol**: Add `forkSession` case
+- [ ] **Swift state**: Handle fork — new session appears in list, auto-navigate to it
+- [ ] **Swift model**: Add `forkedFromSessionId` to Session model
+- [ ] **Swift UI**: "Fork" button in session action bar or context menu
+- [ ] **Swift UI**: Optional config override sheet (change model, sandbox for the fork)
+- [ ] **Swift UI**: Visual indicator in sidebar showing fork relationship (indent or icon)
+- [ ] Verify: forked session has parent's messages, new messages go to fork only
 
-**Scope**: New protocol message, review target picker UI, display findings.
+---
 
-**Files**: `protocol/client.rs`, `websocket.rs`, `codex.rs`, `ServerProtocol.swift`, new `CodeReviewView.swift`
+### 9. Code Review Mode
+**API**: `review/start` with `ReviewTarget` (UncommittedChanges, BaseBranch, Commit, Custom)
+
+Run Codex as a code reviewer — creates a review turn with findings.
+
+#### Steps
+- [ ] **Rust protocol**: Add `StartReview { session_id, target }` to `ClientMessage` with `ReviewTarget` enum
+- [ ] **Rust protocol**: Define `ReviewTarget`: `UncommittedChanges`, `BaseBranch { branch }`, `Commit { sha }`, `Custom { instructions }`
+- [ ] **Rust connector**: Add `CodexAction::StartReview` → call codex-core `Review` op
+- [ ] **Rust connector**: Handle `EnteredReviewMode` / `ExitedReviewMode` events
+- [ ] **Rust websocket**: Handle `StartReview` → forward to connector
+- [ ] **Swift protocol**: Add `startReview` case with `ReviewTarget` enum
+- [ ] **Swift state**: Add `startReview(sessionId:target:)` method
+- [ ] **Swift UI**: "Review" button in session action bar
+- [ ] **Swift UI**: Review target picker sheet:
+  - [ ] "Uncommitted changes" (default)
+  - [ ] "Compare to branch" with branch name input
+  - [ ] "Specific commit" with SHA input
+  - [ ] "Custom" with freeform instructions
+- [ ] **Swift UI**: Review findings render as normal conversation messages
+- [ ] Verify: review produces findings, different targets work correctly
 
 ---
 
