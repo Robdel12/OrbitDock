@@ -1,0 +1,1406 @@
+use std::collections::{HashMap, HashSet};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+use anyhow::Context;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use orbitdock_protocol::{
+    CodexIntegrationMode, Provider, ServerMessage, SessionStatus, StateChanges, WorkStatus,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tokio::process::Command;
+use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinHandle;
+use tracing::{debug, info, warn};
+
+use crate::persistence::PersistCommand;
+use crate::session::SessionHandle;
+use crate::state::AppState;
+
+const DEBOUNCE_MS: u64 = 150;
+const SESSION_TIMEOUT_SECS: u64 = 120;
+
+pub async fn start_rollout_watcher(
+    app_state: Arc<Mutex<AppState>>,
+    persist_tx: mpsc::Sender<PersistCommand>,
+) -> anyhow::Result<()> {
+    if std::env::var("ORBITDOCK_DISABLE_CODEX_WATCHER").as_deref() == Ok("1") {
+        info!("Rollout watcher disabled by ORBITDOCK_DISABLE_CODEX_WATCHER");
+        return Ok(());
+    }
+
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let sessions_dir = PathBuf::from(&home).join(".codex/sessions");
+    if !sessions_dir.exists() {
+        info!(path = %sessions_dir.display(), "Rollout sessions directory missing");
+        return Ok(());
+    }
+
+    let state_path = PathBuf::from(&home).join(".orbitdock/codex-rollout-state.json");
+    let persisted_state = load_persisted_state(&state_path);
+
+    let (tx, mut rx) = mpsc::unbounded_channel::<WatcherMessage>();
+    let watcher_tx = tx.clone();
+
+    let mut watcher = RecommendedWatcher::new(
+        move |res: Result<Event, notify::Error>| match res {
+            Ok(event) => {
+                if !matches_supported_event_kind(&event.kind) {
+                    return;
+                }
+                for path in event.paths {
+                    let _ = watcher_tx.send(WatcherMessage::FsEvent(path));
+                }
+            }
+            Err(err) => {
+                warn!(error = %err, "Rollout watcher event error");
+            }
+        },
+        notify::Config::default(),
+    )?;
+
+    watcher.watch(&sessions_dir, RecursiveMode::Recursive)?;
+
+    info!(path = %sessions_dir.display(), "Rollout watcher started");
+
+    let mut runtime = WatcherRuntime {
+        app_state,
+        persist_tx,
+        tx,
+        state_path,
+        watcher_started_at: SystemTime::now(),
+        file_states: HashMap::new(),
+        persisted_state,
+        debounce_tasks: HashMap::new(),
+        session_timeouts: HashMap::new(),
+        prompt_seen: HashSet::new(),
+    };
+
+    while let Some(msg) = rx.recv().await {
+        match msg {
+            WatcherMessage::FsEvent(path) => {
+                if is_jsonl_path(&path) {
+                    runtime.schedule_file(path);
+                }
+            }
+            WatcherMessage::ProcessFile(path) => {
+                if let Err(err) = runtime.process_file(path).await {
+                    warn!(error = %err, "Failed processing rollout file");
+                }
+            }
+            WatcherMessage::SessionTimeout(session_id) => {
+                runtime.handle_session_timeout(session_id).await;
+            }
+        }
+    }
+
+    drop(watcher);
+    Ok(())
+}
+
+enum WatcherMessage {
+    FsEvent(PathBuf),
+    ProcessFile(PathBuf),
+    SessionTimeout(String),
+}
+
+struct WatcherRuntime {
+    app_state: Arc<Mutex<AppState>>,
+    persist_tx: mpsc::Sender<PersistCommand>,
+    tx: mpsc::UnboundedSender<WatcherMessage>,
+    state_path: PathBuf,
+    watcher_started_at: SystemTime,
+    file_states: HashMap<String, FileState>,
+    persisted_state: PersistedState,
+    debounce_tasks: HashMap<String, JoinHandle<()>>,
+    session_timeouts: HashMap<String, JoinHandle<()>>,
+    prompt_seen: HashSet<String>,
+}
+
+impl WatcherRuntime {
+    fn schedule_file(&mut self, path: PathBuf) {
+        let path_string = path.to_string_lossy().to_string();
+        if let Some(handle) = self.debounce_tasks.remove(&path_string) {
+            handle.abort();
+        }
+
+        let tx = self.tx.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(DEBOUNCE_MS)).await;
+            let _ = tx.send(WatcherMessage::ProcessFile(path));
+        });
+
+        self.debounce_tasks.insert(path_string, handle);
+    }
+
+    async fn process_file(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let path_string = path.to_string_lossy().to_string();
+        self.debounce_tasks.remove(&path_string);
+
+        let metadata = fs::metadata(&path)?;
+        let size = metadata.len();
+        let created_at = metadata.created().ok();
+
+        self.ensure_file_state(&path_string, size, created_at);
+
+        let ignore_existing = self
+            .file_states
+            .get(&path_string)
+            .map(|state| state.ignore_existing)
+            .unwrap_or(false);
+
+        if ignore_existing {
+            let offset = self
+                .file_states
+                .get(&path_string)
+                .map(|state| state.offset)
+                .unwrap_or(0);
+            if size > offset {
+                if let Some(state) = self.file_states.get_mut(&path_string) {
+                    state.ignore_existing = false;
+                }
+                self.ensure_session_meta(&path_string).await?;
+            } else {
+                if let Some(state) = self.file_states.get_mut(&path_string) {
+                    state.offset = size;
+                }
+                self.persist_state(&path_string);
+                return Ok(());
+            }
+        }
+
+        if let Some(state) = self.file_states.get_mut(&path_string) {
+            if size < state.offset {
+                state.offset = 0;
+                state.tail.clear();
+            }
+        }
+
+        let offset = self
+            .file_states
+            .get(&path_string)
+            .map(|state| state.offset)
+            .unwrap_or(0);
+
+        if size == offset {
+            self.persist_state(&path_string);
+            return Ok(());
+        }
+
+        let has_session = self
+            .file_states
+            .get(&path_string)
+            .and_then(|state| state.session_id.clone())
+            .is_some();
+        if !has_session {
+            self.ensure_session_meta(&path_string).await?;
+        }
+
+        let chunk = read_file_chunk(&path, offset)?;
+        if let Some(state) = self.file_states.get_mut(&path_string) {
+            state.offset = size;
+        }
+
+        if chunk.is_empty() {
+            self.persist_state(&path_string);
+            return Ok(());
+        }
+
+        let chunk = String::from_utf8_lossy(&chunk).to_string();
+        if chunk.is_empty() {
+            self.persist_state(&path_string);
+            return Ok(());
+        }
+
+        let mut did_process_lines = false;
+        let old_tail = self
+            .file_states
+            .get(&path_string)
+            .map(|state| state.tail.clone())
+            .unwrap_or_default();
+        let combined = format!("{old_tail}{chunk}");
+        let mut parts: Vec<&str> = combined.split('\n').collect();
+        let next_tail = parts.pop().unwrap_or_default().to_string();
+
+        if let Some(state) = self.file_states.get_mut(&path_string) {
+            state.tail = next_tail;
+        }
+
+        for part in parts {
+            let line = part.trim();
+            if line.is_empty() {
+                continue;
+            }
+            self.handle_line(line, &path_string).await;
+            did_process_lines = true;
+        }
+
+        if did_process_lines {
+            debug!(path = %path_string, "Processed rollout lines");
+        }
+
+        self.persist_state(&path_string);
+        Ok(())
+    }
+
+    async fn ensure_session_meta(&mut self, path: &str) -> anyhow::Result<()> {
+        let Some(line) = read_first_line(Path::new(path))? else {
+            return Ok(());
+        };
+
+        let Ok(json) = serde_json::from_str::<Value>(&line) else {
+            return Ok(());
+        };
+
+        if json.get("type").and_then(|v| v.as_str()) != Some("session_meta") {
+            return Ok(());
+        }
+
+        let Some(payload) = json.get("payload").cloned() else {
+            return Ok(());
+        };
+
+        self.handle_session_meta(payload, path).await;
+        Ok(())
+    }
+
+    async fn handle_line(&mut self, line: &str, path: &str) {
+        let Ok(json) = serde_json::from_str::<Value>(line) else {
+            return;
+        };
+
+        let Some(line_type) = json.get("type").and_then(|v| v.as_str()) else {
+            return;
+        };
+
+        let Some(payload) = json.get("payload").cloned() else {
+            return;
+        };
+
+        match line_type {
+            "session_meta" => self.handle_session_meta(payload, path).await,
+            "turn_context" => self.handle_turn_context(payload, path).await,
+            "event_msg" => self.handle_event_msg(payload, path).await,
+            "response_item" => self.handle_response_item(payload, path).await,
+            _ => {}
+        }
+    }
+
+    async fn handle_session_meta(&mut self, payload: Value, path: &str) {
+        let Some(session_id) = payload
+            .get("id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+        else {
+            return;
+        };
+        let Some(cwd) = payload
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+        else {
+            return;
+        };
+
+        let is_direct = {
+            let state = self.app_state.lock().await;
+            state.is_managed_codex_thread(&session_id)
+        };
+        if is_direct {
+            if let Some(state) = self.file_states.get_mut(path) {
+                state.session_id = Some(session_id);
+            }
+            return;
+        }
+
+        let model_provider = payload
+            .get("model_provider")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let originator = payload
+            .get("originator")
+            .and_then(|v| v.as_str())
+            .unwrap_or("codex")
+            .to_string();
+        let started_at = payload
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(current_time_rfc3339);
+
+        let (branch, project_name) = resolve_git_info(&cwd).await;
+        let fallback_name = Path::new(&cwd)
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string());
+        let project_name = project_name.or(fallback_name);
+
+        let exists = {
+            let state = self.app_state.lock().await;
+            state.get_session(&session_id).is_some()
+        };
+
+        if !exists {
+            let mut handle = SessionHandle::new(session_id.clone(), Provider::Codex, cwd.clone());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_project_name(project_name.clone());
+            handle.set_model(model_provider.clone());
+            handle.set_started_at(Some(started_at.clone()));
+            handle.set_last_activity_at(Some(current_time_unix_z()));
+
+            let summary = handle.summary();
+            let mut app = self.app_state.lock().await;
+            app.add_session(handle);
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                .await;
+        }
+
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutSessionUpsert {
+                id: session_id.clone(),
+                thread_id: session_id.clone(),
+                project_path: cwd.clone(),
+                project_name,
+                branch,
+                model: model_provider.clone(),
+                context_label: Some(originator),
+                transcript_path: path.to_string(),
+                started_at,
+            })
+            .await;
+
+        if let Some(state) = self.file_states.get_mut(path) {
+            state.session_id = Some(session_id.clone());
+            state.project_path = Some(cwd);
+            state.model_provider = model_provider;
+        }
+
+        self.schedule_session_timeout(&session_id);
+    }
+
+    async fn handle_turn_context(&mut self, payload: Value, path: &str) {
+        let Some(session_id) = self
+            .file_states
+            .get(path)
+            .and_then(|s| s.session_id.clone())
+        else {
+            return;
+        };
+
+        let mut project_path_update = None;
+        let mut model_update = None;
+
+        if let Some(model) = payload.get("model").and_then(|v| v.as_str()) {
+            model_update = Some(model.to_string());
+        }
+
+        if let Some(cwd) = payload.get("cwd").and_then(|v| v.as_str()) {
+            let changed = self
+                .file_states
+                .get(path)
+                .and_then(|s| s.project_path.as_deref())
+                .map(|existing| existing != cwd)
+                .unwrap_or(true);
+            if changed {
+                project_path_update = Some(cwd.to_string());
+                if let Some(state) = self.file_states.get_mut(path) {
+                    state.project_path = Some(cwd.to_string());
+                }
+            }
+        }
+
+        if project_path_update.is_none() && model_update.is_none() {
+            return;
+        }
+
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutSessionUpdate {
+                id: session_id.clone(),
+                project_path: project_path_update.clone(),
+                model: model_update.clone(),
+                status: None,
+                work_status: None,
+                attention_reason: None,
+                pending_tool_name: None,
+                pending_tool_input: None,
+                pending_question: None,
+                total_tokens: None,
+                last_tool: None,
+                last_tool_at: None,
+                custom_name: None,
+            })
+            .await;
+
+        if project_path_update.is_some() || model_update.is_some() {
+            if let Some(session_arc) = {
+                let app = self.app_state.lock().await;
+                app.get_session(&session_id)
+            } {
+                let mut session = session_arc.lock().await;
+                if project_path_update.is_some() {
+                    session.set_last_activity_at(Some(current_time_unix_z()));
+                }
+                if let Some(model) = model_update {
+                    session.set_model(Some(model));
+                }
+            }
+            self.schedule_session_timeout(&session_id);
+        }
+    }
+
+    async fn handle_event_msg(&mut self, payload: Value, path: &str) {
+        let Some(session_id) = self
+            .file_states
+            .get(path)
+            .and_then(|s| s.session_id.clone())
+        else {
+            return;
+        };
+
+        let Some(event_type) = payload.get("type").and_then(|v| v.as_str()) else {
+            return;
+        };
+
+        match event_type {
+            "task_started" | "turn_started" => {
+                if let Some(state) = self.file_states.get_mut(path) {
+                    state.saw_agent_event = false;
+                    state.saw_user_event = false;
+                }
+                self.mark_working(&session_id, None).await;
+                self.clear_pending(&session_id).await;
+            }
+            "task_complete" | "turn_complete" | "turn_aborted" => {
+                if let Some(state) = self.file_states.get_mut(path) {
+                    state.saw_agent_event = true;
+                }
+                self.mark_waiting(&session_id).await;
+            }
+            "user_message" => {
+                if let Some(state) = self.file_states.get_mut(path) {
+                    state.saw_user_event = true;
+                    state.saw_agent_event = false;
+                }
+                let message = payload
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string);
+                self.handle_user_message(&session_id, message).await;
+            }
+            "agent_message" => {
+                if let Some(state) = self.file_states.get_mut(path) {
+                    state.saw_agent_event = true;
+                }
+                self.mark_waiting(&session_id).await;
+            }
+            "exec_command_begin" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                self.mark_working(&session_id, Some("Shell".to_string()))
+                    .await;
+            }
+            "exec_command_end" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                self.mark_tool_completed(&session_id, Some("Shell".to_string()))
+                    .await;
+            }
+            "patch_apply_begin" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                self.mark_working(&session_id, Some("Edit".to_string()))
+                    .await;
+            }
+            "patch_apply_end" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                self.mark_tool_completed(&session_id, Some("Edit".to_string()))
+                    .await;
+            }
+            "mcp_tool_call_begin" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                let label = mcp_tool_label(payload.get("invocation"));
+                self.mark_working(&session_id, Some(label)).await;
+            }
+            "mcp_tool_call_end" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                let label = mcp_tool_label(payload.get("invocation"));
+                self.mark_tool_completed(&session_id, Some(label)).await;
+            }
+            "web_search_begin" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                self.mark_working(&session_id, Some("WebSearch".to_string()))
+                    .await;
+            }
+            "web_search_end" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                self.mark_tool_completed(&session_id, Some("WebSearch".to_string()))
+                    .await;
+            }
+            "view_image_tool_call" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                self.mark_tool_completed(&session_id, Some("ViewImage".to_string()))
+                    .await;
+            }
+            "exec_approval_request" => {
+                let payload_json = serde_json::to_string(&payload).ok();
+                self.set_permission_pending(&session_id, "ExecCommand", payload_json)
+                    .await;
+            }
+            "apply_patch_approval_request" => {
+                let payload_json = serde_json::to_string(&payload).ok();
+                self.set_permission_pending(&session_id, "ApplyPatch", payload_json)
+                    .await;
+            }
+            "request_user_input" => {
+                let question = extract_question(&payload);
+                self.set_question_pending(&session_id, question).await;
+            }
+            "elicitation_request" => {
+                let question = payload
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .or_else(|| {
+                        payload
+                            .get("server_name")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string)
+                    });
+                self.set_question_pending(&session_id, question).await;
+            }
+            "token_count" => {
+                let total_tokens = payload
+                    .get("info")
+                    .and_then(|v| v.get("total_token_usage"))
+                    .and_then(|v| v.get("total_tokens"))
+                    .and_then(as_i64);
+
+                if let Some(total_tokens) = total_tokens {
+                    let _ = self
+                        .persist_tx
+                        .send(PersistCommand::RolloutSessionUpdate {
+                            id: session_id,
+                            project_path: None,
+                            model: None,
+                            status: None,
+                            work_status: None,
+                            attention_reason: None,
+                            pending_tool_name: None,
+                            pending_tool_input: None,
+                            pending_question: None,
+                            total_tokens: Some(total_tokens),
+                            last_tool: None,
+                            last_tool_at: None,
+                            custom_name: None,
+                        })
+                        .await;
+                }
+            }
+            "thread_name_updated" => {
+                if let Some(name) = payload.get("thread_name").and_then(|v| v.as_str()) {
+                    self.set_custom_name(&session_id, Some(name.to_string()))
+                        .await;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_response_item(&mut self, payload: Value, path: &str) {
+        let Some(session_id) = self
+            .file_states
+            .get(path)
+            .and_then(|s| s.session_id.clone())
+        else {
+            return;
+        };
+
+        let Some(payload_type) = payload.get("type").and_then(|v| v.as_str()) else {
+            return;
+        };
+
+        match payload_type {
+            "message" => {}
+            "function_call" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) else {
+                    return;
+                };
+                let tool = tool_label(payload.get("name").and_then(|v| v.as_str()));
+                if let Some(tool) = tool {
+                    if let Some(state) = self.file_states.get_mut(path) {
+                        state
+                            .pending_tool_calls
+                            .insert(call_id.to_string(), tool.clone());
+                    }
+                    self.mark_working(&session_id, Some(tool)).await;
+                }
+            }
+            "function_call_output" => {
+                if self.saw_agent_event(path) {
+                    return;
+                }
+                let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) else {
+                    return;
+                };
+
+                let tool_name = if let Some(state) = self.file_states.get_mut(path) {
+                    state.pending_tool_calls.remove(call_id)
+                } else {
+                    None
+                };
+
+                if let Some(tool_name) = tool_name {
+                    self.mark_tool_completed(&session_id, Some(tool_name)).await;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    async fn handle_user_message(&mut self, session_id: &str, message: Option<String>) {
+        let first_prompt = message
+            .as_deref()
+            .and_then(clean_prompt)
+            .map(|text| truncate_prompt(&text));
+
+        if first_prompt.is_some() {
+            self.prompt_seen.insert(session_id.to_string());
+        }
+
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutPromptIncrement {
+                id: session_id.to_string(),
+                first_prompt,
+            })
+            .await;
+
+        self.update_work_state(
+            session_id,
+            WorkStatus::Working,
+            Some("none".to_string()),
+            None,
+            None,
+            Some(None),
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    async fn set_permission_pending(
+        &mut self,
+        session_id: &str,
+        tool_name: &str,
+        payload: Option<String>,
+    ) {
+        self.update_work_state(
+            session_id,
+            WorkStatus::Permission,
+            Some("awaitingPermission".to_string()),
+            Some(Some(tool_name.to_string())),
+            Some(payload),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    async fn set_question_pending(&mut self, session_id: &str, question: Option<String>) {
+        self.update_work_state(
+            session_id,
+            WorkStatus::Question,
+            Some("awaitingQuestion".to_string()),
+            None,
+            None,
+            Some(question),
+            None,
+            None,
+            None,
+        )
+        .await;
+    }
+
+    async fn clear_pending(&mut self, session_id: &str) {
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutSessionUpdate {
+                id: session_id.to_string(),
+                project_path: None,
+                model: None,
+                status: None,
+                work_status: None,
+                attention_reason: None,
+                pending_tool_name: Some(None),
+                pending_tool_input: Some(None),
+                pending_question: Some(None),
+                total_tokens: None,
+                last_tool: None,
+                last_tool_at: None,
+                custom_name: None,
+            })
+            .await;
+    }
+
+    async fn mark_working(&mut self, session_id: &str, tool: Option<String>) {
+        let now = current_time_rfc3339();
+        self.update_work_state(
+            session_id,
+            WorkStatus::Working,
+            Some("none".to_string()),
+            None,
+            None,
+            None,
+            tool.map(Some),
+            Some(Some(now)),
+            None,
+        )
+        .await;
+    }
+
+    async fn mark_tool_completed(&mut self, session_id: &str, tool: Option<String>) {
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutToolIncrement {
+                id: session_id.to_string(),
+            })
+            .await;
+
+        let now = current_time_rfc3339();
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutSessionUpdate {
+                id: session_id.to_string(),
+                project_path: None,
+                model: None,
+                status: None,
+                work_status: None,
+                attention_reason: None,
+                pending_tool_name: Some(None),
+                pending_tool_input: Some(None),
+                pending_question: None,
+                total_tokens: None,
+                last_tool: tool.clone().map(Some),
+                last_tool_at: Some(Some(now)),
+                custom_name: None,
+            })
+            .await;
+
+        if let Some(tool_name) = tool {
+            let _ = tool_name;
+            self.broadcast_session_delta(
+                session_id,
+                StateChanges {
+                    last_activity_at: Some(current_time_unix_z()),
+                    ..Default::default()
+                },
+            )
+            .await;
+        }
+
+        self.schedule_session_timeout(session_id);
+    }
+
+    async fn mark_waiting(&mut self, session_id: &str) {
+        self.update_work_state(
+            session_id,
+            WorkStatus::Waiting,
+            Some("awaitingReply".to_string()),
+            Some(None),
+            Some(None),
+            Some(None),
+            None,
+            None,
+            None,
+        )
+        .await;
+
+        self.ensure_session_name(session_id).await;
+    }
+
+    async fn ensure_session_name(&mut self, session_id: &str) {
+        if self.prompt_seen.contains(session_id) {
+            return;
+        }
+
+        let current_name = if let Some(session_arc) = {
+            let state = self.app_state.lock().await;
+            state.get_session(session_id)
+        } {
+            let session = session_arc.lock().await;
+            session.state().custom_name
+        } else {
+            None
+        };
+
+        if current_name.is_some() {
+            return;
+        }
+
+        let slug = generate_session_slug(session_id);
+        self.set_custom_name(session_id, Some(slug)).await;
+    }
+
+    async fn set_custom_name(&mut self, session_id: &str, name: Option<String>) {
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutSessionUpdate {
+                id: session_id.to_string(),
+                project_path: None,
+                model: None,
+                status: None,
+                work_status: None,
+                attention_reason: None,
+                pending_tool_name: None,
+                pending_tool_input: None,
+                pending_question: None,
+                total_tokens: None,
+                last_tool: None,
+                last_tool_at: None,
+                custom_name: Some(name.clone()),
+            })
+            .await;
+
+        if let Some(session_arc) = {
+            let state = self.app_state.lock().await;
+            state.get_session(session_id)
+        } {
+            let mut session = session_arc.lock().await;
+            session.set_custom_name(name.clone());
+            session
+                .broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: StateChanges {
+                        custom_name: Some(name),
+                        last_activity_at: Some(current_time_unix_z()),
+                        ..Default::default()
+                    },
+                })
+                .await;
+        }
+
+        if let Some(session_arc) = {
+            let state = self.app_state.lock().await;
+            state.get_session(session_id)
+        } {
+            let summary = {
+                let session = session_arc.lock().await;
+                session.summary()
+            };
+            let mut app = self.app_state.lock().await;
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                .await;
+        }
+    }
+
+    async fn update_work_state(
+        &mut self,
+        session_id: &str,
+        work_status: WorkStatus,
+        attention_reason: Option<String>,
+        pending_tool_name: Option<Option<String>>,
+        pending_tool_input: Option<Option<String>>,
+        pending_question: Option<Option<String>>,
+        last_tool: Option<Option<String>>,
+        last_tool_at: Option<Option<String>>,
+        status: Option<SessionStatus>,
+    ) {
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::RolloutSessionUpdate {
+                id: session_id.to_string(),
+                project_path: None,
+                model: None,
+                status,
+                work_status: Some(work_status),
+                attention_reason: attention_reason.map(Some),
+                pending_tool_name,
+                pending_tool_input,
+                pending_question,
+                total_tokens: None,
+                last_tool,
+                last_tool_at,
+                custom_name: None,
+            })
+            .await;
+
+        self.broadcast_session_delta(
+            session_id,
+            StateChanges {
+                work_status: Some(work_status),
+                last_activity_at: Some(current_time_unix_z()),
+                ..Default::default()
+            },
+        )
+        .await;
+
+        self.schedule_session_timeout(session_id);
+    }
+
+    async fn broadcast_session_delta(&mut self, session_id: &str, changes: StateChanges) {
+        if let Some(session_arc) = {
+            let state = self.app_state.lock().await;
+            state.get_session(session_id)
+        } {
+            let mut session = session_arc.lock().await;
+            if let Some(work_status) = changes.work_status {
+                session.set_work_status(work_status);
+            }
+            if let Some(status) = changes.status {
+                session.set_status(status);
+            }
+            session
+                .broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes,
+                })
+                .await;
+        }
+    }
+
+    fn saw_agent_event(&self, path: &str) -> bool {
+        self.file_states
+            .get(path)
+            .map(|s| s.saw_agent_event)
+            .unwrap_or(false)
+    }
+
+    fn schedule_session_timeout(&mut self, session_id: &str) {
+        if let Some(handle) = self.session_timeouts.remove(session_id) {
+            handle.abort();
+        }
+
+        let tx = self.tx.clone();
+        let sid = session_id.to_string();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(SESSION_TIMEOUT_SECS)).await;
+            let _ = tx.send(WatcherMessage::SessionTimeout(sid));
+        });
+
+        self.session_timeouts.insert(session_id.to_string(), handle);
+    }
+
+    async fn handle_session_timeout(&mut self, session_id: String) {
+        self.session_timeouts.remove(&session_id);
+
+        let is_active = if let Some(session_arc) = {
+            let app = self.app_state.lock().await;
+            app.get_session(&session_id)
+        } {
+            let session = session_arc.lock().await;
+            session.state().status == SessionStatus::Active
+        } else {
+            false
+        };
+
+        if !is_active {
+            return;
+        }
+
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::SessionEnd {
+                id: session_id.clone(),
+                reason: "timeout".to_string(),
+            })
+            .await;
+
+        if let Some(session_arc) = {
+            let mut app = self.app_state.lock().await;
+            app.remove_session(&session_id)
+        } {
+            let mut session = session_arc.lock().await;
+            session.set_status(SessionStatus::Ended);
+            session.set_work_status(WorkStatus::Ended);
+            session
+                .broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.clone(),
+                    changes: StateChanges {
+                        status: Some(SessionStatus::Ended),
+                        work_status: Some(WorkStatus::Ended),
+                        last_activity_at: Some(current_time_unix_z()),
+                        ..Default::default()
+                    },
+                })
+                .await;
+        }
+
+        let mut app = self.app_state.lock().await;
+        app.broadcast_to_list(ServerMessage::SessionEnded {
+            session_id,
+            reason: "timeout".to_string(),
+        })
+        .await;
+    }
+
+    fn ensure_file_state(&mut self, path: &str, size: u64, created_at: Option<SystemTime>) {
+        if self.file_states.contains_key(path) {
+            return;
+        }
+
+        if let Some(persisted) = self.persisted_state.files.get(path) {
+            self.file_states.insert(
+                path.to_string(),
+                FileState {
+                    offset: persisted.offset,
+                    tail: String::new(),
+                    session_id: persisted.session_id.clone(),
+                    project_path: persisted.project_path.clone(),
+                    model_provider: persisted.model_provider.clone(),
+                    ignore_existing: persisted.ignore_existing.unwrap_or(false),
+                    pending_tool_calls: HashMap::new(),
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            );
+            return;
+        }
+
+        let mut ignore_existing = false;
+        let mut offset = 0;
+
+        if let Some(created_at) = created_at {
+            if created_at < self.watcher_started_at {
+                ignore_existing = true;
+                offset = size;
+            }
+        }
+
+        self.file_states.insert(
+            path.to_string(),
+            FileState {
+                offset,
+                tail: String::new(),
+                session_id: None,
+                project_path: None,
+                model_provider: None,
+                ignore_existing,
+                pending_tool_calls: HashMap::new(),
+                saw_user_event: false,
+                saw_agent_event: false,
+            },
+        );
+    }
+
+    fn persist_state(&mut self, path: &str) {
+        if let Some(state) = self.file_states.get(path) {
+            self.persisted_state.files.insert(
+                path.to_string(),
+                PersistedFileState {
+                    offset: state.offset,
+                    session_id: state.session_id.clone(),
+                    project_path: state.project_path.clone(),
+                    model_provider: state.model_provider.clone(),
+                    ignore_existing: Some(state.ignore_existing),
+                },
+            );
+            if let Err(err) = save_persisted_state(&self.state_path, &self.persisted_state) {
+                warn!(error = %err, "Failed writing rollout state");
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FileState {
+    offset: u64,
+    tail: String,
+    session_id: Option<String>,
+    project_path: Option<String>,
+    model_provider: Option<String>,
+    ignore_existing: bool,
+    pending_tool_calls: HashMap<String, String>,
+    saw_user_event: bool,
+    saw_agent_event: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct PersistedState {
+    version: i32,
+    files: HashMap<String, PersistedFileState>,
+}
+
+impl Default for PersistedState {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            files: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct PersistedFileState {
+    offset: u64,
+    session_id: Option<String>,
+    project_path: Option<String>,
+    model_provider: Option<String>,
+    ignore_existing: Option<bool>,
+}
+
+impl Default for PersistedFileState {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            session_id: None,
+            project_path: None,
+            model_provider: None,
+            ignore_existing: None,
+        }
+    }
+}
+
+fn load_persisted_state(path: &Path) -> PersistedState {
+    let Ok(data) = fs::read(path) else {
+        return PersistedState::default();
+    };
+    serde_json::from_slice(&data).unwrap_or_default()
+}
+
+fn save_persisted_state(path: &Path, state: &PersistedState) -> anyhow::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let data = serde_json::to_vec(state)?;
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, data)?;
+    fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
+fn read_first_line(path: &Path) -> anyhow::Result<Option<String>> {
+    let mut file = match File::open(path) {
+        Ok(f) => f,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+
+    let mut buf = vec![0u8; 64 * 1024];
+    let read = file.read(&mut buf)?;
+    buf.truncate(read);
+    if buf.is_empty() {
+        return Ok(None);
+    }
+
+    let text = String::from_utf8_lossy(&buf);
+    Ok(text.lines().next().map(str::to_string))
+}
+
+fn read_file_chunk(path: &Path, offset: u64) -> anyhow::Result<Vec<u8>> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+
+    file.seek(SeekFrom::Start(offset))?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+fn is_jsonl_path(path: &Path) -> bool {
+    path.extension().and_then(|s| s.to_str()) == Some("jsonl")
+}
+
+async fn resolve_git_info(path: &str) -> (Option<String>, Option<String>) {
+    let branch = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], path).await;
+    let repo_root = run_git(&["rev-parse", "--show-toplevel"], path).await;
+    let repo_name = repo_root
+        .as_deref()
+        .and_then(|root| Path::new(root).file_name())
+        .map(|name| name.to_string_lossy().to_string());
+
+    (branch, repo_name)
+}
+
+async fn run_git(args: &[&str], cwd: &str) -> Option<String> {
+    let output = Command::new("/usr/bin/git")
+        .args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let text = String::from_utf8(output.stdout).ok()?;
+    let text = text.trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+fn clean_prompt(message: &str) -> Option<String> {
+    let cleaned = message.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+fn truncate_prompt(prompt: &str) -> String {
+    if prompt.chars().count() <= 80 {
+        return prompt.to_string();
+    }
+
+    let truncated = prompt.chars().take(77).collect::<String>();
+    format!("{}...", truncated)
+}
+
+fn extract_question(payload: &Value) -> Option<String> {
+    payload
+        .get("questions")
+        .and_then(|v| v.as_array())
+        .and_then(|questions| questions.first())
+        .and_then(|first| {
+            first
+                .get("question")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| {
+                    first
+                        .get("header")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
+        })
+}
+
+fn mcp_tool_label(invocation: Option<&Value>) -> String {
+    if let Some(invocation) = invocation {
+        let server = invocation.get("server").and_then(|v| v.as_str());
+        let tool = invocation.get("tool").and_then(|v| v.as_str());
+        if let (Some(server), Some(tool)) = (server, tool) {
+            return format!("MCP:{server}/{tool}");
+        }
+    }
+
+    "MCP".to_string()
+}
+
+fn tool_label(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
+    if raw.is_empty() {
+        return None;
+    }
+
+    Some(match raw {
+        "exec_command" => "Shell".to_string(),
+        "patch_apply" | "apply_patch" => "Edit".to_string(),
+        "web_search" => "WebSearch".to_string(),
+        "view_image" => "ViewImage".to_string(),
+        "mcp_tool_call" => "MCP".to_string(),
+        other => other.to_string(),
+    })
+}
+
+fn generate_session_slug(seed: &str) -> String {
+    let adjectives = [
+        "Dapper", "Stellar", "Brisk", "Golden", "Gentle", "Clever", "Nimble", "Radiant", "Bold",
+        "Quiet", "Swift", "Witty", "Bright", "Calm", "Lucky", "Focused",
+    ];
+    let verbs = [
+        "Soaring", "Gliding", "Orbiting", "Cruising", "Humming", "Tuning", "Weaving", "Drifting",
+        "Climbing", "Sailing", "Skimming", "Shaping", "Guiding", "Tracing", "Nesting", "Rolling",
+    ];
+    let nouns = [
+        "Spindle", "Comet", "Beacon", "Canvas", "Signal", "Compass", "Workshop", "Harbor",
+        "Circuit", "Pioneer", "Atlas", "Voyager", "Relay", "Forge", "Station", "Rocket",
+    ];
+
+    let hash = stable_hash(seed);
+    let adjective = adjectives[(hash % adjectives.len() as u64) as usize];
+    let verb = verbs[((hash / 7) % verbs.len() as u64) as usize];
+    let noun = nouns[((hash / 31) % nouns.len() as u64) as usize];
+
+    format!("{adjective} {verb} {noun}")
+}
+
+fn stable_hash(value: &str) -> u64 {
+    let mut hash: u64 = 5381;
+    for byte in value.as_bytes() {
+        hash = ((hash << 5).wrapping_add(hash)).wrapping_add(*byte as u64);
+    }
+    hash
+}
+
+fn as_i64(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().map(|v| v as i64))
+        .or_else(|| value.as_f64().map(|v| v as i64))
+        .or_else(|| value.as_str().and_then(|v| v.parse::<i64>().ok()))
+}
+
+fn current_time_rfc3339() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    format!("{}Z", duration.as_secs())
+}
+
+fn current_time_unix_z() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("{}Z", secs)
+}
+
+fn matches_supported_event_kind(kind: &EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode, ModifyKind};
+
+    matches!(
+        kind,
+        EventKind::Create(_)
+            | EventKind::Modify(ModifyKind::Data(_))
+            | EventKind::Modify(ModifyKind::Any)
+            | EventKind::Modify(ModifyKind::Name(_))
+            | EventKind::Access(AccessKind::Close(AccessMode::Write))
+            | EventKind::Any
+    )
+}

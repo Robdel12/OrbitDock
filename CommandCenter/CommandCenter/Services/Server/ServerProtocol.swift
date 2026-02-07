@@ -15,6 +15,11 @@ enum ServerProvider: String, Codable {
   case codex
 }
 
+enum ServerCodexIntegrationMode: String, Codable {
+  case direct
+  case passive
+}
+
 // MARK: - Session Status
 
 enum ServerSessionStatus: String, Codable {
@@ -143,6 +148,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let hasPendingApproval: Bool
+  let codexIntegrationMode: ServerCodexIntegrationMode?
   let startedAt: String?
   let lastActivityAt: String?
 
@@ -156,6 +162,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case status
     case workStatus = "work_status"
     case hasPendingApproval = "has_pending_approval"
+    case codexIntegrationMode = "codex_integration_mode"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
   }
@@ -177,6 +184,7 @@ struct ServerSessionState: Codable, Identifiable {
   let tokenUsage: ServerTokenUsage
   let currentDiff: String?
   let currentPlan: String?
+  let codexIntegrationMode: ServerCodexIntegrationMode?
   let startedAt: String?
   let lastActivityAt: String?
 
@@ -194,6 +202,7 @@ struct ServerSessionState: Codable, Identifiable {
     case tokenUsage = "token_usage"
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
+    case codexIntegrationMode = "codex_integration_mode"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
   }
@@ -209,6 +218,7 @@ struct ServerStateChanges: Codable {
   let currentDiff: String??
   let currentPlan: String??
   let customName: String??
+  let codexIntegrationMode: ServerCodexIntegrationMode??
   let lastActivityAt: String?
 
   enum CodingKeys: String, CodingKey {
@@ -219,6 +229,7 @@ struct ServerStateChanges: Codable {
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
     case customName = "custom_name"
+    case codexIntegrationMode = "codex_integration_mode"
     case lastActivityAt = "last_activity_at"
   }
 }
@@ -392,7 +403,7 @@ enum ClientToServerMessage: Codable {
   case subscribeSession(sessionId: String)
   case unsubscribeSession(sessionId: String)
   case createSession(provider: ServerProvider, cwd: String, model: String?, approvalPolicy: String?, sandboxMode: String?)
-  case sendMessage(sessionId: String, content: String)
+  case sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil)
   case approveTool(sessionId: String, requestId: String, decision: String)
   case answerQuestion(sessionId: String, requestId: String, answer: String)
   case interruptSession(sessionId: String)
@@ -414,6 +425,7 @@ enum ClientToServerMessage: Codable {
     case decision
     case answer
     case name
+    case effort
   }
 
   func encode(to encoder: Encoder) throws {
@@ -439,10 +451,12 @@ enum ClientToServerMessage: Codable {
       try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
       try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
 
-    case .sendMessage(let sessionId, let content):
+    case .sendMessage(let sessionId, let content, let model, let effort):
       try container.encode("send_message", forKey: .type)
       try container.encode(sessionId, forKey: .sessionId)
       try container.encode(content, forKey: .content)
+      try container.encodeIfPresent(model, forKey: .model)
+      try container.encodeIfPresent(effort, forKey: .effort)
 
     case .approveTool(let sessionId, let requestId, let decision):
       try container.encode("approve_tool", forKey: .type)
@@ -503,7 +517,9 @@ enum ClientToServerMessage: Codable {
     case "send_message":
       self = .sendMessage(
         sessionId: try container.decode(String.self, forKey: .sessionId),
-        content: try container.decode(String.self, forKey: .content)
+        content: try container.decode(String.self, forKey: .content),
+        model: try container.decodeIfPresent(String.self, forKey: .model),
+        effort: try container.decodeIfPresent(String.self, forKey: .effort)
       )
     case "approve_tool":
       self = .approveTool(
@@ -544,4 +560,3 @@ enum ClientToServerMessage: Codable {
     }
   }
 }
-

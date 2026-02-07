@@ -44,6 +44,7 @@ thiserror = "2"
 anyhow = "1"
 futures = "0.3"
 bytes = "1"
+notify = "7"
 
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }

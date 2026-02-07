@@ -14,7 +14,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
-use orbitdock_protocol::{ClientMessage, Provider, ServerMessage};
+use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, ServerMessage};
 
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{load_session_by_id, PersistCommand};
@@ -50,15 +50,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
     let send_task = tokio::spawn(async move {
         while let Some(msg) = outbound_rx.recv().await {
             let result = match msg {
-                OutboundMessage::Json(server_msg) => {
-                    match serde_json::to_string(&server_msg) {
-                        Ok(json) => ws_tx.send(Message::Text(json.into())).await,
-                        Err(e) => {
-                            error!("Failed to serialize message: {}", e);
-                            continue;
-                        }
+                OutboundMessage::Json(server_msg) => match serde_json::to_string(&server_msg) {
+                    Ok(json) => ws_tx.send(Message::Text(json.into())).await,
+                    Err(e) => {
+                        error!("Failed to serialize message: {}", e);
+                        continue;
                     }
-                }
+                },
                 OutboundMessage::Pong(data) => ws_tx.send(Message::Pong(data)).await,
             };
 
@@ -162,7 +160,11 @@ async fn handle_client_message(
 
                 // Send current state
                 let snapshot = session.state();
-                send_json(client_tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
+                send_json(
+                    client_tx,
+                    ServerMessage::SessionSnapshot { session: snapshot },
+                )
+                .await;
             } else {
                 send_json(
                     client_tx,
@@ -197,8 +199,10 @@ async fn handle_client_message(
 
             let id = orbitdock_protocol::new_id();
             let project_name = cwd.split('/').last().map(String::from);
-            let mut handle =
-                crate::session::SessionHandle::new(id.clone(), provider, cwd.clone());
+            let mut handle = crate::session::SessionHandle::new(id.clone(), provider, cwd.clone());
+            if provider == Provider::Codex {
+                handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+            }
 
             // Subscribe the creator
             handle.subscribe(wrap_sender(client_tx.clone()));
@@ -225,7 +229,11 @@ async fn handle_client_message(
             let session_arc = state_guard.add_session(handle);
 
             // Notify creator
-            send_json(client_tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
+            send_json(
+                client_tx,
+                ServerMessage::SessionSnapshot { session: snapshot },
+            )
+            .await;
 
             // Notify list subscribers
             state_guard
@@ -246,7 +254,8 @@ async fn handle_client_message(
                     model_clone.as_deref(),
                     approval_clone.as_deref(),
                     sandbox_clone.as_deref(),
-                ).await
+                )
+                .await
                 {
                     Ok(codex_session) => {
                         // Persist the codex-core thread ID so the watcher can skip this session
@@ -257,6 +266,7 @@ async fn handle_client_message(
                                 thread_id,
                             })
                             .await;
+                        state_guard.register_codex_thread(&session_id, codex_session.thread_id());
 
                         let action_tx =
                             codex_session.start_event_loop(session_arc.clone(), persist_tx);
@@ -279,19 +289,33 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::SendMessage { session_id, content } => {
+        ClientMessage::SendMessage {
+            session_id,
+            content,
+            model,
+            effort,
+        } => {
             info!("Sending message to {}: {}", session_id, content);
 
             let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                let _ = tx.send(CodexAction::SendMessage { content }).await;
+                let _ = tx
+                    .send(CodexAction::SendMessage {
+                        content,
+                        model,
+                        effort,
+                    })
+                    .await;
             } else {
                 warn!("No action channel for session {}", session_id);
                 send_json(
                     client_tx,
                     ServerMessage::Error {
                         code: "not_found".into(),
-                        message: format!("Session {} not found or has no active connector", session_id),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
                         session_id: Some(session_id),
                     },
                 )
@@ -312,14 +336,15 @@ async fn handle_client_message(
             let state = state.lock().await;
 
             // Look up approval type and proposed amendment from session state
-            let (approval_type, proposed_amendment) = if let Some(session) = state.get_session(&session_id) {
-                let mut session = session.lock().await;
-                let atype = session.take_pending_approval(&request_id);
-                let amendment = session.take_pending_amendment(&request_id);
-                (atype, amendment)
-            } else {
-                (None, None)
-            };
+            let (approval_type, proposed_amendment) =
+                if let Some(session) = state.get_session(&session_id) {
+                    let mut session = session.lock().await;
+                    let atype = session.take_pending_approval(&request_id);
+                    let amendment = session.take_pending_amendment(&request_id);
+                    (atype, amendment)
+                } else {
+                    (None, None)
+                };
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let action = match approval_type {
@@ -371,7 +396,12 @@ async fn handle_client_message(
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let mut answers = std::collections::HashMap::new();
                 answers.insert("0".to_string(), answer);
-                let _ = tx.send(CodexAction::AnswerQuestion { request_id, answers }).await;
+                let _ = tx
+                    .send(CodexAction::AnswerQuestion {
+                        request_id,
+                        answers,
+                    })
+                    .await;
             }
         }
 
@@ -549,9 +579,9 @@ async fn handle_client_message(
                             thread_id: new_thread_id.clone(),
                         })
                         .await;
+                    state_guard.register_codex_thread(&session_id, &new_thread_id);
 
-                    let action_tx =
-                        codex_session.start_event_loop(session_arc, persist_tx);
+                    let action_tx = codex_session.start_event_loop(session_arc, persist_tx);
                     state_guard.set_codex_action_tx(&session_id, action_tx);
                     info!(
                         session_id = %session_id,
@@ -575,7 +605,11 @@ async fn handle_client_message(
             }
 
             // Send snapshot to requester
-            send_json(client_tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
+            send_json(
+                client_tx,
+                ServerMessage::SessionSnapshot { session: snapshot },
+            )
+            .await;
 
             // Broadcast to list subscribers (session reappears in sidebar)
             state_guard

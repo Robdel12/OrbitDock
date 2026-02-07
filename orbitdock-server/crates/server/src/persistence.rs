@@ -35,10 +35,7 @@ pub enum PersistCommand {
     },
 
     /// End a session
-    SessionEnd {
-        id: String,
-        reason: String,
-    },
+    SessionEnd { id: String, reason: String },
 
     /// Append a message
     MessageAppend {
@@ -82,9 +79,46 @@ pub enum PersistCommand {
     },
 
     /// Reactivate an ended session (for resume)
-    ReactivateSession {
+    ReactivateSession { id: String },
+
+    /// Upsert a passive rollout-backed Codex session
+    RolloutSessionUpsert {
         id: String,
+        thread_id: String,
+        project_path: String,
+        project_name: Option<String>,
+        branch: Option<String>,
+        model: Option<String>,
+        context_label: Option<String>,
+        transcript_path: String,
+        started_at: String,
     },
+
+    /// Update rollout-backed session state
+    RolloutSessionUpdate {
+        id: String,
+        project_path: Option<String>,
+        model: Option<String>,
+        status: Option<SessionStatus>,
+        work_status: Option<WorkStatus>,
+        attention_reason: Option<Option<String>>,
+        pending_tool_name: Option<Option<String>>,
+        pending_tool_input: Option<Option<String>>,
+        pending_question: Option<Option<String>>,
+        total_tokens: Option<i64>,
+        last_tool: Option<Option<String>>,
+        last_tool_at: Option<Option<String>>,
+        custom_name: Option<Option<String>>,
+    },
+
+    /// Increment rollout prompt counter and set first prompt if missing
+    RolloutPromptIncrement {
+        id: String,
+        first_prompt: Option<String>,
+    },
+
+    /// Increment rollout tool counter
+    RolloutToolIncrement { id: String },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -148,10 +182,7 @@ impl PersistenceWriter {
         let db_path = self.db_path.clone();
 
         // Use spawn_blocking for SQLite (it's not async)
-        let result = tokio::task::spawn_blocking(move || {
-            flush_batch(&db_path, batch)
-        })
-        .await;
+        let result = tokio::task::spawn_blocking(move || flush_batch(&db_path, batch)).await;
 
         match result {
             Ok(Ok(count)) => {
@@ -175,7 +206,7 @@ fn flush_batch(db_path: &PathBuf, batch: Vec<PersistCommand>) -> Result<usize, r
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
          PRAGMA busy_timeout = 5000;
-         PRAGMA synchronous = NORMAL;"
+         PRAGMA synchronous = NORMAL;",
     )?;
 
     let count = batch.len();
@@ -267,10 +298,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             }
 
             if !updates.is_empty() {
-                let sql = format!(
-                    "UPDATE sessions SET {} WHERE id = ?",
-                    updates.join(", ")
-                );
+                let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
                 params_vec.push(&id);
 
                 conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
@@ -285,7 +313,10 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             )?;
         }
 
-        PersistCommand::MessageAppend { session_id, message } => {
+        PersistCommand::MessageAppend {
+            session_id,
+            message,
+        } => {
             let type_str = match message.message_type {
                 MessageType::User => "user",
                 MessageType::Assistant => "assistant",
@@ -403,10 +434,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             }
 
             if !updates.is_empty() {
-                let sql = format!(
-                    "UPDATE sessions SET {} WHERE id = ?",
-                    updates.join(", ")
-                );
+                let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
                 params_vec.push(&session_id);
 
                 conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
@@ -438,6 +466,179 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             conn.execute(
                 "UPDATE sessions SET status = 'active', work_status = 'waiting', ended_at = NULL, end_reason = NULL, last_activity_at = ?1 WHERE id = ?2",
                 params![now, id],
+            )?;
+        }
+
+        PersistCommand::RolloutSessionUpsert {
+            id,
+            thread_id,
+            project_path,
+            project_name,
+            branch,
+            model,
+            context_label,
+            transcript_path,
+            started_at,
+        } => {
+            let now = chrono_now();
+            conn.execute(
+                "INSERT INTO sessions (
+                    id, project_path, project_name, branch, model, context_label, transcript_path,
+                    provider, status, work_status, codex_integration_mode, codex_thread_id,
+                    started_at, last_activity_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'codex', 'active', 'waiting', 'passive', ?8, ?9, ?10)
+                 ON CONFLICT(id) DO UPDATE SET
+                    project_path = excluded.project_path,
+                    project_name = COALESCE(excluded.project_name, sessions.project_name),
+                    branch = COALESCE(excluded.branch, sessions.branch),
+                    model = COALESCE(excluded.model, sessions.model),
+                    context_label = COALESCE(excluded.context_label, sessions.context_label),
+                    transcript_path = excluded.transcript_path,
+                    provider = 'codex',
+                    codex_integration_mode = 'passive',
+                    codex_thread_id = excluded.codex_thread_id,
+                    last_activity_at = excluded.last_activity_at",
+                params![
+                    id,
+                    project_path,
+                    project_name,
+                    branch,
+                    model,
+                    context_label,
+                    transcript_path,
+                    thread_id,
+                    started_at,
+                    now,
+                ],
+            )?;
+        }
+
+        PersistCommand::RolloutSessionUpdate {
+            id,
+            project_path,
+            model,
+            status,
+            work_status,
+            attention_reason,
+            pending_tool_name,
+            pending_tool_input,
+            pending_question,
+            total_tokens,
+            last_tool,
+            last_tool_at,
+            custom_name,
+        } => {
+            let status_str = status.map(|s| match s {
+                SessionStatus::Active => "active",
+                SessionStatus::Ended => "ended",
+            });
+
+            let work_status_str = work_status.map(|s| match s {
+                WorkStatus::Working => "working",
+                WorkStatus::Waiting => "waiting",
+                WorkStatus::Permission => "permission",
+                WorkStatus::Question => "question",
+                WorkStatus::Reply => "reply",
+                WorkStatus::Ended => "ended",
+            });
+
+            let mut updates: Vec<String> = Vec::new();
+            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(path) = project_path {
+                updates.push("project_path = ?".to_string());
+                params_vec.push(Box::new(path));
+            }
+            if let Some(m) = model {
+                updates.push("model = ?".to_string());
+                params_vec.push(Box::new(m));
+            }
+            if let Some(s) = status_str {
+                updates.push("status = ?".to_string());
+                params_vec.push(Box::new(s.to_string()));
+                if s == "ended" {
+                    updates.push("ended_at = COALESCE(ended_at, ?)".to_string());
+                    params_vec.push(Box::new(chrono_now()));
+                }
+            }
+            if let Some(ws) = work_status_str {
+                updates.push("work_status = ?".to_string());
+                params_vec.push(Box::new(ws.to_string()));
+            }
+            if let Some(reason) = attention_reason {
+                updates.push("attention_reason = ?".to_string());
+                params_vec.push(Box::new(reason));
+            }
+            if let Some(tool_name) = pending_tool_name {
+                updates.push("pending_tool_name = ?".to_string());
+                params_vec.push(Box::new(tool_name));
+            }
+            if let Some(tool_input) = pending_tool_input {
+                updates.push("pending_tool_input = ?".to_string());
+                params_vec.push(Box::new(tool_input));
+            }
+            if let Some(question) = pending_question {
+                updates.push("pending_question = ?".to_string());
+                params_vec.push(Box::new(question));
+            }
+            if let Some(tokens) = total_tokens {
+                updates.push("total_tokens = ?".to_string());
+                params_vec.push(Box::new(tokens));
+            }
+            if let Some(tool) = last_tool {
+                updates.push("last_tool = ?".to_string());
+                params_vec.push(Box::new(tool));
+            }
+            if let Some(tool_at) = last_tool_at {
+                updates.push("last_tool_at = ?".to_string());
+                params_vec.push(Box::new(tool_at));
+            }
+            if let Some(name) = custom_name {
+                updates.push("custom_name = ?".to_string());
+                params_vec.push(Box::new(name));
+            }
+
+            if !updates.is_empty() {
+                updates.push("last_activity_at = ?".to_string());
+                params_vec.push(Box::new(chrono_now()));
+
+                let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
+                params_vec.push(Box::new(id));
+
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params_vec.iter().map(|b| b.as_ref()).collect();
+                conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            }
+        }
+
+        PersistCommand::RolloutPromptIncrement { id, first_prompt } => {
+            if let Some(prompt) = first_prompt {
+                conn.execute(
+                    "UPDATE sessions
+                     SET prompt_count = prompt_count + 1,
+                         first_prompt = COALESCE(first_prompt, ?1),
+                         last_activity_at = ?2
+                     WHERE id = ?3",
+                    params![prompt, chrono_now(), id],
+                )?;
+            } else {
+                conn.execute(
+                    "UPDATE sessions
+                     SET prompt_count = prompt_count + 1,
+                         last_activity_at = ?1
+                     WHERE id = ?2",
+                    params![chrono_now(), id],
+                )?;
+            }
+        }
+
+        PersistCommand::RolloutToolIncrement { id } => {
+            conn.execute(
+                "UPDATE sessions
+                 SET tool_count = tool_count + 1,
+                     last_activity_at = ?1
+                 WHERE id = ?2",
+                params![chrono_now(), id],
             )?;
         }
     }
@@ -544,7 +745,8 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
         let mut stmt = conn.prepare(
             "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode
              FROM sessions
-             WHERE provider = 'codex' AND status = 'active'"
+             WHERE provider = 'codex' AND status = 'active'
+               AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
         )?;
 
         #[allow(clippy::type_complexity)]
@@ -647,7 +849,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         let mut stmt = conn.prepare(
             "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode
              FROM sessions
-             WHERE id = ?1 AND provider = 'codex'"
+             WHERE id = ?1 AND provider = 'codex'
+               AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
         )?;
 
         let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
@@ -727,7 +930,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 }
 
 /// Create a sender for the persistence writer
-pub fn create_persistence_channel() -> (mpsc::Sender<PersistCommand>, mpsc::Receiver<PersistCommand>) {
+pub fn create_persistence_channel() -> (mpsc::Sender<PersistCommand>, mpsc::Receiver<PersistCommand>)
+{
     mpsc::channel(1000)
 }
 

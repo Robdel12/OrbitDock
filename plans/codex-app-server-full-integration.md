@@ -94,7 +94,66 @@ Let users name sessions. codex-core emits `ThreadNameUpdated` when names are set
 
 ---
 
-### 2. Per-Turn Config Overrides
+### 2. Unified Codex Control Plane (Migrate Rollout Watcher to Rust)
+**Priority**: HIGH — current split causes race conditions and duplicate sessions
+
+The Swift `CodexRolloutWatcher` and Rust server both write to the same DB, creating race conditions. When a direct session writes a rollout file, the watcher picks it up and creates a duplicate entry with wrong provider/state. Fix: make the Rust server the single control plane for ALL Codex sessions.
+
+**What moves to Rust:**
+- Rollout JSONL file watching (`~/.codex/sessions/**/*.jsonl`)
+- JSONL event parsing (session_meta, event_msg, turn_context, response_item)
+- Session lifecycle for CLI-started Codex sessions (create, status transitions, timeout)
+- Git branch/repo resolution for new sessions
+- Prompt/tool counters, first-prompt capture
+- Session timeout enforcement (auto-end after inactivity)
+
+**What stays in Swift:**
+- Nothing — `CodexRolloutWatcher.swift` and `CodexSessionStore.swift` get removed entirely
+- SwiftUI remains purely reactive (WebSocket updates from server)
+
+**What the server already handles (no work needed):**
+- Direct codex-core sessions (messaging, approvals, streaming, token tracking)
+- SQLite persistence via batched PersistenceWriter
+- WebSocket broadcasting to Swift clients
+- Session state management (work_status, attention_reason, pending approvals)
+
+#### Steps
+
+**Phase 1: Rust file watcher + JSONL parser**
+- [x] **Cargo.toml**: Add `notify = "7"` for cross-platform file watching
+- [x] **New crate or module**: `crates/server/src/rollout_watcher.rs`
+- [x] **File watcher**: Watch `~/.codex/sessions/` recursively, debounce events (150ms)
+- [x] **Incremental reader**: Track per-file offset, handle tail buffer for partial lines
+- [x] **JSONL parser**: Parse `session_meta`, `turn_context`, `event_msg`, `response_item` line types
+- [x] **State persistence**: Save/restore file offsets to `~/.orbitdock/codex-rollout-state.json` (same format as Swift watcher for seamless migration)
+
+**Phase 2: Session management for watcher sessions**
+- [x] **Session creation**: On `session_meta` → create session in AppState + persist to DB
+- [x] **Skip own sessions**: If thread ID matches an existing direct session, skip entirely (no race possible — same process)
+- [x] **Git resolution**: Shell out to `git rev-parse` for branch/repo name (same as Swift watcher, no need for `git2` crate)
+- [x] **Status transitions**: Map event_msg types to work_status/attention_reason updates
+- [x] **Tool tracking**: Increment tool_count, track lastTool/lastToolAt
+- [x] **Prompt tracking**: Increment prompt_count, capture first_prompt from first user_message
+- [x] **Session timeout**: tokio timer per session, auto-end after 120s of inactivity
+- [x] **Session naming**: Generate deterministic slug for unnamed sessions (same algorithm as Swift watcher)
+
+**Phase 3: WebSocket integration**
+- [x] **Broadcast updates**: Watcher sessions emit same `SessionDelta`, `SessionCreated`, `SessionEnded` messages as direct sessions
+- [x] **Session list**: Watcher sessions appear in `SessionsList` alongside direct sessions
+- [x] **Unified state**: Both direct and watcher sessions live in same `AppState.sessions` map
+
+**Phase 4: Remove Swift watcher**
+- [x] **Delete**: `CodexRolloutWatcher.swift`, `CodexSessionStore.swift`
+- [x] **Remove**: FSEvents setup from `CommandCenterApp.swift`
+- [x] **Remove**: `isServerManaged()` check (no longer needed — server IS the manager)
+- [x] **Remove**: Darwin notification handling for codex transcript updates
+- [ ] **Verify**: CLI-started Codex sessions appear in sidebar with correct provider/state
+- [ ] **Verify**: Direct sessions no longer create duplicate watcher entries
+- [ ] **Verify**: Ended watcher sessions show in sidebar (DB fallback works)
+
+---
+
+### 3. Per-Turn Config Overrides (was #2)
 **API**: `turn/start` accepts `model`, `effort`, `sandbox_policy`
 
 Change model or effort level per message without creating a new session.
@@ -114,7 +173,7 @@ Change model or effort level per message without creating a new session.
 
 ---
 
-### 3. Context Compaction
+### 4. Context Compaction
 **API**: `thread/compact/start`, `ContextCompacted` event
 
 Summarize long conversations to free up context window.
@@ -133,7 +192,7 @@ Summarize long conversations to free up context window.
 
 ---
 
-### 4. Turn Steer
+### 5. Turn Steer
 **API**: `turn/steer` — inject input into an active turn
 
 Send additional context while the agent is working instead of waiting.
@@ -151,7 +210,7 @@ Send additional context while the agent is working instead of waiting.
 
 ---
 
-### 5. MCP Server Status
+### 6. MCP Server Status
 **API**: `mcpServerStatus/list`, `McpStartupUpdate`, `McpStartupComplete` events
 
 Show connected MCP servers and their tool counts.
@@ -171,7 +230,7 @@ Show connected MCP servers and their tool counts.
 
 ---
 
-### 6. Thread Archive / Unarchive
+### 7. Thread Archive / Unarchive
 **API**: `thread/archive`, `thread/unarchive`
 
 Archive old sessions to declutter the sidebar.
@@ -190,7 +249,7 @@ Archive old sessions to declutter the sidebar.
 
 ---
 
-### 7. Thread Rollback
+### 8. Thread Rollback
 **API**: `thread/rollback` with `num_turns` — drops last N turns (does NOT revert file changes)
 
 Undo turns when the agent goes wrong.
@@ -210,7 +269,7 @@ Undo turns when the agent goes wrong.
 
 ---
 
-### 8. Thread Fork
+### 9. Thread Fork
 **API**: `thread/fork` with full config overrides
 
 Branch a conversation to try alternatives.
@@ -231,7 +290,7 @@ Branch a conversation to try alternatives.
 
 ---
 
-### 9. Code Review Mode
+### 10. Code Review Mode
 **API**: `review/start` with `ReviewTarget` (UncommittedChanges, BaseBranch, Commit, Custom)
 
 Run Codex as a code reviewer — creates a review turn with findings.
@@ -290,7 +349,10 @@ Lower priority — nice to have, verified as real APIs:
 - **Actor pattern per session**: The plan called for `tokio::spawn` per session with mpsc channels. We use `Arc<Mutex<AppState>>` instead — simpler, works fine at current scale. Can revisit if we hit contention with 50+ sessions.
 - **Claude connector in Rust**: The existing Swift path (hooks → CLI → SQLite → DatabaseManager) works well. No scaling issues. Unifying would mean rewriting all JSONL parsing and hook integration in Rust for minimal benefit.
 
+### What we need to fix
+- **Two systems, one database**: The Swift `CodexRolloutWatcher` and Rust server both write session state to SQLite. When a direct session also writes a rollout file, the watcher races the server and creates duplicate entries with wrong provider/state. The `isServerManaged` cross-process check has inherent race conditions. Fix: consolidate all Codex session management into the Rust server (Task #2).
+
 ---
 
 *Created: 2025-01-20*
-*Updated: 2026-02-07 — Rewritten for Rust server architecture. Verified against codex-core API surface.*
+*Updated: 2026-02-07 — Added Task #2 (Unified Control Plane) to fix watcher/server race conditions. Renumbered remaining tasks.*

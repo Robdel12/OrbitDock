@@ -12,7 +12,13 @@ import Foundation
 
 extension ServerSessionSummary {
   func toSession() -> Session {
-    Session(
+    let integrationMode: CodexIntegrationMode? = if provider == .codex {
+      codexIntegrationMode?.toSessionMode() ?? .direct
+    } else {
+      nil
+    }
+
+    return Session(
       id: id,
       projectPath: projectPath,
       projectName: projectName,
@@ -24,7 +30,7 @@ extension ServerSessionSummary {
       lastActivityAt: parseServerTimestamp(lastActivityAt),
       attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
       provider: provider == .codex ? .codex : .claude,
-      codexIntegrationMode: .direct
+      codexIntegrationMode: integrationMode
     )
   }
 }
@@ -33,6 +39,12 @@ extension ServerSessionSummary {
 
 extension ServerSessionState {
   func toSession() -> Session {
+    let integrationMode: CodexIntegrationMode? = if provider == .codex {
+      codexIntegrationMode?.toSessionMode() ?? .direct
+    } else {
+      nil
+    }
+
     var session = Session(
       id: id,
       projectPath: projectPath,
@@ -48,7 +60,7 @@ extension ServerSessionState {
       pendingToolInput: pendingApproval?.toolInputForDisplay,
       pendingQuestion: pendingApproval?.question,
       provider: provider == .codex ? .codex : .claude,
-      codexIntegrationMode: .direct,
+      codexIntegrationMode: integrationMode,
       pendingApprovalId: pendingApproval?.id,
       codexInputTokens: Int(tokenUsage.inputTokens),
       codexOutputTokens: Int(tokenUsage.outputTokens),
@@ -57,6 +69,15 @@ extension ServerSessionState {
     )
     session.currentDiff = currentDiff
     return session
+  }
+}
+
+extension ServerCodexIntegrationMode {
+  func toSessionMode() -> CodexIntegrationMode {
+    switch self {
+    case .direct: .direct
+    case .passive: .passive
+    }
   }
 }
 

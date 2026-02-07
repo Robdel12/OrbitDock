@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Overview
-OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude Code (via Swift CLI hooks) and Codex CLI (via native FSEvents watching).
+OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude Code (via Swift CLI hooks) and Codex CLI (via Rust server rollout watching + direct codex-core integration).
 
 ## Project Structure & Module Organization
 - `CommandCenter/` is the macOS SwiftUI app (views, models, services, database layer).
@@ -30,6 +30,19 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 ## Architecture & App-Specific Notes
 - The app reads AI agent session data from a local SQLite DB and JSONL transcripts.
 - Claude Code sessions: populated via Swift CLI hooks configured in `~/.claude/settings.json`.
-- Codex CLI sessions: populated via native FSEvents watcher (`CodexRolloutWatcher.swift`).
+- Codex sessions: unified through `orbitdock-server` (direct sessions + rollout-watched CLI sessions).
 - Review `README.md` and `CLAUDE.md` for schema, paths, and update flow.
 - `CLAUDE.md` documents UI theme constraints and data consistency rules (e.g., WAL mode, status colors).
+
+## Debugging Quick Reference
+- Database: `~/.orbitdock/orbitdock.db`
+- CLI log: `~/.orbitdock/cli.log`
+- Codex app log: `~/.orbitdock/logs/codex.log`
+- Rust server log: `~/.orbitdock/logs/server.log`
+
+Useful commands:
+- `sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, provider, codex_integration_mode, status, work_status FROM sessions ORDER BY datetime(last_activity_at) DESC LIMIT 20;"`
+- `tail -f ~/.orbitdock/logs/server.log | jq .`
+- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'`
+- `tail -f ~/.orbitdock/logs/codex.log | jq .`
+- `tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error" or .level == "warning")'`

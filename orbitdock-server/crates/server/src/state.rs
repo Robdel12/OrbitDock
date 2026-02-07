@@ -17,6 +17,8 @@ pub struct AppState {
 
     /// Action channels for Codex sessions
     codex_actions: HashMap<String, mpsc::Sender<CodexAction>>,
+    /// Map codex-core thread_id -> session_id for direct sessions
+    codex_threads: HashMap<String, String>,
 
     /// Subscribers to the session list
     list_subscribers: Vec<mpsc::Sender<orbitdock_protocol::ServerMessage>>,
@@ -30,6 +32,7 @@ impl AppState {
         Self {
             sessions: HashMap::new(),
             codex_actions: HashMap::new(),
+            codex_threads: HashMap::new(),
             list_subscribers: Vec::new(),
             persist_tx,
         }
@@ -76,7 +79,19 @@ impl AppState {
     /// Remove a session
     pub fn remove_session(&mut self, id: &str) -> Option<Arc<Mutex<SessionHandle>>> {
         self.codex_actions.remove(id);
+        self.codex_threads.retain(|_, session_id| session_id != id);
         self.sessions.remove(id)
+    }
+
+    /// Register codex-core thread ID for a direct session
+    pub fn register_codex_thread(&mut self, session_id: &str, thread_id: &str) {
+        self.codex_threads
+            .insert(thread_id.to_string(), session_id.to_string());
+    }
+
+    /// Check whether thread ID is managed by a direct server session
+    pub fn is_managed_codex_thread(&self, thread_id: &str) -> bool {
+        self.codex_threads.contains_key(thread_id)
     }
 
     /// Subscribe to list updates

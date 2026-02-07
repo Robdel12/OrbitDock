@@ -29,3 +29,4 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true }
+notify = { workspace = true }

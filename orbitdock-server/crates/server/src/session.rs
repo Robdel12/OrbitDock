@@ -3,8 +3,8 @@
 use std::collections::HashMap;
 
 use orbitdock_protocol::{
-    ApprovalType, Message, Provider, SessionState, SessionStatus, SessionSummary, TokenUsage,
-    WorkStatus,
+    ApprovalType, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
+    SessionSummary, TokenUsage, WorkStatus,
 };
 use tokio::sync::mpsc;
 
@@ -16,6 +16,7 @@ pub struct SessionHandle {
     project_name: Option<String>,
     model: Option<String>,
     custom_name: Option<String>,
+    codex_integration_mode: Option<CodexIntegrationMode>,
     status: SessionStatus,
     work_status: WorkStatus,
     messages: Vec<Message>,
@@ -42,6 +43,7 @@ impl SessionHandle {
             project_name: None,
             model: None,
             custom_name: None,
+            codex_integration_mode: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
             messages: Vec::new(),
@@ -75,6 +77,7 @@ impl SessionHandle {
             project_name,
             model,
             custom_name,
+            codex_integration_mode: Some(CodexIntegrationMode::Direct),
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
             messages,
@@ -106,6 +109,7 @@ impl SessionHandle {
             status: self.status,
             work_status: self.work_status,
             has_pending_approval: false, // TODO
+            codex_integration_mode: self.codex_integration_mode,
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
         }
@@ -127,6 +131,7 @@ impl SessionHandle {
             token_usage: self.token_usage.clone(),
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
+            codex_integration_mode: self.codex_integration_mode,
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
         }
@@ -151,6 +156,37 @@ impl SessionHandle {
     pub fn set_custom_name(&mut self, name: Option<String>) {
         self.custom_name = name;
         self.last_activity_at = Some(chrono_now());
+    }
+
+    /// Set codex integration mode
+    pub fn set_codex_integration_mode(&mut self, mode: Option<CodexIntegrationMode>) {
+        self.codex_integration_mode = mode;
+    }
+
+    /// Set project name
+    pub fn set_project_name(&mut self, project_name: Option<String>) {
+        self.project_name = project_name;
+    }
+
+    /// Set model
+    pub fn set_model(&mut self, model: Option<String>) {
+        self.model = model;
+    }
+
+    /// Set status
+    pub fn set_status(&mut self, status: SessionStatus) {
+        self.status = status;
+        self.last_activity_at = Some(chrono_now());
+    }
+
+    /// Set started_at timestamp
+    pub fn set_started_at(&mut self, started_at: Option<String>) {
+        self.started_at = started_at;
+    }
+
+    /// Set last_activity_at timestamp
+    pub fn set_last_activity_at(&mut self, last_activity_at: Option<String>) {
+        self.last_activity_at = last_activity_at;
     }
 
     /// Set work status

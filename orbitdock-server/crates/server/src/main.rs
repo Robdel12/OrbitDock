@@ -5,6 +5,7 @@
 
 mod codex_session;
 mod persistence;
+mod rollout_watcher;
 mod session;
 mod state;
 mod websocket;
@@ -23,7 +24,9 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::codex_session::CodexSession;
-use crate::persistence::{create_persistence_channel, load_active_codex_sessions, PersistCommand, PersistenceWriter};
+use crate::persistence::{
+    create_persistence_channel, load_active_codex_sessions, PersistCommand, PersistenceWriter,
+};
 use crate::session::SessionHandle;
 use crate::state::AppState;
 use crate::websocket::ws_handler;
@@ -41,7 +44,9 @@ fn main() -> anyhow::Result<()> {
 async fn async_main() -> anyhow::Result<()> {
     // Ensure log directory exists
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let log_dir = std::path::PathBuf::from(home).join(".orbitdock").join("logs");
+    let log_dir = std::path::PathBuf::from(home)
+        .join(".orbitdock")
+        .join("logs");
     std::fs::create_dir_all(&log_dir)?;
 
     // File appender - writes JSON to ~/.orbitdock/logs/server.log
@@ -72,7 +77,7 @@ async fn async_main() -> anyhow::Result<()> {
     tokio::spawn(persistence_writer.run());
 
     // Create app state with persistence sender
-    let state = Arc::new(Mutex::new(AppState::new(persist_tx)));
+    let state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
 
     // Restore active Codex sessions from database
     match load_active_codex_sessions().await {
@@ -103,7 +108,9 @@ async fn async_main() -> anyhow::Result<()> {
                     rs.model.as_deref(),
                     rs.approval_policy.as_deref(),
                     rs.sandbox_mode.as_deref(),
-                ).await {
+                )
+                .await
+                {
                     Ok(codex) => {
                         let persist = app.persist().clone();
 
@@ -115,6 +122,7 @@ async fn async_main() -> anyhow::Result<()> {
                                 thread_id: new_thread_id.clone(),
                             })
                             .await;
+                        app.register_codex_thread(&rs.id, &new_thread_id);
 
                         let action_tx = codex.start_event_loop(session_arc, persist);
                         app.set_codex_action_tx(&rs.id, action_tx);
@@ -144,6 +152,16 @@ async fn async_main() -> anyhow::Result<()> {
             warn!("Failed to load sessions for restoration: {}", e);
         }
     }
+
+    // Start Codex rollout watcher (CLI sessions -> server state)
+    let watcher_state = state.clone();
+    let watcher_persist = persist_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = rollout_watcher::start_rollout_watcher(watcher_state, watcher_persist).await
+        {
+            warn!("Rollout watcher failed: {}", e);
+        }
+    });
 
     // Build router
     let app = Router::new()

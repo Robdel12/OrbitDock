@@ -80,9 +80,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     UNUserNotificationCenter.current().setNotificationCategories([category])
 
-    // Watcher monitors CLI-started Codex sessions (skips server-managed ones)
-    CodexRolloutWatcher.shared.start()
-
     // Fetch latest model pricing in background
     ModelPricingService.shared.fetchPrices()
 
@@ -99,8 +96,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   }
 
   func applicationWillTerminate(_ notification: Notification) {
-    CodexRolloutWatcher.shared.stop()
-
     // Stop MCP Bridge and Rust server
     Task { @MainActor in
       MCPBridge.shared.stop()

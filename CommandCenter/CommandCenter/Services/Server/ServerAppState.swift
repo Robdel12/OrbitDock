@@ -139,10 +139,10 @@ final class ServerAppState {
     ServerConnection.shared.createSession(provider: .codex, cwd: cwd, model: model, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
   }
 
-  /// Send a message to a session
-  func sendMessage(sessionId: String, content: String) {
+  /// Send a message to a session with optional per-turn overrides
+  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil) {
     logger.info("Sending message to \(sessionId)")
-    ServerConnection.shared.sendMessage(sessionId: sessionId, content: content)
+    ServerConnection.shared.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort)
   }
 
   /// Approve or reject a tool with a specific decision
@@ -331,6 +331,13 @@ final class ServerAppState {
         session.customName = name
       } else {
         session.customName = nil
+      }
+    }
+    if let modeOuter = changes.codexIntegrationMode {
+      if let mode = modeOuter {
+        session.codexIntegrationMode = mode.toSessionMode()
+      } else {
+        session.codexIntegrationMode = nil
       }
     }
     if let lastActivity = changes.lastActivityAt {
