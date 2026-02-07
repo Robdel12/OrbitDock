@@ -14,7 +14,7 @@ let orbitdock = null;
 const server = new Server(
   {
     name: "orbitdock",
-    version: "0.2.0",
+    version: "0.3.0",
   },
   {
     capabilities: {
@@ -30,7 +30,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "send_message",
         description:
-          "Send a user message to a Codex session through OrbitDock. Starts a new turn in the conversation.",
+          "Send a user message to a controllable OrbitDock session. Currently supports direct Codex sessions.",
         inputSchema: {
           type: "object",
           properties: {
@@ -42,13 +42,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "The user message/prompt to send",
             },
+            model: {
+              type: "string",
+              description: "Optional model override for this turn (e.g., 'o3', 'o4-mini', 'gpt-4o')",
+            },
+            effort: {
+              type: "string",
+              enum: ["low", "medium", "high"],
+              description: "Optional reasoning effort override for this turn",
+            },
           },
           required: ["session_id", "message"],
         },
       },
       {
         name: "interrupt_turn",
-        description: "Interrupt/stop the current turn in a Codex session",
+        description: "Interrupt/stop the current turn in a controllable OrbitDock session (direct Codex)",
         inputSchema: {
           type: "object",
           properties: {
@@ -62,7 +71,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "approve",
-        description: "Approve or reject a pending tool execution (command or file change) in a Codex session",
+        description: "Approve/reject a pending tool execution in a controllable OrbitDock session (direct Codex)",
         inputSchema: {
           type: "object",
           properties: {
@@ -89,10 +98,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "list_sessions",
-        description: "List active Codex sessions from OrbitDock that can be controlled",
+        description: "List active OrbitDock sessions (Codex and/or Claude) with controllability metadata",
         inputSchema: {
           type: "object",
-          properties: {},
+          properties: {
+            provider: {
+              type: "string",
+              enum: ["any", "codex", "claude"],
+              description: "Optional provider filter (default: any)",
+            },
+            controllable_only: {
+              type: "boolean",
+              description:
+                "If true, only include sessions controllable via MCP actions (default: false)",
+            },
+          },
+        },
+      },
+      {
+        name: "get_session",
+        description: "Get details for one OrbitDock session by ID",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session_id: {
+              type: "string",
+              description: "Session ID",
+            },
+          },
+          required: ["session_id"],
         },
       },
       {
@@ -122,6 +156,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleApprove(args);
       case "list_sessions":
         return await handleListSessions(args);
+      case "get_session":
+        return await handleGetSession(args);
       case "check_connection":
         return await handleCheckConnection(args);
       default:
@@ -137,15 +173,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Tool handlers
 
-async function handleSendMessage({ session_id, message }) {
+async function handleSendMessage({ session_id, message, model, effort }) {
   ensureOrbitDock();
-  await orbitdock.sendMessage(session_id, message);
+  let session = await requireControllableSession(session_id);
+  await orbitdock.sendMessage(session_id, message, { model, effort });
 
   return {
     content: [
       {
         type: "text",
-        text: `Message sent to ${session_id}. Turn started.`,
+        text: `Message sent to ${session_id} (${session.provider}). Turn started.`,
       },
     ],
   };
@@ -153,6 +190,7 @@ async function handleSendMessage({ session_id, message }) {
 
 async function handleInterruptTurn({ session_id }) {
   ensureOrbitDock();
+  await requireControllableSession(session_id);
   await orbitdock.interruptTurn(session_id);
 
   return {
@@ -162,6 +200,7 @@ async function handleInterruptTurn({ session_id }) {
 
 async function handleApprove({ session_id, request_id, approved, type = "exec" }) {
   ensureOrbitDock();
+  await requireControllableSession(session_id);
   await orbitdock.approve(session_id, request_id, approved, type);
 
   return {
@@ -174,31 +213,59 @@ async function handleApprove({ session_id, request_id, approved, type = "exec" }
   };
 }
 
-async function handleListSessions() {
+async function handleListSessions({ provider = "any", controllable_only = false } = {}) {
   ensureOrbitDock();
   let sessions = await orbitdock.listSessions();
 
-  // Filter to only Codex direct sessions (controllable)
-  let codexSessions = sessions.filter((s) => s.is_direct_codex);
+  let filtered = sessions.filter((s) => {
+    if (provider !== "any" && s.provider !== provider) {
+      return false;
+    }
+    if (controllable_only && !isControllableSession(s)) {
+      return false;
+    }
+    return true;
+  });
 
-  if (codexSessions.length === 0) {
+  if (filtered.length === 0) {
+    let scope = provider === "any" ? "matching" : provider;
+    let mode = controllable_only ? "controllable " : "";
     return {
-      content: [{ type: "text", text: "No active Codex sessions found." }],
+      content: [{ type: "text", text: `No active ${mode}${scope} sessions found.` }],
     };
   }
 
-  let summary = codexSessions
+  let summary = filtered
     .map((s) => {
       let status = s.work_status;
       if (s.attention_reason && s.attention_reason !== "none") {
         status += ` (${s.attention_reason})`;
       }
-      return `• ${s.id}\n  ${s.project_path}\n  Status: ${status}`;
+      let controllable = isControllableSession(s) ? "yes" : "no";
+      return `• ${s.id}\n  Provider: ${s.provider}\n  ${s.project_path}\n  Status: ${status}\n  Controllable: ${controllable}`;
     })
     .join("\n\n");
 
   return {
     content: [{ type: "text", text: summary }],
+  };
+}
+
+async function handleGetSession({ session_id }) {
+  ensureOrbitDock();
+  let session = await orbitdock.getSession(session_id);
+
+  let lines = [
+    `ID: ${session.id}`,
+    `Provider: ${session.provider}`,
+    `Project: ${session.project_path}`,
+    `Status: ${session.work_status}${session.attention_reason && session.attention_reason !== "none" ? ` (${session.attention_reason})` : ""}`,
+    `Direct Codex: ${session.is_direct_codex ? "yes" : "no"}`,
+    `Controllable: ${isControllableSession(session) ? "yes" : "no"}`,
+  ];
+
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
   };
 }
 
@@ -234,6 +301,21 @@ function ensureOrbitDock() {
   if (!orbitdock) {
     orbitdock = new OrbitDockClient();
   }
+}
+
+function isControllableSession(session) {
+  return session.provider === "codex" && session.is_direct_codex;
+}
+
+async function requireControllableSession(sessionId) {
+  let session = await orbitdock.getSession(sessionId);
+  if (!isControllableSession(session)) {
+    throw new Error(
+      `Session ${sessionId} is provider=${session.provider}, direct_codex=${session.is_direct_codex}. ` +
+        "Only direct Codex sessions are currently controllable via MCP actions."
+    );
+  }
+  return session;
 }
 
 // Start the server

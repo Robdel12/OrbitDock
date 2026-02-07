@@ -1,23 +1,24 @@
 # OrbitDock MCP
 
-MCP for pair-debugging Codex sessions. Allows an LLM to interact with the **same** Codex session you're viewing in OrbitDock.
+MCP for pair-debugging OrbitDock sessions. It can discover both Claude and Codex sessions, and can control direct Codex sessions in the same app state you're viewing.
 
 ## Architecture
 
 ```
-MCP (Node.js)  →  HTTP :19384  →  OrbitDock  →  Codex app-server
+MCP (Node.js)  →  HTTP :19384  →  OrbitDock  →  Rust server / provider runtimes
 ```
 
-Commands route through OrbitDock's HTTP bridge to `CodexDirectSessionManager`. Same session, no state sync issues.
+Commands route through OrbitDock's HTTP bridge to `ServerAppState`. Same session, no state sync issues.
 
 ## Tools
 
 | Tool | Description |
 |------|-------------|
-| `list_sessions` | List active Codex sessions |
-| `send_message` | Send a user prompt (starts a turn) |
-| `interrupt_turn` | Stop the current turn |
-| `approve` | Approve/reject pending tool executions |
+| `list_sessions` | List active Claude and/or Codex sessions (with controllability metadata) |
+| `get_session` | Get details for a specific session |
+| `send_message` | Send a user prompt (direct Codex sessions only) |
+| `interrupt_turn` | Stop the current turn (direct Codex sessions only) |
+| `approve` | Approve/reject pending tool executions (direct Codex sessions only) |
 | `check_connection` | Verify OrbitDock is running |
 
 ## Setup
@@ -38,5 +39,5 @@ For database/log inspection, use CLI:
 
 ```bash
 sqlite3 ~/.orbitdock/orbitdock.db "SELECT * FROM sessions"
-tail -f ~/.orbitdock/codex-events.log | jq .
+tail -f ~/.orbitdock/logs/server.log | jq .
 ```
