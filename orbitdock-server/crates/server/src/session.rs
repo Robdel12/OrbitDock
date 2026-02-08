@@ -16,6 +16,8 @@ pub struct SessionHandle {
     project_name: Option<String>,
     model: Option<String>,
     custom_name: Option<String>,
+    approval_policy: Option<String>,
+    sandbox_mode: Option<String>,
     codex_integration_mode: Option<CodexIntegrationMode>,
     status: SessionStatus,
     work_status: WorkStatus,
@@ -43,6 +45,8 @@ impl SessionHandle {
             project_name: None,
             model: None,
             custom_name: None,
+            approval_policy: None,
+            sandbox_mode: None,
             codex_integration_mode: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
@@ -66,6 +70,9 @@ impl SessionHandle {
         project_name: Option<String>,
         model: Option<String>,
         custom_name: Option<String>,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
+        token_usage: TokenUsage,
         started_at: Option<String>,
         last_activity_at: Option<String>,
         messages: Vec<Message>,
@@ -77,11 +84,13 @@ impl SessionHandle {
             project_name,
             model,
             custom_name,
+            approval_policy,
+            sandbox_mode,
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
             messages,
-            token_usage: TokenUsage::default(),
+            token_usage,
             current_diff: None,
             current_plan: None,
             started_at,
@@ -110,6 +119,8 @@ impl SessionHandle {
             work_status: self.work_status,
             has_pending_approval: false, // TODO
             codex_integration_mode: self.codex_integration_mode,
+            approval_policy: self.approval_policy.clone(),
+            sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
         }
@@ -132,6 +143,8 @@ impl SessionHandle {
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
             codex_integration_mode: self.codex_integration_mode,
+            approval_policy: self.approval_policy.clone(),
+            sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
         }
@@ -171,6 +184,12 @@ impl SessionHandle {
     /// Set model
     pub fn set_model(&mut self, model: Option<String>) {
         self.model = model;
+    }
+
+    /// Set autonomy configuration
+    pub fn set_config(&mut self, approval_policy: Option<String>, sandbox_mode: Option<String>) {
+        self.approval_policy = approval_policy;
+        self.sandbox_mode = sandbox_mode;
     }
 
     /// Set status

@@ -139,6 +139,10 @@ pub struct SessionSummary {
     pub has_pending_approval: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_mode: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
 }
@@ -162,6 +166,10 @@ pub struct SessionState {
     pub current_plan: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_mode: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
 }
@@ -185,6 +193,10 @@ pub struct StateChanges {
     pub custom_name: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<Option<CodexIntegrationMode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sandbox_mode: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<String>,
 }

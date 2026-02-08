@@ -42,6 +42,10 @@ final class ServerAppState {
   /// Current autonomy level per session
   private(set) var currentAutonomy: [String: AutonomyLevel] = [:]
 
+  /// Raw config values used to derive autonomy accurately across partial deltas
+  private var approvalPolicies: [String: String] = [:]
+  private var sandboxModes: [String: String] = [:]
+
   // MARK: - Internal State
 
   /// Full session state cache (from snapshots)
@@ -233,6 +237,13 @@ final class ServerAppState {
   private func handleSessionsList(_ summaries: [ServerSessionSummary]) {
     logger.info("Received sessions list: \(summaries.count) sessions")
     sessions = summaries.map { $0.toSession() }
+    for summary in summaries where summary.provider == .codex {
+      setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
+      currentAutonomy[summary.id] = AutonomyLevel.from(
+        approvalPolicy: summary.approvalPolicy,
+        sandboxMode: summary.sandboxMode
+      )
+    }
   }
 
   private func handleSessionSnapshot(_ state: ServerSessionState) {
@@ -260,6 +271,14 @@ final class ServerAppState {
 
     // Store token usage
     tokenUsage[state.id] = state.tokenUsage
+
+    if state.provider == .codex {
+      setConfigCache(sessionId: state.id, approvalPolicy: state.approvalPolicy, sandboxMode: state.sandboxMode)
+      currentAutonomy[state.id] = AutonomyLevel.from(
+        approvalPolicy: state.approvalPolicy,
+        sandboxMode: state.sandboxMode
+      )
+    }
 
     // Store diff/plan
     if let diff = state.currentDiff {
@@ -339,6 +358,25 @@ final class ServerAppState {
       } else {
         session.codexIntegrationMode = nil
       }
+    }
+    if let approvalOuter = changes.approvalPolicy {
+      setConfigCache(
+        sessionId: sessionId,
+        approvalPolicy: approvalOuter,
+        sandboxMode: sandboxModes[sessionId]
+      )
+    }
+    if let sandboxOuter = changes.sandboxMode {
+      setConfigCache(
+        sessionId: sessionId,
+        approvalPolicy: approvalPolicies[sessionId],
+        sandboxMode: sandboxOuter
+      )
+    }
+    if changes.approvalPolicy != nil || changes.sandboxMode != nil {
+      let approval = approvalPolicies[sessionId]
+      let sandbox = sandboxModes[sessionId]
+      currentAutonomy[sessionId] = AutonomyLevel.from(approvalPolicy: approval, sandboxMode: sandbox)
     }
     if let lastActivity = changes.lastActivityAt {
       // Parse and update
@@ -457,10 +495,16 @@ final class ServerAppState {
       sessions.append(session)
     }
 
-    // Set initial autonomy level from creation
+    // Set autonomy level from creation or from summary payload.
     if let autonomy = pendingCreationAutonomy {
       currentAutonomy[summary.id] = autonomy
       pendingCreationAutonomy = nil
+    } else if summary.provider == .codex {
+      setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
+      currentAutonomy[summary.id] = AutonomyLevel.from(
+        approvalPolicy: summary.approvalPolicy,
+        sandboxMode: summary.sandboxMode
+      )
     }
 
     // Auto-subscribe to get detailed updates
@@ -478,6 +522,9 @@ final class ServerAppState {
 
     pendingApprovals.removeValue(forKey: sessionId)
     subscribedSessions.remove(sessionId)
+    approvalPolicies.removeValue(forKey: sessionId)
+    sandboxModes.removeValue(forKey: sessionId)
+    currentAutonomy.removeValue(forKey: sessionId)
   }
 
   private func handleError(_ code: String, _ message: String, _ sessionId: String?) {
@@ -491,6 +538,20 @@ final class ServerAppState {
       sessions[idx] = session
     } else {
       sessions.append(session)
+    }
+  }
+
+  private func setConfigCache(sessionId: String, approvalPolicy: String?, sandboxMode: String?) {
+    if let approvalPolicy {
+      approvalPolicies[sessionId] = approvalPolicy
+    } else {
+      approvalPolicies.removeValue(forKey: sessionId)
+    }
+
+    if let sandboxMode {
+      sandboxModes[sessionId] = sandboxMode
+    } else {
+      sandboxModes.removeValue(forKey: sessionId)
     }
   }
 

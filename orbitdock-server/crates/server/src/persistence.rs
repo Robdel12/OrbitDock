@@ -72,10 +72,23 @@ pub enum PersistCommand {
         thread_id: String,
     },
 
+    /// End any non-direct session row that accidentally uses a direct thread id as session id
+    CleanupThreadShadowSession {
+        thread_id: String,
+        reason: String,
+    },
+
     /// Set custom name for a session
     SetCustomName {
         session_id: String,
         custom_name: Option<String>,
+    },
+
+    /// Persist session autonomy configuration
+    SetSessionConfig {
+        session_id: String,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
     },
 
     /// Reactivate an ended session (for resume)
@@ -451,6 +464,24 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             )?;
         }
 
+        PersistCommand::CleanupThreadShadowSession { thread_id, reason } => {
+            let now = chrono_now();
+            conn.execute(
+                "UPDATE sessions
+                 SET status = 'ended',
+                     work_status = 'ended',
+                     ended_at = COALESCE(ended_at, ?1),
+                     end_reason = COALESCE(end_reason, ?2),
+                     attention_reason = 'none',
+                     pending_tool_name = NULL,
+                     pending_tool_input = NULL,
+                     pending_question = NULL
+                 WHERE id = ?3
+                   AND (codex_integration_mode IS NULL OR codex_integration_mode != 'direct')",
+                params![now, reason, thread_id],
+            )?;
+        }
+
         PersistCommand::SetCustomName {
             session_id,
             custom_name,
@@ -458,6 +489,17 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             conn.execute(
                 "UPDATE sessions SET custom_name = ?, last_activity_at = ? WHERE id = ?",
                 params![custom_name, chrono_now(), session_id],
+            )?;
+        }
+
+        PersistCommand::SetSessionConfig {
+            session_id,
+            approval_policy,
+            sandbox_mode,
+        } => {
+            conn.execute(
+                "UPDATE sessions SET approval_policy = ?, sandbox_mode = ?, last_activity_at = ? WHERE id = ?",
+                params![approval_policy, sandbox_mode, chrono_now(), session_id],
             )?;
         }
 
@@ -480,6 +522,10 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             transcript_path,
             started_at,
         } => {
+            if is_direct_thread_owned(conn, &id)? {
+                return Ok(());
+            }
+
             let now = chrono_now();
             conn.execute(
                 "INSERT INTO sessions (
@@ -528,6 +574,10 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             last_tool_at,
             custom_name,
         } => {
+            if is_direct_thread_owned(conn, &id)? {
+                return Ok(());
+            }
+
             let status_str = status.map(|s| match s {
                 SessionStatus::Active => "active",
                 SessionStatus::Ended => "ended",
@@ -612,6 +662,10 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         }
 
         PersistCommand::RolloutPromptIncrement { id, first_prompt } => {
+            if is_direct_thread_owned(conn, &id)? {
+                return Ok(());
+            }
+
             if let Some(prompt) = first_prompt {
                 conn.execute(
                     "UPDATE sessions
@@ -633,6 +687,10 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         }
 
         PersistCommand::RolloutToolIncrement { id } => {
+            if is_direct_thread_owned(conn, &id)? {
+                return Ok(());
+            }
+
             conn.execute(
                 "UPDATE sessions
                  SET tool_count = tool_count + 1,
@@ -644,6 +702,20 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
     }
 
     Ok(())
+}
+
+fn is_direct_thread_owned(conn: &Connection, thread_id: &str) -> Result<bool, rusqlite::Error> {
+    let exists: i64 = conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1
+            FROM sessions
+            WHERE codex_integration_mode = 'direct'
+              AND codex_thread_id = ?1
+        )",
+        params![thread_id],
+        |row| row.get(0),
+    )?;
+    Ok(exists == 1)
 }
 
 /// Get current time as ISO 8601 string
@@ -722,6 +794,10 @@ pub struct RestoredSession {
     pub last_activity_at: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
+    pub codex_input_tokens: i64,
+    pub codex_output_tokens: i64,
+    pub codex_cached_tokens: i64,
+    pub codex_context_window: i64,
     pub messages: Vec<Message>,
 }
 
@@ -743,14 +819,16 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
 
         // Load active codex sessions
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode
+            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode,
+                    COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
+                    COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
              WHERE provider = 'codex' AND status = 'active'
                AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
         )?;
 
         #[allow(clippy::type_complexity)]
-        let session_rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
+        let session_rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -762,6 +840,10 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
                     row.get(6)?,
                     row.get(7)?,
                     row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
+                    row.get(12)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -769,7 +851,7 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
 
         let mut sessions = Vec::new();
 
-        for (id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode) in session_rows {
+        for (id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
             // Load messages for this session
             let mut msg_stmt = conn.prepare(
                 "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
@@ -819,6 +901,10 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
                 last_activity_at,
                 approval_policy,
                 sandbox_mode,
+                codex_input_tokens,
+                codex_output_tokens,
+                codex_cached_tokens,
+                codex_context_window,
                 messages,
             });
         }
@@ -847,13 +933,15 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         )?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode
+            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode,
+                    COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
+                    COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
              WHERE id = ?1 AND provider = 'codex'
                AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
         )?;
 
-        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = stmt
+        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
             .query_row(params![&id_owned], |row| {
                 Ok((
                     row.get(0)?,
@@ -865,11 +953,15 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     row.get(6)?,
                     row.get(7)?,
                     row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
+                    row.get(12)?,
                 ))
             })
             .optional()?;
 
-        let Some((id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode)) = row else {
+        let Some((id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
             return Ok(None);
         };
 
@@ -922,6 +1014,10 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             last_activity_at,
             approval_policy,
             sandbox_mode,
+            codex_input_tokens,
+            codex_output_tokens,
+            codex_cached_tokens,
+            codex_context_window,
             messages,
         }))
     }).await??;

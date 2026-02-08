@@ -149,6 +149,8 @@ struct ServerSessionSummary: Codable, Identifiable {
   let workStatus: ServerWorkStatus
   let hasPendingApproval: Bool
   let codexIntegrationMode: ServerCodexIntegrationMode?
+  let approvalPolicy: String?
+  let sandboxMode: String?
   let startedAt: String?
   let lastActivityAt: String?
 
@@ -163,6 +165,8 @@ struct ServerSessionSummary: Codable, Identifiable {
     case workStatus = "work_status"
     case hasPendingApproval = "has_pending_approval"
     case codexIntegrationMode = "codex_integration_mode"
+    case approvalPolicy = "approval_policy"
+    case sandboxMode = "sandbox_mode"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
   }
@@ -185,6 +189,8 @@ struct ServerSessionState: Codable, Identifiable {
   let currentDiff: String?
   let currentPlan: String?
   let codexIntegrationMode: ServerCodexIntegrationMode?
+  let approvalPolicy: String?
+  let sandboxMode: String?
   let startedAt: String?
   let lastActivityAt: String?
 
@@ -203,6 +209,8 @@ struct ServerSessionState: Codable, Identifiable {
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
     case codexIntegrationMode = "codex_integration_mode"
+    case approvalPolicy = "approval_policy"
+    case sandboxMode = "sandbox_mode"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
   }
@@ -219,6 +227,8 @@ struct ServerStateChanges: Codable {
   let currentPlan: String??
   let customName: String??
   let codexIntegrationMode: ServerCodexIntegrationMode??
+  let approvalPolicy: String??
+  let sandboxMode: String??
   let lastActivityAt: String?
 
   enum CodingKeys: String, CodingKey {
@@ -230,6 +240,8 @@ struct ServerStateChanges: Codable {
     case currentPlan = "current_plan"
     case customName = "custom_name"
     case codexIntegrationMode = "codex_integration_mode"
+    case approvalPolicy = "approval_policy"
+    case sandboxMode = "sandbox_mode"
     case lastActivityAt = "last_activity_at"
   }
 }

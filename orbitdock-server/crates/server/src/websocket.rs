@@ -14,7 +14,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
-use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, ServerMessage};
+use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, ServerMessage, TokenUsage};
 
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{load_session_by_id, PersistCommand};
@@ -202,6 +202,7 @@ async fn handle_client_message(
             let mut handle = crate::session::SessionHandle::new(id.clone(), provider, cwd.clone());
             if provider == Provider::Codex {
                 handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+                handle.set_config(approval_policy.clone(), sandbox_mode.clone());
             }
 
             // Subscribe the creator
@@ -267,6 +268,24 @@ async fn handle_client_message(
                             })
                             .await;
                         state_guard.register_codex_thread(&session_id, codex_session.thread_id());
+
+                        // If rollout watcher raced and created a shadow session keyed by thread id,
+                        // evict it immediately so the direct session remains canonical.
+                        let thread_id = codex_session.thread_id().to_string();
+                        if state_guard.remove_session(&thread_id).is_some() {
+                            state_guard
+                                .broadcast_to_list(ServerMessage::SessionEnded {
+                                    session_id: thread_id.clone(),
+                                    reason: "direct_session_thread_claimed".into(),
+                                })
+                                .await;
+                        }
+                        let _ = persist_tx
+                            .send(PersistCommand::CleanupThreadShadowSession {
+                                thread_id,
+                                reason: "legacy_codex_thread_row_cleanup".into(),
+                            })
+                            .await;
 
                         let action_tx =
                             codex_session.start_event_loop(session_arc.clone(), persist_tx);
@@ -470,7 +489,38 @@ async fn handle_client_message(
                 session_id, approval_policy, sandbox_mode
             );
 
-            let state = state.lock().await;
+            let mut state = state.lock().await;
+            if let Some(session) = state.get_session(&session_id) {
+                let mut session = session.lock().await;
+                session.set_config(approval_policy.clone(), sandbox_mode.clone());
+                let summary = session.summary();
+
+                let _ = state
+                    .persist()
+                    .send(PersistCommand::SetSessionConfig {
+                        session_id: session_id.clone(),
+                        approval_policy: approval_policy.clone(),
+                        sandbox_mode: sandbox_mode.clone(),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            approval_policy: Some(approval_policy.clone()),
+                            sandbox_mode: Some(sandbox_mode.clone()),
+                            ..Default::default()
+                        },
+                    })
+                    .await;
+
+                drop(session);
+                state
+                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                    .await;
+            }
+
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx
                     .send(CodexAction::UpdateConfig {
@@ -538,6 +588,14 @@ async fn handle_client_message(
                 restored.project_name,
                 restored.model.clone(),
                 restored.custom_name,
+                restored.approval_policy.clone(),
+                restored.sandbox_mode.clone(),
+                TokenUsage {
+                    input_tokens: restored.codex_input_tokens.max(0) as u64,
+                    output_tokens: restored.codex_output_tokens.max(0) as u64,
+                    cached_tokens: restored.codex_cached_tokens.max(0) as u64,
+                    context_window: restored.codex_context_window.max(0) as u64,
+                },
                 restored.started_at,
                 restored.last_activity_at,
                 restored.messages,

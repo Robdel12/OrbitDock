@@ -28,7 +28,7 @@ final class MessageStore {
   private let sessionId = SQLite.Expression<String>("session_id")
   private let type = SQLite.Expression<String>("type")
   private let content = SQLite.Expression<String>("content")
-  private let timestamp = SQLite.Expression<Date>("timestamp")
+  private let timestamp = SQLite.Expression<String>("timestamp")
   private let sequence = SQLite.Expression<Int>("sequence") // Preserves JSONL order
   private let toolName = SQLite.Expression<String?>("tool_name")
   private let toolInput = SQLite.Expression<String?>("tool_input") // JSON string
@@ -55,6 +55,34 @@ final class MessageStore {
   private let lastTool = SQLite.Expression<String?>("last_tool")
   private let messageCount = SQLite.Expression<Int>("message_count")
   private let lastSyncTime = SQLite.Expression<Date>("last_sync_time")
+
+  private static let writeTimestampFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+
+  private static let readIsoTimestampFormatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter
+  }()
+
+  private static let readTimestampFormatters: [DateFormatter] = {
+    let formats = [
+      "yyyy-MM-dd'T'HH:mm:ss.SSS",
+      "yyyy-MM-dd HH:mm:ss.SSS",
+      "yyyy-MM-dd HH:mm:ss",
+    ]
+
+    return formats.map { format in
+      let formatter = DateFormatter()
+      formatter.dateFormat = format
+      formatter.locale = Locale(identifier: "en_US_POSIX")
+      formatter.timeZone = TimeZone(secondsFromGMT: 0)
+      return formatter
+    }
+  }()
 
   private init() {
     let homeDir = FileManager.default.homeDirectoryForCurrentUser
@@ -164,6 +192,28 @@ final class MessageStore {
     return false
   }
 
+  private func serializeTimestamp(_ date: Date) -> String {
+    Self.writeTimestampFormatter.string(from: date)
+  }
+
+  private func parseTimestamp(_ raw: String) -> Date {
+    if let parsed = Self.writeTimestampFormatter.date(from: raw) {
+      return parsed
+    }
+
+    if let parsed = Self.readIsoTimestampFormatter.date(from: raw) {
+      return parsed
+    }
+
+    for formatter in Self.readTimestampFormatters {
+      if let parsed = formatter.date(from: raw) {
+        return parsed
+      }
+    }
+
+    return Date()
+  }
+
   // MARK: - Write Operations
 
   private func lockForSession(_ sid: String) -> NSLock {
@@ -221,7 +271,7 @@ final class MessageStore {
             sessionId <- sid,
             type <- msg.type.rawValue,
             content <- msg.content,
-            timestamp <- msg.timestamp,
+            timestamp <- serializeTimestamp(msg.timestamp),
             sequence <- index, // Preserve JSONL order
             toolName <- msg.toolName,
             toolInput <- toolInputJson,
@@ -315,7 +365,7 @@ final class MessageStore {
           id: row[id],
           type: msgType,
           content: row[content],
-          timestamp: row[timestamp],
+          timestamp: parseTimestamp(row[timestamp]),
           toolName: row[toolName],
           toolInput: toolInputDict,
           toolOutput: row[toolOutput],
@@ -385,8 +435,14 @@ final class MessageStore {
     guard let db = readDb else { return false }
 
     do {
-      let query = sessionStats.filter(statsSessionId == sid)
-      return try db.pluck(query) != nil
+      let statsQuery = sessionStats.filter(statsSessionId == sid)
+      if try db.pluck(statsQuery) != nil {
+        return true
+      }
+
+      // Codex direct sessions may have messages without a stats row.
+      let messageCount = try db.scalar(messages.filter(sessionId == sid).count)
+      return messageCount > 0
     } catch {
       return false
     }
@@ -471,7 +527,7 @@ final class MessageStore {
         sessionId <- sid,
         type <- msg.type.rawValue,
         content <- msg.content,
-        timestamp <- msg.timestamp,
+        timestamp <- serializeTimestamp(msg.timestamp),
         sequence <- maxSeq + 1,
         toolName <- msg.toolName,
         toolInput <- toolInputJson,
@@ -562,7 +618,7 @@ final class MessageStore {
         try db.run(query.update(
           type <- msg.type.rawValue,
           content <- msg.content,
-          timestamp <- msg.timestamp,
+          timestamp <- serializeTimestamp(msg.timestamp),
           toolName <- msg.toolName,
           toolInput <- toolInputJson,
           toolOutput <- msg.toolOutput,

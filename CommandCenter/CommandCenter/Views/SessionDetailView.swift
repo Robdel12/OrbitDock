@@ -56,6 +56,7 @@ struct SessionDetailView: View {
           pendingToolName: session.pendingToolName,
           pendingToolInput: session.pendingToolInput,
           provider: session.provider,
+          model: session.model,
           isPinned: $isPinned,
           unreadCount: $unreadCount,
           scrollToBottomTrigger: $scrollToBottomTrigger
@@ -104,13 +105,13 @@ struct SessionDetailView: View {
     .onAppear {
       loadUsageStats()
       setupSubscription()
-      if session.isDirectCodex {
+      if shouldSubscribeToServerSession {
         serverState.subscribeToSession(session.id)
       }
     }
     .onDisappear {
       transcriptSubscription?.cancel()
-      if session.isDirectCodex {
+      if shouldSubscribeToServerSession {
         serverState.unsubscribeFromSession(session.id)
       }
     }
@@ -122,7 +123,7 @@ struct SessionDetailView: View {
       }
       loadUsageStats()
       setupSubscription()
-      if session.isDirectCodex {
+      if shouldSubscribeToServerSession {
         serverState.subscribeToSession(newId)
       }
       // Reset scroll state for new session
@@ -439,6 +440,10 @@ struct SessionDetailView: View {
   }
 
   // MARK: - Helpers
+
+  private var shouldSubscribeToServerSession: Bool {
+    session.isDirectCodex && (session.isActive || serverState.isServerSession(session.id))
+  }
 
   private func setupSubscription() {
     guard let path = session.transcriptPath else { return }

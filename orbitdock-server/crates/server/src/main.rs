@@ -12,8 +12,10 @@ mod websocket;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{response::IntoResponse, routing::get, Router};
+use orbitdock_protocol::TokenUsage;
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -48,6 +50,15 @@ async fn async_main() -> anyhow::Result<()> {
         .join(".orbitdock")
         .join("logs");
     std::fs::create_dir_all(&log_dir)?;
+    let log_path = log_dir.join("server.log");
+
+    if std::env::var("ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START").as_deref() == Ok("1") {
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&log_path)?;
+    }
 
     // File appender - writes JSON to ~/.orbitdock/logs/server.log
     let file_appender = tracing_appender::rolling::never(&log_dir, "server.log");
@@ -69,7 +80,25 @@ async fn async_main() -> anyhow::Result<()> {
         )
         .init();
 
-    info!("Starting OrbitDock Server...");
+    let run_id = std::env::var("ORBITDOCK_SERVER_RUN_ID").unwrap_or_else(|_| {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        format!("pid-{}-{}", std::process::id(), now)
+    });
+    let binary_path =
+        std::env::var("ORBITDOCK_SERVER_BINARY_PATH").unwrap_or_else(|_| current_binary_path());
+    let (binary_size, binary_mtime_unix) = binary_metadata(&binary_path);
+
+    info!(
+        run_id = %run_id,
+        pid = std::process::id(),
+        binary_path = %binary_path,
+        binary_size_bytes = binary_size,
+        binary_mtime_unix = binary_mtime_unix,
+        "Starting OrbitDock Server..."
+    );
 
     // Create persistence channel and spawn writer
     let (persist_tx, persist_rx) = create_persistence_channel();
@@ -93,6 +122,14 @@ async fn async_main() -> anyhow::Result<()> {
                     rs.project_name,
                     rs.model.clone(),
                     rs.custom_name,
+                    rs.approval_policy.clone(),
+                    rs.sandbox_mode.clone(),
+                    TokenUsage {
+                        input_tokens: rs.codex_input_tokens.max(0) as u64,
+                        output_tokens: rs.codex_output_tokens.max(0) as u64,
+                        cached_tokens: rs.codex_cached_tokens.max(0) as u64,
+                        context_window: rs.codex_context_window.max(0) as u64,
+                    },
                     rs.started_at,
                     rs.last_activity_at,
                     rs.messages,
@@ -123,6 +160,20 @@ async fn async_main() -> anyhow::Result<()> {
                             })
                             .await;
                         app.register_codex_thread(&rs.id, &new_thread_id);
+
+                        if app.remove_session(&new_thread_id).is_some() {
+                            app.broadcast_to_list(orbitdock_protocol::ServerMessage::SessionEnded {
+                                session_id: new_thread_id.clone(),
+                                reason: "direct_session_thread_claimed".into(),
+                            })
+                            .await;
+                        }
+                        let _ = persist
+                            .send(PersistCommand::CleanupThreadShadowSession {
+                                thread_id: new_thread_id.clone(),
+                                reason: "legacy_codex_thread_row_cleanup".into(),
+                            })
+                            .await;
 
                         let action_tx = codex.start_event_loop(session_arc, persist);
                         app.set_codex_action_tx(&rs.id, action_tx);
@@ -188,4 +239,25 @@ async fn async_main() -> anyhow::Result<()> {
 
 async fn health_handler() -> impl IntoResponse {
     "OK"
+}
+
+fn current_binary_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.into_os_string().into_string().ok())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn binary_metadata(path: &str) -> (u64, i64) {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return (0, 0);
+    };
+    let size = metadata.len();
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|mtime| mtime.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    (size, modified)
 }
