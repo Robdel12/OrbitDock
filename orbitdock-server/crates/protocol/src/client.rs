@@ -21,6 +21,10 @@ pub enum ClientMessage {
     SendMessage {
         session_id: String,
         content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
     },
     ApproveTool {
         session_id: String,

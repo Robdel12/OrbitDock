@@ -294,9 +294,9 @@ final class ServerConnection: ObservableObject {
     send(.createSession(provider: provider, cwd: cwd, model: model, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode))
   }
 
-  /// Send a message to a session
-  func sendMessage(sessionId: String, content: String) {
-    send(.sendMessage(sessionId: sessionId, content: content))
+  /// Send a message to a session with optional per-turn overrides
+  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil) {
+    send(.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort))
   }
 
   /// Approve or reject a tool with a specific decision

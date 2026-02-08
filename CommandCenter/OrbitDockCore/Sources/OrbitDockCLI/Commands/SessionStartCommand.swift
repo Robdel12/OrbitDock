@@ -18,6 +18,11 @@ struct SessionStartCommand: ParsableCommand {
             throw CLIError.invalidInput("Missing cwd")
         }
 
+        if input.isCodexRolloutPayload {
+            log("[SessionStart] skipping Codex payload session=\(input.session_id.prefix(8))")
+            return
+        }
+
         log("[SessionStart] source=\(input.source ?? "unknown") model=\(input.model ?? "unknown") session=\(input.session_id.prefix(8))")
 
         let db = try CLIDatabase()

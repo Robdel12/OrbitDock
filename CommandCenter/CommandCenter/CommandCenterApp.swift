@@ -87,7 +87,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     Task { @MainActor in
       ServerManager.shared.start()
 
-      // Connect WebSocket client once server is ready (max 10 attempts = 5 seconds)
+      // Connect WebSocket client once server is ready (warm-up + exponential backoff)
       let ready = await ServerManager.shared.waitForReady(maxAttempts: 10)
       if ready {
         ServerConnection.shared.connect()

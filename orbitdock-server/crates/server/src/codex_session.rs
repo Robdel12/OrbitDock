@@ -381,27 +381,45 @@ impl CodexSession {
         action: CodexAction,
     ) -> Result<(), orbitdock_connectors::ConnectorError> {
         match action {
-            CodexAction::SendMessage { content } => {
-                connector.send_message(&content).await?;
+            CodexAction::SendMessage {
+                content,
+                model,
+                effort,
+            } => {
+                connector
+                    .send_message(&content, model.as_deref(), effort.as_deref())
+                    .await?;
             }
             CodexAction::Interrupt => {
                 connector.interrupt().await?;
             }
-            CodexAction::ApproveExec { request_id, decision, proposed_amendment } => {
-                connector.approve_exec(&request_id, &decision, proposed_amendment).await?;
+            CodexAction::ApproveExec {
+                request_id,
+                decision,
+                proposed_amendment,
+            } => {
+                connector
+                    .approve_exec(&request_id, &decision, proposed_amendment)
+                    .await?;
             }
-            CodexAction::ApprovePatch { request_id, decision } => {
+            CodexAction::ApprovePatch {
+                request_id,
+                decision,
+            } => {
                 connector.approve_patch(&request_id, &decision).await?;
             }
-            CodexAction::AnswerQuestion { request_id, answers } => {
+            CodexAction::AnswerQuestion {
+                request_id,
+                answers,
+            } => {
                 connector.answer_question(&request_id, answers).await?;
             }
-            CodexAction::UpdateConfig { approval_policy, sandbox_mode } => {
+            CodexAction::UpdateConfig {
+                approval_policy,
+                sandbox_mode,
+            } => {
                 connector
-                    .update_config(
-                        approval_policy.as_deref(),
-                        sandbox_mode.as_deref(),
-                    )
+                    .update_config(approval_policy.as_deref(), sandbox_mode.as_deref())
                     .await?;
             }
             CodexAction::SetThreadName { name } => {
@@ -418,7 +436,11 @@ impl CodexSession {
 /// Actions that can be sent to a Codex session
 #[derive(Debug)]
 pub enum CodexAction {
-    SendMessage { content: String },
+    SendMessage {
+        content: String,
+        model: Option<String>,
+        effort: Option<String>,
+    },
     Interrupt,
     ApproveExec {
         request_id: String,
@@ -429,12 +451,17 @@ pub enum CodexAction {
         request_id: String,
         decision: String,
     },
-    AnswerQuestion { request_id: String, answers: HashMap<String, String> },
+    AnswerQuestion {
+        request_id: String,
+        answers: HashMap<String, String>,
+    },
     UpdateConfig {
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
     },
-    SetThreadName { name: String },
+    SetThreadName {
+        name: String,
+    },
     EndSession,
 }
 

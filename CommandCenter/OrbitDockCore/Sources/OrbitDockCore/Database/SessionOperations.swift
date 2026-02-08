@@ -228,7 +228,8 @@ extension CLIDatabase {
         return SessionRow(
             id: row[Self.id],
             lastTool: row[Self.lastTool],
-            workStatus: row[Self.workStatus]
+            workStatus: row[Self.workStatus],
+            provider: row[Self.provider]
         )
     }
 
@@ -257,6 +258,7 @@ public struct SessionRow {
     public let id: String
     public let lastTool: String?
     public let workStatus: String?
+    public let provider: String?
 }
 
 // MARK: - Subagent Operations

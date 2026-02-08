@@ -66,8 +66,11 @@ Key files:
 
 ### Debugging
 - [x] MCP debug bridge — Claude can control Codex sessions via `orbitdock-debug-mcp`
+- [x] MCP debug bridge expanded — provider-aware session discovery (`list_sessions`, `get_session`) with safe direct-Codex action gating
+- [x] End-to-end MCP smoke test from OrbitDock into a live direct Codex session (`send_message`, `get_session`, `list_sessions`)
 - [x] Structured JSON logging (`~/.orbitdock/logs/codex.log` and `server.log`)
 - [x] Decode error logging with raw JSON payloads
+- [x] Ended direct session history fallback when only `messages` rows exist (no `message_session_stats` row)
 
 ---
 
@@ -147,9 +150,9 @@ The Swift `CodexRolloutWatcher` and Rust server both write to the same DB, creat
 - [x] **Remove**: FSEvents setup from `CommandCenterApp.swift`
 - [x] **Remove**: `isServerManaged()` check (no longer needed — server IS the manager)
 - [x] **Remove**: Darwin notification handling for codex transcript updates
-- [ ] **Verify**: CLI-started Codex sessions appear in sidebar with correct provider/state
-- [ ] **Verify**: Direct sessions no longer create duplicate watcher entries
-- [ ] **Verify**: Ended watcher sessions show in sidebar (DB fallback works)
+- [x] **Verify**: CLI-started Codex sessions appear in sidebar with correct provider/state
+- [x] **Verify**: Direct sessions no longer create duplicate watcher entries
+- [x] **Verify**: Ended watcher sessions show in sidebar (DB fallback works)
 
 ---
 
@@ -311,6 +314,20 @@ Run Codex as a code reviewer — creates a review turn with findings.
   - [ ] "Custom" with freeform instructions
 - [ ] **Swift UI**: Review findings render as normal conversation messages
 - [ ] Verify: review produces findings, different targets work correctly
+
+---
+
+### 11. Claude Hook Routing Through Server
+
+Unify write-path ownership so `orbitdock-server` is the only process mutating session/message state.
+
+#### Steps
+- [ ] **Rust protocol**: Add Claude hook event message types (`SessionStart`, `SessionEnd`, `StatusEvent`, `ToolEvent`, `SubagentEvent`)
+- [ ] **Rust websocket**: Handle Claude hook events and map them to shared `SessionHandle` updates
+- [ ] **Rust persistence**: Move Claude session/message mutations behind `PersistCommand` (server-owned writes)
+- [ ] **orbitdock-cli**: Add server transport mode that forwards hook payloads instead of writing SQLite directly
+- [ ] **orbitdock-cli**: Keep direct SQLite mode as temporary fallback behind a feature flag / env var
+- [ ] Verify: Claude + Codex both work end-to-end with server-owned writes only
 
 ---
 

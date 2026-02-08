@@ -16,6 +16,7 @@ struct ConversationView: View {
   var pendingToolName: String?
   var pendingToolInput: String?
   var provider: Provider = .claude
+  var model: String?
 
   @Environment(ServerAppState.self) private var serverState
 
@@ -165,7 +166,7 @@ struct ConversationView: View {
                 ThinkingIndicator(message: message)
                   .id(message.id)
               } else {
-                ThreadMessage(message: message, provider: provider)
+                ThreadMessage(message: message, provider: provider, model: model)
                   .id(message.id)
               }
             }
@@ -477,6 +478,7 @@ struct ConversationView: View {
 struct ThreadMessage: View {
   let message: TranscriptMessage
   var provider: Provider = .claude
+  var model: String?
   @State private var isContentExpanded = false
   @State private var isThinkingExpanded = false
 
@@ -597,15 +599,19 @@ struct ThreadMessage: View {
         }
         .foregroundStyle(provider.accentColor)
 
+        // Model name (when known)
+        if let model, !model.isEmpty {
+          Text("·")
+            .font(.system(size: 11))
+            .foregroundStyle(.quaternary)
+          Text(displayNameForModel(model, provider: provider))
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(colorForModel(model, provider: provider))
+        }
+
         Text(formatTime(message.timestamp))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(.quaternary)
-
-        if let tokens = message.outputTokens, tokens > 0 {
-          Text("\(tokens) tokens")
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundStyle(.quaternary)
-        }
       }
 
       // Thinking disclosure (if attached)
@@ -1457,6 +1463,8 @@ struct ActivityBanner: View {
     isSessionActive: true,
     workStatus: .working,
     currentTool: "Edit",
+    provider: .claude,
+    model: "claude-opus-4-6",
     isPinned: $isPinned,
     unreadCount: $unreadCount,
     scrollToBottomTrigger: $scrollTrigger

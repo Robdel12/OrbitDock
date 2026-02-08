@@ -260,48 +260,52 @@ struct HeaderView: View {
   }
 }
 
+// MARK: - Model Helpers
+
+/// Normalize a model string to a short display name
+func displayNameForModel(_ model: String?, provider: Provider) -> String {
+  guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
+  // Claude models
+  if model.contains("opus") { return "Opus" }
+  if model.contains("sonnet") { return "Sonnet" }
+  if model.contains("haiku") { return "Haiku" }
+  // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
+  if model.hasPrefix("gpt-") {
+    let version = model.dropFirst(4).split(separator: "-").first ?? ""
+    return "GPT-\(version)"
+  }
+  if model == "openai" { return "OpenAI" }
+  return String(model.prefix(8))
+}
+
+/// Get theme color for a model
+func colorForModel(_ model: String?, provider: Provider) -> Color {
+  guard let model = model?.lowercased() else { return provider.accentColor }
+  // Claude-specific model colors
+  if model.contains("opus") { return .modelOpus }
+  if model.contains("sonnet") { return .modelSonnet }
+  if model.contains("haiku") { return .modelHaiku }
+  // For other providers, use their accent color
+  return provider.accentColor
+}
+
 // MARK: - Compact Components
 
 struct ModelBadgeCompact: View {
   let model: String?
   let provider: Provider
 
-  private var displayModel: String {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
-    // Claude models
-    if model.contains("opus") { return "Opus" }
-    if model.contains("sonnet") { return "Sonnet" }
-    if model.contains("haiku") { return "Haiku" }
-    // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
-    if model.hasPrefix("gpt-") {
-      let version = model.dropFirst(4).split(separator: "-").first ?? ""
-      return "GPT-\(version)"
-    }
-    if model == "openai" { return "OpenAI" }
-    return String(model.prefix(8))
-  }
-
-  private var modelColor: Color {
-    guard let model = model?.lowercased() else { return provider.accentColor }
-    // Claude-specific model colors
-    if model.contains("opus") { return .modelOpus }
-    if model.contains("sonnet") { return .modelSonnet }
-    if model.contains("haiku") { return .modelHaiku }
-    // For other providers, use their accent color
-    return provider.accentColor
-  }
-
   var body: some View {
     HStack(spacing: 5) {
       Image(systemName: provider.icon)
         .font(.system(size: 9, weight: .bold))
-      Text(displayModel)
+      Text(displayNameForModel(model, provider: provider))
         .font(.system(size: 10, weight: .semibold))
     }
-    .foregroundStyle(modelColor)
+    .foregroundStyle(colorForModel(model, provider: provider))
     .padding(.horizontal, 8)
     .padding(.vertical, 4)
-    .background(modelColor.opacity(0.12), in: Capsule())
+    .background(colorForModel(model, provider: provider).opacity(0.12), in: Capsule())
   }
 }
 

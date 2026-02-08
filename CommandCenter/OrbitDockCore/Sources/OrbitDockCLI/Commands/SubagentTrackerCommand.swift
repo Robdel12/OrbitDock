@@ -19,6 +19,10 @@ struct SubagentTrackerCommand: ParsableCommand {
         log("[\(input.hook_event_name)] agent=\(agentType) id=\(input.agent_id.prefix(8)) session=\(input.session_id.prefix(8))")
 
         let db = try CLIDatabase()
+        if let session = db.getSession(id: input.session_id), session.provider == "codex" {
+            log("  → skipping subagent update for codex session")
+            return
+        }
 
         switch input.hook_event_name {
         case "SubagentStart":

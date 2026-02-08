@@ -54,8 +54,9 @@ impl CodexConnector {
         info!("Creating codex-core connector for {}", cwd);
 
         // Resolve codex home directory (~/.codex)
-        let codex_home = find_codex_home()
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
+        let codex_home = find_codex_home().map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to find codex home: {}", e))
+        })?;
 
         // Create auth manager (reads existing codex credentials)
         let auth_manager = Arc::new(AuthManager::new(
@@ -100,12 +101,12 @@ impl CodexConnector {
             ..Default::default()
         };
 
-        let config = Config::load_with_cli_overrides_and_harness_overrides(
-            cli_overrides,
-            harness_overrides,
-        )
-        .await
-        .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+        let config =
+            Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
+                .await
+                .map_err(|e| {
+                    ConnectorError::ProviderError(format!("Failed to load config: {}", e))
+                })?;
 
         // Start a thread
         let new_thread = thread_manager
@@ -151,7 +152,13 @@ impl CodexConnector {
         loop {
             match thread.next_event().await {
                 Ok(event) => {
-                    let events = Self::translate_event(event, &output_buffers, &streaming_message, &msg_counter).await;
+                    let events = Self::translate_event(
+                        event,
+                        &output_buffers,
+                        &streaming_message,
+                        &msg_counter,
+                    )
+                    .await;
                     for ev in events {
                         if tx.send(ev).await.is_err() {
                             debug!("Event channel closed, stopping event loop");
@@ -270,7 +277,9 @@ impl CodexConnector {
                     message_type: orbitdock_protocol::MessageType::Tool,
                     content: command_str.clone(),
                     tool_name: Some("Bash".to_string()),
-                    tool_input: Some(serde_json::to_string(&json!({"command": command_str})).unwrap_or_default()),
+                    tool_input: Some(
+                        serde_json::to_string(&json!({"command": command_str})).unwrap_or_default(),
+                    ),
                     tool_output: None,
                     is_error: false,
                     timestamp: iso_now(),
@@ -317,31 +326,55 @@ impl CodexConnector {
 
             EventMsg::PatchApplyBegin(e) => {
                 // Build diff and file info from changes
-                let files: Vec<String> = e.changes.keys().map(|p| p.display().to_string()).collect();
+                let files: Vec<String> =
+                    e.changes.keys().map(|p| p.display().to_string()).collect();
                 let first_file = files.first().cloned().unwrap_or_default();
                 let content = files.join(", ");
 
                 // Build unified diff from all changes
-                let unified_diff = e.changes.iter().map(|(path, change)| {
-                    match change {
+                let unified_diff = e
+                    .changes
+                    .iter()
+                    .map(|(path, change)| match change {
                         FileChange::Add { content } => {
-                            format!("--- /dev/null\n+++ {}\n{}", path.display(),
-                                content.lines().map(|l| format!("+{}", l)).collect::<Vec<_>>().join("\n"))
+                            format!(
+                                "--- /dev/null\n+++ {}\n{}",
+                                path.display(),
+                                content
+                                    .lines()
+                                    .map(|l| format!("+{}", l))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            )
                         }
                         FileChange::Delete { content } => {
-                            format!("--- {}\n+++ /dev/null\n{}", path.display(),
-                                content.lines().map(|l| format!("-{}", l)).collect::<Vec<_>>().join("\n"))
+                            format!(
+                                "--- {}\n+++ /dev/null\n{}",
+                                path.display(),
+                                content
+                                    .lines()
+                                    .map(|l| format!("-{}", l))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            )
                         }
                         FileChange::Update { unified_diff, .. } => {
-                            format!("--- {}\n+++ {}\n{}", path.display(), path.display(), unified_diff)
+                            format!(
+                                "--- {}\n+++ {}\n{}",
+                                path.display(),
+                                path.display(),
+                                unified_diff
+                            )
                         }
-                    }
-                }).collect::<Vec<_>>().join("\n\n");
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
 
                 let tool_input = serde_json::to_string(&json!({
                     "file_path": first_file,
                     "unified_diff": unified_diff,
-                })).unwrap_or_default();
+                }))
+                .unwrap_or_default();
 
                 let message = orbitdock_protocol::Message {
                     id: e.call_id.clone(),
@@ -399,10 +432,7 @@ impl CodexConnector {
 
             EventMsg::McpToolCallEnd(e) => {
                 let (output, is_error) = match &e.result {
-                    Ok(result) => (
-                        serde_json::to_string(result).unwrap_or_default(),
-                        false,
-                    ),
+                    Ok(result) => (serde_json::to_string(result).unwrap_or_default(), false),
                     Err(msg) => (msg.clone(), true),
                 };
 
@@ -434,24 +464,47 @@ impl CodexConnector {
 
             EventMsg::ApplyPatchApprovalRequest(e) => {
                 // Build full diff from changes
-                let files: Vec<String> = e.changes.keys().map(|p| p.display().to_string()).collect();
+                let files: Vec<String> =
+                    e.changes.keys().map(|p| p.display().to_string()).collect();
                 let first_file = files.first().cloned();
 
-                let diff = e.changes.iter().map(|(path, change)| {
-                    match change {
+                let diff = e
+                    .changes
+                    .iter()
+                    .map(|(path, change)| match change {
                         FileChange::Add { content } => {
-                            format!("--- /dev/null\n+++ {}\n{}", path.display(),
-                                content.lines().map(|l| format!("+{}", l)).collect::<Vec<_>>().join("\n"))
+                            format!(
+                                "--- /dev/null\n+++ {}\n{}",
+                                path.display(),
+                                content
+                                    .lines()
+                                    .map(|l| format!("+{}", l))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            )
                         }
                         FileChange::Delete { content } => {
-                            format!("--- {}\n+++ /dev/null\n{}", path.display(),
-                                content.lines().map(|l| format!("-{}", l)).collect::<Vec<_>>().join("\n"))
+                            format!(
+                                "--- {}\n+++ /dev/null\n{}",
+                                path.display(),
+                                content
+                                    .lines()
+                                    .map(|l| format!("-{}", l))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            )
                         }
                         FileChange::Update { unified_diff, .. } => {
-                            format!("--- {}\n+++ {}\n{}", path.display(), path.display(), unified_diff)
+                            format!(
+                                "--- {}\n+++ {}\n{}",
+                                path.display(),
+                                path.display(),
+                                unified_diff
+                            )
                         }
-                    }
-                }).collect::<Vec<_>>().join("\n\n");
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
 
                 // Use event.id (sub_id) as request_id — codex-core keys approvals by sub_id, not call_id
                 vec![ConnectorEvent::ApprovalRequested {
@@ -646,8 +699,41 @@ impl CodexConnector {
 
     // MARK: - Actions
 
-    /// Send a user message (starts a turn)
-    pub async fn send_message(&self, content: &str) -> Result<(), ConnectorError> {
+    /// Send a user message (starts a turn), with optional per-turn overrides
+    pub async fn send_message(
+        &self,
+        content: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<(), ConnectorError> {
+        // Submit per-turn overrides before the user message when present
+        if model.is_some() || effort.is_some() {
+            let effort_value = effort.map(|e| match e {
+                "low" => codex_protocol::openai_models::ReasoningEffort::Low,
+                "medium" => codex_protocol::openai_models::ReasoningEffort::Medium,
+                "high" => codex_protocol::openai_models::ReasoningEffort::High,
+                _ => codex_protocol::openai_models::ReasoningEffort::Medium,
+            });
+            let override_op = Op::OverrideTurnContext {
+                cwd: None,
+                approval_policy: None,
+                sandbox_policy: None,
+                windows_sandbox_level: None,
+                model: model.map(|m| m.to_string()),
+                effort: effort_value.map(Some),
+                summary: None,
+                collaboration_mode: None,
+                personality: None,
+            };
+            self.thread.submit(override_op).await.map_err(|e| {
+                ConnectorError::ProviderError(format!("Failed to override turn context: {}", e))
+            })?;
+            info!(
+                "Submitted per-turn overrides: model={:?}, effort={:?}",
+                model, effort
+            );
+        }
+
         let op = Op::UserInput {
             items: vec![UserInput::Text {
                 text: content.to_string(),
@@ -689,7 +775,8 @@ impl CodexConnector {
             "approved_always" => {
                 if let Some(cmd) = proposed_amendment {
                     ReviewDecision::ApprovedExecpolicyAmendment {
-                        proposed_execpolicy_amendment: codex_protocol::approvals::ExecPolicyAmendment::new(cmd),
+                        proposed_execpolicy_amendment:
+                            codex_protocol::approvals::ExecPolicyAmendment::new(cmd),
                     }
                 } else {
                     // Fallback to session-level if no amendment available
@@ -715,7 +802,11 @@ impl CodexConnector {
     }
 
     /// Approve or reject a patch request with a specific decision
-    pub async fn approve_patch(&self, request_id: &str, decision: &str) -> Result<(), ConnectorError> {
+    pub async fn approve_patch(
+        &self,
+        request_id: &str,
+        decision: &str,
+    ) -> Result<(), ConnectorError> {
         let review = match decision {
             "approved" => ReviewDecision::Approved,
             "approved_for_session" => ReviewDecision::ApprovedForSession,
@@ -728,10 +819,9 @@ impl CodexConnector {
             decision: review,
         };
 
-        self.thread
-            .submit(op)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to approve patch: {}", e)))?;
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to approve patch: {}", e))
+        })?;
 
         info!("Sent patch approval: {} = {}", request_id, decision);
         Ok(())
@@ -746,14 +836,7 @@ impl CodexConnector {
         let response = RequestUserInputResponse {
             answers: answers
                 .into_iter()
-                .map(|(k, v)| {
-                    (
-                        k,
-                        RequestUserInputAnswer {
-                            answers: vec![v],
-                        },
-                    )
-                })
+                .map(|(k, v)| (k, RequestUserInputAnswer { answers: vec![v] }))
                 .collect(),
         };
 
@@ -762,10 +845,9 @@ impl CodexConnector {
             response,
         };
 
-        self.thread
-            .submit(op)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to answer question: {}", e)))?;
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to answer question: {}", e))
+        })?;
 
         info!("Sent question answer: {}", request_id);
         Ok(())
@@ -777,10 +859,9 @@ impl CodexConnector {
             name: name.to_string(),
         };
 
-        self.thread
-            .submit(op)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to set thread name: {}", e)))?;
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to set thread name: {}", e))
+        })?;
 
         info!("Set thread name: {}", name);
         Ok(())
@@ -829,12 +910,9 @@ impl CodexConnector {
             personality: None,
         };
 
-        self.thread
-            .submit(op)
-            .await
-            .map_err(|e| {
-                ConnectorError::ProviderError(format!("Failed to update config: {}", e))
-            })?;
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to update config: {}", e))
+        })?;
 
         info!(
             "Updated session config: approval={:?}, sandbox={:?}",
@@ -871,8 +949,14 @@ fn iso_now() -> String {
     let mut days = days_since_epoch as i64;
     let mut year = 1970i64;
     loop {
-        let d = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 366 } else { 365 };
-        if days < d { break; }
+        let d = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+            366
+        } else {
+            365
+        };
+        if days < d {
+            break;
+        }
         days -= d;
         year += 1;
     }
@@ -886,13 +970,20 @@ fn iso_now() -> String {
 
     let mut month = 1;
     for m in months {
-        if days < m { break; }
+        if days < m {
+            break;
+        }
         days -= m;
         month += 1;
     }
 
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, days + 1, hours, minutes, seconds
+        year,
+        month,
+        days + 1,
+        hours,
+        minutes,
+        seconds
     )
 }

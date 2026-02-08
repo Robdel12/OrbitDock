@@ -19,6 +19,10 @@ struct StatusTrackerCommand: ParsableCommand {
         log("[\(eventInfo)] session=\(input.session_id.prefix(8))")
 
         let db = try CLIDatabase()
+        if let session = db.getSession(id: input.session_id), session.provider == "codex" {
+            log("  → skipping status update for codex session")
+            return
+        }
 
         switch input.hook_event_name {
         case "UserPromptSubmit":

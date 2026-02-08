@@ -117,6 +117,25 @@ final class ServerManager: ObservableObject {
   // MARK: - Private
 
   private func findServerBinary() -> String? {
+    // Development paths - prefer local Rust build in DEBUG so rebuilds are always picked up.
+    let homeDir = FileManager.default.homeDirectoryForCurrentUser
+    let repoBase = homeDir.appendingPathComponent("Developer/claude-dashboard/orbitdock-server/target")
+    let debugPath = repoBase.appendingPathComponent("debug/orbitdock-server").path
+    let releasePath = repoBase.appendingPathComponent("release/orbitdock-server").path
+    let universalPath = repoBase.appendingPathComponent("universal/orbitdock-server").path
+
+#if DEBUG
+    if FileManager.default.fileExists(atPath: debugPath) {
+      return debugPath
+    }
+    if FileManager.default.fileExists(atPath: releasePath) {
+      return releasePath
+    }
+    if FileManager.default.fileExists(atPath: universalPath) {
+      return universalPath
+    }
+#endif
+
     // 1. Check app bundle (production)
     if let bundlePath = Bundle.main.path(forResource: "orbitdock-server", ofType: nil) {
       return bundlePath
@@ -131,23 +150,17 @@ final class ServerManager: ObservableObject {
     }
 
     // 3. Development paths - try repo location
-    let homeDir = FileManager.default.homeDirectoryForCurrentUser
-    let repoBase = homeDir.appendingPathComponent("Developer/claude-dashboard/orbitdock-server/target")
-
     // Try debug binary first (faster builds during development)
-    let debugPath = repoBase.appendingPathComponent("debug/orbitdock-server").path
     if FileManager.default.fileExists(atPath: debugPath) {
       return debugPath
     }
 
     // Try release binary
-    let releasePath = repoBase.appendingPathComponent("release/orbitdock-server").path
     if FileManager.default.fileExists(atPath: releasePath) {
       return releasePath
     }
 
     // Try universal binary
-    let universalPath = repoBase.appendingPathComponent("universal/orbitdock-server").path
     if FileManager.default.fileExists(atPath: universalPath) {
       return universalPath
     }
@@ -168,14 +181,28 @@ final class ServerManager: ObservableObject {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: path)
     process.arguments = []
+    let runId = UUID().uuidString.lowercased()
 
     // Set up environment with user's full login shell PATH
     var env = ProcessInfo.processInfo.environment
     env["RUST_LOG"] = "debug,tower_http=info,hyper=info"
+    env["ORBITDOCK_SERVER_RUN_ID"] = runId
+    env["ORBITDOCK_SERVER_BINARY_PATH"] = path
+#if DEBUG
+    env["ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START"] = "1"
+#endif
     if let shellPath = Self.resolveLoginShellPath() {
       env["PATH"] = shellPath
     }
     process.environment = env
+
+    if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+       let mtime = attrs[.modificationDate] as? Date
+    {
+      logger.info("Server launch runId=\(runId) binary=\(path) mtime=\(mtime.ISO8601Format())")
+    } else {
+      logger.info("Server launch runId=\(runId) binary=\(path)")
+    }
 
     // Capture output for logging
     let outputPipe = Pipe()
@@ -291,9 +318,14 @@ final class ServerManager: ObservableObject {
     }
   }
 
-  /// Wait for server to be ready (called once at startup, not continuously)
-  /// Tries up to maxAttempts times with 500ms between attempts, then gives up.
-  func waitForReady(maxAttempts: Int = 10) async -> Bool {
+  /// Wait for server to be ready (called once at startup, not continuously).
+  /// Uses a short warm-up delay and exponential backoff to reduce startup noise.
+  func waitForReady(maxAttempts: Int = 10, initialDelayMs: Int = 700) async -> Bool {
+    if initialDelayMs > 0 {
+      logger.info("Server warming up, retrying health checks...")
+      try? await Task.sleep(for: .milliseconds(initialDelayMs))
+    }
+
     for attempt in 1...maxAttempts {
       if await checkHealth() {
         // Server is healthy - reset restart counter
@@ -304,7 +336,9 @@ final class ServerManager: ObservableObject {
       }
 
       if attempt < maxAttempts {
-        try? await Task.sleep(for: .milliseconds(500))
+        // Exponential backoff: 250ms, 500ms, 1s, 2s (capped)
+        let backoffMs = min(250 * Int(pow(2.0, Double(attempt - 1))), 2000)
+        try? await Task.sleep(for: .milliseconds(backoffMs))
       }
     }
 

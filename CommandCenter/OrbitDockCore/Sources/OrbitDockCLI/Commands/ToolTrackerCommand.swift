@@ -18,6 +18,10 @@ struct ToolTrackerCommand: ParsableCommand {
         log("[\(input.hook_event_name)] tool=\(input.tool_name) session=\(input.session_id.prefix(8))")
 
         let db = try CLIDatabase()
+        if let session = db.getSession(id: input.session_id), session.provider == "codex" {
+            log("  → skipping tool update for codex session")
+            return
+        }
 
         switch input.hook_event_name {
         case "PreToolUse":

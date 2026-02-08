@@ -244,7 +244,9 @@ final class MCPBridge {
       return HTTPResponse(status: 400, body: ["error": "Missing 'message' field"])
     }
 
-    state.sendMessage(sessionId: sessionId, content: message)
+    let model = body["model"] as? String
+    let effort = body["effort"] as? String
+    state.sendMessage(sessionId: sessionId, content: message, model: model, effort: effort)
     return HTTPResponse(status: 200, body: ["status": "sent", "session_id": sessionId])
   }
 
