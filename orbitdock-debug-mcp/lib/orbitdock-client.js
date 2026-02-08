@@ -56,10 +56,18 @@ export class OrbitDockClient {
   /**
    * Approve or reject an exec/patch request
    */
-  async approve(sessionId, requestId, approved, type = "exec", answers = null) {
-    let body = { request_id: requestId, approved, type };
-    if (answers) {
-      body.answers = answers;
+  async approve(sessionId, requestId, options = {}) {
+    let body = {
+      request_id: requestId,
+      type: options.type || "exec",
+    };
+    if (options.decision) {
+      body.decision = options.decision;
+    } else if (typeof options.approved === "boolean") {
+      body.approved = options.approved;
+    }
+    if (options.answer) {
+      body.answer = options.answer;
     }
     let response = await this.request("POST", `/api/sessions/${sessionId}/approve`, body);
     return response;

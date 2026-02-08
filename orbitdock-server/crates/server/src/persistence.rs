@@ -807,6 +807,26 @@ fn is_direct_thread_owned(conn: &Connection, thread_id: &str) -> Result<bool, ru
     Ok(exists == 1)
 }
 
+/// Check if a codex thread_id is already owned by a direct session row.
+pub async fn is_direct_thread_owned_async(thread_id: &str) -> Result<bool, anyhow::Error> {
+    let thread_id = thread_id.to_string();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+
+    tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(false);
+        }
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+        Ok(is_direct_thread_owned(&conn, &thread_id)?)
+    })
+    .await?
+}
+
 /// Get current time as ISO 8601 string
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -875,10 +895,16 @@ fn is_leap_year(year: i64) -> bool {
 #[derive(Debug)]
 pub struct RestoredSession {
     pub id: String,
+    pub provider: String,
+    pub status: String,
+    pub work_status: String,
     pub project_path: String,
+    pub transcript_path: Option<String>,
     pub project_name: Option<String>,
     pub model: Option<String>,
     pub custom_name: Option<String>,
+    pub codex_integration_mode: Option<String>,
+    pub codex_thread_id: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     pub approval_policy: Option<String>,
@@ -890,8 +916,10 @@ pub struct RestoredSession {
     pub messages: Vec<Message>,
 }
 
-/// Load active Codex sessions from the database (for server restart recovery)
-pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow::Error> {
+/// Load active sessions from the database for server restart recovery.
+/// Ended sessions are loaded on-demand elsewhere and should not be
+/// hydrated into the live runtime list.
+pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow::Error> {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
 
@@ -906,18 +934,37 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
              PRAGMA busy_timeout = 5000;"
         )?;
 
-        // Load active codex sessions
+        // Cleanup stale passive Codex sessions that were left active after prior crashes/restarts.
+        // Keep actionable permission/question sessions alive, but end long-idle waiting/working rows.
+        conn.execute(
+            "UPDATE sessions
+             SET status = 'ended',
+                 work_status = 'ended',
+                 ended_at = COALESCE(ended_at, ?1),
+                 end_reason = COALESCE(end_reason, 'startup_stale_passive')
+             WHERE provider = 'codex'
+               AND codex_integration_mode = 'passive'
+               AND status = 'active'
+               AND COALESCE(work_status, 'waiting') NOT IN ('permission', 'question')
+               AND datetime(COALESCE(last_activity_at, started_at)) < datetime('now', '-15 minutes')",
+            params![chrono_now()],
+        )?;
+
+        // Restore only active sessions into runtime.
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
                     COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
-             WHERE provider = 'codex' AND status = 'active'
-               AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
+             WHERE status = 'active'
+             ORDER BY
+               datetime(last_activity_at) DESC,
+               datetime(started_at) DESC
+             LIMIT 1000"
         )?;
 
         #[allow(clippy::type_complexity)]
-        let session_rows: Vec<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
+        let session_rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -933,6 +980,12 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
                     row.get(10)?,
                     row.get(11)?,
                     row.get(12)?,
+                    row.get(13)?,
+                    row.get(14)?,
+                    row.get(15)?,
+                    row.get(16)?,
+                    row.get(17)?,
+                    row.get(18)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -940,52 +993,64 @@ pub async fn load_active_codex_sessions() -> Result<Vec<RestoredSession>, anyhow
 
         let mut sessions = Vec::new();
 
-        for (id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
-            // Load messages for this session
-            let mut msg_stmt = conn.prepare(
-                "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
-                 FROM messages
-                 WHERE session_id = ?
-                 ORDER BY sequence"
-            )?;
+        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
+            // Claude transcript/history is sourced from transcript files + local MessageStore.
+            // For startup list fidelity, only hydrate codex message rows here.
+            let messages: Vec<Message> = if provider == "codex" {
+                let mut msg_stmt = conn.prepare(
+                    "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
+                     FROM messages
+                     WHERE session_id = ?
+                     ORDER BY sequence"
+                )?;
 
-            let messages: Vec<Message> = msg_stmt
-                .query_map(params![&id], |row| {
-                    let type_str: String = row.get(1)?;
-                    let message_type = match type_str.as_str() {
-                        "user" => MessageType::User,
-                        "assistant" => MessageType::Assistant,
-                        "thinking" => MessageType::Thinking,
-                        "tool" => MessageType::Tool,
-                        "toolResult" => MessageType::ToolResult,
-                        _ => MessageType::Assistant,
-                    };
+                let loaded: Vec<Message> = msg_stmt
+                    .query_map(params![&id], |row| {
+                        let type_str: String = row.get(1)?;
+                        let message_type = match type_str.as_str() {
+                            "user" => MessageType::User,
+                            "assistant" => MessageType::Assistant,
+                            "thinking" => MessageType::Thinking,
+                            "tool" => MessageType::Tool,
+                            "toolResult" => MessageType::ToolResult,
+                            _ => MessageType::Assistant,
+                        };
 
-                    let duration_secs: Option<f64> = row.get(7)?;
-                    let is_error_int: i32 = row.get(8)?;
+                        let duration_secs: Option<f64> = row.get(7)?;
+                        let is_error_int: i32 = row.get(8)?;
 
-                    Ok(Message {
-                        id: row.get(0)?,
-                        session_id: id.clone(),
-                        message_type,
-                        content: row.get(2)?,
-                        timestamp: row.get(3)?,
-                        tool_name: row.get(4)?,
-                        tool_input: row.get(5)?,
-                        tool_output: row.get(6)?,
-                        duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
-                        is_error: is_error_int != 0,
-                    })
-                })?
-                .filter_map(|r| r.ok())
-                .collect();
+                        Ok(Message {
+                            id: row.get(0)?,
+                            session_id: id.clone(),
+                            message_type,
+                            content: row.get(2)?,
+                            timestamp: row.get(3)?,
+                            tool_name: row.get(4)?,
+                            tool_input: row.get(5)?,
+                            tool_output: row.get(6)?,
+                            duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
+                            is_error: is_error_int != 0,
+                        })
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                loaded
+            } else {
+                Vec::new()
+            };
 
             sessions.push(RestoredSession {
                 id,
+                provider,
+                status,
+                work_status,
                 project_path,
+                transcript_path,
                 project_name,
                 model,
                 custom_name,
+                codex_integration_mode,
+                codex_thread_id,
                 started_at,
                 last_activity_at,
                 approval_policy,
@@ -1022,7 +1087,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         )?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, project_path, transcript_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
                     COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
@@ -1030,7 +1095,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
         )?;
 
-        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
+        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
             .query_row(params![&id_owned], |row| {
                 Ok((
                     row.get(0)?,
@@ -1046,11 +1111,12 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     row.get(10)?,
                     row.get(11)?,
                     row.get(12)?,
+                    row.get(13)?,
                 ))
             })
             .optional()?;
 
-        let Some((id, project_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
+        let Some((id, project_path, transcript_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
             return Ok(None);
         };
 
@@ -1095,10 +1161,16 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 
         Ok(Some(RestoredSession {
             id,
+            provider: "codex".to_string(),
+            status: "active".to_string(),
+            work_status: "waiting".to_string(),
             project_path,
+            transcript_path,
             project_name,
             model,
             custom_name,
+            codex_integration_mode: Some("direct".to_string()),
+            codex_thread_id: None,
             started_at,
             last_activity_at,
             approval_policy,
@@ -1274,11 +1346,241 @@ pub async fn delete_approval(approval_id: i64) -> Result<bool, anyhow::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock};
+    use uuid::Uuid;
+
+    static TEST_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    struct HomeGuard {
+        previous: Option<String>,
+    }
+
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            if let Some(prev) = &self.previous {
+                std::env::set_var("HOME", prev);
+            }
+        }
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        TEST_ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn set_test_home(path: &Path) -> HomeGuard {
+        let previous = std::env::var("HOME").ok();
+        std::env::set_var("HOME", path.to_string_lossy().to_string());
+        HomeGuard { previous }
+    }
+
+    fn find_migrations_dir() -> PathBuf {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for ancestor in manifest_dir.ancestors() {
+            let candidate = ancestor.join("migrations");
+            if candidate.is_dir() {
+                return candidate;
+            }
+        }
+        panic!("Could not locate migrations directory from {:?}", manifest_dir);
+    }
+
+    fn create_test_home() -> PathBuf {
+        let home = std::env::temp_dir().join(format!("orbitdock-server-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(home.join(".orbitdock")).expect("create .orbitdock");
+        home
+    }
+
+    fn run_all_migrations(db_path: &Path) {
+        let conn = Connection::open(db_path).expect("open db");
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )
+        .expect("set pragmas");
+
+        let migrations_dir = find_migrations_dir();
+        let mut files: Vec<PathBuf> = fs::read_dir(&migrations_dir)
+            .expect("read migrations")
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sql"))
+            .collect();
+        files.sort();
+
+        for file in files {
+            let sql = fs::read_to_string(&file).expect("read migration");
+            conn.execute_batch(&sql).unwrap_or_else(|err| {
+                panic!("migration failed for {}: {}", file.display(), err);
+            });
+        }
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                content TEXT,
+                timestamp TEXT NOT NULL,
+                sequence INTEGER NOT NULL DEFAULT 0,
+                tool_name TEXT,
+                tool_input TEXT,
+                tool_output TEXT,
+                tool_duration REAL,
+                is_in_progress INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .expect("ensure messages table");
+    }
 
     #[test]
     fn test_time_to_iso8601() {
         // 2024-01-15 12:30:45 UTC
         let result = time_to_iso8601(1705322445);
         assert!(result.starts_with("2024-01-15"));
+    }
+
+    #[tokio::test]
+    async fn startup_restore_includes_only_active_sessions() {
+        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::SessionCreate {
+                    id: "direct-active".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/direct-active".into(),
+                    project_name: Some("direct-active".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                },
+                PersistCommand::RolloutSessionUpsert {
+                    id: "passive-active".into(),
+                    thread_id: "passive-active".into(),
+                    project_path: "/tmp/passive-active".into(),
+                    project_name: Some("passive-active".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    context_label: Some("codex_cli_rs".into()),
+                    transcript_path: "/tmp/passive-active.jsonl".into(),
+                    started_at: "2026-02-08T00:00:00Z".into(),
+                },
+                PersistCommand::SessionCreate {
+                    id: "direct-ended".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/direct-ended".into(),
+                    project_name: Some("direct-ended".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                },
+                PersistCommand::SessionEnd {
+                    id: "direct-ended".into(),
+                    reason: "test".into(),
+                },
+                PersistCommand::RolloutSessionUpsert {
+                    id: "passive-ended".into(),
+                    thread_id: "passive-ended".into(),
+                    project_path: "/tmp/passive-ended".into(),
+                    project_name: Some("passive-ended".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    context_label: Some("codex_cli_rs".into()),
+                    transcript_path: "/tmp/passive-ended.jsonl".into(),
+                    started_at: "2026-02-08T00:00:00Z".into(),
+                },
+                PersistCommand::RolloutSessionUpdate {
+                    id: "passive-ended".into(),
+                    project_path: None,
+                    model: None,
+                    status: Some(SessionStatus::Ended),
+                    work_status: Some(WorkStatus::Ended),
+                    attention_reason: None,
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: None,
+                    total_tokens: None,
+                    last_tool: None,
+                    last_tool_at: None,
+                    custom_name: None,
+                },
+            ],
+        )
+        .expect("flush batch");
+
+        let restored = load_sessions_for_startup().await.expect("load sessions");
+        let restored_ids: Vec<String> = restored.iter().map(|s| s.id.clone()).collect();
+
+        assert!(restored_ids.iter().any(|id| id == "direct-active"));
+        assert!(restored_ids.iter().any(|id| id == "passive-active"));
+        assert!(!restored_ids.iter().any(|id| id == "direct-ended"));
+        assert!(!restored_ids.iter().any(|id| id == "passive-ended"));
+        assert!(restored.iter().all(|s| s.status == "active"));
+    }
+
+    #[tokio::test]
+    async fn rollout_upsert_does_not_convert_direct_session_to_passive() {
+        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::SessionCreate {
+                    id: "shared-thread".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/direct".into(),
+                    project_name: Some("direct".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                },
+                PersistCommand::SetThreadId {
+                    session_id: "shared-thread".into(),
+                    thread_id: "shared-thread".into(),
+                },
+                PersistCommand::RolloutSessionUpsert {
+                    id: "shared-thread".into(),
+                    thread_id: "shared-thread".into(),
+                    project_path: "/tmp/passive".into(),
+                    project_name: Some("passive".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    context_label: Some("codex_cli_rs".into()),
+                    transcript_path: "/tmp/passive.jsonl".into(),
+                    started_at: "2026-02-08T00:00:00Z".into(),
+                },
+            ],
+        )
+        .expect("flush batch");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let (provider, mode, project_path): (String, Option<String>, String) = conn
+            .query_row(
+                "SELECT provider, codex_integration_mode, project_path FROM sessions WHERE id = ?1",
+                params!["shared-thread"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query session");
+
+        assert_eq!(provider, "codex");
+        assert_eq!(mode.as_deref(), Some("direct"));
+        assert_eq!(project_path, "/tmp/direct");
+
+        let restored = load_sessions_for_startup().await.expect("load sessions");
+        let direct = restored
+            .iter()
+            .find(|s| s.id == "shared-thread")
+            .expect("direct session restored");
+        assert_eq!(direct.codex_integration_mode.as_deref(), Some("direct"));
     }
 }

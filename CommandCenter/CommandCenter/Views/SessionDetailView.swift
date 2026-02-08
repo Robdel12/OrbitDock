@@ -490,7 +490,9 @@ struct SessionDetailView: View {
   // MARK: - Helpers
 
   private var shouldSubscribeToServerSession: Bool {
-    session.isDirectCodex && (session.isActive || serverState.isServerSession(session.id))
+    // Any server-managed session (direct or passive) needs snapshot/message subscription.
+    // Restricting this to direct sessions causes passive Codex sessions to render "No messages yet".
+    serverState.isServerSession(session.id)
   }
 
   private func setupSubscription() {

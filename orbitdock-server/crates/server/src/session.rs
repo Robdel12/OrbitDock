@@ -13,6 +13,7 @@ pub struct SessionHandle {
     id: String,
     provider: Provider,
     project_path: String,
+    transcript_path: Option<String>,
     project_name: Option<String>,
     model: Option<String>,
     custom_name: Option<String>,
@@ -42,6 +43,7 @@ impl SessionHandle {
             id,
             provider,
             project_path,
+            transcript_path: None,
             project_name: None,
             model: None,
             custom_name: None,
@@ -67,9 +69,12 @@ impl SessionHandle {
         id: String,
         provider: Provider,
         project_path: String,
+        transcript_path: Option<String>,
         project_name: Option<String>,
         model: Option<String>,
         custom_name: Option<String>,
+        status: SessionStatus,
+        work_status: WorkStatus,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
         token_usage: TokenUsage,
@@ -81,14 +86,15 @@ impl SessionHandle {
             id,
             provider,
             project_path,
+            transcript_path,
             project_name,
             model,
             custom_name,
             approval_policy,
             sandbox_mode,
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
-            status: SessionStatus::Active,
-            work_status: WorkStatus::Waiting,
+            status,
+            work_status,
             messages,
             token_usage,
             current_diff: None,
@@ -117,6 +123,7 @@ impl SessionHandle {
             id: self.id.clone(),
             provider: self.provider,
             project_path: self.project_path.clone(),
+            transcript_path: self.transcript_path.clone(),
             project_name: self.project_name.clone(),
             model: self.model.clone(),
             custom_name: self.custom_name.clone(),
@@ -137,6 +144,7 @@ impl SessionHandle {
             id: self.id.clone(),
             provider: self.provider,
             project_path: self.project_path.clone(),
+            transcript_path: self.transcript_path.clone(),
             project_name: self.project_name.clone(),
             model: self.model.clone(),
             custom_name: self.custom_name.clone(),
@@ -184,6 +192,11 @@ impl SessionHandle {
     /// Set project name
     pub fn set_project_name(&mut self, project_name: Option<String>) {
         self.project_name = project_name;
+    }
+
+    /// Set transcript path
+    pub fn set_transcript_path(&mut self, transcript_path: Option<String>) {
+        self.transcript_path = transcript_path;
     }
 
     /// Set model

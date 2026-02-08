@@ -652,9 +652,12 @@ async fn handle_client_message(
                 restored.id.clone(),
                 orbitdock_protocol::Provider::Codex,
                 restored.project_path.clone(),
+                restored.transcript_path.clone(),
                 restored.project_name,
                 restored.model.clone(),
                 restored.custom_name,
+                orbitdock_protocol::SessionStatus::Active,
+                orbitdock_protocol::WorkStatus::Waiting,
                 restored.approval_policy.clone(),
                 restored.sandbox_mode.clone(),
                 TokenUsage {
@@ -705,6 +708,20 @@ async fn handle_client_message(
                         })
                         .await;
                     state_guard.register_codex_thread(&session_id, &new_thread_id);
+                    if state_guard.remove_session(&new_thread_id).is_some() {
+                        state_guard
+                            .broadcast_to_list(ServerMessage::SessionEnded {
+                                session_id: new_thread_id.clone(),
+                                reason: "direct_session_thread_claimed".into(),
+                            })
+                            .await;
+                    }
+                    let _ = persist_tx
+                        .send(PersistCommand::CleanupThreadShadowSession {
+                            thread_id: new_thread_id.clone(),
+                            reason: "legacy_codex_thread_row_cleanup".into(),
+                        })
+                        .await;
 
                     let action_tx = codex_session.start_event_loop(session_arc, persist_tx);
                     state_guard.set_codex_action_tx(&session_id, action_tx);

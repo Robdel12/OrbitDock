@@ -18,7 +18,7 @@ Commands route through OrbitDock's HTTP bridge to `ServerAppState`. Same session
 | `get_session` | Get details for a specific session |
 | `send_message` | Send a user prompt (direct Codex sessions only) |
 | `interrupt_turn` | Stop the current turn (direct Codex sessions only) |
-| `approve` | Approve/reject pending tool executions (direct Codex sessions only) |
+| `approve` | Resolve pending approvals with explicit decisions (`approved`, `approved_for_session`, `approved_always`, `denied`, `abort`) |
 | `check_connection` | Verify OrbitDock is running |
 
 ## Setup

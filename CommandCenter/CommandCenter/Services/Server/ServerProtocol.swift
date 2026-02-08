@@ -172,6 +172,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let id: String
   let provider: ServerProvider
   let projectPath: String
+  let transcriptPath: String?
   let projectName: String?
   let model: String?
   let customName: String?
@@ -188,6 +189,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case id
     case provider
     case projectPath = "project_path"
+    case transcriptPath = "transcript_path"
     case projectName = "project_name"
     case model
     case customName = "custom_name"
@@ -208,6 +210,7 @@ struct ServerSessionState: Codable, Identifiable {
   let id: String
   let provider: ServerProvider
   let projectPath: String
+  let transcriptPath: String?
   let projectName: String?
   let model: String?
   let customName: String?
@@ -228,6 +231,7 @@ struct ServerSessionState: Codable, Identifiable {
     case id
     case provider
     case projectPath = "project_path"
+    case transcriptPath = "transcript_path"
     case projectName = "project_name"
     case model
     case customName = "custom_name"

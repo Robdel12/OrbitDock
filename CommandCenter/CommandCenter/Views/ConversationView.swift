@@ -131,12 +131,14 @@ struct ConversationView: View {
       loadMessagesIfNeeded()
       setupSubscriptions()
     }
-    // Server sessions: observe message changes via revision counter
-    .onChange(of: serverState.messageRevisions[sessionId ?? ""] ?? 0) { _, _ in
-      guard let sid = sessionId, serverState.isServerSession(sid) else { return }
-      let serverMessages = serverState.sessionMessages[sid] ?? []
-      messages = serverMessages
-      displayedCount = max(displayedCount, serverMessages.count)
+    // Server sessions: observe message changes via revision map.
+    // Watching the full map is more reliable than dynamic key-path subscript observation.
+    .onChange(of: serverState.messageRevisions) { _, _ in
+      refreshFromServerStateIfNeeded()
+    }
+    // Also react directly to snapshot/message map updates to avoid missed render updates.
+    .onChange(of: serverState.sessionMessages) { _, _ in
+      refreshFromServerStateIfNeeded()
     }
   }
 
@@ -293,8 +295,9 @@ struct ConversationView: View {
   // (Same as original - keeping the proven data layer)
 
   private func setupSubscriptions() {
-    // Server sessions don't need file watching - messages come via WebSocket
-    if let sid = sessionId, serverState.isServerSession(sid) {
+    // Direct server sessions use WebSocket message stream only.
+    // Server sessions with transcript_path (Claude/passive) still need file watching.
+    if let sid = sessionId, serverState.isServerSession(sid), transcriptPath == nil {
       return
     }
 
@@ -364,8 +367,9 @@ struct ConversationView: View {
 
     let targetSid = sid
 
-    // Server sessions: messages come via WebSocket, read from ServerAppState
-    if serverState.isServerSession(sid) {
+    // Direct server sessions: messages come via WebSocket, read from ServerAppState.
+    // Server sessions with transcript_path should parse transcript files.
+    if serverState.isServerSession(sid), transcriptPath == nil {
       let serverMessages = serverState.sessionMessages[sid] ?? []
       messages = serverMessages
       displayedCount = max(displayedCount, serverMessages.count)
@@ -407,8 +411,9 @@ struct ConversationView: View {
       return
     }
 
-    // Server sessions: load from ServerAppState (WebSocket messages)
-    if serverState.isServerSession(sid) {
+    // Direct server sessions: load from ServerAppState (WebSocket messages).
+    // Server sessions with transcript_path should parse transcript files.
+    if serverState.isServerSession(sid), transcriptPath == nil {
       let serverMessages = serverState.sessionMessages[sid] ?? []
       messages = serverMessages
       displayedCount = serverMessages.count
@@ -470,6 +475,14 @@ struct ConversationView: View {
         }
       }
     }
+  }
+
+  private func refreshFromServerStateIfNeeded() {
+    guard let sid = sessionId, serverState.isServerSession(sid), transcriptPath == nil else { return }
+    let serverMessages = serverState.sessionMessages[sid] ?? []
+    messages = serverMessages
+    displayedCount = max(displayedCount, serverMessages.count)
+    isLoading = false
   }
 }
 

@@ -147,6 +147,8 @@ pub struct SessionSummary {
     pub id: String,
     pub provider: Provider,
     pub project_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<String>,
     pub project_name: Option<String>,
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -170,6 +172,8 @@ pub struct SessionState {
     pub id: String,
     pub provider: Provider,
     pub project_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transcript_path: Option<String>,
     pub project_name: Option<String>,
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

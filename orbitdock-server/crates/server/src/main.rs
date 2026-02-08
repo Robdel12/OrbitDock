@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{response::IntoResponse, routing::get, Router};
-use orbitdock_protocol::TokenUsage;
+use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, TokenUsage, WorkStatus};
 use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -27,7 +27,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::codex_session::CodexSession;
 use crate::persistence::{
-    create_persistence_channel, load_active_codex_sessions, PersistCommand, PersistenceWriter,
+    create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
 };
 use crate::session::SessionHandle;
 use crate::state::AppState;
@@ -108,43 +108,110 @@ async fn async_main() -> anyhow::Result<()> {
     // Create app state with persistence sender
     let state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
 
-    // Restore active Codex sessions from database
-    match load_active_codex_sessions().await {
+    // Restore active sessions from database
+    match load_sessions_for_startup().await {
         Ok(restored) if !restored.is_empty() => {
-            info!("Restoring {} active Codex session(s)...", restored.len());
+            info!("Restoring {} active session(s)...", restored.len());
 
             for rs in restored {
-                let msg_count = rs.messages.len();
-                let handle = SessionHandle::restore(
-                    rs.id.clone(),
-                    orbitdock_protocol::Provider::Codex,
-                    rs.project_path.clone(),
-                    rs.project_name,
-                    rs.model.clone(),
-                    rs.custom_name,
-                    rs.approval_policy.clone(),
-                    rs.sandbox_mode.clone(),
-                    TokenUsage {
-                        input_tokens: rs.codex_input_tokens.max(0) as u64,
-                        output_tokens: rs.codex_output_tokens.max(0) as u64,
-                        cached_tokens: rs.codex_cached_tokens.max(0) as u64,
-                        context_window: rs.codex_context_window.max(0) as u64,
-                    },
-                    rs.started_at,
-                    rs.last_activity_at,
-                    rs.messages,
-                );
+                let crate::persistence::RestoredSession {
+                    id,
+                    provider,
+                    status,
+                    work_status,
+                    project_path,
+                    transcript_path,
+                    project_name,
+                    model,
+                    custom_name,
+                    codex_integration_mode,
+                    codex_thread_id,
+                    started_at,
+                    last_activity_at,
+                    approval_policy,
+                    sandbox_mode,
+                    codex_input_tokens,
+                    codex_output_tokens,
+                    codex_cached_tokens,
+                    codex_context_window,
+                    messages,
+                } = rs;
+                let msg_count = messages.len();
 
+                let provider = match provider.as_str() {
+                    "codex" => Provider::Codex,
+                    _ => Provider::Claude,
+                };
+                let mut handle = SessionHandle::restore(
+                    id.clone(),
+                    provider,
+                    project_path.clone(),
+                    transcript_path,
+                    project_name,
+                    model.clone(),
+                    custom_name,
+                    match status.as_str() {
+                        "ended" => SessionStatus::Ended,
+                        _ => SessionStatus::Active,
+                    },
+                    match work_status.as_str() {
+                        "working" => WorkStatus::Working,
+                        "permission" => WorkStatus::Permission,
+                        "question" => WorkStatus::Question,
+                        "reply" => WorkStatus::Reply,
+                        "ended" => WorkStatus::Ended,
+                        _ => WorkStatus::Waiting,
+                    },
+                    approval_policy.clone(),
+                    sandbox_mode.clone(),
+                    TokenUsage {
+                        input_tokens: codex_input_tokens.max(0) as u64,
+                        output_tokens: codex_output_tokens.max(0) as u64,
+                        cached_tokens: codex_cached_tokens.max(0) as u64,
+                        context_window: codex_context_window.max(0) as u64,
+                    },
+                    started_at,
+                    last_activity_at,
+                    messages,
+                );
+                let is_codex = matches!(provider, Provider::Codex);
+                let is_passive = is_codex && matches!(codex_integration_mode.as_deref(), Some("passive"));
+                let is_active = status == "active";
+                handle.set_codex_integration_mode(if is_passive {
+                    Some(CodexIntegrationMode::Passive)
+                } else if is_codex {
+                    Some(CodexIntegrationMode::Direct)
+                } else {
+                    None
+                });
                 let mut app = state.lock().await;
                 let session_arc = app.add_session(handle);
+                if is_codex && !is_passive {
+                    if let Some(existing_thread_id) = codex_thread_id.as_deref() {
+                        app.register_codex_thread(&id, existing_thread_id);
+                    }
+                }
+
+                if !is_active || !is_codex || is_passive {
+                    info!(
+                        session_id = %id,
+                        provider = %match provider {
+                            Provider::Codex => "codex",
+                            Provider::Claude => "claude",
+                        },
+                        messages = msg_count,
+                        "Restored passive session"
+                    );
+                    continue;
+                }
 
                 // Try to reconnect a CodexConnector with original autonomy settings
                 match CodexSession::new(
-                    rs.id.clone(),
-                    &rs.project_path,
-                    rs.model.as_deref(),
-                    rs.approval_policy.as_deref(),
-                    rs.sandbox_mode.as_deref(),
+                    id.clone(),
+                    &project_path,
+                    model.as_deref(),
+                    approval_policy.as_deref(),
+                    sandbox_mode.as_deref(),
                 )
                 .await
                 {
@@ -155,11 +222,11 @@ async fn async_main() -> anyhow::Result<()> {
                         let new_thread_id = codex.thread_id().to_string();
                         let _ = persist
                             .send(PersistCommand::SetThreadId {
-                                session_id: rs.id.clone(),
+                                session_id: id.clone(),
                                 thread_id: new_thread_id.clone(),
                             })
                             .await;
-                        app.register_codex_thread(&rs.id, &new_thread_id);
+                        app.register_codex_thread(&id, &new_thread_id);
 
                         if app.remove_session(&new_thread_id).is_some() {
                             app.broadcast_to_list(orbitdock_protocol::ServerMessage::SessionEnded {
@@ -176,9 +243,9 @@ async fn async_main() -> anyhow::Result<()> {
                             .await;
 
                         let action_tx = codex.start_event_loop(session_arc, persist);
-                        app.set_codex_action_tx(&rs.id, action_tx);
+                        app.set_codex_action_tx(&id, action_tx);
                         info!(
-                            session_id = %rs.id,
+                            session_id = %id,
                             thread_id = %new_thread_id,
                             messages = msg_count,
                             "Restored session with live connector"
@@ -187,7 +254,7 @@ async fn async_main() -> anyhow::Result<()> {
                     Err(e) => {
                         // Session visible with messages but not interactive
                         info!(
-                            session_id = %rs.id,
+                            session_id = %id,
                             messages = msg_count,
                             error = %e,
                             "Restored session (connector unavailable)"

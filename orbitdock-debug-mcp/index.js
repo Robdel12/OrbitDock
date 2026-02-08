@@ -83,17 +83,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "The approval request ID (from pending_approval_id in session)",
             },
+            decision: {
+              type: "string",
+              enum: ["approved", "approved_for_session", "approved_always", "denied", "abort"],
+              description:
+                "Explicit decision. Preferred over legacy 'approved' bool.",
+            },
             approved: {
               type: "boolean",
-              description: "Whether to approve (true) or reject (false)",
+              description: "Legacy fallback: true => approved, false => denied",
             },
             type: {
               type: "string",
               enum: ["exec", "patch", "question"],
               description: "Type of approval (default: exec)",
             },
+            answer: {
+              type: "string",
+              description: "Answer for question approvals (required when type=question)",
+            },
           },
-          required: ["session_id", "request_id", "approved"],
+          required: ["session_id", "request_id"],
         },
       },
       {
@@ -198,16 +208,30 @@ async function handleInterruptTurn({ session_id }) {
   };
 }
 
-async function handleApprove({ session_id, request_id, approved, type = "exec" }) {
+async function handleApprove({ session_id, request_id, approved, decision, type = "exec", answer }) {
   ensureOrbitDock();
   await requireControllableSession(session_id);
-  await orbitdock.approve(session_id, request_id, approved, type);
+
+  let resolvedDecision = decision;
+  if (!resolvedDecision) {
+    if (typeof approved === "boolean") {
+      resolvedDecision = approved ? "approved" : "denied";
+    } else {
+      throw new Error("Missing decision. Provide 'decision' or legacy 'approved'.");
+    }
+  }
+
+  await orbitdock.approve(session_id, request_id, {
+    type,
+    decision: resolvedDecision,
+    answer,
+  });
 
   return {
     content: [
       {
         type: "text",
-        text: `${type} ${approved ? "approved" : "rejected"} for ${session_id}`,
+        text: `${type} ${resolvedDecision} for ${session_id}`,
       },
     ],
   };

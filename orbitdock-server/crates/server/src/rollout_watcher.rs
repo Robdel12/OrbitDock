@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -18,12 +18,13 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
-use crate::persistence::PersistCommand;
+use crate::persistence::{is_direct_thread_owned_async, PersistCommand};
 use crate::session::SessionHandle;
 use crate::state::AppState;
 
 const DEBOUNCE_MS: u64 = 150;
 const SESSION_TIMEOUT_SECS: u64 = 120;
+const STARTUP_SEED_RECENT_SECS: u64 = 15 * 60;
 
 pub async fn start_rollout_watcher(
     app_state: Arc<Mutex<AppState>>,
@@ -80,6 +81,24 @@ pub async fn start_rollout_watcher(
         session_timeouts: HashMap::new(),
         prompt_seen: HashSet::new(),
     };
+
+    // Prime watcher from existing files on startup so active Codex CLI sessions
+    // appear even when their JSONL files were created before this process launched.
+    let existing_files = collect_jsonl_files(&sessions_dir);
+    let mut seeded = 0usize;
+    for path in &existing_files {
+        if is_recent_file(path, STARTUP_SEED_RECENT_SECS) {
+            if let Err(err) = runtime
+                .ensure_session_meta(path.to_string_lossy().as_ref())
+                .await
+            {
+                warn!(path = %path.display(), error = %err, "Startup session_meta seed failed");
+            } else {
+                seeded += 1;
+            }
+        }
+    }
+    info!(seeded_files = seeded, total_files = existing_files.len(), "Rollout startup seed complete");
 
     while let Some(msg) = rx.recv().await {
         match msg {
@@ -196,12 +215,17 @@ impl WatcherRuntime {
             return Ok(());
         }
 
-        let has_session = self
+        let existing_session_id = self
             .file_states
             .get(&path_string)
-            .and_then(|state| state.session_id.clone())
-            .is_some();
-        if !has_session {
+            .and_then(|state| state.session_id.clone());
+        let has_runtime_session = if let Some(session_id) = existing_session_id {
+            let state = self.app_state.lock().await;
+            state.get_session(&session_id).is_some()
+        } else {
+            false
+        };
+        if !has_runtime_session {
             self.ensure_session_meta(&path_string).await?;
         }
 
@@ -258,6 +282,7 @@ impl WatcherRuntime {
         };
 
         let Ok(json) = serde_json::from_str::<Value>(&line) else {
+            warn!(path = %path, "Failed to parse session_meta first line");
             return Ok(());
         };
 
@@ -315,7 +340,20 @@ impl WatcherRuntime {
             let state = self.app_state.lock().await;
             state.is_managed_codex_thread(&session_id)
         };
-        if is_direct {
+        let is_direct_in_db = is_direct_thread_owned_async(&session_id).await.unwrap_or(false);
+        if is_direct || is_direct_in_db {
+            // If a stale passive runtime session exists for this thread, evict it.
+            if let Some(state) = self.file_states.get_mut(path) {
+                state.session_id = Some(session_id.clone());
+            }
+            let mut app = self.app_state.lock().await;
+            if app.remove_session(&session_id).is_some() {
+                app.broadcast_to_list(ServerMessage::SessionEnded {
+                    session_id: session_id.clone(),
+                    reason: "direct_session_thread_claimed".into(),
+                })
+                .await;
+            }
             if let Some(state) = self.file_states.get_mut(path) {
                 state.session_id = Some(session_id);
             }
@@ -351,6 +389,7 @@ impl WatcherRuntime {
         if !exists {
             let mut handle = SessionHandle::new(session_id.clone(), Provider::Codex, cwd.clone());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_transcript_path(Some(path.to_string()));
             handle.set_project_name(project_name.clone());
             handle.set_model(model_provider.clone());
             handle.set_started_at(Some(started_at.clone()));
@@ -936,6 +975,7 @@ impl WatcherRuntime {
         last_tool_at: Option<Option<String>>,
         status: Option<SessionStatus>,
     ) {
+        let status = status.or(Some(SessionStatus::Active));
         let _ = self
             .persist_tx
             .send(PersistCommand::RolloutSessionUpdate {
@@ -974,6 +1014,7 @@ impl WatcherRuntime {
             state.get_session(session_id)
         } {
             let mut session = session_arc.lock().await;
+            session.set_status(SessionStatus::Active);
             if let Some(work_status) = changes.work_status {
                 session.set_work_status(work_status);
             }
@@ -1202,22 +1243,55 @@ fn save_persisted_state(path: &Path, state: &PersistedState) -> anyhow::Result<(
     Ok(())
 }
 
+fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
+    let mut result = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if is_jsonl_path(&path) {
+                result.push(path);
+            }
+        }
+    }
+
+    result
+}
+
+fn is_recent_file(path: &Path, within_secs: u64) -> bool {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    let Ok(modified) = meta.modified() else {
+        return false;
+    };
+    let Ok(age) = SystemTime::now().duration_since(modified) else {
+        return true;
+    };
+    age.as_secs() <= within_secs
+}
+
 fn read_first_line(path: &Path) -> anyhow::Result<Option<String>> {
-    let mut file = match File::open(path) {
+    let file = match File::open(path) {
         Ok(f) => f,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(err.into()),
     };
 
-    let mut buf = vec![0u8; 64 * 1024];
-    let read = file.read(&mut buf)?;
-    buf.truncate(read);
-    if buf.is_empty() {
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    let read = reader.read_line(&mut line)?;
+    if read == 0 {
         return Ok(None);
     }
-
-    let text = String::from_utf8_lossy(&buf);
-    Ok(text.lines().next().map(str::to_string))
+    Ok(Some(line.trim_end_matches(['\r', '\n']).to_string()))
 }
 
 fn read_file_chunk(path: &Path, offset: u64) -> anyhow::Result<Vec<u8>> {

@@ -335,35 +335,9 @@ struct ContentView: View {
     let oldSessions = sessions
     let previousSelectionId = selectedSessionId
 
-    // Merge sessions from both sources:
-    // - Claude sessions from DatabaseManager (via SessionStore)
-    // - Codex sessions from Rust server (via ServerAppState)
-    let dbSessions = database.sessions
-    let serverSessions = serverState.sessions
-    let serverIds = Set(serverSessions.map(\.id))
-    let directCodexThreadIds = Set(
-      dbSessions
-        .filter(\.isDirectCodex)
-        .compactMap(\.codexThreadId)
-    )
-    // Collect thread IDs from server-managed sessions (stored in DB by Rust server)
-    let serverThreadIds = Set(
-      dbSessions
-        .filter { serverIds.contains($0.id) }
-        .compactMap(\.codexThreadId)
-    )
-    // Filter out any DB sessions that are also in server (server is source of truth for Codex)
-    // Exclude active direct Codex sessions not in server (stale), but keep ended ones (resumable)
-    // Also exclude passive Codex sessions whose ID matches a server session's thread ID (same conversation)
-    let nonServerSessions = dbSessions.filter { session in
-      guard !serverIds.contains(session.id) else { return false }
-      if serverThreadIds.contains(session.id) { return false }
-      // Drop shadow rows where any passive/legacy row uses a direct Codex thread ID as session ID.
-      if directCodexThreadIds.contains(session.id) { return false }
-      if session.isDirectCodex && session.isActive { return false }
-      return true
-    }
-    sessions = nonServerSessions + serverSessions
+    // Rust server is the runtime source of truth for session list identity/state.
+    // Avoid merging DB rows in-app to prevent direct/passive shadow drift on rebuild.
+    sessions = serverState.sessions
 
     // If selection is a passive Codex shadow row, remap to its direct session.
     if let selectedId = previousSelectionId {

@@ -29,7 +29,7 @@ Key files:
 - [x] Send messages, interrupt turns, end sessions
 - [x] Resume ended sessions (loads from DB, starts fresh codex-core thread)
 - [x] Session restoration on server startup
-- [x] Hybrid session list: DB sessions (Claude) + server sessions (Codex) merged in ContentView
+- [x] Server-authoritative session list in app (`ContentView` now sources `serverState.sessions`)
 
 ### Real-Time Updates
 - [x] Streaming assistant messages (content deltas)
@@ -148,6 +148,7 @@ The Swift `CodexRolloutWatcher` and Rust server both write to the same DB, creat
 - [x] **Broadcast updates**: Watcher sessions emit same `SessionDelta`, `SessionCreated`, `SessionEnded` messages as direct sessions
 - [x] **Session list**: Watcher sessions appear in `SessionsList` alongside direct sessions
 - [x] **Unified state**: Both direct and watcher sessions live in same `AppState.sessions` map
+- [x] **Startup restore scope**: server restores all active providers (Codex direct/passive + Claude passive) into one runtime state map
 - [x] **Approval history protocol + UI**: list/delete approvals over WebSocket, session/global history panel in session view
 - [x] **Shadow-row hardening**: rollout updates self-heal passive rows to `provider=codex`, `codex_integration_mode=passive`, and `codex_thread_id`
 - [x] **Thread-ID dedup hardening**: UI excludes rows whose `id` matches a direct session `codex_thread_id` to prevent passive takeover
