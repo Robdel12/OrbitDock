@@ -4,6 +4,29 @@ import SQLite
 // MARK: - Session Operations
 
 extension CLIDatabase {
+    private func isDirectCodexThreadShadow(_ sessionId: String) -> Bool {
+        let sql = """
+            SELECT EXISTS(
+                SELECT 1
+                FROM sessions
+                WHERE codex_integration_mode = 'direct'
+                  AND codex_thread_id = ?
+            )
+            """
+        do {
+            let scalar = try connection.scalar(sql, sessionId) as? Int64
+            return scalar == 1
+        } catch {
+            return false
+        }
+    }
+
+    private func shouldIgnoreHookWrite(sessionId: String, contextLabel: String? = nil) -> Bool {
+        // Ignore only when this write would shadow an active direct Codex thread.
+        // codex_cli_rs itself is a valid passive Codex integration path.
+        if isDirectCodexThreadShadow(sessionId) { return true }
+        return false
+    }
 
     /// Upsert a session (create or update)
     public func upsertSession(
@@ -20,14 +43,17 @@ extension CLIDatabase {
         terminalSessionId terminalId: String?,
         terminalApp terminal: String?
     ) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId, contextLabel: label) { return }
         let now = Self.formatDate()
+        let provider = (label == "codex_cli_rs") ? "codex" : "claude"
+        let integrationMode = (label == "codex_cli_rs") ? "passive" : nil as String?
 
         try connection.run("""
             INSERT INTO sessions (
                 id, project_path, project_name, branch, model, context_label,
                 transcript_path, status, work_status, started_at, last_activity_at,
-                terminal_session_id, terminal_app, provider
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claude')
+                terminal_session_id, terminal_app, provider, codex_integration_mode
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 project_path = excluded.project_path,
                 project_name = excluded.project_name,
@@ -39,11 +65,13 @@ extension CLIDatabase {
                 work_status = excluded.work_status,
                 last_activity_at = excluded.last_activity_at,
                 terminal_session_id = COALESCE(excluded.terminal_session_id, terminal_session_id),
-                terminal_app = COALESCE(excluded.terminal_app, terminal_app)
+                terminal_app = COALESCE(excluded.terminal_app, terminal_app),
+                provider = excluded.provider,
+                codex_integration_mode = COALESCE(excluded.codex_integration_mode, codex_integration_mode)
             """,
             sessionId, path, name, branchName, modelName, label,
             transcript, sessionStatus, work, started ?? now, now,
-            terminalId, terminal
+            terminalId, terminal, provider, integrationMode
         )
     }
 
@@ -66,6 +94,7 @@ extension CLIDatabase {
         firstPrompt: String? = nil,
         workstreamId: String? = nil
     ) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId) { return }
         var updates: [String] = ["last_activity_at = ?"]
         var values: [Binding?] = [Self.formatDate()]
 
@@ -140,6 +169,7 @@ extension CLIDatabase {
 
     /// Clear active subagent
     public func clearActiveSubagent(id sessionId: String) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId) { return }
         try connection.run("""
             UPDATE sessions SET
                 active_subagent_id = NULL,
@@ -153,6 +183,7 @@ extension CLIDatabase {
 
     /// Increment compact count
     public func incrementCompactCount(id sessionId: String) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId) { return }
         try connection.run("""
             UPDATE sessions SET
                 compact_count = COALESCE(compact_count, 0) + 1,
@@ -165,6 +196,7 @@ extension CLIDatabase {
 
     /// Clear pending tool/question fields
     public func clearPendingFields(id sessionId: String) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId) { return }
         try connection.run("""
             UPDATE sessions SET
                 pending_tool_name = NULL,
@@ -179,6 +211,7 @@ extension CLIDatabase {
 
     /// End a session
     public func endSession(id sessionId: String, reason: String?) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId) { return }
         let now = Self.formatDate()
         try connection.run("""
             UPDATE sessions SET
@@ -198,6 +231,7 @@ extension CLIDatabase {
 
     /// Increment prompt count
     public func incrementPromptCount(id sessionId: String) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId) { return }
         try connection.run("""
             UPDATE sessions SET
                 prompt_count = COALESCE(prompt_count, 0) + 1,
@@ -210,6 +244,7 @@ extension CLIDatabase {
 
     /// Increment tool count
     public func incrementToolCount(id sessionId: String) throws {
+        if shouldIgnoreHookWrite(sessionId: sessionId) { return }
         try connection.run("""
             UPDATE sessions SET
                 tool_count = COALESCE(tool_count, 0) + 1,

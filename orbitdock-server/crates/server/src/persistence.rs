@@ -10,7 +10,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
-use orbitdock_protocol::{Message, MessageType, Provider, SessionStatus, TokenUsage, WorkStatus};
+use orbitdock_protocol::{
+    ApprovalHistoryItem, ApprovalType, Message, MessageType, Provider, SessionStatus, TokenUsage,
+    WorkStatus,
+};
 
 /// Commands that can be persisted
 #[derive(Debug, Clone)]
@@ -132,6 +135,26 @@ pub enum PersistCommand {
 
     /// Increment rollout tool counter
     RolloutToolIncrement { id: String },
+
+    /// Persist an approval request event
+    ApprovalRequested {
+        session_id: String,
+        request_id: String,
+        approval_type: ApprovalType,
+        tool_name: Option<String>,
+        command: Option<String>,
+        file_path: Option<String>,
+        cwd: Option<String>,
+        proposed_amendment: Option<Vec<String>>,
+    },
+
+    /// Persist the user decision for an approval request
+    ApprovalDecision {
+        session_id: String,
+        request_id: String,
+        decision: String,
+    },
+
 }
 
 /// Persistence writer that batches SQLite writes
@@ -595,6 +618,12 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             let mut updates: Vec<String> = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
+            // Rollout sessions are always Codex passive. Keep this authoritative so malformed
+            // legacy rows self-heal even if they were originally inserted with wrong metadata.
+            updates.push("provider = 'codex'".to_string());
+            updates.push("codex_integration_mode = 'passive'".to_string());
+            updates.push("codex_thread_id = COALESCE(codex_thread_id, id)".to_string());
+
             if let Some(path) = project_path {
                 updates.push("project_path = ?".to_string());
                 params_vec.push(Box::new(path));
@@ -699,6 +728,66 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 params![chrono_now(), id],
             )?;
         }
+
+        PersistCommand::ApprovalRequested {
+            session_id,
+            request_id,
+            approval_type,
+            tool_name,
+            command,
+            file_path,
+            cwd,
+            proposed_amendment,
+        } => {
+            let approval_type_str = match approval_type {
+                ApprovalType::Exec => "exec",
+                ApprovalType::Patch => "patch",
+                ApprovalType::Question => "question",
+            };
+            let proposed_amendment_json = proposed_amendment
+                .and_then(|v| serde_json::to_string(&v).ok());
+            let now = chrono_now();
+            conn.execute(
+                "INSERT INTO approval_history (
+                    session_id, request_id, approval_type, tool_name, command, file_path, cwd,
+                    proposed_amendment, created_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    session_id,
+                    request_id,
+                    approval_type_str,
+                    tool_name,
+                    command,
+                    file_path,
+                    cwd,
+                    proposed_amendment_json,
+                    now
+                ],
+            )?;
+        }
+
+        PersistCommand::ApprovalDecision {
+            session_id,
+            request_id,
+            decision,
+        } => {
+            let now = chrono_now();
+            conn.execute(
+                "UPDATE approval_history
+                 SET decision = ?1, decided_at = ?2
+                 WHERE id = (
+                   SELECT id
+                   FROM approval_history
+                   WHERE session_id = ?3
+                     AND request_id = ?4
+                     AND decision IS NULL
+                   ORDER BY id DESC
+                   LIMIT 1
+                 )",
+                params![decision, now, session_id, request_id],
+            )?;
+        }
+
     }
 
     Ok(())
@@ -1029,6 +1118,157 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 pub fn create_persistence_channel() -> (mpsc::Sender<PersistCommand>, mpsc::Receiver<PersistCommand>)
 {
     mpsc::channel(1000)
+}
+
+/// List approval history, optionally scoped to a session
+pub async fn list_approvals(
+    session_id: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let limit = limit.unwrap_or(200).min(1000) as i64;
+
+    let items = tokio::task::spawn_blocking(move || -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'approval_history'",
+            [],
+            |row| row.get(0),
+        )?;
+        if table_exists == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut items = Vec::new();
+        if let Some(session_id) = session_id {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, request_id, approval_type, tool_name, command, file_path, cwd, decision, proposed_amendment, created_at, decided_at
+                 FROM approval_history
+                 WHERE session_id = ?1
+                 ORDER BY id DESC
+                 LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![session_id, limit], |row| {
+                let approval_type_str: String = row.get(3)?;
+                let approval_type = match approval_type_str.as_str() {
+                    "exec" => ApprovalType::Exec,
+                    "patch" => ApprovalType::Patch,
+                    "question" => ApprovalType::Question,
+                    _ => ApprovalType::Exec,
+                };
+                let proposed_json: Option<String> = row.get(9)?;
+                let proposed_amendment = proposed_json
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
+                Ok(ApprovalHistoryItem {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    request_id: row.get(2)?,
+                    approval_type,
+                    tool_name: row.get(4)?,
+                    command: row.get(5)?,
+                    file_path: row.get(6)?,
+                    cwd: row.get(7)?,
+                    decision: row.get(8)?,
+                    proposed_amendment,
+                    created_at: row.get(10)?,
+                    decided_at: row.get(11)?,
+                })
+            })?;
+            for row in rows {
+                if let Ok(item) = row {
+                    items.push(item);
+                }
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, request_id, approval_type, tool_name, command, file_path, cwd, decision, proposed_amendment, created_at, decided_at
+                 FROM approval_history
+                 ORDER BY id DESC
+                 LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![limit], |row| {
+                let approval_type_str: String = row.get(3)?;
+                let approval_type = match approval_type_str.as_str() {
+                    "exec" => ApprovalType::Exec,
+                    "patch" => ApprovalType::Patch,
+                    "question" => ApprovalType::Question,
+                    _ => ApprovalType::Exec,
+                };
+                let proposed_json: Option<String> = row.get(9)?;
+                let proposed_amendment = proposed_json
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
+                Ok(ApprovalHistoryItem {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    request_id: row.get(2)?,
+                    approval_type,
+                    tool_name: row.get(4)?,
+                    command: row.get(5)?,
+                    file_path: row.get(6)?,
+                    cwd: row.get(7)?,
+                    decision: row.get(8)?,
+                    proposed_amendment,
+                    created_at: row.get(10)?,
+                    decided_at: row.get(11)?,
+                })
+            })?;
+            for row in rows {
+                if let Ok(item) = row {
+                    items.push(item);
+                }
+            }
+        }
+
+        Ok(items)
+    })
+    .await??;
+
+    Ok(items)
+}
+
+/// Delete one approval history item
+pub async fn delete_approval(approval_id: i64) -> Result<bool, anyhow::Error> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+
+    let deleted = tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(false);
+        }
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'approval_history'",
+            [],
+            |row| row.get(0),
+        )?;
+        if table_exists == 0 {
+            return Ok(false);
+        }
+        let rows = conn.execute(
+            "DELETE FROM approval_history WHERE id = ?1",
+            params![approval_id],
+        )?;
+        Ok(rows > 0)
+    })
+    .await??;
+
+    Ok(deleted)
 }
 
 #[cfg(test)]

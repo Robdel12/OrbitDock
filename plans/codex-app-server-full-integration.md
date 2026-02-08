@@ -42,6 +42,8 @@ Key files:
 - [x] Patch approval (file changes) — approve/reject
 - [x] Question answering (user input requests)
 - [x] Approval type tracking in session state for correct dispatch
+- [x] Approval history UI + protocol (session/global scope, delete actions)
+- [x] Pending-chip race fix: local optimistic resolve + bounded refresh retries to prevent sticky `pending` after decision
 
 ### Token Usage & Rate Limits
 - [x] Real-time token usage display (input/output/cached/context window)
@@ -69,8 +71,10 @@ Key files:
 - [x] MCP debug bridge expanded — provider-aware session discovery (`list_sessions`, `get_session`) with safe direct-Codex action gating
 - [x] End-to-end MCP smoke test from OrbitDock into a live direct Codex session (`send_message`, `get_session`, `list_sessions`)
 - [x] Structured JSON logging (`~/.orbitdock/logs/codex.log` and `server.log`)
+- [x] App runtime log persisted to `~/.orbitdock/logs/app.log` for cross-process debugging (no Xcode-copy dependency)
 - [x] Decode error logging with raw JSON payloads
 - [x] Ended direct session history fallback when only `messages` rows exist (no `message_session_stats` row)
+- [x] Migration parser hardened for trigger scripts (`CREATE TRIGGER ... BEGIN ... END`) to avoid embedded migration split failures
 
 ---
 
@@ -144,6 +148,9 @@ The Swift `CodexRolloutWatcher` and Rust server both write to the same DB, creat
 - [x] **Broadcast updates**: Watcher sessions emit same `SessionDelta`, `SessionCreated`, `SessionEnded` messages as direct sessions
 - [x] **Session list**: Watcher sessions appear in `SessionsList` alongside direct sessions
 - [x] **Unified state**: Both direct and watcher sessions live in same `AppState.sessions` map
+- [x] **Approval history protocol + UI**: list/delete approvals over WebSocket, session/global history panel in session view
+- [x] **Shadow-row hardening**: rollout updates self-heal passive rows to `provider=codex`, `codex_integration_mode=passive`, and `codex_thread_id`
+- [x] **Thread-ID dedup hardening**: UI excludes rows whose `id` matches a direct session `codex_thread_id` to prevent passive takeover
 
 **Phase 4: Remove Swift watcher**
 - [x] **Delete**: `CodexRolloutWatcher.swift`, `CodexSessionStore.swift`
@@ -368,8 +375,9 @@ Lower priority — nice to have, verified as real APIs:
 
 ### What we need to fix
 - **Two systems, one database**: The Swift `CodexRolloutWatcher` and Rust server both write session state to SQLite. When a direct session also writes a rollout file, the watcher races the server and creates duplicate entries with wrong provider/state. The `isServerManaged` cross-process check has inherent race conditions. Fix: consolidate all Codex session management into the Rust server (Task #2).
+- **Passive row identity drift**: Legacy/malformed passive rows (`context_label='codex_cli_rs'`) can linger with incorrect provider/mode metadata and resurface on refresh. Fix: enforce passive Codex identity in rollout update writes and filter thread-shadow rows in Swift merge logic.
 
 ---
 
 *Created: 2025-01-20*
-*Updated: 2026-02-07 — Added Task #2 (Unified Control Plane) to fix watcher/server race conditions. Renumbered remaining tasks.*
+*Updated: 2026-02-08 — Added approval-history + shadow-row hardening progress under Task #2 and debugging log updates.*

@@ -83,7 +83,7 @@ struct CodexApprovalView: View {
 
       // Secondary options row
       HStack(spacing: 16) {
-        Button("Allow for Session") {
+        Button("Allow This Command for Session") {
           sendDecision("approved_for_session")
         }
         .font(.caption)
@@ -107,6 +107,12 @@ struct CodexApprovalView: View {
         .font(.caption)
         .foregroundStyle(.red.opacity(0.8))
         .disabled(isProcessing)
+      }
+
+      if isExecApproval {
+        Text("Session allow applies only to identical command + working directory.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
       }
     }
     .padding(16)
@@ -144,7 +150,7 @@ struct CodexApprovalView: View {
   private func toolInputView(toolName: String, input: [String: Any]) -> some View {
     switch toolName {
       case "Shell", "Bash":
-        if let command = input["command"] as? String {
+        if let command = commandString(from: input) {
           VStack(alignment: .leading, spacing: 4) {
             Text("Command:")
               .font(.caption)
@@ -156,11 +162,20 @@ struct CodexApprovalView: View {
               .frame(maxWidth: .infinity, alignment: .leading)
               .background(Color.backgroundPrimary)
               .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            Text("Working directory:")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+
+            Text(session.projectPath)
+              .font(.system(.caption, design: .monospaced))
+              .lineLimit(1)
+              .truncationMode(.middle)
           }
         }
 
       case "Edit", "Write":
-        if let path = input["path"] as? String {
+        if let path = (input["path"] as? String) ?? (input["file_path"] as? String) {
           VStack(alignment: .leading, spacing: 4) {
             Text("File:")
               .font(.caption)
@@ -196,6 +211,14 @@ struct CodexApprovalView: View {
       case "Read": return "doc.text"
       default: return "wrench"
     }
+  }
+
+  private func commandString(from input: [String: Any]) -> String? {
+    if let command = input["command"] as? String { return command }
+    if let command = input["cmd"] as? String { return command }
+    if let commandParts = input["command"] as? [String] { return commandParts.joined(separator: " ") }
+    if let commandParts = input["cmd"] as? [String] { return commandParts.joined(separator: " ") }
+    return nil
   }
 
   private func parseToolInput() -> [String: Any]? {

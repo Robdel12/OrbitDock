@@ -56,7 +56,7 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
 
   var approvalPolicy: String? {
     switch self {
-      case .suggest: nil  // server defaults to "untrusted"
+      case .suggest: "untrusted"
       case .autoEdit: "on-request"
       case .fullAuto: "never"
       case .fullAccess: "never"
@@ -65,7 +65,7 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
 
   var sandboxMode: String? {
     switch self {
-      case .suggest: nil
+      case .suggest: "workspace-write"
       case .autoEdit: "workspace-write"
       case .fullAuto: "workspace-write"
       case .fullAccess: "danger-full-access"

@@ -27,6 +27,7 @@ struct SessionDetailView: View {
 
   // Turn sidebar state (plan + diff) - starts closed, user must trigger it
   @State private var showTurnSidebar = false
+  @State private var showApprovalHistory = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -92,6 +93,12 @@ struct SessionDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
+
+        if showApprovalHistory {
+          CodexApprovalHistoryView(sessionId: session.id)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
       }
 
       // Action bar (or input bar for direct Codex)
@@ -107,6 +114,10 @@ struct SessionDetailView: View {
       setupSubscription()
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(session.id)
+        if session.isDirectCodex {
+          serverState.loadApprovalHistory(sessionId: session.id)
+          serverState.loadGlobalApprovalHistory()
+        }
       }
     }
     .onDisappear {
@@ -125,6 +136,10 @@ struct SessionDetailView: View {
       setupSubscription()
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(newId)
+        if session.isDirectCodex {
+          serverState.loadApprovalHistory(sessionId: newId)
+          serverState.loadGlobalApprovalHistory()
+        }
       }
       // Reset scroll state for new session
       isPinned = true
@@ -343,6 +358,35 @@ struct SessionDetailView: View {
             .buttonStyle(.plain)
           }
 
+          Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+              showApprovalHistory.toggle()
+            }
+          } label: {
+            HStack(spacing: 4) {
+              Image(systemName: "checklist")
+                .font(.system(size: 11, weight: .medium))
+              Text("Approvals")
+                .font(.system(size: 11, weight: .medium))
+              if approvalHistoryCount > 0 {
+                Text("\(approvalHistoryCount)")
+                  .font(.system(size: 10, weight: .bold))
+                  .padding(.horizontal, 5)
+                  .padding(.vertical, 1)
+                  .background(Color.accent.opacity(0.18), in: Capsule())
+                  .foregroundStyle(Color.accent)
+              }
+            }
+            .foregroundStyle(showApprovalHistory ? Color.accent : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+              showApprovalHistory ? Color.accent.opacity(0.15) : Color.surfaceHover,
+              in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+          }
+          .buttonStyle(.plain)
+
           Spacer()
 
           // Chat scroll controls + timestamp
@@ -437,6 +481,10 @@ struct SessionDetailView: View {
     } else {
       return "Plan"
     }
+  }
+
+  private var approvalHistoryCount: Int {
+    serverState.approvalHistoryBySession[session.id]?.count ?? 0
   }
 
   // MARK: - Helpers

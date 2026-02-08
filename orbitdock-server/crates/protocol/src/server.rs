@@ -48,6 +48,15 @@ pub enum ServerMessage {
         reason: String,
     },
 
+    // Approval history
+    ApprovalsList {
+        session_id: Option<String>,
+        approvals: Vec<ApprovalHistoryItem>,
+    },
+    ApprovalDeleted {
+        approval_id: i64,
+    },
+
     // Errors
     Error {
         code: String,

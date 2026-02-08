@@ -106,6 +106,11 @@ impl SessionHandle {
         &self.id
     }
 
+    /// Get session project path
+    pub fn project_path(&self) -> &str {
+        &self.project_path
+    }
+
     /// Get a summary of this session
     pub fn summary(&self) -> SessionSummary {
         SessionSummary {

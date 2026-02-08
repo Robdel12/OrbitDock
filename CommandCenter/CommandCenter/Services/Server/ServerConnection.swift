@@ -48,6 +48,8 @@ final class ServerConnection: ObservableObject {
   var onTokensUpdated: ((String, ServerTokenUsage) -> Void)?
   var onSessionCreated: ((ServerSessionSummary) -> Void)?
   var onSessionEnded: ((String, String) -> Void)?
+  var onApprovalsList: ((String?, [ServerApprovalHistoryItem]) -> Void)?
+  var onApprovalDeleted: ((Int64) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
@@ -242,6 +244,12 @@ final class ServerConnection: ObservableObject {
     case .sessionEnded(let sessionId, let reason):
       onSessionEnded?(sessionId, reason)
 
+    case .approvalsList(let sessionId, let approvals):
+      onApprovalsList?(sessionId, approvals)
+
+    case .approvalDeleted(let approvalId):
+      onApprovalDeleted?(approvalId)
+
     case .error(let code, let errorMessage, let sessionId):
       logger.error("Server error [\(code)]: \(errorMessage)")
       onError?(code, errorMessage, sessionId)
@@ -332,5 +340,15 @@ final class ServerConnection: ObservableObject {
   /// Resume an ended session
   func resumeSession(_ sessionId: String) {
     send(.resumeSession(sessionId: sessionId))
+  }
+
+  /// Load approval history
+  func listApprovals(sessionId: String?, limit: Int? = 200) {
+    send(.listApprovals(sessionId: sessionId, limit: limit))
+  }
+
+  /// Delete one approval history row
+  func deleteApproval(_ approvalId: Int64) {
+    send(.deleteApproval(approvalId: approvalId))
   }
 }

@@ -333,6 +333,7 @@ struct ContentView: View {
   private func loadSessions() async {
     let oldWaitingIds = Set(waitingSessions.map(\.id))
     let oldSessions = sessions
+    let previousSelectionId = selectedSessionId
 
     // Merge sessions from both sources:
     // - Claude sessions from DatabaseManager (via SessionStore)
@@ -340,6 +341,11 @@ struct ContentView: View {
     let dbSessions = database.sessions
     let serverSessions = serverState.sessions
     let serverIds = Set(serverSessions.map(\.id))
+    let directCodexThreadIds = Set(
+      dbSessions
+        .filter(\.isDirectCodex)
+        .compactMap(\.codexThreadId)
+    )
     // Collect thread IDs from server-managed sessions (stored in DB by Rust server)
     let serverThreadIds = Set(
       dbSessions
@@ -352,10 +358,28 @@ struct ContentView: View {
     let nonServerSessions = dbSessions.filter { session in
       guard !serverIds.contains(session.id) else { return false }
       if serverThreadIds.contains(session.id) { return false }
+      // Drop shadow rows where any passive/legacy row uses a direct Codex thread ID as session ID.
+      if directCodexThreadIds.contains(session.id) { return false }
       if session.isDirectCodex && session.isActive { return false }
       return true
     }
     sessions = nonServerSessions + serverSessions
+
+    // If selection is a passive Codex shadow row, remap to its direct session.
+    if let selectedId = previousSelectionId {
+      if let selected = sessions.first(where: { $0.id == selectedId }) {
+        if selected.provider == .codex, !selected.isDirectCodex,
+           let direct = sessions.first(where: { $0.isDirectCodex && $0.codexThreadId == selected.id })
+        {
+          selectedSessionId = direct.id
+        }
+      } else if let previous = oldSessions.first(where: { $0.id == selectedId }),
+                previous.provider == .codex,
+                let direct = sessions.first(where: { $0.isDirectCodex && ($0.codexThreadId == previous.id || $0.projectPath == previous.projectPath) })
+      {
+        selectedSessionId = direct.id
+      }
+    }
 
     // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {

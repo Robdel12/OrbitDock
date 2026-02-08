@@ -124,6 +124,23 @@ pub enum ApprovalType {
     Question,
 }
 
+/// Persisted approval history item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalHistoryItem {
+    pub id: i64,
+    pub session_id: String,
+    pub request_id: String,
+    pub approval_type: ApprovalType,
+    pub tool_name: Option<String>,
+    pub command: Option<String>,
+    pub file_path: Option<String>,
+    pub cwd: Option<String>,
+    pub decision: Option<String>,
+    pub proposed_amendment: Option<Vec<String>>,
+    pub created_at: String,
+    pub decided_at: Option<String>,
+}
+
 /// Summary of a session for list views
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionSummary {

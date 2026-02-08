@@ -117,13 +117,18 @@ extension ServerApprovalRequest {
   }
 
   var toolInputForDisplay: String? {
+    var payload: [String: Any] = [:]
     if let cmd = command {
-      return "{\"command\":\"\(cmd)\"}"
+      payload["command"] = cmd
     }
     if let path = filePath {
-      return "{\"file_path\":\"\(path)\"}"
+      payload["file_path"] = path
     }
-    return nil
+    guard !payload.isEmpty else { return nil }
+    guard let data = try? JSONSerialization.data(withJSONObject: payload),
+          let json = String(data: data, encoding: .utf8)
+    else { return nil }
+    return json
   }
 }
 

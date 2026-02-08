@@ -17,7 +17,7 @@ use tracing::{debug, error, info, warn};
 use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, ServerMessage, TokenUsage};
 
 use crate::codex_session::{CodexAction, CodexSession};
-use crate::persistence::{load_session_by_id, PersistCommand};
+use crate::persistence::{delete_approval, list_approvals, load_session_by_id, PersistCommand};
 use crate::session::SessionHandle;
 use crate::state::AppState;
 
@@ -354,6 +354,15 @@ async fn handle_client_message(
 
             let state = state.lock().await;
 
+            let _ = state
+                .persist()
+                .send(PersistCommand::ApprovalDecision {
+                    session_id: session_id.clone(),
+                    request_id: request_id.clone(),
+                    decision: decision.clone(),
+                })
+                .await;
+
             // Look up approval type and proposed amendment from session state
             let (approval_type, proposed_amendment) =
                 if let Some(session) = state.get_session(&session_id) {
@@ -403,6 +412,64 @@ async fn handle_client_message(
                     .await;
             }
         }
+
+        ClientMessage::ListApprovals { session_id, limit } => {
+            match list_approvals(session_id.clone(), limit).await {
+                Ok(approvals) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::ApprovalsList {
+                            session_id,
+                            approvals,
+                        },
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "approval_list_failed".into(),
+                            message: format!("Failed to list approvals: {}", e),
+                            session_id: None,
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+
+        ClientMessage::DeleteApproval { approval_id } => match delete_approval(approval_id).await {
+            Ok(true) => {
+                send_json(
+                    client_tx,
+                    ServerMessage::ApprovalDeleted { approval_id },
+                )
+                .await;
+            }
+            Ok(false) => {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".into(),
+                        message: format!("Approval {} not found", approval_id),
+                        session_id: None,
+                    },
+                )
+                .await;
+            }
+            Err(e) => {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "approval_delete_failed".into(),
+                        message: format!("Failed to delete approval {}: {}", approval_id, e),
+                        session_id: None,
+                    },
+                )
+                .await;
+            }
+        },
 
         ClientMessage::AnswerQuestion {
             session_id,

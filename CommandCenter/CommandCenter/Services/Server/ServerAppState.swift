@@ -36,6 +36,12 @@ final class ServerAppState {
   /// Plan per session (JSON string)
   private(set) var sessionPlans: [String: String] = [:]
 
+  /// Approval history per session
+  private(set) var approvalHistoryBySession: [String: [ServerApprovalHistoryItem]] = [:]
+
+  /// Cross-session approval history (global view)
+  private(set) var globalApprovalHistory: [ServerApprovalHistoryItem] = []
+
   /// Revision counter per session - incremented on message append/update for change tracking
   private(set) var messageRevisions: [String: Int] = [:]
 
@@ -117,6 +123,18 @@ final class ServerAppState {
       }
     }
 
+    conn.onApprovalsList = { [weak self] sessionId, approvals in
+      Task { @MainActor in
+        self?.handleApprovalsList(sessionId: sessionId, approvals: approvals)
+      }
+    }
+
+    conn.onApprovalDeleted = { [weak self] approvalId in
+      Task { @MainActor in
+        self?.handleApprovalDeleted(approvalId: approvalId)
+      }
+    }
+
     conn.onError = { [weak self] code, message, sessionId in
       Task { @MainActor in
         self?.handleError(code, message, sessionId)
@@ -152,13 +170,21 @@ final class ServerAppState {
   /// Approve or reject a tool with a specific decision
   func approveTool(sessionId: String, requestId: String, decision: String) {
     logger.info("Approving tool \(requestId) in \(sessionId): \(decision)")
+
+    resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: decision)
+
     ServerConnection.shared.approveTool(sessionId: sessionId, requestId: requestId, decision: decision)
+    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
+    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
   }
 
   /// Answer a question
   func answerQuestion(sessionId: String, requestId: String, answer: String) {
     logger.info("Answering question \(requestId) in \(sessionId)")
+    resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: "approved")
     ServerConnection.shared.answerQuestion(sessionId: sessionId, requestId: requestId, answer: answer)
+    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
+    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
   }
 
   /// Interrupt a session
@@ -205,6 +231,7 @@ final class ServerAppState {
     guard !subscribedSessions.contains(sessionId) else { return }
     subscribedSessions.insert(sessionId)
     ServerConnection.shared.subscribeSession(sessionId)
+    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
     logger.debug("Subscribed to session \(sessionId)")
   }
 
@@ -218,6 +245,21 @@ final class ServerAppState {
   /// Check if a session ID belongs to a server-managed session
   func isServerSession(_ sessionId: String) -> Bool {
     sessions.contains { $0.id == sessionId }
+  }
+
+  /// Load approval history for one session
+  func loadApprovalHistory(sessionId: String, limit: Int = 200) {
+    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: limit)
+  }
+
+  /// Load global approval history across all sessions
+  func loadGlobalApprovalHistory(limit: Int = 200) {
+    ServerConnection.shared.listApprovals(sessionId: nil, limit: limit)
+  }
+
+  /// Delete one approval history item
+  func deleteApproval(approvalId: Int64) {
+    ServerConnection.shared.deleteApproval(approvalId)
   }
 
   // MARK: - Reconnection
@@ -243,6 +285,46 @@ final class ServerAppState {
         approvalPolicy: summary.approvalPolicy,
         sandboxMode: summary.sandboxMode
       )
+    }
+  }
+
+  private func handleApprovalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem]) {
+    let merged = mergeApprovalsPreferResolved(
+      existing: sessionId.flatMap { approvalHistoryBySession[$0] } ?? globalApprovalHistory,
+      incoming: approvals
+    )
+
+    if let sessionId {
+      approvalHistoryBySession[sessionId] = merged
+    } else {
+      globalApprovalHistory = merged
+    }
+  }
+
+  /// Out-of-order websocket responses can deliver an older "pending" snapshot after a
+  /// newer resolved one. Prefer already-resolved items when IDs match.
+  private func mergeApprovalsPreferResolved(
+    existing: [ServerApprovalHistoryItem],
+    incoming: [ServerApprovalHistoryItem]
+  ) -> [ServerApprovalHistoryItem] {
+    let existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+    let merged = incoming.map { item -> ServerApprovalHistoryItem in
+      guard let prior = existingById[item.id] else { return item }
+      let priorResolved = prior.decision != nil || prior.decidedAt != nil
+      let incomingResolved = item.decision != nil || item.decidedAt != nil
+      if priorResolved && !incomingResolved {
+        return prior
+      }
+      return item
+    }
+
+    return merged.sorted { $0.id > $1.id }
+  }
+
+  private func handleApprovalDeleted(approvalId: Int64) {
+    globalApprovalHistory.removeAll { $0.id == approvalId }
+    for key in approvalHistoryBySession.keys {
+      approvalHistoryBySession[key]?.removeAll { $0.id == approvalId }
     }
   }
 
@@ -295,6 +377,7 @@ final class ServerAppState {
     // Find and update the session
     guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
     var session = sessions[idx]
+    let hadPendingApproval = pendingApprovals[sessionId] != nil
 
     if let status = changes.status {
       session.status = status == .active ? .active : .ended
@@ -387,6 +470,91 @@ final class ServerAppState {
     }
 
     sessions[idx] = session
+
+    // Keep approval history in sync when approval resolves without a manual UI action
+    // (e.g. session/global allow rules auto-approve a matching command).
+    let hasPendingApproval = pendingApprovals[sessionId] != nil
+    if hadPendingApproval && !hasPendingApproval {
+      refreshApprovalHistory(sessionId: sessionId)
+      // Persistence writes are batched server-side; issue a few bounded retries
+      // so just-resolved approvals don't remain visually stuck as "pending".
+      Task { @MainActor in
+        for delayMs in [250, 1000, 2000] {
+          try? await Task.sleep(for: .milliseconds(delayMs))
+          refreshApprovalHistory(sessionId: sessionId)
+        }
+      }
+    }
+  }
+
+  private func refreshApprovalHistory(sessionId: String) {
+    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
+    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
+  }
+
+  private func resolvePendingApprovalLocally(sessionId: String, requestId: String, decision: String) {
+    let decidedAt = ISO8601DateFormatter().string(from: Date())
+
+    // Clear local pending gate immediately once user has decided.
+    if let pending = pendingApprovals[sessionId], pending.id == requestId {
+      pendingApprovals.removeValue(forKey: sessionId)
+
+      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+        var session = sessions[idx]
+        session.pendingApprovalId = nil
+        session.pendingToolName = nil
+        session.pendingToolInput = nil
+        session.pendingQuestion = nil
+        session.workStatus = .working
+        session.attentionReason = .none
+        sessions[idx] = session
+      }
+    }
+
+    // Optimistically mark matching history row(s) as decided so chips do not stick on "pending".
+    if var rows = approvalHistoryBySession[sessionId] {
+      var updatedRows: [ServerApprovalHistoryItem] = []
+      for row in rows {
+        if row.requestId == requestId && row.decision == nil {
+          updatedRows.append(
+            ServerApprovalHistoryItem(
+              id: row.id,
+              sessionId: row.sessionId,
+              requestId: row.requestId,
+              approvalType: row.approvalType,
+              toolName: row.toolName,
+              command: row.command,
+              filePath: row.filePath,
+              cwd: row.cwd,
+              decision: decision,
+              proposedAmendment: row.proposedAmendment,
+              createdAt: row.createdAt,
+              decidedAt: decidedAt
+            )
+          )
+        } else {
+          updatedRows.append(row)
+        }
+      }
+      approvalHistoryBySession[sessionId] = updatedRows
+      globalApprovalHistory = globalApprovalHistory.map { item in
+        guard item.sessionId == sessionId, item.requestId == requestId, item.decision == nil else { return item }
+        return ServerApprovalHistoryItem(
+          id: item.id,
+          sessionId: item.sessionId,
+          requestId: item.requestId,
+          approvalType: item.approvalType,
+          toolName: item.toolName,
+          command: item.command,
+          filePath: item.filePath,
+          cwd: item.cwd,
+          decision: decision,
+          proposedAmendment: item.proposedAmendment,
+          createdAt: item.createdAt,
+          decidedAt: decidedAt
+        )
+      }
+    }
   }
 
   private func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
@@ -461,6 +629,8 @@ final class ServerAppState {
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest) {
     logger.info("Approval requested in \(sessionId): \(request.type.rawValue)")
     pendingApprovals[sessionId] = request
+    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
+    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
 
     // Update session state
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {

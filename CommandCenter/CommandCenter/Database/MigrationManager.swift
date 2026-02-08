@@ -102,6 +102,13 @@ final class MigrationManager: @unchecked Sendable {
 
   /// Apply migration SQL statements individually, handling idempotent failures gracefully
   private nonisolated func applyMigrationStatements(_ sql: String) throws {
+    // Trigger definitions contain internal ';' inside BEGIN/END blocks.
+    // Splitting naively on ';' breaks them into invalid fragments.
+    if sql.uppercased().contains("CREATE TRIGGER") {
+      try db.execute(sql)
+      return
+    }
+
     // Split SQL into individual statements
     let statements = sql.components(separatedBy: ";")
       .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

@@ -58,6 +58,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   static var serverAppState: ServerAppState?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
+    AppFileLogger.shared.start()
+
     // Set up notification delegate
     UNUserNotificationCenter.current().delegate = self
 

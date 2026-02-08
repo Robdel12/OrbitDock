@@ -67,4 +67,13 @@ pub enum ClientMessage {
     ResumeSession {
         session_id: String,
     },
+
+    // Approval history
+    ListApprovals {
+        session_id: Option<String>,
+        limit: Option<u32>,
+    },
+    DeleteApproval {
+        approval_id: i64,
+    },
 }

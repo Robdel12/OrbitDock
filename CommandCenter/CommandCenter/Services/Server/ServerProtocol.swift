@@ -136,6 +136,36 @@ enum ServerApprovalType: String, Codable {
   case question
 }
 
+struct ServerApprovalHistoryItem: Codable, Identifiable {
+  let id: Int64
+  let sessionId: String
+  let requestId: String
+  let approvalType: ServerApprovalType
+  let toolName: String?
+  let command: String?
+  let filePath: String?
+  let cwd: String?
+  let decision: String?
+  let proposedAmendment: [String]?
+  let createdAt: String
+  let decidedAt: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case sessionId = "session_id"
+    case requestId = "request_id"
+    case approvalType = "approval_type"
+    case toolName = "tool_name"
+    case command
+    case filePath = "file_path"
+    case cwd
+    case decision
+    case proposedAmendment = "proposed_amendment"
+    case createdAt = "created_at"
+    case decidedAt = "decided_at"
+  }
+}
+
 // MARK: - Session Summary
 
 struct ServerSessionSummary: Codable, Identifiable {
@@ -272,6 +302,8 @@ enum ServerToClientMessage: Codable {
   case tokensUpdated(sessionId: String, usage: ServerTokenUsage)
   case sessionCreated(session: ServerSessionSummary)
   case sessionEnded(sessionId: String, reason: String)
+  case approvalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem])
+  case approvalDeleted(approvalId: Int64)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -286,6 +318,8 @@ enum ServerToClientMessage: Codable {
     case usage
     case reason
     case code
+    case approvals
+    case approvalId = "approval_id"
   }
 
   init(from decoder: Decoder) throws {
@@ -335,6 +369,15 @@ enum ServerToClientMessage: Codable {
       let sessionId = try container.decode(String.self, forKey: .sessionId)
       let reason = try container.decode(String.self, forKey: .reason)
       self = .sessionEnded(sessionId: sessionId, reason: reason)
+
+    case "approvals_list":
+      let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+      let approvals = try container.decode([ServerApprovalHistoryItem].self, forKey: .approvals)
+      self = .approvalsList(sessionId: sessionId, approvals: approvals)
+
+    case "approval_deleted":
+      let approvalId = try container.decode(Int64.self, forKey: .approvalId)
+      self = .approvalDeleted(approvalId: approvalId)
 
     case "error":
       let code = try container.decode(String.self, forKey: .code)
@@ -399,6 +442,15 @@ enum ServerToClientMessage: Codable {
       try container.encode(sessionId, forKey: .sessionId)
       try container.encode(reason, forKey: .reason)
 
+    case .approvalsList(let sessionId, let approvals):
+      try container.encode("approvals_list", forKey: .type)
+      try container.encodeIfPresent(sessionId, forKey: .sessionId)
+      try container.encode(approvals, forKey: .approvals)
+
+    case .approvalDeleted(let approvalId):
+      try container.encode("approval_deleted", forKey: .type)
+      try container.encode(approvalId, forKey: .approvalId)
+
     case .error(let code, let message, let sessionId):
       try container.encode("error", forKey: .type)
       try container.encode(code, forKey: .code)
@@ -423,6 +475,8 @@ enum ClientToServerMessage: Codable {
   case updateSessionConfig(sessionId: String, approvalPolicy: String?, sandboxMode: String?)
   case renameSession(sessionId: String, name: String?)
   case resumeSession(sessionId: String)
+  case listApprovals(sessionId: String?, limit: Int?)
+  case deleteApproval(approvalId: Int64)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -438,6 +492,8 @@ enum ClientToServerMessage: Codable {
     case answer
     case name
     case effort
+    case limit
+    case approvalId = "approval_id"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -504,6 +560,15 @@ enum ClientToServerMessage: Codable {
     case .resumeSession(let sessionId):
       try container.encode("resume_session", forKey: .type)
       try container.encode(sessionId, forKey: .sessionId)
+
+    case .listApprovals(let sessionId, let limit):
+      try container.encode("list_approvals", forKey: .type)
+      try container.encodeIfPresent(sessionId, forKey: .sessionId)
+      try container.encodeIfPresent(limit, forKey: .limit)
+
+    case .deleteApproval(let approvalId):
+      try container.encode("delete_approval", forKey: .type)
+      try container.encode(approvalId, forKey: .approvalId)
     }
   }
 
@@ -562,6 +627,13 @@ enum ClientToServerMessage: Codable {
       )
     case "resume_session":
       self = .resumeSession(sessionId: try container.decode(String.self, forKey: .sessionId))
+    case "list_approvals":
+      self = .listApprovals(
+        sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId),
+        limit: try container.decodeIfPresent(Int.self, forKey: .limit)
+      )
+    case "delete_approval":
+      self = .deleteApproval(approvalId: try container.decode(Int64.self, forKey: .approvalId))
     default:
       throw DecodingError.dataCorrupted(
         DecodingError.Context(

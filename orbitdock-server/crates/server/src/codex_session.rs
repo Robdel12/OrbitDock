@@ -256,6 +256,23 @@ impl CodexSession {
                     proposed_amendment,
                 };
 
+                let _ = persist_tx
+                    .send(PersistCommand::ApprovalRequested {
+                        session_id: session_id.to_string(),
+                        request_id: request.id.clone(),
+                        approval_type: request.approval_type,
+                        tool_name: Some(match request.approval_type {
+                            orbitdock_protocol::ApprovalType::Exec => "Bash".to_string(),
+                            orbitdock_protocol::ApprovalType::Patch => "Edit".to_string(),
+                            orbitdock_protocol::ApprovalType::Question => "Question".to_string(),
+                        }),
+                        command: request.command.clone(),
+                        file_path: request.file_path.clone(),
+                        cwd: Some(session.project_path().to_string()),
+                        proposed_amendment: request.proposed_amendment.clone(),
+                    })
+                    .await;
+
                 session
                     .broadcast(ServerMessage::ApprovalRequested {
                         session_id: session_id.to_string(),

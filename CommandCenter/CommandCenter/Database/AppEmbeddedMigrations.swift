@@ -30,6 +30,8 @@ enum AppEmbeddedMigrations: Sendable {
     migration009,
     migration010,
     migration011,
+    migration012,
+    migration013,
   ]
 
   // MARK: - Migration 001: Initial schema
@@ -395,6 +397,91 @@ enum AppEmbeddedMigrations: Sendable {
     sql: """
       ALTER TABLE sessions ADD COLUMN approval_policy TEXT;
       ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT;
+      """
+  )
+
+  // MARK: - Migration 012: Approval history tracking
+
+  static let migration012 = Migration(
+    version: 12,
+    name: "approval_history",
+    sql: """
+      CREATE TABLE IF NOT EXISTS approval_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        request_id TEXT NOT NULL,
+        approval_type TEXT NOT NULL,
+        tool_name TEXT,
+        command TEXT,
+        file_path TEXT,
+        cwd TEXT,
+        decision TEXT,
+        proposed_amendment TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_approval_history_session_id
+        ON approval_history(session_id, id DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_approval_history_created_at
+        ON approval_history(created_at DESC);
+      """
+  )
+
+  // MARK: - Migration 013: Codex shadow-write guards
+
+  static let migration013 = Migration(
+    version: 13,
+    name: "codex_shadow_write_guards",
+    sql: """
+      CREATE TRIGGER IF NOT EXISTS trg_sessions_block_direct_thread_shadow_insert
+      BEFORE INSERT ON sessions
+      WHEN EXISTS (
+        SELECT 1
+        FROM sessions direct
+        WHERE direct.codex_integration_mode = 'direct'
+          AND direct.codex_thread_id = NEW.id
+      )
+      AND COALESCE(NEW.provider, 'claude') != 'codex'
+      BEGIN
+        SELECT RAISE(IGNORE);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_sessions_block_direct_thread_shadow_update
+      BEFORE UPDATE ON sessions
+      WHEN EXISTS (
+        SELECT 1
+        FROM sessions direct
+        WHERE direct.codex_integration_mode = 'direct'
+          AND direct.codex_thread_id = NEW.id
+      )
+      AND COALESCE(NEW.provider, 'claude') != 'codex'
+      BEGIN
+        SELECT RAISE(IGNORE);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_sessions_normalize_codex_cli_rs_insert
+      AFTER INSERT ON sessions
+      WHEN NEW.context_label = 'codex_cli_rs'
+      BEGIN
+        UPDATE sessions
+        SET provider = 'codex',
+            codex_integration_mode = COALESCE(codex_integration_mode, 'passive'),
+            codex_thread_id = COALESCE(codex_thread_id, id)
+        WHERE id = NEW.id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_sessions_normalize_codex_cli_rs_update
+      AFTER UPDATE ON sessions
+      WHEN NEW.context_label = 'codex_cli_rs'
+      BEGIN
+        UPDATE sessions
+        SET provider = 'codex',
+            codex_integration_mode = COALESCE(codex_integration_mode, 'passive'),
+            codex_thread_id = COALESCE(codex_thread_id, id)
+        WHERE id = NEW.id;
+      END;
       """
   )
 }
