@@ -5,11 +5,13 @@ import Foundation
 enum CLIError: Error, LocalizedError {
     case invalidInput(String)
     case databaseError(String)
+    case transportError(String)
 
     var errorDescription: String? {
         switch self {
         case .invalidInput(let msg): return "Invalid input: \(msg)"
         case .databaseError(let msg): return "Database error: \(msg)"
+        case .transportError(let msg): return "Transport error: \(msg)"
         }
     }
 }
@@ -53,5 +55,65 @@ func log(_ message: String) {
         } else {
             try? data.write(to: URL(fileURLWithPath: logPath))
         }
+    }
+}
+
+private func serverWebSocketURL() -> URL {
+    if let raw = ProcessInfo.processInfo.environment["ORBITDOCK_SERVER_WS_URL"],
+       let url = URL(string: raw) {
+        return url
+    }
+    return URL(string: "ws://127.0.0.1:4000/ws")!
+}
+
+private func sendWebSocketPayload(_ payload: [String: Any]) async throws {
+    let data = try JSONSerialization.data(withJSONObject: payload)
+    guard let json = String(data: data, encoding: .utf8) else {
+        throw CLIError.transportError("Failed to encode payload as UTF-8 JSON")
+    }
+
+    let task = URLSession.shared.webSocketTask(with: serverWebSocketURL())
+    task.resume()
+    defer { task.cancel(with: .goingAway, reason: nil) }
+
+    do {
+        try await task.send(.string(json))
+    } catch {
+        throw CLIError.transportError("Failed to send payload to orbitdock-server: \(error.localizedDescription)")
+    }
+}
+
+func encodeToJSONObject<T: Encodable>(_ value: T) -> Any? {
+    let encoder = JSONEncoder()
+    guard let data = try? encoder.encode(value) else { return nil }
+    return try? JSONSerialization.jsonObject(with: data)
+}
+
+func sendServerClientMessage(type: String, fields: [String: Any?]) throws {
+    var payload: [String: Any] = ["type": type]
+    for (key, value) in fields {
+        if let value {
+            payload[key] = value
+        }
+    }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    var sendError: Error?
+
+    Task {
+        do {
+            try await sendWebSocketPayload(payload)
+        } catch {
+            sendError = error
+        }
+        semaphore.signal()
+    }
+
+    let waitResult = semaphore.wait(timeout: .now() + 5)
+    if waitResult == .timedOut {
+        throw CLIError.transportError("Timed out sending payload to orbitdock-server")
+    }
+    if let sendError {
+        throw sendError
     }
 }

@@ -24,48 +24,20 @@ struct SessionStartCommand: ParsableCommand {
         }
 
         log("[SessionStart] source=\(input.source ?? "unknown") model=\(input.model ?? "unknown") session=\(input.session_id.prefix(8))")
-
-        let db = try CLIDatabase()
-
-        // Clean up stale sessions from this terminal
-        let terminalId = getTerminalSessionId()
-        if let tid = terminalId {
-            _ = try db.cleanupStaleSessions(terminalId: tid, currentSessionId: input.session_id)
-        }
-
-        // Get git info
-        let branch = GitOperations.getCurrentBranch(in: input.cwd)
-        let repoName = GitOperations.getRepoName(in: input.cwd)
-
-        // Upsert session
-        try db.upsertSession(
-            id: input.session_id,
-            projectPath: input.cwd,
-            projectName: repoName,
-            branch: branch,
-            model: input.model,
-            contextLabel: input.context_label,
-            transcriptPath: input.transcript_path,
-            status: "active",
-            workStatus: "unknown",
-            startedAt: CLIDatabase.formatDate(),
-            terminalSessionId: terminalId,
-            terminalApp: getTerminalApp()
+        try sendServerClientMessage(
+            type: "claude_session_start",
+            fields: [
+                "session_id": input.session_id,
+                "cwd": input.cwd,
+                "model": input.model,
+                "source": input.source,
+                "context_label": input.context_label,
+                "transcript_path": input.transcript_path,
+                "permission_mode": input.permission_mode,
+                "agent_type": input.agent_type,
+                "terminal_session_id": getTerminalSessionId(),
+                "terminal_app": getTerminalApp(),
+            ]
         )
-
-        // Update with additional hook data (source, agent_type, permission_mode)
-        try db.updateSession(
-            id: input.session_id,
-            source: input.source,
-            agentType: input.agent_type,
-            permissionMode: input.permission_mode
-        )
-
-        if let agentType = input.agent_type {
-            log("  → agent_type=\(agentType)")
-        }
-
-        // Notify the app
-        db.notifyApp()
     }
 }

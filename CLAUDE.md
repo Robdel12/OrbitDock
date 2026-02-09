@@ -143,8 +143,15 @@ The Rust server (`orbitdock-server`) logs to a file only — no stderr output. A
 # Watch all server logs live
 tail -f ~/.orbitdock/logs/server.log | jq .
 
-# Filter by keyword (sessions, codex events, restore, etc.)
-tail -f ~/.orbitdock/logs/server.log | jq 'select(.fields.message | strings | test("codex|session|restore"))'
+# Filter by structured event name
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.event == "session.resume.connector_failed")'
+
+# Filter by component
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.component == "websocket")'
+
+# Filter by session/request IDs
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.session_id == "your-session-id")'
+tail -f ~/.orbitdock/logs/server.log | jq 'select(.request_id == "your-request-id")'
 
 # Errors only
 tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
@@ -154,10 +161,20 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.filename | strings | test("co
 ```
 
 ### Verbose Debug Logs
-Default log level is `info`. For verbose output, set `RUST_LOG` before launching:
+Default log level is `info`. For verbose output, set `ORBITDOCK_SERVER_LOG_FILTER` (or `RUST_LOG`) before launching:
 ```bash
-RUST_LOG=debug cargo run
+ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server
+RUST_LOG=debug cargo run -p orbitdock-server
 ```
+
+### Log Controls
+- `ORBITDOCK_SERVER_LOG_FILTER` - optional tracing filter override (for example `debug,tower_http=warn`).
+- `ORBITDOCK_SERVER_LOG_FORMAT` - `json` (default) or `pretty`.
+- `ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START=1` - truncates `server.log` on boot.
+
+### Structured Fields
+Core event fields are stable for filtering:
+- `event`, `component`, `session_id`, `request_id`, `connection_id`, `error`
 
 ### Key Log Sources
 - `crates/server/src/main.rs` - Startup, session restoration

@@ -43,6 +43,14 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 Useful commands:
 - `sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, provider, codex_integration_mode, status, work_status FROM sessions ORDER BY datetime(last_activity_at) DESC LIMIT 20;"`
 - `tail -f ~/.orbitdock/logs/server.log | jq .`
+- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.event == "session.resume.connector_failed")'`
+- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.component == "websocket")'`
+- `tail -f ~/.orbitdock/logs/server.log | jq 'select(.session_id == "your-session-id")'`
 - `tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'`
 - `tail -f ~/.orbitdock/logs/codex.log | jq .`
 - `tail -f ~/.orbitdock/logs/codex.log | jq 'select(.level == "error" or .level == "warning")'`
+
+Rust server logging env vars:
+- `ORBITDOCK_SERVER_LOG_FILTER` (preferred) or `RUST_LOG` to control verbosity/filtering.
+- `ORBITDOCK_SERVER_LOG_FORMAT=json|pretty` (default `json`).
+- `ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START=1` to clear `server.log` at startup.

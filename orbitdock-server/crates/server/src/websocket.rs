@@ -1,6 +1,8 @@
 //! WebSocket handling
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
     extract::{
@@ -11,6 +13,7 @@ use axum::{
 };
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
+use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
@@ -19,8 +22,11 @@ use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, ServerMe
 
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{delete_approval, list_approvals, load_session_by_id, PersistCommand};
+use crate::session_naming::name_from_first_prompt;
 use crate::session::SessionHandle;
 use crate::state::AppState;
+
+static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
 fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::WorkStatus {
     let normalized = decision.trim().to_lowercase();
@@ -52,7 +58,13 @@ pub async fn ws_handler(
 
 /// Handle a WebSocket connection
 async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
-    info!("New WebSocket connection");
+    let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
+    info!(
+        component = "websocket",
+        event = "ws.connection.opened",
+        connection_id = conn_id,
+        "WebSocket connection opened"
+    );
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -66,7 +78,13 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
                 OutboundMessage::Json(server_msg) => match serde_json::to_string(&server_msg) {
                     Ok(json) => ws_tx.send(Message::Text(json.into())).await,
                     Err(e) => {
-                        error!("Failed to serialize message: {}", e);
+                        error!(
+                            component = "websocket",
+                            event = "ws.send.serialize_failed",
+                            connection_id = conn_id,
+                            error = %e,
+                            "Failed to serialize server message"
+                        );
                         continue;
                     }
                 },
@@ -74,7 +92,12 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
             };
 
             if result.is_err() {
-                debug!("WebSocket send failed, client disconnected");
+                debug!(
+                    component = "websocket",
+                    event = "ws.send.disconnected",
+                    connection_id = conn_id,
+                    "WebSocket send failed, client disconnected"
+                );
                 break;
             }
         }
@@ -93,12 +116,23 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
                 continue;
             }
             Ok(Message::Close(_)) => {
-                info!("Client sent close frame");
+                info!(
+                    component = "websocket",
+                    event = "ws.connection.close_frame",
+                    connection_id = conn_id,
+                    "Client sent close frame"
+                );
                 break;
             }
             Ok(_) => continue,
             Err(e) => {
-                warn!("WebSocket error: {}", e);
+                warn!(
+                    component = "websocket",
+                    event = "ws.connection.error",
+                    connection_id = conn_id,
+                    error = %e,
+                    "WebSocket error"
+                );
                 break;
             }
         };
@@ -107,7 +141,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
         let client_msg: ClientMessage = match serde_json::from_str(&msg) {
             Ok(m) => m,
             Err(e) => {
-                warn!("Failed to parse client message: {} - {}", e, msg);
+                warn!(
+                    component = "websocket",
+                    event = "ws.message.parse_failed",
+                    connection_id = conn_id,
+                    error = %e,
+                    payload_bytes = msg.len(),
+                    payload_preview = %truncate_for_log(&msg, 240),
+                    "Failed to parse client message"
+                );
                 send_json(
                     &client_tx,
                     ServerMessage::Error {
@@ -122,11 +164,20 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
         };
 
         // Handle the message
-        handle_client_message(client_msg, &client_tx, &state).await;
+        handle_client_message(client_msg, &client_tx, &state, conn_id).await;
     }
 
-    info!("WebSocket connection closed");
+    info!(
+        component = "websocket",
+        event = "ws.connection.closed",
+        connection_id = conn_id,
+        "WebSocket connection closed"
+    );
     send_task.abort();
+}
+
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    value.chars().take(max_chars).collect()
 }
 
 /// Send a ServerMessage through the outbound channel
@@ -147,13 +198,48 @@ fn wrap_sender(tx: mpsc::Sender<OutboundMessage>) -> mpsc::Sender<ServerMessage>
     server_tx
 }
 
+fn chrono_now() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("{}Z", secs)
+}
+
+fn project_name_from_cwd(cwd: &str) -> Option<String> {
+    std::path::Path::new(cwd)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+}
+
+fn claude_transcript_path_from_cwd(cwd: &str, session_id: &str) -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let trimmed = cwd.trim_start_matches('/');
+    if trimmed.is_empty() {
+        return None;
+    }
+    let dir = format!("-{}", trimmed.replace('/', "-"));
+    Some(format!(
+        "{}/.claude/projects/{}/{}.jsonl",
+        home, dir, session_id
+    ))
+}
+
 /// Handle a client message
 async fn handle_client_message(
     msg: ClientMessage,
     client_tx: &mpsc::Sender<OutboundMessage>,
     state: &Arc<Mutex<AppState>>,
+    conn_id: u64,
 ) {
-    debug!("Received: {:?}", msg);
+    debug!(
+        component = "websocket",
+        event = "ws.message.received",
+        connection_id = conn_id,
+        message = ?msg,
+        "Received client message"
+    );
 
     match msg {
         ClientMessage::SubscribeList => {
@@ -208,7 +294,17 @@ async fn handle_client_message(
             approval_policy,
             sandbox_mode,
         } => {
-            info!("Creating {:?} session in {}", provider, cwd);
+            info!(
+                component = "session",
+                event = "session.create.requested",
+                connection_id = conn_id,
+                provider = %match provider {
+                    Provider::Codex => "codex",
+                    Provider::Claude => "claude",
+                },
+                project_path = %cwd,
+                "Create session requested"
+            );
 
             let id = orbitdock_protocol::new_id();
             let project_name = cwd.split('/').last().map(String::from);
@@ -303,10 +399,23 @@ async fn handle_client_message(
                         let action_tx =
                             codex_session.start_event_loop(session_arc.clone(), persist_tx);
                         state_guard.set_codex_action_tx(&session_id, action_tx);
-                        info!("Codex session {} started", session_id);
+                        info!(
+                            component = "session",
+                            event = "session.create.connector_started",
+                            connection_id = conn_id,
+                            session_id = %session_id,
+                            "Codex connector started"
+                        );
                     }
                     Err(e) => {
-                        error!("Failed to start Codex session: {}", e);
+                        error!(
+                            component = "session",
+                            event = "session.create.connector_failed",
+                            connection_id = conn_id,
+                            session_id = %session_id,
+                            error = %e,
+                            "Failed to start Codex session"
+                        );
                         send_json(
                             client_tx,
                             ServerMessage::Error {
@@ -327,10 +436,64 @@ async fn handle_client_message(
             model,
             effort,
         } => {
-            info!("Sending message to {}: {}", session_id, content);
+            info!(
+                component = "session",
+                event = "session.message.send_requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                content_chars = content.chars().count(),
+                model = ?model,
+                effort = ?effort,
+                "Sending message to session"
+            );
 
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+            let mut state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+                let first_prompt = name_from_first_prompt(&content);
+
+                let _ = state
+                    .persist()
+                    .send(PersistCommand::CodexPromptIncrement {
+                        id: session_id.clone(),
+                        first_prompt: first_prompt.clone(),
+                    })
+                    .await;
+
+                if let Some(derived_name) = first_prompt {
+                    if let Some(session) = state.get_session(&session_id) {
+                        let mut session = session.lock().await;
+                        if session.custom_name().is_none() {
+                            session.set_custom_name(Some(derived_name.clone()));
+
+                            let _ = state
+                                .persist()
+                                .send(PersistCommand::SetCustomName {
+                                    session_id: session_id.clone(),
+                                    custom_name: Some(derived_name.clone()),
+                                })
+                                .await;
+
+                            session
+                                .broadcast(ServerMessage::SessionDelta {
+                                    session_id: session_id.clone(),
+                                    changes: orbitdock_protocol::StateChanges {
+                                        custom_name: Some(Some(derived_name.clone())),
+                                        ..Default::default()
+                                    },
+                                })
+                                .await;
+
+                            let summary = session.summary();
+                            drop(session);
+                            state
+                                .broadcast_to_list(ServerMessage::SessionCreated {
+                                    session: summary,
+                                })
+                                .await;
+                        }
+                    }
+                }
+
                 let _ = tx
                     .send(CodexAction::SendMessage {
                         content,
@@ -339,7 +502,13 @@ async fn handle_client_message(
                     })
                     .await;
             } else {
-                warn!("No action channel for session {}", session_id);
+                warn!(
+                    component = "session",
+                    event = "session.message.missing_action_channel",
+                    connection_id = conn_id,
+                    session_id = %session_id,
+                    "No action channel for session"
+                );
                 send_json(
                     client_tx,
                     ServerMessage::Error {
@@ -361,8 +530,13 @@ async fn handle_client_message(
             decision,
         } => {
             info!(
-                "Approval for {} in {}: {}",
-                request_id, session_id, decision
+                component = "approval",
+                event = "approval.decision.received",
+                connection_id = conn_id,
+                session_id = %session_id,
+                request_id = %request_id,
+                decision = %decision,
+                "Approval decision received"
             );
 
             let state = state.lock().await;
@@ -390,7 +564,14 @@ async fn handle_client_message(
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let action = match approval_type {
                     Some(orbitdock_protocol::ApprovalType::Patch) => {
-                        info!("Dispatching patch approval for {}", request_id);
+                        info!(
+                            component = "approval",
+                            event = "approval.dispatch.patch",
+                            connection_id = conn_id,
+                            session_id = %session_id,
+                            request_id = %request_id,
+                            "Dispatching patch approval"
+                        );
                         CodexAction::ApprovePatch {
                             request_id,
                             decision: decision.clone(),
@@ -519,7 +700,15 @@ async fn handle_client_message(
             request_id,
             answer,
         } => {
-            info!("Answer for {} in {}: {}", request_id, session_id, answer);
+            info!(
+                component = "approval",
+                event = "approval.answer.submitted",
+                connection_id = conn_id,
+                session_id = %session_id,
+                request_id = %request_id,
+                answer_chars = answer.chars().count(),
+                "Answer submitted for question approval"
+            );
 
             let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
@@ -535,7 +724,13 @@ async fn handle_client_message(
         }
 
         ClientMessage::InterruptSession { session_id } => {
-            info!("Interrupting session {}", session_id);
+            info!(
+                component = "session",
+                event = "session.interrupt.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                "Interrupt session requested"
+            );
 
             let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
@@ -544,7 +739,14 @@ async fn handle_client_message(
         }
 
         ClientMessage::RenameSession { session_id, name } => {
-            info!("Renaming session {}: {:?}", session_id, name);
+            info!(
+                component = "session",
+                event = "session.rename.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                has_name = name.is_some(),
+                "Rename session requested"
+            );
 
             let mut state = state.lock().await;
             if let Some(session) = state.get_session(&session_id) {
@@ -595,8 +797,13 @@ async fn handle_client_message(
             sandbox_mode,
         } => {
             info!(
-                "Updating session config for {}: approval={:?}, sandbox={:?}",
-                session_id, approval_policy, sandbox_mode
+                component = "session",
+                event = "session.config.update_requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                approval_policy = ?approval_policy,
+                sandbox_mode = ?sandbox_mode,
+                "Session config update requested"
             );
 
             let mut state = state.lock().await;
@@ -642,7 +849,13 @@ async fn handle_client_message(
         }
 
         ClientMessage::ResumeSession { session_id } => {
-            info!("Resuming session {}", session_id);
+            info!(
+                component = "session",
+                event = "session.resume.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                "Resume session requested"
+            );
 
             // Check if session is already active in state
             {
@@ -769,6 +982,9 @@ async fn handle_client_message(
                     let action_tx = codex_session.start_event_loop(session_arc, persist_tx);
                     state_guard.set_codex_action_tx(&session_id, action_tx);
                     info!(
+                        component = "session",
+                        event = "session.resume.connector_started",
+                        connection_id = conn_id,
                         session_id = %session_id,
                         thread_id = %new_thread_id,
                         messages = msg_count,
@@ -776,7 +992,14 @@ async fn handle_client_message(
                     );
                 }
                 Err(e) => {
-                    error!("Failed to start Codex connector for resumed session: {}", e);
+                    error!(
+                        component = "session",
+                        event = "session.resume.connector_failed",
+                        connection_id = conn_id,
+                        session_id = %session_id,
+                        error = %e,
+                        "Failed to start Codex connector for resumed session"
+                    );
                     send_json(
                         client_tx,
                         ServerMessage::Error {
@@ -802,8 +1025,639 @@ async fn handle_client_message(
                 .await;
         }
 
+        ClientMessage::ClaudeSessionStart {
+            session_id,
+            cwd,
+            model,
+            source,
+            context_label,
+            transcript_path,
+            permission_mode,
+            agent_type,
+            terminal_session_id,
+            terminal_app,
+        } => {
+            // Defensive guard: codex rollout payloads should stay on Codex path.
+            if context_label.as_deref() == Some("codex_cli_rs") {
+                return;
+            }
+
+            let mut state = state.lock().await;
+            let persist_tx = state.persist().clone();
+            let mut created = false;
+            let session_arc = if let Some(existing) = state.get_session(&session_id) {
+                let provider = {
+                    let session = existing.lock().await;
+                    session.provider()
+                };
+                if provider == Provider::Codex {
+                    return;
+                }
+                existing
+            } else {
+                let mut handle =
+                    SessionHandle::new(session_id.clone(), Provider::Claude, cwd.clone());
+                handle.set_project_name(project_name_from_cwd(&cwd));
+                handle.set_model(model.clone());
+                handle.set_transcript_path(transcript_path.clone());
+                handle.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
+                created = true;
+                state.add_session(handle)
+            };
+
+            {
+                let mut session = session_arc.lock().await;
+                session.set_model(model.clone());
+                if transcript_path.is_some() {
+                    session.set_transcript_path(transcript_path.clone());
+                }
+                session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                            last_activity_at: Some(chrono_now()),
+                            ..Default::default()
+                        },
+                    })
+                    .await;
+
+                if created {
+                    state
+                        .broadcast_to_list(ServerMessage::SessionCreated {
+                            session: session.summary(),
+                        })
+                        .await;
+                }
+            }
+
+            let _ = persist_tx
+                .send(PersistCommand::ClaudeSessionUpsert {
+                    id: session_id,
+                    project_path: cwd.clone(),
+                    project_name: project_name_from_cwd(&cwd),
+                    model,
+                    context_label,
+                    transcript_path,
+                    source,
+                    agent_type,
+                    permission_mode,
+                    terminal_session_id,
+                    terminal_app,
+                })
+                .await;
+        }
+
+        ClientMessage::ClaudeSessionEnd { session_id, reason } => {
+            let mut state = state.lock().await;
+            let persist_tx = state.persist().clone();
+
+            if let Some(existing) = state.get_session(&session_id) {
+                let provider = {
+                    let session = existing.lock().await;
+                    session.provider()
+                };
+                if provider == Provider::Codex {
+                    return;
+                }
+            }
+
+            let _ = persist_tx
+                .send(PersistCommand::ClaudeSessionEnd {
+                    id: session_id.clone(),
+                    reason: reason.clone(),
+                })
+                .await;
+
+            if state.remove_session(&session_id).is_some() {
+                state
+                    .broadcast_to_list(ServerMessage::SessionEnded {
+                        session_id,
+                        reason: reason.unwrap_or_else(|| "hook_session_end".to_string()),
+                    })
+                    .await;
+            }
+        }
+
+        ClientMessage::ClaudeStatusEvent {
+            session_id,
+            cwd,
+            transcript_path,
+            hook_event_name,
+            notification_type,
+            tool_name,
+            stop_hook_active: _,
+            prompt,
+            message: _,
+            title: _,
+            trigger: _,
+            custom_instructions: _,
+        } => {
+            let mut state = state.lock().await;
+            let persist_tx = state.persist().clone();
+            let derived_transcript_path = cwd
+                .as_deref()
+                .and_then(|path| claude_transcript_path_from_cwd(path, &session_id));
+
+            let session_arc = if let Some(existing) = state.get_session(&session_id) {
+                let provider = {
+                    let session = existing.lock().await;
+                    session.provider()
+                };
+                if provider == Provider::Codex {
+                    return;
+                }
+                existing
+            } else {
+                let fallback_cwd = cwd.clone().unwrap_or_else(|| "/unknown".to_string());
+                let mut handle =
+                    SessionHandle::new(session_id.clone(), Provider::Claude, fallback_cwd);
+                handle.set_project_name(project_name_from_cwd(handle.project_path()));
+                handle.set_transcript_path(transcript_path.clone().or_else(|| derived_transcript_path.clone()));
+                let arc = state.add_session(handle);
+                {
+                    let session = arc.lock().await;
+                    state
+                        .broadcast_to_list(ServerMessage::SessionCreated {
+                            session: session.summary(),
+                        })
+                        .await;
+                }
+                arc
+            };
+
+            if transcript_path.is_some() || derived_transcript_path.is_some() {
+                let mut session = session_arc.lock().await;
+                session.set_transcript_path(transcript_path.clone().or_else(|| derived_transcript_path.clone()));
+            }
+
+            if let Some(cwd) = cwd.clone() {
+                let _ = persist_tx
+                    .send(PersistCommand::ClaudeSessionUpsert {
+                        id: session_id.clone(),
+                        project_path: cwd.clone(),
+                        project_name: project_name_from_cwd(&cwd),
+                        model: None,
+                        context_label: None,
+                        transcript_path: transcript_path.clone().or_else(|| derived_transcript_path.clone()),
+                        source: None,
+                        agent_type: None,
+                        permission_mode: None,
+                        terminal_session_id: None,
+                        terminal_app: None,
+                    })
+                    .await;
+            }
+
+            let (next_work_status, persist_attention_reason) = match hook_event_name.as_str() {
+                "UserPromptSubmit" => (Some(orbitdock_protocol::WorkStatus::Working), Some(Some("none".to_string()))),
+                "Stop" => {
+                    let is_question = {
+                        let session = session_arc.lock().await;
+                        session.last_tool() == Some("AskUserQuestion")
+                    };
+                    if is_question {
+                        (Some(orbitdock_protocol::WorkStatus::Question), Some(Some("awaitingQuestion".to_string())))
+                    } else {
+                        (Some(orbitdock_protocol::WorkStatus::Waiting), Some(Some("awaitingReply".to_string())))
+                    }
+                }
+                "Notification" => match notification_type.as_deref() {
+                    Some("permission_prompt") => (
+                        Some(orbitdock_protocol::WorkStatus::Permission),
+                        Some(Some("awaitingPermission".to_string())),
+                    ),
+                    Some("elicitation_dialog") => (
+                        Some(orbitdock_protocol::WorkStatus::Question),
+                        Some(Some("awaitingQuestion".to_string())),
+                    ),
+                    Some("idle_prompt") => {
+                        let is_question = {
+                            let session = session_arc.lock().await;
+                            session.last_tool() == Some("AskUserQuestion")
+                        };
+                        if is_question {
+                            (
+                                Some(orbitdock_protocol::WorkStatus::Question),
+                                Some(Some("awaitingQuestion".to_string())),
+                            )
+                        } else {
+                            (
+                                Some(orbitdock_protocol::WorkStatus::Waiting),
+                                Some(Some("awaitingReply".to_string())),
+                            )
+                        }
+                    }
+                    _ => (None, None),
+                },
+                _ => (None, None),
+            };
+
+            if hook_event_name == "UserPromptSubmit" {
+                let _ = persist_tx
+                    .send(PersistCommand::ClaudePromptIncrement {
+                        id: session_id.clone(),
+                        first_prompt: prompt.clone(),
+                    })
+                    .await;
+
+                if let Some(prompt_text) = prompt.as_deref() {
+                    let derived_name = name_from_first_prompt(prompt_text);
+                    if let Some(derived_name) = derived_name {
+                        let mut session = session_arc.lock().await;
+                        if session.custom_name().is_none() {
+                            session.set_custom_name(Some(derived_name.clone()));
+
+                            let _ = persist_tx
+                                .send(PersistCommand::SetCustomName {
+                                    session_id: session_id.clone(),
+                                    custom_name: Some(derived_name.clone()),
+                                })
+                                .await;
+
+                            session
+                                .broadcast(ServerMessage::SessionDelta {
+                                    session_id: session_id.clone(),
+                                    changes: orbitdock_protocol::StateChanges {
+                                        custom_name: Some(Some(derived_name.clone())),
+                                        last_activity_at: Some(chrono_now()),
+                                        ..Default::default()
+                                    },
+                                })
+                                .await;
+
+                            let summary = session.summary();
+                            drop(session);
+                            state
+                                .broadcast_to_list(ServerMessage::SessionCreated {
+                                    session: summary,
+                                })
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            if hook_event_name == "PreCompact" {
+                let _ = persist_tx
+                    .send(PersistCommand::ClaudeSessionUpdate {
+                        id: session_id.clone(),
+                        work_status: None,
+                        attention_reason: None,
+                        last_tool: None,
+                        last_tool_at: None,
+                        pending_tool_name: None,
+                        pending_tool_input: None,
+                        pending_question: None,
+                        source: None,
+                        agent_type: None,
+                        permission_mode: None,
+                        active_subagent_id: None,
+                        active_subagent_type: None,
+                        first_prompt: None,
+                        compact_count_increment: true,
+                    })
+                    .await;
+            }
+
+            if let Some(tool_name) = tool_name {
+                let mut session = session_arc.lock().await;
+                session.set_last_tool(Some(tool_name));
+            }
+
+            if let Some(work_status) = next_work_status {
+                {
+                    let mut session = session_arc.lock().await;
+                    session.set_work_status(work_status);
+                    session
+                        .broadcast(ServerMessage::SessionDelta {
+                            session_id: session_id.clone(),
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(work_status),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
+                        })
+                        .await;
+                }
+
+                let _ = persist_tx
+                    .send(PersistCommand::ClaudeSessionUpdate {
+                        id: session_id.clone(),
+                        work_status: Some(match work_status {
+                            orbitdock_protocol::WorkStatus::Working => "working".to_string(),
+                            orbitdock_protocol::WorkStatus::Waiting => "waiting".to_string(),
+                            orbitdock_protocol::WorkStatus::Permission => "permission".to_string(),
+                            orbitdock_protocol::WorkStatus::Question => "question".to_string(),
+                            orbitdock_protocol::WorkStatus::Reply => "reply".to_string(),
+                            orbitdock_protocol::WorkStatus::Ended => "ended".to_string(),
+                        }),
+                        attention_reason: persist_attention_reason,
+                        last_tool: None,
+                        last_tool_at: None,
+                        pending_tool_name: None,
+                        pending_tool_input: None,
+                        pending_question: None,
+                        source: None,
+                        agent_type: None,
+                        permission_mode: None,
+                        active_subagent_id: None,
+                        active_subagent_type: None,
+                        first_prompt: None,
+                        compact_count_increment: false,
+                    })
+                    .await;
+            }
+        }
+
+        ClientMessage::ClaudeToolEvent {
+            session_id,
+            cwd,
+            hook_event_name,
+            tool_name,
+            tool_input,
+            tool_response: _,
+            tool_use_id: _,
+            error: _,
+            is_interrupt: _,
+        } => {
+            let mut state = state.lock().await;
+            let persist_tx = state.persist().clone();
+            let derived_transcript_path = claude_transcript_path_from_cwd(&cwd, &session_id);
+
+            let session_arc = if let Some(existing) = state.get_session(&session_id) {
+                let provider = {
+                    let session = existing.lock().await;
+                    session.provider()
+                };
+                if provider == Provider::Codex {
+                    return;
+                }
+                existing
+            } else {
+                let mut handle =
+                    SessionHandle::new(session_id.clone(), Provider::Claude, cwd.clone());
+                handle.set_project_name(project_name_from_cwd(handle.project_path()));
+                handle.set_transcript_path(derived_transcript_path.clone());
+                let arc = state.add_session(handle);
+                {
+                    let session = arc.lock().await;
+                    state
+                        .broadcast_to_list(ServerMessage::SessionCreated {
+                            session: session.summary(),
+                        })
+                        .await;
+                }
+                arc
+            };
+
+            let _ = persist_tx
+                .send(PersistCommand::ClaudeSessionUpsert {
+                    id: session_id.clone(),
+                    project_path: cwd.clone(),
+                    project_name: project_name_from_cwd(&cwd),
+                    model: None,
+                    context_label: None,
+                    transcript_path: derived_transcript_path,
+                    source: None,
+                    agent_type: None,
+                    permission_mode: None,
+                    terminal_session_id: None,
+                    terminal_app: None,
+                })
+                .await;
+
+            match hook_event_name.as_str() {
+                "PreToolUse" => {
+                    let was_permission = {
+                        let session = session_arc.lock().await;
+                        session.work_status() == orbitdock_protocol::WorkStatus::Permission
+                    };
+                    let question = tool_input
+                        .as_ref()
+                        .and_then(|value| value.get("question"))
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string());
+                    let serialized_input = tool_input.and_then(|value| serde_json::to_string(&value).ok());
+
+                    {
+                        let mut session = session_arc.lock().await;
+                        session.set_last_tool(Some(tool_name.clone()));
+                        session.set_work_status(orbitdock_protocol::WorkStatus::Working);
+                        session
+                            .broadcast(ServerMessage::SessionDelta {
+                                session_id: session_id.clone(),
+                                changes: orbitdock_protocol::StateChanges {
+                                    work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                                    last_activity_at: Some(chrono_now()),
+                                    ..Default::default()
+                                },
+                            })
+                            .await;
+                    }
+
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSessionUpdate {
+                            id: session_id.clone(),
+                            work_status: Some("working".to_string()),
+                            attention_reason: Some(Some("none".to_string())),
+                            last_tool: Some(Some(tool_name.clone())),
+                            last_tool_at: Some(Some(chrono_now())),
+                            pending_tool_name: if was_permission {
+                                None
+                            } else {
+                                Some(Some(tool_name.clone()))
+                            },
+                            pending_tool_input: if was_permission {
+                                None
+                            } else {
+                                Some(serialized_input)
+                            },
+                            pending_question: if was_permission { None } else { Some(question) },
+                            source: None,
+                            agent_type: None,
+                            permission_mode: None,
+                            active_subagent_id: None,
+                            active_subagent_type: None,
+                            first_prompt: None,
+                            compact_count_increment: false,
+                        })
+                        .await;
+                }
+                "PostToolUse" => {
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeToolIncrement {
+                            id: session_id.clone(),
+                        })
+                        .await;
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSessionUpdate {
+                            id: session_id.clone(),
+                            work_status: Some("working".to_string()),
+                            attention_reason: Some(Some("none".to_string())),
+                            last_tool: None,
+                            last_tool_at: None,
+                            pending_tool_name: Some(None),
+                            pending_tool_input: Some(None),
+                            pending_question: Some(None),
+                            source: None,
+                            agent_type: None,
+                            permission_mode: None,
+                            active_subagent_id: None,
+                            active_subagent_type: None,
+                            first_prompt: None,
+                            compact_count_increment: false,
+                        })
+                        .await;
+
+                    let mut session = session_arc.lock().await;
+                    session.set_work_status(orbitdock_protocol::WorkStatus::Working);
+                    session
+                        .broadcast(ServerMessage::SessionDelta {
+                            session_id: session_id.clone(),
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
+                        })
+                        .await;
+                }
+                "PostToolUseFailure" => {
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeToolIncrement {
+                            id: session_id.clone(),
+                        })
+                        .await;
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSessionUpdate {
+                            id: session_id.clone(),
+                            work_status: Some("waiting".to_string()),
+                            attention_reason: Some(Some("awaitingReply".to_string())),
+                            last_tool: None,
+                            last_tool_at: None,
+                            pending_tool_name: Some(None),
+                            pending_tool_input: Some(None),
+                            pending_question: Some(None),
+                            source: None,
+                            agent_type: None,
+                            permission_mode: None,
+                            active_subagent_id: None,
+                            active_subagent_type: None,
+                            first_prompt: None,
+                            compact_count_increment: false,
+                        })
+                        .await;
+
+                    let mut session = session_arc.lock().await;
+                    session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
+                    session
+                        .broadcast(ServerMessage::SessionDelta {
+                            session_id: session_id.clone(),
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
+                        })
+                        .await;
+                }
+                _ => {}
+            }
+        }
+
+        ClientMessage::ClaudeSubagentEvent {
+            session_id,
+            hook_event_name,
+            agent_id,
+            agent_type,
+            agent_transcript_path,
+        } => {
+            let state = state.lock().await;
+            let persist_tx = state.persist().clone();
+            if let Some(existing) = state.get_session(&session_id) {
+                let provider = {
+                    let session = existing.lock().await;
+                    session.provider()
+                };
+                if provider == Provider::Codex {
+                    return;
+                }
+            }
+            drop(state);
+
+            match hook_event_name.as_str() {
+                "SubagentStart" => {
+                    let normalized_type =
+                        agent_type.clone().unwrap_or_else(|| "unknown".to_string());
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSubagentStart {
+                            id: agent_id.clone(),
+                            session_id: session_id.clone(),
+                            agent_type: normalized_type.clone(),
+                        })
+                        .await;
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSessionUpdate {
+                            id: session_id,
+                            work_status: None,
+                            attention_reason: None,
+                            last_tool: None,
+                            last_tool_at: None,
+                            pending_tool_name: None,
+                            pending_tool_input: None,
+                            pending_question: None,
+                            source: None,
+                            agent_type: None,
+                            permission_mode: None,
+                            active_subagent_id: Some(Some(agent_id)),
+                            active_subagent_type: Some(Some(normalized_type)),
+                            first_prompt: None,
+                            compact_count_increment: false,
+                        })
+                        .await;
+                }
+                "SubagentStop" => {
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSubagentEnd {
+                            id: agent_id,
+                            transcript_path: agent_transcript_path,
+                        })
+                        .await;
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSessionUpdate {
+                            id: session_id,
+                            work_status: None,
+                            attention_reason: None,
+                            last_tool: None,
+                            last_tool_at: None,
+                            pending_tool_name: None,
+                            pending_tool_input: None,
+                            pending_question: None,
+                            source: None,
+                            agent_type: None,
+                            permission_mode: None,
+                            active_subagent_id: Some(None),
+                            active_subagent_type: Some(None),
+                            first_prompt: None,
+                            compact_count_increment: false,
+                        })
+                        .await;
+                }
+                _ => {}
+            }
+        }
+
         ClientMessage::EndSession { session_id } => {
-            info!("Ending session {}", session_id);
+            info!(
+                component = "session",
+                event = "session.end.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                "End session requested"
+            );
 
             let mut state = state.lock().await;
 
@@ -836,8 +1690,16 @@ async fn handle_client_message(
 
 #[cfg(test)]
 mod tests {
-    use super::work_status_for_approval_decision;
-    use orbitdock_protocol::WorkStatus;
+    use super::{
+        handle_client_message,
+        claude_transcript_path_from_cwd, work_status_for_approval_decision,
+        OutboundMessage,
+    };
+    use crate::session_naming::name_from_first_prompt;
+    use crate::state::AppState;
+    use orbitdock_protocol::{ClientMessage, Provider, WorkStatus};
+    use std::sync::Arc;
+    use tokio::sync::{mpsc, Mutex};
 
     #[test]
     fn approval_decisions_that_continue_tooling_stay_working() {
@@ -873,5 +1735,194 @@ mod tests {
             work_status_for_approval_decision("unknown_value"),
             WorkStatus::Waiting
         );
+    }
+
+    #[test]
+    fn derives_readable_name_from_first_prompt() {
+        let prompt = "  Please investigate auth race conditions and propose a safe migration plan.  ";
+        let name = name_from_first_prompt(prompt).expect("expected name");
+        assert_eq!(
+            name,
+            "Please investigate auth race conditions and propose a safe migration pla…"
+        );
+    }
+
+    #[test]
+    fn derives_transcript_path_from_cwd() {
+        let path = claude_transcript_path_from_cwd(
+            "/Users/robertdeluca/Developer/vizzly-cli",
+            "abc-123",
+        );
+        let value = path.expect("expected transcript path");
+        assert!(
+            value.ends_with(
+                "/.claude/projects/-Users-robertdeluca-Developer-vizzly-cli/abc-123.jsonl"
+            ),
+            "unexpected transcript path: {}",
+            value
+        );
+    }
+
+    fn new_test_state() -> Arc<Mutex<AppState>> {
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        Arc::new(Mutex::new(AppState::new(persist_tx)))
+    }
+
+    #[tokio::test]
+    async fn claude_tool_event_bootstraps_session_with_transcript_path() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "claude-tool-bootstrap".to_string();
+        let cwd = "/Users/tester/Developer/sample".to_string();
+
+        handle_client_message(
+            ClientMessage::ClaudeToolEvent {
+                session_id: session_id.clone(),
+                cwd: cwd.clone(),
+                hook_event_name: "PreToolUse".to_string(),
+                tool_name: "Read".to_string(),
+                tool_input: None,
+                tool_response: None,
+                tool_use_id: None,
+                error: None,
+                is_interrupt: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let session_arc = {
+            let state_guard = state.lock().await;
+            state_guard.get_session(&session_id).expect("session should exist")
+        };
+        let snapshot = session_arc.lock().await.state();
+
+        assert_eq!(snapshot.provider, Provider::Claude);
+        assert_eq!(snapshot.work_status, WorkStatus::Working);
+        let transcript_path = snapshot
+            .transcript_path
+            .expect("transcript path should be derived");
+        assert!(
+            transcript_path.ends_with(
+                "/.claude/projects/-Users-tester-Developer-sample/claude-tool-bootstrap.jsonl"
+            ),
+            "unexpected transcript path: {}",
+            transcript_path
+        );
+    }
+
+    #[tokio::test]
+    async fn claude_user_prompt_sets_custom_name_once() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "claude-name-on-prompt".to_string();
+
+        handle_client_message(
+            ClientMessage::ClaudeStatusEvent {
+                session_id: session_id.clone(),
+                cwd: Some("/Users/tester/repo".to_string()),
+                transcript_path: Some("/Users/tester/.claude/projects/-Users-tester-repo/claude-name-on-prompt.jsonl".to_string()),
+                hook_event_name: "UserPromptSubmit".to_string(),
+                notification_type: None,
+                tool_name: None,
+                stop_hook_active: None,
+                prompt: Some("Investigate flaky auth and propose a safe migration plan".to_string()),
+                message: None,
+                title: None,
+                trigger: None,
+                custom_instructions: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        handle_client_message(
+            ClientMessage::ClaudeStatusEvent {
+                session_id: session_id.clone(),
+                cwd: Some("/Users/tester/repo".to_string()),
+                transcript_path: None,
+                hook_event_name: "UserPromptSubmit".to_string(),
+                notification_type: None,
+                tool_name: None,
+                stop_hook_active: None,
+                prompt: Some("Different prompt should not rename".to_string()),
+                message: None,
+                title: None,
+                trigger: None,
+                custom_instructions: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let session_arc = {
+            let state_guard = state.lock().await;
+            state_guard.get_session(&session_id).expect("session should exist")
+        };
+        let snapshot = session_arc.lock().await.state();
+        assert_eq!(snapshot.work_status, WorkStatus::Working);
+        assert_eq!(
+            snapshot.custom_name.as_deref(),
+            Some("Investigate flaky auth and propose a safe migration plan")
+        );
+    }
+
+    #[tokio::test]
+    async fn claude_stop_after_question_tool_sets_question_status() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "claude-question-flow".to_string();
+
+        handle_client_message(
+            ClientMessage::ClaudeToolEvent {
+                session_id: session_id.clone(),
+                cwd: "/Users/tester/repo".to_string(),
+                hook_event_name: "PreToolUse".to_string(),
+                tool_name: "AskUserQuestion".to_string(),
+                tool_input: Some(serde_json::json!({"question": "Ship now?"})),
+                tool_response: None,
+                tool_use_id: None,
+                error: None,
+                is_interrupt: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        handle_client_message(
+            ClientMessage::ClaudeStatusEvent {
+                session_id: session_id.clone(),
+                cwd: Some("/Users/tester/repo".to_string()),
+                transcript_path: None,
+                hook_event_name: "Stop".to_string(),
+                notification_type: None,
+                tool_name: None,
+                stop_hook_active: Some(false),
+                prompt: None,
+                message: None,
+                title: None,
+                trigger: None,
+                custom_instructions: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let session_arc = {
+            let state_guard = state.lock().await;
+            state_guard.get_session(&session_id).expect("session should exist")
+        };
+        let snapshot = session_arc.lock().await.state();
+        assert_eq!(snapshot.work_status, WorkStatus::Question);
     }
 }

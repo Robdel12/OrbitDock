@@ -8,7 +8,7 @@ use std::sync::Arc;
 use orbitdock_connectors::{ApprovalType, CodexConnector, ConnectorEvent};
 use orbitdock_protocol::{ServerMessage, WorkStatus};
 use tokio::sync::{mpsc, Mutex};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
@@ -68,7 +68,13 @@ impl CodexSession {
                     // Handle actions from WebSocket
                     Some(action) = action_rx.recv() => {
                         if let Err(e) = Self::handle_action(&mut self.connector, action).await {
-                            error!("Failed to handle action: {}", e);
+                            error!(
+                                component = "codex_connector",
+                                event = "codex.action.failed",
+                                session_id = %session_id,
+                                error = %e,
+                                "Failed to handle codex action"
+                            );
                         }
                     }
 
@@ -76,7 +82,12 @@ impl CodexSession {
                 }
             }
 
-            info!("Codex session {} event loop ended", session_id);
+            info!(
+                component = "codex_connector",
+                event = "codex.event_loop.ended",
+                session_id = %session_id,
+                "Codex session event loop ended"
+            );
         });
 
         action_tx
@@ -93,6 +104,11 @@ impl CodexSession {
 
         match event {
             ConnectorEvent::TurnStarted => {
+                debug!(
+                    component = "codex_connector",
+                    event = "codex.turn.started",
+                    session_id = %session_id
+                );
                 session.set_work_status(WorkStatus::Working);
 
                 let _ = persist_tx
@@ -117,6 +133,11 @@ impl CodexSession {
             }
 
             ConnectorEvent::TurnCompleted => {
+                debug!(
+                    component = "codex_connector",
+                    event = "codex.turn.completed",
+                    session_id = %session_id
+                );
                 session.set_work_status(WorkStatus::Waiting);
 
                 let _ = persist_tx
@@ -141,7 +162,13 @@ impl CodexSession {
             }
 
             ConnectorEvent::TurnAborted { reason } => {
-                info!("Turn aborted: {}", reason);
+                info!(
+                    component = "codex_connector",
+                    event = "codex.turn.aborted",
+                    session_id = %session_id,
+                    reason = %reason,
+                    "Codex turn aborted"
+                );
                 session.set_work_status(WorkStatus::Waiting);
 
                 let _ = persist_tx
@@ -225,6 +252,18 @@ impl CodexSession {
                 question,
                 proposed_amendment,
             } => {
+                info!(
+                    component = "approval",
+                    event = "approval.requested",
+                    session_id = %session_id,
+                    request_id = %request_id,
+                    approval_type = %match approval_type {
+                        ApprovalType::Exec => "exec",
+                        ApprovalType::Patch => "patch",
+                        ApprovalType::Question => "question",
+                    },
+                    "Approval requested by connector"
+                );
                 let approval_type_proto = match approval_type {
                     ApprovalType::Exec => orbitdock_protocol::ApprovalType::Exec,
                     ApprovalType::Patch => orbitdock_protocol::ApprovalType::Patch,
@@ -324,7 +363,13 @@ impl CodexSession {
             }
 
             ConnectorEvent::ThreadNameUpdated(name) => {
-                info!("Thread name updated for {}: {}", session_id, name);
+                info!(
+                    component = "session",
+                    event = "session.thread_name.updated",
+                    session_id = %session_id,
+                    name = %name,
+                    "Thread name updated"
+                );
                 session.set_custom_name(Some(name.clone()));
 
                 let _ = persist_tx
@@ -346,7 +391,13 @@ impl CodexSession {
             }
 
             ConnectorEvent::SessionEnded { reason } => {
-                info!("Session ended: {}", reason);
+                info!(
+                    component = "session",
+                    event = "session.ended.by_connector",
+                    session_id = %session_id,
+                    reason = %reason,
+                    "Session ended by connector"
+                );
                 session.set_work_status(WorkStatus::Ended);
 
                 let _ = persist_tx
@@ -365,7 +416,13 @@ impl CodexSession {
             }
 
             ConnectorEvent::Error(msg) => {
-                warn!("Connector error: {}", msg);
+                warn!(
+                    component = "codex_connector",
+                    event = "codex.error",
+                    session_id = %session_id,
+                    error = %msg,
+                    "Connector error"
+                );
                 // Transition to waiting so the UI isn't stuck on "working"
                 session.set_work_status(WorkStatus::Waiting);
 

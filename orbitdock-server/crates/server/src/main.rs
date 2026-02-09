@@ -4,15 +4,17 @@
 //! Provides real-time session management via WebSocket.
 
 mod codex_session;
+mod logging;
 mod persistence;
 mod rollout_watcher;
+mod session_naming;
 mod session;
 mod state;
 mod websocket;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use axum::{response::IntoResponse, routing::get, Router};
 use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, TokenUsage, WorkStatus};
@@ -20,12 +22,9 @@ use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
-use tracing_subscriber::fmt;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::EnvFilter;
 
 use crate::codex_session::CodexSession;
+use crate::logging::init_logging;
 use crate::persistence::{
     create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
 };
@@ -44,54 +43,19 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn async_main() -> anyhow::Result<()> {
-    // Ensure log directory exists
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let log_dir = std::path::PathBuf::from(home)
-        .join(".orbitdock")
-        .join("logs");
-    std::fs::create_dir_all(&log_dir)?;
-    let log_path = log_dir.join("server.log");
+    let logging = init_logging()?;
+    let run_id = logging.run_id.clone();
+    let _log_guard = logging.guard;
+    let root_span = tracing::info_span!("orbitdock_server", service = "orbitdock-server", run_id = %run_id);
+    let _root_span_guard = root_span.enter();
 
-    if std::env::var("ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START").as_deref() == Ok("1") {
-        let _ = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&log_path)?;
-    }
-
-    // File appender - writes JSON to ~/.orbitdock/logs/server.log
-    let file_appender = tracing_appender::rolling::never(&log_dir, "server.log");
-
-    // File-only logging — debug with: tail -f ~/.orbitdock/logs/server.log | jq .
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=warn,hyper=warn"));
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(
-            fmt::layer()
-                .with_writer(file_appender)
-                .json()
-                .with_file(true)
-                .with_line_number(true)
-                .with_target(true)
-                .with_current_span(false),
-        )
-        .init();
-
-    let run_id = std::env::var("ORBITDOCK_SERVER_RUN_ID").unwrap_or_else(|_| {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        format!("pid-{}-{}", std::process::id(), now)
-    });
     let binary_path =
         std::env::var("ORBITDOCK_SERVER_BINARY_PATH").unwrap_or_else(|_| current_binary_path());
     let (binary_size, binary_mtime_unix) = binary_metadata(&binary_path);
 
     info!(
+        component = "server",
+        event = "server.starting",
         run_id = %run_id,
         pid = std::process::id(),
         binary_path = %binary_path,
@@ -111,7 +75,12 @@ async fn async_main() -> anyhow::Result<()> {
     // Restore active sessions from database
     match load_sessions_for_startup().await {
         Ok(restored) if !restored.is_empty() => {
-            info!("Restoring {} active session(s)...", restored.len());
+            info!(
+                component = "restore",
+                event = "restore.start",
+                active_sessions = restored.len(),
+                "Restoring active sessions"
+            );
 
             for rs in restored {
                 let crate::persistence::RestoredSession {
@@ -194,6 +163,8 @@ async fn async_main() -> anyhow::Result<()> {
 
                 if !is_active || !is_codex || is_passive {
                     info!(
+                        component = "restore",
+                        event = "restore.session.passive",
                         session_id = %id,
                         provider = %match provider {
                             Provider::Codex => "codex",
@@ -245,6 +216,8 @@ async fn async_main() -> anyhow::Result<()> {
                         let action_tx = codex.start_event_loop(session_arc, persist);
                         app.set_codex_action_tx(&id, action_tx);
                         info!(
+                            component = "restore",
+                            event = "restore.session.connected",
                             session_id = %id,
                             thread_id = %new_thread_id,
                             messages = msg_count,
@@ -254,6 +227,8 @@ async fn async_main() -> anyhow::Result<()> {
                     Err(e) => {
                         // Session visible with messages but not interactive
                         info!(
+                            component = "restore",
+                            event = "restore.session.connector_unavailable",
                             session_id = %id,
                             messages = msg_count,
                             error = %e,
@@ -264,10 +239,19 @@ async fn async_main() -> anyhow::Result<()> {
             }
         }
         Ok(_) => {
-            info!("No active Codex sessions to restore");
+            info!(
+                component = "restore",
+                event = "restore.empty",
+                "No active Codex sessions to restore"
+            );
         }
         Err(e) => {
-            warn!("Failed to load sessions for restoration: {}", e);
+            warn!(
+                component = "restore",
+                event = "restore.failed",
+                error = %e,
+                "Failed to load sessions for restoration"
+            );
         }
     }
 
@@ -277,7 +261,12 @@ async fn async_main() -> anyhow::Result<()> {
     tokio::spawn(async move {
         if let Err(e) = rollout_watcher::start_rollout_watcher(watcher_state, watcher_persist).await
         {
-            warn!("Rollout watcher failed: {}", e);
+            warn!(
+                component = "rollout_watcher",
+                event = "rollout_watcher.stopped_with_error",
+                error = %e,
+                "Rollout watcher failed"
+            );
         }
     });
 
@@ -296,7 +285,12 @@ async fn async_main() -> anyhow::Result<()> {
 
     // Start server
     let addr = SocketAddr::from(([127, 0, 0, 1], 4000));
-    info!("Listening on {}", addr);
+    info!(
+        component = "server",
+        event = "server.listening",
+        bind_address = %addr,
+        "Listening for connections"
+    );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;

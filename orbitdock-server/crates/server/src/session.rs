@@ -22,6 +22,7 @@ pub struct SessionHandle {
     codex_integration_mode: Option<CodexIntegrationMode>,
     status: SessionStatus,
     work_status: WorkStatus,
+    last_tool: Option<String>,
     messages: Vec<Message>,
     token_usage: TokenUsage,
     current_diff: Option<String>,
@@ -52,6 +53,7 @@ impl SessionHandle {
             codex_integration_mode: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
+            last_tool: None,
             messages: Vec::new(),
             token_usage: TokenUsage::default(),
             current_diff: None,
@@ -95,6 +97,7 @@ impl SessionHandle {
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             status,
             work_status,
+            last_tool: None,
             messages,
             token_usage,
             current_diff: None,
@@ -115,6 +118,11 @@ impl SessionHandle {
     /// Get session project path
     pub fn project_path(&self) -> &str {
         &self.project_path
+    }
+
+    /// Get provider
+    pub fn provider(&self) -> Provider {
+        self.provider
     }
 
     /// Get a summary of this session
@@ -184,6 +192,11 @@ impl SessionHandle {
         self.last_activity_at = Some(chrono_now());
     }
 
+    /// Get custom name
+    pub fn custom_name(&self) -> Option<&str> {
+        self.custom_name.as_deref()
+    }
+
     /// Set codex integration mode
     pub fn set_codex_integration_mode(&mut self, mode: Option<CodexIntegrationMode>) {
         self.codex_integration_mode = mode;
@@ -230,6 +243,22 @@ impl SessionHandle {
     pub fn set_work_status(&mut self, status: WorkStatus) {
         self.work_status = status;
         self.last_activity_at = Some(chrono_now());
+    }
+
+    /// Get work status
+    pub fn work_status(&self) -> WorkStatus {
+        self.work_status
+    }
+
+    /// Set last tool name
+    pub fn set_last_tool(&mut self, tool: Option<String>) {
+        self.last_tool = tool;
+        self.last_activity_at = Some(chrono_now());
+    }
+
+    /// Get last tool name
+    pub fn last_tool(&self) -> Option<&str> {
+        self.last_tool.as_deref()
     }
 
     /// Update token usage

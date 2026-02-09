@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use crate::persistence::{is_direct_thread_owned_async, PersistCommand};
+use crate::session_naming::name_from_first_prompt;
 use crate::session::SessionHandle;
 use crate::state::AppState;
 
@@ -31,14 +32,23 @@ pub async fn start_rollout_watcher(
     persist_tx: mpsc::Sender<PersistCommand>,
 ) -> anyhow::Result<()> {
     if std::env::var("ORBITDOCK_DISABLE_CODEX_WATCHER").as_deref() == Ok("1") {
-        info!("Rollout watcher disabled by ORBITDOCK_DISABLE_CODEX_WATCHER");
+        info!(
+            component = "rollout_watcher",
+            event = "rollout_watcher.disabled",
+            "Rollout watcher disabled by ORBITDOCK_DISABLE_CODEX_WATCHER"
+        );
         return Ok(());
     }
 
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let sessions_dir = PathBuf::from(&home).join(".codex/sessions");
     if !sessions_dir.exists() {
-        info!(path = %sessions_dir.display(), "Rollout sessions directory missing");
+        info!(
+            component = "rollout_watcher",
+            event = "rollout_watcher.sessions_dir_missing",
+            path = %sessions_dir.display(),
+            "Rollout sessions directory missing"
+        );
         return Ok(());
     }
 
@@ -59,7 +69,12 @@ pub async fn start_rollout_watcher(
                 }
             }
             Err(err) => {
-                warn!(error = %err, "Rollout watcher event error");
+                warn!(
+                    component = "rollout_watcher",
+                    event = "rollout_watcher.fs_event_error",
+                    error = %err,
+                    "Rollout watcher event error"
+                );
             }
         },
         notify::Config::default(),
@@ -67,7 +82,12 @@ pub async fn start_rollout_watcher(
 
     watcher.watch(&sessions_dir, RecursiveMode::Recursive)?;
 
-    info!(path = %sessions_dir.display(), "Rollout watcher started");
+    info!(
+        component = "rollout_watcher",
+        event = "rollout_watcher.started",
+        path = %sessions_dir.display(),
+        "Rollout watcher started"
+    );
 
     let mut runtime = WatcherRuntime {
         app_state,
@@ -92,13 +112,25 @@ pub async fn start_rollout_watcher(
                 .ensure_session_meta(path.to_string_lossy().as_ref())
                 .await
             {
-                warn!(path = %path.display(), error = %err, "Startup session_meta seed failed");
+                warn!(
+                    component = "rollout_watcher",
+                    event = "rollout_watcher.seed_failed",
+                    path = %path.display(),
+                    error = %err,
+                    "Startup session_meta seed failed"
+                );
             } else {
                 seeded += 1;
             }
         }
     }
-    info!(seeded_files = seeded, total_files = existing_files.len(), "Rollout startup seed complete");
+    info!(
+        component = "rollout_watcher",
+        event = "rollout_watcher.seed_complete",
+        seeded_files = seeded,
+        total_files = existing_files.len(),
+        "Rollout startup seed complete"
+    );
 
     while let Some(msg) = rx.recv().await {
         match msg {
@@ -109,7 +141,12 @@ pub async fn start_rollout_watcher(
             }
             WatcherMessage::ProcessFile(path) => {
                 if let Err(err) = runtime.process_file(path).await {
-                    warn!(error = %err, "Failed processing rollout file");
+                    warn!(
+                        component = "rollout_watcher",
+                        event = "rollout_watcher.process_file_failed",
+                        error = %err,
+                        "Failed processing rollout file"
+                    );
                 }
             }
             WatcherMessage::SessionTimeout(session_id) => {
@@ -269,7 +306,12 @@ impl WatcherRuntime {
         }
 
         if did_process_lines {
-            debug!(path = %path_string, "Processed rollout lines");
+            debug!(
+                component = "rollout_watcher",
+                event = "rollout_watcher.lines_processed",
+                path = %path_string,
+                "Processed rollout lines"
+            );
         }
 
         self.persist_state(&path_string);
@@ -282,7 +324,12 @@ impl WatcherRuntime {
         };
 
         let Ok(json) = serde_json::from_str::<Value>(&line) else {
-            warn!(path = %path, "Failed to parse session_meta first line");
+            warn!(
+                component = "rollout_watcher",
+                event = "rollout_watcher.session_meta_parse_failed",
+                path = %path,
+                "Failed to parse session_meta first line"
+            );
             return Ok(());
         };
 
@@ -400,6 +447,26 @@ impl WatcherRuntime {
             app.add_session(handle);
             app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
                 .await;
+        } else if let Some(session_arc) = {
+            let state = self.app_state.lock().await;
+            state.get_session(&session_id)
+        } {
+            let summary = {
+                let mut session = session_arc.lock().await;
+                session.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+                session.set_transcript_path(Some(path.to_string()));
+                session.set_project_name(project_name.clone());
+                session.set_model(model_provider.clone());
+                session.set_status(SessionStatus::Active);
+                if session.work_status() == WorkStatus::Ended {
+                    session.set_work_status(WorkStatus::Waiting);
+                }
+                session.set_last_activity_at(Some(current_time_unix_z()));
+                session.summary()
+            };
+            let mut app = self.app_state.lock().await;
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                .await;
         }
 
         let _ = self
@@ -423,6 +490,14 @@ impl WatcherRuntime {
             state.model_provider = model_provider;
         }
 
+        if self.should_backfill_name_from_history(&session_id).await {
+            if let Some(name) = derive_prompt_name_from_rollout_file(Path::new(path)) {
+                self.prompt_seen.insert(session_id.clone());
+                self.set_custom_name(&session_id, Some(name)).await;
+            }
+        }
+
+        self.ensure_session_name(&session_id).await;
         self.schedule_session_timeout(&session_id);
     }
 
@@ -684,7 +759,22 @@ impl WatcherRuntime {
         };
 
         match payload_type {
-            "message" => {}
+            "message" => {
+                let role = payload.get("role").and_then(|v| v.as_str());
+                if role == Some("user") {
+                    if let Some(state) = self.file_states.get_mut(path) {
+                        state.saw_user_event = true;
+                        state.saw_agent_event = false;
+                    }
+                    let message = extract_response_item_message_text(&payload);
+                    self.handle_user_message(&session_id, message).await;
+                } else if role == Some("assistant") {
+                    if let Some(state) = self.file_states.get_mut(path) {
+                        state.saw_agent_event = true;
+                    }
+                    self.mark_waiting(&session_id).await;
+                }
+            }
             "function_call" => {
                 if self.saw_agent_event(path) {
                     return;
@@ -725,13 +815,24 @@ impl WatcherRuntime {
     }
 
     async fn handle_user_message(&mut self, session_id: &str, message: Option<String>) {
-        let first_prompt = message
-            .as_deref()
-            .and_then(clean_prompt)
-            .map(|text| truncate_prompt(&text));
+        let first_prompt = message.as_deref().and_then(name_from_first_prompt);
 
-        if first_prompt.is_some() {
+        if let Some(prompt) = first_prompt.as_ref() {
             self.prompt_seen.insert(session_id.to_string());
+            let current_name = if let Some(session_arc) = {
+                let state = self.app_state.lock().await;
+                state.get_session(session_id)
+            } {
+                let session = session_arc.lock().await;
+                session.state().custom_name
+            } else {
+                None
+            };
+
+            let generated_slug = generate_session_slug(session_id);
+            if current_name.is_none() || current_name.as_deref() == Some(generated_slug.as_str()) {
+                self.set_custom_name(session_id, Some(prompt.clone())).await;
+            }
         }
 
         let _ = self
@@ -998,6 +1099,7 @@ impl WatcherRuntime {
         self.broadcast_session_delta(
             session_id,
             StateChanges {
+                status: Some(SessionStatus::Active),
                 work_status: Some(work_status),
                 last_activity_at: Some(current_time_unix_z()),
                 ..Default::default()
@@ -1013,19 +1115,26 @@ impl WatcherRuntime {
             let state = self.app_state.lock().await;
             state.get_session(session_id)
         } {
-            let mut session = session_arc.lock().await;
-            session.set_status(SessionStatus::Active);
-            if let Some(work_status) = changes.work_status {
-                session.set_work_status(work_status);
-            }
-            if let Some(status) = changes.status {
-                session.set_status(status);
-            }
-            session
-                .broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.to_string(),
-                    changes,
-                })
+            let summary = {
+                let mut session = session_arc.lock().await;
+                session.set_status(SessionStatus::Active);
+                if let Some(work_status) = changes.work_status {
+                    session.set_work_status(work_status);
+                }
+                if let Some(status) = changes.status {
+                    session.set_status(status);
+                }
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.to_string(),
+                        changes,
+                    })
+                    .await;
+                session.summary()
+            };
+
+            let mut app = self.app_state.lock().await;
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
                 .await;
         }
     }
@@ -1035,6 +1144,21 @@ impl WatcherRuntime {
             .get(path)
             .map(|s| s.saw_agent_event)
             .unwrap_or(false)
+    }
+
+    async fn should_backfill_name_from_history(&self, session_id: &str) -> bool {
+        let current_name = if let Some(session_arc) = {
+            let state = self.app_state.lock().await;
+            state.get_session(session_id)
+        } {
+            let session = session_arc.lock().await;
+            session.state().custom_name
+        } else {
+            None
+        };
+
+        let generated_slug = generate_session_slug(session_id);
+        current_name.is_none() || current_name.as_deref() == Some(generated_slug.as_str())
     }
 
     fn schedule_session_timeout(&mut self, session_id: &str) {
@@ -1078,8 +1202,8 @@ impl WatcherRuntime {
             .await;
 
         if let Some(session_arc) = {
-            let mut app = self.app_state.lock().await;
-            app.remove_session(&session_id)
+            let app = self.app_state.lock().await;
+            app.get_session(&session_id)
         } {
             let mut session = session_arc.lock().await;
             session.set_status(SessionStatus::Ended);
@@ -1167,7 +1291,13 @@ impl WatcherRuntime {
                 },
             );
             if let Err(err) = save_persisted_state(&self.state_path, &self.persisted_state) {
-                warn!(error = %err, "Failed writing rollout state");
+                warn!(
+                    component = "rollout_watcher",
+                    event = "rollout_watcher.state_persist_failed",
+                    path = %self.state_path.display(),
+                    error = %err,
+                    "Failed writing rollout state"
+                );
             }
         }
     }
@@ -1306,6 +1436,43 @@ fn read_file_chunk(path: &Path, offset: u64) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
+fn derive_prompt_name_from_rollout_file(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+
+    for line in reader.lines().take(4096).flatten() {
+        let json: Value = serde_json::from_str(&line).ok()?;
+        let line_type = json.get("type").and_then(|v| v.as_str())?;
+        let payload = json.get("payload")?;
+
+        match line_type {
+            "event_msg" => {
+                if payload.get("type").and_then(|v| v.as_str()) == Some("user_message") {
+                    if let Some(message) = payload.get("message").and_then(|v| v.as_str()) {
+                        if let Some(name) = name_from_first_prompt(message) {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+            "response_item" => {
+                if payload.get("type").and_then(|v| v.as_str()) == Some("message")
+                    && payload.get("role").and_then(|v| v.as_str()) == Some("user")
+                {
+                    if let Some(message) = extract_response_item_message_text(payload) {
+                        if let Some(name) = name_from_first_prompt(&message) {
+                            return Some(name);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 fn is_jsonl_path(path: &Path) -> bool {
     path.extension().and_then(|s| s.to_str()) == Some("jsonl")
 }
@@ -1343,22 +1510,32 @@ async fn run_git(args: &[&str], cwd: &str) -> Option<String> {
     }
 }
 
-fn clean_prompt(message: &str) -> Option<String> {
-    let cleaned = message.split_whitespace().collect::<Vec<_>>().join(" ");
-    if cleaned.is_empty() {
+fn extract_response_item_message_text(payload: &Value) -> Option<String> {
+    if let Some(text) = payload.get("content").and_then(|v| v.as_str()) {
+        return Some(text.to_string());
+    }
+
+    let content = payload.get("content")?.as_array()?;
+    let mut parts = Vec::new();
+    for item in content {
+        if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
+            if !text.trim().is_empty() {
+                parts.push(text.trim().to_string());
+            }
+            continue;
+        }
+        if let Some(text) = item.get("input_text").and_then(|v| v.as_str()) {
+            if !text.trim().is_empty() {
+                parts.push(text.trim().to_string());
+            }
+        }
+    }
+
+    if parts.is_empty() {
         None
     } else {
-        Some(cleaned)
+        Some(parts.join("\n"))
     }
-}
-
-fn truncate_prompt(prompt: &str) -> String {
-    if prompt.chars().count() <= 80 {
-        return prompt.to_string();
-    }
-
-    let truncated = prompt.chars().take(77).collect::<String>();
-    format!("{}...", truncated)
 }
 
 fn extract_question(payload: &Value) -> Option<String> {
@@ -1438,6 +1615,49 @@ fn stable_hash(value: &str) -> u64 {
     hash
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn extracts_text_from_response_item_content_array() {
+        let payload = json!({
+            "type": "message",
+            "role": "user",
+            "content": [
+                { "type": "input_text", "text": "Investigate flaky tests" },
+                { "type": "input_text", "text": "and propose a fix" }
+            ]
+        });
+
+        let text = extract_response_item_message_text(&payload).expect("expected extracted text");
+        assert!(text.contains("Investigate flaky tests"));
+        assert!(text.contains("and propose a fix"));
+    }
+
+    #[test]
+    fn derives_prompt_name_from_rollout_history() {
+        let path = std::env::temp_dir().join(format!(
+            "orbitdock-rollout-test-{}.jsonl",
+            std::process::id()
+        ));
+        let contents = r#"{"type":"session_meta","payload":{"id":"abc","cwd":"/tmp/repo"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Investigate flaky session naming behavior please"}]}}
+"#;
+        std::fs::write(&path, contents).expect("write test file");
+
+        let derived = derive_prompt_name_from_rollout_file(&path);
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(
+            derived.as_deref(),
+            Some("Investigate flaky session naming behavior please")
+        );
+    }
+
+}
+
 fn as_i64(value: &Value) -> Option<i64> {
     value
         .as_i64()
@@ -1466,15 +1686,11 @@ fn current_time_unix_z() -> String {
 }
 
 fn matches_supported_event_kind(kind: &EventKind) -> bool {
-    use notify::event::{AccessKind, AccessMode, ModifyKind};
-
     matches!(
         kind,
         EventKind::Create(_)
-            | EventKind::Modify(ModifyKind::Data(_))
-            | EventKind::Modify(ModifyKind::Any)
-            | EventKind::Modify(ModifyKind::Name(_))
-            | EventKind::Access(AccessKind::Close(AccessMode::Write))
+            | EventKind::Modify(_)
+            | EventKind::Access(_)
             | EventKind::Any
     )
 }
