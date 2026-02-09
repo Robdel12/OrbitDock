@@ -1935,6 +1935,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rollout_activity_reactivates_timed_out_passive_session() {
+        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        // Create a passive rollout-backed session and mark it ended (timeout path).
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::RolloutSessionUpsert {
+                    id: "passive-timeout".into(),
+                    thread_id: "passive-timeout".into(),
+                    project_path: "/tmp/passive-timeout".into(),
+                    project_name: Some("passive-timeout".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    context_label: Some("codex_cli_rs".into()),
+                    transcript_path: "/tmp/passive-timeout.jsonl".into(),
+                    started_at: "2026-02-08T00:00:00Z".into(),
+                },
+                PersistCommand::SessionEnd {
+                    id: "passive-timeout".into(),
+                    reason: "timeout".into(),
+                },
+            ],
+        )
+        .expect("flush ended session");
+
+        // A new rollout event should reactivate the session and clear ended markers.
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::RolloutSessionUpdate {
+                id: "passive-timeout".into(),
+                project_path: None,
+                model: None,
+                status: Some(SessionStatus::Active),
+                work_status: Some(WorkStatus::Waiting),
+                attention_reason: Some(Some("awaitingReply".into())),
+                pending_tool_name: Some(None),
+                pending_tool_input: Some(None),
+                pending_question: Some(None),
+                total_tokens: None,
+                last_tool: None,
+                last_tool_at: None,
+                custom_name: None,
+            }],
+        )
+        .expect("flush reactivation");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let (status, work_status, ended_at, end_reason): (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT status, work_status, ended_at, end_reason
+                 FROM sessions
+                 WHERE id = ?1",
+                params!["passive-timeout"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("query session");
+
+        assert_eq!(status, "active");
+        assert_eq!(work_status, "waiting");
+        assert!(ended_at.is_none(), "ended_at should be cleared on reactivation");
+        assert!(
+            end_reason.is_none(),
+            "end_reason should be cleared on reactivation"
+        );
+    }
+
+    #[tokio::test]
     async fn startup_backfills_custom_name_from_first_prompt_for_claude_and_codex() {
         let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
