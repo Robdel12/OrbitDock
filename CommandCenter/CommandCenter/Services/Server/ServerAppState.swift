@@ -16,6 +16,8 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "server-app-st
 @Observable
 @MainActor
 final class ServerAppState {
+  private static let codexModelsCacheKey = "orbitdock.server.codex_models_cache.v1"
+
   // MARK: - Observable State
 
   /// Sessions managed by the server (converted to Session model for view compatibility)
@@ -48,9 +50,20 @@ final class ServerAppState {
   /// Current autonomy level per session
   private(set) var currentAutonomy: [String: AutonomyLevel] = [:]
 
+  /// Codex models discovered by the server for the current account
+  private(set) var codexModels: [ServerCodexModelOption] = []
+
   /// Raw config values used to derive autonomy accurately across partial deltas
   private var approvalPolicies: [String: String] = [:]
   private var sandboxModes: [String: String] = [:]
+
+  init() {
+    if let data = UserDefaults.standard.data(forKey: Self.codexModelsCacheKey),
+       let models = try? JSONDecoder().decode([ServerCodexModelOption].self, from: data)
+    {
+      codexModels = models
+    }
+  }
 
   // MARK: - Internal State
 
@@ -135,6 +148,13 @@ final class ServerAppState {
       }
     }
 
+    conn.onModelsList = { [weak self] models in
+      Task { @MainActor in
+        self?.codexModels = models
+        self?.persistCodexModelsCache(models)
+      }
+    }
+
     conn.onError = { [weak self] code, message, sessionId in
       Task { @MainActor in
         self?.handleError(code, message, sessionId)
@@ -144,10 +164,12 @@ final class ServerAppState {
     conn.onConnected = { [weak self] in
       Task { @MainActor in
         self?.resubscribeAll()
+        self?.refreshCodexModels()
       }
     }
 
     logger.info("ServerAppState callbacks wired")
+    refreshCodexModels()
   }
 
   // MARK: - Actions
@@ -159,6 +181,17 @@ final class ServerAppState {
     let autonomy = AutonomyLevel.from(approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
     pendingCreationAutonomy = autonomy
     ServerConnection.shared.createSession(provider: .codex, cwd: cwd, model: model, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
+  }
+
+  /// Refresh model options from the server.
+  func refreshCodexModels() {
+    ServerConnection.shared.listModels()
+  }
+
+  private func persistCodexModelsCache(_ models: [ServerCodexModelOption]) {
+    if let data = try? JSONEncoder().encode(models) {
+      UserDefaults.standard.set(data, forKey: Self.codexModelsCacheKey)
+    }
   }
 
   /// Send a message to a session with optional per-turn overrides
@@ -560,12 +593,31 @@ final class ServerAppState {
   private func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
     logger.debug("Message appended to \(sessionId): \(message.type.rawValue)")
     let transcriptMsg = message.toTranscriptMessage()
+    var messages = sessionMessages[sessionId] ?? []
 
-    if sessionMessages[sessionId] != nil {
-      sessionMessages[sessionId]!.append(transcriptMsg)
+    if let idx = messages.firstIndex(where: { $0.id == transcriptMsg.id }) {
+      // Streaming edge case: update can arrive before append.
+      // Merge to avoid duplicate IDs in ForEach, which can cause stale render frames.
+      let existing = messages[idx]
+      let merged = TranscriptMessage(
+        id: transcriptMsg.id,
+        type: transcriptMsg.type,
+        content: transcriptMsg.content.isEmpty ? existing.content : transcriptMsg.content,
+        timestamp: transcriptMsg.timestamp,
+        toolName: transcriptMsg.toolName ?? existing.toolName,
+        toolInput: transcriptMsg.toolInput ?? existing.toolInput,
+        toolOutput: transcriptMsg.toolOutput ?? existing.toolOutput,
+        toolDuration: transcriptMsg.toolDuration ?? existing.toolDuration,
+        inputTokens: transcriptMsg.inputTokens ?? existing.inputTokens,
+        outputTokens: transcriptMsg.outputTokens ?? existing.outputTokens,
+        isInProgress: transcriptMsg.isInProgress || existing.isInProgress
+      )
+      messages[idx] = merged
     } else {
-      sessionMessages[sessionId] = [transcriptMsg]
+      messages.append(transcriptMsg)
     }
+
+    sessionMessages[sessionId] = messages
     messageRevisions[sessionId, default: 0] += 1
   }
 

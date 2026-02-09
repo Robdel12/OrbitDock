@@ -14,12 +14,25 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
+use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, ServerMessage, TokenUsage};
 
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{delete_approval, list_approvals, load_session_by_id, PersistCommand};
 use crate::session::SessionHandle;
 use crate::state::AppState;
+
+fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::WorkStatus {
+    let normalized = decision.trim().to_lowercase();
+    if matches!(
+        normalized.as_str(),
+        "approved" | "approved_for_session" | "approved_always"
+    ) {
+        orbitdock_protocol::WorkStatus::Working
+    } else {
+        orbitdock_protocol::WorkStatus::Waiting
+    }
+}
 
 /// Messages that can be sent through the WebSocket
 enum OutboundMessage {
@@ -380,14 +393,14 @@ async fn handle_client_message(
                         info!("Dispatching patch approval for {}", request_id);
                         CodexAction::ApprovePatch {
                             request_id,
-                            decision,
+                            decision: decision.clone(),
                         }
                     }
                     _ => {
                         // Default to exec for exec and unknown types
                         CodexAction::ApproveExec {
                             request_id,
-                            decision,
+                            decision: decision.clone(),
                             proposed_amendment,
                         }
                     }
@@ -395,16 +408,29 @@ async fn handle_client_message(
                 let _ = tx.send(action).await;
             }
 
-            // Clear pending approval and transition back to working
+            // Clear pending approval and transition to an appropriate post-decision state.
+            // Approved actions continue work; denied/abort returns to waiting.
+            let next_work_status = work_status_for_approval_decision(&decision);
+
+            let _ = state
+                .persist()
+                .send(PersistCommand::SessionUpdate {
+                    id: session_id.clone(),
+                    status: None,
+                    work_status: Some(next_work_status),
+                    last_activity_at: None,
+                })
+                .await;
+
             if let Some(session) = state.get_session(&session_id) {
                 let mut session = session.lock().await;
-                session.set_work_status(orbitdock_protocol::WorkStatus::Working);
+                session.set_work_status(next_work_status);
 
                 session
                     .broadcast(ServerMessage::SessionDelta {
                         session_id: session_id.clone(),
                         changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                            work_status: Some(next_work_status),
                             pending_approval: Some(None), // Explicitly clear
                             ..Default::default()
                         },
@@ -464,6 +490,23 @@ async fn handle_client_message(
                     ServerMessage::Error {
                         code: "approval_delete_failed".into(),
                         message: format!("Failed to delete approval {}: {}", approval_id, e),
+                        session_id: None,
+                    },
+                )
+                .await;
+            }
+        },
+
+        ClientMessage::ListModels => match discover_models().await {
+            Ok(models) => {
+                send_json(client_tx, ServerMessage::ModelsList { models }).await;
+            }
+            Err(e) => {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "model_list_failed".into(),
+                        message: format!("Failed to list models: {}", e),
                         session_id: None,
                     },
                 )
@@ -788,5 +831,47 @@ async fn handle_client_message(
                     .await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::work_status_for_approval_decision;
+    use orbitdock_protocol::WorkStatus;
+
+    #[test]
+    fn approval_decisions_that_continue_tooling_stay_working() {
+        assert_eq!(
+            work_status_for_approval_decision("approved"),
+            WorkStatus::Working
+        );
+        assert_eq!(
+            work_status_for_approval_decision("approved_for_session"),
+            WorkStatus::Working
+        );
+        assert_eq!(
+            work_status_for_approval_decision("approved_always"),
+            WorkStatus::Working
+        );
+        assert_eq!(
+            work_status_for_approval_decision("  approved  "),
+            WorkStatus::Working
+        );
+    }
+
+    #[test]
+    fn approval_decisions_that_stop_or_reject_return_to_waiting() {
+        assert_eq!(
+            work_status_for_approval_decision("denied"),
+            WorkStatus::Waiting
+        );
+        assert_eq!(
+            work_status_for_approval_decision("abort"),
+            WorkStatus::Waiting
+        );
+        assert_eq!(
+            work_status_for_approval_decision("unknown_value"),
+            WorkStatus::Waiting
+        );
     }
 }

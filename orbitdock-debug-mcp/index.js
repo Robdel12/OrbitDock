@@ -81,7 +81,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             request_id: {
               type: "string",
-              description: "The approval request ID (from pending_approval_id in session)",
+              description: "Optional approval request ID; if omitted or 'pending', bridge resolves pending_approval_id",
             },
             decision: {
               type: "string",
@@ -103,7 +103,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description: "Answer for question approvals (required when type=question)",
             },
           },
-          required: ["session_id", "request_id"],
+          required: ["session_id"],
         },
       },
       {
@@ -147,6 +147,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           properties: {},
         },
       },
+      {
+        name: "list_models",
+        description: "List Codex models currently available for this OrbitDock/Codex account",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
     ],
   };
 });
@@ -170,6 +178,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleGetSession(args);
       case "check_connection":
         return await handleCheckConnection(args);
+      case "list_models":
+        return await handleListModels();
       default:
         return { content: [{ type: "text", text: `Unknown tool: ${name}` }], isError: true };
     }
@@ -186,6 +196,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 async function handleSendMessage({ session_id, message, model, effort }) {
   ensureOrbitDock();
   let session = await requireControllableSession(session_id);
+
+  if (model) {
+    let models = await orbitdock.listModels();
+    if (models.length > 0 && !models.some((m) => m.model === model)) {
+      let available = models.slice(0, 10).map((m) => m.model).join(", ");
+      throw new Error(
+        `Model '${model}' is not in current server model list. Available examples: ${available}`
+      );
+    }
+  }
+
   await orbitdock.sendMessage(session_id, message, { model, effort });
 
   return {
@@ -212,6 +233,15 @@ async function handleApprove({ session_id, request_id, approved, decision, type 
   ensureOrbitDock();
   await requireControllableSession(session_id);
 
+  let resolvedRequestId = request_id;
+  if (!resolvedRequestId || resolvedRequestId === "pending") {
+    let session = await orbitdock.getSession(session_id);
+    resolvedRequestId = session.pending_approval_id;
+  }
+  if (!resolvedRequestId) {
+    throw new Error("No pending approval request_id available for this session.");
+  }
+
   let resolvedDecision = decision;
   if (!resolvedDecision) {
     if (typeof approved === "boolean") {
@@ -221,7 +251,7 @@ async function handleApprove({ session_id, request_id, approved, decision, type 
     }
   }
 
-  await orbitdock.approve(session_id, request_id, {
+  await orbitdock.approve(session_id, resolvedRequestId, {
     type,
     decision: resolvedDecision,
     answer,
@@ -231,7 +261,7 @@ async function handleApprove({ session_id, request_id, approved, decision, type 
     content: [
       {
         type: "text",
-        text: `${type} ${resolvedDecision} for ${session_id}`,
+        text: `${type} ${resolvedDecision} for ${session_id} (${resolvedRequestId})`,
       },
     ],
   };
@@ -287,6 +317,9 @@ async function handleGetSession({ session_id }) {
     `Direct Codex: ${session.is_direct_codex ? "yes" : "no"}`,
     `Controllable: ${isControllableSession(session) ? "yes" : "no"}`,
   ];
+  if (session.pending_approval_id) {
+    lines.push(`Pending approval: ${session.pending_approval_id}`);
+  }
 
   return {
     content: [{ type: "text", text: lines.join("\n") }],
@@ -317,6 +350,25 @@ async function handleCheckConnection() {
       isError: true,
     };
   }
+}
+
+async function handleListModels() {
+  ensureOrbitDock();
+  let models = await orbitdock.listModels();
+  if (models.length === 0) {
+    return {
+      content: [{ type: "text", text: "No models returned yet. OrbitDock may still be loading model metadata." }],
+    };
+  }
+
+  let lines = models.map((m) => {
+    let effort = Array.isArray(m.supported_reasoning_efforts)
+      ? m.supported_reasoning_efforts.join(", ")
+      : "";
+    let defaultFlag = m.is_default ? " (default)" : "";
+    return `• ${m.model}${defaultFlag}\n  ${m.display_name}\n  Effort: ${effort}`;
+  });
+  return { content: [{ type: "text", text: lines.join("\n\n") }] };
 }
 
 // Helpers

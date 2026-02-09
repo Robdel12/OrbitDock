@@ -16,12 +16,27 @@ struct CodexInputBar: View {
   @State private var isSending = false
   @State private var errorMessage: String?
   @State private var showConfig = false
-  @State private var selectedModel: CodexModel = .default
+  @State private var selectedModel: String = ""
   @State private var selectedEffort: EffortLevel = .default
   @FocusState private var isFocused: Bool
 
   private var hasOverrides: Bool {
-    selectedModel != .default || selectedEffort != .default
+    selectedEffort != .default
+  }
+
+  private var modelOptions: [ServerCodexModelOption] {
+    serverState.codexModels
+  }
+
+  private var defaultModelSelection: String {
+    if let current = serverState.sessions.first(where: { $0.id == sessionId })?.model,
+       modelOptions.contains(where: { $0.model == current }) {
+      return current
+    }
+    if let model = modelOptions.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {
+      return model
+    }
+    return modelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
   }
 
   var body: some View {
@@ -37,8 +52,8 @@ struct CodexInputBar: View {
               .font(.caption)
               .foregroundStyle(.tertiary)
             Picker("Model", selection: $selectedModel) {
-              ForEach(CodexModel.allCases) { model in
-                Text(model.displayName).tag(model)
+              ForEach(modelOptions.filter { !$0.model.isEmpty }, id: \.id) { model in
+                Text(model.displayName).tag(model.model)
               }
             }
             .pickerStyle(.menu)
@@ -69,7 +84,6 @@ struct CodexInputBar: View {
           if hasOverrides {
             Button {
               withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                selectedModel = .default
                 selectedEffort = .default
               }
             } label: {
@@ -159,12 +173,22 @@ struct CodexInputBar: View {
       }
     }
     .background(Color.backgroundSecondary)
+    .onAppear {
+      serverState.refreshCodexModels()
+      if selectedModel.isEmpty {
+        selectedModel = defaultModelSelection
+      }
+    }
+    .onChange(of: serverState.codexModels.count) { _, _ in
+      if selectedModel.isEmpty || !modelOptions.contains(where: { $0.model == selectedModel }) {
+        selectedModel = defaultModelSelection
+      }
+    }
   }
 
   @ViewBuilder
   private var overrideBadge: some View {
     let parts = [
-      selectedModel != .default ? selectedModel.displayName : nil,
       selectedEffort != .default ? selectedEffort.displayName : nil,
     ].compactMap { $0 }
 
@@ -180,16 +204,19 @@ struct CodexInputBar: View {
   }
 
   private var canSend: Bool {
-    !isSending && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    !isSending && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selectedModel.isEmpty
   }
 
   private func sendMessage() {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty, !isSending else { return }
+    guard !selectedModel.isEmpty else {
+      errorMessage = "No model available yet. Wait for model list to load."
+      return
+    }
 
-    let model = selectedModel == .default ? nil : selectedModel.rawValue
     let effort = selectedEffort == .default ? nil : selectedEffort.rawValue
-    serverState.sendMessage(sessionId: sessionId, content: trimmed, model: model, effort: effort)
+    serverState.sendMessage(sessionId: sessionId, content: trimmed, model: selectedModel, effort: effort)
     message = ""
   }
 }

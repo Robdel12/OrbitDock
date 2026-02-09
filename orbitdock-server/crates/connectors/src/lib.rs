@@ -6,7 +6,7 @@
 
 pub mod codex;
 
-pub use codex::CodexConnector;
+pub use codex::{discover_models, CodexConnector};
 use orbitdock_protocol::TokenUsage;
 use thiserror::Error;
 

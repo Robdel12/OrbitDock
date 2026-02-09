@@ -50,6 +50,7 @@ final class ServerConnection: ObservableObject {
   var onSessionEnded: ((String, String) -> Void)?
   var onApprovalsList: ((String?, [ServerApprovalHistoryItem]) -> Void)?
   var onApprovalDeleted: ((Int64) -> Void)?
+  var onModelsList: (([ServerCodexModelOption]) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
@@ -250,6 +251,9 @@ final class ServerConnection: ObservableObject {
     case .approvalDeleted(let approvalId):
       onApprovalDeleted?(approvalId)
 
+    case .modelsList(let models):
+      onModelsList?(models)
+
     case .error(let code, let errorMessage, let sessionId):
       logger.error("Server error [\(code)]: \(errorMessage)")
       onError?(code, errorMessage, sessionId)
@@ -350,5 +354,10 @@ final class ServerConnection: ObservableObject {
   /// Delete one approval history row
   func deleteApproval(_ approvalId: Int64) {
     send(.deleteApproval(approvalId: approvalId))
+  }
+
+  /// Load codex model options discovered by the server
+  func listModels() {
+    send(.listModels)
   }
 }

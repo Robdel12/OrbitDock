@@ -13,10 +13,21 @@ struct NewCodexSessionSheet: View {
   @Environment(ServerAppState.self) private var serverState
 
   @State private var selectedPath: String = ""
-  @State private var selectedModel: CodexModel = .default
+  @State private var selectedModel: String = ""
   @State private var selectedAutonomy: AutonomyLevel = .suggest
   @State private var isCreating = false
   @State private var errorMessage: String?
+
+  private var modelOptions: [ServerCodexModelOption] {
+    serverState.codexModels
+  }
+
+  private var defaultModelSelection: String {
+    if let model = modelOptions.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {
+      return model
+    }
+    return modelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -67,8 +78,8 @@ struct NewCodexSessionSheet: View {
             .foregroundStyle(.secondary)
 
           Picker("Model", selection: $selectedModel) {
-            ForEach(CodexModel.allCases) { model in
-              Text(model.displayName).tag(model)
+            ForEach(modelOptions.filter { !$0.model.isEmpty }, id: \.id) { model in
+              Text(model.displayName).tag(model.model)
             }
           }
           .pickerStyle(.menu)
@@ -143,13 +154,24 @@ struct NewCodexSessionSheet: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(Color.accent)
-        .disabled(selectedPath.isEmpty || isCreating)
+        .disabled(selectedPath.isEmpty || selectedModel.isEmpty || isCreating)
         .keyboardShortcut(.return, modifiers: .command)
       }
       .padding()
     }
     .frame(width: 450, height: 400)
     .background(Color.backgroundSecondary)
+    .onAppear {
+      serverState.refreshCodexModels()
+      if selectedModel.isEmpty {
+        selectedModel = defaultModelSelection
+      }
+    }
+    .onChange(of: serverState.codexModels.count) { _, _ in
+      if selectedModel.isEmpty || !modelOptions.contains(where: { $0.model == selectedModel }) {
+        selectedModel = defaultModelSelection
+      }
+    }
   }
 
   // MARK: - Actions
@@ -172,12 +194,11 @@ struct NewCodexSessionSheet: View {
   }
 
   private func createSession() {
-    guard !selectedPath.isEmpty else { return }
+    guard !selectedPath.isEmpty, !selectedModel.isEmpty else { return }
 
-    let model = selectedModel == .default ? nil : selectedModel.rawValue
     serverState.createSession(
       cwd: selectedPath,
-      model: model,
+      model: selectedModel,
       approvalPolicy: selectedAutonomy.approvalPolicy,
       sandboxMode: selectedAutonomy.sandboxMode
     )

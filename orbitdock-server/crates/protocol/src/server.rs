@@ -57,6 +57,11 @@ pub enum ServerMessage {
         approval_id: i64,
     },
 
+    // Codex models
+    ModelsList {
+        models: Vec<CodexModelOption>,
+    },
+
     // Errors
     Error {
         code: String,

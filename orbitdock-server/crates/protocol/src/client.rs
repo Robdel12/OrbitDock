@@ -76,4 +76,7 @@ pub enum ClientMessage {
     DeleteApproval {
         approval_id: i64,
     },
+
+    // Codex models
+    ListModels,
 }

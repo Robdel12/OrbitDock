@@ -32,6 +32,14 @@ export class OrbitDockClient {
   }
 
   /**
+   * List supported Codex models discovered by OrbitDock server
+   */
+  async listModels() {
+    let response = await this.request("GET", "/api/models");
+    return response.models || [];
+  }
+
+  /**
    * Send a message to a session (starts a new turn)
    * @param {Object} [options] - Optional per-turn overrides
    * @param {string} [options.model] - Model override for this turn

@@ -216,6 +216,17 @@ final class MCPBridge {
       return response
     }
 
+    // GET /api/models
+    if request.method == "GET",
+       pathParts.count == 2,
+       pathParts[0] == "api",
+       pathParts[1] == "models"
+    {
+      let response = handleListModels()
+      logResponse(start: start, request: request, response: response)
+      return response
+    }
+
     let response = HTTPResponse(status: 404, body: ["error": "Not found"])
     logResponse(start: start, request: request, response: response)
     return response
@@ -259,13 +270,37 @@ final class MCPBridge {
     return HTTPResponse(status: 200, body: ["status": "interrupted", "session_id": sessionId])
   }
 
+  private func handleListModels() -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
+    }
+
+    let models = state.codexModels.map { model in
+      [
+        "id": model.id,
+        "model": model.model,
+        "display_name": model.displayName,
+        "description": model.description,
+        "is_default": model.isDefault,
+        "supported_reasoning_efforts": model.supportedReasoningEfforts,
+      ] as [String: Any]
+    }
+    return HTTPResponse(status: 200, body: ["models": models])
+  }
+
   private func handleApprove(sessionId: String, body: [String: Any]) -> HTTPResponse {
     guard let state = serverAppState else {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
-    guard let requestId = body["request_id"] as? String else {
-      return HTTPResponse(status: 400, body: ["error": "Missing 'request_id' field"])
+    let requestIdFromBody = body["request_id"] as? String
+    let requestId: String
+    if let rid = requestIdFromBody, !rid.isEmpty, rid != "pending" {
+      requestId = rid
+    } else if let pending = state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId {
+      requestId = pending
+    } else {
+      return HTTPResponse(status: 400, body: ["error": "Missing 'request_id' field and no pending approval found"])
     }
 
     // Support both "decision" string and legacy "approved" bool
@@ -287,7 +322,7 @@ final class MCPBridge {
       state.approveTool(sessionId: sessionId, requestId: requestId, decision: decision)
     }
 
-    return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId])
+    return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId, "request_id": requestId])
   }
 
   private func handleListSessions() -> HTTPResponse {
@@ -298,7 +333,7 @@ final class MCPBridge {
     let sessions = state.sessions.filter { $0.isActive }
 
     let sessionData = sessions.map { session -> [String: Any] in
-      [
+      var data: [String: Any] = [
         "id": session.id,
         "project_path": session.projectPath,
         "branch": session.branch ?? "",
@@ -308,6 +343,10 @@ final class MCPBridge {
         "attention_reason": session.attentionReason.rawValue,
         "is_direct_codex": session.isDirectCodex,
       ]
+      if let pendingApprovalId = session.pendingApprovalId {
+        data["pending_approval_id"] = pendingApprovalId
+      }
+      return data
     }
 
     return HTTPResponse(status: 200, body: ["sessions": sessionData])
@@ -332,6 +371,9 @@ final class MCPBridge {
       "attention_reason": session.attentionReason.rawValue,
       "is_direct_codex": session.isDirectCodex,
     ]
+    if let pendingApprovalId = session.pendingApprovalId {
+      sessionData["pending_approval_id"] = pendingApprovalId
+    }
 
     if let startedAt = session.startedAt {
       sessionData["started_at"] = ISO8601DateFormatter().string(from: startedAt)

@@ -10,6 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
+use codex_core::features::Feature;
+use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, CodexThread, ThreadManager};
 use codex_protocol::protocol::{
     AskForApproval, Event, EventMsg, FileChange, Op, ReviewDecision, SandboxPolicy, SessionSource,
@@ -931,6 +933,52 @@ impl CodexConnector {
         info!("Sent shutdown");
         Ok(())
     }
+}
+
+/// Discover currently available Codex models for this account/environment.
+pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOption>, ConnectorError> {
+    let codex_home = find_codex_home()
+        .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
+    let auth_manager = Arc::new(AuthManager::new(
+        codex_home.clone(),
+        true,
+        AuthCredentialsStoreMode::Auto,
+    ));
+    let thread_manager = Arc::new(ThreadManager::new(codex_home, auth_manager, SessionSource::Mcp));
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let harness_overrides = ConfigOverrides {
+        cwd: Some(cwd),
+        ..Default::default()
+    };
+    let mut config = Config::load_with_cli_overrides_and_harness_overrides(
+        Vec::new(),
+        harness_overrides,
+    )
+    .await
+    .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+    config.features.enable(Feature::RemoteModels);
+
+    let models = thread_manager
+        .list_models(&config, RefreshStrategy::OnlineIfUncached)
+        .await
+        .into_iter()
+        .filter(|preset| preset.show_in_picker && preset.supported_in_api)
+        .map(|preset| orbitdock_protocol::CodexModelOption {
+            id: preset.id,
+            model: preset.model,
+            display_name: preset.display_name,
+            description: preset.description,
+            is_default: preset.is_default,
+            supported_reasoning_efforts: preset
+                .supported_reasoning_efforts
+                .into_iter()
+                .map(|e| e.effort.to_string())
+                .collect(),
+        })
+        .collect();
+
+    Ok(models)
 }
 
 /// Get current time as ISO 8601 string

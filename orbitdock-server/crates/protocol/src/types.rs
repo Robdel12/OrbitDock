@@ -234,3 +234,14 @@ pub struct MessageChanges {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
 }
+
+/// Codex model option exposed to clients.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexModelOption {
+    pub id: String,
+    pub model: String,
+    pub display_name: String,
+    pub description: String,
+    pub is_default: bool,
+    pub supported_reasoning_efforts: Vec<String>,
+}
