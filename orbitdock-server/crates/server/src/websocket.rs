@@ -40,6 +40,8 @@ fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::Work
     }
 }
 
+const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
+
 /// Messages that can be sent through the WebSocket
 enum OutboundMessage {
     /// JSON-serialized ServerMessage
@@ -204,6 +206,46 @@ fn chrono_now() -> String {
         .unwrap_or_default()
         .as_secs();
     format!("{}Z", secs)
+}
+
+fn parse_unix_z(value: Option<&str>) -> Option<u64> {
+    let raw = value?;
+    let stripped = raw.strip_suffix('Z').unwrap_or(raw);
+    stripped.parse::<u64>().ok()
+}
+
+fn is_stale_empty_claude_shell(
+    summary: &orbitdock_protocol::SessionSummary,
+    current_session_id: &str,
+    cwd: &str,
+    now_secs: u64,
+) -> bool {
+    if summary.id == current_session_id {
+        return false;
+    }
+    if summary.provider != Provider::Claude {
+        return false;
+    }
+    if summary.project_path != cwd {
+        return false;
+    }
+    if summary.status != orbitdock_protocol::SessionStatus::Active {
+        return false;
+    }
+    if summary.work_status != orbitdock_protocol::WorkStatus::Waiting {
+        return false;
+    }
+    if summary.custom_name.is_some() {
+        return false;
+    }
+
+    let started_at = parse_unix_z(summary.started_at.as_deref());
+    let last_activity_at = parse_unix_z(summary.last_activity_at.as_deref()).or(started_at);
+    let Some(last_activity_at) = last_activity_at else {
+        return false;
+    };
+
+    now_secs.saturating_sub(last_activity_at) >= CLAUDE_EMPTY_SHELL_TTL_SECS
 }
 
 fn project_name_from_cwd(cwd: &str) -> Option<String> {
@@ -1044,6 +1086,37 @@ async fn handle_client_message(
 
             let mut state = state.lock().await;
             let persist_tx = state.persist().clone();
+            let now_secs = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+            // Prune stale empty Claude shells in the same project so they do not
+            // linger as ghost active sessions.
+            let stale_shell_ids: Vec<String> = state
+                .get_session_summaries()
+                .await
+                .into_iter()
+                .filter(|summary| is_stale_empty_claude_shell(summary, &session_id, &cwd, now_secs))
+                .map(|summary| summary.id)
+                .collect();
+            for stale_id in stale_shell_ids {
+                let _ = persist_tx
+                    .send(PersistCommand::ClaudeSessionEnd {
+                        id: stale_id.clone(),
+                        reason: Some("stale_empty_shell".to_string()),
+                    })
+                    .await;
+                if state.remove_session(&stale_id).is_some() {
+                    state
+                        .broadcast_to_list(ServerMessage::SessionEnded {
+                            session_id: stale_id,
+                            reason: "stale_empty_shell".to_string(),
+                        })
+                        .await;
+                }
+            }
+
             let mut created = false;
             let session_arc = if let Some(existing) = state.get_session(&session_id) {
                 let provider = {

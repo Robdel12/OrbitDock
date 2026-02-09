@@ -1288,6 +1288,25 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             params![chrono_now()],
         )?;
 
+        // Cleanup Claude "shell" sessions that were started but never received any
+        // prompt/tool/message activity. These rows are usually created by hook
+        // start events and otherwise appear as ghost active sessions after restart.
+        conn.execute(
+            "UPDATE sessions
+             SET status = 'ended',
+                 work_status = 'ended',
+                 ended_at = COALESCE(ended_at, ?1),
+                 end_reason = COALESCE(end_reason, 'startup_empty_shell')
+             WHERE provider = 'claude'
+               AND status = 'active'
+               AND COALESCE(prompt_count, 0) = 0
+               AND COALESCE(tool_count, 0) = 0
+               AND (first_prompt IS NULL OR trim(first_prompt) = '')
+               AND (custom_name IS NULL OR trim(custom_name) = '')
+               AND id NOT IN (SELECT DISTINCT session_id FROM messages)",
+            params![chrono_now()],
+        )?;
+
         // Backfill Claude/Codex custom names from first prompt for sessions created
         // before server-side first-prompt naming was introduced.
         conn.execute(
@@ -1872,6 +1891,77 @@ mod tests {
         assert!(restored_ids.iter().any(|id| id == "passive-ended"));
         assert!(restored.iter().any(|s| s.status == "active"));
         assert!(restored.iter().any(|s| s.status == "ended"));
+    }
+
+    #[tokio::test]
+    async fn startup_ends_empty_active_claude_shell_sessions() {
+        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                // Ghost shell: start event only, no prompt/tool/message activity.
+                PersistCommand::ClaudeSessionUpsert {
+                    id: "claude-shell".into(),
+                    project_path: "/tmp/claude-shell".into(),
+                    project_name: Some("claude-shell".into()),
+                    model: Some("claude-opus-4-1".into()),
+                    context_label: None,
+                    transcript_path: Some("/tmp/claude-shell.jsonl".into()),
+                    source: Some("startup".into()),
+                    agent_type: None,
+                    permission_mode: None,
+                    terminal_session_id: None,
+                    terminal_app: None,
+                },
+                // Real session: has first prompt and should remain active.
+                PersistCommand::ClaudeSessionUpsert {
+                    id: "claude-real".into(),
+                    project_path: "/tmp/claude-real".into(),
+                    project_name: Some("claude-real".into()),
+                    model: Some("claude-opus-4-1".into()),
+                    context_label: None,
+                    transcript_path: Some("/tmp/claude-real.jsonl".into()),
+                    source: Some("startup".into()),
+                    agent_type: None,
+                    permission_mode: None,
+                    terminal_session_id: None,
+                    terminal_app: None,
+                },
+                PersistCommand::ClaudePromptIncrement {
+                    id: "claude-real".into(),
+                    first_prompt: Some("Ship the fix".into()),
+                },
+            ],
+        )
+        .expect("flush batch");
+
+        let _ = load_sessions_for_startup().await.expect("load sessions");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let shell_status: (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT status, work_status, end_reason FROM sessions WHERE id = ?1",
+                params!["claude-shell"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query shell row");
+        assert_eq!(shell_status.0, "ended");
+        assert_eq!(shell_status.1, "ended");
+        assert_eq!(shell_status.2.as_deref(), Some("startup_empty_shell"));
+
+        let real_status: String = conn
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                params!["claude-real"],
+                |row| row.get(0),
+            )
+            .expect("query real row");
+        assert_eq!(real_status, "active");
     }
 
     #[tokio::test]
