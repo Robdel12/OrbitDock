@@ -348,6 +348,14 @@ fn flush_batch(db_path: &PathBuf, batch: Vec<PersistCommand>) -> Result<usize, r
     Ok(count)
 }
 
+#[cfg(test)]
+pub(crate) fn flush_batch_for_test(
+    db_path: &PathBuf,
+    batch: Vec<PersistCommand>,
+) -> Result<usize, rusqlite::Error> {
+    flush_batch(db_path, batch)
+}
+
 /// Execute a single persist command
 fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlite::Error> {
     match cmd {

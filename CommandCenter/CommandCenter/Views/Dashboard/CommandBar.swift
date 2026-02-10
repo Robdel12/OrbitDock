@@ -799,7 +799,7 @@ private struct ModelDistributionChart: View {
     if name.hasPrefix("GPT") {
       return "chevron.left.forwardslash.chevron.right"
     }
-    return "brain.head.profile"  // Claude models
+    return "staroflife.fill"  // Claude models
   }
 }
 

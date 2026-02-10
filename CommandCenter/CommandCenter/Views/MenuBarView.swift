@@ -6,14 +6,14 @@
 import SwiftUI
 
 struct MenuBarView: View {
-  @Environment(SessionStore.self) private var store
+  @Environment(ServerAppState.self) private var serverState
 
   var activeSessions: [Session] {
-    store.sessions.filter(\.isActive)
+    serverState.sessions.filter(\.isActive)
   }
 
   var recentSessions: [Session] {
-    store.sessions.filter { !$0.isActive }.prefix(5).map { $0 }
+    serverState.sessions.filter { !$0.isActive }.prefix(5).map { $0 }
   }
 
   var body: some View {
@@ -83,7 +83,7 @@ struct MenuBarView: View {
             }
           }
 
-          if store.sessions.isEmpty {
+          if serverState.sessions.isEmpty {
             emptyView
           }
         }
@@ -120,7 +120,7 @@ struct MenuBarView: View {
         Spacer()
 
         Button {
-          Task { await store.reloadSessions() }
+          serverState.refreshSessionsList()
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: 11, weight: .semibold))
@@ -213,5 +213,5 @@ struct MenuBarSessionRow: View {
 
 #Preview {
   MenuBarView()
-    .environment(SessionStore.shared)
+    .environment(ServerAppState())
 }

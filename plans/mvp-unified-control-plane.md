@@ -48,10 +48,19 @@ A user should be able to:
 
 Goal: no hidden app-side lifecycle engine.
 
-- [ ] Remove remaining app DB fallback logic for session/message lifecycle decisions.
+- [x] Remove remaining app DB fallback logic for session/message lifecycle decisions.
 - [ ] Remove app-side Codex subscription behavior for non-server-managed assumptions.
 - [ ] Ensure historical reads needed by UI are served via server APIs/snapshots.
 - [ ] Add a code-level guard/checklist: no new session lifecycle logic outside server.
+
+Progress log (2026-02-10):
+- Routed session close + rename actions in app shell UI through `ServerAppState` only (`QuickSwitcher`, `AgentListPanel`), removing direct DB mutation paths for session lifecycle/name decisions.
+- Removed `ContentView` EventBus/database session refresh loop; top-level session identity/state now tracks server list updates only.
+- Moved menu bar session list source to `ServerAppState.sessions` and added server list refresh action via `subscribe_list`.
+- Fixed passive live-reactivation UI gap by treating `session_created` as an upsert in app state (existing session rows now refresh on ended -> active transitions).
+- Added server-side watcher regression coverage for closed passive session reactivation, including runtime state and persisted DB state (`ended_*` cleared on new rollout user activity).
+- Added close->append reactivation regression test that exercises server close semantics plus watcher debounce/event-queue processing (no app-side fallback assumptions).
+- Hardened watcher startup by seeding file-state offsets for existing JSONL files to avoid dropping the first post-start append event.
 
 ## Workstream 2: Lifecycle Reliability
 
@@ -60,7 +69,7 @@ Goal: active/inactive behavior is predictable and correct.
 - [ ] Confirm timeout/reactivation behavior with repeated restart + live activity tests.
 - [ ] Ensure passive sessions only seed as active when truly recent/active.
 - [ ] Add explicit regression tests for:
-  - [ ] timed-out passive session reactivation on new rollout events
+  - [x] timed-out passive session reactivation on new rollout events
   - [ ] list vs detail state consistency
   - [ ] startup restore status correctness
 
@@ -78,7 +87,7 @@ Goal: names are useful and stable across providers.
 Goal: debugging starts with server evidence, fast.
 
 - [ ] Add a concise diagnostics endpoint/report for active sessions + source mode.
-- [ ] Ensure startup logs include run id + binary metadata in one consistent block.
+- [x] Ensure startup logs include run id + binary metadata in one consistent block.
 - [ ] Add optional compact startup logs for local dev iterations.
 - [ ] Keep SQL/log snippets documented for common triage flows.
 

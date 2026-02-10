@@ -297,6 +297,79 @@ async fn handle_client_message(
             let state = state.lock().await;
             if let Some(session) = state.get_session(&session_id) {
                 let mut session = session.lock().await;
+                let snapshot = session.state();
+                let is_passive_ended = snapshot.provider == Provider::Codex
+                    && snapshot.status == orbitdock_protocol::SessionStatus::Ended
+                    && (snapshot.codex_integration_mode == Some(CodexIntegrationMode::Passive)
+                        || (snapshot.codex_integration_mode
+                            != Some(CodexIntegrationMode::Direct)
+                            && snapshot.transcript_path.is_some()));
+                if is_passive_ended {
+                    let should_reactivate = snapshot
+                        .transcript_path
+                        .as_deref()
+                        .and_then(|path| std::fs::metadata(path).ok())
+                        .and_then(|meta| meta.modified().ok())
+                        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .zip(parse_unix_z(snapshot.last_activity_at.as_deref()))
+                        .map(|(modified_at, last_activity_at)| modified_at > last_activity_at)
+                        .unwrap_or(false);
+                    if should_reactivate {
+                        let now = chrono_now();
+                        session.set_status(orbitdock_protocol::SessionStatus::Active);
+                        if session.work_status() == orbitdock_protocol::WorkStatus::Ended {
+                            session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
+                        }
+                        session.set_last_activity_at(Some(now.clone()));
+                        let summary = session.summary();
+                        session
+                            .broadcast(ServerMessage::SessionDelta {
+                                session_id: session_id.clone(),
+                                changes: orbitdock_protocol::StateChanges {
+                                    status: Some(orbitdock_protocol::SessionStatus::Active),
+                                    work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                    last_activity_at: Some(now),
+                                    ..Default::default()
+                                },
+                            })
+                            .await;
+                        drop(session);
+                        let _ = state
+                            .persist()
+                            .send(PersistCommand::RolloutSessionUpdate {
+                                id: session_id.clone(),
+                                project_path: None,
+                                model: None,
+                                status: Some(orbitdock_protocol::SessionStatus::Active),
+                                work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                attention_reason: Some(Some("awaitingReply".to_string())),
+                                pending_tool_name: Some(None),
+                                pending_tool_input: Some(None),
+                                pending_question: Some(None),
+                                total_tokens: None,
+                                last_tool: None,
+                                last_tool_at: None,
+                                custom_name: None,
+                            })
+                            .await;
+                        let mut state = state;
+                        state
+                            .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                            .await;
+                        if let Some(session) = state.get_session(&session_id) {
+                            let mut session = session.lock().await;
+                            session.subscribe(wrap_sender(client_tx.clone()));
+                            let snapshot = session.state();
+                            send_json(
+                                client_tx,
+                                ServerMessage::SessionSnapshot { session: snapshot },
+                            )
+                            .await;
+                        }
+                        return;
+                    }
+                }
                 session.subscribe(wrap_sender(client_tx.clone()));
 
                 // Send current state
@@ -1734,9 +1807,24 @@ async fn handle_client_message(
 
             let mut state = state.lock().await;
 
-            // Tell the connector to shutdown gracefully
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                let _ = tx.send(CodexAction::EndSession).await;
+            let session_arc = state.get_session(&session_id);
+            let is_passive_rollout = if let Some(session_arc) = session_arc.as_ref() {
+                let session = session_arc.lock().await;
+                let state_snapshot = session.state();
+                state_snapshot.provider == Provider::Codex
+                    && (state_snapshot.codex_integration_mode == Some(CodexIntegrationMode::Passive)
+                        || (state_snapshot.codex_integration_mode
+                            != Some(CodexIntegrationMode::Direct)
+                            && state_snapshot.transcript_path.is_some()))
+            } else {
+                false
+            };
+
+            // Tell direct connectors to shutdown gracefully.
+            if !is_passive_rollout {
+                if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                    let _ = tx.send(CodexAction::EndSession).await;
+                }
             }
 
             // Persist session end
@@ -1748,8 +1836,49 @@ async fn handle_client_message(
                 })
                 .await;
 
-            // Remove from active sessions and notify
-            if state.remove_session(&session_id).is_some() {
+            // Passive rollout sessions must remain in-memory so watcher activity can
+            // reactivate them in-place (ended -> active) without restart.
+            if is_passive_rollout {
+                info!(
+                    component = "session",
+                    event = "session.end.passive_mark_ended",
+                    connection_id = conn_id,
+                    session_id = %session_id,
+                    "Keeping passive rollout session in memory for future watcher reactivation"
+                );
+                if let Some(session_arc) = session_arc {
+                    let mut session = session_arc.lock().await;
+                    let now = chrono_now();
+                    session.set_status(orbitdock_protocol::SessionStatus::Ended);
+                    session.set_work_status(orbitdock_protocol::WorkStatus::Ended);
+                    session.set_last_activity_at(Some(now.clone()));
+                    session
+                        .broadcast(ServerMessage::SessionDelta {
+                            session_id: session_id.clone(),
+                            changes: orbitdock_protocol::StateChanges {
+                                status: Some(orbitdock_protocol::SessionStatus::Ended),
+                                work_status: Some(orbitdock_protocol::WorkStatus::Ended),
+                                last_activity_at: Some(now),
+                                ..Default::default()
+                            },
+                        })
+                        .await;
+                }
+                state
+                    .broadcast_to_list(ServerMessage::SessionEnded {
+                        session_id,
+                        reason: "user_requested".to_string(),
+                    })
+                    .await;
+            // Direct sessions are removed from active runtime state.
+            } else if state.remove_session(&session_id).is_some() {
+                info!(
+                    component = "session",
+                    event = "session.end.direct_removed",
+                    connection_id = conn_id,
+                    session_id = %session_id,
+                    "Removed direct session from runtime state"
+                );
                 state
                     .broadcast_to_list(ServerMessage::SessionEnded {
                         session_id,
@@ -1762,15 +1891,22 @@ async fn handle_client_message(
 }
 
 #[cfg(test)]
+pub(crate) async fn end_session_for_test(state: &Arc<Mutex<AppState>>, session_id: String) {
+    let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+    handle_client_message(ClientMessage::EndSession { session_id }, &client_tx, state, 1).await;
+}
+
+#[cfg(test)]
 mod tests {
     use super::{
         handle_client_message,
         claude_transcript_path_from_cwd, work_status_for_approval_decision,
         OutboundMessage,
     };
+    use crate::session::SessionHandle;
     use crate::session_naming::name_from_first_prompt;
     use crate::state::AppState;
-    use orbitdock_protocol::{ClientMessage, Provider, WorkStatus};
+    use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, SessionStatus, WorkStatus};
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
 
@@ -1839,6 +1975,44 @@ mod tests {
     fn new_test_state() -> Arc<Mutex<AppState>> {
         let (persist_tx, _persist_rx) = mpsc::channel(128);
         Arc::new(Mutex::new(AppState::new(persist_tx)))
+    }
+
+    #[tokio::test]
+    async fn ending_passive_session_keeps_it_available_for_reactivation() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "passive-end-keep".to_string();
+
+        {
+            let mut app = state.lock().await;
+            let mut handle = SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/Users/tester/repo".to_string(),
+            );
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            app.add_session(handle);
+        }
+
+        handle_client_message(
+            ClientMessage::EndSession {
+                session_id: session_id.clone(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let session_arc = {
+            let app = state.lock().await;
+            app.get_session(&session_id)
+        }
+        .expect("passive session should remain in app state");
+
+        let snapshot = session_arc.lock().await.state();
+        assert_eq!(snapshot.status, SessionStatus::Ended);
+        assert_eq!(snapshot.work_status, WorkStatus::Ended);
     }
 
     #[tokio::test]

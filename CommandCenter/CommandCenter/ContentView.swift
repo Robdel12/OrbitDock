@@ -5,15 +5,12 @@
 //  Created by Robert DeLuca on 1/30/26.
 //
 
-import Combine
 import SwiftUI
 
 struct ContentView: View {
-  @Environment(SessionStore.self) private var database
   @Environment(ServerAppState.self) private var serverState
   @State private var sessions: [Session] = []
   @State private var selectedSessionId: String?
-  @State private var eventSubscription: AnyCancellable?
   @StateObject private var toastManager = ToastManager.shared
 
   // Panel state
@@ -103,11 +100,6 @@ struct ContentView: View {
     }
     .onAppear {
       Task { await loadSessions() }
-      setupEventSubscription()
-    }
-    .onDisappear {
-      eventSubscription?.cancel()
-      eventSubscription = nil
     }
     .onChange(of: serverState.sessions) { _, _ in
       Task { await loadSessions() }
@@ -313,22 +305,6 @@ struct ContentView: View {
   }
 
   // MARK: - Setup
-
-  private func setupEventSubscription() {
-    eventSubscription = EventBus.shared.sessionUpdated
-      .receive(on: DispatchQueue.main)
-      .sink { _ in
-        Task { @MainActor in
-          await loadSessions()
-        }
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-      }
-
-    database.onDatabaseChanged = {
-      // File monitor detected change - trigger EventBus which handles refresh
-      EventBus.shared.notifyDatabaseChanged()
-    }
-  }
 
   private func loadSessions() async {
     let oldWaitingIds = Set(waitingSessions.map(\.id))

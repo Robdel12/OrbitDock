@@ -74,7 +74,6 @@ struct QuickCommand: Identifiable {
 // MARK: - Quick Switcher
 
 struct QuickSwitcher: View {
-  @Environment(SessionStore.self) private var database
   @Environment(ServerAppState.self) private var serverState
   let sessions: [Session]
   let currentSessionId: String? // Currently selected session in ContentView
@@ -180,7 +179,7 @@ struct QuickSwitcher: View {
         onClose()
       },
       onClose: { [self] session in
-        Task { await database.endSession(sessionId: session.id) }
+        serverState.endSession(session.id)
         onClose()
       }
     )
@@ -272,16 +271,7 @@ struct QuickSwitcher: View {
           initialText: renameText,
           onSave: { newName in
             let name = newName.isEmpty ? nil : newName
-            if serverState.isServerSession(session.id) {
-              serverState.renameSession(sessionId: session.id, name: name)
-            } else {
-              Task {
-                await database.updateCustomName(
-                  sessionId: session.id,
-                  name: name
-                )
-              }
-            }
+            serverState.renameSession(sessionId: session.id, name: name)
             renamingSession = nil
           },
           onCancel: {
@@ -757,7 +747,7 @@ struct QuickSwitcher: View {
             // Close session (only for active sessions)
             if session.isActive {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
-                Task { await database.endSession(sessionId: session.id) }
+                serverState.endSession(session.id)
                 onClose()
               }
             }

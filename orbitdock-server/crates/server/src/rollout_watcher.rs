@@ -107,6 +107,14 @@ pub async fn start_rollout_watcher(
     let existing_files = collect_jsonl_files(&sessions_dir);
     let mut seeded = 0usize;
     for path in &existing_files {
+        if let Ok(metadata) = fs::metadata(path) {
+            runtime.ensure_file_state(
+                path.to_string_lossy().as_ref(),
+                metadata.len(),
+                metadata.created().ok(),
+            );
+        }
+
         if is_recent_file(path, STARTUP_SEED_RECENT_SECS) {
             if let Err(err) = runtime
                 .ensure_session_meta(path.to_string_lossy().as_ref())
@@ -137,6 +145,17 @@ pub async fn start_rollout_watcher(
             WatcherMessage::FsEvent(path) => {
                 if is_jsonl_path(&path) {
                     runtime.schedule_file(path);
+                } else if path.is_dir() {
+                    for child in collect_jsonl_files(&path) {
+                        runtime.schedule_file(child);
+                    }
+                } else if let Some(parent) = path.parent() {
+                    // Some editors/writers (or platform backends) emit fs events for temp files
+                    // near the target JSONL and not the JSONL path itself. Scan parent dir so
+                    // rollout updates still get picked up.
+                    for child in collect_jsonl_files(parent) {
+                        runtime.schedule_file(child);
+                    }
                 }
             }
             WatcherMessage::ProcessFile(path) => {
@@ -1117,12 +1136,21 @@ impl WatcherRuntime {
         } {
             let summary = {
                 let mut session = session_arc.lock().await;
+                let was_ended = session.state().status == SessionStatus::Ended;
                 session.set_status(SessionStatus::Active);
                 if let Some(work_status) = changes.work_status {
                     session.set_work_status(work_status);
                 }
                 if let Some(status) = changes.status {
                     session.set_status(status);
+                }
+                if was_ended && session.state().status == SessionStatus::Active {
+                    info!(
+                        component = "rollout_watcher",
+                        event = "rollout_watcher.session_reactivated",
+                        session_id = %session_id,
+                        "Reactivated ended passive session from rollout activity"
+                    );
                 }
                 session
                     .broadcast(ServerMessage::SessionDelta {
@@ -1618,7 +1646,17 @@ fn stable_hash(value: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistence::flush_batch_for_test;
+    use crate::websocket::end_session_for_test;
+    use rusqlite::{params, Connection};
+    use std::io::Write;
     use serde_json::json;
+    use std::collections::{HashMap, HashSet};
+    use std::path::{Path, PathBuf};
+    use std::sync::Arc;
+    use std::time::{Duration, SystemTime};
+    use tokio::sync::{mpsc, Mutex};
+    use tokio::time::timeout;
 
     #[test]
     fn extracts_text_from_response_item_content_array() {
@@ -1654,6 +1692,391 @@ mod tests {
             derived.as_deref(),
             Some("Investigate flaky session naming behavior please")
         );
+    }
+
+    #[tokio::test]
+    async fn rollout_activity_reactivates_ended_passive_session_in_memory() {
+        let session_id = format!("passive-reactivate-{}", std::process::id());
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write initial rollout");
+        let initial_size = std::fs::metadata(&rollout_path)
+            .expect("stat rollout")
+            .len();
+
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        {
+            let mut app = app_state.lock().await;
+            let mut handle = SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/tmp/repo".to_string(),
+            );
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_status(SessionStatus::Ended);
+            handle.set_work_status(WorkStatus::Ended);
+            app.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::from([(
+                rollout_path.to_string_lossy().to_string(),
+                FileState {
+                    offset: initial_size,
+                    tail: String::new(),
+                    session_id: Some(session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("openai".to_string()),
+                    ignore_existing: false,
+                    pending_tool_calls: HashMap::new(),
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            )]),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+            prompt_seen: HashSet::new(),
+        };
+
+        let append_line = format!(
+            "{{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"wake up\"}}}}\n"
+        );
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rollout_path)
+            .expect("open rollout append")
+            .write_all(append_line.as_bytes())
+            .expect("append rollout line");
+
+        runtime
+            .process_file(PathBuf::from(&rollout_path))
+            .await
+            .expect("process rollout");
+
+        let session = {
+            let app = app_state.lock().await;
+            app.get_session(&session_id).expect("session exists")
+        };
+        let snapshot = session.lock().await.state();
+        assert_eq!(snapshot.status, SessionStatus::Active);
+        assert_eq!(snapshot.work_status, WorkStatus::Working);
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir(&tmp_dir);
+    }
+
+    fn find_migrations_dir() -> PathBuf {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for ancestor in manifest_dir.ancestors() {
+            let candidate = ancestor.join("migrations");
+            if candidate.is_dir() {
+                return candidate;
+            }
+        }
+        panic!("Could not locate migrations directory from {:?}", manifest_dir);
+    }
+
+    fn run_all_migrations(db_path: &Path) {
+        let conn = Connection::open(db_path).expect("open db");
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )
+        .expect("set pragmas");
+
+        let migrations_dir = find_migrations_dir();
+        let mut files: Vec<PathBuf> = std::fs::read_dir(&migrations_dir)
+            .expect("read migrations")
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sql"))
+            .collect();
+        files.sort();
+
+        for file in files {
+            let sql = std::fs::read_to_string(&file).expect("read migration");
+            conn.execute_batch(&sql).unwrap_or_else(|err| {
+                panic!("migration failed for {}: {}", file.display(), err);
+            });
+        }
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS messages (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                content TEXT,
+                timestamp TEXT NOT NULL,
+                sequence INTEGER NOT NULL DEFAULT 0,
+                tool_name TEXT,
+                tool_input TEXT,
+                tool_output TEXT,
+                tool_duration REAL,
+                is_in_progress INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .expect("ensure messages table");
+    }
+
+    #[tokio::test]
+    async fn rollout_activity_reactivates_closed_passive_session_in_memory_and_db() {
+        let session_id = format!("passive-reactivate-db-{}", std::process::id());
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-db-{}", session_id));
+        std::fs::create_dir_all(tmp_dir.join(".orbitdock")).expect("create .orbitdock dir");
+        let db_path = tmp_dir.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write initial rollout");
+        let initial_size = std::fs::metadata(&rollout_path)
+            .expect("stat rollout")
+            .len();
+
+        flush_batch_for_test(
+            &db_path,
+            vec![
+                PersistCommand::RolloutSessionUpsert {
+                    id: session_id.clone(),
+                    thread_id: session_id.clone(),
+                    project_path: "/tmp/repo".to_string(),
+                    project_name: Some("repo".to_string()),
+                    branch: Some("main".to_string()),
+                    model: Some("gpt-5".to_string()),
+                    context_label: Some("codex_cli_rs".to_string()),
+                    transcript_path: rollout_path.to_string_lossy().to_string(),
+                    started_at: "2026-02-10T00:00:00Z".to_string(),
+                },
+                PersistCommand::SessionEnd {
+                    id: session_id.clone(),
+                    reason: "user_requested".to_string(),
+                },
+            ],
+        )
+        .expect("seed ended passive session");
+
+        let (persist_tx, mut persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        {
+            let mut app = app_state.lock().await;
+            let mut handle = SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/tmp/repo".to_string(),
+            );
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
+            handle.set_status(SessionStatus::Ended);
+            handle.set_work_status(WorkStatus::Ended);
+            app.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::from([(
+                rollout_path.to_string_lossy().to_string(),
+                FileState {
+                    offset: initial_size,
+                    tail: String::new(),
+                    session_id: Some(session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("openai".to_string()),
+                    ignore_existing: false,
+                    pending_tool_calls: HashMap::new(),
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            )]),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+            prompt_seen: HashSet::new(),
+        };
+
+        let append_line = format!(
+            "{{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"wake up\"}}}}\n"
+        );
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rollout_path)
+            .expect("open rollout append")
+            .write_all(append_line.as_bytes())
+            .expect("append rollout line");
+
+        runtime
+            .process_file(PathBuf::from(&rollout_path))
+            .await
+            .expect("process rollout");
+
+        let mut persist_batch = Vec::new();
+        while let Ok(cmd) = persist_rx.try_recv() {
+            persist_batch.push(cmd);
+        }
+        flush_batch_for_test(&db_path, persist_batch).expect("flush watcher updates");
+
+        let session = {
+            let app = app_state.lock().await;
+            app.get_session(&session_id).expect("session exists")
+        };
+        let snapshot = session.lock().await.state();
+        assert_eq!(snapshot.status, SessionStatus::Active);
+        assert_eq!(snapshot.work_status, WorkStatus::Working);
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let (status, work_status, ended_at, end_reason): (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT status, work_status, ended_at, end_reason FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("query session");
+        assert_eq!(status, "active");
+        assert_eq!(work_status, "working");
+        assert!(ended_at.is_none(), "ended_at should be cleared");
+        assert!(end_reason.is_none(), "end_reason should be cleared");
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn close_then_append_rollout_event_reactivates_via_watcher_event_queue() {
+        let session_id = format!("passive-close-reopen-{}", std::process::id());
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-close-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write rollout seed");
+        let initial_size = std::fs::metadata(&rollout_path)
+            .expect("stat rollout")
+            .len();
+
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        {
+            let mut app = app_state.lock().await;
+            let mut handle = SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/tmp/repo".to_string(),
+            );
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
+            app.add_session(handle);
+        }
+
+        end_session_for_test(&app_state, session_id.clone()).await;
+        let ended_snapshot = {
+            let app = app_state.lock().await;
+            let arc = app.get_session(&session_id).expect("session exists");
+            let snapshot = arc.lock().await.state();
+            snapshot
+        };
+        assert_eq!(ended_snapshot.status, SessionStatus::Ended);
+
+        let (watcher_tx, mut watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::from([(
+                rollout_path.to_string_lossy().to_string(),
+                FileState {
+                    offset: initial_size,
+                    tail: String::new(),
+                    session_id: Some(session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("openai".to_string()),
+                    ignore_existing: false,
+                    pending_tool_calls: HashMap::new(),
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            )]),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+            prompt_seen: HashSet::new(),
+        };
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rollout_path)
+            .expect("open rollout")
+            .write_all(
+                b"{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"wake\"}}\n",
+            )
+            .expect("append user message");
+
+        runtime.schedule_file(PathBuf::from(&rollout_path));
+        let msg = timeout(Duration::from_secs(2), watcher_rx.recv())
+            .await
+            .expect("debounce should emit process_file")
+            .expect("watcher channel open");
+        if let WatcherMessage::ProcessFile(path) = msg {
+            runtime
+                .process_file(path)
+                .await
+                .expect("process appended rollout event");
+        } else {
+            panic!("unexpected watcher message");
+        }
+
+        let reactivated_snapshot = {
+            let app = app_state.lock().await;
+            let arc = app.get_session(&session_id).expect("session exists");
+            let snapshot = arc.lock().await.state();
+            snapshot
+        };
+        assert_eq!(reactivated_snapshot.status, SessionStatus::Active);
+        assert_eq!(reactivated_snapshot.work_status, WorkStatus::Working);
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
 }

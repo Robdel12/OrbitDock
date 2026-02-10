@@ -188,6 +188,11 @@ final class ServerAppState {
     ServerConnection.shared.listModels()
   }
 
+  /// Refresh the server-authoritative sessions list.
+  func refreshSessionsList() {
+    ServerConnection.shared.subscribeList()
+  }
+
   private func persistCodexModelsCache(_ models: [ServerCodexModelOption]) {
     if let data = try? JSONEncoder().encode(models) {
       UserDefaults.standard.set(data, forKey: Self.codexModelsCacheKey)
@@ -619,6 +624,7 @@ final class ServerAppState {
 
     sessionMessages[sessionId] = messages
     messageRevisions[sessionId, default: 0] += 1
+    reactivateSessionOnNewMessageIfNeeded(sessionId)
   }
 
   private func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {
@@ -676,6 +682,7 @@ final class ServerAppState {
     messages[idx] = msg
     sessionMessages[sessionId] = messages
     messageRevisions[sessionId, default: 0] += 1
+    reactivateSessionOnNewMessageIfNeeded(sessionId)
   }
 
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest) {
@@ -712,8 +719,11 @@ final class ServerAppState {
     logger.info("Session created: \(summary.id)")
     let session = summary.toSession()
 
-    // Add if not already present
-    if !sessions.contains(where: { $0.id == session.id }) {
+    // Upsert summary. Rollout watcher uses session_created as a list-level
+    // upsert for passive sessions (including ended -> active reactivation).
+    if let idx = sessions.firstIndex(where: { $0.id == session.id }) {
+      sessions[idx] = session
+    } else {
       sessions.append(session)
     }
 
@@ -731,6 +741,19 @@ final class ServerAppState {
 
     // Auto-subscribe to get detailed updates
     subscribeToSession(summary.id)
+  }
+
+  /// Defensive reactivation: if we are receiving live messages for a session that is
+  /// currently ended in UI state, flip it back to active immediately.
+  /// This covers edge cases where message stream arrives before explicit lifecycle delta.
+  private func reactivateSessionOnNewMessageIfNeeded(_ sessionId: String) {
+    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+    guard sessions[idx].status != .active else { return }
+
+    sessions[idx].status = .active
+    if sessions[idx].workStatus == .unknown {
+      sessions[idx].workStatus = .waiting
+    }
   }
 
   private func handleSessionEnded(_ sessionId: String, _ reason: String) {
