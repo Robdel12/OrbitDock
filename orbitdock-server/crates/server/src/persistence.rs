@@ -2009,6 +2009,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stale_passive_ends_on_startup_then_reactivates_on_live_activity_across_restarts() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::RolloutSessionUpsert {
+                    id: "passive-restart-live".into(),
+                    thread_id: "passive-restart-live".into(),
+                    project_path: "/tmp/passive-restart-live".into(),
+                    project_name: Some("passive-restart-live".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    context_label: Some("codex_cli_rs".into()),
+                    transcript_path: "/tmp/passive-restart-live.jsonl".into(),
+                    started_at: iso_minutes_ago(30),
+                },
+                PersistCommand::SessionUpdate {
+                    id: "passive-restart-live".into(),
+                    status: Some(SessionStatus::Active),
+                    work_status: Some(WorkStatus::Waiting),
+                    last_activity_at: Some(iso_minutes_ago(30)),
+                },
+            ],
+        )
+        .expect("seed stale passive session");
+
+        let first_restore = load_sessions_for_startup()
+            .await
+            .expect("first startup restore");
+        let first = first_restore
+            .iter()
+            .find(|s| s.id == "passive-restart-live")
+            .expect("stale session should exist after first restore");
+        assert_eq!(first.status, "ended");
+        assert_eq!(first.work_status, "ended");
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::RolloutSessionUpdate {
+                id: "passive-restart-live".into(),
+                project_path: None,
+                model: None,
+                status: Some(SessionStatus::Active),
+                work_status: Some(WorkStatus::Waiting),
+                attention_reason: Some(Some("awaitingReply".into())),
+                pending_tool_name: Some(None),
+                pending_tool_input: Some(None),
+                pending_question: Some(None),
+                total_tokens: None,
+                last_tool: None,
+                last_tool_at: None,
+                custom_name: None,
+            }],
+        )
+        .expect("apply live rollout activity");
+
+        let second_restore = load_sessions_for_startup()
+            .await
+            .expect("second startup restore");
+        let second = second_restore
+            .iter()
+            .find(|s| s.id == "passive-restart-live")
+            .expect("reactivated session should exist after second restore");
+        assert_eq!(second.status, "active");
+        assert_eq!(second.work_status, "waiting");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let (status, work_status, end_reason): (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT status, work_status, end_reason FROM sessions WHERE id = ?1",
+                params!["passive-restart-live"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query reactivated row");
+        assert_eq!(status, "active");
+        assert_eq!(work_status, "waiting");
+        assert!(
+            end_reason.is_none(),
+            "end_reason should be cleared after live reactivation"
+        );
+    }
+
+    #[tokio::test]
     async fn startup_ends_empty_active_claude_shell_sessions() {
         let _guard = env_lock()
             .lock()

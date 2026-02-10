@@ -69,12 +69,16 @@ Progress log (2026-02-10):
 
 Goal: active/inactive behavior is predictable and correct.
 
-- [ ] Confirm timeout/reactivation behavior with repeated restart + live activity tests.
-- [ ] Ensure passive sessions only seed as active when truly recent/active.
+- [x] Confirm timeout/reactivation behavior with repeated restart + live activity tests.
+- [x] Ensure passive sessions only seed as active when truly recent/active.
 - [x] Add explicit regression tests for:
   - [x] timed-out passive session reactivation on new rollout events
   - [x] list vs detail state consistency
   - [x] startup restore status correctness
+
+Progress log (2026-02-10):
+- Added startup restore regression ensuring passive sessions only remain active when activity is recent; stale passive sessions are ended with `startup_stale_passive`.
+- Added repeated-restart lifecycle regression: stale passive session ends on startup, live rollout activity reactivates it, and a subsequent startup keeps it active with cleared end markers.
 
 ## Workstream 3: Naming & UX Consistency
 
