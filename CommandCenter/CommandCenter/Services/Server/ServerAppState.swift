@@ -73,6 +73,14 @@ final class ServerAppState {
   /// Track which sessions we're subscribed to
   private var subscribedSessions: Set<String> = []
 
+  /// Lifecycle guardrail:
+  /// Session status/work status transitions are server-owned.
+  /// App code should only reflect lifecycle changes from:
+  /// - SessionSnapshot
+  /// - SessionDelta
+  /// - SessionCreated
+  /// - SessionEnded
+
   /// Temporary: autonomy level from the most recent createSession call
   private var pendingCreationAutonomy: AutonomyLevel?
 
@@ -550,7 +558,7 @@ final class ServerAppState {
     }
 
     // Optimistically mark matching history row(s) as decided so chips do not stick on "pending".
-    if var rows = approvalHistoryBySession[sessionId] {
+    if let rows = approvalHistoryBySession[sessionId] {
       var updatedRows: [ServerApprovalHistoryItem] = []
       for row in rows {
         if row.requestId == requestId && row.decision == nil {
@@ -624,7 +632,6 @@ final class ServerAppState {
 
     sessionMessages[sessionId] = messages
     messageRevisions[sessionId, default: 0] += 1
-    reactivateSessionOnNewMessageIfNeeded(sessionId)
   }
 
   private func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {
@@ -682,7 +689,6 @@ final class ServerAppState {
     messages[idx] = msg
     sessionMessages[sessionId] = messages
     messageRevisions[sessionId, default: 0] += 1
-    reactivateSessionOnNewMessageIfNeeded(sessionId)
   }
 
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest) {
@@ -743,25 +749,12 @@ final class ServerAppState {
     subscribeToSession(summary.id)
   }
 
-  /// Defensive reactivation: if we are receiving live messages for a session that is
-  /// currently ended in UI state, flip it back to active immediately.
-  /// This covers edge cases where message stream arrives before explicit lifecycle delta.
-  private func reactivateSessionOnNewMessageIfNeeded(_ sessionId: String) {
-    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-    guard sessions[idx].status != .active else { return }
-
-    sessions[idx].status = .active
-    if sessions[idx].workStatus == .unknown {
-      sessions[idx].workStatus = .waiting
-    }
-  }
-
   private func handleSessionEnded(_ sessionId: String, _ reason: String) {
     logger.info("Session ended: \(sessionId) (\(reason))")
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].status = .ended
-      sessions[idx].workStatus = .waiting
+      sessions[idx].workStatus = .unknown
       sessions[idx].attentionReason = .none
     }
 

@@ -309,27 +309,10 @@ struct ContentView: View {
   private func loadSessions() async {
     let oldWaitingIds = Set(waitingSessions.map(\.id))
     let oldSessions = sessions
-    let previousSelectionId = selectedSessionId
 
     // Rust server is the runtime source of truth for session list identity/state.
     // Avoid merging DB rows in-app to prevent direct/passive shadow drift on rebuild.
     sessions = serverState.sessions
-
-    // If selection is a passive Codex shadow row, remap to its direct session.
-    if let selectedId = previousSelectionId {
-      if let selected = sessions.first(where: { $0.id == selectedId }) {
-        if selected.provider == .codex, !selected.isDirectCodex,
-           let direct = sessions.first(where: { $0.isDirectCodex && $0.codexThreadId == selected.id })
-        {
-          selectedSessionId = direct.id
-        }
-      } else if let previous = oldSessions.first(where: { $0.id == selectedId }),
-                previous.provider == .codex,
-                let direct = sessions.first(where: { $0.isDirectCodex && ($0.codexThreadId == previous.id || $0.projectPath == previous.projectPath) })
-      {
-        selectedSessionId = direct.id
-      }
-    }
 
     // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {

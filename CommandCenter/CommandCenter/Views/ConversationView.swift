@@ -295,9 +295,8 @@ struct ConversationView: View {
   // (Same as original - keeping the proven data layer)
 
   private func setupSubscriptions() {
-    // Direct server sessions use WebSocket message stream only.
-    // Server sessions with transcript_path (Claude/passive) still need file watching.
-    if let sid = sessionId, serverState.isServerSession(sid), transcriptPath == nil {
+    // Server-managed sessions use WebSocket snapshots/deltas only.
+    if let sid = sessionId, serverState.isServerSession(sid) {
       return
     }
 
@@ -367,9 +366,8 @@ struct ConversationView: View {
 
     let targetSid = sid
 
-    // Direct server sessions: messages come via WebSocket, read from ServerAppState.
-    // Server sessions with transcript_path should parse transcript files.
-    if serverState.isServerSession(sid), transcriptPath == nil {
+    // Server-managed sessions: messages come via WebSocket state.
+    if serverState.isServerSession(sid) {
       let serverMessages = serverState.sessionMessages[sid] ?? []
       messages = serverMessages
       displayedCount = max(displayedCount, serverMessages.count)
@@ -411,9 +409,8 @@ struct ConversationView: View {
       return
     }
 
-    // Direct server sessions: load from ServerAppState (WebSocket messages).
-    // Server sessions with transcript_path should parse transcript files.
-    if serverState.isServerSession(sid), transcriptPath == nil {
+    // Server-managed sessions: load from ServerAppState (WebSocket messages).
+    if serverState.isServerSession(sid) {
       let serverMessages = serverState.sessionMessages[sid] ?? []
       messages = serverMessages
       displayedCount = serverMessages.count
@@ -478,7 +475,7 @@ struct ConversationView: View {
   }
 
   private func refreshFromServerStateIfNeeded() {
-    guard let sid = sessionId, serverState.isServerSession(sid), transcriptPath == nil else { return }
+    guard let sid = sessionId, serverState.isServerSession(sid) else { return }
     let serverMessages = serverState.sessionMessages[sid] ?? []
     messages = serverMessages
     displayedCount = max(displayedCount, serverMessages.count)

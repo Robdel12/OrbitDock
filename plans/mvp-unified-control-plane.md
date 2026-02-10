@@ -49,9 +49,9 @@ A user should be able to:
 Goal: no hidden app-side lifecycle engine.
 
 - [x] Remove remaining app DB fallback logic for session/message lifecycle decisions.
-- [ ] Remove app-side Codex subscription behavior for non-server-managed assumptions.
-- [ ] Ensure historical reads needed by UI are served via server APIs/snapshots.
-- [ ] Add a code-level guard/checklist: no new session lifecycle logic outside server.
+- [x] Remove app-side Codex subscription behavior for non-server-managed assumptions.
+- [x] Ensure historical reads needed by UI are served via server APIs/snapshots.
+- [x] Add a code-level guard/checklist: no new session lifecycle logic outside server.
 
 Progress log (2026-02-10):
 - Routed session close + rename actions in app shell UI through `ServerAppState` only (`QuickSwitcher`, `AgentListPanel`), removing direct DB mutation paths for session lifecycle/name decisions.
@@ -61,6 +61,9 @@ Progress log (2026-02-10):
 - Added server-side watcher regression coverage for closed passive session reactivation, including runtime state and persisted DB state (`ended_*` cleared on new rollout user activity).
 - Added close->append reactivation regression test that exercises server close semantics plus watcher debounce/event-queue processing (no app-side fallback assumptions).
 - Hardened watcher startup by seeding file-state offsets for existing JSONL files to avoid dropping the first post-start append event.
+- Removed app-side passive/direct Codex remap heuristics from top-level session loading; selection now follows server session identity directly.
+- Server-managed conversation history now always reads from WebSocket snapshots/deltas instead of transcript file parsing paths.
+- Added an explicit lifecycle ownership guardrail in `ServerAppState` documenting allowed lifecycle mutation sources (snapshot/delta/created/ended only).
 
 ## Workstream 2: Lifecycle Reliability
 
