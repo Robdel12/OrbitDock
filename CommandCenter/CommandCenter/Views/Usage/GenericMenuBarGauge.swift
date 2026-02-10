@@ -14,7 +14,7 @@ struct GenericMenuBarGauge: View {
 
   /// Show day for multi-day windows
   private var showDay: Bool {
-    window.windowDuration > 24 * 3600
+    window.windowDuration > 24 * 3_600
   }
 
   /// Color for reset time based on urgency
@@ -37,11 +37,11 @@ struct GenericMenuBarGauge: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 5) {
       // Label row
-      HStack {
+      HStack(alignment: .firstTextBaseline, spacing: 6) {
         Text(windowLabel)
-          .font(.system(size: 10, weight: .medium))
+          .font(.system(size: 10, weight: .medium, design: .rounded))
           .foregroundStyle(.secondary)
 
         // Warning if will exceed
@@ -51,23 +51,26 @@ struct GenericMenuBarGauge: View {
             .foregroundStyle(Color.statusError)
         }
 
-        Spacer()
-
-        Text("\(Int(window.utilization))%")
-          .font(.system(size: 11, weight: .bold, design: .monospaced))
-          .foregroundStyle(color)
-
-        // Projected usage
-        if window.projectedAtReset > window.utilization + 5 {
-          Text("→ \(Int(window.projectedAtReset))%")
-            .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(projectedColor)
+        if let resetTime = window.resetsAtFormatted(showDay: showDay) {
+          Text("• \(resetTime)")
+            .font(.system(size: 9, weight: .medium, design: .rounded))
+            .foregroundStyle(resetTimeColor)
+            .lineLimit(1)
         }
 
-        if let resetTime = window.resetsAtFormatted(showDay: showDay) {
-          Text("@ \(resetTime)")
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(resetTimeColor)
+        Spacer()
+
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+          Text("\(Int(window.utilization))%")
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundStyle(color)
+
+          // Projected usage
+          if window.projectedAtReset > window.utilization + 5 {
+            Text("→ \(Int(window.projectedAtReset.rounded()))%")
+              .font(.system(size: 10, weight: .bold, design: .rounded))
+              .foregroundStyle(projectedColor)
+          }
         }
       }
 
@@ -90,7 +93,7 @@ struct GenericMenuBarGauge: View {
             .frame(width: geo.size.width * min(1, window.utilization / 100))
         }
       }
-      .frame(height: 4)
+      .frame(height: 5)
     }
   }
 
@@ -113,11 +116,11 @@ struct GenericMenuBarGauge: View {
 #Preview {
   VStack(spacing: 12) {
     GenericMenuBarGauge(
-      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3600)),
+      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
       provider: .claude
     )
     GenericMenuBarGauge(
-      window: .sevenDay(utilization: 75, resetsAt: Date().addingTimeInterval(86400)),
+      window: .sevenDay(utilization: 75, resetsAt: Date().addingTimeInterval(86_400)),
       provider: .claude
     )
     GenericMenuBarGauge(

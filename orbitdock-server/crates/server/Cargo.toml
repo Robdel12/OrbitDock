@@ -1,0 +1,32 @@
+[package]
+name = "orbitdock-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "OrbitDock server - mission control for AI coding agents"
+
+[[bin]]
+name = "orbitdock-server"
+path = "src/main.rs"
+
+[dependencies]
+orbitdock-protocol = { workspace = true }
+orbitdock-connectors = { workspace = true }
+codex-arg0 = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+bytes = { workspace = true }
+notify = { workspace = true }

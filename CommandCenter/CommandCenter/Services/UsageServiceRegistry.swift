@@ -58,9 +58,9 @@ final class UsageServiceRegistry {
   func windows(for provider: Provider) -> [RateLimitWindow] {
     switch provider {
       case .claude:
-        return claudeWindows
+        claudeWindows
       case .codex:
-        return codexWindows
+        codexWindows
     }
   }
 
@@ -68,9 +68,9 @@ final class UsageServiceRegistry {
   func error(for provider: Provider) -> (any LocalizedError)? {
     switch provider {
       case .claude:
-        return claude.error
+        claude.error
       case .codex:
-        return codex.error
+        codex.error
     }
   }
 
@@ -78,9 +78,9 @@ final class UsageServiceRegistry {
   func isLoading(for provider: Provider) -> Bool {
     switch provider {
       case .claude:
-        return claude.isLoading
+        claude.isLoading
       case .codex:
-        return codex.isLoading
+        codex.isLoading
     }
   }
 
@@ -88,9 +88,9 @@ final class UsageServiceRegistry {
   func isStale(for provider: Provider) -> Bool {
     switch provider {
       case .claude:
-        return claude.isStale
+        claude.isStale
       case .codex:
-        return codex.isStale
+        codex.isStale
     }
   }
 
@@ -98,9 +98,9 @@ final class UsageServiceRegistry {
   func planName(for provider: Provider) -> String? {
     switch provider {
       case .claude:
-        return claude.usage?.planName
+        claude.usage?.planName
       case .codex:
-        return nil
+        nil
     }
   }
 
@@ -110,7 +110,7 @@ final class UsageServiceRegistry {
     guard let usage = claude.usage else { return [] }
 
     var windows: [RateLimitWindow] = [
-      .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
+      .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt),
     ]
 
     if let sevenDay = usage.sevenDay {
@@ -129,7 +129,7 @@ final class UsageServiceRegistry {
         utilization: primary.usedPercent,
         windowMinutes: primary.windowDurationMins,
         resetsAt: primary.resetsAt
-      )
+      ),
     ]
 
     if let secondary = usage.secondary {

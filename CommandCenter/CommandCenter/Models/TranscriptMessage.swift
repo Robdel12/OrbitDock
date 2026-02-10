@@ -90,6 +90,9 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   static func == (lhs: TranscriptMessage, rhs: TranscriptMessage) -> Bool {
     lhs.id == rhs.id
+      && lhs.content == rhs.content
+      && lhs.toolOutput == rhs.toolOutput
+      && lhs.isInProgress == rhs.isInProgress
   }
 
   var preview: String {
@@ -159,6 +162,17 @@ struct TranscriptMessage: Identifiable, Hashable {
   var writeContent: String? {
     guard toolName?.lowercased() == "write", let input = toolInput else { return nil }
     return input["content"] as? String
+  }
+
+  /// Extract unified diff (from Codex fileChange)
+  var unifiedDiff: String? {
+    guard let input = toolInput else { return nil }
+    return input["unified_diff"] as? String
+  }
+
+  /// Check if this is a Codex file change with diff
+  var hasUnifiedDiff: Bool {
+    unifiedDiff != nil && !(unifiedDiff?.isEmpty ?? true)
   }
 
   /// Extract glob pattern

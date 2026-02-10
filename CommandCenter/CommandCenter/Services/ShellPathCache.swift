@@ -8,7 +8,7 @@
 
 import Foundation
 #if canImport(Darwin)
-import Darwin
+  import Darwin
 #endif
 
 final class ShellPathCache {
@@ -62,7 +62,8 @@ final class ShellPathCache {
   private static func resolveShell() -> String {
     let env = ProcessInfo.processInfo.environment
     if let explicit = env["ORBITDOCK_SHELL_PATH"],
-       FileManager.default.isExecutableFile(atPath: explicit) {
+       FileManager.default.isExecutableFile(atPath: explicit)
+    {
       return explicit
     }
 
@@ -71,7 +72,8 @@ final class ShellPathCache {
     }
 
     if let loginShell = Self.lookupLoginShell(),
-       FileManager.default.isExecutableFile(atPath: loginShell) {
+       FileManager.default.isExecutableFile(atPath: loginShell)
+    {
       return loginShell
     }
 
@@ -87,17 +89,20 @@ final class ShellPathCache {
     let command = "printf '\(sentinel)%s\\n' \"$PATH\""
 
     if let output = runShellCommand(shell: shell, args: ["-ilc", command]),
-       let path = extractPath(from: output, sentinel: sentinel) {
+       let path = extractPath(from: output, sentinel: sentinel)
+    {
       return path
     }
 
     if let output = runShellCommand(shell: shell, args: ["-lc", command]),
-       let path = extractPath(from: output, sentinel: sentinel) {
+       let path = extractPath(from: output, sentinel: sentinel)
+    {
       return path
     }
 
     if let output = runShellCommand(shell: shell, args: ["-c", command]),
-       let path = extractPath(from: output, sentinel: sentinel) {
+       let path = extractPath(from: output, sentinel: sentinel)
+    {
       return path
     }
 
@@ -106,11 +111,11 @@ final class ShellPathCache {
 
   private static func lookupLoginShell() -> String? {
     #if canImport(Darwin)
-    guard let pwd = getpwuid(getuid()) else { return nil }
-    guard let shell = pwd.pointee.pw_shell else { return nil }
-    return String(cString: shell)
+      guard let pwd = getpwuid(getuid()) else { return nil }
+      guard let shell = pwd.pointee.pw_shell else { return nil }
+      return String(cString: shell)
     #else
-    return nil
+      return nil
     #endif
   }
 

@@ -1,0 +1,21 @@
+[package]
+name = "orbitdock-connectors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Connectors for AI providers (Claude, Codex)"
+
+[dependencies]
+orbitdock-protocol = { workspace = true }
+codex-core = { workspace = true }
+codex-protocol = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true }
+toml = "0.9"

@@ -55,7 +55,7 @@ struct CommandBar: View {
   /// Normalize model string to display name (returns nil to skip unknown models)
   private func normalizeModel(_ model: String?) -> (name: String, color: Color)? {
     guard let model = model?.lowercased(), !model.isEmpty else {
-      return nil  // Skip sessions with no model data
+      return nil // Skip sessions with no model data
     }
     // Claude models
     if model.contains("opus") { return ("Opus", .modelOpus) }
@@ -68,7 +68,7 @@ struct CommandBar: View {
     }
     // Skip generic "openai" - not a real model name
     if model == "openai" { return nil }
-    return nil  // Skip unknown models
+    return nil // Skip unknown models
   }
 
   var body: some View {
@@ -232,12 +232,12 @@ private struct MiniGauge: View {
 
   private var paceLabel: String {
     switch window.paceStatus {
-    case .critical: return "Critical!"
-    case .exceeding: return "Heavy"
-    case .borderline: return "Moderate"
-    case .onTrack: return "On track"
-    case .relaxed: return "Light"
-    case .unknown: return ""
+      case .critical: "Critical!"
+      case .exceeding: "Heavy"
+      case .borderline: "Moderate"
+      case .onTrack: "On track"
+      case .relaxed: "Light"
+      case .unknown: ""
     }
   }
 
@@ -287,7 +287,7 @@ private struct MiniGauge: View {
         }
 
         if showProjection {
-          Text("→\(Int(window.projectedAtReset))%")
+          Text("→\(Int(window.projectedAtReset.rounded()))%")
             .font(.system(size: 9, weight: .medium, design: .monospaced))
             .foregroundStyle(projectedColor.opacity(0.8))
         }
@@ -309,10 +309,10 @@ private struct DetailedStats {
   let cacheReadTokens: Int
   let cacheCreationTokens: Int
 
-  // Cost by model
+  /// Cost by model
   let costByModel: [(model: String, cost: Double, color: Color)]
 
-  // Calculated
+  /// Calculated
   var inputCost: Double {
     // Approximate - actual cost is per-model
     Double(inputTokens) / 1_000_000 * 3.0
@@ -387,17 +387,17 @@ private struct DetailedStats {
       return "GPT-\(version)"
     }
     if model == "openai" { return nil }
-    return nil  // Skip unknown models
+    return nil // Skip unknown models
   }
 
   private static func colorForModel(_ model: String) -> Color {
     switch model {
-    case "Opus": return .modelOpus
-    case "Sonnet": return .modelSonnet
-    case "Haiku": return .modelHaiku
-    default:
-      if model.hasPrefix("GPT") { return .providerCodex }
-      return .secondary
+      case "Opus": return .modelOpus
+      case "Sonnet": return .modelSonnet
+      case "Haiku": return .modelHaiku
+      default:
+        if model.hasPrefix("GPT") { return .providerCodex }
+        return .secondary
     }
   }
 }
@@ -423,7 +423,7 @@ private struct StatsSummaryPanel: View {
   let icon: String
   let iconColor: Color
   let stats: DetailedStats
-  var modelDistribution: ModelDistribution? = nil
+  var modelDistribution: ModelDistribution?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -753,7 +753,7 @@ private struct ModelDistributionChart: View {
     var rows: [[ModelEntry]] = []
     for i in stride(from: 0, to: entries.count, by: 2) {
       let end = min(i + 2, entries.count)
-      rows.append(Array(entries[i..<end]))
+      rows.append(Array(entries[i ..< end]))
     }
     return rows
   }
@@ -799,7 +799,7 @@ private struct ModelDistributionChart: View {
     if name.hasPrefix("GPT") {
       return "chevron.left.forwardslash.chevron.right"
     }
-    return "brain.head.profile"  // Claude models
+    return "staroflife.fill" // Claude models
   }
 }
 

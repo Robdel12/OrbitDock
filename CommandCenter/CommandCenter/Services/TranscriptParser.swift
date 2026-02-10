@@ -20,11 +20,11 @@ private class ParseCache {
   static let shared = ParseCache()
 
   private var cache: [String: (timestamp: CFAbsoluteTime, result: TranscriptParseResult)] = [:]
-  private var accessOrder: [String] = []  // LRU tracking - most recent at end
+  private var accessOrder: [String] = [] // LRU tracking - most recent at end
   private var pathLocks: [String: NSLock] = [:]
   private let metaLock = NSLock()
   private let cacheValidityMs: Double = 100 // Cache valid for 100ms (just to catch simultaneous calls)
-  private let maxCacheSize = 50  // LRU eviction threshold
+  private let maxCacheSize = 50 // LRU eviction threshold
 
   /// Get or create a lock for a specific path
   private func lockForPath(_ path: String) -> NSLock {
@@ -998,7 +998,8 @@ enum TranscriptParser {
         }
       } else if payloadType == "function_call_output" || payloadType == "custom_tool_call_output" {
         if let callId = payload["call_id"] as? String,
-           let output = payload["output"] as? String {
+           let output = payload["output"] as? String
+        {
           toolCallOutputs[callId] = (output: output, timestamp: timestamp)
         }
       }
@@ -1184,15 +1185,15 @@ enum TranscriptParser {
   /// Map Codex tool names to OrbitDock-standard tool names
   private static func mapCodexToolName(_ rawName: String) -> String {
     switch rawName.lowercased() {
-      case "exec_command", "shell": return "Bash"
-      case "apply_patch", "patch_apply": return "Edit"
-      case "read_file": return "Read"
-      case "write_file": return "Write"
-      case "web_search": return "WebSearch"
-      case "view_image": return "ViewImage"
-      case "list_dir", "list_directory": return "Glob"
-      case "mcp_tool_call": return "MCP"
-      default: return rawName
+      case "exec_command", "shell": "Bash"
+      case "apply_patch", "patch_apply": "Edit"
+      case "read_file": "Read"
+      case "write_file": "Write"
+      case "web_search": "WebSearch"
+      case "view_image": "ViewImage"
+      case "list_dir", "list_directory": "Glob"
+      case "mcp_tool_call": "MCP"
+      default: rawName
     }
   }
 
@@ -1230,7 +1231,7 @@ enum TranscriptParser {
 
     return [
       "file_path": filePath ?? "patch",
-      "patch": patchString
+      "patch": patchString,
     ]
   }
 

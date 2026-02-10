@@ -56,11 +56,11 @@ struct GenericUsageBar: View {
 #Preview {
   VStack(spacing: 16) {
     GenericUsageBar(
-      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3600)),
+      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
       provider: .claude
     )
     GenericUsageBar(
-      window: .fiveHour(utilization: 75, resetsAt: Date().addingTimeInterval(1800)),
+      window: .fiveHour(utilization: 75, resetsAt: Date().addingTimeInterval(1_800)),
       provider: .codex
     )
   }

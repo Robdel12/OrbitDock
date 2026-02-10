@@ -15,9 +15,9 @@ struct QuestRow: View {
 
   private var statusColor: Color {
     switch quest.status {
-    case .active: Color.accent
-    case .paused: Color.statusReply
-    case .completed: Color.statusEnded
+      case .active: Color.accent
+      case .paused: Color.statusReply
+      case .completed: Color.statusEnded
     }
   }
 

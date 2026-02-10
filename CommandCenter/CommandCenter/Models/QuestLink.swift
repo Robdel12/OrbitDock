@@ -23,28 +23,28 @@ struct QuestLink: Identifiable, Hashable {
 
     var label: String {
       switch self {
-      case .githubPR: "Pull Request"
-      case .githubIssue: "Issue"
-      case .linear: "Linear"
-      case .planFile: "Plan"
+        case .githubPR: "Pull Request"
+        case .githubIssue: "Issue"
+        case .linear: "Linear"
+        case .planFile: "Plan"
       }
     }
 
     var icon: String {
       switch self {
-      case .githubPR: "arrow.triangle.pull"
-      case .githubIssue: "number"
-      case .linear: "checklist"
-      case .planFile: "doc.plaintext"
+        case .githubPR: "arrow.triangle.pull"
+        case .githubIssue: "number"
+        case .linear: "checklist"
+        case .planFile: "doc.plaintext"
       }
     }
 
     var shortLabel: String {
       switch self {
-      case .githubPR: "PR"
-      case .githubIssue: "Issue"
-      case .linear: "Linear"
-      case .planFile: "Plan"
+        case .githubPR: "PR"
+        case .githubIssue: "Issue"
+        case .linear: "Linear"
+        case .planFile: "Plan"
       }
     }
   }
@@ -55,8 +55,8 @@ struct QuestLink: Identifiable, Hashable {
 
     var label: String {
       switch self {
-      case .cliOutput: "Auto-detected"
-      case .manual: "Manual"
+        case .cliOutput: "Auto-detected"
+        case .manual: "Manual"
       }
     }
   }

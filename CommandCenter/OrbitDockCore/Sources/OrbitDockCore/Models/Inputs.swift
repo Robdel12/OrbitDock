@@ -33,6 +33,22 @@ public struct SessionStartInput: Codable {
     }
 }
 
+extension SessionStartInput {
+    /// Detect Codex rollout/session-start payloads so Claude hooks don't clobber Codex rows.
+    public var isCodexRolloutPayload: Bool {
+        if context_label == "codex_cli_rs" {
+            return true
+        }
+        if let path = transcript_path?.lowercased(), path.contains("/.codex/sessions/") {
+            return true
+        }
+        if let model = model?.lowercased(), model.contains("codex") || model.hasPrefix("gpt-") {
+            return true
+        }
+        return false
+    }
+}
+
 public struct SessionEndInput: Codable {
     public let session_id: String
     public let cwd: String

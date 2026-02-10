@@ -5,7 +5,15 @@
 
 import Foundation
 
-struct Session: Identifiable, Hashable {
+// MARK: - Codex Integration Mode
+
+/// Distinguishes passive (file watching) from direct (app-server JSON-RPC) Codex sessions
+enum CodexIntegrationMode: String, Hashable, Sendable {
+  case passive // FSEvents watching of rollout files (current behavior)
+  case direct // App-server JSON-RPC (full bidirectional control)
+}
+
+struct Session: Identifiable, Hashable, Sendable {
   let id: String
   let projectPath: String
   let projectName: String?
@@ -35,20 +43,55 @@ struct Session: Identifiable, Hashable {
   var pendingQuestion: String? // Question text from AskUserQuestion
   var provider: Provider // AI provider (claude, codex)
 
-  enum SessionStatus: String {
+  // MARK: - Codex Direct Integration
+
+  var codexIntegrationMode: CodexIntegrationMode? // nil for non-Codex sessions
+  var codexThreadId: String? // Thread ID for direct Codex sessions
+  var pendingApprovalId: String? // Request ID for approval correlation
+
+  // MARK: - Codex Token Usage
+
+  var codexInputTokens: Int? // Input tokens used in session
+  var codexOutputTokens: Int? // Output tokens generated
+  var codexCachedTokens: Int? // Cached input tokens (cost savings)
+  var codexContextWindow: Int? // Model context window size
+
+  // MARK: - Codex Turn State (transient, updated during turns)
+
+  var currentDiff: String? // Aggregated diff for current turn
+  var currentPlan: [PlanStep]? // Agent's plan for current turn
+
+  struct PlanStep: Codable, Hashable, Identifiable, Sendable {
+    let step: String
+    let status: String
+
+    var id: String {
+      step
+    }
+
+    var isCompleted: Bool {
+      status == "completed"
+    }
+
+    var isInProgress: Bool {
+      status == "inProgress"
+    }
+  }
+
+  enum SessionStatus: String, Sendable {
     case active
     case idle
     case ended
   }
 
-  enum WorkStatus: String {
+  enum WorkStatus: String, Sendable {
     case working // Agent is actively processing
     case waiting // Waiting for user input
     case permission // Waiting for permission approval
     case unknown // Unknown state
   }
 
-  enum AttentionReason: String {
+  enum AttentionReason: String, Sendable {
     case none // Working or ended - no attention needed
     case awaitingReply // Agent finished, waiting for next prompt
     case awaitingPermission // Tool needs approval (Bash, Write, etc.)
@@ -74,7 +117,7 @@ struct Session: Identifiable, Hashable {
   }
 
   /// Custom initializer with backward compatibility for legacy code using contextLabel
-  init(
+  nonisolated init(
     id: String,
     projectPath: String,
     projectName: String? = nil,
@@ -103,7 +146,14 @@ struct Session: Identifiable, Hashable {
     pendingToolName: String? = nil,
     pendingToolInput: String? = nil,
     pendingQuestion: String? = nil,
-    provider: Provider = .claude
+    provider: Provider = .claude,
+    codexIntegrationMode: CodexIntegrationMode? = nil,
+    codexThreadId: String? = nil,
+    pendingApprovalId: String? = nil,
+    codexInputTokens: Int? = nil,
+    codexOutputTokens: Int? = nil,
+    codexCachedTokens: Int? = nil,
+    codexContextWindow: Int? = nil
   ) {
     self.id = id
     self.projectPath = projectPath
@@ -135,6 +185,13 @@ struct Session: Identifiable, Hashable {
     self.pendingToolInput = pendingToolInput
     self.pendingQuestion = pendingQuestion
     self.provider = provider
+    self.codexIntegrationMode = codexIntegrationMode
+    self.codexThreadId = codexThreadId
+    self.pendingApprovalId = pendingApprovalId
+    self.codexInputTokens = codexInputTokens
+    self.codexOutputTokens = codexOutputTokens
+    self.codexCachedTokens = codexCachedTokens
+    self.codexContextWindow = codexContextWindow
   }
 
   var displayName: String {
@@ -159,6 +216,29 @@ struct Session: Identifiable, Hashable {
   /// Returns true if session is waiting but not blocking (just needs a reply)
   var isReady: Bool {
     isActive && attentionReason == .awaitingReply
+  }
+
+  // MARK: - Codex Direct Integration
+
+  /// Returns true if this is a direct Codex session (not passive file watching)
+  var isDirectCodex: Bool {
+    provider == .codex && codexIntegrationMode == .direct
+  }
+
+  /// Returns true if user can send input to this session (direct Codex only)
+  var canSendInput: Bool {
+    guard isActive else { return false }
+    return isDirectCodex
+  }
+
+  /// Returns true if user can approve/reject a pending tool (direct Codex only)
+  var canApprove: Bool {
+    canSendInput && attentionReason == .awaitingPermission && pendingApprovalId != nil
+  }
+
+  /// Returns true if user can answer a pending question (direct Codex only)
+  var canAnswer: Bool {
+    canSendInput && attentionReason == .awaitingQuestion && pendingApprovalId != nil
   }
 
   var statusIcon: String {
@@ -217,6 +297,34 @@ struct Session: Identifiable, Hashable {
   var lastToolDisplay: String? {
     guard let tool = lastTool, !tool.isEmpty else { return nil }
     return tool
+  }
+
+  // MARK: - Codex Token Usage Computed Properties
+
+  /// Total tokens used (input + output)
+  var codexTotalTokens: Int {
+    (codexInputTokens ?? 0) + (codexOutputTokens ?? 0)
+  }
+
+  /// Percentage of context window used (0-100)
+  var codexContextUsagePercent: Double {
+    guard let contextWindow = codexContextWindow, contextWindow > 0 else { return 0 }
+    return Double(codexTotalTokens) / Double(contextWindow) * 100
+  }
+
+  /// Whether token usage data is available
+  var hasTokenUsage: Bool {
+    codexInputTokens != nil || codexOutputTokens != nil
+  }
+
+  /// Formatted token count string
+  var formattedTokenUsage: String {
+    guard hasTokenUsage else { return "--" }
+    let total = codexTotalTokens
+    if total >= 1_000 {
+      return String(format: "%.1fk", Double(total) / 1_000)
+    }
+    return "\(total)"
   }
 }
 

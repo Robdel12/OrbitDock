@@ -8,6 +8,8 @@ Mission control for AI coding agents. A native macOS app that lets you monitor a
 
 ## Why I Built This
 
+OrbitDock is built to keep agency in your hands while agents do the heavy lifting.
+
 I don't write code anymore (like 98% of the time). Agents do. My job now is review, management, and guidance at the right time.
 
 I've got one real SaaS product (with something like 5 repos and 10 SDKs), plus a couple other products I'm building that don't have users yet. That's a lot of projects, a lot of tasks within those projects, and a lot of LLM agents running around in all of them.
@@ -20,6 +22,7 @@ OrbitDock is how I wrangle all that chaos. One dashboard to track every session 
 
 - **Multi-Provider Support** - Track Claude Code and Codex CLI sessions together
 - **Live Session Monitoring** - Watch conversations unfold in real-time
+- **Local-First** - All session data stays on your machine
 - **5-State Status System** - Working, Permission, Question, Reply, Ended
 - **Quick Switcher (⌘K)** - Jump between sessions or run commands instantly
 - **Quest System** - Flexible work containers with linked sessions, PRs, and inbox
@@ -105,6 +108,8 @@ Add to `~/.claude/settings.json`:
 | `PreCompact` | status-tracker | Records context compaction events |
 
 ## Architecture
+
+OrbitDock is intentionally small and fast: local SQLite, lightweight watchers, and SwiftUI views that render quickly.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐

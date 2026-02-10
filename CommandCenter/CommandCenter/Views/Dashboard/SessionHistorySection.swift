@@ -259,6 +259,8 @@ struct DateGroupSection: View {
   }
 
   var body: some View {
+    let referenceDate = Date()
+
     VStack(alignment: .leading, spacing: 6) {
       // Date header
       HStack(spacing: 8) {
@@ -280,7 +282,7 @@ struct DateGroupSection: View {
       // Sessions
       VStack(spacing: 2) {
         ForEach(visibleSessions, id: \.id) { session in
-          HistorySessionRow(session: session) {
+          HistorySessionRow(session: session, referenceDate: referenceDate) {
             onSelectSession(session.id)
           }
         }
@@ -302,15 +304,19 @@ struct DateGroupSection: View {
 
 struct HistorySessionRow: View {
   let session: Session
+  let referenceDate: Date
   let onSelect: () -> Void
 
   @State private var isHovering = false
+  private static let timeAgoFormatter: RelativeDateTimeFormatter = {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    return formatter
+  }()
 
   private var timeAgo: String {
     guard let ended = session.endedAt else { return "" }
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .abbreviated
-    return formatter.localizedString(for: ended, relativeTo: Date())
+    return Self.timeAgoFormatter.localizedString(for: ended, relativeTo: referenceDate)
   }
 
   var body: some View {
@@ -426,6 +432,8 @@ struct ProjectHistoryGroup: View {
   }
 
   var body: some View {
+    let referenceDate = Date()
+
     VStack(alignment: .leading, spacing: 0) {
       // Project header
       Button {
@@ -463,7 +471,7 @@ struct ProjectHistoryGroup: View {
       if isExpanded {
         VStack(spacing: 2) {
           ForEach(visibleSessions, id: \.id) { session in
-            CompactHistoryRow(session: session) {
+            CompactHistoryRow(session: session, referenceDate: referenceDate) {
               onSelectSession(session.id)
             }
           }
@@ -495,15 +503,19 @@ struct ProjectHistoryGroup: View {
 
 struct CompactHistoryRow: View {
   let session: Session
+  let referenceDate: Date
   let onSelect: () -> Void
 
   @State private var isHovering = false
+  private static let timeAgoFormatter: RelativeDateTimeFormatter = {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    return formatter
+  }()
 
   private var timeAgo: String {
     guard let ended = session.endedAt else { return "" }
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .abbreviated
-    return formatter.localizedString(for: ended, relativeTo: Date())
+    return Self.timeAgoFormatter.localizedString(for: ended, relativeTo: referenceDate)
   }
 
   var body: some View {

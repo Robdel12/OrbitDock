@@ -6,15 +6,14 @@
 import SwiftUI
 
 struct MenuBarView: View {
-  @Environment(DatabaseManager.self) private var database
-  @State private var sessions: [Session] = []
+  @Environment(ServerAppState.self) private var serverState
 
   var activeSessions: [Session] {
-    sessions.filter(\.isActive)
+    serverState.sessions.filter(\.isActive)
   }
 
   var recentSessions: [Session] {
-    sessions.filter { !$0.isActive }.prefix(5).map { $0 }
+    serverState.sessions.filter { !$0.isActive }.prefix(5).map { $0 }
   }
 
   var body: some View {
@@ -45,7 +44,7 @@ struct MenuBarView: View {
       .padding(.vertical, 14)
 
       // Provider Usage
-      VStack(spacing: 8) {
+      VStack(spacing: 6) {
         ForEach(UsageServiceRegistry.shared.allProviders) { provider in
           ProviderMenuBarSection(
             provider: provider,
@@ -55,8 +54,8 @@ struct MenuBarView: View {
           )
         }
       }
-      .padding(.horizontal, 12)
-      .padding(.bottom, 10)
+      .padding(.horizontal, 8)
+      .padding(.bottom, 8)
 
       Divider()
 
@@ -84,14 +83,15 @@ struct MenuBarView: View {
             }
           }
 
-          if sessions.isEmpty {
+          if serverState.sessions.isEmpty {
             emptyView
           }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
       }
-      .frame(maxHeight: 320)
+      .frame(minHeight: 150, maxHeight: 320)
+      .layoutPriority(1)
 
       Divider()
 
@@ -120,7 +120,7 @@ struct MenuBarView: View {
         Spacer()
 
         Button {
-          loadSessions()
+          serverState.refreshSessionsList()
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: 11, weight: .semibold))
@@ -131,13 +131,7 @@ struct MenuBarView: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
     }
-    .frame(width: 300)
-    .onAppear {
-      loadSessions()
-      database.onDatabaseChanged = { [self] in
-        loadSessions()
-      }
-    }
+    .frame(width: 332)
   }
 
   private func sectionHeader(_ title: String) -> some View {
@@ -162,9 +156,6 @@ struct MenuBarView: View {
     .padding(.vertical, 32)
   }
 
-  private func loadSessions() {
-    sessions = database.fetchSessions()
-  }
 }
 
 struct MenuBarSessionRow: View {
@@ -222,5 +213,5 @@ struct MenuBarSessionRow: View {
 
 #Preview {
   MenuBarView()
-    .environment(DatabaseManager.shared)
+    .environment(ServerAppState())
 }

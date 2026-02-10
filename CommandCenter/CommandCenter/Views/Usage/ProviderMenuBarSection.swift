@@ -21,18 +21,16 @@ struct ProviderMenuBarSection: View {
   }
 
   var body: some View {
-    HStack(spacing: 0) {
-      // Provider branding
-      HStack(spacing: 4) {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack(spacing: 6) {
         Image(systemName: provider.icon)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: 11, weight: .semibold))
           .foregroundStyle(provider.accentColor)
 
         Text(provider.displayName)
-          .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.secondary)
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(.primary)
       }
-      .frame(width: 60, alignment: .leading)
 
       if !windows.isEmpty {
         VStack(spacing: 8) {
@@ -47,8 +45,9 @@ struct ProviderMenuBarSection: View {
             .controlSize(.small)
           Spacer()
         }
+        .padding(.vertical, 6)
       } else if let error {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
           if isApiKeyMode {
             Image(systemName: "key.fill")
               .font(.system(size: 9))
@@ -61,9 +60,9 @@ struct ProviderMenuBarSection: View {
         }
       }
     }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
-    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .padding(.horizontal, 9)
+    .padding(.vertical, 8)
+    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
   }
 }
 
@@ -78,7 +77,7 @@ extension ProviderMenuBarSection {
 
     if let usage = service.usage {
       var windows: [RateLimitWindow] = [
-        .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
+        .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt),
       ]
       if let sevenDay = usage.sevenDay {
         windows.append(.sevenDay(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
@@ -98,10 +97,20 @@ extension ProviderMenuBarSection {
 
     if let usage = service.usage, let primary = usage.primary {
       var windows: [RateLimitWindow] = [
-        .fromMinutes(id: "primary", utilization: primary.usedPercent, windowMinutes: primary.windowDurationMins, resetsAt: primary.resetsAt)
+        .fromMinutes(
+          id: "primary",
+          utilization: primary.usedPercent,
+          windowMinutes: primary.windowDurationMins,
+          resetsAt: primary.resetsAt
+        ),
       ]
       if let secondary = usage.secondary {
-        windows.append(.fromMinutes(id: "secondary", utilization: secondary.usedPercent, windowMinutes: secondary.windowDurationMins, resetsAt: secondary.resetsAt))
+        windows.append(.fromMinutes(
+          id: "secondary",
+          utilization: secondary.usedPercent,
+          windowMinutes: secondary.windowDurationMins,
+          resetsAt: secondary.resetsAt
+        ))
       }
       self.windows = windows
     } else {
@@ -115,8 +124,8 @@ extension ProviderMenuBarSection {
     ProviderMenuBarSection(
       provider: .claude,
       windows: [
-        .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3600)),
-        .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86400))
+        .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
+        .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86_400)),
       ],
       isLoading: false,
       error: nil
@@ -125,7 +134,7 @@ extension ProviderMenuBarSection {
     ProviderMenuBarSection(
       provider: .codex,
       windows: [
-        .fromMinutes(id: "primary", utilization: 30, windowMinutes: 15, resetsAt: Date().addingTimeInterval(600))
+        .fromMinutes(id: "primary", utilization: 30, windowMinutes: 15, resetsAt: Date().addingTimeInterval(600)),
       ],
       isLoading: false,
       error: nil

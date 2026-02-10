@@ -36,7 +36,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		80BCDAFF2F3200000D91F91 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		80BCDAFF2F3200000D91F91 /* Exceptions for "CommandCenter" folder in "CommandCenter" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -49,7 +49,7 @@
 		80BCD0C22F2C834F00D91F91 /* CommandCenter */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				80BCDAFF2F3200000D91F91 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				80BCDAFF2F3200000D91F91 /* Exceptions for "CommandCenter" folder in "CommandCenter" target */,
 			);
 			path = CommandCenter;
 			sourceTree = "<group>";
@@ -278,6 +278,8 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/MacOS/orbitdock-cli",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/MacOS/orbitdock-server",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;

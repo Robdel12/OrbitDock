@@ -32,6 +32,12 @@ struct SettingsView: View {
           icon: "wrench.and.screwdriver",
           isSelected: selectedTab == 2
         ) { selectedTab = 2 }
+
+        SettingsTabButton(
+          title: "Debug",
+          icon: "ladybug",
+          isSelected: selectedTab == 3
+        ) { selectedTab = 3 }
       }
       .padding(.horizontal, 16)
       .padding(.top, 16)
@@ -43,19 +49,21 @@ struct SettingsView: View {
       // Content
       Group {
         switch selectedTab {
-        case 0:
-          GeneralSettingsView()
-        case 1:
-          NotificationSettingsView()
-        case 2:
-          SetupSettingsView()
-        default:
-          GeneralSettingsView()
+          case 0:
+            GeneralSettingsView()
+          case 1:
+            NotificationSettingsView()
+          case 2:
+            SetupSettingsView()
+          case 3:
+            DebugSettingsView()
+          default:
+            GeneralSettingsView()
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .frame(width: 520, height: 420)
+    .frame(width: 520, height: 480)
     .background(Color.backgroundPrimary)
   }
 }
@@ -472,7 +480,8 @@ struct SetupSettingsView: View {
   private func isHooksConfigured() -> Bool {
     guard FileManager.default.fileExists(atPath: settingsPath),
           let data = FileManager.default.contents(atPath: settingsPath),
-          let content = String(data: data, encoding: .utf8) else {
+          let content = String(data: data, encoding: .utf8)
+    else {
       return false
     }
     return content.contains("orbitdock-cli")
@@ -504,12 +513,159 @@ struct SetupSettingsView: View {
       "SessionEnd": [{"hooks": [{"type": "command", "command": "\(cliPath) session-end", "async": true}]}],
       "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
       "Stop": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
-      "Notification": {"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]},
+      "Notification": {"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "\(
+        cliPath
+      ) status-tracker", "async": true}]},
       "PreToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
       "PostToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
       "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}]
     }
     """
+  }
+}
+
+// MARK: - Debug Settings
+
+struct DebugSettingsView: View {
+  @StateObject private var serverManager = ServerManager.shared
+  @StateObject private var serverConnection = ServerConnection.shared
+  @State private var showServerTest = false
+
+  var body: some View {
+    VStack(spacing: 20) {
+      SettingsSection(title: "RUST SERVER", icon: "server.rack") {
+        VStack(alignment: .leading, spacing: 14) {
+          // Server process status
+          HStack {
+            Circle()
+              .fill(serverManager.isRunning ? Color.statusSuccess : Color.statusEnded)
+              .frame(width: 8, height: 8)
+
+            Text(serverManager.isRunning ? "Server Running" : "Server Stopped")
+              .font(.system(size: 13))
+
+            Spacer()
+
+            if serverManager.isRunning {
+              Button("Stop") {
+                serverManager.stop()
+              }
+              .buttonStyle(.bordered)
+            } else {
+              Button("Start") {
+                serverManager.start()
+              }
+              .buttonStyle(.borderedProminent)
+              .tint(Color.accent)
+            }
+          }
+
+          if let error = serverManager.lastError {
+            Text(error)
+              .font(.system(size: 11))
+              .foregroundStyle(.red)
+          }
+
+          Divider()
+            .foregroundStyle(Color.panelBorder)
+
+          // WebSocket status
+          HStack {
+            Circle()
+              .fill(connectionColor)
+              .frame(width: 8, height: 8)
+
+            Text("WebSocket: \(connectionText)")
+              .font(.system(size: 13))
+
+            Spacer()
+
+            Button("Test View") {
+              showServerTest = true
+            }
+            .buttonStyle(.bordered)
+          }
+        }
+      }
+
+      SettingsSection(title: "LOGS", icon: "doc.text") {
+        VStack(alignment: .leading, spacing: 14) {
+          HStack {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Codex Logs")
+                .font(.system(size: 13))
+              Text("~/.orbitdock/logs/codex.log")
+                .font(.system(size: 11).monospaced())
+                .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Button("Open in Finder") {
+              let path = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".orbitdock/logs")
+              NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
+            }
+            .buttonStyle(.bordered)
+          }
+        }
+      }
+
+      SettingsSection(title: "DATABASE", icon: "cylinder") {
+        VStack(alignment: .leading, spacing: 14) {
+          HStack {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("OrbitDock Database")
+                .font(.system(size: 13))
+              Text("~/.orbitdock/orbitdock.db")
+                .font(.system(size: 11).monospaced())
+                .foregroundStyle(.tertiary)
+            }
+
+            Spacer()
+
+            Button("Open in Finder") {
+              let path = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".orbitdock")
+              NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
+            }
+            .buttonStyle(.bordered)
+          }
+        }
+      }
+
+      Spacer()
+    }
+    .padding(20)
+    .sheet(isPresented: $showServerTest) {
+      ServerTestView()
+    }
+  }
+
+  private var connectionColor: Color {
+    switch serverConnection.status {
+      case .connected:
+        .statusSuccess
+      case .connecting:
+        .yellow
+      case .disconnected:
+        .statusEnded
+      case .failed:
+        .statusError
+    }
+  }
+
+  private var connectionText: String {
+    switch serverConnection.status {
+      case .connected:
+        "Connected"
+      case .connecting:
+        "Connecting..."
+      case .disconnected:
+        "Disconnected"
+      case let .failed(reason):
+        "Failed: \(reason)"
+    }
   }
 }
 
