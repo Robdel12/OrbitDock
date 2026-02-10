@@ -11,7 +11,8 @@ use std::time::{Duration, SystemTime};
 use anyhow::Context;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use orbitdock_protocol::{
-    CodexIntegrationMode, Provider, ServerMessage, SessionStatus, StateChanges, WorkStatus,
+    CodexIntegrationMode, Message, MessageType, Provider, ServerMessage, SessionStatus,
+    StateChanges, WorkStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,6 +29,7 @@ use crate::state::AppState;
 const DEBOUNCE_MS: u64 = 150;
 const SESSION_TIMEOUT_SECS: u64 = 120;
 const STARTUP_SEED_RECENT_SECS: u64 = 15 * 60;
+const CATCHUP_SWEEP_SECS: u64 = 3;
 
 pub async fn start_rollout_watcher(
     app_state: Arc<Mutex<AppState>>,
@@ -142,6 +144,18 @@ pub async fn start_rollout_watcher(
         "Rollout startup seed complete"
     );
 
+    // Backstop for dropped filesystem events: periodically sweep known rollout files
+    // and process any with new bytes.
+    let sweep_tx = runtime.tx.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(CATCHUP_SWEEP_SECS)).await;
+            if sweep_tx.send(WatcherMessage::Sweep).is_err() {
+                break;
+            }
+        }
+    });
+
     while let Some(msg) = rx.recv().await {
         match msg {
             WatcherMessage::FsEvent(path) => {
@@ -173,6 +187,16 @@ pub async fn start_rollout_watcher(
             WatcherMessage::SessionTimeout(session_id) => {
                 runtime.handle_session_timeout(session_id).await;
             }
+            WatcherMessage::Sweep => {
+                if let Err(err) = runtime.sweep_files().await {
+                    warn!(
+                        component = "rollout_watcher",
+                        event = "rollout_watcher.sweep_failed",
+                        error = %err,
+                        "Catch-up sweep failed"
+                    );
+                }
+            }
         }
     }
 
@@ -184,6 +208,7 @@ enum WatcherMessage {
     FsEvent(PathBuf),
     ProcessFile(PathBuf),
     SessionTimeout(String),
+    Sweep,
 }
 
 struct WatcherRuntime {
@@ -200,6 +225,28 @@ struct WatcherRuntime {
 }
 
 impl WatcherRuntime {
+    async fn sweep_files(&mut self) -> anyhow::Result<()> {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+
+        for (path, state) in &self.file_states {
+            let path_buf = PathBuf::from(path);
+            if !path_buf.exists() {
+                continue;
+            }
+            let Ok(metadata) = fs::metadata(&path_buf) else {
+                continue;
+            };
+            if metadata.len() != state.offset {
+                candidates.push(path_buf);
+            }
+        }
+
+        for path in candidates {
+            self.process_file(path).await?;
+        }
+        Ok(())
+    }
+
     fn schedule_file(&mut self, path: PathBuf) {
         let path_string = path.to_string_lossy().to_string();
         if let Some(handle) = self.debounce_tasks.remove(&path_string) {
@@ -222,6 +269,26 @@ impl WatcherRuntime {
 
         let path_string = path.to_string_lossy().to_string();
         self.debounce_tasks.remove(&path_string);
+
+        // Guard against stale persisted path->session bindings. A stale mapping can route
+        // fresh rollout events to the wrong in-memory session and make the expected session
+        // appear frozen in the UI.
+        if let Some(hinted_session_id) = rollout_session_id_hint(&path) {
+            let mapped_session_id = self
+                .file_states
+                .get(&path_string)
+                .and_then(|state| state.session_id.clone());
+            if let Some(mapped_session_id) = mapped_session_id {
+                if mapped_session_id != hinted_session_id {
+                    if let Some(state) = self.file_states.get_mut(&path_string) {
+                        state.session_id = None;
+                        state.project_path = None;
+                        state.model_provider = None;
+                    }
+                    self.ensure_session_meta(&path_string).await?;
+                }
+            }
+        }
 
         let metadata = fs::metadata(&path)?;
         let size = metadata.len();
@@ -790,10 +857,18 @@ impl WatcherRuntime {
                         state.saw_agent_event = false;
                     }
                     let message = extract_response_item_message_text(&payload);
+                    if let Some(text) = message.clone() {
+                        self.append_chat_message(path, &session_id, MessageType::User, text)
+                            .await;
+                    }
                     self.handle_user_message(&session_id, message).await;
                 } else if role == Some("assistant") {
                     if let Some(state) = self.file_states.get_mut(path) {
                         state.saw_agent_event = true;
+                    }
+                    if let Some(text) = extract_response_item_message_text(&payload) {
+                        self.append_chat_message(path, &session_id, MessageType::Assistant, text)
+                            .await;
                     }
                     self.mark_waiting(&session_id).await;
                 }
@@ -835,6 +910,67 @@ impl WatcherRuntime {
             }
             _ => {}
         }
+    }
+
+    async fn append_chat_message(
+        &mut self,
+        path: &str,
+        session_id: &str,
+        message_type: MessageType,
+        content: String,
+    ) {
+        let content = content.trim().to_string();
+        if content.is_empty() {
+            return;
+        }
+
+        let next_seq = if let Some(state) = self.file_states.get_mut(path) {
+            let seq = state.next_message_seq;
+            state.next_message_seq = state.next_message_seq.saturating_add(1);
+            seq
+        } else {
+            0
+        };
+
+        let message = Message {
+            id: format!("rollout-{session_id}-{next_seq}"),
+            session_id: session_id.to_string(),
+            message_type,
+            content,
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            timestamp: current_time_rfc3339(),
+            duration_ms: None,
+        };
+
+        let session_arc = {
+            let app = self.app_state.lock().await;
+            app.get_session(session_id)
+        };
+        let Some(session_arc) = session_arc else {
+            return;
+        };
+
+        {
+            let mut session = session_arc.lock().await;
+            session.add_message(message.clone());
+            session
+                .broadcast(ServerMessage::MessageAppended {
+                    session_id: session_id.to_string(),
+                    message: message.clone(),
+                })
+                .await;
+        }
+
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::MessageAppend {
+                session_id: session_id.to_string(),
+                message,
+            })
+            .await;
     }
 
     async fn handle_user_message(&mut self, session_id: &str, message: Option<String>) {
@@ -1278,6 +1414,7 @@ impl WatcherRuntime {
                     model_provider: persisted.model_provider.clone(),
                     ignore_existing: persisted.ignore_existing.unwrap_or(false),
                     pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
                     saw_user_event: false,
                     saw_agent_event: false,
                 },
@@ -1305,6 +1442,7 @@ impl WatcherRuntime {
                 model_provider: None,
                 ignore_existing,
                 pending_tool_calls: HashMap::new(),
+                next_message_seq: 0,
                 saw_user_event: false,
                 saw_agent_event: false,
             },
@@ -1345,6 +1483,7 @@ struct FileState {
     model_provider: Option<String>,
     ignore_existing: bool,
     pending_tool_calls: HashMap<String, String>,
+    next_message_seq: u64,
     saw_user_event: bool,
     saw_agent_event: bool,
 }
@@ -1496,6 +1635,36 @@ fn derive_prompt_name_from_rollout_file(path: &Path) -> Option<String> {
 
 fn is_jsonl_path(path: &Path) -> bool {
     path.extension().and_then(|s| s.to_str()) == Some("jsonl")
+}
+
+fn rollout_session_id_hint(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    if stem.len() < 36 {
+        return None;
+    }
+    let tail = &stem[stem.len() - 36..];
+    if is_uuid_like(tail) {
+        Some(tail.to_string())
+    } else {
+        None
+    }
+}
+
+fn is_uuid_like(value: &str) -> bool {
+    if value.len() != 36 {
+        return false;
+    }
+    for (idx, ch) in value.chars().enumerate() {
+        let is_dash = matches!(idx, 8 | 13 | 18 | 23);
+        if is_dash {
+            if ch != '-' {
+                return false;
+            }
+        } else if !ch.is_ascii_hexdigit() {
+            return false;
+        }
+    }
+    true
 }
 
 async fn resolve_git_info(path: &str) -> (Option<String>, Option<String>) {
@@ -1735,6 +1904,7 @@ mod tests {
                     model_provider: Some("openai".to_string()),
                     ignore_existing: false,
                     pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
                     saw_user_event: false,
                     saw_agent_event: false,
                 },
@@ -1900,6 +2070,7 @@ mod tests {
                     model_provider: Some("openai".to_string()),
                     ignore_existing: false,
                     pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
                     saw_user_event: false,
                     saw_agent_event: false,
                 },
@@ -2017,6 +2188,7 @@ mod tests {
                     model_provider: Some("openai".to_string()),
                     ignore_existing: false,
                     pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
                     saw_user_event: false,
                     saw_agent_event: false,
                 },
@@ -2058,6 +2230,299 @@ mod tests {
         };
         assert_eq!(reactivated_snapshot.status, SessionStatus::Active);
         assert_eq!(reactivated_snapshot.work_status, WorkStatus::Working);
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn stale_file_mapping_rebinds_to_rollout_session_id_before_processing_lines() {
+        let actual_session_id = format!("019c0000-0000-4000-8000-{:012x}", std::process::id());
+        let stale_session_id = format!("019cffff-ffff-4000-8000-{:012x}", std::process::id());
+        let tmp_dir =
+            std::env::temp_dir().join(format!("orbitdock-rollout-rebind-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let rollout_path = tmp_dir.join(format!(
+            "rollout-2026-02-10T03-20-00-{}.jsonl",
+            actual_session_id
+        ));
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                actual_session_id
+            ),
+        )
+        .expect("write rollout seed");
+        let initial_size = std::fs::metadata(&rollout_path)
+            .expect("stat rollout")
+            .len();
+
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        {
+            let mut app = app_state.lock().await;
+
+            let mut stale_handle = SessionHandle::new(
+                stale_session_id.clone(),
+                Provider::Codex,
+                "/tmp/repo".to_string(),
+            );
+            stale_handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            stale_handle.set_status(SessionStatus::Ended);
+            stale_handle.set_work_status(WorkStatus::Ended);
+            app.add_session(stale_handle);
+
+            let mut actual_handle = SessionHandle::new(
+                actual_session_id.clone(),
+                Provider::Codex,
+                "/tmp/repo".to_string(),
+            );
+            actual_handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            actual_handle.set_status(SessionStatus::Ended);
+            actual_handle.set_work_status(WorkStatus::Ended);
+            actual_handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
+            app.add_session(actual_handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::from([(
+                rollout_path.to_string_lossy().to_string(),
+                FileState {
+                    offset: initial_size,
+                    tail: String::new(),
+                    session_id: Some(stale_session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("openai".to_string()),
+                    ignore_existing: false,
+                    pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            )]),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+            prompt_seen: HashSet::new(),
+        };
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rollout_path)
+            .expect("open rollout")
+            .write_all(
+                b"{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"new work\"}}\n",
+            )
+            .expect("append user_message");
+
+        runtime
+            .process_file(PathBuf::from(&rollout_path))
+            .await
+            .expect("process rollout");
+
+        let (actual_snapshot, stale_snapshot) = {
+            let app = app_state.lock().await;
+            let actual = app
+                .get_session(&actual_session_id)
+                .expect("actual session exists")
+                .lock()
+                .await
+                .state();
+            let stale = app
+                .get_session(&stale_session_id)
+                .expect("stale session exists")
+                .lock()
+                .await
+                .state();
+            (actual, stale)
+        };
+
+        assert_eq!(actual_snapshot.status, SessionStatus::Active);
+        assert_eq!(actual_snapshot.work_status, WorkStatus::Working);
+        assert_eq!(stale_snapshot.status, SessionStatus::Ended);
+        assert_eq!(stale_snapshot.work_status, WorkStatus::Ended);
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn catchup_sweep_processes_appended_lines_without_fs_event() {
+        let session_id = format!("passive-sweep-reactivate-{}", std::process::id());
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-sweep-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write rollout seed");
+        let initial_size = std::fs::metadata(&rollout_path)
+            .expect("stat rollout")
+            .len();
+
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        {
+            let mut app = app_state.lock().await;
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
+            handle.set_status(SessionStatus::Ended);
+            handle.set_work_status(WorkStatus::Ended);
+            app.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::from([(
+                rollout_path.to_string_lossy().to_string(),
+                FileState {
+                    offset: initial_size,
+                    tail: String::new(),
+                    session_id: Some(session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("openai".to_string()),
+                    ignore_existing: false,
+                    pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            )]),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+            prompt_seen: HashSet::new(),
+        };
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rollout_path)
+            .expect("open rollout")
+            .write_all(
+                b"{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"wake\"}}\n",
+            )
+            .expect("append user_message");
+
+        runtime.sweep_files().await.expect("run catchup sweep");
+
+        let snapshot = {
+            let app = app_state.lock().await;
+            let arc = app.get_session(&session_id).expect("session exists");
+            let snapshot = arc.lock().await.state();
+            snapshot
+        };
+        assert_eq!(snapshot.status, SessionStatus::Active);
+        assert_eq!(snapshot.work_status, WorkStatus::Working);
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
+    async fn response_item_message_line_appends_passive_chat_message() {
+        let session_id = format!("passive-msg-append-{}", std::process::id());
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-msg-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write rollout seed");
+        let initial_size = std::fs::metadata(&rollout_path)
+            .expect("stat rollout")
+            .len();
+
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        {
+            let mut app = app_state.lock().await;
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
+            app.add_session(handle);
+        }
+
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::from([(
+                rollout_path.to_string_lossy().to_string(),
+                FileState {
+                    offset: initial_size,
+                    tail: String::new(),
+                    session_id: Some(session_id.clone()),
+                    project_path: Some("/tmp/repo".to_string()),
+                    model_provider: Some("openai".to_string()),
+                    ignore_existing: false,
+                    pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            )]),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+            prompt_seen: HashSet::new(),
+        };
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&rollout_path)
+            .expect("open rollout")
+            .write_all(
+                b"{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello from passive\"}]}}\n",
+            )
+            .expect("append response_item user message");
+
+        runtime
+            .process_file(PathBuf::from(&rollout_path))
+            .await
+            .expect("process rollout");
+
+        let snapshot = {
+            let app = app_state.lock().await;
+            let arc = app.get_session(&session_id).expect("session exists");
+            let snapshot = arc.lock().await.state();
+            snapshot
+        };
+        let has_user_message = snapshot.messages.iter().any(|msg| {
+            msg.message_type == MessageType::User && msg.content.contains("hello from passive")
+        });
+        assert!(
+            has_user_message,
+            "response_item user message should be appended to passive session"
+        );
 
         let _ = std::fs::remove_file(&rollout_path);
         let _ = std::fs::remove_file(tmp_dir.join("state.json"));

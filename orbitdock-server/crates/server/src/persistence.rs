@@ -5,8 +5,13 @@
 
 use std::path::PathBuf;
 use std::time::Duration;
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+};
 
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -1263,6 +1268,169 @@ pub struct RestoredSession {
     pub messages: Vec<Message>,
 }
 
+fn load_messages_from_db(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<Message>, anyhow::Error> {
+    let mut msg_stmt = conn.prepare(
+        "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
+         FROM messages
+         WHERE session_id = ?
+         ORDER BY sequence",
+    )?;
+
+    let messages: Vec<Message> = msg_stmt
+        .query_map(params![session_id], |row| {
+            let type_str: String = row.get(1)?;
+            let message_type = match type_str.as_str() {
+                "user" => MessageType::User,
+                "assistant" => MessageType::Assistant,
+                "thinking" => MessageType::Thinking,
+                "tool" => MessageType::Tool,
+                "toolResult" => MessageType::ToolResult,
+                _ => MessageType::Assistant,
+            };
+
+            let duration_secs: Option<f64> = row.get(7)?;
+            let is_error_int: i32 = row.get(8)?;
+
+            Ok(Message {
+                id: row.get(0)?,
+                session_id: session_id.to_string(),
+                message_type,
+                content: row.get(2)?,
+                timestamp: row.get(3)?,
+                tool_name: row.get(4)?,
+                tool_input: row.get(5)?,
+                tool_output: row.get(6)?,
+                duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
+                is_error: is_error_int != 0,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(messages)
+}
+
+fn extract_text_from_content_array(content: &Value) -> Option<String> {
+    let array = content.as_array()?;
+    let mut parts: Vec<String> = Vec::new();
+    for item in array {
+        let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
+        let is_text_like = matches!(kind, "text" | "input_text" | "output_text" | "summary_text");
+        if is_text_like {
+            if let Some(text) = item.get("text").and_then(Value::as_str) {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    parts.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
+}
+
+fn extract_message_text(entry: &Value) -> Option<(MessageType, String)> {
+    let entry_type = entry.get("type").and_then(Value::as_str)?;
+
+    if entry_type == "response_item" {
+        let payload = entry.get("payload")?;
+        let payload_type = payload.get("type").and_then(Value::as_str)?;
+        if payload_type == "message" {
+            let role = payload.get("role").and_then(Value::as_str)?;
+            let content = payload.get("content")?;
+            let text = extract_text_from_content_array(content)?;
+            let message_type = if role == "user" {
+                MessageType::User
+            } else {
+                MessageType::Assistant
+            };
+            return Some((message_type, text));
+        }
+    }
+
+    let message = entry.get("message")?;
+    let role = message.get("role").and_then(Value::as_str)?;
+    let content = message.get("content")?;
+    let text = extract_text_from_content_array(content)?;
+    let message_type = if role == "user" {
+        MessageType::User
+    } else {
+        MessageType::Assistant
+    };
+    Some((message_type, text))
+}
+
+fn load_messages_from_transcript(
+    transcript_path: &str,
+    session_id: &str,
+) -> Result<Vec<Message>, anyhow::Error> {
+    let file = match File::open(transcript_path) {
+        Ok(file) => file,
+        Err(_) => return Ok(Vec::new()),
+    };
+    let reader = BufReader::new(file);
+
+    let mut messages: Vec<Message> = Vec::new();
+    for (index, line_result) in reader.lines().enumerate() {
+        let line = match line_result {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let Some((message_type, content)) = extract_message_text(&value) else {
+            continue;
+        };
+
+        let timestamp = value
+            .get("timestamp")
+            .and_then(Value::as_str)
+            .unwrap_or("0")
+            .to_string();
+
+        messages.push(Message {
+            id: format!("{session_id}:transcript:{index}"),
+            session_id: session_id.to_string(),
+            message_type,
+            content,
+            timestamp,
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            duration_ms: None,
+            is_error: false,
+        });
+    }
+
+    Ok(messages)
+}
+
+pub async fn load_messages_from_transcript_path(
+    transcript_path: &str,
+    session_id: &str,
+) -> Result<Vec<Message>, anyhow::Error> {
+    let transcript_path_owned = transcript_path.to_string();
+    let session_id_owned = session_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        load_messages_from_transcript(&transcript_path_owned, &session_id_owned)
+    })
+    .await?
+}
+
 /// Load recent sessions from the database for server restart recovery.
 /// Includes ended sessions so UI history remains visible after app restart.
 pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow::Error> {
@@ -1370,50 +1538,12 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         let mut sessions = Vec::new();
 
         for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
-            // Claude transcript/history is sourced from transcript files + local MessageStore.
-            // For startup list fidelity, only hydrate codex message rows here.
-            let messages: Vec<Message> = if provider == "codex" {
-                let mut msg_stmt = conn.prepare(
-                    "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
-                     FROM messages
-                     WHERE session_id = ?
-                     ORDER BY sequence"
-                )?;
-
-                let loaded: Vec<Message> = msg_stmt
-                    .query_map(params![&id], |row| {
-                        let type_str: String = row.get(1)?;
-                        let message_type = match type_str.as_str() {
-                            "user" => MessageType::User,
-                            "assistant" => MessageType::Assistant,
-                            "thinking" => MessageType::Thinking,
-                            "tool" => MessageType::Tool,
-                            "toolResult" => MessageType::ToolResult,
-                            _ => MessageType::Assistant,
-                        };
-
-                        let duration_secs: Option<f64> = row.get(7)?;
-                        let is_error_int: i32 = row.get(8)?;
-
-                        Ok(Message {
-                            id: row.get(0)?,
-                            session_id: id.clone(),
-                            message_type,
-                            content: row.get(2)?,
-                            timestamp: row.get(3)?,
-                            tool_name: row.get(4)?,
-                            tool_input: row.get(5)?,
-                            tool_output: row.get(6)?,
-                            duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
-                            is_error: is_error_int != 0,
-                        })
-                    })?
-                    .filter_map(|r| r.ok())
-                    .collect();
-                loaded
-            } else {
-                Vec::new()
-            };
+            let mut messages = load_messages_from_db(&conn, &id)?;
+            if messages.is_empty() {
+                if let Some(path) = transcript_path.as_deref() {
+                    messages = load_messages_from_transcript(path, &id)?;
+                }
+            }
 
             sessions.push(RestoredSession {
                 id,
@@ -1513,44 +1643,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             return Ok(None);
         };
 
-        // Load messages
-        let mut msg_stmt = conn.prepare(
-            "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
-             FROM messages
-             WHERE session_id = ?
-             ORDER BY sequence"
-        )?;
-
-        let messages: Vec<Message> = msg_stmt
-            .query_map(params![&id], |row| {
-                let type_str: String = row.get(1)?;
-                let message_type = match type_str.as_str() {
-                    "user" => MessageType::User,
-                    "assistant" => MessageType::Assistant,
-                    "thinking" => MessageType::Thinking,
-                    "tool" => MessageType::Tool,
-                    "toolResult" => MessageType::ToolResult,
-                    _ => MessageType::Assistant,
-                };
-
-                let duration_secs: Option<f64> = row.get(7)?;
-                let is_error_int: i32 = row.get(8)?;
-
-                Ok(Message {
-                    id: row.get(0)?,
-                    session_id: id.clone(),
-                    message_type,
-                    content: row.get(2)?,
-                    timestamp: row.get(3)?,
-                    tool_name: row.get(4)?,
-                    tool_input: row.get(5)?,
-                    tool_output: row.get(6)?,
-                    duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
-                    is_error: is_error_int != 0,
-                })
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
+        let messages = load_messages_from_db(&conn, &id)?;
 
         Ok(Some(RestoredSession {
             id,
@@ -2380,5 +2473,115 @@ mod tests {
             codex_session.custom_name.as_deref(),
             Some("Refactor flaky test setup")
         );
+    }
+
+    #[tokio::test]
+    async fn startup_restore_hydrates_claude_messages_from_transcript_when_db_messages_missing() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        let transcript_path = home.join("claude-hydrate.jsonl");
+        fs::write(
+            &transcript_path,
+            r#"{"type":"user","timestamp":"2026-02-10T01:00:00Z","message":{"role":"user","content":[{"type":"text","text":"Hello from transcript"}]}}
+{"type":"assistant","timestamp":"2026-02-10T01:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"Server hydration works"}]}}
+"#,
+        )
+        .expect("write transcript");
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::ClaudeSessionUpsert {
+                    id: "claude-hydrate".into(),
+                    project_path: "/tmp/claude-hydrate".into(),
+                    project_name: Some("claude-hydrate".into()),
+                    model: Some("claude-opus-4-1".into()),
+                    context_label: None,
+                    transcript_path: Some(transcript_path.to_string_lossy().to_string()),
+                    source: Some("startup".into()),
+                    agent_type: None,
+                    permission_mode: None,
+                    terminal_session_id: None,
+                    terminal_app: None,
+                },
+                PersistCommand::ClaudePromptIncrement {
+                    id: "claude-hydrate".into(),
+                    first_prompt: Some("Hello from transcript".into()),
+                },
+            ],
+        )
+        .expect("flush claude seed");
+
+        let restored = load_sessions_for_startup().await.expect("load sessions");
+        let session = restored
+            .iter()
+            .find(|s| s.id == "claude-hydrate")
+            .expect("claude session restored");
+
+        assert!(
+            !session.messages.is_empty(),
+            "expected transcript-backed message hydration"
+        );
+        assert!(session
+            .messages
+            .iter()
+            .any(|m| m.content.contains("Hello from transcript")));
+    }
+
+    #[tokio::test]
+    async fn startup_restore_hydrates_codex_messages_from_input_text_transcript_items() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        let transcript_path = home.join("codex-input-text.jsonl");
+        fs::write(
+            &transcript_path,
+            r#"{"type":"response_item","timestamp":"2026-02-10T01:00:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"User says hello"}]}}
+{"type":"response_item","timestamp":"2026-02-10T01:00:01Z","payload":{"type":"message","role":"assistant","content":[{"type":"input_text","text":"Assistant replies"}]}}
+"#,
+        )
+        .expect("write codex transcript");
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::RolloutSessionUpsert {
+                id: "codex-input-text".into(),
+                thread_id: "codex-input-text".into(),
+                project_path: "/tmp/codex-input-text".into(),
+                project_name: Some("codex-input-text".into()),
+                branch: Some("main".into()),
+                model: Some("gpt-5-codex".into()),
+                context_label: Some("codex_cli_rs".into()),
+                transcript_path: transcript_path.to_string_lossy().to_string(),
+                started_at: iso_minutes_ago(1),
+            }],
+        )
+        .expect("seed codex passive session");
+
+        let restored = load_sessions_for_startup().await.expect("load sessions");
+        let session = restored
+            .iter()
+            .find(|s| s.id == "codex-input-text")
+            .expect("codex session restored");
+
+        assert!(session
+            .messages
+            .iter()
+            .any(|m| m.content.contains("User says hello")));
+        assert!(session
+            .messages
+            .iter()
+            .any(|m| m.content.contains("Assistant replies")));
     }
 }

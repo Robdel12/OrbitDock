@@ -19,11 +19,14 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
-    ClientMessage, CodexIntegrationMode, Provider, ServerMessage, TokenUsage,
+    ClientMessage, CodexIntegrationMode, Provider, ServerMessage, SessionState, TokenUsage,
 };
 
 use crate::codex_session::{CodexAction, CodexSession};
-use crate::persistence::{delete_approval, list_approvals, load_session_by_id, PersistCommand};
+use crate::persistence::{
+    delete_approval, list_approvals, load_messages_from_transcript_path, load_session_by_id,
+    PersistCommand,
+};
 use crate::session::SessionHandle;
 use crate::session_naming::name_from_first_prompt;
 use crate::state::AppState;
@@ -43,6 +46,8 @@ fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::Work
 }
 
 const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
+const SNAPSHOT_MAX_MESSAGES: usize = 200;
+const SNAPSHOT_MAX_CONTENT_CHARS: usize = 16_000;
 
 /// Messages that can be sent through the WebSocket
 #[allow(clippy::large_enum_variant)]
@@ -271,6 +276,39 @@ fn claude_transcript_path_from_cwd(cwd: &str, session_id: &str) -> Option<String
     ))
 }
 
+fn truncate_text(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let truncated: String = value.chars().take(max_chars).collect();
+    format!("{truncated}\n\n[truncated]")
+}
+
+fn compact_snapshot_for_transport(mut snapshot: SessionState) -> SessionState {
+    if snapshot.messages.len() > SNAPSHOT_MAX_MESSAGES {
+        let keep_from = snapshot.messages.len() - SNAPSHOT_MAX_MESSAGES;
+        snapshot.messages = snapshot.messages.split_off(keep_from);
+    }
+
+    for message in &mut snapshot.messages {
+        if message.content.chars().count() > SNAPSHOT_MAX_CONTENT_CHARS {
+            message.content = truncate_text(&message.content, SNAPSHOT_MAX_CONTENT_CHARS);
+        }
+        if let Some(tool_input) = &message.tool_input {
+            if tool_input.chars().count() > SNAPSHOT_MAX_CONTENT_CHARS {
+                message.tool_input = Some(truncate_text(tool_input, SNAPSHOT_MAX_CONTENT_CHARS));
+            }
+        }
+        if let Some(tool_output) = &message.tool_output {
+            if tool_output.chars().count() > SNAPSHOT_MAX_CONTENT_CHARS {
+                message.tool_output = Some(truncate_text(tool_output, SNAPSHOT_MAX_CONTENT_CHARS));
+            }
+        }
+    }
+
+    snapshot
+}
+
 /// Handle a client message
 async fn handle_client_message(
     msg: ClientMessage,
@@ -298,9 +336,28 @@ async fn handle_client_message(
 
         ClientMessage::SubscribeSession { session_id } => {
             let state = state.lock().await;
-            if let Some(session) = state.get_session(&session_id) {
-                let mut session = session.lock().await;
-                let snapshot = session.state();
+            if let Some(session_arc) = state.get_session(&session_id) {
+                let mut session = session_arc.lock().await;
+                let mut snapshot = session.state();
+                if snapshot.messages.is_empty() {
+                    if let Some(path) = snapshot.transcript_path.clone() {
+                        drop(session);
+                        if let Ok(messages) =
+                            load_messages_from_transcript_path(&path, &session_id).await
+                        {
+                            let mut session_reloaded = session_arc.lock().await;
+                            if !messages.is_empty() {
+                                session_reloaded.replace_messages(messages);
+                                snapshot = session_reloaded.state();
+                                session = session_reloaded;
+                            } else {
+                                session = session_reloaded;
+                            }
+                        } else {
+                            session = session_arc.lock().await;
+                        }
+                    }
+                }
                 let is_passive_ended = snapshot.provider == Provider::Codex
                     && snapshot.status == orbitdock_protocol::SessionStatus::Ended
                     && (snapshot.codex_integration_mode == Some(CodexIntegrationMode::Passive)
@@ -363,6 +420,7 @@ async fn handle_client_message(
                             let mut session = session.lock().await;
                             session.subscribe(wrap_sender(client_tx.clone()));
                             let snapshot = session.state();
+                            let snapshot = compact_snapshot_for_transport(snapshot);
                             send_json(
                                 client_tx,
                                 ServerMessage::SessionSnapshot { session: snapshot },
@@ -375,10 +433,11 @@ async fn handle_client_message(
                 session.subscribe(wrap_sender(client_tx.clone()));
 
                 // Send current state
-                let snapshot = session.state();
                 send_json(
                     client_tx,
-                    ServerMessage::SessionSnapshot { session: snapshot },
+                    ServerMessage::SessionSnapshot {
+                        session: compact_snapshot_for_transport(snapshot),
+                    },
                 )
                 .await;
             } else {

@@ -11,14 +11,12 @@ import UserNotifications
 @main
 struct OrbitDockApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-  private let sessionStore = SessionStore.shared
   @State private var serverAppState = ServerAppState()
 
   var body: some Scene {
     // Main window
     WindowGroup {
       ContentView()
-        .environment(sessionStore)
         .environment(serverAppState)
         .preferredColorScheme(.dark)
         .task {
@@ -40,7 +38,6 @@ struct OrbitDockApp: App {
     // Menu bar
     MenuBarExtra {
       MenuBarView()
-        .environment(sessionStore)
         .environment(serverAppState)
     } label: {
       Image(systemName: "terminal.fill")
@@ -149,5 +146,4 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
 extension Notification.Name {
   static let selectSession = Notification.Name("selectSession")
-  static let navigateToQuest = Notification.Name("navigateToQuest")
 }

@@ -4,7 +4,6 @@
 //
 
 import AppKit
-import Combine
 import SwiftUI
 
 struct ConversationView: View {
@@ -22,13 +21,9 @@ struct ConversationView: View {
 
   @State private var messages: [TranscriptMessage] = []
   @State private var currentPrompt: String?
-  @State private var transcriptSubscription: AnyCancellable?
   @State private var isLoading = true
   @State private var loadedSessionId: String?
   @State private var displayedCount: Int = 50
-  @State private var fileMonitor: DispatchSourceFileSystemObject?
-  @State private var isVisible = false // Track visibility to avoid background work
-  @State private var needsRefreshOnVisible = false // Flag when we missed updates while hidden
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool
@@ -111,25 +106,10 @@ struct ConversationView: View {
       }
     }
     .onAppear {
-      isVisible = true
       loadMessagesIfNeeded()
-      setupSubscriptions()
-      resumeWatchingIfNeeded()
-      // If we missed updates while hidden, refresh now
-      if needsRefreshOnVisible {
-        needsRefreshOnVisible = false
-        syncAndReload()
-      }
-    }
-    .onDisappear {
-      isVisible = false
-      // Stop watching when hidden to avoid background parsing
-      stopWatchingFile()
     }
     .onChange(of: sessionId) { _, _ in
-      cleanupSubscriptions()
       loadMessagesIfNeeded()
-      setupSubscriptions()
     }
     // Server sessions: observe message changes via revision map.
     // Watching the full map is more reliable than dynamic key-path subscript observation.
@@ -292,110 +272,6 @@ struct ConversationView: View {
 
   // MARK: - Subscriptions & Data Loading
 
-  // (Same as original - keeping the proven data layer)
-
-  private func setupSubscriptions() {
-    // Server-managed sessions use WebSocket snapshots/deltas only.
-    if let sid = sessionId, serverState.isServerSession(sid) {
-      return
-    }
-
-    // Claude sessions: watch transcript file for changes
-    if isVisible {
-      startWatchingFile()
-    }
-    if let path = transcriptPath {
-      transcriptSubscription = EventBus.shared.transcriptUpdated
-        .filter { $0 == path }
-        .receive(on: DispatchQueue.main)
-        .sink { [self] _ in syncAndReload() }
-    }
-  }
-
-  private func cleanupSubscriptions() {
-    stopWatchingFile()
-    transcriptSubscription?.cancel()
-    transcriptSubscription = nil
-  }
-
-  /// Resume file watching when view becomes visible again
-  private func resumeWatchingIfNeeded() {
-    guard isVisible, fileMonitor == nil else { return }
-    startWatchingFile()
-  }
-
-  private func startWatchingFile() {
-    guard let path = transcriptPath else { return }
-    guard FileManager.default.fileExists(atPath: path) else { return }
-
-    let fileDescriptor = open(path, O_EVTONLY)
-    guard fileDescriptor >= 0 else { return }
-
-    let source = DispatchSource.makeFileSystemObjectSource(
-      fileDescriptor: fileDescriptor,
-      eventMask: [.write, .extend],
-      queue: .main
-    )
-
-    let capturedPath = path
-    source.setEventHandler {
-      EventBus.shared.notifyTranscriptChanged(path: capturedPath)
-    }
-
-    source.setCancelHandler {
-      close(fileDescriptor)
-    }
-
-    source.resume()
-    fileMonitor = source
-  }
-
-  private func stopWatchingFile() {
-    fileMonitor?.cancel()
-    fileMonitor = nil
-  }
-
-  private func syncAndReload() {
-    guard let sid = sessionId else { return }
-
-    // Skip parsing if view is not visible - flag for refresh when it becomes visible
-    guard isVisible else {
-      needsRefreshOnVisible = true
-      return
-    }
-
-    let targetSid = sid
-
-    // Server-managed sessions: messages come via WebSocket state.
-    if serverState.isServerSession(sid) {
-      let serverMessages = serverState.sessionMessages[sid] ?? []
-      messages = serverMessages
-      displayedCount = max(displayedCount, serverMessages.count)
-      return
-    }
-
-    // Claude sessions: sync from transcript file
-    guard let path = transcriptPath else { return }
-    let targetPath = path
-
-    // Invalidate cache to ensure fresh parse
-    TranscriptParser.invalidateCache(for: targetPath)
-
-    DispatchQueue.global(qos: .utility).async {
-      let result = TranscriptParser.parseAll(transcriptPath: targetPath)
-      MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-      let newMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-
-      DispatchQueue.main.async {
-        guard sessionId == targetSid else { return }
-        currentPrompt = result.lastUserPrompt
-        messages = newMessages
-        // Always keep displayedCount in sync to prevent slice shifting
-        displayedCount = max(displayedCount, newMessages.count)
-      }
-    }
-  }
-
   private func loadMessagesIfNeeded() {
     guard sessionId != loadedSessionId else { return }
     loadedSessionId = sessionId
@@ -409,73 +285,14 @@ struct ConversationView: View {
       return
     }
 
-    // Server-managed sessions: load from ServerAppState (WebSocket messages).
-    if serverState.isServerSession(sid) {
-      let serverMessages = serverState.sessionMessages[sid] ?? []
-      messages = serverMessages
-      displayedCount = serverMessages.count
-      isLoading = false
-      return
-    }
-
-    // Claude sessions: load from MessageStore / transcript files
-    let targetPath = transcriptPath
-    let targetSid = sid
-
-    DispatchQueue.global(qos: .userInitiated).async {
-      let hasData = MessageStore.shared.hasData(sessionId: targetSid)
-
-      if hasData {
-        let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-        let info = MessageStore.shared.readSessionInfo(sessionId: targetSid)
-
-        DispatchQueue.main.async {
-          guard sessionId == targetSid else { return }
-          messages = loadedMessages
-          currentPrompt = info.lastPrompt
-          displayedCount = loadedMessages.count
-          isLoading = false
-        }
-
-        // Also sync from transcript in background
-        if let path = targetPath {
-          DispatchQueue.global(qos: .utility).async {
-            let result = TranscriptParser.parseAll(transcriptPath: path)
-            MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-            let updatedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-            if updatedMessages.count != loadedMessages.count {
-              DispatchQueue.main.async {
-                guard sessionId == targetSid else { return }
-                messages = updatedMessages
-                displayedCount = updatedMessages.count
-              }
-            }
-          }
-        }
-      } else if let path = targetPath {
-        let result = TranscriptParser.parseAll(transcriptPath: path)
-        MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-        let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-
-        DispatchQueue.main.async {
-          guard sessionId == targetSid else { return }
-          messages = loadedMessages
-          currentPrompt = result.lastUserPrompt
-          displayedCount = loadedMessages.count
-          isLoading = false
-        }
-      } else {
-        DispatchQueue.main.async {
-          guard sessionId == targetSid else { return }
-          messages = []
-          isLoading = false
-        }
-      }
-    }
+    let serverMessages = serverState.sessionMessages[sid] ?? []
+    messages = serverMessages
+    displayedCount = serverMessages.count
+    isLoading = false
   }
 
   private func refreshFromServerStateIfNeeded() {
-    guard let sid = sessionId, serverState.isServerSession(sid) else { return }
+    guard let sid = sessionId else { return }
     let serverMessages = serverState.sessionMessages[sid] ?? []
     messages = serverMessages
     displayedCount = max(displayedCount, serverMessages.count)

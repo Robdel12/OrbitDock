@@ -1,7 +1,7 @@
 # OrbitDock Unified Control Plane — MVP Plan
 
 > Single source of truth for finishing the server-owned session architecture.
-> Last updated: 2026-02-09
+> Last updated: 2026-02-10
 
 ## MVP Goal
 
@@ -64,6 +64,9 @@ Progress log (2026-02-10):
 - Removed app-side passive/direct Codex remap heuristics from top-level session loading; selection now follows server session identity directly.
 - Server-managed conversation history now always reads from WebSocket snapshots/deltas instead of transcript file parsing paths.
 - Added an explicit lifecycle ownership guardrail in `ServerAppState` documenting allowed lifecycle mutation sources (snapshot/delta/created/ended only).
+- Removed app-level `SessionStore` environment wiring from app entry points (`CommandCenterApp`, `ContentView`, `SessionDetailView`).
+- Removed app-side DB layer files `DatabaseManager.swift` and `SessionStore.swift`.
+- Disabled Quest/Inbox UI surfaces that depended on app-local DB tables, leaving session lifecycle/state fully server-driven in MVP.
 
 ## Workstream 2: Lifecycle Reliability
 
@@ -79,6 +82,7 @@ Goal: active/inactive behavior is predictable and correct.
 Progress log (2026-02-10):
 - Added startup restore regression ensuring passive sessions only remain active when activity is recent; stale passive sessions are ended with `startup_stale_passive`.
 - Added repeated-restart lifecycle regression: stale passive session ends on startup, live rollout activity reactivates it, and a subsequent startup keeps it active with cleared end markers.
+- Added stale rollout file-mapping regression: if persisted watcher state binds a file to the wrong session, watcher now rebinds by rollout filename thread ID before processing new lines, preventing cross-session misrouting.
 
 ## Workstream 3: Naming & UX Consistency
 

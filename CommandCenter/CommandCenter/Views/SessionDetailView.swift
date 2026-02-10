@@ -3,20 +3,15 @@
 //  OrbitDock
 //
 
-import Combine
 import SwiftUI
 
 struct SessionDetailView: View {
-  @Environment(SessionStore.self) private var database
   @Environment(ServerAppState.self) private var serverState
   let session: Session
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
   let onGoToDashboard: () -> Void
 
-  @State private var usageStats = TranscriptUsageStats()
-  @State private var currentTool: String?
-  @State private var transcriptSubscription: AnyCancellable?
   @State private var terminalActionFailed = false
   @State private var copiedResume = false
 
@@ -110,8 +105,6 @@ struct SessionDetailView: View {
     }
     .background(Color.backgroundPrimary)
     .onAppear {
-      loadUsageStats()
-      setupSubscription()
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(session.id)
         if session.isDirectCodex {
@@ -121,19 +114,15 @@ struct SessionDetailView: View {
       }
     }
     .onDisappear {
-      transcriptSubscription?.cancel()
       if shouldSubscribeToServerSession {
         serverState.unsubscribeFromSession(session.id)
       }
     }
     .onChange(of: session.id) { oldId, newId in
-      transcriptSubscription?.cancel()
       // Unsubscribe from old session if it was server-managed
       if serverState.isServerSession(oldId) {
         serverState.unsubscribeFromSession(oldId)
       }
-      loadUsageStats()
-      setupSubscription()
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(newId)
         if session.isDirectCodex {
@@ -487,41 +476,32 @@ struct SessionDetailView: View {
     serverState.approvalHistoryBySession[session.id]?.count ?? 0
   }
 
+  private var currentTool: String? {
+    session.lastTool
+  }
+
+  private var usageStats: TranscriptUsageStats {
+    var stats = TranscriptUsageStats()
+    stats.model = session.model
+
+    if session.provider == .codex {
+      stats.inputTokens = session.codexInputTokens ?? 0
+      stats.outputTokens = session.codexOutputTokens ?? 0
+      stats.cacheReadTokens = session.codexCachedTokens ?? 0
+      stats.contextUsed = session.codexContextWindow ?? 0
+    } else {
+      stats.outputTokens = max(session.totalTokens, 0)
+    }
+
+    return stats
+  }
+
   // MARK: - Helpers
 
   private var shouldSubscribeToServerSession: Bool {
     // Any server-managed session (direct or passive) needs snapshot/message subscription.
     // Restricting this to direct sessions causes passive Codex sessions to render "No messages yet".
     serverState.isServerSession(session.id)
-  }
-
-  private func setupSubscription() {
-    guard let path = session.transcriptPath else { return }
-    let targetSession = session
-
-    transcriptSubscription = EventBus.shared.transcriptUpdated
-      .filter { $0 == path }
-      .receive(on: DispatchQueue.main)
-      .sink { [targetSession] _ in
-        guard session.id == targetSession.id else { return }
-        loadUsageStats()
-      }
-  }
-
-  private func loadUsageStats() {
-    let targetId = session.id
-
-    DispatchQueue.global(qos: .userInitiated).async {
-      if let stats = MessageStore.shared.readStats(sessionId: targetId) {
-        let info = MessageStore.shared.readSessionInfo(sessionId: targetId)
-
-        DispatchQueue.main.async {
-          guard session.id == targetId else { return }
-          usageStats = stats
-          currentTool = info.lastTool
-        }
-      }
-    }
   }
 
   private func copyResumeCommand() {
@@ -561,7 +541,6 @@ struct SessionDetailView: View {
     onOpenSwitcher: {},
     onGoToDashboard: {}
   )
-  .environment(SessionStore.shared)
   .environment(ServerAppState())
   .frame(width: 800, height: 600)
 }

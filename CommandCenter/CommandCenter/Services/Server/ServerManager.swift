@@ -11,12 +11,11 @@ import Combine
 import Foundation
 import os.log
 
-private nonisolated(unsafe) let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
-
 /// Manages the embedded orbitdock-server process
 @MainActor
 final class ServerManager: ObservableObject {
   static let shared = ServerManager()
+  private let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
 
   @Published private(set) var isRunning = false
   @Published private(set) var lastError: String?
@@ -282,6 +281,7 @@ final class ServerManager: ObservableObject {
 
   /// Read from pipe in background (nonisolated)
   private nonisolated static func readPipe(handle: FileHandle, label: String) {
+    let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
     while true {
       let data = handle.availableData
       guard !data.isEmpty else { break }
@@ -357,6 +357,7 @@ final class ServerManager: ObservableObject {
   /// Resolve the user's full PATH from their login shell
   /// macOS GUI apps have a minimal PATH that misses nvm, homebrew, etc.
   private nonisolated static func resolveLoginShellPath() -> String? {
+    let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
     let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
     let proc = Process()
     proc.executableURL = URL(fileURLWithPath: shell)

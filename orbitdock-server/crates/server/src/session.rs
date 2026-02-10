@@ -268,6 +268,11 @@ impl SessionHandle {
         self.last_activity_at = Some(chrono_now());
     }
 
+    /// Replace all messages (used for snapshot hydration from transcript fallback)
+    pub fn replace_messages(&mut self, messages: Vec<Message>) {
+        self.messages = messages;
+    }
+
     /// Update aggregated diff
     pub fn update_diff(&mut self, diff: String) {
         self.current_diff = Some(diff);

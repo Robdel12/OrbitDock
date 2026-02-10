@@ -10,7 +10,7 @@ import Darwin
 import Foundation
 
 final class AppFileLogger: @unchecked Sendable {
-  nonisolated(unsafe) static let shared = AppFileLogger()
+  static let shared = AppFileLogger()
 
   private var redirected = false
 

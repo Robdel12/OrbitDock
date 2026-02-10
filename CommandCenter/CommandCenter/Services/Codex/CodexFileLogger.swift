@@ -16,7 +16,7 @@ import Foundation
 /// Centralized file logger for Codex debugging
 /// Writes structured JSON logs to ~/.orbitdock/logs/
 final class CodexFileLogger: @unchecked Sendable {
-  nonisolated(unsafe) static let shared = CodexFileLogger()
+  static let shared = CodexFileLogger()
 
   enum Level: String {
     case debug
