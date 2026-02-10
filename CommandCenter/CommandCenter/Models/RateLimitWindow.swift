@@ -56,7 +56,7 @@ struct RateLimitWindow: Sendable, Identifiable {
   var projectedAtReset: Double {
     guard timeElapsed > 60 else { return utilization } // Need at least 1 min of data
     let rate = utilization / timeElapsed
-    return min(100, rate * windowDuration)
+    return max(0, rate * windowDuration)
   }
 
   /// Whether on track to exceed the limit
@@ -139,7 +139,12 @@ extension RateLimitWindow {
   }
 
   /// Create a 7-day rolling window
-  static func sevenDay(id: String = "7d", label: String = "7d", utilization: Double, resetsAt: Date?) -> RateLimitWindow {
+  static func sevenDay(
+    id: String = "7d",
+    label: String = "7d",
+    utilization: Double,
+    resetsAt: Date?
+  ) -> RateLimitWindow {
     RateLimitWindow(
       id: id,
       label: label,

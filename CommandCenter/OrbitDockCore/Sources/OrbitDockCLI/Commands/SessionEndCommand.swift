@@ -15,12 +15,12 @@ struct SessionEndCommand: ParsableCommand {
             throw CLIError.invalidInput("Missing session_id")
         }
 
-        let db = try CLIDatabase()
-
-        // End the session
-        try db.endSession(id: input.session_id, reason: input.reason)
-
-        // Notify the app
-        db.notifyApp()
+        try sendServerClientMessage(
+            type: "claude_session_end",
+            fields: [
+                "session_id": input.session_id,
+                "reason": input.reason,
+            ]
+        )
     }
 }

@@ -11,14 +11,20 @@ import UserNotifications
 @main
 struct OrbitDockApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-  private let database = DatabaseManager.shared
+  @State private var serverAppState = ServerAppState()
 
   var body: some Scene {
     // Main window
     WindowGroup {
       ContentView()
-        .environment(database)
+        .environment(serverAppState)
         .preferredColorScheme(.dark)
+        .task {
+          // Wire up server state after connection is established
+          serverAppState.setup()
+          // Start MCP Bridge for external tool access
+          MCPBridge.shared.start(serverAppState: serverAppState)
+        }
     }
     .windowStyle(.automatic)
     .defaultSize(width: 1_000, height: 700)
@@ -32,7 +38,7 @@ struct OrbitDockApp: App {
     // Menu bar
     MenuBarExtra {
       MenuBarView()
-        .environment(database)
+        .environment(serverAppState)
     } label: {
       Image(systemName: "terminal.fill")
         .symbolRenderingMode(.monochrome)
@@ -45,7 +51,12 @@ struct OrbitDockApp: App {
 
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
+  /// Shared server app state for MCP bridge
+  static var serverAppState: ServerAppState?
+
   func applicationDidFinishLaunching(_ notification: Notification) {
+    AppFileLogger.shared.start()
+
     // Set up notification delegate
     UNUserNotificationCenter.current().delegate = self
 
@@ -68,14 +79,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     UNUserNotificationCenter.current().setNotificationCategories([category])
 
-    CodexRolloutWatcher.shared.start()
-
     // Fetch latest model pricing in background
     ModelPricingService.shared.fetchPrices()
+
+    // Start the Rust server (limited retries, won't poll forever)
+    Task { @MainActor in
+      ServerManager.shared.start()
+
+      // Connect WebSocket client once server is ready (warm-up + exponential backoff)
+      let ready = await ServerManager.shared.waitForReady(maxAttempts: 10)
+      if ready {
+        ServerConnection.shared.connect()
+      }
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {
-    CodexRolloutWatcher.shared.stop()
+    // Stop MCP Bridge and Rust server
+    Task { @MainActor in
+      MCPBridge.shared.stop()
+      ServerConnection.shared.disconnect()
+      ServerManager.shared.stop()
+    }
   }
 
   func applicationWillResignActive(_ notification: Notification) {
@@ -121,5 +146,4 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
 extension Notification.Name {
   static let selectSession = Notification.Name("selectSession")
-  static let navigateToQuest = Notification.Name("navigateToQuest")
 }

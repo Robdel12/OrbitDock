@@ -13,7 +13,9 @@ enum Provider: String, CaseIterable, Identifiable, Sendable {
   case claude
   case codex
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {
@@ -24,7 +26,7 @@ enum Provider: String, CaseIterable, Identifiable, Sendable {
 
   var icon: String {
     switch self {
-      case .claude: "brain.head.profile"
+      case .claude: "staroflife.fill"
       case .codex: "chevron.left.forwardslash.chevron.right"
     }
   }

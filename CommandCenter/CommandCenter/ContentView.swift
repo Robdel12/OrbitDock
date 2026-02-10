@@ -5,20 +5,17 @@
 //  Created by Robert DeLuca on 1/30/26.
 //
 
-import Combine
 import SwiftUI
 
 struct ContentView: View {
-  @Environment(DatabaseManager.self) private var database
+  @Environment(ServerAppState.self) private var serverState
   @State private var sessions: [Session] = []
   @State private var selectedSessionId: String?
-  @State private var eventSubscription: AnyCancellable?
   @StateObject private var toastManager = ToastManager.shared
 
   // Panel state
   @State private var showAgentPanel = false
   @State private var showQuickSwitcher = false
-  @State private var showInbox = false
 
   /// Resolve ID to fresh session object from current sessions array
   private var selectedSession: Session? {
@@ -75,11 +72,6 @@ struct ContentView: View {
         quickSwitcherOverlay
       }
 
-      // Inbox overlay
-      if showInbox {
-        inboxOverlay
-      }
-
       // Toast notifications (bottom right)
       VStack {
         Spacer()
@@ -101,12 +93,10 @@ struct ContentView: View {
       toastManager.currentSessionId = newId
     }
     .onAppear {
-      loadSessions()
-      setupEventSubscription()
+      Task { await loadSessions() }
     }
-    .onDisappear {
-      eventSubscription?.cancel()
-      eventSubscription = nil
+    .onChange(of: serverState.sessions) { _, _ in
+      Task { await loadSessions() }
     }
     .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
       if let sessionId = notification.userInfo?["sessionId"] as? String {
@@ -119,12 +109,6 @@ struct ContentView: View {
       if showQuickSwitcher {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
           showQuickSwitcher = false
-        }
-        return .handled
-      }
-      if showInbox {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-          showInbox = false
         }
         return .handled
       }
@@ -214,11 +198,6 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
               showAgentPanel = true
             }
-          },
-          onOpenInbox: {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-              showInbox = true
-            }
           }
         )
       }
@@ -254,24 +233,6 @@ struct ContentView: View {
             showQuickSwitcher = false
           }
         },
-        onNavigateToQuest: { questId in
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            selectedSessionId = nil
-            showQuickSwitcher = false
-          }
-          // Post notification for DashboardView to navigate to quest
-          NotificationCenter.default.post(
-            name: .navigateToQuest,
-            object: nil,
-            userInfo: ["questId": questId]
-          )
-        },
-        onOpenInbox: {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            showQuickSwitcher = false
-            showInbox = true
-          }
-        },
         onClose: {
           withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             showQuickSwitcher = false
@@ -282,53 +243,15 @@ struct ContentView: View {
     .transition(.opacity)
   }
 
-  // MARK: - Inbox Overlay
-
-  private var inboxOverlay: some View {
-    ZStack {
-      // Backdrop
-      Color.black.opacity(0.5)
-        .ignoresSafeArea()
-        .onTapGesture {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            showInbox = false
-          }
-        }
-
-      // Inbox panel
-      InboxView(onClose: {
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-          showInbox = false
-        }
-      })
-      .frame(width: 500, height: 600)
-      .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-      .shadow(color: .black.opacity(0.5), radius: 40, x: 0, y: 20)
-    }
-    .transition(.opacity)
-  }
-
   // MARK: - Setup
 
-  private func setupEventSubscription() {
-    eventSubscription = EventBus.shared.sessionUpdated
-      .receive(on: DispatchQueue.main)
-      .sink { [database] _ in
-        loadSessions()
-        database.refreshQuestState()
-        NotificationCenter.default.post(name: Notification.Name("DatabaseChanged"), object: nil)
-      }
-
-    database.onDatabaseChanged = {
-      // File monitor detected change - trigger EventBus which handles refresh
-      EventBus.shared.notifyDatabaseChanged()
-    }
-  }
-
-  private func loadSessions() {
+  private func loadSessions() async {
     let oldWaitingIds = Set(waitingSessions.map(\.id))
     let oldSessions = sessions
-    sessions = database.fetchSessions()
+
+    // Rust server is the runtime source of truth for session list identity/state.
+    // Avoid merging DB rows in-app to prevent direct/passive shadow drift on rebuild.
+    sessions = serverState.sessions
 
     // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {
@@ -356,6 +279,6 @@ struct ContentView: View {
 
 #Preview {
   ContentView()
-    .environment(DatabaseManager.shared)
+    .environment(ServerAppState())
     .frame(width: 1_000, height: 700)
 }

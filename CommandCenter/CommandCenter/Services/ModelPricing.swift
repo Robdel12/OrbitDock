@@ -23,10 +23,21 @@ struct ModelPrice: Codable {
   }
 
   /// Cost per million tokens (for display)
-  var inputPerMillion: Double { (inputCostPerToken ?? 0) * 1_000_000 }
-  var outputPerMillion: Double { (outputCostPerToken ?? 0) * 1_000_000 }
-  var cacheReadPerMillion: Double { (cacheReadInputTokenCost ?? 0) * 1_000_000 }
-  var cacheWritePerMillion: Double { (cacheCreationInputTokenCost ?? 0) * 1_000_000 }
+  var inputPerMillion: Double {
+    (inputCostPerToken ?? 0) * 1_000_000
+  }
+
+  var outputPerMillion: Double {
+    (outputCostPerToken ?? 0) * 1_000_000
+  }
+
+  var cacheReadPerMillion: Double {
+    (cacheReadInputTokenCost ?? 0) * 1_000_000
+  }
+
+  var cacheWritePerMillion: Double {
+    (cacheCreationInputTokenCost ?? 0) * 1_000_000
+  }
 }
 
 /// Service for fetching and caching model pricing
@@ -57,7 +68,8 @@ final class ModelPricingService: @unchecked Sendable {
   }
 
   private let cacheURL: URL
-  private let liteLLMURL = URL(string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
+  private let liteLLMURL =
+    URL(string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
 
   private init() {
     let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -78,7 +90,8 @@ final class ModelPricingService: @unchecked Sendable {
       lock.lock()
       _prices = decoded
       if let attrs = try? FileManager.default.attributesOfItem(atPath: cacheURL.path),
-         let modDate = attrs[.modificationDate] as? Date {
+         let modDate = attrs[.modificationDate] as? Date
+      {
         _lastUpdated = modDate
       }
       lock.unlock()

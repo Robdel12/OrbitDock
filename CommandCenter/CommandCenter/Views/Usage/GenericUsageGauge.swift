@@ -24,7 +24,7 @@ struct GenericUsageGauge: View {
 
   /// Show day for multi-day windows
   private var showDay: Bool {
-    window.windowDuration > 24 * 3600
+    window.windowDuration > 24 * 3_600
   }
 
   var body: some View {
@@ -91,11 +91,11 @@ struct GenericUsageGauge: View {
 #Preview {
   HStack(spacing: 20) {
     GenericUsageGauge(
-      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3600)),
+      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
       provider: .claude
     )
     GenericUsageGauge(
-      window: .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86400)),
+      window: .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86_400)),
       provider: .claude
     )
     GenericUsageGauge(

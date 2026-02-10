@@ -74,13 +74,11 @@ struct QuickCommand: Identifiable {
 // MARK: - Quick Switcher
 
 struct QuickSwitcher: View {
-  @Environment(DatabaseManager.self) private var database
+  @Environment(ServerAppState.self) private var serverState
   let sessions: [Session]
   let currentSessionId: String? // Currently selected session in ContentView
   let onSelect: (String) -> Void
   let onGoToDashboard: () -> Void
-  let onNavigateToQuest: (String) -> Void
-  let onOpenInbox: () -> Void
   let onClose: () -> Void
 
   @State private var searchText = ""
@@ -89,8 +87,6 @@ struct QuickSwitcher: View {
   @State private var renamingSession: Session?
   @State private var renameText = ""
   @State private var targetSession: Session? // Session that commands will act on
-  @State private var showingCreateQuest = false
-  @State private var showingLinkToQuest = false
   @State private var isRecentExpanded = false // Recent section collapsed by default
   @FocusState private var isSearchFocused: Bool
 
@@ -124,38 +120,6 @@ struct QuickSwitcher: View {
           onClose()
         }
       ),
-      QuickCommand(
-        id: "new-quest",
-        name: "New Quest",
-        icon: "scope",
-        shortcut: nil,
-        requiresSession: false,
-        action: { [self] _ in
-          showingCreateQuest = true
-        }
-      ),
-      QuickCommand(
-        id: "inbox",
-        name: "Open Inbox",
-        icon: "tray.and.arrow.down",
-        shortcut: nil,
-        requiresSession: false,
-        action: { _ in
-          onOpenInbox()
-        }
-      ),
-      QuickCommand(
-        id: "link-quest",
-        name: "Link to Quest",
-        icon: "link.badge.plus",
-        shortcut: nil,
-        requiresSession: true,
-        action: { [self] session in
-          if session != nil {
-            showingLinkToQuest = true
-          }
-        }
-      ),
     ]
 
     // Session-specific commands
@@ -179,7 +143,7 @@ struct QuickSwitcher: View {
         onClose()
       },
       onClose: { [self] session in
-        database.endSession(sessionId: session.id)
+        serverState.endSession(session.id)
         onClose()
       }
     )
@@ -270,31 +234,14 @@ struct QuickSwitcher: View {
           session: session,
           initialText: renameText,
           onSave: { newName in
-            database.updateCustomName(
-              sessionId: session.id,
-              name: newName.isEmpty ? nil : newName
-            )
+            let name = newName.isEmpty ? nil : newName
+            serverState.renameSession(sessionId: session.id, name: name)
             renamingSession = nil
           },
           onCancel: {
             renamingSession = nil
           }
         )
-      }
-      .sheet(isPresented: $showingCreateQuest) {
-        CreateQuestSheet(onCreated: { quest in
-          showingCreateQuest = false
-          onNavigateToQuest(quest.id)
-          onClose()
-        })
-      }
-      .sheet(isPresented: $showingLinkToQuest) {
-        if let session = currentSession ?? targetSession ?? allVisibleSessions.first {
-          QuickLinkToQuestSheet(session: session, onDone: {
-            showingLinkToQuest = false
-            onClose()
-          })
-        }
       }
   }
 
@@ -749,7 +696,7 @@ struct QuickSwitcher: View {
             // Close session (only for active sessions)
             if session.isActive {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
-                database.endSession(sessionId: session.id)
+                serverState.endSession(session.id)
                 onClose()
               }
             }
@@ -1075,12 +1022,11 @@ struct QuickSwitcher: View {
       currentSessionId: "1",
       onSelect: { _ in },
       onGoToDashboard: {},
-      onNavigateToQuest: { _ in },
-      onOpenInbox: {},
       onClose: {}
     )
   }
   .frame(width: 800, height: 600)
+  .environment(ServerAppState())
 }
 
 // MARK: - Row Background
@@ -1174,135 +1120,5 @@ struct KeyboardNavigationModifier: ViewModifier {
         }
         return .ignored
       }
-  }
-}
-
-// MARK: - Quick Link to Quest Sheet
-
-struct QuickLinkToQuestSheet: View {
-  let session: Session
-  let onDone: () -> Void
-
-  @Environment(\.dismiss) private var dismiss
-  @State private var quests: [Quest] = []
-  @State private var searchText = ""
-
-  private let db = DatabaseManager.shared
-
-  private var filteredQuests: [Quest] {
-    let active = quests.filter { $0.status != .completed }
-    if searchText.isEmpty {
-      return active
-    }
-    return active.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
-  }
-
-  var body: some View {
-    VStack(spacing: 0) {
-      // Header
-      VStack(alignment: .leading, spacing: 8) {
-        HStack {
-          Text("Link to Quest")
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.primary)
-
-          Spacer()
-
-          Button {
-            dismiss()
-          } label: {
-            Image(systemName: "xmark")
-              .font(.system(size: 12, weight: .medium))
-              .foregroundStyle(.secondary)
-              .frame(width: 28, height: 28)
-              .background(Color.backgroundTertiary, in: Circle())
-          }
-          .buttonStyle(.plain)
-        }
-
-        HStack(spacing: 8) {
-          Circle()
-            .fill(session.isActive ? Color.accent : Color.statusEnded)
-            .frame(width: 6, height: 6)
-          Text(session.displayName)
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-      }
-      .padding(20)
-
-      Divider()
-        .foregroundStyle(Color.panelBorder)
-
-      // Search
-      HStack(spacing: 8) {
-        Image(systemName: "magnifyingglass")
-          .font(.system(size: 12))
-          .foregroundStyle(.tertiary)
-
-        TextField("Search quests...", text: $searchText)
-          .textFieldStyle(.plain)
-          .font(.system(size: 14))
-      }
-      .padding(12)
-      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-      .padding(.horizontal, 20)
-      .padding(.top, 16)
-
-      // Quest list
-      ScrollView {
-        LazyVStack(spacing: 6) {
-          ForEach(filteredQuests) { quest in
-            Button {
-              db.linkSessionToQuest(sessionId: session.id, questId: quest.id)
-              onDone()
-              dismiss()
-            } label: {
-              HStack(spacing: 12) {
-                Circle()
-                  .fill(quest.isActive ? Color.accent : Color.statusReply)
-                  .frame(width: 8, height: 8)
-
-                Text(quest.name)
-                  .font(.system(size: 13, weight: .medium))
-                  .foregroundStyle(.primary)
-                  .lineLimit(1)
-
-                Spacer()
-
-                Text(quest.status.label)
-                  .font(.system(size: 10, weight: .medium))
-                  .foregroundStyle(.tertiary)
-              }
-              .padding(.vertical, 10)
-              .padding(.horizontal, 12)
-              .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            }
-            .buttonStyle(.plain)
-          }
-
-          if filteredQuests.isEmpty {
-            VStack(spacing: 8) {
-              Text("No quests found")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-
-              Text("Create a quest first to link sessions")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 30)
-          }
-        }
-        .padding(20)
-      }
-    }
-    .frame(width: 400, height: 450)
-    .background(Color.backgroundSecondary)
-    .onAppear {
-      quests = db.fetchQuests()
-    }
   }
 }

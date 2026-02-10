@@ -200,7 +200,8 @@ struct ActiveSessionRow: View {
   private var rowBackground: some View {
     ZStack(alignment: .leading) {
       RoundedRectangle(cornerRadius: 10, style: .continuous)
-        .fill(isSelected ? Color.accent.opacity(0.15) : (isHovering ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.6)))
+        .fill(isSelected ? Color.accent
+          .opacity(0.15) : (isHovering ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.6)))
 
       // Left accent bar when selected
       RoundedRectangle(cornerRadius: 2, style: .continuous)

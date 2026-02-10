@@ -9,12 +9,12 @@ import SwiftUI
 
 struct HeaderView: View {
   let session: Session
-  let usageStats: TranscriptUsageStats
   let currentTool: String?
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
   let onFocusTerminal: () -> Void
   let onGoToDashboard: () -> Void
+  var onEndSession: (() -> Void)?
 
   @State private var isHoveringPath = false
   @State private var isHoveringProject = false
@@ -105,33 +105,10 @@ struct HeaderView: View {
 
         Spacer()
 
-        // Stats row (compact)
-        HStack(spacing: 14) {
-          // Show usage for this session's provider only
-          ProviderUsageCompact(
-            provider: session.provider,
-            windows: UsageServiceRegistry.shared.windows(for: session.provider),
-            isLoading: UsageServiceRegistry.shared.isLoading(for: session.provider),
-            error: UsageServiceRegistry.shared.error(for: session.provider),
-            isStale: UsageServiceRegistry.shared.isStale(for: session.provider)
-          )
-
-          Divider()
-            .frame(height: 12)
-            .opacity(0.3)
-
-          ContextGaugeCompact(stats: usageStats)
-
-          if usageStats.estimatedCostUSD > 0 {
-            Text(usageStats.formattedCost)
-              .font(.system(size: 12, weight: .semibold, design: .monospaced))
-              .foregroundStyle(.primary.opacity(0.8))
-          }
-
-          Text(session.formattedDuration)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundStyle(.secondary)
-        }
+        // Duration only (usage stats in bottom bar)
+        Text(session.formattedDuration)
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .foregroundStyle(.secondary)
 
         // Quick actions
         HStack(spacing: 4) {
@@ -154,6 +131,19 @@ struct HeaderView: View {
           }
           .buttonStyle(.plain)
           .help(session.isActive ? "Focus terminal" : "Resume in terminal")
+
+          // End session button for Codex direct sessions
+          if session.isDirectCodex, session.isActive, let onEnd = onEndSession {
+            Button(action: onEnd) {
+              Image(systemName: "stop.circle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.statusPermission)
+                .frame(width: 28, height: 28)
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("End session")
+          }
         }
       }
       .padding(.horizontal, 16)
@@ -270,48 +260,52 @@ struct HeaderView: View {
   }
 }
 
+// MARK: - Model Helpers
+
+/// Normalize a model string to a short display name
+func displayNameForModel(_ model: String?, provider: Provider) -> String {
+  guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
+  // Claude models
+  if model.contains("opus") { return "Opus" }
+  if model.contains("sonnet") { return "Sonnet" }
+  if model.contains("haiku") { return "Haiku" }
+  // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
+  if model.hasPrefix("gpt-") {
+    let version = model.dropFirst(4).split(separator: "-").first ?? ""
+    return "GPT-\(version)"
+  }
+  if model == "openai" { return "OpenAI" }
+  return String(model.prefix(8))
+}
+
+/// Get theme color for a model
+func colorForModel(_ model: String?, provider: Provider) -> Color {
+  guard let model = model?.lowercased() else { return provider.accentColor }
+  // Claude-specific model colors
+  if model.contains("opus") { return .modelOpus }
+  if model.contains("sonnet") { return .modelSonnet }
+  if model.contains("haiku") { return .modelHaiku }
+  // For other providers, use their accent color
+  return provider.accentColor
+}
+
 // MARK: - Compact Components
 
 struct ModelBadgeCompact: View {
   let model: String?
   let provider: Provider
 
-  private var displayModel: String {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
-    // Claude models
-    if model.contains("opus") { return "Opus" }
-    if model.contains("sonnet") { return "Sonnet" }
-    if model.contains("haiku") { return "Haiku" }
-    // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
-    if model.hasPrefix("gpt-") {
-      let version = model.dropFirst(4).split(separator: "-").first ?? ""
-      return "GPT-\(version)"
-    }
-    if model == "openai" { return "OpenAI" }
-    return String(model.prefix(8))
-  }
-
-  private var modelColor: Color {
-    guard let model = model?.lowercased() else { return provider.accentColor }
-    // Claude-specific model colors
-    if model.contains("opus") { return .modelOpus }
-    if model.contains("sonnet") { return .modelSonnet }
-    if model.contains("haiku") { return .modelHaiku }
-    // For other providers, use their accent color
-    return provider.accentColor
-  }
-
   var body: some View {
     HStack(spacing: 5) {
       Image(systemName: provider.icon)
         .font(.system(size: 9, weight: .bold))
-      Text(displayModel)
+      Text(displayNameForModel(model, provider: provider))
         .font(.system(size: 10, weight: .semibold))
     }
-    .foregroundStyle(modelColor)
+    .foregroundStyle(colorForModel(model, provider: provider))
     .padding(.horizontal, 8)
     .padding(.vertical, 4)
-    .background(modelColor.opacity(0.12), in: Capsule())
+    .background(colorForModel(model, provider: provider).opacity(0.12), in: Capsule())
   }
 }
 
@@ -403,6 +397,102 @@ struct ContextGaugeCompact: View {
   }
 }
 
+struct CodexTokenBadge: View {
+  let session: Session
+
+  var body: some View {
+    HStack(spacing: 8) {
+      // Context fill percentage
+      if let window = session.codexContextWindow, window > 0 {
+        Text("\(contextPercent)%")
+          .font(.system(size: 11, weight: .semibold, design: .monospaced))
+          .foregroundStyle(contextColor)
+
+        Text("of \(formatTokenCount(window))")
+          .font(.system(size: 10))
+          .foregroundStyle(.tertiary)
+      } else {
+        // Fallback if no window info yet
+        Text(formatTokenCount(session.codexInputTokens ?? 0))
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .foregroundStyle(.secondary)
+        Text("tokens")
+          .font(.system(size: 10))
+          .foregroundStyle(.tertiary)
+      }
+
+      // Cache savings (compact)
+      if cacheSavingsPercent >= 10 {
+        HStack(spacing: 2) {
+          Image(systemName: "bolt.fill")
+            .font(.system(size: 8))
+          Text("\(cacheSavingsPercent)%")
+            .font(.system(size: 10, design: .monospaced))
+        }
+        .foregroundStyle(.green.opacity(0.85))
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 5)
+    .background(Color.surfaceHover, in: Capsule())
+    .help(tokenTooltip)
+  }
+
+  /// Context fill: input tokens / context window
+  private var contextPercent: Int {
+    guard let window = session.codexContextWindow, window > 0,
+          let input = session.codexInputTokens
+    else { return 0 }
+    return min(100, Int(Double(input) / Double(window) * 100))
+  }
+
+  private var contextColor: Color {
+    if contextPercent >= 90 { return .statusError }
+    if contextPercent >= 70 { return .statusWaiting }
+    return .secondary
+  }
+
+  /// Cache savings as percentage of input tokens
+  private var cacheSavingsPercent: Int {
+    guard let cached = session.codexCachedTokens,
+          let input = session.codexInputTokens,
+          input > 0
+    else { return 0 }
+    return Int(Double(cached) / Double(input) * 100)
+  }
+
+  private var tokenTooltip: String {
+    var parts: [String] = []
+
+    if let input = session.codexInputTokens {
+      parts.append("Input: \(formatTokenCount(input))")
+    }
+    if let output = session.codexOutputTokens {
+      parts.append("Output: \(formatTokenCount(output))")
+    }
+    if let cached = session.codexCachedTokens, cached > 0,
+       let input = session.codexInputTokens, input > 0
+    {
+      let percent = Int(Double(cached) / Double(input) * 100)
+      parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
+    }
+    if let window = session.codexContextWindow {
+      parts.append("Context window: \(formatTokenCount(window))")
+    }
+
+    return parts.isEmpty ? "Token usage" : parts.joined(separator: "\n")
+  }
+
+  private func formatTokenCount(_ count: Int) -> String {
+    if count >= 1_000_000 {
+      return String(format: "%.1fM", Double(count) / 1_000_000)
+    } else if count >= 1_000 {
+      return String(format: "%.1fk", Double(count) / 1_000)
+    }
+    return "\(count)"
+  }
+}
+
 // MARK: - Preview
 
 #Preview {
@@ -431,14 +521,6 @@ struct ContextGaugeCompact: View {
         terminalSessionId: nil,
         terminalApp: nil
       ),
-      usageStats: {
-        var stats = TranscriptUsageStats()
-        stats.inputTokens = 100_000
-        stats.outputTokens = 50_000
-        stats.contextUsed = 150_000
-        stats.model = "opus"
-        return stats
-      }(),
       currentTool: "Edit",
       onTogglePanel: {},
       onOpenSwitcher: {},

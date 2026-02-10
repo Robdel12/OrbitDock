@@ -4,7 +4,6 @@
 //
 
 import AppKit
-import Combine
 import SwiftUI
 
 struct ConversationView: View {
@@ -16,16 +15,15 @@ struct ConversationView: View {
   var pendingToolName: String?
   var pendingToolInput: String?
   var provider: Provider = .claude
+  var model: String?
+
+  @Environment(ServerAppState.self) private var serverState
 
   @State private var messages: [TranscriptMessage] = []
   @State private var currentPrompt: String?
-  @State private var transcriptSubscription: AnyCancellable?
   @State private var isLoading = true
   @State private var loadedSessionId: String?
   @State private var displayedCount: Int = 50
-  @State private var fileMonitor: DispatchSourceFileSystemObject?
-  @State private var isVisible = false  // Track visibility to avoid background work
-  @State private var needsRefreshOnVisible = false  // Flag when we missed updates while hidden
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool
@@ -36,7 +34,57 @@ struct ConversationView: View {
 
   var displayedMessages: [TranscriptMessage] {
     let startIndex = max(0, messages.count - displayedCount)
-    return Array(messages[startIndex...])
+    let sliced = Array(messages[startIndex...])
+    return combineBashMessages(sliced)
+  }
+
+  /// Combines consecutive bash input/output messages into single messages
+  /// e.g., [bash-input msg, bash-stdout msg] → [combined bash msg]
+  private func combineBashMessages(_ messages: [TranscriptMessage]) -> [TranscriptMessage] {
+    var result: [TranscriptMessage] = []
+    var i = 0
+
+    while i < messages.count {
+      let current = messages[i]
+
+      // Check if current is bash-input-only
+      if current.isUser,
+         let bash = ParsedBashContent.parse(from: current.content),
+         bash.hasInput, !bash.hasOutput
+      {
+        // Look ahead for bash-output-only
+        if i + 1 < messages.count {
+          let next = messages[i + 1]
+          if next.isUser,
+             let nextBash = ParsedBashContent.parse(from: next.content),
+             !nextBash.hasInput, nextBash.hasOutput
+          {
+            // Combine: create merged content
+            let combinedContent = current.content + next.content
+            let combined = TranscriptMessage(
+              id: current.id,
+              type: current.type,
+              content: combinedContent,
+              timestamp: current.timestamp,
+              toolName: nil,
+              toolInput: nil,
+              toolOutput: nil,
+              toolDuration: nil,
+              inputTokens: nil,
+              outputTokens: nil
+            )
+            result.append(combined)
+            i += 2 // Skip both messages
+            continue
+          }
+        }
+      }
+
+      result.append(current)
+      i += 1
+    }
+
+    return result
   }
 
   var hasMoreMessages: Bool {
@@ -58,25 +106,19 @@ struct ConversationView: View {
       }
     }
     .onAppear {
-      isVisible = true
       loadMessagesIfNeeded()
-      setupSubscriptions()
-      resumeWatchingIfNeeded()
-      // If we missed updates while hidden, refresh now
-      if needsRefreshOnVisible {
-        needsRefreshOnVisible = false
-        syncAndReload()
-      }
-    }
-    .onDisappear {
-      isVisible = false
-      // Stop watching when hidden to avoid background parsing
-      stopWatchingFile()
     }
     .onChange(of: sessionId) { _, _ in
-      cleanupSubscriptions()
       loadMessagesIfNeeded()
-      setupSubscriptions()
+    }
+    // Server sessions: observe message changes via revision map.
+    // Watching the full map is more reliable than dynamic key-path subscript observation.
+    .onChange(of: serverState.messageRevisions) { _, _ in
+      refreshFromServerStateIfNeeded()
+    }
+    // Also react directly to snapshot/message map updates to avoid missed render updates.
+    .onChange(of: serverState.sessionMessages) { _, _ in
+      refreshFromServerStateIfNeeded()
     }
   }
 
@@ -106,7 +148,7 @@ struct ConversationView: View {
                 ThinkingIndicator(message: message)
                   .id(message.id)
               } else {
-                ThreadMessage(message: message, provider: provider)
+                ThreadMessage(message: message, provider: provider, model: model)
                   .id(message.id)
               }
             }
@@ -230,94 +272,6 @@ struct ConversationView: View {
 
   // MARK: - Subscriptions & Data Loading
 
-  // (Same as original - keeping the proven data layer)
-
-  private func setupSubscriptions() {
-    // Only start file watching if visible
-    if isVisible {
-      startWatchingFile()
-    }
-    if let path = transcriptPath {
-      transcriptSubscription = EventBus.shared.transcriptUpdated
-        .filter { $0 == path }
-        .receive(on: DispatchQueue.main)
-        .sink { [self] _ in syncAndReload() }
-    }
-  }
-
-  private func cleanupSubscriptions() {
-    stopWatchingFile()
-    transcriptSubscription?.cancel()
-    transcriptSubscription = nil
-  }
-
-  /// Resume file watching when view becomes visible again
-  private func resumeWatchingIfNeeded() {
-    guard isVisible, fileMonitor == nil else { return }
-    startWatchingFile()
-  }
-
-  private func startWatchingFile() {
-    guard let path = transcriptPath else { return }
-    guard FileManager.default.fileExists(atPath: path) else { return }
-
-    let fileDescriptor = open(path, O_EVTONLY)
-    guard fileDescriptor >= 0 else { return }
-
-    let source = DispatchSource.makeFileSystemObjectSource(
-      fileDescriptor: fileDescriptor,
-      eventMask: [.write, .extend],
-      queue: .main
-    )
-
-    let capturedPath = path
-    source.setEventHandler {
-      EventBus.shared.notifyTranscriptChanged(path: capturedPath)
-    }
-
-    source.setCancelHandler {
-      close(fileDescriptor)
-    }
-
-    source.resume()
-    fileMonitor = source
-  }
-
-  private func stopWatchingFile() {
-    fileMonitor?.cancel()
-    fileMonitor = nil
-  }
-
-  private func syncAndReload() {
-    guard let path = transcriptPath, let sid = sessionId else { return }
-
-    // Skip parsing if view is not visible - flag for refresh when it becomes visible
-    guard isVisible else {
-      needsRefreshOnVisible = true
-      return
-    }
-
-    let targetPath = path
-    let targetSid = sid
-
-    // Invalidate cache to ensure fresh parse
-    TranscriptParser.invalidateCache(for: targetPath)
-
-    DispatchQueue.global(qos: .utility).async {
-      let result = TranscriptParser.parseAll(transcriptPath: targetPath)
-      MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-      let newMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-
-      DispatchQueue.main.async {
-        guard sessionId == targetSid else { return }
-        currentPrompt = result.lastUserPrompt
-        messages = newMessages
-        // Always keep displayedCount in sync to prevent slice shifting
-        displayedCount = max(displayedCount, newMessages.count)
-      }
-    }
-  }
-
   private func loadMessagesIfNeeded() {
     guard sessionId != loadedSessionId else { return }
     loadedSessionId = sessionId
@@ -326,55 +280,23 @@ struct ConversationView: View {
     isLoading = true
     // Note: isPinned and unreadCount are now managed by parent
 
-    guard let path = transcriptPath, let sid = sessionId else {
+    guard let sid = sessionId else {
       isLoading = false
       return
     }
 
-    let targetPath = path
-    let targetSid = sid
+    let serverMessages = serverState.sessionMessages[sid] ?? []
+    messages = serverMessages
+    displayedCount = serverMessages.count
+    isLoading = false
+  }
 
-    DispatchQueue.global(qos: .userInitiated).async {
-      let hasData = MessageStore.shared.hasData(sessionId: targetSid)
-
-      if hasData {
-        let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-        let info = MessageStore.shared.readSessionInfo(sessionId: targetSid)
-
-        DispatchQueue.main.async {
-          guard sessionId == targetSid else { return }
-          messages = loadedMessages
-          currentPrompt = info.lastPrompt
-          displayedCount = loadedMessages.count
-          isLoading = false
-        }
-
-        DispatchQueue.global(qos: .utility).async {
-          let result = TranscriptParser.parseAll(transcriptPath: targetPath)
-          MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-          let updatedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-          if updatedMessages.count != loadedMessages.count {
-            DispatchQueue.main.async {
-              guard sessionId == targetSid else { return }
-              messages = updatedMessages
-              displayedCount = updatedMessages.count
-            }
-          }
-        }
-      } else {
-        let result = TranscriptParser.parseAll(transcriptPath: targetPath)
-        MessageStore.shared.syncFromParseResult(result, sessionId: targetSid)
-        let loadedMessages = MessageStore.shared.readMessages(sessionId: targetSid)
-
-        DispatchQueue.main.async {
-          guard sessionId == targetSid else { return }
-          messages = loadedMessages
-          currentPrompt = result.lastUserPrompt
-          displayedCount = loadedMessages.count
-          isLoading = false
-        }
-      }
-    }
+  private func refreshFromServerStateIfNeeded() {
+    guard let sid = sessionId else { return }
+    let serverMessages = serverState.sessionMessages[sid] ?? []
+    messages = serverMessages
+    displayedCount = max(displayedCount, serverMessages.count)
+    isLoading = false
   }
 }
 
@@ -383,6 +305,7 @@ struct ConversationView: View {
 struct ThreadMessage: View {
   let message: TranscriptMessage
   var provider: Provider = .claude
+  var model: String?
   @State private var isContentExpanded = false
   @State private var isThinkingExpanded = false
 
@@ -503,15 +426,19 @@ struct ThreadMessage: View {
         }
         .foregroundStyle(provider.accentColor)
 
+        // Model name (when known)
+        if let model, !model.isEmpty {
+          Text("·")
+            .font(.system(size: 11))
+            .foregroundStyle(.quaternary)
+          Text(displayNameForModel(model, provider: provider))
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(colorForModel(model, provider: provider))
+        }
+
         Text(formatTime(message.timestamp))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(.quaternary)
-
-        if let tokens = message.outputTokens, tokens > 0 {
-          Text("\(tokens) tokens")
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundStyle(.quaternary)
-        }
       }
 
       // Thinking disclosure (if attached)
@@ -1196,7 +1123,7 @@ struct ActivityBanner: View {
         }
         return nil
       case .waiting:
-        return "Respond in terminal"
+        return provider == .codex ? "Send a message below" : "Respond in terminal"
       case .permission:
         // Use rich display if we have tool input
         return nil // We'll show rich content instead
@@ -1363,10 +1290,13 @@ struct ActivityBanner: View {
     isSessionActive: true,
     workStatus: .working,
     currentTool: "Edit",
+    provider: .claude,
+    model: "claude-opus-4-6",
     isPinned: $isPinned,
     unreadCount: $unreadCount,
     scrollToBottomTrigger: $scrollTrigger
   )
+  .environment(ServerAppState())
   .frame(width: 700, height: 600)
   .background(Color.backgroundPrimary)
 }

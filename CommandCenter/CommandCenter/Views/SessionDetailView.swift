@@ -3,19 +3,15 @@
 //  OrbitDock
 //
 
-import Combine
 import SwiftUI
 
 struct SessionDetailView: View {
-  @Environment(DatabaseManager.self) private var database
+  @Environment(ServerAppState.self) private var serverState
   let session: Session
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
   let onGoToDashboard: () -> Void
 
-  @State private var usageStats = TranscriptUsageStats()
-  @State private var currentTool: String?
-  @State private var transcriptSubscription: AnyCancellable?
   @State private var terminalActionFailed = false
   @State private var copiedResume = false
 
@@ -24,53 +20,116 @@ struct SessionDetailView: View {
   @State private var unreadCount = 0
   @State private var scrollToBottomTrigger = 0
 
+  // Turn sidebar state (plan + diff) - starts closed, user must trigger it
+  @State private var showTurnSidebar = false
+  @State private var showApprovalHistory = false
+
   var body: some View {
     VStack(spacing: 0) {
       // Compact header
       HeaderView(
         session: session,
-        usageStats: usageStats,
         currentTool: currentTool,
         onTogglePanel: onTogglePanel,
         onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
-        onGoToDashboard: onGoToDashboard
+        onGoToDashboard: onGoToDashboard,
+        onEndSession: session.isDirectCodex ? { endCodexSession() } : nil
       )
 
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      // Conversation (hero)
-      ConversationView(
-        transcriptPath: session.transcriptPath,
-        sessionId: session.id,
-        isSessionActive: session.isActive,
-        workStatus: session.workStatus,
-        currentTool: currentTool,
-        pendingToolName: session.pendingToolName,
-        pendingToolInput: session.pendingToolInput,
-        provider: session.provider,
-        isPinned: $isPinned,
-        unreadCount: $unreadCount,
-        scrollToBottomTrigger: $scrollToBottomTrigger
-      )
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      // Main content area with optional diff sidebar
+      HStack(spacing: 0) {
+        // Conversation (hero)
+        ConversationView(
+          transcriptPath: session.transcriptPath,
+          sessionId: session.id,
+          isSessionActive: session.isActive,
+          workStatus: session.workStatus,
+          currentTool: currentTool,
+          pendingToolName: session.pendingToolName,
+          pendingToolInput: session.pendingToolInput,
+          provider: session.provider,
+          model: session.model,
+          isPinned: $isPinned,
+          unreadCount: $unreadCount,
+          scrollToBottomTrigger: $scrollToBottomTrigger
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-      // Action bar
-      actionBar
+        // Turn sidebar - plan + diff (Codex direct only)
+        if session.isDirectCodex, showTurnSidebar {
+          let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
+          let hasDiff = serverState.getDiff(sessionId: session.id) != nil
+
+          if hasPlan || hasDiff {
+            Divider()
+              .foregroundStyle(Color.panelBorder)
+
+            CodexTurnSidebar(
+              sessionId: session.id,
+              onClose: { showTurnSidebar = false }
+            )
+            .frame(width: 320)
+          }
+        }
+      }
+
+      // Codex direct: Approval or question UI when needed
+      if session.isDirectCodex {
+        if session.canApprove {
+          CodexApprovalView(session: session)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        } else if session.canAnswer {
+          CodexQuestionView(session: session)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+
+        if showApprovalHistory {
+          CodexApprovalHistoryView(sessionId: session.id)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        }
+      }
+
+      // Action bar (or input bar for direct Codex)
+      if session.isDirectCodex {
+        codexActionBar
+      } else {
+        actionBar
+      }
     }
     .background(Color.backgroundPrimary)
     .onAppear {
-      loadUsageStats()
-      setupSubscription()
+      if shouldSubscribeToServerSession {
+        serverState.subscribeToSession(session.id)
+        if session.isDirectCodex {
+          serverState.loadApprovalHistory(sessionId: session.id)
+          serverState.loadGlobalApprovalHistory()
+        }
+      }
     }
     .onDisappear {
-      transcriptSubscription?.cancel()
+      if shouldSubscribeToServerSession {
+        serverState.unsubscribeFromSession(session.id)
+      }
     }
-    .onChange(of: session.id) { _, _ in
-      transcriptSubscription?.cancel()
-      loadUsageStats()
-      setupSubscription()
+    .onChange(of: session.id) { oldId, newId in
+      // Unsubscribe from old session if it was server-managed
+      if serverState.isServerSession(oldId) {
+        serverState.unsubscribeFromSession(oldId)
+      }
+      if shouldSubscribeToServerSession {
+        serverState.subscribeToSession(newId)
+        if session.isDirectCodex {
+          serverState.loadApprovalHistory(sessionId: newId)
+          serverState.loadGlobalApprovalHistory()
+        }
+      }
       // Reset scroll state for new session
       isPinned = true
       unreadCount = 0
@@ -132,6 +191,17 @@ struct SessionDetailView: View {
       }
       .padding(2)
       .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+      // Context stats
+      HStack(spacing: 12) {
+        ContextGaugeCompact(stats: usageStats)
+
+        if usageStats.estimatedCostUSD > 0 {
+          Text(usageStats.formattedCost)
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary.opacity(0.8))
+        }
+      }
 
       Spacer()
 
@@ -198,35 +268,240 @@ struct SessionDetailView: View {
     .background(Color.backgroundSecondary)
   }
 
-  // MARK: - Helpers
+  // MARK: - Codex Direct Action Bar
 
-  private func setupSubscription() {
-    guard let path = session.transcriptPath else { return }
-    let targetSession = session
+  private var codexActionBar: some View {
+    VStack(spacing: 0) {
+      if !session.isActive {
+        // Resume button when session is ended
+        HStack {
+          Button {
+            serverState.resumeSession(session.id)
+          } label: {
+            HStack(spacing: 6) {
+              Image(systemName: "arrow.counterclockwise")
+                .font(.system(size: 12, weight: .medium))
+              Text("Resume")
+                .font(.system(size: 12, weight: .medium))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(Color.accent)
+          }
+          .buttonStyle(.plain)
 
-    transcriptSubscription = EventBus.shared.transcriptUpdated
-      .filter { $0 == path }
-      .receive(on: DispatchQueue.main)
-      .sink { [targetSession] _ in
-        guard session.id == targetSession.id else { return }
-        loadUsageStats()
-      }
-  }
+          Spacer()
 
-  private func loadUsageStats() {
-    let targetId = session.id
-
-    DispatchQueue.global(qos: .userInitiated).async {
-      if let stats = MessageStore.shared.readStats(sessionId: targetId) {
-        let info = MessageStore.shared.readSessionInfo(sessionId: targetId)
-
-        DispatchQueue.main.async {
-          guard session.id == targetId else { return }
-          usageStats = stats
-          currentTool = info.lastTool
+          if let lastActivity = session.lastActivityAt {
+            Text(lastActivity, style: .relative)
+              .font(.system(size: 11, design: .monospaced))
+              .foregroundStyle(.tertiary)
+          }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color.backgroundSecondary)
+      } else {
+        // Input bar when waiting for input
+        if session.workStatus == .waiting || session.workStatus == .unknown {
+          CodexInputBar(sessionId: session.id)
+        }
+
+        // Status bar
+        HStack(spacing: 16) {
+          // Interrupt button when working
+          if session.workStatus == .working {
+            CodexInterruptButton(sessionId: session.id)
+          }
+
+          // Token usage for this session
+          if session.hasTokenUsage {
+            CodexTokenBadge(session: session)
+          }
+
+          // Autonomy level pill
+          AutonomyPill(sessionId: session.id)
+
+          // Turn sidebar toggle (plan + changes)
+          if hasTurnStateContent {
+            Button {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                showTurnSidebar.toggle()
+              }
+            } label: {
+              HStack(spacing: 4) {
+                Image(systemName: turnSidebarIcon)
+                  .font(.system(size: 11, weight: .medium))
+                Text(turnSidebarLabel)
+                  .font(.system(size: 11, weight: .medium))
+              }
+              .foregroundStyle(showTurnSidebar ? Color.accent : .secondary)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
+              .background(
+                showTurnSidebar ? Color.accent.opacity(0.15) : Color.surfaceHover,
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              )
+            }
+            .buttonStyle(.plain)
+          }
+
+          Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+              showApprovalHistory.toggle()
+            }
+          } label: {
+            HStack(spacing: 4) {
+              Image(systemName: "checklist")
+                .font(.system(size: 11, weight: .medium))
+              Text("Approvals")
+                .font(.system(size: 11, weight: .medium))
+              if approvalHistoryCount > 0 {
+                Text("\(approvalHistoryCount)")
+                  .font(.system(size: 10, weight: .bold))
+                  .padding(.horizontal, 5)
+                  .padding(.vertical, 1)
+                  .background(Color.accent.opacity(0.18), in: Capsule())
+                  .foregroundStyle(Color.accent)
+              }
+            }
+            .foregroundStyle(showApprovalHistory ? Color.accent : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+              showApprovalHistory ? Color.accent.opacity(0.15) : Color.surfaceHover,
+              in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+            )
+          }
+          .buttonStyle(.plain)
+
+          Spacer()
+
+          // Chat scroll controls + timestamp
+          HStack(spacing: 16) {
+            // New messages button
+            if !isPinned, unreadCount > 0 {
+              Button {
+                isPinned = true
+                unreadCount = 0
+                scrollToBottomTrigger += 1
+              } label: {
+                HStack(spacing: 5) {
+                  Image(systemName: "arrow.down")
+                    .font(.system(size: 10, weight: .bold))
+                  Text("\(unreadCount) new")
+                    .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.accent, in: Capsule())
+              }
+              .buttonStyle(.plain)
+            }
+
+            // Scroll toggle
+            Button {
+              isPinned.toggle()
+              if isPinned {
+                unreadCount = 0
+                scrollToBottomTrigger += 1
+              }
+            } label: {
+              HStack(spacing: 5) {
+                Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
+                  .font(.system(size: 11, weight: .medium))
+                Text(isPinned ? "Following" : "Paused")
+                  .font(.system(size: 12, weight: .medium))
+              }
+              .foregroundStyle(isPinned ? .secondary : .primary)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 8)
+              .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                  .fill(isPinned ? Color.clear : Color.backgroundTertiary)
+              )
+            }
+            .buttonStyle(.plain)
+
+            // Last activity timestamp
+            if let lastActivity = session.lastActivityAt {
+              Text(lastActivity, style: .relative)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.tertiary)
+            }
+          }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.backgroundSecondary)
       }
     }
+  }
+
+  // MARK: - Turn Sidebar Helpers
+
+  /// Whether there's any turn state content to show
+  private var hasTurnStateContent: Bool {
+    let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
+    let hasDiff = serverState.getDiff(sessionId: session.id) != nil
+    return session.isDirectCodex && (hasPlan || hasDiff)
+  }
+
+  /// Icon for the turn sidebar toggle button
+  private var turnSidebarIcon: String {
+    if serverState.getPlanSteps(sessionId: session.id) != nil {
+      "list.bullet.clipboard"
+    } else {
+      "doc.badge.plus"
+    }
+  }
+
+  /// Label for the turn sidebar toggle button
+  private var turnSidebarLabel: String {
+    let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
+    let hasDiff = serverState.getDiff(sessionId: session.id) != nil
+
+    if hasPlan {
+      return "Plan"
+    } else if hasDiff {
+      return "Changes"
+    } else {
+      return "Plan"
+    }
+  }
+
+  private var approvalHistoryCount: Int {
+    serverState.approvalHistoryBySession[session.id]?.count ?? 0
+  }
+
+  private var currentTool: String? {
+    session.lastTool
+  }
+
+  private var usageStats: TranscriptUsageStats {
+    var stats = TranscriptUsageStats()
+    stats.model = session.model
+
+    if session.provider == .codex {
+      stats.inputTokens = session.codexInputTokens ?? 0
+      stats.outputTokens = session.codexOutputTokens ?? 0
+      stats.cacheReadTokens = session.codexCachedTokens ?? 0
+      stats.contextUsed = session.codexContextWindow ?? 0
+    } else {
+      stats.outputTokens = max(session.totalTokens, 0)
+    }
+
+    return stats
+  }
+
+  // MARK: - Helpers
+
+  private var shouldSubscribeToServerSession: Bool {
+    // Any server-managed session (direct or passive) needs snapshot/message subscription.
+    // Restricting this to direct sessions causes passive Codex sessions to render "No messages yet".
+    serverState.isServerSession(session.id)
   }
 
   private func copyResumeCommand() {
@@ -247,6 +522,10 @@ struct SessionDetailView: View {
   private func openInITerm() {
     TerminalService.shared.focusSession(session)
   }
+
+  private func endCodexSession() {
+    serverState.endSession(session.id)
+  }
 }
 
 #Preview {
@@ -262,6 +541,6 @@ struct SessionDetailView: View {
     onOpenSwitcher: {},
     onGoToDashboard: {}
   )
-  .environment(DatabaseManager.shared)
+  .environment(ServerAppState())
   .frame(width: 800, height: 600)
 }
