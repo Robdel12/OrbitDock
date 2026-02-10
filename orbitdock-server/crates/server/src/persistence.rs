@@ -1740,6 +1740,7 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
     use uuid::Uuid;
 
     static TEST_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1764,6 +1765,15 @@ mod tests {
         let previous = std::env::var("HOME").ok();
         std::env::set_var("HOME", path.to_string_lossy().to_string());
         HomeGuard { previous }
+    }
+
+    fn iso_minutes_ago(minutes: u64) -> String {
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let secs = now_secs.saturating_sub(minutes * 60);
+        time_to_iso8601(secs)
     }
 
     fn find_migrations_dir() -> PathBuf {
@@ -1919,6 +1929,83 @@ mod tests {
         assert!(restored_ids.iter().any(|id| id == "passive-ended"));
         assert!(restored.iter().any(|s| s.status == "active"));
         assert!(restored.iter().any(|s| s.status == "ended"));
+    }
+
+    #[tokio::test]
+    async fn startup_restore_keeps_recent_passive_active_and_ends_stale_passive() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _home_guard = set_test_home(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::RolloutSessionUpsert {
+                    id: "passive-recent".into(),
+                    thread_id: "passive-recent".into(),
+                    project_path: "/tmp/passive-recent".into(),
+                    project_name: Some("passive-recent".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    context_label: Some("codex_cli_rs".into()),
+                    transcript_path: "/tmp/passive-recent.jsonl".into(),
+                    started_at: iso_minutes_ago(2),
+                },
+                PersistCommand::RolloutSessionUpsert {
+                    id: "passive-stale".into(),
+                    thread_id: "passive-stale".into(),
+                    project_path: "/tmp/passive-stale".into(),
+                    project_name: Some("passive-stale".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    context_label: Some("codex_cli_rs".into()),
+                    transcript_path: "/tmp/passive-stale.jsonl".into(),
+                    started_at: iso_minutes_ago(30),
+                },
+                PersistCommand::SessionUpdate {
+                    id: "passive-recent".into(),
+                    status: Some(SessionStatus::Active),
+                    work_status: Some(WorkStatus::Waiting),
+                    last_activity_at: Some(iso_minutes_ago(2)),
+                },
+                PersistCommand::SessionUpdate {
+                    id: "passive-stale".into(),
+                    status: Some(SessionStatus::Active),
+                    work_status: Some(WorkStatus::Waiting),
+                    last_activity_at: Some(iso_minutes_ago(30)),
+                },
+            ],
+        )
+        .expect("flush startup sessions");
+
+        let restored = load_sessions_for_startup().await.expect("load sessions");
+        let recent = restored
+            .iter()
+            .find(|s| s.id == "passive-recent")
+            .expect("recent passive session should be restored");
+        let stale = restored
+            .iter()
+            .find(|s| s.id == "passive-stale")
+            .expect("stale passive session should be restored");
+
+        assert_eq!(recent.status, "active");
+        assert_eq!(recent.work_status, "waiting");
+        assert_eq!(stale.status, "ended");
+        assert_eq!(stale.work_status, "ended");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let stale_reason: Option<String> = conn
+            .query_row(
+                "SELECT end_reason FROM sessions WHERE id = ?1",
+                params!["passive-stale"],
+                |row| row.get(0),
+            )
+            .expect("query stale end_reason");
+        assert_eq!(stale_reason.as_deref(), Some("startup_stale_passive"));
     }
 
     #[tokio::test]

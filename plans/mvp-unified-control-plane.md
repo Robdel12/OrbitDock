@@ -71,10 +71,10 @@ Goal: active/inactive behavior is predictable and correct.
 
 - [ ] Confirm timeout/reactivation behavior with repeated restart + live activity tests.
 - [ ] Ensure passive sessions only seed as active when truly recent/active.
-- [ ] Add explicit regression tests for:
+- [x] Add explicit regression tests for:
   - [x] timed-out passive session reactivation on new rollout events
-  - [ ] list vs detail state consistency
-  - [ ] startup restore status correctness
+  - [x] list vs detail state consistency
+  - [x] startup restore status correctness
 
 ## Workstream 3: Naming & UX Consistency
 

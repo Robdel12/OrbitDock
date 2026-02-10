@@ -1931,7 +1931,7 @@ mod tests {
     use crate::session_naming::name_from_first_prompt;
     use crate::state::AppState;
     use orbitdock_protocol::{
-        ClientMessage, CodexIntegrationMode, Provider, SessionStatus, WorkStatus,
+        ClientMessage, CodexIntegrationMode, Provider, ServerMessage, SessionStatus, WorkStatus,
     };
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
@@ -2002,6 +2002,13 @@ mod tests {
         Arc::new(Mutex::new(AppState::new(persist_tx)))
     }
 
+    async fn recv_server_message(rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
+        match rx.recv().await.expect("expected outbound server message") {
+            OutboundMessage::Json(message) => message,
+            OutboundMessage::Pong(_) => panic!("expected JSON server message, got pong"),
+        }
+    }
+
     #[tokio::test]
     async fn ending_passive_session_keeps_it_available_for_reactivation() {
         let state = new_test_state();
@@ -2038,6 +2045,65 @@ mod tests {
         let snapshot = session_arc.lock().await.state();
         assert_eq!(snapshot.status, SessionStatus::Ended);
         assert_eq!(snapshot.work_status, WorkStatus::Ended);
+    }
+
+    #[tokio::test]
+    async fn list_and_detail_match_after_manual_passive_close() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(32);
+        let session_id = "passive-list-detail-consistency".to_string();
+
+        {
+            let mut app = state.lock().await;
+            let mut handle = SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/Users/tester/repo".to_string(),
+            );
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+            app.add_session(handle);
+        }
+
+        handle_client_message(
+            ClientMessage::EndSession {
+                session_id: session_id.clone(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        handle_client_message(ClientMessage::SubscribeList, &client_tx, &state, 1).await;
+        let list_message = recv_server_message(&mut client_rx).await;
+        let list_session = match list_message {
+            ServerMessage::SessionsList { sessions } => sessions
+                .into_iter()
+                .find(|session| session.id == session_id)
+                .expect("session should be present in list"),
+            other => panic!("expected sessions_list, got {:?}", other),
+        };
+
+        handle_client_message(
+            ClientMessage::SubscribeSession {
+                session_id: session_id.clone(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+        let detail_message = recv_server_message(&mut client_rx).await;
+        let detail_session = match detail_message {
+            ServerMessage::SessionSnapshot { session } => session,
+            other => panic!("expected session_snapshot, got {:?}", other),
+        };
+
+        assert_eq!(list_session.id, detail_session.id);
+        assert_eq!(list_session.status, detail_session.status);
+        assert_eq!(list_session.work_status, detail_session.work_status);
+        assert_eq!(detail_session.status, SessionStatus::Ended);
+        assert_eq!(detail_session.work_status, WorkStatus::Ended);
     }
 
     #[tokio::test]
