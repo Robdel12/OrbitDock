@@ -20,6 +20,8 @@ use orbitdock_protocol::{
     WorkStatus,
 };
 
+use crate::session_naming::name_from_first_prompt;
+
 /// Commands that can be persisted
 #[derive(Debug, Clone)]
 pub enum PersistCommand {
@@ -1268,6 +1270,32 @@ pub struct RestoredSession {
     pub messages: Vec<Message>,
 }
 
+fn resolve_custom_name_from_first_prompt(
+    conn: &Connection,
+    session_id: &str,
+    custom_name: Option<String>,
+    first_prompt: Option<&str>,
+) -> Result<Option<String>, rusqlite::Error> {
+    if custom_name.is_some() {
+        return Ok(custom_name);
+    }
+
+    let Some(prompt) = first_prompt else {
+        return Ok(None);
+    };
+
+    let Some(derived_name) = name_from_first_prompt(prompt) else {
+        return Ok(None);
+    };
+
+    conn.execute(
+        "UPDATE sessions SET custom_name = ?1 WHERE id = ?2 AND custom_name IS NULL",
+        params![derived_name, session_id],
+    )?;
+
+    Ok(Some(derived_name))
+}
+
 fn load_messages_from_db(
     conn: &Connection,
     session_id: &str,
@@ -1483,21 +1511,9 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             params![chrono_now()],
         )?;
 
-        // Backfill Claude/Codex custom names from first prompt for sessions created
-        // before server-side first-prompt naming was introduced.
-        conn.execute(
-            "UPDATE sessions
-             SET custom_name = substr(trim(first_prompt), 1, 72)
-             WHERE provider IN ('claude', 'codex')
-               AND custom_name IS NULL
-               AND first_prompt IS NOT NULL
-               AND trim(first_prompt) != ''",
-            [],
-        )?;
-
         // Restore recent sessions into runtime for active + history UI continuity.
         let mut stmt = conn.prepare(
-            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
                     COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
@@ -1508,7 +1524,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         )?;
 
         #[allow(clippy::type_complexity)]
-        let session_rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
+        let session_rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -1530,6 +1546,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     row.get(16)?,
                     row.get(17)?,
                     row.get(18)?,
+                    row.get(19)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -1537,13 +1554,19 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
         let mut sessions = Vec::new();
 
-        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
+        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
             let mut messages = load_messages_from_db(&conn, &id)?;
             if messages.is_empty() {
                 if let Some(path) = transcript_path.as_deref() {
                     messages = load_messages_from_transcript(path, &id)?;
                 }
             }
+            let custom_name = resolve_custom_name_from_first_prompt(
+                &conn,
+                &id,
+                custom_name,
+                first_prompt.as_deref(),
+            )?;
 
             sessions.push(RestoredSession {
                 id,
@@ -1593,7 +1616,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         )?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, transcript_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
                     COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
@@ -1604,6 +1627,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         type DirectSessionRow = (
             String,
             String,
+            Option<String>,
             Option<String>,
             Option<String>,
             Option<String>,
@@ -1635,15 +1659,18 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     row.get(11)?,
                     row.get(12)?,
                     row.get(13)?,
+                    row.get(14)?,
                 ))
             })
             .optional()?;
 
-        let Some((id, project_path, transcript_path, project_name, model, custom_name, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
+        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
             return Ok(None);
         };
 
         let messages = load_messages_from_db(&conn, &id)?;
+        let custom_name =
+            resolve_custom_name_from_first_prompt(&conn, &id, custom_name, first_prompt.as_deref())?;
 
         Ok(Some(RestoredSession {
             id,

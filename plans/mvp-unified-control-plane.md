@@ -88,10 +88,16 @@ Progress log (2026-02-10):
 
 Goal: names are useful and stable across providers.
 
-- [ ] Keep first-prompt naming as default for Claude + Codex.
-- [ ] Ensure bootstrap/system payloads never become names.
-- [ ] Backfill name logic for startup-seeded passive sessions where prompt exists.
-- [ ] Define fallback priority in docs (`custom_name` > first prompt > project).
+- [x] Keep first-prompt naming as default for Claude + Codex.
+- [x] Ensure bootstrap/system payloads never become names.
+- [x] Backfill name logic for startup-seeded passive sessions where prompt exists.
+- [x] Define fallback priority in docs (`custom_name` > first prompt > project).
+
+Progress log (2026-02-10):
+- Expanded shared first-prompt naming filter to ignore bootstrap/system payload wrappers (`environment_context`, `permissions`, `collaboration_mode`, `skill`, `turn_aborted`, AGENTS boilerplate) so these never become session names.
+- Removed passive rollout slug auto-naming fallback; unnamed sessions now naturally follow documented fallback priority (`custom_name` > first prompt > project) instead of random generated labels.
+- Added startup-seeded passive naming regression coverage: when rollout history already includes a real user prompt, server seeds `custom_name` from that prompt on session discovery.
+- Added Codex send-message regression coverage to verify bootstrap payloads are ignored and the first real prompt becomes the session name.
 
 ## Workstream 4: Observability & Diagnostics
 

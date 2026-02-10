@@ -2280,6 +2280,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn codex_send_message_ignores_bootstrap_prompt_for_naming() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "codex-name-on-prompt".to_string();
+        let (action_tx, _action_rx) = mpsc::channel(8);
+
+        {
+            let mut app = state.lock().await;
+            app.add_session(SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/Users/tester/repo".to_string(),
+            ));
+            app.set_codex_action_tx(&session_id, action_tx);
+        }
+
+        handle_client_message(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "<environment_context>...</environment_context>".to_string(),
+                model: None,
+                effort: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        handle_client_message(
+            ClientMessage::SendMessage {
+                session_id: session_id.clone(),
+                content: "Investigate flaky auth and propose a safe migration plan".to_string(),
+                model: None,
+                effort: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let session_arc = {
+            let state_guard = state.lock().await;
+            state_guard
+                .get_session(&session_id)
+                .expect("session should exist")
+        };
+        let snapshot = session_arc.lock().await.state();
+
+        assert_eq!(
+            snapshot.custom_name.as_deref(),
+            Some("Investigate flaky auth and propose a safe migration plan")
+        );
+    }
+
+    #[tokio::test]
     async fn claude_stop_after_question_tool_sets_question_status() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);

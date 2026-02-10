@@ -16,9 +16,14 @@ pub fn name_from_first_prompt(prompt: &str) -> Option<String> {
 }
 
 fn is_bootstrap_prompt(message: &str) -> bool {
-    message.contains("<environment_context>")
-        || message.contains("<permissions instructions>")
-        || message.contains("AGENTS.md instructions for")
+    let lower = message.to_ascii_lowercase();
+    lower.contains("<environment_context>")
+        || lower.contains("<permissions instructions>")
+        || lower.contains("<collaboration_mode>")
+        || lower.contains("<skill>")
+        || lower.contains("<turn_aborted>")
+        || lower.contains("the user interrupted the previous turn on purpose")
+        || lower.contains("agents.md instructions for")
 }
 
 #[cfg(test)]
@@ -33,6 +38,11 @@ mod tests {
             name_from_first_prompt("<permissions instructions>...</permissions instructions>")
                 .is_none()
         );
+        assert!(name_from_first_prompt(
+            "<turn_aborted>The user interrupted the previous turn on purpose.</turn_aborted>"
+        )
+        .is_none());
+        assert!(name_from_first_prompt("<skill><name>testing-philosophy</name></skill>").is_none());
         assert_eq!(
             name_from_first_prompt("Fix naming in rollout watcher").as_deref(),
             Some("Fix naming in rollout watcher")

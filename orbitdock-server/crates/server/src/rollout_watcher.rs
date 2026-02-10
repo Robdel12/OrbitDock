@@ -1,6 +1,6 @@
 #![allow(clippy::items_after_test_module)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -103,7 +103,6 @@ pub async fn start_rollout_watcher(
         persisted_state,
         debounce_tasks: HashMap::new(),
         session_timeouts: HashMap::new(),
-        prompt_seen: HashSet::new(),
     };
 
     // Prime watcher from existing files on startup so active Codex CLI sessions
@@ -221,7 +220,6 @@ struct WatcherRuntime {
     persisted_state: PersistedState,
     debounce_tasks: HashMap<String, JoinHandle<()>>,
     session_timeouts: HashMap<String, JoinHandle<()>>,
-    prompt_seen: HashSet<String>,
 }
 
 impl WatcherRuntime {
@@ -582,12 +580,10 @@ impl WatcherRuntime {
 
         if self.should_backfill_name_from_history(&session_id).await {
             if let Some(name) = derive_prompt_name_from_rollout_file(Path::new(path)) {
-                self.prompt_seen.insert(session_id.clone());
                 self.set_custom_name(&session_id, Some(name)).await;
             }
         }
 
-        self.ensure_session_name(&session_id).await;
         self.schedule_session_timeout(&session_id);
     }
 
@@ -977,7 +973,6 @@ impl WatcherRuntime {
         let first_prompt = message.as_deref().and_then(name_from_first_prompt);
 
         if let Some(prompt) = first_prompt.as_ref() {
-            self.prompt_seen.insert(session_id.to_string());
             let current_name = if let Some(session_arc) = {
                 let state = self.app_state.lock().await;
                 state.get_session(session_id)
@@ -988,8 +983,7 @@ impl WatcherRuntime {
                 None
             };
 
-            let generated_slug = generate_session_slug(session_id);
-            if current_name.is_none() || current_name.as_deref() == Some(generated_slug.as_str()) {
+            if current_name.is_none() {
                 self.set_custom_name(session_id, Some(prompt.clone())).await;
             }
         }
@@ -1144,31 +1138,6 @@ impl WatcherRuntime {
             None,
         )
         .await;
-
-        self.ensure_session_name(session_id).await;
-    }
-
-    async fn ensure_session_name(&mut self, session_id: &str) {
-        if self.prompt_seen.contains(session_id) {
-            return;
-        }
-
-        let current_name = if let Some(session_arc) = {
-            let state = self.app_state.lock().await;
-            state.get_session(session_id)
-        } {
-            let session = session_arc.lock().await;
-            session.state().custom_name
-        } else {
-            None
-        };
-
-        if current_name.is_some() {
-            return;
-        }
-
-        let slug = generate_session_slug(session_id);
-        self.set_custom_name(session_id, Some(slug)).await;
     }
 
     async fn set_custom_name(&mut self, session_id: &str, name: Option<String>) {
@@ -1326,8 +1295,7 @@ impl WatcherRuntime {
             None
         };
 
-        let generated_slug = generate_session_slug(session_id);
-        current_name.is_none() || current_name.as_deref() == Some(generated_slug.as_str())
+        current_name.is_none()
     }
 
     fn schedule_session_timeout(&mut self, session_id: &str) {
@@ -1775,36 +1743,6 @@ fn tool_label(raw: Option<&str>) -> Option<String> {
     })
 }
 
-fn generate_session_slug(seed: &str) -> String {
-    let adjectives = [
-        "Dapper", "Stellar", "Brisk", "Golden", "Gentle", "Clever", "Nimble", "Radiant", "Bold",
-        "Quiet", "Swift", "Witty", "Bright", "Calm", "Lucky", "Focused",
-    ];
-    let verbs = [
-        "Soaring", "Gliding", "Orbiting", "Cruising", "Humming", "Tuning", "Weaving", "Drifting",
-        "Climbing", "Sailing", "Skimming", "Shaping", "Guiding", "Tracing", "Nesting", "Rolling",
-    ];
-    let nouns = [
-        "Spindle", "Comet", "Beacon", "Canvas", "Signal", "Compass", "Workshop", "Harbor",
-        "Circuit", "Pioneer", "Atlas", "Voyager", "Relay", "Forge", "Station", "Rocket",
-    ];
-
-    let hash = stable_hash(seed);
-    let adjective = adjectives[(hash % adjectives.len() as u64) as usize];
-    let verb = verbs[((hash / 7) % verbs.len() as u64) as usize];
-    let noun = nouns[((hash / 31) % nouns.len() as u64) as usize];
-
-    format!("{adjective} {verb} {noun}")
-}
-
-fn stable_hash(value: &str) -> u64 {
-    let mut hash: u64 = 5381;
-    for byte in value.as_bytes() {
-        hash = ((hash << 5).wrapping_add(hash)).wrapping_add(*byte as u64);
-    }
-    hash
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1812,7 +1750,7 @@ mod tests {
     use crate::websocket::end_session_for_test;
     use rusqlite::{params, Connection};
     use serde_json::json;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
@@ -1854,6 +1792,80 @@ mod tests {
             derived.as_deref(),
             Some("Investigate flaky session naming behavior please")
         );
+    }
+
+    #[test]
+    fn skips_bootstrap_payloads_when_deriving_prompt_name() {
+        let path = std::env::temp_dir().join(format!(
+            "orbitdock-rollout-bootstrap-test-{}.jsonl",
+            std::process::id()
+        ));
+        let contents = r#"{"type":"session_meta","payload":{"id":"abc","cwd":"/tmp/repo"}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>...</environment_context>"}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Investigate flaky session naming behavior please"}]}}
+"#;
+        std::fs::write(&path, contents).expect("write test file");
+
+        let derived = derive_prompt_name_from_rollout_file(&path);
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(
+            derived.as_deref(),
+            Some("Investigate flaky session naming behavior please")
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_seeded_passive_session_backfills_name_from_rollout_prompt() {
+        let session_id = format!("passive-name-backfill-{}", std::process::id());
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-name-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let rollout_path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(
+            &rollout_path,
+            format!(
+                "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{}\",\"cwd\":\"/tmp/repo\"}}}}\n\
+{{\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"Investigate flaky session naming behavior please\"}}]}}}}\n",
+                session_id
+            ),
+        )
+        .expect("write rollout seed");
+
+        let (persist_tx, _persist_rx) = mpsc::channel(128);
+        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::new(),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+        };
+
+        runtime
+            .ensure_session_meta(rollout_path.to_string_lossy().as_ref())
+            .await
+            .expect("seed session meta");
+
+        let snapshot = {
+            let app = app_state.lock().await;
+            let arc = app.get_session(&session_id).expect("session exists");
+            let snapshot = arc.lock().await.state();
+            snapshot
+        };
+
+        assert_eq!(
+            snapshot.custom_name.as_deref(),
+            Some("Investigate flaky session naming behavior please")
+        );
+
+        let _ = std::fs::remove_file(&rollout_path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[tokio::test]
@@ -1912,7 +1924,6 @@ mod tests {
             persisted_state: PersistedState::default(),
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
-            prompt_seen: HashSet::new(),
         };
 
         let append_line =
@@ -2078,7 +2089,6 @@ mod tests {
             persisted_state: PersistedState::default(),
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
-            prompt_seen: HashSet::new(),
         };
 
         let append_line =
@@ -2196,7 +2206,6 @@ mod tests {
             persisted_state: PersistedState::default(),
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
-            prompt_seen: HashSet::new(),
         };
 
         std::fs::OpenOptions::new()
@@ -2311,7 +2320,6 @@ mod tests {
             persisted_state: PersistedState::default(),
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
-            prompt_seen: HashSet::new(),
         };
 
         std::fs::OpenOptions::new()
@@ -2411,7 +2419,6 @@ mod tests {
             persisted_state: PersistedState::default(),
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
-            prompt_seen: HashSet::new(),
         };
 
         std::fs::OpenOptions::new()
@@ -2493,7 +2500,6 @@ mod tests {
             persisted_state: PersistedState::default(),
             debounce_tasks: HashMap::new(),
             session_timeouts: HashMap::new(),
-            prompt_seen: HashSet::new(),
         };
 
         std::fs::OpenOptions::new()
