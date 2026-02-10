@@ -77,7 +77,7 @@ extension ProviderMenuBarSection {
 
     if let usage = service.usage {
       var windows: [RateLimitWindow] = [
-        .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt)
+        .fiveHour(utilization: usage.fiveHour.utilization, resetsAt: usage.fiveHour.resetsAt),
       ]
       if let sevenDay = usage.sevenDay {
         windows.append(.sevenDay(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
@@ -97,10 +97,20 @@ extension ProviderMenuBarSection {
 
     if let usage = service.usage, let primary = usage.primary {
       var windows: [RateLimitWindow] = [
-        .fromMinutes(id: "primary", utilization: primary.usedPercent, windowMinutes: primary.windowDurationMins, resetsAt: primary.resetsAt)
+        .fromMinutes(
+          id: "primary",
+          utilization: primary.usedPercent,
+          windowMinutes: primary.windowDurationMins,
+          resetsAt: primary.resetsAt
+        ),
       ]
       if let secondary = usage.secondary {
-        windows.append(.fromMinutes(id: "secondary", utilization: secondary.usedPercent, windowMinutes: secondary.windowDurationMins, resetsAt: secondary.resetsAt))
+        windows.append(.fromMinutes(
+          id: "secondary",
+          utilization: secondary.usedPercent,
+          windowMinutes: secondary.windowDurationMins,
+          resetsAt: secondary.resetsAt
+        ))
       }
       self.windows = windows
     } else {
@@ -114,8 +124,8 @@ extension ProviderMenuBarSection {
     ProviderMenuBarSection(
       provider: .claude,
       windows: [
-        .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3600)),
-        .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86400))
+        .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
+        .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86_400)),
       ],
       isLoading: false,
       error: nil
@@ -124,7 +134,7 @@ extension ProviderMenuBarSection {
     ProviderMenuBarSection(
       provider: .codex,
       windows: [
-        .fromMinutes(id: "primary", utilization: 30, windowMinutes: 15, resetsAt: Date().addingTimeInterval(600))
+        .fromMinutes(id: "primary", utilization: 30, windowMinutes: 15, resetsAt: Date().addingTimeInterval(600)),
       ],
       isLoading: false,
       error: nil

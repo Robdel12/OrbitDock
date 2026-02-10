@@ -67,6 +67,7 @@ impl SessionHandle {
     }
 
     /// Restore a session from the database (for server restart recovery)
+    #[allow(clippy::too_many_arguments)]
     pub fn restore(
         id: String,
         provider: Provider,
@@ -174,11 +175,6 @@ impl SessionHandle {
     /// Subscribe to session updates
     pub fn subscribe(&mut self, tx: mpsc::Sender<orbitdock_protocol::ServerMessage>) {
         self.subscribers.push(tx);
-    }
-
-    /// Unsubscribe from session updates
-    pub fn unsubscribe(&mut self, tx: &mpsc::Sender<orbitdock_protocol::ServerMessage>) {
-        self.subscribers.retain(|s| !s.same_channel(tx));
     }
 
     /// Clean up any closed subscriber channels

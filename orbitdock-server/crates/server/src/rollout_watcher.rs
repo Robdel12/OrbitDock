@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)]
+
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -19,8 +21,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use crate::persistence::{is_direct_thread_owned_async, PersistCommand};
-use crate::session_naming::name_from_first_prompt;
 use crate::session::SessionHandle;
+use crate::session_naming::name_from_first_prompt;
 use crate::state::AppState;
 
 const DEBOUNCE_MS: u64 = 150;
@@ -406,7 +408,9 @@ impl WatcherRuntime {
             let state = self.app_state.lock().await;
             state.is_managed_codex_thread(&session_id)
         };
-        let is_direct_in_db = is_direct_thread_owned_async(&session_id).await.unwrap_or(false);
+        let is_direct_in_db = is_direct_thread_owned_async(&session_id)
+            .await
+            .unwrap_or(false);
         if is_direct || is_direct_in_db {
             // If a stale passive runtime session exists for this thread, evict it.
             if let Some(state) = self.file_states.get_mut(path) {
@@ -1083,6 +1087,7 @@ impl WatcherRuntime {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn update_work_state(
         &mut self,
         session_id: &str,
@@ -1360,7 +1365,7 @@ impl Default for PersistedState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct PersistedFileState {
     offset: u64,
@@ -1368,18 +1373,6 @@ struct PersistedFileState {
     project_path: Option<String>,
     model_provider: Option<String>,
     ignore_existing: Option<bool>,
-}
-
-impl Default for PersistedFileState {
-    fn default() -> Self {
-        Self {
-            offset: 0,
-            session_id: None,
-            project_path: None,
-            model_provider: None,
-            ignore_existing: None,
-        }
-    }
 }
 
 fn load_persisted_state(path: &Path) -> PersistedState {
@@ -1649,9 +1642,9 @@ mod tests {
     use crate::persistence::flush_batch_for_test;
     use crate::websocket::end_session_for_test;
     use rusqlite::{params, Connection};
-    use std::io::Write;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
+    use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
@@ -1717,11 +1710,8 @@ mod tests {
         let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
         {
             let mut app = app_state.lock().await;
-            let mut handle = SessionHandle::new(
-                session_id.clone(),
-                Provider::Codex,
-                "/tmp/repo".to_string(),
-            );
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_status(SessionStatus::Ended);
             handle.set_work_status(WorkStatus::Ended);
@@ -1755,9 +1745,8 @@ mod tests {
             prompt_seen: HashSet::new(),
         };
 
-        let append_line = format!(
-            "{{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"wake up\"}}}}\n"
-        );
+        let append_line =
+            "{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"wake up\"}}\n".to_string();
         std::fs::OpenOptions::new()
             .append(true)
             .open(&rollout_path)
@@ -1791,7 +1780,10 @@ mod tests {
                 return candidate;
             }
         }
-        panic!("Could not locate migrations directory from {:?}", manifest_dir);
+        panic!(
+            "Could not locate migrations directory from {:?}",
+            manifest_dir
+        );
     }
 
     fn run_all_migrations(db_path: &Path) {
@@ -1882,11 +1874,8 @@ mod tests {
         let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
         {
             let mut app = app_state.lock().await;
-            let mut handle = SessionHandle::new(
-                session_id.clone(),
-                Provider::Codex,
-                "/tmp/repo".to_string(),
-            );
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
             handle.set_status(SessionStatus::Ended);
@@ -1921,9 +1910,8 @@ mod tests {
             prompt_seen: HashSet::new(),
         };
 
-        let append_line = format!(
-            "{{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"user_message\",\"message\":\"wake up\"}}}}\n"
-        );
+        let append_line =
+            "{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"wake up\"}}\n".to_string();
         std::fs::OpenOptions::new()
             .append(true)
             .open(&rollout_path)
@@ -1996,11 +1984,8 @@ mod tests {
         let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
         {
             let mut app = app_state.lock().await;
-            let mut handle = SessionHandle::new(
-                session_id.clone(),
-                Provider::Codex,
-                "/tmp/repo".to_string(),
-            );
+            let mut handle =
+                SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
             app.add_session(handle);
@@ -2078,7 +2063,6 @@ mod tests {
         let _ = std::fs::remove_file(tmp_dir.join("state.json"));
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
-
 }
 
 fn as_i64(value: &Value) -> Option<i64> {
@@ -2111,9 +2095,6 @@ fn current_time_unix_z() -> String {
 fn matches_supported_event_kind(kind: &EventKind) -> bool {
     matches!(
         kind,
-        EventKind::Create(_)
-            | EventKind::Modify(_)
-            | EventKind::Access(_)
-            | EventKind::Any
+        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Access(_) | EventKind::Any
     )
 }

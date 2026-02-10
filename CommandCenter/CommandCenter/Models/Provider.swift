@@ -13,7 +13,9 @@ enum Provider: String, CaseIterable, Identifiable, Sendable {
   case claude
   case codex
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {

@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct InboxView: View {
-  var onClose: (() -> Void)? = nil
+  var onClose: (() -> Void)?
 
   @Environment(SessionStore.self) private var db
   @State private var newItemText = ""
@@ -24,7 +24,7 @@ struct InboxView: View {
   }
 
   private var processedItems: [InboxItem] {
-    db.allInboxItems.filter { $0.status.isProcessed }
+    db.allInboxItems.filter(\.status.isProcessed)
   }
 
   private var activeQuests: [Quest] {
@@ -81,7 +81,8 @@ struct InboxView: View {
                       onLinear: {
                         // Open Linear with pre-filled content
                         let title = item.content.prefix(100)
-                        let encodedTitle = String(title).addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+                        let encodedTitle = String(title)
+                          .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
                         if let url = URL(string: "https://linear.app/new?title=\(encodedTitle)") {
                           NSWorkspace.shared.open(url)
                           Task { await db.convertInboxItemToLinear(id: item.id, issueId: "", issueUrl: "") }
@@ -143,7 +144,7 @@ struct InboxView: View {
       // Focus the input by default
       isInputFocused = true
     }
-    .onChange(of: pendingItems.count) { oldCount, newCount in
+    .onChange(of: pendingItems.count) { _, newCount in
       // Adjust selection if items were removed
       if selectedIndex >= newCount, newCount > 0 {
         selectedIndex = newCount - 1
@@ -186,14 +187,14 @@ struct InboxView: View {
     guard !pendingItems.isEmpty else { return }
 
     // If input is focused and moving down, go to first item
-    if isInputFocused && delta > 0 {
+    if isInputFocused, delta > 0 {
       isInputFocused = false
       selectedIndex = 0
       return
     }
 
     // If at first item and moving up, go to input
-    if selectedIndex == 0 && delta < 0 && !isInputFocused {
+    if selectedIndex == 0, delta < 0, !isInputFocused {
       isInputFocused = true
       return
     }
@@ -304,13 +305,14 @@ struct InboxView: View {
       TextField("Capture a quick note...", text: $newItemText, axis: .vertical)
         .textFieldStyle(.plain)
         .font(.system(size: 14))
-        .lineLimit(1...5)
+        .lineLimit(1 ... 5)
         .focused($isInputFocused)
         .onKeyPress(keys: [.return]) { keyPress in
           // Modifier+Enter = newline, plain Enter = submit
           if keyPress.modifiers.contains(.shift) ||
-              keyPress.modifiers.contains(.option) ||
-              keyPress.modifiers.contains(.control) {
+            keyPress.modifiers.contains(.option) ||
+            keyPress.modifiers.contains(.control)
+          {
             newItemText += "\n"
             return .handled
           } else {
@@ -616,11 +618,11 @@ struct ProcessedItemsSection: View {
 
   private func statusColor(for status: InboxItem.Status) -> Color {
     switch status {
-    case .pending: .secondary
-    case .attached: .accent
-    case .converted: .purple
-    case .completed: .green
-    case .archived: .orange
+      case .pending: .secondary
+      case .attached: .accent
+      case .converted: .purple
+      case .completed: .green
+      case .archived: .orange
     }
   }
 }
@@ -718,7 +720,10 @@ struct AttachToQuestSheet: View {
               }
               .padding(.vertical, 10)
               .padding(.horizontal, 12)
-              .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(
+                Color.backgroundTertiary.opacity(0.5),
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              )
             }
             .buttonStyle(.plain)
           }

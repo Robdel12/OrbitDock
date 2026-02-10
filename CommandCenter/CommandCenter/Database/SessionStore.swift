@@ -217,7 +217,13 @@ final class SessionStore {
     return quest
   }
 
-  func updateQuest(id: String, name: String? = nil, description: String? = nil, status: Quest.Status? = nil, color: String? = nil) async {
+  func updateQuest(
+    id: String,
+    name: String? = nil,
+    description: String? = nil,
+    status: Quest.Status? = nil,
+    color: String? = nil
+  ) async {
     await db.updateQuest(id: id, name: name, description: description, status: status, color: color)
     await reloadQuests()
   }
@@ -260,7 +266,14 @@ final class SessionStore {
     externalId: String? = nil,
     detectedFrom: QuestLink.Detection = .manual
   ) async -> QuestLink? {
-    let link = await db.addQuestLink(questId: questId, source: source, url: url, title: title, externalId: externalId, detectedFrom: detectedFrom)
+    let link = await db.addQuestLink(
+      questId: questId,
+      source: source,
+      url: url,
+      title: title,
+      externalId: externalId,
+      detectedFrom: detectedFrom
+    )
     await reloadQuests()
     return link
   }
@@ -288,7 +301,11 @@ final class SessionStore {
 
   // MARK: - Inbox Operations
 
-  func captureToInbox(content: String, source: InboxItem.Source = .manual, sessionId: String? = nil) async -> InboxItem? {
+  func captureToInbox(
+    content: String,
+    source: InboxItem.Source = .manual,
+    sessionId: String? = nil
+  ) async -> InboxItem? {
     let item = await db.captureToInbox(content: content, source: source, sessionId: sessionId)
     await reloadInboxItems()
     return item

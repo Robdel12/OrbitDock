@@ -1,7 +1,7 @@
 //! WebSocket handling
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
@@ -18,12 +18,14 @@ use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
-use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, ServerMessage, TokenUsage};
+use orbitdock_protocol::{
+    ClientMessage, CodexIntegrationMode, Provider, ServerMessage, TokenUsage,
+};
 
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{delete_approval, list_approvals, load_session_by_id, PersistCommand};
-use crate::session_naming::name_from_first_prompt;
 use crate::session::SessionHandle;
+use crate::session_naming::name_from_first_prompt;
 use crate::state::AppState;
 
 static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
@@ -43,6 +45,7 @@ fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::Work
 const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
 
 /// Messages that can be sent through the WebSocket
+#[allow(clippy::large_enum_variant)]
 enum OutboundMessage {
     /// JSON-serialized ServerMessage
     Json(ServerMessage),
@@ -301,8 +304,7 @@ async fn handle_client_message(
                 let is_passive_ended = snapshot.provider == Provider::Codex
                     && snapshot.status == orbitdock_protocol::SessionStatus::Ended
                     && (snapshot.codex_integration_mode == Some(CodexIntegrationMode::Passive)
-                        || (snapshot.codex_integration_mode
-                            != Some(CodexIntegrationMode::Direct)
+                        || (snapshot.codex_integration_mode != Some(CodexIntegrationMode::Direct)
                             && snapshot.transcript_path.is_some()));
                 if is_passive_ended {
                     let should_reactivate = snapshot
@@ -422,7 +424,7 @@ async fn handle_client_message(
             );
 
             let id = orbitdock_protocol::new_id();
-            let project_name = cwd.split('/').last().map(String::from);
+            let project_name = cwd.split('/').next_back().map(String::from);
             let mut handle = crate::session::SessionHandle::new(id.clone(), provider, cwd.clone());
             if provider == Provider::Codex {
                 handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
@@ -763,11 +765,7 @@ async fn handle_client_message(
 
         ClientMessage::DeleteApproval { approval_id } => match delete_approval(approval_id).await {
             Ok(true) => {
-                send_json(
-                    client_tx,
-                    ServerMessage::ApprovalDeleted { approval_id },
-                )
-                .await;
+                send_json(client_tx, ServerMessage::ApprovalDeleted { approval_id }).await;
             }
             Ok(false) => {
                 send_json(
@@ -1321,7 +1319,11 @@ async fn handle_client_message(
                 let mut handle =
                     SessionHandle::new(session_id.clone(), Provider::Claude, fallback_cwd);
                 handle.set_project_name(project_name_from_cwd(handle.project_path()));
-                handle.set_transcript_path(transcript_path.clone().or_else(|| derived_transcript_path.clone()));
+                handle.set_transcript_path(
+                    transcript_path
+                        .clone()
+                        .or_else(|| derived_transcript_path.clone()),
+                );
                 let arc = state.add_session(handle);
                 {
                     let session = arc.lock().await;
@@ -1336,7 +1338,11 @@ async fn handle_client_message(
 
             if transcript_path.is_some() || derived_transcript_path.is_some() {
                 let mut session = session_arc.lock().await;
-                session.set_transcript_path(transcript_path.clone().or_else(|| derived_transcript_path.clone()));
+                session.set_transcript_path(
+                    transcript_path
+                        .clone()
+                        .or_else(|| derived_transcript_path.clone()),
+                );
             }
 
             if let Some(cwd) = cwd.clone() {
@@ -1347,7 +1353,9 @@ async fn handle_client_message(
                         project_name: project_name_from_cwd(&cwd),
                         model: None,
                         context_label: None,
-                        transcript_path: transcript_path.clone().or_else(|| derived_transcript_path.clone()),
+                        transcript_path: transcript_path
+                            .clone()
+                            .or_else(|| derived_transcript_path.clone()),
                         source: None,
                         agent_type: None,
                         permission_mode: None,
@@ -1358,16 +1366,25 @@ async fn handle_client_message(
             }
 
             let (next_work_status, persist_attention_reason) = match hook_event_name.as_str() {
-                "UserPromptSubmit" => (Some(orbitdock_protocol::WorkStatus::Working), Some(Some("none".to_string()))),
+                "UserPromptSubmit" => (
+                    Some(orbitdock_protocol::WorkStatus::Working),
+                    Some(Some("none".to_string())),
+                ),
                 "Stop" => {
                     let is_question = {
                         let session = session_arc.lock().await;
                         session.last_tool() == Some("AskUserQuestion")
                     };
                     if is_question {
-                        (Some(orbitdock_protocol::WorkStatus::Question), Some(Some("awaitingQuestion".to_string())))
+                        (
+                            Some(orbitdock_protocol::WorkStatus::Question),
+                            Some(Some("awaitingQuestion".to_string())),
+                        )
                     } else {
-                        (Some(orbitdock_protocol::WorkStatus::Waiting), Some(Some("awaitingReply".to_string())))
+                        (
+                            Some(orbitdock_protocol::WorkStatus::Waiting),
+                            Some(Some("awaitingReply".to_string())),
+                        )
                     }
                 }
                 "Notification" => match notification_type.as_deref() {
@@ -1586,7 +1603,8 @@ async fn handle_client_message(
                         .and_then(|value| value.get("question"))
                         .and_then(Value::as_str)
                         .map(|s| s.to_string());
-                    let serialized_input = tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                    let serialized_input =
+                        tool_input.and_then(|value| serde_json::to_string(&value).ok());
 
                     {
                         let mut session = session_arc.lock().await;
@@ -1812,7 +1830,8 @@ async fn handle_client_message(
                 let session = session_arc.lock().await;
                 let state_snapshot = session.state();
                 state_snapshot.provider == Provider::Codex
-                    && (state_snapshot.codex_integration_mode == Some(CodexIntegrationMode::Passive)
+                    && (state_snapshot.codex_integration_mode
+                        == Some(CodexIntegrationMode::Passive)
                         || (state_snapshot.codex_integration_mode
                             != Some(CodexIntegrationMode::Direct)
                             && state_snapshot.transcript_path.is_some()))
@@ -1893,20 +1912,27 @@ async fn handle_client_message(
 #[cfg(test)]
 pub(crate) async fn end_session_for_test(state: &Arc<Mutex<AppState>>, session_id: String) {
     let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
-    handle_client_message(ClientMessage::EndSession { session_id }, &client_tx, state, 1).await;
+    handle_client_message(
+        ClientMessage::EndSession { session_id },
+        &client_tx,
+        state,
+        1,
+    )
+    .await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        handle_client_message,
-        claude_transcript_path_from_cwd, work_status_for_approval_decision,
+        claude_transcript_path_from_cwd, handle_client_message, work_status_for_approval_decision,
         OutboundMessage,
     };
     use crate::session::SessionHandle;
     use crate::session_naming::name_from_first_prompt;
     use crate::state::AppState;
-    use orbitdock_protocol::{ClientMessage, CodexIntegrationMode, Provider, SessionStatus, WorkStatus};
+    use orbitdock_protocol::{
+        ClientMessage, CodexIntegrationMode, Provider, SessionStatus, WorkStatus,
+    };
     use std::sync::Arc;
     use tokio::sync::{mpsc, Mutex};
 
@@ -1948,7 +1974,8 @@ mod tests {
 
     #[test]
     fn derives_readable_name_from_first_prompt() {
-        let prompt = "  Please investigate auth race conditions and propose a safe migration plan.  ";
+        let prompt =
+            "  Please investigate auth race conditions and propose a safe migration plan.  ";
         let name = name_from_first_prompt(prompt).expect("expected name");
         assert_eq!(
             name,
@@ -1958,10 +1985,8 @@ mod tests {
 
     #[test]
     fn derives_transcript_path_from_cwd() {
-        let path = claude_transcript_path_from_cwd(
-            "/Users/robertdeluca/Developer/vizzly-cli",
-            "abc-123",
-        );
+        let path =
+            claude_transcript_path_from_cwd("/Users/robertdeluca/Developer/vizzly-cli", "abc-123");
         let value = path.expect("expected transcript path");
         assert!(
             value.ends_with(
@@ -2042,7 +2067,9 @@ mod tests {
 
         let session_arc = {
             let state_guard = state.lock().await;
-            state_guard.get_session(&session_id).expect("session should exist")
+            state_guard
+                .get_session(&session_id)
+                .expect("session should exist")
         };
         let snapshot = session_arc.lock().await.state();
 
@@ -2070,12 +2097,17 @@ mod tests {
             ClientMessage::ClaudeStatusEvent {
                 session_id: session_id.clone(),
                 cwd: Some("/Users/tester/repo".to_string()),
-                transcript_path: Some("/Users/tester/.claude/projects/-Users-tester-repo/claude-name-on-prompt.jsonl".to_string()),
+                transcript_path: Some(
+                    "/Users/tester/.claude/projects/-Users-tester-repo/claude-name-on-prompt.jsonl"
+                        .to_string(),
+                ),
                 hook_event_name: "UserPromptSubmit".to_string(),
                 notification_type: None,
                 tool_name: None,
                 stop_hook_active: None,
-                prompt: Some("Investigate flaky auth and propose a safe migration plan".to_string()),
+                prompt: Some(
+                    "Investigate flaky auth and propose a safe migration plan".to_string(),
+                ),
                 message: None,
                 title: None,
                 trigger: None,
@@ -2110,7 +2142,9 @@ mod tests {
 
         let session_arc = {
             let state_guard = state.lock().await;
-            state_guard.get_session(&session_id).expect("session should exist")
+            state_guard
+                .get_session(&session_id)
+                .expect("session should exist")
         };
         let snapshot = session_arc.lock().await.state();
         assert_eq!(snapshot.work_status, WorkStatus::Working);
@@ -2167,7 +2201,9 @@ mod tests {
 
         let session_arc = {
             let state_guard = state.lock().await;
-            state_guard.get_session(&session_id).expect("session should exist")
+            state_guard
+                .get_session(&session_id)
+                .expect("session should exist")
         };
         let snapshot = session_arc.lock().await.state();
         assert_eq!(snapshot.work_status, WorkStatus::Question);

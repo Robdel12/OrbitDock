@@ -11,13 +11,15 @@ import Foundation
 
 enum CodexModel: String, CaseIterable, Identifiable {
   case `default` = ""
-  case o3 = "o3"
+  case o3
   case o4Mini = "o4-mini"
   case gpt5Codex = "gpt-5.2-codex"
   case gpt51 = "gpt-5.1"
   case gpt4o = "gpt-4o"
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {
@@ -35,11 +37,13 @@ enum CodexModel: String, CaseIterable, Identifiable {
 
 enum EffortLevel: String, CaseIterable, Identifiable {
   case `default` = ""
-  case low = "low"
-  case medium = "medium"
-  case high = "high"
+  case low
+  case medium
+  case high
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {

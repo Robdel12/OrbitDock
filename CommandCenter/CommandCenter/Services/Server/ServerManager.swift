@@ -20,13 +20,13 @@ final class ServerManager: ObservableObject {
 
   @Published private(set) var isRunning = false
   @Published private(set) var lastError: String?
-  @Published private(set) var gaveUp = false  // True if we stopped trying
+  @Published private(set) var gaveUp = false // True if we stopped trying
 
   private var serverProcess: Process?
   private var outputPipe: Pipe?
   private var errorPipe: Pipe?
 
-  private let serverPort = 4000
+  private let serverPort = 4_000
   private let maxRestartAttempts = 3
   private var restartAttempts = 0
 
@@ -74,7 +74,7 @@ final class ServerManager: ObservableObject {
     if let process = serverProcess, process.isRunning {
       logger.info("Stopping server...")
       process.terminate()
-      process.waitUntilExit()  // Wait for clean shutdown
+      process.waitUntilExit() // Wait for clean shutdown
     }
     serverProcess = nil
 
@@ -82,7 +82,7 @@ final class ServerManager: ObservableObject {
     killExistingServer()
 
     isRunning = false
-    restartAttempts = 0  // Reset counter when explicitly stopped
+    restartAttempts = 0 // Reset counter when explicitly stopped
   }
 
   /// Restart the server (resets restart counter)
@@ -124,17 +124,17 @@ final class ServerManager: ObservableObject {
     let releasePath = repoBase.appendingPathComponent("release/orbitdock-server").path
     let universalPath = repoBase.appendingPathComponent("universal/orbitdock-server").path
 
-#if DEBUG
-    if FileManager.default.fileExists(atPath: debugPath) {
-      return debugPath
-    }
-    if FileManager.default.fileExists(atPath: releasePath) {
-      return releasePath
-    }
-    if FileManager.default.fileExists(atPath: universalPath) {
-      return universalPath
-    }
-#endif
+    #if DEBUG
+      if FileManager.default.fileExists(atPath: debugPath) {
+        return debugPath
+      }
+      if FileManager.default.fileExists(atPath: releasePath) {
+        return releasePath
+      }
+      if FileManager.default.fileExists(atPath: universalPath) {
+        return universalPath
+      }
+    #endif
 
     // 1. Check app bundle (production)
     if let bundlePath = Bundle.main.path(forResource: "orbitdock-server", ofType: nil) {
@@ -188,9 +188,9 @@ final class ServerManager: ObservableObject {
     env["RUST_LOG"] = "debug,tower_http=info,hyper=info"
     env["ORBITDOCK_SERVER_RUN_ID"] = runId
     env["ORBITDOCK_SERVER_BINARY_PATH"] = path
-#if DEBUG
-    env["ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START"] = "1"
-#endif
+    #if DEBUG
+      env["ORBITDOCK_TRUNCATE_SERVER_LOG_ON_START"] = "1"
+    #endif
     if let shellPath = Self.resolveLoginShellPath() {
       env["PATH"] = shellPath
     }
@@ -274,7 +274,7 @@ final class ServerManager: ObservableObject {
     Task {
       try? await Task.sleep(for: .seconds(delay))
       await MainActor.run {
-        guard !self.gaveUp else { return }  // Double-check we haven't given up
+        guard !self.gaveUp else { return } // Double-check we haven't given up
         self.start()
       }
     }
@@ -285,7 +285,9 @@ final class ServerManager: ObservableObject {
     while true {
       let data = handle.availableData
       guard !data.isEmpty else { break }
-      if let line = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !line.isEmpty {
+      if let line = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+         !line.isEmpty
+      {
         logger.debug("[\(label)] \(line)")
       }
     }
@@ -326,7 +328,7 @@ final class ServerManager: ObservableObject {
       try? await Task.sleep(for: .milliseconds(initialDelayMs))
     }
 
-    for attempt in 1...maxAttempts {
+    for attempt in 1 ... maxAttempts {
       if await checkHealth() {
         // Server is healthy - reset restart counter
         restartAttempts = 0
@@ -337,7 +339,7 @@ final class ServerManager: ObservableObject {
 
       if attempt < maxAttempts {
         // Exponential backoff: 250ms, 500ms, 1s, 2s (capped)
-        let backoffMs = min(250 * Int(pow(2.0, Double(attempt - 1))), 2000)
+        let backoffMs = min(250 * Int(pow(2.0, Double(attempt - 1))), 2_000)
         try? await Task.sleep(for: .milliseconds(backoffMs))
       }
     }

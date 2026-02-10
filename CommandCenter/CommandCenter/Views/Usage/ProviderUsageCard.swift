@@ -74,7 +74,7 @@ struct ProviderUsageCard: View {
       } else {
         // Empty state - show placeholder gauge
         GenericUsageGauge(
-          window: RateLimitWindow(id: "empty", label: "--", utilization: 0, resetsAt: nil, windowDuration: 3600),
+          window: RateLimitWindow(id: "empty", label: "--", utilization: 0, resetsAt: nil, windowDuration: 3_600),
           provider: provider
         )
       }
@@ -139,8 +139,8 @@ struct ProviderUsageCard: View {
     ProviderUsageCard(
       provider: .claude,
       windows: [
-        .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3600)),
-        .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86400))
+        .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
+        .sevenDay(utilization: 65, resetsAt: Date().addingTimeInterval(86_400)),
       ],
       planName: "Max 5x",
       isLoading: false,
@@ -150,7 +150,7 @@ struct ProviderUsageCard: View {
     ProviderUsageCard(
       provider: .codex,
       windows: [
-        .fromMinutes(id: "primary", utilization: 30, windowMinutes: 15, resetsAt: Date().addingTimeInterval(600))
+        .fromMinutes(id: "primary", utilization: 30, windowMinutes: 15, resetsAt: Date().addingTimeInterval(600)),
       ],
       planName: nil,
       isLoading: false,

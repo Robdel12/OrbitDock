@@ -65,9 +65,17 @@ struct Session: Identifiable, Hashable, Sendable {
     let step: String
     let status: String
 
-    var id: String { step }
-    var isCompleted: Bool { status == "completed" }
-    var isInProgress: Bool { status == "inProgress" }
+    var id: String {
+      step
+    }
+
+    var isCompleted: Bool {
+      status == "completed"
+    }
+
+    var isInProgress: Bool {
+      status == "inProgress"
+    }
   }
 
   enum SessionStatus: String, Sendable {
@@ -313,8 +321,8 @@ struct Session: Identifiable, Hashable, Sendable {
   var formattedTokenUsage: String {
     guard hasTokenUsage else { return "--" }
     let total = codexTotalTokens
-    if total >= 1000 {
-      return String(format: "%.1fk", Double(total) / 1000)
+    if total >= 1_000 {
+      return String(format: "%.1fk", Double(total) / 1_000)
     }
     return "\(total)"
   }

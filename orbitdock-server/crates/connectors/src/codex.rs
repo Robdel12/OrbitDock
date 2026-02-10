@@ -936,7 +936,8 @@ impl CodexConnector {
 }
 
 /// Discover currently available Codex models for this account/environment.
-pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOption>, ConnectorError> {
+pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOption>, ConnectorError>
+{
     let codex_home = find_codex_home()
         .map_err(|e| ConnectorError::ProviderError(format!("Failed to find codex home: {}", e)))?;
     let auth_manager = Arc::new(AuthManager::new(
@@ -944,19 +945,21 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         true,
         AuthCredentialsStoreMode::Auto,
     ));
-    let thread_manager = Arc::new(ThreadManager::new(codex_home, auth_manager, SessionSource::Mcp));
+    let thread_manager = Arc::new(ThreadManager::new(
+        codex_home,
+        auth_manager,
+        SessionSource::Mcp,
+    ));
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let harness_overrides = ConfigOverrides {
         cwd: Some(cwd),
         ..Default::default()
     };
-    let mut config = Config::load_with_cli_overrides_and_harness_overrides(
-        Vec::new(),
-        harness_overrides,
-    )
-    .await
-    .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
+    let mut config =
+        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), harness_overrides)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
     config.features.enable(Feature::RemoteModels);
 
     let models = thread_manager

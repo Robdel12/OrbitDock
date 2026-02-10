@@ -6,8 +6,8 @@
 //  so runtime diagnostics are available outside Xcode.
 //
 
-import Foundation
 import Darwin
+import Foundation
 
 final class AppFileLogger: @unchecked Sendable {
   nonisolated(unsafe) static let shared = AppFileLogger()
@@ -30,11 +30,12 @@ final class AppFileLogger: @unchecked Sendable {
     }
 
     #if DEBUG
-    let debugDefaultTruncate = true
+      let debugDefaultTruncate = true
     #else
-    let debugDefaultTruncate = false
+      let debugDefaultTruncate = false
     #endif
-    let shouldTruncate = ProcessInfo.processInfo.environment["ORBITDOCK_TRUNCATE_APP_LOG_ON_START"] == "1" || debugDefaultTruncate
+    let shouldTruncate = ProcessInfo.processInfo
+      .environment["ORBITDOCK_TRUNCATE_APP_LOG_ON_START"] == "1" || debugDefaultTruncate
     let flags = O_WRONLY | O_CREAT | (shouldTruncate ? O_TRUNC : O_APPEND)
     let fd = open(logPath, flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
     guard fd >= 0 else { return }

@@ -170,7 +170,7 @@ struct DashboardView: View {
     .onAppear {
       isDashboardFocused = true
     }
-    .onChange(of: activeSessions.count) { oldCount, newCount in
+    .onChange(of: activeSessions.count) { _, newCount in
       // Clamp selectedIndex if sessions were removed
       if selectedIndex >= newCount, newCount > 0 {
         selectedIndex = newCount - 1
@@ -186,7 +186,7 @@ struct DashboardView: View {
         }
       },
       onSelect: { selectCurrentSession() },
-      onRename: { } // No rename action on dashboard
+      onRename: {} // No rename action on dashboard
     ))
   }
 
@@ -825,7 +825,10 @@ struct InboxPreviewSection: View {
               }
               .padding(.vertical, 8)
               .padding(.horizontal, 12)
-              .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(
+                Color.backgroundTertiary.opacity(0.5),
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              )
             }
             .buttonStyle(.plain)
           }

@@ -131,7 +131,7 @@ struct SubscriptionUsage: Sendable {
   /// Convert to unified RateLimitWindow array for generic UI components
   var windows: [RateLimitWindow] {
     var result: [RateLimitWindow] = [
-      .fiveHour(utilization: fiveHour.utilization, resetsAt: fiveHour.resetsAt)
+      .fiveHour(utilization: fiveHour.utilization, resetsAt: fiveHour.resetsAt),
     ]
     if let sevenDay {
       result.append(.sevenDay(utilization: sevenDay.utilization, resetsAt: sevenDay.resetsAt))
@@ -185,7 +185,7 @@ final class SubscriptionUsageService {
 
   private var refreshTask: Task<Void, Never>?
 
-  // Disk cache for usage data
+  /// Disk cache for usage data
   private let cacheURL: URL = {
     let cacheDir = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".orbitdock/cache", isDirectory: true)

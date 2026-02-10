@@ -124,7 +124,6 @@ struct CodexApprovalView: View {
     )
   }
 
-  @ViewBuilder
   private func toolDetailView(toolName: String) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       // Tool badge
@@ -205,11 +204,11 @@ struct CodexApprovalView: View {
 
   private func toolIcon(for toolName: String) -> String {
     switch toolName {
-      case "Shell", "Bash": return "terminal"
-      case "Edit": return "pencil"
-      case "Write": return "doc.badge.plus"
-      case "Read": return "doc.text"
-      default: return "wrench"
+      case "Shell", "Bash": "terminal"
+      case "Edit": "pencil"
+      case "Write": "doc.badge.plus"
+      case "Read": "doc.text"
+      default: "wrench"
     }
   }
 

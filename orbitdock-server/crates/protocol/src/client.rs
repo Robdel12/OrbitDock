@@ -185,7 +185,10 @@ mod tests {
             } => {
                 assert_eq!(session_id, "sess-1");
                 assert_eq!(cwd.as_deref(), Some("/tmp/project"));
-                assert_eq!(transcript_path.as_deref(), Some("/tmp/project/sess-1.jsonl"));
+                assert_eq!(
+                    transcript_path.as_deref(),
+                    Some("/tmp/project/sess-1.jsonl")
+                );
                 assert_eq!(hook_event_name, "UserPromptSubmit");
                 assert_eq!(prompt.as_deref(), Some("Ship it"));
             }
@@ -221,8 +224,11 @@ mod tests {
                 assert_eq!(hook_event_name, "PreToolUse");
                 assert_eq!(tool_name, "Bash");
                 assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
-                let command = tool_input
-                    .and_then(|v| v.get("command").and_then(|v| v.as_str()).map(str::to_string));
+                let command = tool_input.and_then(|v| {
+                    v.get("command")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                });
                 assert_eq!(command.as_deref(), Some("echo hello"));
             }
             other => panic!("unexpected message variant: {:?}", other),

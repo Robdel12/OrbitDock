@@ -174,27 +174,27 @@ struct ServerTestView: View {
 
   private var statusColor: Color {
     switch connection.status {
-    case .connected:
-      return .green
-    case .connecting:
-      return .yellow
-    case .disconnected:
-      return .gray
-    case .failed:
-      return .red
+      case .connected:
+        .green
+      case .connecting:
+        .yellow
+      case .disconnected:
+        .gray
+      case .failed:
+        .red
     }
   }
 
   private var statusText: String {
     switch connection.status {
-    case .connected:
-      return "Connected"
-    case .connecting:
-      return "Connecting..."
-    case .disconnected:
-      return "Disconnected"
-    case .failed(let reason):
-      return "Failed: \(reason)"
+      case .connected:
+        "Connected"
+      case .connecting:
+        "Connecting..."
+      case .disconnected:
+        "Disconnected"
+      case let .failed(reason):
+        "Failed: \(reason)"
     }
   }
 
@@ -215,7 +215,7 @@ struct ServerTestView: View {
       log("Received snapshot for \(session.id)")
     }
 
-    connection.onSessionDelta = { sessionId, changes in
+    connection.onSessionDelta = { sessionId, _ in
       log("Session \(sessionId) updated")
     }
 
@@ -237,7 +237,7 @@ struct ServerTestView: View {
       log("Session ended: \(sessionId) - \(reason)")
     }
 
-    connection.onError = { code, message, sessionId in
+    connection.onError = { code, message, _ in
       log("Error [\(code)]: \(message)", isError: true)
     }
   }

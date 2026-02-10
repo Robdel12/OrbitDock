@@ -76,10 +76,7 @@ pub enum PersistCommand {
     },
 
     /// End any non-direct session row that accidentally uses a direct thread id as session id
-    CleanupThreadShadowSession {
-        thread_id: String,
-        reason: String,
-    },
+    CleanupThreadShadowSession { thread_id: String, reason: String },
 
     /// Set custom name for a session
     SetCustomName {
@@ -135,7 +132,10 @@ pub enum PersistCommand {
     ClaudeSessionEnd { id: String, reason: Option<String> },
 
     /// Increment prompt counter for Claude hook session
-    ClaudePromptIncrement { id: String, first_prompt: Option<String> },
+    ClaudePromptIncrement {
+        id: String,
+        first_prompt: Option<String>,
+    },
 
     /// Increment tool counter for Claude hook session
     ClaudeToolIncrement { id: String },
@@ -190,7 +190,10 @@ pub enum PersistCommand {
     },
 
     /// Increment direct Codex prompt counter and set first prompt if missing
-    CodexPromptIncrement { id: String, first_prompt: Option<String> },
+    CodexPromptIncrement {
+        id: String,
+        first_prompt: Option<String>,
+    },
 
     /// Increment rollout tool counter
     RolloutToolIncrement { id: String },
@@ -213,7 +216,6 @@ pub enum PersistCommand {
         request_id: String,
         decision: String,
     },
-
 }
 
 /// Persistence writer that batches SQLite writes
@@ -1091,8 +1093,8 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 ApprovalType::Patch => "patch",
                 ApprovalType::Question => "question",
             };
-            let proposed_amendment_json = proposed_amendment
-                .and_then(|v| serde_json::to_string(&v).ok());
+            let proposed_amendment_json =
+                proposed_amendment.and_then(|v| serde_json::to_string(&v).ok());
             let now = chrono_now();
             conn.execute(
                 "INSERT INTO approval_history (
@@ -1134,7 +1136,6 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 params![decision, now, session_id, request_id],
             )?;
         }
-
     }
 
     Ok(())
@@ -1184,8 +1185,7 @@ fn chrono_now() -> String {
 
     // Format as ISO 8601
     let secs = duration.as_secs();
-    let datetime = time_to_iso8601(secs);
-    datetime
+    time_to_iso8601(secs)
 }
 
 /// Convert Unix timestamp to ISO 8601 string
@@ -1471,7 +1471,24 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
         )?;
 
-        let row: Option<(String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
+        type DirectSessionRow = (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            i64,
+        );
+
+        let row: Option<DirectSessionRow> = stmt
             .query_row(params![&id_owned], |row| {
                 Ok((
                     row.get(0)?,
@@ -1633,10 +1650,8 @@ pub async fn list_approvals(
                     decided_at: row.get(11)?,
                 })
             })?;
-            for row in rows {
-                if let Ok(item) = row {
-                    items.push(item);
-                }
+            for item in rows.flatten() {
+                items.push(item);
             }
         } else {
             let mut stmt = conn.prepare(
@@ -1672,10 +1687,8 @@ pub async fn list_approvals(
                     decided_at: row.get(11)?,
                 })
             })?;
-            for row in rows {
-                if let Ok(item) = row {
-                    items.push(item);
-                }
+            for item in rows.flatten() {
+                items.push(item);
             }
         }
 
@@ -1721,6 +1734,8 @@ pub async fn delete_approval(approval_id: i64) -> Result<bool, anyhow::Error> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)]
+
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -1759,7 +1774,10 @@ mod tests {
                 return candidate;
             }
         }
-        panic!("Could not locate migrations directory from {:?}", manifest_dir);
+        panic!(
+            "Could not locate migrations directory from {:?}",
+            manifest_dir
+        );
     }
 
     fn create_test_home() -> PathBuf {
@@ -1818,7 +1836,9 @@ mod tests {
 
     #[tokio::test]
     async fn startup_restore_includes_active_and_ended_sessions() {
-        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
         let _home_guard = set_test_home(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
@@ -1903,7 +1923,9 @@ mod tests {
 
     #[tokio::test]
     async fn startup_ends_empty_active_claude_shell_sessions() {
-        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
         let _home_guard = set_test_home(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
@@ -1974,7 +1996,9 @@ mod tests {
 
     #[tokio::test]
     async fn rollout_upsert_does_not_convert_direct_session_to_passive() {
-        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
         let _home_guard = set_test_home(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
@@ -2034,7 +2058,9 @@ mod tests {
 
     #[tokio::test]
     async fn rollout_activity_reactivates_timed_out_passive_session() {
-        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
         let _home_guard = set_test_home(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
@@ -2102,7 +2128,10 @@ mod tests {
 
         assert_eq!(status, "active");
         assert_eq!(work_status, "waiting");
-        assert!(ended_at.is_none(), "ended_at should be cleared on reactivation");
+        assert!(
+            ended_at.is_none(),
+            "ended_at should be cleared on reactivation"
+        );
         assert!(
             end_reason.is_none(),
             "end_reason should be cleared on reactivation"
@@ -2111,7 +2140,9 @@ mod tests {
 
     #[tokio::test]
     async fn startup_backfills_custom_name_from_first_prompt_for_claude_and_codex() {
-        let _guard = env_lock().lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
         let _home_guard = set_test_home(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");

@@ -19,7 +19,9 @@ struct CodexUsage: Sendable {
     let windowDurationMins: Int
     let resetsAt: Date
 
-    var remaining: Double { max(0, 100 - usedPercent) }
+    var remaining: Double {
+      max(0, 100 - usedPercent)
+    }
 
     var resetsInDescription: String {
       let interval = resetsAt.timeIntervalSinceNow
@@ -29,9 +31,17 @@ struct CodexUsage: Sendable {
       return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
     }
 
-    var timeRemaining: TimeInterval { max(0, resetsAt.timeIntervalSinceNow) }
-    var windowDuration: TimeInterval { TimeInterval(windowDurationMins * 60) }
-    var timeElapsed: TimeInterval { windowDuration - timeRemaining }
+    var timeRemaining: TimeInterval {
+      max(0, resetsAt.timeIntervalSinceNow)
+    }
+
+    var windowDuration: TimeInterval {
+      TimeInterval(windowDurationMins * 60)
+    }
+
+    var timeElapsed: TimeInterval {
+      windowDuration - timeRemaining
+    }
 
     var burnRatePerHour: Double {
       guard timeElapsed > 0 else { return 0 }
@@ -44,7 +54,9 @@ struct CodexUsage: Sendable {
       return max(0, rate * windowDuration)
     }
 
-    var willExceed: Bool { projectedAtReset > 95 }
+    var willExceed: Bool {
+      projectedAtReset > 95
+    }
 
     var paceStatus: PaceStatus {
       if timeElapsed < 60 { return .unknown }
@@ -147,7 +159,7 @@ final class CodexUsageService {
   private let cacheValidDuration: TimeInterval = 180 // 3 minutes - use cached data without fetching
   private var refreshTask: Task<Void, Never>?
 
-  // Disk cache for usage data
+  /// Disk cache for usage data
   private nonisolated static let cacheURL: URL = {
     let cacheDir = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".orbitdock/cache", isDirectory: true)
@@ -217,7 +229,7 @@ final class CodexUsageService {
       secondary: cached.secondaryUsedPercent.map {
         .init(
           usedPercent: $0,
-          windowDurationMins: cached.secondaryWindowMins ?? 1440,
+          windowDurationMins: cached.secondaryWindowMins ?? 1_440,
           resetsAt: cached.secondaryResetsAt ?? Date()
         )
       },
@@ -309,7 +321,7 @@ final class CodexUsageService {
     let stdin = stdinPipe.fileHandleForWriting
     let stdout = stdoutPipe.fileHandleForReading
 
-    // Helper to send JSON-RPC
+    /// Helper to send JSON-RPC
     func send(_ dict: [String: Any]) {
       guard let data = try? JSONSerialization.data(withJSONObject: dict),
             var str = String(data: data, encoding: .utf8)
@@ -318,7 +330,7 @@ final class CodexUsageService {
       try? stdin.write(contentsOf: Data(str.utf8))
     }
 
-    // Helper to read JSON-RPC response
+    /// Helper to read JSON-RPC response
     func readResponse() -> [String: Any]? {
       let data = stdout.availableData
       guard !data.isEmpty,
@@ -375,7 +387,7 @@ final class CodexUsageService {
       return .failure(.requestFailed("Rate limits fetch failed"))
     }
 
-    // Parse rate limits
+    /// Parse rate limits
     func parseLimit(_ dict: [String: Any]?) -> CodexUsage.RateLimit? {
       guard let dict,
             let usedPercent = dict["usedPercent"] as? Double,

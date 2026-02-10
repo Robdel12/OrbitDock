@@ -77,8 +77,8 @@ extension ServerSessionState {
 extension ServerCodexIntegrationMode {
   func toSessionMode() -> CodexIntegrationMode {
     switch self {
-    case .direct: .direct
-    case .passive: .passive
+      case .direct: .direct
+      case .passive: .passive
     }
   }
 }
@@ -88,21 +88,21 @@ extension ServerCodexIntegrationMode {
 extension ServerWorkStatus {
   func toSessionWorkStatus() -> Session.WorkStatus {
     switch self {
-    case .working: return .working
-    case .waiting, .reply, .ended: return .waiting
-    case .permission: return .permission
-    case .question: return .permission // question shows as permission in the old model
+      case .working: .working
+      case .waiting, .reply, .ended: .waiting
+      case .permission: .permission
+      case .question: .permission // question shows as permission in the old model
     }
   }
 
   func toAttentionReason(hasPendingApproval: Bool = false) -> Session.AttentionReason {
     switch self {
-    case .working: return .none
-    case .waiting: return .awaitingReply
-    case .reply: return .awaitingReply
-    case .permission: return .awaitingPermission
-    case .question: return .awaitingQuestion
-    case .ended: return .none
+      case .working: .none
+      case .waiting: .awaitingReply
+      case .reply: .awaitingReply
+      case .permission: .awaitingPermission
+      case .question: .awaitingQuestion
+      case .ended: .none
     }
   }
 }
@@ -112,9 +112,9 @@ extension ServerWorkStatus {
 extension ServerApprovalRequest {
   var toolNameForDisplay: String? {
     switch type {
-    case .exec: return "Bash"
-    case .patch: return "Edit"
-    case .question: return nil
+      case .exec: "Bash"
+      case .patch: "Edit"
+      case .question: nil
     }
   }
 
@@ -139,11 +139,11 @@ extension ServerApprovalRequest {
 extension ServerMessage {
   func toTranscriptMessage() -> TranscriptMessage {
     let msgType: TranscriptMessage.MessageType = switch type {
-    case .user: .user
-    case .assistant: .assistant
-    case .thinking: .thinking
-    case .tool: .tool
-    case .toolResult: .toolResult
+      case .user: .user
+      case .assistant: .assistant
+      case .thinking: .thinking
+      case .tool: .tool
+      case .toolResult: .toolResult
     }
 
     var parsedToolInput: [String: Any]?
@@ -151,7 +151,7 @@ extension ServerMessage {
       parsedToolInput = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
-    let duration: TimeInterval? = durationMs.map { Double($0) / 1000.0 }
+    let duration: TimeInterval? = durationMs.map { Double($0) / 1_000.0 }
 
     return TranscriptMessage(
       id: id,

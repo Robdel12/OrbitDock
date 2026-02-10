@@ -73,13 +73,13 @@ final class ServerAppState {
   /// Track which sessions we're subscribed to
   private var subscribedSessions: Set<String> = []
 
-  /// Lifecycle guardrail:
-  /// Session status/work status transitions are server-owned.
-  /// App code should only reflect lifecycle changes from:
-  /// - SessionSnapshot
-  /// - SessionDelta
-  /// - SessionCreated
-  /// - SessionEnded
+  // Lifecycle guardrail:
+  // Session status/work status transitions are server-owned.
+  // App code should only reflect lifecycle changes from:
+  // - SessionSnapshot
+  // - SessionDelta
+  // - SessionCreated
+  // - SessionEnded
 
   /// Temporary: autonomy level from the most recent createSession call
   private var pendingCreationAutonomy: AutonomyLevel?
@@ -188,7 +188,13 @@ final class ServerAppState {
     // Track the initial autonomy level so we can show it in the UI
     let autonomy = AutonomyLevel.from(approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
     pendingCreationAutonomy = autonomy
-    ServerConnection.shared.createSession(provider: .codex, cwd: cwd, model: model, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
+    ServerConnection.shared.createSession(
+      provider: .codex,
+      cwd: cwd,
+      model: model,
+      approvalPolicy: approvalPolicy,
+      sandboxMode: sandboxMode
+    )
   }
 
   /// Refresh model options from the server.
@@ -358,7 +364,7 @@ final class ServerAppState {
       guard let prior = existingById[item.id] else { return item }
       let priorResolved = prior.decision != nil || prior.decidedAt != nil
       let incomingResolved = item.decision != nil || item.decidedAt != nil
-      if priorResolved && !incomingResolved {
+      if priorResolved, !incomingResolved {
         return prior
       }
       return item
@@ -520,12 +526,12 @@ final class ServerAppState {
     // Keep approval history in sync when approval resolves without a manual UI action
     // (e.g. session/global allow rules auto-approve a matching command).
     let hasPendingApproval = pendingApprovals[sessionId] != nil
-    if hadPendingApproval && !hasPendingApproval {
+    if hadPendingApproval, !hasPendingApproval {
       refreshApprovalHistory(sessionId: sessionId)
       // Persistence writes are batched server-side; issue a few bounded retries
       // so just-resolved approvals don't remain visually stuck as "pending".
       Task { @MainActor in
-        for delayMs in [250, 1000, 2000] {
+        for delayMs in [250, 1_000, 2_000] {
           try? await Task.sleep(for: .milliseconds(delayMs))
           refreshApprovalHistory(sessionId: sessionId)
         }
@@ -561,7 +567,7 @@ final class ServerAppState {
     if let rows = approvalHistoryBySession[sessionId] {
       var updatedRows: [ServerApprovalHistoryItem] = []
       for row in rows {
-        if row.requestId == requestId && row.decision == nil {
+        if row.requestId == requestId, row.decision == nil {
           updatedRows.append(
             ServerApprovalHistoryItem(
               id: row.id,
@@ -651,7 +657,7 @@ final class ServerAppState {
         toolName: nil,
         toolInput: nil,
         toolOutput: changes.toolOutput,
-        toolDuration: changes.durationMs.map { Double($0) / 1000.0 },
+        toolDuration: changes.durationMs.map { Double($0) / 1_000.0 },
         inputTokens: nil,
         outputTokens: nil,
         isInProgress: false
@@ -674,7 +680,7 @@ final class ServerAppState {
         toolName: msg.toolName,
         toolInput: msg.toolInput,
         toolOutput: changes.toolOutput ?? msg.toolOutput,
-        toolDuration: changes.durationMs.map { Double($0) / 1000.0 } ?? msg.toolDuration,
+        toolDuration: changes.durationMs.map { Double($0) / 1_000.0 } ?? msg.toolDuration,
         inputTokens: msg.inputTokens,
         outputTokens: msg.outputTokens,
         isInProgress: false

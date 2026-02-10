@@ -26,12 +26,12 @@ final class CodexFileLogger: @unchecked Sendable {
   }
 
   enum Category: String {
-    case event       // Codex server events
-    case connection  // Connection lifecycle
-    case message     // Message store operations
-    case bridge      // MCP bridge requests
-    case decode      // JSON decode operations
-    case session     // Session lifecycle
+    case event // Codex server events
+    case connection // Connection lifecycle
+    case message // Message store operations
+    case bridge // MCP bridge requests
+    case decode // JSON decode operations
+    case session // Session lifecycle
   }
 
   private let fileHandle: FileHandle?
@@ -117,7 +117,7 @@ final class CodexFileLogger: @unchecked Sendable {
       message: "Decode failed: \(context)",
       data: [
         "error": String(describing: error),
-        "rawJson": String(rawJson.prefix(2000)),  // Truncate long payloads
+        "rawJson": String(rawJson.prefix(2_000)), // Truncate long payloads
       ]
     )
   }

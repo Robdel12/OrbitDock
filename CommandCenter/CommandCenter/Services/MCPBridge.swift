@@ -19,7 +19,7 @@ final class MCPBridge {
   private let logger = Logger(subsystem: "com.orbitdock", category: "MCPBridge")
   private var listener: NWListener?
   private weak var serverAppState: ServerAppState?
-  private let port: UInt16 = 19384  // ORBIT on phone keypad :)
+  private let port: UInt16 = 19_384 // ORBIT on phone keypad :)
 
   private init() {}
 
@@ -94,7 +94,7 @@ final class MCPBridge {
   }
 
   private func receiveRequest(_ connection: NWConnection) {
-    connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, _, _ in
+    connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, _ in
       guard let self, let data else {
         connection.cancel()
         return
@@ -233,7 +233,7 @@ final class MCPBridge {
   }
 
   private func logResponse(start: CFAbsoluteTime, request: HTTPRequest, response: HTTPResponse) {
-    let durationMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+    let durationMs = (CFAbsoluteTimeGetCurrent() - start) * 1_000
     CodexFileLogger.shared.logBridgeRequest(
       method: request.method,
       path: request.path,
@@ -330,7 +330,7 @@ final class MCPBridge {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
-    let sessions = state.sessions.filter { $0.isActive }
+    let sessions = state.sessions.filter(\.isActive)
 
     let sessionData = sessions.map { session -> [String: Any] in
       var data: [String: Any] = [
@@ -442,30 +442,29 @@ private struct HTTPResponse {
   let body: [String: Any]
 
   func toData() -> Data {
-    let statusText: String
-    switch status {
-      case 200: statusText = "OK"
-      case 400: statusText = "Bad Request"
-      case 404: statusText = "Not Found"
-      case 500: statusText = "Internal Server Error"
-      case 503: statusText = "Service Unavailable"
-      default: statusText = "Unknown"
+    let statusText = switch status {
+      case 200: "OK"
+      case 400: "Bad Request"
+      case 404: "Not Found"
+      case 500: "Internal Server Error"
+      case 503: "Service Unavailable"
+      default: "Unknown"
     }
 
     let jsonData = (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
     let jsonString = String(data: jsonData, encoding: .utf8) ?? "{}"
 
     let response = """
-      HTTP/1.1 \(status) \(statusText)\r
-      Content-Type: application/json\r
-      Access-Control-Allow-Origin: *\r
-      Access-Control-Allow-Methods: GET, POST, OPTIONS\r
-      Access-Control-Allow-Headers: Content-Type\r
-      Content-Length: \(jsonData.count)\r
-      Connection: close\r
-      \r
-      \(jsonString)
-      """
+    HTTP/1.1 \(status) \(statusText)\r
+    Content-Type: application/json\r
+    Access-Control-Allow-Origin: *\r
+    Access-Control-Allow-Methods: GET, POST, OPTIONS\r
+    Access-Control-Allow-Headers: Content-Type\r
+    Content-Length: \(jsonData.count)\r
+    Connection: close\r
+    \r
+    \(jsonString)
+    """
 
     return response.data(using: .utf8) ?? Data()
   }

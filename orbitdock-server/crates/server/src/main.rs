@@ -7,8 +7,8 @@ mod codex_session;
 mod logging;
 mod persistence;
 mod rollout_watcher;
-mod session_naming;
 mod session;
+mod session_naming;
 mod state;
 mod websocket;
 
@@ -46,7 +46,8 @@ async fn async_main() -> anyhow::Result<()> {
     let logging = init_logging()?;
     let run_id = logging.run_id.clone();
     let _log_guard = logging.guard;
-    let root_span = tracing::info_span!("orbitdock_server", service = "orbitdock-server", run_id = %run_id);
+    let root_span =
+        tracing::info_span!("orbitdock_server", service = "orbitdock-server", run_id = %run_id);
     let _root_span_guard = root_span.enter();
 
     let binary_path =
@@ -144,7 +145,8 @@ async fn async_main() -> anyhow::Result<()> {
                     messages,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
-                let is_passive = is_codex && matches!(codex_integration_mode.as_deref(), Some("passive"));
+                let is_passive =
+                    is_codex && matches!(codex_integration_mode.as_deref(), Some("passive"));
                 let is_active = status == "active";
                 handle.set_codex_integration_mode(if is_passive {
                     Some(CodexIntegrationMode::Passive)
@@ -200,10 +202,12 @@ async fn async_main() -> anyhow::Result<()> {
                         app.register_codex_thread(&id, &new_thread_id);
 
                         if app.remove_session(&new_thread_id).is_some() {
-                            app.broadcast_to_list(orbitdock_protocol::ServerMessage::SessionEnded {
-                                session_id: new_thread_id.clone(),
-                                reason: "direct_session_thread_claimed".into(),
-                            })
+                            app.broadcast_to_list(
+                                orbitdock_protocol::ServerMessage::SessionEnded {
+                                    session_id: new_thread_id.clone(),
+                                    reason: "direct_session_thread_claimed".into(),
+                                },
+                            )
                             .await;
                         }
                         let _ = persist

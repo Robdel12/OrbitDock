@@ -21,8 +21,8 @@ struct CodexTurnSidebar: View {
 
     var icon: String {
       switch self {
-      case .plan: return "list.bullet.clipboard"
-      case .changes: return "doc.badge.plus"
+        case .plan: "list.bullet.clipboard"
+        case .changes: "doc.badge.plus"
       }
     }
   }
@@ -65,27 +65,27 @@ struct CodexTurnSidebar: View {
       // Content
       Group {
         switch selectedTab {
-        case .plan:
-          if let steps = plan, !steps.isEmpty {
-            planContent(steps: steps)
-          } else {
-            emptyState(
-              icon: "list.bullet.clipboard",
-              title: "No Plan Yet",
-              message: "The agent's plan will appear here when working"
-            )
-          }
+          case .plan:
+            if let steps = plan, !steps.isEmpty {
+              planContent(steps: steps)
+            } else {
+              emptyState(
+                icon: "list.bullet.clipboard",
+                title: "No Plan Yet",
+                message: "The agent's plan will appear here when working"
+              )
+            }
 
-        case .changes:
-          if let diff = diff, !diff.isEmpty {
-            diffContent(diff: diff)
-          } else {
-            emptyState(
-              icon: "doc.badge.plus",
-              title: "No Changes Yet",
-              message: "File changes will appear here during the turn"
-            )
-          }
+          case .changes:
+            if let diff, !diff.isEmpty {
+              diffContent(diff: diff)
+            } else {
+              emptyState(
+                icon: "doc.badge.plus",
+                title: "No Changes Yet",
+                message: "File changes will appear here during the turn"
+              )
+            }
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -93,9 +93,9 @@ struct CodexTurnSidebar: View {
     .background(Color.backgroundSecondary)
     .onAppear {
       // Auto-select tab based on available content
-      if plan != nil && !plan!.isEmpty {
+      if plan != nil, !plan!.isEmpty {
         selectedTab = .plan
-      } else if diff != nil && !diff!.isEmpty {
+      } else if diff != nil, !diff!.isEmpty {
         selectedTab = .changes
       }
     }
@@ -119,7 +119,7 @@ struct CodexTurnSidebar: View {
           .font(.system(size: 11, weight: .medium))
 
         // Badge for content indicator
-        if hasContent && !isSelected {
+        if hasContent, !isSelected {
           Circle()
             .fill(Color.accent)
             .frame(width: 5, height: 5)
@@ -136,7 +136,6 @@ struct CodexTurnSidebar: View {
     .buttonStyle(.plain)
   }
 
-  @ViewBuilder
   private func planContent(steps: [Session.PlanStep]) -> some View {
     ScrollView(.vertical, showsIndicators: true) {
       VStack(alignment: .leading, spacing: 0) {
@@ -205,8 +204,7 @@ struct CodexTurnSidebar: View {
     .background(Color.backgroundPrimary)
   }
 
-  @ViewBuilder
-  private func emptyState(icon: String, title: String , message: String) -> some View {
+  private func emptyState(icon: String, title: String, message: String) -> some View {
     VStack(spacing: 12) {
       Image(systemName: icon)
         .font(.system(size: 32, weight: .light))
@@ -239,15 +237,15 @@ struct CodexTurnSidebar: View {
   private func parseDiffLines(_ diff: String) -> [CodexParsedDiffLine] {
     diff.components(separatedBy: "\n").map { line in
       if line.hasPrefix("+++") || line.hasPrefix("---") {
-        return CodexParsedDiffLine(text: line, type: .header)
+        CodexParsedDiffLine(text: line, type: .header)
       } else if line.hasPrefix("@@") {
-        return CodexParsedDiffLine(text: line, type: .hunk)
+        CodexParsedDiffLine(text: line, type: .hunk)
       } else if line.hasPrefix("+") {
-        return CodexParsedDiffLine(text: line, type: .addition)
+        CodexParsedDiffLine(text: line, type: .addition)
       } else if line.hasPrefix("-") {
-        return CodexParsedDiffLine(text: line, type: .deletion)
+        CodexParsedDiffLine(text: line, type: .deletion)
       } else {
-        return CodexParsedDiffLine(text: line, type: .context)
+        CodexParsedDiffLine(text: line, type: .context)
       }
     }
   }
@@ -307,67 +305,67 @@ private struct PlanStepRow: View {
   @ViewBuilder
   private var statusIcon: some View {
     switch step.status {
-    case "completed":
-      Image(systemName: "checkmark.circle.fill")
-        .font(.system(size: 16, weight: .medium))
-        .foregroundStyle(Color.statusReady)
+      case "completed":
+        Image(systemName: "checkmark.circle.fill")
+          .font(.system(size: 16, weight: .medium))
+          .foregroundStyle(Color.statusReady)
 
-    case "inProgress":
-      ZStack {
-        Circle()
-          .stroke(Color.accent.opacity(0.3), lineWidth: 2)
-        Circle()
-          .trim(from: 0, to: 0.7)
-          .stroke(Color.accent, lineWidth: 2)
-          .rotationEffect(.degrees(-90))
-      }
-      .frame(width: 16, height: 16)
-      .modifier(SpinningModifier())
-
-    case "failed":
-      Image(systemName: "xmark.circle.fill")
-        .font(.system(size: 16, weight: .medium))
-        .foregroundStyle(Color.statusPermission)
-
-    default: // pending
-      Circle()
-        .stroke(Color.secondary.opacity(0.4), lineWidth: 2)
+      case "inProgress":
+        ZStack {
+          Circle()
+            .stroke(Color.accent.opacity(0.3), lineWidth: 2)
+          Circle()
+            .trim(from: 0, to: 0.7)
+            .stroke(Color.accent, lineWidth: 2)
+            .rotationEffect(.degrees(-90))
+        }
         .frame(width: 16, height: 16)
+        .modifier(SpinningModifier())
+
+      case "failed":
+        Image(systemName: "xmark.circle.fill")
+          .font(.system(size: 16, weight: .medium))
+          .foregroundStyle(Color.statusPermission)
+
+      default: // pending
+        Circle()
+          .stroke(Color.secondary.opacity(0.4), lineWidth: 2)
+          .frame(width: 16, height: 16)
     }
   }
 
   private var textColor: Color {
     switch step.status {
-    case "completed": return .primary.opacity(0.6)
-    case "inProgress": return .primary
-    case "failed": return .statusPermission
-    default: return .secondary
+      case "completed": .primary.opacity(0.6)
+      case "inProgress": .primary
+      case "failed": .statusPermission
+      default: .secondary
     }
   }
 
   private var statusLabel: String {
     switch step.status {
-    case "completed": return "Done"
-    case "inProgress": return "In progress..."
-    case "failed": return "Failed"
-    default: return "Pending"
+      case "completed": "Done"
+      case "inProgress": "In progress..."
+      case "failed": "Failed"
+      default: "Pending"
     }
   }
 
   private var statusLabelColor: Color {
     switch step.status {
-    case "completed": return .statusReady.opacity(0.8)
-    case "inProgress": return Color.accent
-    case "failed": return .statusPermission
-    default: return .secondary.opacity(0.6)
+      case "completed": .statusReady.opacity(0.8)
+      case "inProgress": Color.accent
+      case "failed": .statusPermission
+      default: .secondary.opacity(0.6)
     }
   }
 
   private var connectorColor: Color {
     switch step.status {
-    case "completed": return .statusReady.opacity(0.3)
-    case "inProgress": return Color.accent.opacity(0.3)
-    default: return Color.secondary.opacity(0.2)
+      case "completed": .statusReady.opacity(0.3)
+      case "inProgress": Color.accent.opacity(0.3)
+      default: Color.secondary.opacity(0.2)
     }
   }
 }
@@ -403,47 +401,47 @@ private struct DiffLineRow: View {
 
   private var prefix: String {
     switch line.type {
-    case .addition: return "+"
-    case .deletion: return "−"
-    case .hunk: return "@"
-    default: return " "
+      case .addition: "+"
+      case .deletion: "−"
+      case .hunk: "@"
+      default: " "
     }
   }
 
   private var lineContent: String {
     switch line.type {
-    case .addition, .deletion:
-      return String(line.text.dropFirst())
-    default:
-      return line.text
+      case .addition, .deletion:
+        String(line.text.dropFirst())
+      default:
+        line.text
     }
   }
 
   private var prefixColor: Color {
     switch line.type {
-    case .addition: return addedAccent
-    case .deletion: return removedAccent
-    case .hunk: return Color.accent
-    default: return .clear
+      case .addition: addedAccent
+      case .deletion: removedAccent
+      case .hunk: Color.accent
+      default: .clear
     }
   }
 
   private var textColor: Color {
     switch line.type {
-    case .header: return .secondary
-    case .hunk: return Color.accent
-    case .addition: return addedAccent
-    case .deletion: return removedAccent
-    case .context: return .primary.opacity(0.7)
+      case .header: .secondary
+      case .hunk: Color.accent
+      case .addition: addedAccent
+      case .deletion: removedAccent
+      case .context: .primary.opacity(0.7)
     }
   }
 
   private var backgroundColor: Color {
     switch line.type {
-    case .addition: return addedBg
-    case .deletion: return removedBg
-    case .hunk: return Color.accent.opacity(0.05)
-    default: return .clear
+      case .addition: addedBg
+      case .deletion: removedBg
+      case .hunk: Color.accent.opacity(0.05)
+      default: .clear
     }
   }
 }

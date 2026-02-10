@@ -49,16 +49,16 @@ struct SettingsView: View {
       // Content
       Group {
         switch selectedTab {
-        case 0:
-          GeneralSettingsView()
-        case 1:
-          NotificationSettingsView()
-        case 2:
-          SetupSettingsView()
-        case 3:
-          DebugSettingsView()
-        default:
-          GeneralSettingsView()
+          case 0:
+            GeneralSettingsView()
+          case 1:
+            NotificationSettingsView()
+          case 2:
+            SetupSettingsView()
+          case 3:
+            DebugSettingsView()
+          default:
+            GeneralSettingsView()
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -480,7 +480,8 @@ struct SetupSettingsView: View {
   private func isHooksConfigured() -> Bool {
     guard FileManager.default.fileExists(atPath: settingsPath),
           let data = FileManager.default.contents(atPath: settingsPath),
-          let content = String(data: data, encoding: .utf8) else {
+          let content = String(data: data, encoding: .utf8)
+    else {
       return false
     }
     return content.contains("orbitdock-cli")
@@ -512,7 +513,9 @@ struct SetupSettingsView: View {
       "SessionEnd": [{"hooks": [{"type": "command", "command": "\(cliPath) session-end", "async": true}]}],
       "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
       "Stop": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
-      "Notification": {"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]},
+      "Notification": {"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "\(
+        cliPath
+      ) status-tracker", "async": true}]},
       "PreToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
       "PostToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
       "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}]
@@ -641,27 +644,27 @@ struct DebugSettingsView: View {
 
   private var connectionColor: Color {
     switch serverConnection.status {
-    case .connected:
-      return .statusSuccess
-    case .connecting:
-      return .yellow
-    case .disconnected:
-      return .statusEnded
-    case .failed:
-      return .statusError
+      case .connected:
+        .statusSuccess
+      case .connecting:
+        .yellow
+      case .disconnected:
+        .statusEnded
+      case .failed:
+        .statusError
     }
   }
 
   private var connectionText: String {
     switch serverConnection.status {
-    case .connected:
-      return "Connected"
-    case .connecting:
-      return "Connecting..."
-    case .disconnected:
-      return "Disconnected"
-    case .failed(let reason):
-      return "Failed: \(reason)"
+      case .connected:
+        "Connected"
+      case .connecting:
+        "Connecting..."
+      case .disconnected:
+        "Disconnected"
+      case let .failed(reason):
+        "Failed: \(reason)"
     }
   }
 }

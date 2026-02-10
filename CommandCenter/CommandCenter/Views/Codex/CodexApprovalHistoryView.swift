@@ -10,7 +10,9 @@ struct CodexApprovalHistoryView: View {
     case session = "Session"
     case global = "Global"
 
-    var id: String { rawValue }
+    var id: String {
+      rawValue
+    }
   }
 
   let sessionId: String
@@ -19,10 +21,10 @@ struct CodexApprovalHistoryView: View {
 
   private var approvals: [ServerApprovalHistoryItem] {
     let source: [ServerApprovalHistoryItem] = switch scope {
-    case .session:
-      serverState.approvalHistoryBySession[sessionId] ?? []
-    case .global:
-      serverState.globalApprovalHistory
+      case .session:
+        serverState.approvalHistoryBySession[sessionId] ?? []
+      case .global:
+        serverState.globalApprovalHistory
     }
     return source.sorted { $0.id > $1.id }
   }
@@ -63,7 +65,6 @@ struct CodexApprovalHistoryView: View {
     .clipShape(RoundedRectangle(cornerRadius: 10))
   }
 
-  @ViewBuilder
   private func approvalRow(_ approval: ServerApprovalHistoryItem) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 8) {
@@ -80,7 +81,7 @@ struct CodexApprovalHistoryView: View {
             .foregroundStyle(.secondary)
         } else {
           Text("pending")
-          .font(.caption2)
+            .font(.caption2)
             .foregroundStyle(.secondary)
         }
 
@@ -131,12 +132,12 @@ struct CodexApprovalHistoryView: View {
 
   private func decisionLabel(_ decision: String) -> String {
     switch decision {
-      case "approved": return "approved once"
-      case "approved_for_session": return "session-scoped allow"
-      case "approved_always": return "always allow"
-      case "denied": return "denied"
-      case "abort": return "denied & stop"
-      default: return decision
+      case "approved": "approved once"
+      case "approved_for_session": "session-scoped allow"
+      case "approved_always": "always allow"
+      case "denied": "denied"
+      case "abort": "denied & stop"
+      default: decision
     }
   }
 

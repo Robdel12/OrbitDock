@@ -9,7 +9,7 @@ import SwiftUI
 
 struct QuestListView: View {
   let onSelectSession: (String) -> Void
-  var initialQuestId: String? = nil
+  var initialQuestId: String?
 
   @Environment(SessionStore.self) private var db
   @State private var selectedQuest: Quest?
@@ -165,7 +165,6 @@ struct QuestListView: View {
 
   // MARK: - Quest Detail Overlay
 
-  @ViewBuilder
   private func questDetailOverlay(quest: Quest) -> some View {
     ZStack {
       // Backdrop
@@ -367,7 +366,7 @@ struct CreateQuestSheet: View {
           TextField("What is this quest about?", text: $description, axis: .vertical)
             .textFieldStyle(.plain)
             .font(.system(size: 14))
-            .lineLimit(3...6)
+            .lineLimit(3 ... 6)
             .padding(12)
             .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }

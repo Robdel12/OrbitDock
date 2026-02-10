@@ -139,7 +139,12 @@ extension RateLimitWindow {
   }
 
   /// Create a 7-day rolling window
-  static func sevenDay(id: String = "7d", label: String = "7d", utilization: Double, resetsAt: Date?) -> RateLimitWindow {
+  static func sevenDay(
+    id: String = "7d",
+    label: String = "7d",
+    utilization: Double,
+    resetsAt: Date?
+  ) -> RateLimitWindow {
     RateLimitWindow(
       id: id,
       label: label,

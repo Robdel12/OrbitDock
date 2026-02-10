@@ -10,7 +10,7 @@ import SwiftUI
 struct ActiveSessionsSection: View {
   let sessions: [Session]
   let onSelectSession: (String) -> Void
-  var selectedIndex: Int? = nil
+  var selectedIndex: Int?
 
   /// All active sessions sorted by start time (newest first)
   private var activeSessions: [Session] {

@@ -16,11 +16,13 @@ actor DatabaseManager {
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter
   }()
+
   private let iso8601Formatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime]
     return formatter
   }()
+
   private let storageDateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
@@ -157,7 +159,7 @@ actor DatabaseManager {
   /// SessionStore subscribes to this to know when to reload
   nonisolated(unsafe) static var onExternalChange: (() -> Void)?
 
-  // Allow custom path for UI testing
+  /// Allow custom path for UI testing
   nonisolated(unsafe) static var testDatabasePath: String?
 
   private init() {
@@ -477,7 +479,6 @@ actor DatabaseManager {
         codexThreadId <- threadId
       ))
 
-
       return Session(
         id: sessionId,
         projectPath: cwd,
@@ -533,7 +534,12 @@ actor DatabaseManager {
     pendingApprovalId: String? = nil
   ) {
     guard let db else {
-      CodexFileLogger.shared.log(.error, category: .session, message: "updateCodexDirectSessionStatus: no db", sessionId: sessionId)
+      CodexFileLogger.shared.log(
+        .error,
+        category: .session,
+        message: "updateCodexDirectSessionStatus: no db",
+        sessionId: sessionId
+      )
       return
     }
 
@@ -569,10 +575,16 @@ actor DatabaseManager {
       if let row = try? db.pluck(session) {
         let actualWorkStatus = try? row.get(self.workStatus)
         let actualAttention = try? row.get(self.attentionReason)
-        CodexFileLogger.shared.log(.debug, category: .session, message: "DB verification read", sessionId: sessionId, data: [
-          "actualWorkStatus": actualWorkStatus ?? "nil",
-          "actualAttention": actualAttention ?? "nil",
-        ])
+        CodexFileLogger.shared.log(
+          .debug,
+          category: .session,
+          message: "DB verification read",
+          sessionId: sessionId,
+          data: [
+            "actualWorkStatus": actualWorkStatus ?? "nil",
+            "actualAttention": actualAttention ?? "nil",
+          ]
+        )
       }
 
     } catch {
@@ -1147,6 +1159,7 @@ actor DatabaseManager {
       return nil
     }
   }
+
   // MARK: - Quest Operations
 
   func fetchQuests(status: Quest.Status? = nil) -> [Quest] {
@@ -1221,7 +1234,6 @@ actor DatabaseManager {
         questUpdatedAt <- now
       ))
 
-
       return Quest(
         id: newId,
         name: name,
@@ -1237,7 +1249,13 @@ actor DatabaseManager {
     }
   }
 
-  func updateQuest(id questIdValue: String, name: String? = nil, description: String? = nil, status: Quest.Status? = nil, color: String? = nil) {
+  func updateQuest(
+    id questIdValue: String,
+    name: String? = nil,
+    description: String? = nil,
+    status: Quest.Status? = nil,
+    color: String? = nil
+  ) {
     guard let db else { return }
 
     let quest = quests.filter(questId == questIdValue)
@@ -1334,7 +1352,6 @@ actor DatabaseManager {
         inboxStatus <- InboxItem.Status.pending.rawValue,
         inboxCreatedAt <- now
       ))
-
 
       return InboxItem(
         id: newId,
@@ -1623,7 +1640,6 @@ actor DatabaseManager {
         linkCreatedAt <- now
       ))
 
-
       return QuestLink(
         id: newId,
         questId: questIdValue,
@@ -1694,7 +1710,6 @@ actor DatabaseManager {
         noteCreatedAt <- now,
         noteUpdatedAt <- now
       ))
-
 
       return QuestNote(
         id: newId,

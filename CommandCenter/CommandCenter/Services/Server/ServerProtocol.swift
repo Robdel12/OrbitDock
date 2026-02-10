@@ -54,7 +54,7 @@ struct ServerMessage: Codable, Identifiable {
   let type: ServerMessageType
   let content: String
   let toolName: String?
-  let toolInput: String?  // JSON string
+  let toolInput: String? // JSON string
   let toolOutput: String?
   let isError: Bool
   let timestamp: String
@@ -77,7 +77,8 @@ struct ServerMessage: Codable, Identifiable {
   var toolInputDict: [String: Any]? {
     guard let json = toolInput,
           let data = json.data(using: .utf8),
-          let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+          let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    else {
       return nil
     }
     return dict
@@ -353,75 +354,75 @@ enum ServerToClientMessage: Codable {
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
-    case "sessions_list":
-      let sessions = try container.decode([ServerSessionSummary].self, forKey: .sessions)
-      self = .sessionsList(sessions: sessions)
+      case "sessions_list":
+        let sessions = try container.decode([ServerSessionSummary].self, forKey: .sessions)
+        self = .sessionsList(sessions: sessions)
 
-    case "session_snapshot":
-      let session = try container.decode(ServerSessionState.self, forKey: .session)
-      self = .sessionSnapshot(session: session)
+      case "session_snapshot":
+        let session = try container.decode(ServerSessionState.self, forKey: .session)
+        self = .sessionSnapshot(session: session)
 
-    case "session_delta":
-      let sessionId = try container.decode(String.self, forKey: .sessionId)
-      let changes = try container.decode(ServerStateChanges.self, forKey: .changes)
-      self = .sessionDelta(sessionId: sessionId, changes: changes)
+      case "session_delta":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let changes = try container.decode(ServerStateChanges.self, forKey: .changes)
+        self = .sessionDelta(sessionId: sessionId, changes: changes)
 
-    case "message_appended":
-      let sessionId = try container.decode(String.self, forKey: .sessionId)
-      let message = try container.decode(ServerMessage.self, forKey: .message)
-      self = .messageAppended(sessionId: sessionId, message: message)
+      case "message_appended":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let message = try container.decode(ServerMessage.self, forKey: .message)
+        self = .messageAppended(sessionId: sessionId, message: message)
 
-    case "message_updated":
-      let sessionId = try container.decode(String.self, forKey: .sessionId)
-      let messageId = try container.decode(String.self, forKey: .messageId)
-      let changes = try container.decode(ServerMessageChanges.self, forKey: .changes)
-      self = .messageUpdated(sessionId: sessionId, messageId: messageId, changes: changes)
+      case "message_updated":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let messageId = try container.decode(String.self, forKey: .messageId)
+        let changes = try container.decode(ServerMessageChanges.self, forKey: .changes)
+        self = .messageUpdated(sessionId: sessionId, messageId: messageId, changes: changes)
 
-    case "approval_requested":
-      let sessionId = try container.decode(String.self, forKey: .sessionId)
-      let request = try container.decode(ServerApprovalRequest.self, forKey: .request)
-      self = .approvalRequested(sessionId: sessionId, request: request)
+      case "approval_requested":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let request = try container.decode(ServerApprovalRequest.self, forKey: .request)
+        self = .approvalRequested(sessionId: sessionId, request: request)
 
-    case "tokens_updated":
-      let sessionId = try container.decode(String.self, forKey: .sessionId)
-      let usage = try container.decode(ServerTokenUsage.self, forKey: .usage)
-      self = .tokensUpdated(sessionId: sessionId, usage: usage)
+      case "tokens_updated":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let usage = try container.decode(ServerTokenUsage.self, forKey: .usage)
+        self = .tokensUpdated(sessionId: sessionId, usage: usage)
 
-    case "session_created":
-      let session = try container.decode(ServerSessionSummary.self, forKey: .session)
-      self = .sessionCreated(session: session)
+      case "session_created":
+        let session = try container.decode(ServerSessionSummary.self, forKey: .session)
+        self = .sessionCreated(session: session)
 
-    case "session_ended":
-      let sessionId = try container.decode(String.self, forKey: .sessionId)
-      let reason = try container.decode(String.self, forKey: .reason)
-      self = .sessionEnded(sessionId: sessionId, reason: reason)
+      case "session_ended":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let reason = try container.decode(String.self, forKey: .reason)
+        self = .sessionEnded(sessionId: sessionId, reason: reason)
 
-    case "approvals_list":
-      let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
-      let approvals = try container.decode([ServerApprovalHistoryItem].self, forKey: .approvals)
-      self = .approvalsList(sessionId: sessionId, approvals: approvals)
+      case "approvals_list":
+        let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        let approvals = try container.decode([ServerApprovalHistoryItem].self, forKey: .approvals)
+        self = .approvalsList(sessionId: sessionId, approvals: approvals)
 
-    case "approval_deleted":
-      let approvalId = try container.decode(Int64.self, forKey: .approvalId)
-      self = .approvalDeleted(approvalId: approvalId)
+      case "approval_deleted":
+        let approvalId = try container.decode(Int64.self, forKey: .approvalId)
+        self = .approvalDeleted(approvalId: approvalId)
 
-    case "models_list":
-      let models = try container.decode([ServerCodexModelOption].self, forKey: .models)
-      self = .modelsList(models: models)
+      case "models_list":
+        let models = try container.decode([ServerCodexModelOption].self, forKey: .models)
+        self = .modelsList(models: models)
 
-    case "error":
-      let code = try container.decode(String.self, forKey: .code)
-      let message = try container.decode(String.self, forKey: .message)
-      let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
-      self = .error(code: code, message: message, sessionId: sessionId)
+      case "error":
+        let code = try container.decode(String.self, forKey: .code)
+        let message = try container.decode(String.self, forKey: .message)
+        let sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        self = .error(code: code, message: message, sessionId: sessionId)
 
-    default:
-      throw DecodingError.dataCorrupted(
-        DecodingError.Context(
-          codingPath: container.codingPath,
-          debugDescription: "Unknown message type: \(type)"
+      default:
+        throw DecodingError.dataCorrupted(
+          DecodingError.Context(
+            codingPath: container.codingPath,
+            debugDescription: "Unknown message type: \(type)"
+          )
         )
-      )
     }
   }
 
@@ -429,67 +430,67 @@ enum ServerToClientMessage: Codable {
     var container = encoder.container(keyedBy: CodingKeys.self)
 
     switch self {
-    case .sessionsList(let sessions):
-      try container.encode("sessions_list", forKey: .type)
-      try container.encode(sessions, forKey: .sessions)
+      case let .sessionsList(sessions):
+        try container.encode("sessions_list", forKey: .type)
+        try container.encode(sessions, forKey: .sessions)
 
-    case .sessionSnapshot(let session):
-      try container.encode("session_snapshot", forKey: .type)
-      try container.encode(session, forKey: .session)
+      case let .sessionSnapshot(session):
+        try container.encode("session_snapshot", forKey: .type)
+        try container.encode(session, forKey: .session)
 
-    case .sessionDelta(let sessionId, let changes):
-      try container.encode("session_delta", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(changes, forKey: .changes)
+      case let .sessionDelta(sessionId, changes):
+        try container.encode("session_delta", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(changes, forKey: .changes)
 
-    case .messageAppended(let sessionId, let message):
-      try container.encode("message_appended", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(message, forKey: .message)
+      case let .messageAppended(sessionId, message):
+        try container.encode("message_appended", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(message, forKey: .message)
 
-    case .messageUpdated(let sessionId, let messageId, let changes):
-      try container.encode("message_updated", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(messageId, forKey: .messageId)
-      try container.encode(changes, forKey: .changes)
+      case let .messageUpdated(sessionId, messageId, changes):
+        try container.encode("message_updated", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(messageId, forKey: .messageId)
+        try container.encode(changes, forKey: .changes)
 
-    case .approvalRequested(let sessionId, let request):
-      try container.encode("approval_requested", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(request, forKey: .request)
+      case let .approvalRequested(sessionId, request):
+        try container.encode("approval_requested", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(request, forKey: .request)
 
-    case .tokensUpdated(let sessionId, let usage):
-      try container.encode("tokens_updated", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(usage, forKey: .usage)
+      case let .tokensUpdated(sessionId, usage):
+        try container.encode("tokens_updated", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(usage, forKey: .usage)
 
-    case .sessionCreated(let session):
-      try container.encode("session_created", forKey: .type)
-      try container.encode(session, forKey: .session)
+      case let .sessionCreated(session):
+        try container.encode("session_created", forKey: .type)
+        try container.encode(session, forKey: .session)
 
-    case .sessionEnded(let sessionId, let reason):
-      try container.encode("session_ended", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(reason, forKey: .reason)
+      case let .sessionEnded(sessionId, reason):
+        try container.encode("session_ended", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(reason, forKey: .reason)
 
-    case .approvalsList(let sessionId, let approvals):
-      try container.encode("approvals_list", forKey: .type)
-      try container.encodeIfPresent(sessionId, forKey: .sessionId)
-      try container.encode(approvals, forKey: .approvals)
+      case let .approvalsList(sessionId, approvals):
+        try container.encode("approvals_list", forKey: .type)
+        try container.encodeIfPresent(sessionId, forKey: .sessionId)
+        try container.encode(approvals, forKey: .approvals)
 
-    case .approvalDeleted(let approvalId):
-      try container.encode("approval_deleted", forKey: .type)
-      try container.encode(approvalId, forKey: .approvalId)
+      case let .approvalDeleted(approvalId):
+        try container.encode("approval_deleted", forKey: .type)
+        try container.encode(approvalId, forKey: .approvalId)
 
-    case .modelsList(let models):
-      try container.encode("models_list", forKey: .type)
-      try container.encode(models, forKey: .models)
+      case let .modelsList(models):
+        try container.encode("models_list", forKey: .type)
+        try container.encode(models, forKey: .models)
 
-    case .error(let code, let message, let sessionId):
-      try container.encode("error", forKey: .type)
-      try container.encode(code, forKey: .code)
-      try container.encode(message, forKey: .message)
-      try container.encodeIfPresent(sessionId, forKey: .sessionId)
+      case let .error(code, message, sessionId):
+        try container.encode("error", forKey: .type)
+        try container.encode(code, forKey: .code)
+        try container.encode(message, forKey: .message)
+        try container.encodeIfPresent(sessionId, forKey: .sessionId)
     }
   }
 }
@@ -500,7 +501,13 @@ enum ClientToServerMessage: Codable {
   case subscribeList
   case subscribeSession(sessionId: String)
   case unsubscribeSession(sessionId: String)
-  case createSession(provider: ServerProvider, cwd: String, model: String?, approvalPolicy: String?, sandboxMode: String?)
+  case createSession(
+    provider: ServerProvider,
+    cwd: String,
+    model: String?,
+    approvalPolicy: String?,
+    sandboxMode: String?
+  )
   case sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil)
   case approveTool(sessionId: String, requestId: String, decision: String)
   case answerQuestion(sessionId: String, requestId: String, answer: String)
@@ -535,78 +542,78 @@ enum ClientToServerMessage: Codable {
     var container = encoder.container(keyedBy: CodingKeys.self)
 
     switch self {
-    case .subscribeList:
-      try container.encode("subscribe_list", forKey: .type)
+      case .subscribeList:
+        try container.encode("subscribe_list", forKey: .type)
 
-    case .subscribeSession(let sessionId):
-      try container.encode("subscribe_session", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
+      case let .subscribeSession(sessionId):
+        try container.encode("subscribe_session", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
 
-    case .unsubscribeSession(let sessionId):
-      try container.encode("unsubscribe_session", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
+      case let .unsubscribeSession(sessionId):
+        try container.encode("unsubscribe_session", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
 
-    case .createSession(let provider, let cwd, let model, let approvalPolicy, let sandboxMode):
-      try container.encode("create_session", forKey: .type)
-      try container.encode(provider, forKey: .provider)
-      try container.encode(cwd, forKey: .cwd)
-      try container.encodeIfPresent(model, forKey: .model)
-      try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
-      try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+      case let .createSession(provider, cwd, model, approvalPolicy, sandboxMode):
+        try container.encode("create_session", forKey: .type)
+        try container.encode(provider, forKey: .provider)
+        try container.encode(cwd, forKey: .cwd)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
 
-    case .sendMessage(let sessionId, let content, let model, let effort):
-      try container.encode("send_message", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(content, forKey: .content)
-      try container.encodeIfPresent(model, forKey: .model)
-      try container.encodeIfPresent(effort, forKey: .effort)
+      case let .sendMessage(sessionId, content, model, effort):
+        try container.encode("send_message", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(content, forKey: .content)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(effort, forKey: .effort)
 
-    case .approveTool(let sessionId, let requestId, let decision):
-      try container.encode("approve_tool", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(requestId, forKey: .requestId)
-      try container.encode(decision, forKey: .decision)
+      case let .approveTool(sessionId, requestId, decision):
+        try container.encode("approve_tool", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(decision, forKey: .decision)
 
-    case .answerQuestion(let sessionId, let requestId, let answer):
-      try container.encode("answer_question", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encode(requestId, forKey: .requestId)
-      try container.encode(answer, forKey: .answer)
+      case let .answerQuestion(sessionId, requestId, answer):
+        try container.encode("answer_question", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(answer, forKey: .answer)
 
-    case .interruptSession(let sessionId):
-      try container.encode("interrupt_session", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
+      case let .interruptSession(sessionId):
+        try container.encode("interrupt_session", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
 
-    case .endSession(let sessionId):
-      try container.encode("end_session", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
+      case let .endSession(sessionId):
+        try container.encode("end_session", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
 
-    case .updateSessionConfig(let sessionId, let approvalPolicy, let sandboxMode):
-      try container.encode("update_session_config", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
-      try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+      case let .updateSessionConfig(sessionId, approvalPolicy, sandboxMode):
+        try container.encode("update_session_config", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
 
-    case .renameSession(let sessionId, let name):
-      try container.encode("rename_session", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
-      try container.encodeIfPresent(name, forKey: .name)
+      case let .renameSession(sessionId, name):
+        try container.encode("rename_session", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(name, forKey: .name)
 
-    case .resumeSession(let sessionId):
-      try container.encode("resume_session", forKey: .type)
-      try container.encode(sessionId, forKey: .sessionId)
+      case let .resumeSession(sessionId):
+        try container.encode("resume_session", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
 
-    case .listApprovals(let sessionId, let limit):
-      try container.encode("list_approvals", forKey: .type)
-      try container.encodeIfPresent(sessionId, forKey: .sessionId)
-      try container.encodeIfPresent(limit, forKey: .limit)
+      case let .listApprovals(sessionId, limit):
+        try container.encode("list_approvals", forKey: .type)
+        try container.encodeIfPresent(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(limit, forKey: .limit)
 
-    case .deleteApproval(let approvalId):
-      try container.encode("delete_approval", forKey: .type)
-      try container.encode(approvalId, forKey: .approvalId)
+      case let .deleteApproval(approvalId):
+        try container.encode("delete_approval", forKey: .type)
+        try container.encode(approvalId, forKey: .approvalId)
 
-    case .listModels:
-      try container.encode("list_models", forKey: .type)
+      case .listModels:
+        try container.encode("list_models", forKey: .type)
     }
   }
 
@@ -615,72 +622,72 @@ enum ClientToServerMessage: Codable {
     let type = try container.decode(String.self, forKey: .type)
 
     switch type {
-    case "subscribe_list":
-      self = .subscribeList
-    case "subscribe_session":
-      self = .subscribeSession(sessionId: try container.decode(String.self, forKey: .sessionId))
-    case "unsubscribe_session":
-      self = .unsubscribeSession(sessionId: try container.decode(String.self, forKey: .sessionId))
-    case "create_session":
-      self = .createSession(
-        provider: try container.decode(ServerProvider.self, forKey: .provider),
-        cwd: try container.decode(String.self, forKey: .cwd),
-        model: try container.decodeIfPresent(String.self, forKey: .model),
-        approvalPolicy: try container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-        sandboxMode: try container.decodeIfPresent(String.self, forKey: .sandboxMode)
-      )
-    case "send_message":
-      self = .sendMessage(
-        sessionId: try container.decode(String.self, forKey: .sessionId),
-        content: try container.decode(String.self, forKey: .content),
-        model: try container.decodeIfPresent(String.self, forKey: .model),
-        effort: try container.decodeIfPresent(String.self, forKey: .effort)
-      )
-    case "approve_tool":
-      self = .approveTool(
-        sessionId: try container.decode(String.self, forKey: .sessionId),
-        requestId: try container.decode(String.self, forKey: .requestId),
-        decision: try container.decode(String.self, forKey: .decision)
-      )
-    case "answer_question":
-      self = .answerQuestion(
-        sessionId: try container.decode(String.self, forKey: .sessionId),
-        requestId: try container.decode(String.self, forKey: .requestId),
-        answer: try container.decode(String.self, forKey: .answer)
-      )
-    case "interrupt_session":
-      self = .interruptSession(sessionId: try container.decode(String.self, forKey: .sessionId))
-    case "end_session":
-      self = .endSession(sessionId: try container.decode(String.self, forKey: .sessionId))
-    case "update_session_config":
-      self = .updateSessionConfig(
-        sessionId: try container.decode(String.self, forKey: .sessionId),
-        approvalPolicy: try container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-        sandboxMode: try container.decodeIfPresent(String.self, forKey: .sandboxMode)
-      )
-    case "rename_session":
-      self = .renameSession(
-        sessionId: try container.decode(String.self, forKey: .sessionId),
-        name: try container.decodeIfPresent(String.self, forKey: .name)
-      )
-    case "resume_session":
-      self = .resumeSession(sessionId: try container.decode(String.self, forKey: .sessionId))
-    case "list_approvals":
-      self = .listApprovals(
-        sessionId: try container.decodeIfPresent(String.self, forKey: .sessionId),
-        limit: try container.decodeIfPresent(Int.self, forKey: .limit)
-      )
-    case "delete_approval":
-      self = .deleteApproval(approvalId: try container.decode(Int64.self, forKey: .approvalId))
-    case "list_models":
-      self = .listModels
-    default:
-      throw DecodingError.dataCorrupted(
-        DecodingError.Context(
-          codingPath: container.codingPath,
-          debugDescription: "Unknown message type: \(type)"
+      case "subscribe_list":
+        self = .subscribeList
+      case "subscribe_session":
+        self = try .subscribeSession(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "unsubscribe_session":
+        self = try .unsubscribeSession(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "create_session":
+        self = try .createSession(
+          provider: container.decode(ServerProvider.self, forKey: .provider),
+          cwd: container.decode(String.self, forKey: .cwd),
+          model: container.decodeIfPresent(String.self, forKey: .model),
+          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
+          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode)
         )
-      )
+      case "send_message":
+        self = try .sendMessage(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          content: container.decode(String.self, forKey: .content),
+          model: container.decodeIfPresent(String.self, forKey: .model),
+          effort: container.decodeIfPresent(String.self, forKey: .effort)
+        )
+      case "approve_tool":
+        self = try .approveTool(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          requestId: container.decode(String.self, forKey: .requestId),
+          decision: container.decode(String.self, forKey: .decision)
+        )
+      case "answer_question":
+        self = try .answerQuestion(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          requestId: container.decode(String.self, forKey: .requestId),
+          answer: container.decode(String.self, forKey: .answer)
+        )
+      case "interrupt_session":
+        self = try .interruptSession(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "end_session":
+        self = try .endSession(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "update_session_config":
+        self = try .updateSessionConfig(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
+          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode)
+        )
+      case "rename_session":
+        self = try .renameSession(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          name: container.decodeIfPresent(String.self, forKey: .name)
+        )
+      case "resume_session":
+        self = try .resumeSession(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "list_approvals":
+        self = try .listApprovals(
+          sessionId: container.decodeIfPresent(String.self, forKey: .sessionId),
+          limit: container.decodeIfPresent(Int.self, forKey: .limit)
+        )
+      case "delete_approval":
+        self = try .deleteApproval(approvalId: container.decode(Int64.self, forKey: .approvalId))
+      case "list_models":
+        self = .listModels
+      default:
+        throw DecodingError.dataCorrupted(
+          DecodingError.Context(
+            codingPath: container.codingPath,
+            debugDescription: "Unknown message type: \(type)"
+          )
+        )
     }
   }
 }

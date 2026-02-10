@@ -5,8 +5,8 @@
 //  Manages in-app toast notifications for session status changes
 //
 
-import SwiftUI
 import Combine
+import SwiftUI
 
 @MainActor
 class ToastManager: ObservableObject {
@@ -72,20 +72,22 @@ class ToastManager: ObservableObject {
 
   /// Check sessions for status changes and show toasts as needed
   func checkForAttentionChanges(sessions: [Session], previousSessions: [Session]) {
-    let previousStates = Dictionary(uniqueKeysWithValues: previousSessions.map { ($0.id, SessionDisplayStatus.from($0)) })
+    let previousStates = Dictionary(uniqueKeysWithValues: previousSessions
+      .map { ($0.id, SessionDisplayStatus.from($0)) })
 
     for session in sessions {
       let currentStatus = SessionDisplayStatus.from(session)
       let previousStatus = previousStates[session.id]
 
       // Session transitioned TO needing attention
-      if (currentStatus == .permission || currentStatus == .question) &&
-         previousStatus != currentStatus {
+      if currentStatus == .permission || currentStatus == .question,
+         previousStatus != currentStatus
+      {
         showToast(for: session)
       }
 
       // Session no longer needs attention - clear tracking
-      if currentStatus != .permission && currentStatus != .question {
+      if currentStatus != .permission, currentStatus != .question {
         clearNotification(for: session.id)
       }
     }

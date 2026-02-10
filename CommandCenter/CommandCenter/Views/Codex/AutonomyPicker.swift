@@ -16,7 +16,9 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
   case fullAuto
   case fullAccess
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {
@@ -76,15 +78,15 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
   static func from(approvalPolicy: String?, sandboxMode: String?) -> AutonomyLevel {
     switch (approvalPolicy, sandboxMode) {
       case (nil, nil), ("untrusted", _):
-        return .suggest
+        .suggest
       case ("on-request", _):
-        return .autoEdit
+        .autoEdit
       case ("never", "danger-full-access"):
-        return .fullAccess
+        .fullAccess
       case ("never", _):
-        return .fullAuto
+        .fullAuto
       default:
-        return .suggest
+        .suggest
     }
   }
 }

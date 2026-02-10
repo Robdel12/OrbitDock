@@ -18,7 +18,7 @@ enum ConnectionStatus: Equatable {
   case disconnected
   case connecting
   case connected
-  case failed(String)  // Connection failed, not retrying
+  case failed(String) // Connection failed, not retrying
 }
 
 /// WebSocket connection to OrbitDock server
@@ -61,12 +61,12 @@ final class ServerConnection: ObservableObject {
   /// Connect to the server (retries up to maxConnectAttempts, then gives up)
   func connect() {
     switch status {
-    case .disconnected, .failed:
-      // OK to connect
-      connectAttempts = 0
-    case .connecting, .connected:
-      logger.debug("Already connected or connecting")
-      return
+      case .disconnected, .failed:
+        // OK to connect
+        connectAttempts = 0
+      case .connecting, .connected:
+        logger.debug("Already connected or connecting")
+        return
     }
 
     attemptConnect()
@@ -91,8 +91,8 @@ final class ServerConnection: ObservableObject {
     session?.invalidateAndCancel()
 
     let configuration = URLSessionConfiguration.default
-    configuration.timeoutIntervalForRequest = 5  // 5 second connect timeout
-    configuration.timeoutIntervalForResource = 0  // No resource timeout (WebSocket is long-lived)
+    configuration.timeoutIntervalForRequest = 5 // 5 second connect timeout
+    configuration.timeoutIntervalForResource = 0 // No resource timeout (WebSocket is long-lived)
     session = URLSession(configuration: configuration)
 
     webSocket = session?.webSocketTask(with: serverURL)
@@ -177,14 +177,14 @@ final class ServerConnection: ObservableObject {
         }
 
         switch message {
-        case .string(let text):
-          handleMessage(text)
-        case .data(let data):
-          if let text = String(data: data, encoding: .utf8) {
+          case let .string(text):
             handleMessage(text)
-          }
-        @unknown default:
-          break
+          case let .data(data):
+            if let text = String(data: data, encoding: .utf8) {
+              handleMessage(text)
+            }
+          @unknown default:
+            break
         }
       } catch {
         logger.error("Receive error: \(error.localizedDescription)")
@@ -217,46 +217,46 @@ final class ServerConnection: ObservableObject {
     logger.info("Server message: \(String(describing: message).prefix(200))")
 
     switch message {
-    case .sessionsList(let sessions):
-      logger.info("Received sessions list: \(sessions.count) sessions")
-      onSessionsList?(sessions)
+      case let .sessionsList(sessions):
+        logger.info("Received sessions list: \(sessions.count) sessions")
+        onSessionsList?(sessions)
 
-    case .sessionSnapshot(let session):
-      onSessionSnapshot?(session)
+      case let .sessionSnapshot(session):
+        onSessionSnapshot?(session)
 
-    case .sessionDelta(let sessionId, let changes):
-      onSessionDelta?(sessionId, changes)
+      case let .sessionDelta(sessionId, changes):
+        onSessionDelta?(sessionId, changes)
 
-    case .messageAppended(let sessionId, let message):
-      onMessageAppended?(sessionId, message)
+      case let .messageAppended(sessionId, message):
+        onMessageAppended?(sessionId, message)
 
-    case .messageUpdated(let sessionId, let messageId, let changes):
-      onMessageUpdated?(sessionId, messageId, changes)
+      case let .messageUpdated(sessionId, messageId, changes):
+        onMessageUpdated?(sessionId, messageId, changes)
 
-    case .approvalRequested(let sessionId, let request):
-      onApprovalRequested?(sessionId, request)
+      case let .approvalRequested(sessionId, request):
+        onApprovalRequested?(sessionId, request)
 
-    case .tokensUpdated(let sessionId, let usage):
-      onTokensUpdated?(sessionId, usage)
+      case let .tokensUpdated(sessionId, usage):
+        onTokensUpdated?(sessionId, usage)
 
-    case .sessionCreated(let session):
-      onSessionCreated?(session)
+      case let .sessionCreated(session):
+        onSessionCreated?(session)
 
-    case .sessionEnded(let sessionId, let reason):
-      onSessionEnded?(sessionId, reason)
+      case let .sessionEnded(sessionId, reason):
+        onSessionEnded?(sessionId, reason)
 
-    case .approvalsList(let sessionId, let approvals):
-      onApprovalsList?(sessionId, approvals)
+      case let .approvalsList(sessionId, approvals):
+        onApprovalsList?(sessionId, approvals)
 
-    case .approvalDeleted(let approvalId):
-      onApprovalDeleted?(approvalId)
+      case let .approvalDeleted(approvalId):
+        onApprovalDeleted?(approvalId)
 
-    case .modelsList(let models):
-      onModelsList?(models)
+      case let .modelsList(models):
+        onModelsList?(models)
 
-    case .error(let code, let errorMessage, let sessionId):
-      logger.error("Server error [\(code)]: \(errorMessage)")
-      onError?(code, errorMessage, sessionId)
+      case let .error(code, errorMessage, sessionId):
+        logger.error("Server error [\(code)]: \(errorMessage)")
+        onError?(code, errorMessage, sessionId)
     }
   }
 
@@ -302,8 +302,20 @@ final class ServerConnection: ObservableObject {
   }
 
   /// Create a new session
-  func createSession(provider: ServerProvider, cwd: String, model: String? = nil, approvalPolicy: String? = nil, sandboxMode: String? = nil) {
-    send(.createSession(provider: provider, cwd: cwd, model: model, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode))
+  func createSession(
+    provider: ServerProvider,
+    cwd: String,
+    model: String? = nil,
+    approvalPolicy: String? = nil,
+    sandboxMode: String? = nil
+  ) {
+    send(.createSession(
+      provider: provider,
+      cwd: cwd,
+      model: model,
+      approvalPolicy: approvalPolicy,
+      sandboxMode: sandboxMode
+    ))
   }
 
   /// Send a message to a session with optional per-turn overrides

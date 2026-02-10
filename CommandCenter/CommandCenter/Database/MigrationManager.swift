@@ -7,8 +7,8 @@
 //
 
 import Foundation
-import SQLite
 import os.log
+import SQLite
 
 private nonisolated(unsafe) let logger = Logger(subsystem: "com.orbitdock", category: "migrations")
 
@@ -17,7 +17,9 @@ struct Migration: Identifiable, Sendable {
   let name: String
   let sql: String
 
-  nonisolated var version: Int { id }
+  nonisolated var version: Int {
+    id
+  }
 }
 
 final class MigrationManager: @unchecked Sendable {
@@ -164,7 +166,8 @@ final class MigrationManager: @unchecked Sendable {
         applied.append(migration)
         logger.info("Successfully applied migration \(migration.version): \(migration.name)")
       } catch {
-        logger.error("Failed to apply migration \(migration.version) (\(migration.name)): \(error.localizedDescription)")
+        logger
+          .error("Failed to apply migration \(migration.version) (\(migration.name)): \(error.localizedDescription)")
         break // Stop on first failure
       }
     }

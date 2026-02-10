@@ -1276,7 +1276,10 @@ struct QuickLinkToQuestSheet: View {
               }
               .padding(.vertical, 10)
               .padding(.horizontal, 12)
-              .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(
+                Color.backgroundTertiary.opacity(0.5),
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              )
             }
             .buttonStyle(.plain)
           }

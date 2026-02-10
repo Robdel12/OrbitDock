@@ -492,9 +492,9 @@ struct QuestDetailView: View {
 
   private func statusColor(for quest: Quest) -> Color {
     switch quest.status {
-    case .active: Color.accent
-    case .paused: Color.statusReply
-    case .completed: Color.statusEnded
+      case .active: Color.accent
+      case .paused: Color.statusReply
+      case .completed: Color.statusEnded
     }
   }
 
@@ -664,10 +664,10 @@ struct QuestLinkRow: View {
 
   private var sourceColor: Color {
     switch link.source {
-    case .githubPR: Color.green
-    case .githubIssue: Color.green
-    case .linear: Color.purple
-    case .planFile: Color.orange
+      case .githubPR: Color.green
+      case .githubIssue: Color.green
+      case .linear: Color.purple
+      case .planFile: Color.orange
     }
   }
 }
@@ -737,9 +737,9 @@ struct AddLinkSheet: View {
 
   private var canAdd: Bool {
     if isPlanType {
-      return !planPath.trimmingCharacters(in: .whitespaces).isEmpty
+      !planPath.trimmingCharacters(in: .whitespaces).isEmpty
     } else {
-      return !url.trimmingCharacters(in: .whitespaces).isEmpty
+      !url.trimmingCharacters(in: .whitespaces).isEmpty
     }
   }
 
@@ -894,7 +894,8 @@ struct AddLinkSheet: View {
     // Try to start in a plan/ directory if we can find one
     // Use the cached quest from allQuests (observable state)
     if let quest = db.allQuests.first(where: { $0.id == questId }),
-       let session = quest.sessions?.first {
+       let session = quest.sessions?.first
+    {
       let planDir = URL(fileURLWithPath: session.projectPath).appendingPathComponent("plan")
       if FileManager.default.fileExists(atPath: planDir.path) {
         panel.directoryURL = planDir
@@ -918,11 +919,10 @@ struct AddLinkSheet: View {
   private func addLink() {
     let trimmedTitle = title.trimmingCharacters(in: .whitespaces)
 
-    let linkUrl: String
-    if isPlanType {
-      linkUrl = "file://" + planPath.trimmingCharacters(in: .whitespaces)
+    let linkUrl: String = if isPlanType {
+      "file://" + planPath.trimmingCharacters(in: .whitespaces)
     } else {
-      linkUrl = url.trimmingCharacters(in: .whitespaces)
+      url.trimmingCharacters(in: .whitespaces)
     }
 
     Task {
@@ -956,7 +956,7 @@ struct LinkSessionSheet: View {
     }
     return sessions.filter { session in
       session.displayName.localizedCaseInsensitiveContains(searchText) ||
-      session.projectPath.localizedCaseInsensitiveContains(searchText)
+        session.projectPath.localizedCaseInsensitiveContains(searchText)
     }
   }
 
@@ -1032,7 +1032,10 @@ struct LinkSessionSheet: View {
               }
               .padding(.vertical, 8)
               .padding(.horizontal, 12)
-              .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(
+                Color.backgroundTertiary.opacity(0.5),
+                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              )
             }
             .buttonStyle(.plain)
           }
@@ -1131,7 +1134,9 @@ struct QuestNoteSheet: View {
 
   private let db = SessionStore.shared
 
-  private var isEditing: Bool { note != nil }
+  private var isEditing: Bool {
+    note != nil
+  }
 
   var body: some View {
     VStack(spacing: 0) {

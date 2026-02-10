@@ -30,7 +30,8 @@ struct CodexInputBar: View {
 
   private var defaultModelSelection: String {
     if let current = serverState.sessions.first(where: { $0.id == sessionId })?.model,
-       modelOptions.contains(where: { $0.model == current }) {
+       modelOptions.contains(where: { $0.model == current })
+    {
       return current
     }
     if let model = modelOptions.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {
@@ -127,7 +128,7 @@ struct CodexInputBar: View {
           }
 
         // Override indicator (when collapsed and overrides active)
-        if !showConfig && hasOverrides {
+        if !showConfig, hasOverrides {
           overrideBadge
         }
 

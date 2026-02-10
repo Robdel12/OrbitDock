@@ -27,8 +27,8 @@ struct ConversationView: View {
   @State private var loadedSessionId: String?
   @State private var displayedCount: Int = 50
   @State private var fileMonitor: DispatchSourceFileSystemObject?
-  @State private var isVisible = false  // Track visibility to avoid background work
-  @State private var needsRefreshOnVisible = false  // Flag when we missed updates while hidden
+  @State private var isVisible = false // Track visibility to avoid background work
+  @State private var needsRefreshOnVisible = false // Flag when we missed updates while hidden
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool

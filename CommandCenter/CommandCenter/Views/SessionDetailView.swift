@@ -463,9 +463,9 @@ struct SessionDetailView: View {
   /// Icon for the turn sidebar toggle button
   private var turnSidebarIcon: String {
     if serverState.getPlanSteps(sessionId: session.id) != nil {
-      return "list.bullet.clipboard"
+      "list.bullet.clipboard"
     } else {
-      return "doc.badge.plus"
+      "doc.badge.plus"
     }
   }
 

@@ -28,31 +28,50 @@ struct Quest: Identifiable, Hashable {
 
     var label: String {
       switch self {
-      case .active: "Active"
-      case .paused: "Paused"
-      case .completed: "Completed"
+        case .active: "Active"
+        case .paused: "Paused"
+        case .completed: "Completed"
       }
     }
 
     var icon: String {
       switch self {
-      case .active: "bolt.fill"
-      case .paused: "pause.fill"
-      case .completed: "checkmark.circle.fill"
+        case .active: "bolt.fill"
+        case .paused: "pause.fill"
+        case .completed: "checkmark.circle.fill"
       }
     }
   }
 
-  var isActive: Bool { status == .active }
-  var isPaused: Bool { status == .paused }
-  var isCompleted: Bool { status == .completed }
+  var isActive: Bool {
+    status == .active
+  }
 
-  var sessionCount: Int { sessions?.count ?? 0 }
-  var linkCount: Int { links?.count ?? 0 }
-  var inboxCount: Int { inboxItems?.count ?? 0 }
-  var noteCount: Int { notes?.count ?? 0 }
+  var isPaused: Bool {
+    status == .paused
+  }
 
-  // Hashable conformance (ignore relationships)
+  var isCompleted: Bool {
+    status == .completed
+  }
+
+  var sessionCount: Int {
+    sessions?.count ?? 0
+  }
+
+  var linkCount: Int {
+    links?.count ?? 0
+  }
+
+  var inboxCount: Int {
+    inboxItems?.count ?? 0
+  }
+
+  var noteCount: Int {
+    notes?.count ?? 0
+  }
+
+  /// Hashable conformance (ignore relationships)
   func hash(into hasher: inout Hasher) {
     hasher.combine(id)
   }

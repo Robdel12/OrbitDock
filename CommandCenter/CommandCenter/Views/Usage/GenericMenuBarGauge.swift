@@ -14,7 +14,7 @@ struct GenericMenuBarGauge: View {
 
   /// Show day for multi-day windows
   private var showDay: Bool {
-    window.windowDuration > 24 * 3600
+    window.windowDuration > 24 * 3_600
   }
 
   /// Color for reset time based on urgency
@@ -116,11 +116,11 @@ struct GenericMenuBarGauge: View {
 #Preview {
   VStack(spacing: 12) {
     GenericMenuBarGauge(
-      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3600)),
+      window: .fiveHour(utilization: 45, resetsAt: Date().addingTimeInterval(3_600)),
       provider: .claude
     )
     GenericMenuBarGauge(
-      window: .sevenDay(utilization: 75, resetsAt: Date().addingTimeInterval(86400)),
+      window: .sevenDay(utilization: 75, resetsAt: Date().addingTimeInterval(86_400)),
       provider: .claude
     )
     GenericMenuBarGauge(

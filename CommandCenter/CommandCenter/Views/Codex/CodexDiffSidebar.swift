@@ -80,15 +80,15 @@ struct CodexDiffSidebar: View {
   private var parsedLines: [CodexParsedDiffLine] {
     diff.components(separatedBy: "\n").map { line in
       if line.hasPrefix("+++") || line.hasPrefix("---") {
-        return CodexParsedDiffLine(text: line, type: .header)
+        CodexParsedDiffLine(text: line, type: .header)
       } else if line.hasPrefix("@@") {
-        return CodexParsedDiffLine(text: line, type: .hunk)
+        CodexParsedDiffLine(text: line, type: .hunk)
       } else if line.hasPrefix("+") {
-        return CodexParsedDiffLine(text: line, type: .addition)
+        CodexParsedDiffLine(text: line, type: .addition)
       } else if line.hasPrefix("-") {
-        return CodexParsedDiffLine(text: line, type: .deletion)
+        CodexParsedDiffLine(text: line, type: .deletion)
       } else {
-        return CodexParsedDiffLine(text: line, type: .context)
+        CodexParsedDiffLine(text: line, type: .context)
       }
     }
   }
@@ -132,47 +132,47 @@ struct SidebarDiffLine: View {
 
   private var prefix: String {
     switch line.type {
-    case .addition: return "+"
-    case .deletion: return "−"
-    case .hunk: return "@"
-    default: return " "
+      case .addition: "+"
+      case .deletion: "−"
+      case .hunk: "@"
+      default: " "
     }
   }
 
   private var lineContent: String {
     switch line.type {
-    case .addition, .deletion:
-      return String(line.text.dropFirst())
-    default:
-      return line.text
+      case .addition, .deletion:
+        String(line.text.dropFirst())
+      default:
+        line.text
     }
   }
 
   private var prefixColor: Color {
     switch line.type {
-    case .addition: return addedAccent
-    case .deletion: return removedAccent
-    case .hunk: return Color.accent
-    default: return .clear
+      case .addition: addedAccent
+      case .deletion: removedAccent
+      case .hunk: Color.accent
+      default: .clear
     }
   }
 
   private var textColor: Color {
     switch line.type {
-    case .header: return .secondary
-    case .hunk: return Color.accent
-    case .addition: return addedAccent
-    case .deletion: return removedAccent
-    case .context: return .primary.opacity(0.7)
+      case .header: .secondary
+      case .hunk: Color.accent
+      case .addition: addedAccent
+      case .deletion: removedAccent
+      case .context: .primary.opacity(0.7)
     }
   }
 
   private var backgroundColor: Color {
     switch line.type {
-    case .addition: return addedBg
-    case .deletion: return removedBg
-    case .hunk: return Color.accent.opacity(0.05)
-    default: return .clear
+      case .addition: addedBg
+      case .deletion: removedBg
+      case .hunk: Color.accent.opacity(0.05)
+      default: .clear
     }
   }
 }
@@ -196,22 +196,22 @@ struct CodexParsedDiffLine: Identifiable {
 #Preview {
   CodexDiffSidebar(
     diff: """
-diff --git a/src/components/Button.tsx b/src/components/Button.tsx
---- a/src/components/Button.tsx
-+++ b/src/components/Button.tsx
-@@ -10,7 +10,12 @@ export function Button({ children, onClick }: Props) {
-   return (
-     <button
-       className="btn"
--      onClick={onClick}
-+      onClick={(e) => {
-+        e.preventDefault();
-+        onClick();
-+      }}
-     >
-       {children}
-     </button>
-""",
+    diff --git a/src/components/Button.tsx b/src/components/Button.tsx
+    --- a/src/components/Button.tsx
+    +++ b/src/components/Button.tsx
+    @@ -10,7 +10,12 @@ export function Button({ children, onClick }: Props) {
+       return (
+         <button
+           className="btn"
+    -      onClick={onClick}
+    +      onClick={(e) => {
+    +        e.preventDefault();
+    +        onClick();
+    +      }}
+         >
+           {children}
+         </button>
+    """,
     onClose: {}
   )
   .frame(width: 350, height: 400)

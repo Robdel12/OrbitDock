@@ -123,7 +123,7 @@ extension Color {
   /// Ended/Idle - Muted purple-gray (inactive but not invisible)
   static let statusEnded = Color(red: 0.45, green: 0.42, blue: 0.55)
 
-  // Legacy aliases for backward compatibility
+  /// Legacy aliases for backward compatibility
   /// @deprecated Use statusPermission or statusQuestion instead
   static let statusAttention = statusPermission
   /// @deprecated Use statusReply instead
@@ -274,11 +274,11 @@ extension View {
 /// Unified session status for consistent badge display across the app
 /// 5 distinct states for maximum visual clarity
 enum SessionDisplayStatus {
-  case working    // Claude actively processing (cyan)
+  case working // Claude actively processing (cyan)
   case permission // Needs tool approval (coral) - URGENT
-  case question   // Claude asked you something (purple) - URGENT
-  case reply      // Awaiting your next prompt (soft blue)
-  case ended      // Session finished (muted gray)
+  case question // Claude asked you something (purple) - URGENT
+  case reply // Awaiting your next prompt (soft blue)
+  case ended // Session finished (muted gray)
 
   var color: Color {
     switch self {
