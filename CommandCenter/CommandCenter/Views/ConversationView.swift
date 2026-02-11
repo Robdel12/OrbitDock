@@ -140,7 +140,8 @@ struct ConversationView: View {
             }
 
             // Messages as a thread
-            ForEach(displayedMessages, id: \.id) { message in
+            let msgs = displayedMessages
+            ForEach(Array(msgs.enumerated()), id: \.element.id) { index, message in
               if message.isTool {
                 ToolIndicator(message: message, transcriptPath: transcriptPath)
                   .id(message.id)
@@ -148,7 +149,8 @@ struct ConversationView: View {
                 ThinkingIndicator(message: message)
                   .id(message.id)
               } else {
-                ThreadMessage(message: message, provider: provider, model: model)
+                let showHeader = shouldShowHeader(at: index, in: msgs)
+                ThreadMessage(message: message, provider: provider, model: model, showHeader: showHeader)
                   .id(message.id)
               }
             }
@@ -298,6 +300,25 @@ struct ConversationView: View {
     displayedCount = max(displayedCount, serverMessages.count)
     isLoading = false
   }
+
+  /// Show the header only when the sender side changes.
+  /// Tool and thinking messages are transparent — we look back to the
+  /// previous user or assistant message to decide.
+  private func shouldShowHeader(at index: Int, in msgs: [TranscriptMessage]) -> Bool {
+    guard index < msgs.count else { return true }
+    let currentSide = msgs[index].isUser
+
+    // Walk backwards past tool/thinking to find previous chat message
+    var i = index - 1
+    while i >= 0 {
+      let prev = msgs[i]
+      if prev.isTool || prev.isThinking { i -= 1; continue }
+      return prev.isUser != currentSide
+    }
+
+    // First chat message — always show
+    return true
+  }
 }
 
 // MARK: - Thread Message (Redesigned)
@@ -306,6 +327,7 @@ struct ThreadMessage: View {
   let message: TranscriptMessage
   var provider: Provider = .claude
   var model: String?
+  var showHeader: Bool = true
   @State private var isContentExpanded = false
   @State private var isThinkingExpanded = false
 
@@ -322,7 +344,8 @@ struct ThreadMessage: View {
         assistantMessage
       }
     }
-    .padding(.vertical, 20)
+    .padding(.top, showHeader ? 20 : 2)
+    .padding(.bottom, showHeader ? 0 : 2)
   }
 
   // MARK: - User Message (Right-aligned, distinctive)
@@ -368,15 +391,17 @@ struct ThreadMessage: View {
 
   private var standardUserMessage: some View {
     VStack(alignment: .trailing, spacing: 12) {
-      // Meta line - subtle timestamp and label
-      HStack(spacing: 10) {
-        Text(formatTime(message.timestamp))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(.quaternary)
+      // Meta line - subtle timestamp and label (hidden for grouped messages)
+      if showHeader {
+        HStack(spacing: 10) {
+          Text(formatTime(message.timestamp))
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(.quaternary)
 
-        Text("You")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(.tertiary)
+          Text("You")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.tertiary)
+        }
       }
 
       // Images (supports multiple)
@@ -415,30 +440,32 @@ struct ThreadMessage: View {
 
   private var assistantMessage: some View {
     VStack(alignment: .leading, spacing: 12) {
-      // Meta line - provider branding with timestamp
-      HStack(spacing: 10) {
-        // Provider indicator
-        HStack(spacing: 5) {
-          Image(systemName: provider == .claude ? "sparkles" : "chevron.left.forwardslash.chevron.right")
-            .font(.system(size: 11, weight: .semibold))
-          Text(provider.displayName)
-            .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundStyle(provider.accentColor)
+      // Meta line - provider branding with timestamp (hidden for grouped messages)
+      if showHeader {
+        HStack(spacing: 10) {
+          // Provider indicator
+          HStack(spacing: 5) {
+            Image(systemName: provider == .claude ? "sparkles" : "chevron.left.forwardslash.chevron.right")
+              .font(.system(size: 11, weight: .semibold))
+            Text(provider.displayName)
+              .font(.system(size: 12, weight: .semibold))
+          }
+          .foregroundStyle(provider.accentColor)
 
-        // Model name (when known)
-        if let model, !model.isEmpty {
-          Text("·")
-            .font(.system(size: 11))
+          // Model name (when known)
+          if let model, !model.isEmpty {
+            Text("·")
+              .font(.system(size: 11))
+              .foregroundStyle(.quaternary)
+            Text(displayNameForModel(model, provider: provider))
+              .font(.system(size: 11, weight: .medium))
+              .foregroundStyle(colorForModel(model, provider: provider))
+          }
+
+          Text(formatTime(message.timestamp))
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
             .foregroundStyle(.quaternary)
-          Text(displayNameForModel(model, provider: provider))
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(colorForModel(model, provider: provider))
         }
-
-        Text(formatTime(message.timestamp))
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(.quaternary)
       }
 
       // Thinking disclosure (if attached)

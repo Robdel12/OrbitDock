@@ -461,7 +461,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 MessageType::Assistant => "assistant",
                 MessageType::Thinking => "thinking",
                 MessageType::Tool => "tool",
-                MessageType::ToolResult => "toolResult",
+                MessageType::ToolResult => "tool_result",
             };
 
             // Get next sequence number
@@ -1315,7 +1315,7 @@ fn load_messages_from_db(
                 "assistant" => MessageType::Assistant,
                 "thinking" => MessageType::Thinking,
                 "tool" => MessageType::Tool,
-                "toolResult" => MessageType::ToolResult,
+                "tool_result" | "toolResult" => MessageType::ToolResult,
                 _ => MessageType::Assistant,
             };
 
@@ -1341,7 +1341,17 @@ fn load_messages_from_db(
     Ok(messages)
 }
 
-fn extract_text_from_content_array(content: &Value) -> Option<String> {
+fn extract_text_from_content(content: &Value) -> Option<String> {
+    // Claude Code user messages store content as a plain string
+    if let Some(s) = content.as_str() {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        return Some(trimmed.to_string());
+    }
+
+    // Assistant messages and tool results use an array of typed objects
     let array = content.as_array()?;
     let mut parts: Vec<String> = Vec::new();
     for item in array {
@@ -1363,35 +1373,46 @@ fn extract_text_from_content_array(content: &Value) -> Option<String> {
     }
 }
 
+fn role_to_message_type(role: &str) -> MessageType {
+    if role == "user" {
+        MessageType::User
+    } else {
+        MessageType::Assistant
+    }
+}
+
 fn extract_message_text(entry: &Value) -> Option<(MessageType, String)> {
     let entry_type = entry.get("type").and_then(Value::as_str)?;
 
+    // New-format Codex passive: {"type": "response_item", "payload": {"type": "message", ...}}
     if entry_type == "response_item" {
         let payload = entry.get("payload")?;
         let payload_type = payload.get("type").and_then(Value::as_str)?;
         if payload_type == "message" {
             let role = payload.get("role").and_then(Value::as_str)?;
             let content = payload.get("content")?;
-            let text = extract_text_from_content_array(content)?;
-            let message_type = if role == "user" {
-                MessageType::User
-            } else {
-                MessageType::Assistant
-            };
-            return Some((message_type, text));
+            let text = extract_text_from_content(content)?;
+            return Some((role_to_message_type(role), text));
         }
     }
 
+    // Old-format Codex passive: {"type": "message", "role": "user", "content": [...]}
+    if entry_type == "message" {
+        if let Some(role) = entry.get("role").and_then(Value::as_str) {
+            if let Some(content) = entry.get("content") {
+                if let Some(text) = extract_text_from_content(content) {
+                    return Some((role_to_message_type(role), text));
+                }
+            }
+        }
+    }
+
+    // Claude CLI: {"type": "user"|"assistant", "message": {"role": "...", "content": ...}}
     let message = entry.get("message")?;
     let role = message.get("role").and_then(Value::as_str)?;
     let content = message.get("content")?;
-    let text = extract_text_from_content_array(content)?;
-    let message_type = if role == "user" {
-        MessageType::User
-    } else {
-        MessageType::Assistant
-    };
-    Some((message_type, text))
+    let text = extract_text_from_content(content)?;
+    Some((role_to_message_type(role), text))
 }
 
 fn load_messages_from_transcript(

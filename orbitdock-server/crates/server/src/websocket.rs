@@ -1592,6 +1592,9 @@ async fn handle_client_message(
                     })
                     .await;
             }
+
+            // Sync new messages from transcript
+            sync_transcript_messages(&session_arc).await;
         }
 
         ClientMessage::ClaudeToolEvent {
@@ -1789,6 +1792,9 @@ async fn handle_client_message(
                 }
                 _ => {}
             }
+
+            // Sync new messages from transcript
+            sync_transcript_messages(&session_arc).await;
         }
 
         ClientMessage::ClaudeSubagentEvent {
@@ -1965,6 +1971,49 @@ async fn handle_client_message(
                     .await;
             }
         }
+    }
+}
+
+/// Re-read a session's transcript and broadcast any new messages to subscribers.
+/// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
+async fn sync_transcript_messages(
+    session_arc: &Arc<Mutex<SessionHandle>>,
+) {
+    let (transcript_path, session_id, existing_count) = {
+        let session = session_arc.lock().await;
+        let path = match session.transcript_path() {
+            Some(p) => p.to_string(),
+            None => return,
+        };
+        (path, session.id().to_string(), session.message_count())
+    };
+
+    let all_messages =
+        match load_messages_from_transcript_path(&transcript_path, &session_id).await {
+            Ok(msgs) => msgs,
+            Err(_) => return,
+        };
+
+    if all_messages.len() <= existing_count {
+        return;
+    }
+
+    let new_messages = all_messages[existing_count..].to_vec();
+    let mut session = session_arc.lock().await;
+
+    // Double-check count hasn't changed while we were reading
+    if session.message_count() != existing_count {
+        return;
+    }
+
+    for msg in new_messages {
+        session.add_message(msg.clone());
+        session
+            .broadcast(ServerMessage::MessageAppended {
+                session_id: session_id.clone(),
+                message: msg,
+            })
+            .await;
     }
 }
 

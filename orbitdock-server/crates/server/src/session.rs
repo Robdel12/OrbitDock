@@ -208,6 +208,14 @@ impl SessionHandle {
         self.transcript_path = transcript_path;
     }
 
+    pub fn transcript_path(&self) -> Option<&str> {
+        self.transcript_path.as_deref()
+    }
+
+    pub fn message_count(&self) -> usize {
+        self.messages.len()
+    }
+
     /// Set model
     pub fn set_model(&mut self, model: Option<String>) {
         self.model = model;
