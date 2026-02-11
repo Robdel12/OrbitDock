@@ -38,7 +38,7 @@ struct BashCard: View {
             .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
 
-          Text(message.content)
+          Text(message.bashCommand ?? message.content)
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.primary.opacity(0.9))
             .lineLimit(isExpanded ? nil : 1)

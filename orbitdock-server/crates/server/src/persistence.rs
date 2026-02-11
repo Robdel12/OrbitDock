@@ -1341,36 +1341,17 @@ fn load_messages_from_db(
     Ok(messages)
 }
 
-fn extract_text_from_content(content: &Value) -> Option<String> {
-    // Claude Code user messages store content as a plain string
-    if let Some(s) = content.as_str() {
-        let trimmed = s.trim();
-        if trimmed.is_empty() {
-            return None;
-        }
-        return Some(trimmed.to_string());
-    }
 
-    // Assistant messages and tool results use an array of typed objects
-    let array = content.as_array()?;
-    let mut parts: Vec<String> = Vec::new();
-    for item in array {
-        let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
-        let is_text_like = matches!(kind, "text" | "input_text" | "output_text" | "summary_text");
-        if is_text_like {
-            if let Some(text) = item.get("text").and_then(Value::as_str) {
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    parts.push(trimmed.to_string());
-                }
-            }
-        }
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("\n\n"))
-    }
+/// A parsed item from a single JSONL entry. One entry can yield multiple items
+/// (e.g. an assistant entry with both text and tool_use content blocks).
+struct ParsedItem {
+    message_type: MessageType,
+    content: String,
+    tool_name: Option<String>,
+    tool_input: Option<String>,
+    tool_output: Option<String>,
+    /// Links tool_use → tool_result for pairing
+    tool_use_id: Option<String>,
 }
 
 fn role_to_message_type(role: &str) -> MessageType {
@@ -1381,38 +1362,162 @@ fn role_to_message_type(role: &str) -> MessageType {
     }
 }
 
-fn extract_message_text(entry: &Value) -> Option<(MessageType, String)> {
-    let entry_type = entry.get("type").and_then(Value::as_str)?;
+/// Extract individual content items from a content array.
+/// Handles text, tool_use, tool_result, and thinking blocks.
+fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
+    // Plain string content (Claude CLI user messages)
+    if let Some(s) = content.as_str() {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return vec![ParsedItem {
+                message_type: role_to_message_type(role),
+                content: trimmed.to_string(),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                tool_use_id: None,
+            }];
+        }
+        return vec![];
+    }
+
+    let Some(array) = content.as_array() else {
+        return vec![];
+    };
+
+    let mut items = Vec::new();
+    let mut text_parts: Vec<String> = Vec::new();
+
+    for item in array {
+        let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
+        match kind {
+            "text" | "input_text" | "output_text" | "summary_text" => {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        text_parts.push(trimmed.to_string());
+                    }
+                }
+            }
+            "thinking" => {
+                if let Some(text) = item.get("thinking").and_then(Value::as_str) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        items.push(ParsedItem {
+                            message_type: MessageType::Thinking,
+                            content: trimmed.to_string(),
+                            tool_name: None,
+                            tool_input: None,
+                            tool_output: None,
+                            tool_use_id: None,
+                        });
+                    }
+                }
+            }
+            "tool_use" => {
+                let name = item.get("name").and_then(Value::as_str).unwrap_or("unknown");
+                let input = item.get("input").map(|v| v.to_string());
+                let id = item.get("id").and_then(Value::as_str).map(String::from);
+                items.push(ParsedItem {
+                    message_type: MessageType::Tool,
+                    content: String::new(),
+                    tool_name: Some(name.to_string()),
+                    tool_input: input,
+                    tool_output: None,
+                    tool_use_id: id,
+                });
+            }
+            "tool_result" => {
+                let output = item
+                    .get("content")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let id = item
+                    .get("tool_use_id")
+                    .and_then(Value::as_str)
+                    .map(String::from);
+                items.push(ParsedItem {
+                    message_type: MessageType::Tool,
+                    content: String::new(),
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: Some(output),
+                    tool_use_id: id,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // Flush accumulated text as a single message
+    if !text_parts.is_empty() {
+        items.insert(
+            0,
+            ParsedItem {
+                message_type: role_to_message_type(role),
+                content: text_parts.join("\n\n"),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                tool_use_id: None,
+            },
+        );
+    }
+
+    items
+}
+
+/// Extract all messages from a single JSONL entry.
+fn extract_entry_messages(entry: &Value) -> Vec<ParsedItem> {
+    let entry_type = match entry.get("type").and_then(Value::as_str) {
+        Some(t) => t,
+        None => return vec![],
+    };
 
     // New-format Codex passive: {"type": "response_item", "payload": {"type": "message", ...}}
     if entry_type == "response_item" {
-        let payload = entry.get("payload")?;
-        let payload_type = payload.get("type").and_then(Value::as_str)?;
-        if payload_type == "message" {
-            let role = payload.get("role").and_then(Value::as_str)?;
-            let content = payload.get("content")?;
-            let text = extract_text_from_content(content)?;
-            return Some((role_to_message_type(role), text));
+        if let Some(payload) = entry.get("payload") {
+            let payload_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+            if payload_type == "message" {
+                let role = payload
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("assistant");
+                if let Some(content) = payload.get("content") {
+                    return extract_content_items(content, role);
+                }
+            }
         }
+        return vec![];
     }
 
     // Old-format Codex passive: {"type": "message", "role": "user", "content": [...]}
     if entry_type == "message" {
-        if let Some(role) = entry.get("role").and_then(Value::as_str) {
-            if let Some(content) = entry.get("content") {
-                if let Some(text) = extract_text_from_content(content) {
-                    return Some((role_to_message_type(role), text));
-                }
-            }
+        let role = match entry.get("role").and_then(Value::as_str) {
+            Some(r) => r,
+            None => return vec![],
+        };
+        if let Some(content) = entry.get("content") {
+            return extract_content_items(content, role);
         }
+        return vec![];
     }
 
     // Claude CLI: {"type": "user"|"assistant", "message": {"role": "...", "content": ...}}
-    let message = entry.get("message")?;
-    let role = message.get("role").and_then(Value::as_str)?;
-    let content = message.get("content")?;
-    let text = extract_text_from_content(content)?;
-    Some((role_to_message_type(role), text))
+    let message = match entry.get("message") {
+        Some(m) => m,
+        None => return vec![],
+    };
+    let role = match message.get("role").and_then(Value::as_str) {
+        Some(r) => r,
+        None => return vec![],
+    };
+    let content = match message.get("content") {
+        Some(c) => c,
+        None => return vec![],
+    };
+    extract_content_items(content, role)
 }
 
 fn load_messages_from_transcript(
@@ -1426,7 +1531,11 @@ fn load_messages_from_transcript(
     let reader = BufReader::new(file);
 
     let mut messages: Vec<Message> = Vec::new();
-    for (index, line_result) in reader.lines().enumerate() {
+    let mut msg_counter: usize = 0;
+    // Map tool_use_id → message index for pairing tool_result with its tool_use
+    let mut tool_use_index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    for line_result in reader.lines() {
         let line = match line_result {
             Ok(line) => line,
             Err(_) => continue,
@@ -1441,9 +1550,10 @@ fn load_messages_from_transcript(
             Err(_) => continue,
         };
 
-        let Some((message_type, content)) = extract_message_text(&value) else {
+        let items = extract_entry_messages(&value);
+        if items.is_empty() {
             continue;
-        };
+        }
 
         let timestamp = value
             .get("timestamp")
@@ -1451,18 +1561,39 @@ fn load_messages_from_transcript(
             .unwrap_or("0")
             .to_string();
 
-        messages.push(Message {
-            id: format!("{session_id}:transcript:{index}"),
-            session_id: session_id.to_string(),
-            message_type,
-            content,
-            timestamp,
-            tool_name: None,
-            tool_input: None,
-            tool_output: None,
-            duration_ms: None,
-            is_error: false,
-        });
+        for item in items {
+            // tool_result: merge output into the matching tool_use message
+            if item.tool_output.is_some() && item.tool_name.is_none() {
+                if let Some(id) = &item.tool_use_id {
+                    if let Some(&idx) = tool_use_index.get(id) {
+                        messages[idx].tool_output = item.tool_output;
+                        continue;
+                    }
+                }
+            }
+
+            let msg_idx = messages.len();
+            // tool_use: register for later pairing
+            if item.tool_name.is_some() {
+                if let Some(id) = &item.tool_use_id {
+                    tool_use_index.insert(id.clone(), msg_idx);
+                }
+            }
+
+            messages.push(Message {
+                id: format!("{session_id}:transcript:{msg_counter}"),
+                session_id: session_id.to_string(),
+                message_type: item.message_type,
+                content: item.content,
+                timestamp: timestamp.clone(),
+                tool_name: item.tool_name,
+                tool_input: item.tool_input,
+                tool_output: item.tool_output,
+                duration_ms: None,
+                is_error: false,
+            });
+            msg_counter += 1;
+        }
     }
 
     Ok(messages)

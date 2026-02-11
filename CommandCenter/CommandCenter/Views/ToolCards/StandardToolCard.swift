@@ -41,7 +41,7 @@ struct StandardToolCard: View {
               .controlSize(.mini)
           }
 
-          Text(message.content)
+          Text(message.formattedToolInput ?? message.content)
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.secondary)
             .lineLimit(1)
