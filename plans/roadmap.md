@@ -24,58 +24,40 @@
 
 ---
 
-## Phase 1: Skills Management
+## Phase 1: Skills Management ✅
 
-**Why first**: Can't effectively use Codex without skills. This is the #1 blocker for real development work.
+**Status**: Complete (commit `1d4bf42`)
 
-### codex-core mapping
-| Op | EventMsg |
-|----|----------|
-| `Op::ListSkills { cwds, force_reload }` | `ListSkillsResponse { skills, errors }` |
-| `Op::ListRemoteSkills` | `ListRemoteSkillsResponse { skills }` |
-| `Op::DownloadRemoteSkill { hazelnut_id, is_preload }` | `RemoteSkillDownloaded { id, name, path }` |
-| *(server-initiated)* | `SkillsUpdateAvailable` |
+### What was built
 
-### Protocol layer (`crates/protocol`)
-- [ ] Add `ClientMessage::ListSkills { session_id, cwds: Vec<String>, force_reload: bool }`
-- [ ] Add `ClientMessage::ListRemoteSkills { session_id }`
-- [ ] Add `ClientMessage::DownloadRemoteSkill { session_id, hazelnut_id: String }`
-- [ ] Add `ServerMessage::SkillsList { session_id, skills, errors }`
-- [ ] Add `ServerMessage::RemoteSkillsList { session_id, skills }`
-- [ ] Add `ServerMessage::RemoteSkillDownloaded { session_id, id, name, path }`
-- [ ] Add `ServerMessage::SkillsUpdateAvailable { session_id }`
-- [ ] Add shared types: `SkillsListEntry`, `SkillMetadata`, `SkillScope`, `SkillErrorInfo`, `RemoteSkillSummary`
-- [ ] Expand `ClientMessage::SendMessage` with `skills?: Vec<SkillInput>` field
-- [ ] Add `SkillInput { name: String, path: String }` type
+**Rust server** (protocol + connectors + server):
+- [x] Protocol types: `SkillInput`, `SkillMetadata`, `SkillScope`, `SkillErrorInfo`, `SkillsListEntry`, `RemoteSkillSummary`
+- [x] 3 client messages: `ListSkills`, `ListRemoteSkills`, `DownloadRemoteSkill`
+- [x] 4 server messages: `SkillsList`, `RemoteSkillsList`, `RemoteSkillDownloaded`, `SkillsUpdateAvailable`
+- [x] `SendMessage` expanded with `skills: Vec<SkillInput>` (serde default, skip_serializing_if empty)
+- [x] Connector: 3 action methods + 4 event handlers + skills forwarded as `UserInput::Skill` items
+- [x] Session: 3 `CodexAction` variants + 4 event broadcasts
+- [x] WebSocket: 3 new client message handlers + skills passed through SendMessage
+- [x] 4 protocol roundtrip tests (38 total pass)
 
-### Connector layer (`crates/connectors`)
-- [ ] Add `list_skills(cwds, force_reload)` action → sends `Op::ListSkills`
-- [ ] Add `list_remote_skills()` action → sends `Op::ListRemoteSkills`
-- [ ] Add `download_remote_skill(id, is_preload)` action → sends `Op::DownloadRemoteSkill`
-- [ ] Handle `EventMsg::ListSkillsResponse` → `ConnectorEvent::SkillsList`
-- [ ] Handle `EventMsg::ListRemoteSkillsResponse` → `ConnectorEvent::RemoteSkillsList`
-- [ ] Handle `EventMsg::RemoteSkillDownloaded` → `ConnectorEvent::RemoteSkillDownloaded`
-- [ ] Handle `EventMsg::SkillsUpdateAvailable` → `ConnectorEvent::SkillsUpdateAvailable`
-- [ ] Expand `send_message` to include `UserInput::Skill { name, path }` when skills are provided
+**SwiftUI frontend**:
+- [x] `ServerProtocol.swift`: 7 new types + 4 server message cases + 3 client message cases
+- [x] `ServerConnection.swift`: 4 callbacks + routing + 3 convenience methods
+- [x] `ServerAppState.swift`: `sessionSkills` state + callbacks + `listSkills` method
+- [x] `SkillsPicker.swift` (new): Popover grouped by scope (repo/user/system/admin) with toggles
+- [x] `CodexInputBar.swift`: Bolt icon + popover + badge + inline `$` completion
 
-### Server layer (`crates/server`)
-- [ ] `websocket.rs`: Handle `ListSkills`, `ListRemoteSkills`, `DownloadRemoteSkill` client messages
-- [ ] `websocket.rs`: Parse `skills` field from `SendMessage` and pass to connector
-- [ ] `codex_session.rs`: Add `CodexAction` variants: `ListSkills`, `ListRemoteSkills`, `DownloadRemoteSkill`
-- [ ] `codex_session.rs`: Handle 4 new connector events, broadcast to subscribers
+**Inline $ completion** (bonus, not in original plan):
+- Type `$` to trigger filtered skill list above input bar
+- Keyboard nav: arrow keys + Emacs C-n/C-p + Enter/Tab to accept + Escape to dismiss
+- `$skill-name` token stays in message text for context
+- Skills extracted on send and attached via skills array (combined with popover selections)
+- Trailing punctuation handled (`$skill-name?` still matches)
+- Bolt icon lights up when inline `$skills` detected
 
-### Tests
-- [ ] `test_list_skills_roundtrip` - Client sends ListSkills, verify connector receives `Op::ListSkills`
-- [ ] `test_list_remote_skills_roundtrip` - Same for remote skills
-- [ ] `test_download_remote_skill_roundtrip` - Download triggers correct Op with hazelnut_id
-- [ ] `test_skills_response_broadcast` - SkillsList event reaches only subscribed clients
-- [ ] `test_skills_update_notification` - SkillsUpdateAvailable broadcasts correctly
-- [ ] `test_send_message_with_skill` - Skill input items are included in UserTurn's items vec
-
-### MCP bridge
-- [ ] `GET /api/sessions/:id/skills` → list skills for session
-- [ ] `GET /api/sessions/:id/skills/remote` → list remote skills
-- [ ] `POST /api/sessions/:id/skills/download` → `{ hazelnut_id: "..." }`
+### Not implemented (deferred)
+- [ ] MCP bridge endpoints for skills (lower priority, can use bolt icon or `$` inline)
+- [ ] Remote skills download UI (server support exists, needs SwiftUI view)
 
 ---
 
@@ -431,5 +413,5 @@ Every feature follows this path through the codebase:
 - [ ] `cargo test` passes with no warnings
 - [ ] No regressions in existing functionality (run full test suite)
 
-### Current test count: ~32
+### Current test count: ~38
 ### Target test count after all phases: ~80+
