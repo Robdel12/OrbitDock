@@ -53,6 +53,9 @@ final class ServerAppState {
   /// Codex models discovered by the server for the current account
   private(set) var codexModels: [ServerCodexModelOption] = []
 
+  /// Available skills per session (from skills_list responses)
+  private(set) var sessionSkills: [String: [ServerSkillMetadata]] = [:]
+
   /// Raw config values used to derive autonomy accurately across partial deltas
   private var approvalPolicies: [String: String] = [:]
   private var sandboxModes: [String: String] = [:]
@@ -163,6 +166,19 @@ final class ServerAppState {
       }
     }
 
+    conn.onSkillsList = { [weak self] sessionId, entries, _ in
+      Task { @MainActor in
+        let allSkills = entries.flatMap { $0.skills }
+        self?.sessionSkills[sessionId] = allSkills
+      }
+    }
+
+    conn.onSkillsUpdateAvailable = { sessionId in
+      Task { @MainActor in
+        ServerConnection.shared.listSkills(sessionId: sessionId)
+      }
+    }
+
     conn.onError = { [weak self] code, message, sessionId in
       Task { @MainActor in
         self?.handleError(code, message, sessionId)
@@ -213,10 +229,15 @@ final class ServerAppState {
     }
   }
 
-  /// Send a message to a session with optional per-turn overrides
-  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil) {
+  /// Send a message to a session with optional per-turn overrides and skills
+  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = []) {
     logger.info("Sending message to \(sessionId)")
-    ServerConnection.shared.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort)
+    ServerConnection.shared.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills)
+  }
+
+  /// Request the list of available skills for a session
+  func listSkills(sessionId: String) {
+    ServerConnection.shared.listSkills(sessionId: sessionId)
   }
 
   /// Approve or reject a tool with a specific decision

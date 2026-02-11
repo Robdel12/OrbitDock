@@ -4,6 +4,7 @@
 //! No subprocess, no JSON-RPC — just Rust function calls.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -672,6 +673,79 @@ impl CodexConnector {
                 }
             }
 
+            EventMsg::ListSkillsResponse(e) => {
+                let skills = e
+                    .skills
+                    .into_iter()
+                    .map(|entry| orbitdock_protocol::SkillsListEntry {
+                        cwd: entry.cwd.to_string_lossy().to_string(),
+                        skills: entry
+                            .skills
+                            .into_iter()
+                            .map(|s| orbitdock_protocol::SkillMetadata {
+                                name: s.name,
+                                description: s.description,
+                                short_description: s.short_description,
+                                path: s.path.to_string_lossy().to_string(),
+                                scope: match s.scope {
+                                    codex_protocol::protocol::SkillScope::User => {
+                                        orbitdock_protocol::SkillScope::User
+                                    }
+                                    codex_protocol::protocol::SkillScope::Repo => {
+                                        orbitdock_protocol::SkillScope::Repo
+                                    }
+                                    codex_protocol::protocol::SkillScope::System => {
+                                        orbitdock_protocol::SkillScope::System
+                                    }
+                                    codex_protocol::protocol::SkillScope::Admin => {
+                                        orbitdock_protocol::SkillScope::Admin
+                                    }
+                                },
+                                enabled: s.enabled,
+                            })
+                            .collect(),
+                        errors: entry
+                            .errors
+                            .into_iter()
+                            .map(|e| orbitdock_protocol::SkillErrorInfo {
+                                path: e.path.to_string_lossy().to_string(),
+                                message: e.message,
+                            })
+                            .collect(),
+                    })
+                    .collect();
+
+                vec![ConnectorEvent::SkillsList {
+                    skills,
+                    errors: Vec::new(),
+                }]
+            }
+
+            EventMsg::ListRemoteSkillsResponse(e) => {
+                let skills = e
+                    .skills
+                    .into_iter()
+                    .map(|s| orbitdock_protocol::RemoteSkillSummary {
+                        id: s.id,
+                        name: s.name,
+                        description: s.description,
+                    })
+                    .collect();
+                vec![ConnectorEvent::RemoteSkillsList { skills }]
+            }
+
+            EventMsg::RemoteSkillDownloaded(e) => {
+                vec![ConnectorEvent::RemoteSkillDownloaded {
+                    id: e.id,
+                    name: e.name,
+                    path: e.path.to_string_lossy().to_string(),
+                }]
+            }
+
+            EventMsg::SkillsUpdateAvailable => {
+                vec![ConnectorEvent::SkillsUpdateAvailable]
+            }
+
             // Ignore other high-frequency streaming events
             EventMsg::AgentReasoningDelta(_)
             | EventMsg::AgentReasoningRawContent(_)
@@ -701,12 +775,13 @@ impl CodexConnector {
 
     // MARK: - Actions
 
-    /// Send a user message (starts a turn), with optional per-turn overrides
+    /// Send a user message (starts a turn), with optional per-turn overrides and skills
     pub async fn send_message(
         &self,
         content: &str,
         model: Option<&str>,
         effort: Option<&str>,
+        skills: &[orbitdock_protocol::SkillInput],
     ) -> Result<(), ConnectorError> {
         // Submit per-turn overrides before the user message when present
         if model.is_some() || effort.is_some() {
@@ -736,11 +811,20 @@ impl CodexConnector {
             );
         }
 
+        let mut items = vec![UserInput::Text {
+            text: content.to_string(),
+            text_elements: Vec::new(),
+        }];
+
+        for skill in skills {
+            items.push(UserInput::Skill {
+                name: skill.name.clone(),
+                path: PathBuf::from(&skill.path),
+            });
+        }
+
         let op = Op::UserInput {
-            items: vec![UserInput::Text {
-                text: content.to_string(),
-                text_elements: Vec::new(),
-            }],
+            items,
             final_output_json_schema: None,
         };
 
@@ -750,6 +834,47 @@ impl CodexConnector {
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to send message: {}", e)))?;
 
         info!("Sent user message");
+        Ok(())
+    }
+
+    /// List skills for the given working directories
+    pub async fn list_skills(
+        &self,
+        cwds: Vec<String>,
+        force_reload: bool,
+    ) -> Result<(), ConnectorError> {
+        let cwds: Vec<PathBuf> = cwds.into_iter().map(PathBuf::from).collect();
+        let op = Op::ListSkills { cwds, force_reload };
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to list skills: {}", e))
+        })?;
+        info!("Requested skills list");
+        Ok(())
+    }
+
+    /// List remote skills available via ChatGPT sharing
+    pub async fn list_remote_skills(&self) -> Result<(), ConnectorError> {
+        let op = Op::ListRemoteSkills;
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to list remote skills: {}", e))
+        })?;
+        info!("Requested remote skills list");
+        Ok(())
+    }
+
+    /// Download a remote skill by hazelnut ID
+    pub async fn download_remote_skill(
+        &self,
+        hazelnut_id: &str,
+    ) -> Result<(), ConnectorError> {
+        let op = Op::DownloadRemoteSkill {
+            hazelnut_id: hazelnut_id.to_string(),
+            is_preload: false,
+        };
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to download skill: {}", e))
+        })?;
+        info!("Requested remote skill download: {}", hazelnut_id);
         Ok(())
     }
 

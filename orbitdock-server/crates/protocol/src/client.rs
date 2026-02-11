@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::types::Provider;
+use crate::types::{Provider, SkillInput};
 
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +26,8 @@ pub enum ClientMessage {
         model: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         effort: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        skills: Vec<SkillInput>,
     },
     ApproveTool {
         session_id: String,
@@ -80,6 +82,22 @@ pub enum ClientMessage {
 
     // Codex models
     ListModels,
+
+    // Skills
+    ListSkills {
+        session_id: String,
+        #[serde(default)]
+        cwds: Vec<String>,
+        #[serde(default)]
+        force_reload: bool,
+    },
+    ListRemoteSkills {
+        session_id: String,
+    },
+    DownloadRemoteSkill {
+        session_id: String,
+        hazelnut_id: String,
+    },
 
     // Claude hook transport (server-owned write path)
     ClaudeSessionStart {
@@ -233,5 +251,101 @@ mod tests {
             }
             other => panic!("unexpected message variant: {:?}", other),
         }
+    }
+
+    #[test]
+    fn roundtrip_list_skills() {
+        let json = r#"{
+          "type":"list_skills",
+          "session_id":"sess-3",
+          "cwds":["/tmp/project","/tmp/other"],
+          "force_reload":true
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse list_skills");
+        match &parsed {
+            ClientMessage::ListSkills {
+                session_id,
+                cwds,
+                force_reload,
+            } => {
+                assert_eq!(session_id, "sess-3");
+                assert_eq!(cwds, &["/tmp/project", "/tmp/other"]);
+                assert!(*force_reload);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        // Roundtrip: serialize and deserialize
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::ListSkills { session_id, cwds, force_reload } => {
+                assert_eq!(session_id, "sess-3");
+                assert_eq!(cwds.len(), 2);
+                assert!(force_reload);
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_send_message_with_skills() {
+        let json = r#"{
+          "type":"send_message",
+          "session_id":"sess-4",
+          "content":"hello",
+          "skills":[{"name":"deploy","path":"/home/.codex/skills/deploy.md"}]
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with skills");
+        match &parsed {
+            ClientMessage::SendMessage { session_id, content, skills, .. } => {
+                assert_eq!(session_id, "sess-4");
+                assert_eq!(content, "hello");
+                assert_eq!(skills.len(), 1);
+                assert_eq!(skills[0].name, "deploy");
+                assert_eq!(skills[0].path, "/home/.codex/skills/deploy.md");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn send_message_without_skills_defaults_to_empty() {
+        let json = r#"{
+          "type":"send_message",
+          "session_id":"sess-5",
+          "content":"hello"
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message without skills");
+        match parsed {
+            ClientMessage::SendMessage { skills, .. } => {
+                assert!(skills.is_empty());
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_download_remote_skill() {
+        let json = r#"{
+          "type":"download_remote_skill",
+          "session_id":"sess-6",
+          "hazelnut_id":"hz-abc-123"
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse download_remote_skill");
+        match &parsed {
+            ClientMessage::DownloadRemoteSkill { session_id, hazelnut_id } => {
+                assert_eq!(session_id, "sess-6");
+                assert_eq!(hazelnut_id, "hz-abc-123");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
     }
 }

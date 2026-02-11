@@ -415,6 +415,44 @@ impl CodexSession {
                     .await;
             }
 
+            ConnectorEvent::SkillsList { skills, errors } => {
+                session
+                    .broadcast(ServerMessage::SkillsList {
+                        session_id: session_id.to_string(),
+                        skills,
+                        errors,
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::RemoteSkillsList { skills } => {
+                session
+                    .broadcast(ServerMessage::RemoteSkillsList {
+                        session_id: session_id.to_string(),
+                        skills,
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::RemoteSkillDownloaded { id, name, path } => {
+                session
+                    .broadcast(ServerMessage::RemoteSkillDownloaded {
+                        session_id: session_id.to_string(),
+                        id,
+                        name,
+                        path,
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::SkillsUpdateAvailable => {
+                session
+                    .broadcast(ServerMessage::SkillsUpdateAvailable {
+                        session_id: session_id.to_string(),
+                    })
+                    .await;
+            }
+
             ConnectorEvent::Error(msg) => {
                 warn!(
                     component = "codex_connector",
@@ -459,13 +497,23 @@ impl CodexSession {
                 content,
                 model,
                 effort,
+                skills,
             } => {
                 connector
-                    .send_message(&content, model.as_deref(), effort.as_deref())
+                    .send_message(&content, model.as_deref(), effort.as_deref(), &skills)
                     .await?;
             }
             CodexAction::Interrupt => {
                 connector.interrupt().await?;
+            }
+            CodexAction::ListSkills { cwds, force_reload } => {
+                connector.list_skills(cwds, force_reload).await?;
+            }
+            CodexAction::ListRemoteSkills => {
+                connector.list_remote_skills().await?;
+            }
+            CodexAction::DownloadRemoteSkill { hazelnut_id } => {
+                connector.download_remote_skill(&hazelnut_id).await?;
             }
             CodexAction::ApproveExec {
                 request_id,
@@ -514,8 +562,17 @@ pub enum CodexAction {
         content: String,
         model: Option<String>,
         effort: Option<String>,
+        skills: Vec<orbitdock_protocol::SkillInput>,
     },
     Interrupt,
+    ListSkills {
+        cwds: Vec<String>,
+        force_reload: bool,
+    },
+    ListRemoteSkills,
+    DownloadRemoteSkill {
+        hazelnut_id: String,
+    },
     ApproveExec {
         request_id: String,
         decision: String,

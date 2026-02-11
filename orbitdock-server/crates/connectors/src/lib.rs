@@ -73,6 +73,27 @@ pub enum ConnectorEvent {
     /// Session ended
     SessionEnded { reason: String },
 
+    /// Skills list response
+    SkillsList {
+        skills: Vec<orbitdock_protocol::SkillsListEntry>,
+        errors: Vec<orbitdock_protocol::SkillErrorInfo>,
+    },
+
+    /// Remote skills list response
+    RemoteSkillsList {
+        skills: Vec<orbitdock_protocol::RemoteSkillSummary>,
+    },
+
+    /// Remote skill downloaded
+    RemoteSkillDownloaded {
+        id: String,
+        name: String,
+        path: String,
+    },
+
+    /// Skills update available notification
+    SkillsUpdateAvailable,
+
     /// Error occurred
     Error(String),
 }

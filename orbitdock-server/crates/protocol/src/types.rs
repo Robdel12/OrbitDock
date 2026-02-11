@@ -245,3 +245,55 @@ pub struct CodexModelOption {
     pub is_default: bool,
     pub supported_reasoning_efforts: Vec<String>,
 }
+
+/// Skill attached to a message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillInput {
+    pub name: String,
+    pub path: String,
+}
+
+/// Scope of a skill
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillScope {
+    User,
+    Repo,
+    System,
+    Admin,
+}
+
+/// Metadata about a discovered skill
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillMetadata {
+    pub name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub short_description: Option<String>,
+    pub path: String,
+    pub scope: SkillScope,
+    pub enabled: bool,
+}
+
+/// Error loading a skill
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillErrorInfo {
+    pub path: String,
+    pub message: String,
+}
+
+/// Skills grouped by cwd
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillsListEntry {
+    pub cwd: String,
+    pub skills: Vec<SkillMetadata>,
+    pub errors: Vec<SkillErrorInfo>,
+}
+
+/// Remote skill summary
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteSkillSummary {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+}

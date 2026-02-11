@@ -18,10 +18,36 @@ struct CodexInputBar: View {
   @State private var showConfig = false
   @State private var selectedModel: String = ""
   @State private var selectedEffort: EffortLevel = .default
+  @State private var showSkills = false
+  @State private var selectedSkills: Set<String> = []
+  @State private var completionActive = false
+  @State private var completionQuery = ""
+  @State private var completionIndex = 0
   @FocusState private var isFocused: Bool
 
   private var hasOverrides: Bool {
     selectedEffort != .default
+  }
+
+  private var availableSkills: [ServerSkillMetadata] {
+    (serverState.sessionSkills[sessionId] ?? []).filter { $0.enabled }
+  }
+
+  private var filteredSkills: [ServerSkillMetadata] {
+    guard !completionQuery.isEmpty else { return availableSkills }
+    let q = completionQuery.lowercased()
+    return availableSkills.filter { $0.name.lowercased().contains(q) }
+  }
+
+  private var shouldShowCompletion: Bool {
+    completionActive && !filteredSkills.isEmpty
+  }
+
+  private var hasInlineSkills: Bool {
+    let names = Set(availableSkills.map { $0.name })
+    return message.components(separatedBy: .whitespacesAndNewlines).contains { word in
+      word.hasPrefix("$") && names.contains(String(word.dropFirst()))
+    }
   }
 
   private var modelOptions: [ServerCodexModelOption] {
@@ -101,6 +127,19 @@ struct CodexInputBar: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
+      // Inline $ skill completion
+      if shouldShowCompletion {
+        SkillCompletionList(
+          skills: filteredSkills,
+          selectedIndex: completionIndex,
+          query: completionQuery,
+          onSelect: acceptSkillCompletion
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
       HStack(spacing: 12) {
         // Config toggle
         Button {
@@ -115,12 +154,38 @@ struct CodexInputBar: View {
         .buttonStyle(.plain)
         .help("Per-turn config overrides")
 
+        // Skills toggle
+        Button {
+          serverState.listSkills(sessionId: sessionId)
+          showSkills.toggle()
+        } label: {
+          Image(systemName: "bolt.fill")
+            .font(.system(size: 14))
+            .foregroundStyle(!selectedSkills.isEmpty || hasInlineSkills ? Color.accent : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Attach skills")
+        .popover(isPresented: $showSkills) {
+          SkillsPicker(
+            skills: serverState.sessionSkills[sessionId] ?? [],
+            selectedSkills: $selectedSkills
+          )
+        }
+
         // Text field
         TextField("Send a message...", text: $message, axis: .vertical)
           .textFieldStyle(.plain)
           .lineLimit(1 ... 5)
           .focused($isFocused)
           .disabled(isSending)
+          .onChange(of: message) { _, newValue in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              updateSkillCompletion(newValue)
+            }
+          }
+          .onKeyPress(phases: .down) { keyPress in
+            handleCompletionKeyPress(keyPress)
+          }
           .onSubmit {
             if !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
               sendMessage()
@@ -130,6 +195,17 @@ struct CodexInputBar: View {
         // Override indicator (when collapsed and overrides active)
         if !showConfig, hasOverrides {
           overrideBadge
+        }
+
+        // Skills badge
+        if !selectedSkills.isEmpty {
+          Text("\(selectedSkills.count) skill\(selectedSkills.count == 1 ? "" : "s")")
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.accent.opacity(0.15))
+            .foregroundStyle(Color.accent)
+            .clipShape(Capsule())
         }
 
         // Send button
@@ -217,8 +293,126 @@ struct CodexInputBar: View {
     }
 
     let effort = selectedEffort == .default ? nil : selectedEffort.rawValue
-    serverState.sendMessage(sessionId: sessionId, content: trimmed, model: selectedModel, effort: effort)
+
+    // Extract inline $skill-name references from message
+    let inlineSkillNames = extractInlineSkillNames(from: trimmed)
+
+    // Combine popover-selected skills with inline $ skills (deduplicated)
+    var skillPaths = selectedSkills
+    for name in inlineSkillNames {
+      if let skill = availableSkills.first(where: { $0.name == name }) {
+        skillPaths.insert(skill.path)
+      }
+    }
+    let skillInputs = skillPaths.compactMap { path -> ServerSkillInput? in
+      guard let skill = availableSkills.first(where: { $0.path == path }) else { return nil }
+      return ServerSkillInput(name: skill.name, path: skill.path)
+    }
+
+    // Send full message (keep $tokens for context) with skills array
+    serverState.sendMessage(sessionId: sessionId, content: trimmed, model: selectedModel, effort: effort, skills: skillInputs)
     message = ""
+  }
+
+  // MARK: - Inline Skill Completion
+
+  private func updateSkillCompletion(_ text: String) {
+    guard let dollarIdx = text.lastIndex(of: "$") else {
+      completionActive = false
+      return
+    }
+
+    let afterDollar = text[text.index(after: dollarIdx)...]
+
+    // Dismiss if there's whitespace after the last $
+    if afterDollar.contains(where: { $0.isWhitespace }) {
+      completionActive = false
+      return
+    }
+
+    let query = String(afterDollar)
+
+    // Don't re-trigger when the query exactly matches a skill name (already accepted)
+    if availableSkills.contains(where: { $0.name == query }) {
+      completionActive = false
+      return
+    }
+
+    // Ensure skills are loaded
+    if availableSkills.isEmpty {
+      serverState.listSkills(sessionId: sessionId)
+    }
+
+    completionQuery = query
+    completionIndex = 0
+    completionActive = true
+  }
+
+  private func acceptSkillCompletion(_ skill: ServerSkillMetadata) {
+    // Replace $query with $full-skill-name (keep token visible in text)
+    if let dollarIdx = message.lastIndex(of: "$") {
+      let prefix = String(message[..<dollarIdx])
+      message = prefix + "$" + skill.name + " "
+    }
+    completionActive = false
+    completionQuery = ""
+    completionIndex = 0
+    isFocused = true
+  }
+
+  private func extractInlineSkillNames(from text: String) -> [String] {
+    let skillNameSet = Set(availableSkills.map { $0.name })
+    var names: [String] = []
+
+    for word in text.components(separatedBy: .whitespacesAndNewlines) {
+      guard word.hasPrefix("$") else { continue }
+      // Strip trailing punctuation (e.g., "$skill-name?" or "$skill-name,")
+      let raw = String(word.dropFirst())
+      let name = raw.trimmingCharacters(in: .punctuationCharacters)
+      if skillNameSet.contains(name) {
+        names.append(name)
+      }
+    }
+
+    return names
+  }
+
+  private func handleCompletionKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+    if keyPress.key == .escape {
+      guard completionActive else { return .ignored }
+      completionActive = false
+      return .handled
+    }
+
+    guard shouldShowCompletion else { return .ignored }
+
+    // Arrow keys
+    if keyPress.key == .upArrow {
+      completionIndex = max(0, completionIndex - 1)
+      return .handled
+    } else if keyPress.key == .downArrow {
+      completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
+      return .handled
+    }
+
+    // Emacs bindings: C-n (next) / C-p (previous)
+    if keyPress.modifiers.contains(.control) {
+      if keyPress.key == KeyEquivalent("n") {
+        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
+        return .handled
+      } else if keyPress.key == KeyEquivalent("p") {
+        completionIndex = max(0, completionIndex - 1)
+        return .handled
+      }
+    }
+
+    // Accept completion
+    if keyPress.key == .return || keyPress.key == .tab {
+      acceptSkillCompletion(filteredSkills[completionIndex])
+      return .handled
+    }
+
+    return .ignored
   }
 }
 
@@ -254,6 +448,76 @@ struct CodexInterruptButton: View {
 
   private func interrupt() {
     serverState.interruptSession(sessionId)
+  }
+}
+
+// MARK: - Skill Completion List
+
+private struct SkillCompletionList: View {
+  let skills: [ServerSkillMetadata]
+  let selectedIndex: Int
+  let query: String
+  let onSelect: (ServerSkillMetadata) -> Void
+
+  var body: some View {
+    ScrollViewReader { proxy in
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(skills.prefix(8).enumerated()), id: \.element.id) { index, skill in
+            Button { onSelect(skill) } label: {
+              HStack(spacing: 8) {
+                Image(systemName: "bolt.fill")
+                  .font(.caption2)
+                  .foregroundStyle(Color.accent)
+                  .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                  skillNameView(skill.name)
+                  if let desc = skill.shortDescription ?? Optional(skill.description), !desc.isEmpty {
+                    Text(desc)
+                      .font(.caption2)
+                      .foregroundStyle(.secondary)
+                      .lineLimit(1)
+                  }
+                }
+                Spacer()
+              }
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
+              .background(index == selectedIndex ? Color.accent.opacity(0.15) : Color.clear)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .id(index)
+          }
+        }
+      }
+      .scrollIndicators(.hidden)
+      .onChange(of: selectedIndex) { _, newIndex in
+        proxy.scrollTo(newIndex, anchor: .center)
+      }
+    }
+    .frame(maxHeight: 200)
+    .background(Color.backgroundPrimary)
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .shadow(color: .black.opacity(0.3), radius: 8, y: -2)
+    .overlay(
+      RoundedRectangle(cornerRadius: 8)
+        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+    )
+  }
+
+  @ViewBuilder
+  private func skillNameView(_ name: String) -> some View {
+    if !query.isEmpty, let range = name.range(of: query, options: .caseInsensitive) {
+      let before = String(name[name.startIndex ..< range.lowerBound])
+      let match = String(name[range])
+      let after = String(name[range.upperBound...])
+      (Text(before) + Text(match).foregroundStyle(Color.accent) + Text(after))
+        .font(.callout.weight(.medium))
+    } else {
+      Text(name)
+        .font(.callout.weight(.medium))
+    }
   }
 }
 

@@ -51,6 +51,10 @@ final class ServerConnection: ObservableObject {
   var onApprovalsList: ((String?, [ServerApprovalHistoryItem]) -> Void)?
   var onApprovalDeleted: ((Int64) -> Void)?
   var onModelsList: (([ServerCodexModelOption]) -> Void)?
+  var onSkillsList: ((String, [ServerSkillsListEntry], [ServerSkillErrorInfo]) -> Void)?
+  var onRemoteSkillsList: ((String, [ServerRemoteSkillSummary]) -> Void)?
+  var onRemoteSkillDownloaded: ((String, String, String, String) -> Void)?
+  var onSkillsUpdateAvailable: ((String) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
@@ -254,6 +258,18 @@ final class ServerConnection: ObservableObject {
       case let .modelsList(models):
         onModelsList?(models)
 
+      case let .skillsList(sessionId, skills, errors):
+        onSkillsList?(sessionId, skills, errors)
+
+      case let .remoteSkillsList(sessionId, skills):
+        onRemoteSkillsList?(sessionId, skills)
+
+      case let .remoteSkillDownloaded(sessionId, skillId, name, path):
+        onRemoteSkillDownloaded?(sessionId, skillId, name, path)
+
+      case let .skillsUpdateAvailable(sessionId):
+        onSkillsUpdateAvailable?(sessionId)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
         onError?(code, errorMessage, sessionId)
@@ -318,9 +334,9 @@ final class ServerConnection: ObservableObject {
     ))
   }
 
-  /// Send a message to a session with optional per-turn overrides
-  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil) {
-    send(.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort))
+  /// Send a message to a session with optional per-turn overrides and skills
+  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = []) {
+    send(.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills))
   }
 
   /// Approve or reject a tool with a specific decision
@@ -371,5 +387,20 @@ final class ServerConnection: ObservableObject {
   /// Load codex model options discovered by the server
   func listModels() {
     send(.listModels)
+  }
+
+  /// List skills available for a session
+  func listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false) {
+    send(.listSkills(sessionId: sessionId, cwds: cwds, forceReload: forceReload))
+  }
+
+  /// List remote skills available for download
+  func listRemoteSkills(sessionId: String) {
+    send(.listRemoteSkills(sessionId: sessionId))
+  }
+
+  /// Download a remote skill by hazelnut ID
+  func downloadRemoteSkill(sessionId: String, hazelnutId: String) {
+    send(.downloadRemoteSkill(sessionId: sessionId, hazelnutId: hazelnutId))
   }
 }

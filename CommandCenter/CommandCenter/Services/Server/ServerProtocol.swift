@@ -315,6 +315,50 @@ struct ServerCodexModelOption: Codable, Identifiable {
   }
 }
 
+// MARK: - Skills
+
+struct ServerSkillInput: Codable {
+  let name: String
+  let path: String
+}
+
+enum ServerSkillScope: String, Codable {
+  case user, repo, system, admin
+}
+
+struct ServerSkillMetadata: Codable, Identifiable {
+  let name: String
+  let description: String
+  let shortDescription: String?
+  let path: String
+  let scope: ServerSkillScope
+  let enabled: Bool
+
+  var id: String { path }
+
+  enum CodingKeys: String, CodingKey {
+    case name, description, path, scope, enabled
+    case shortDescription = "short_description"
+  }
+}
+
+struct ServerSkillErrorInfo: Codable {
+  let path: String
+  let message: String
+}
+
+struct ServerSkillsListEntry: Codable {
+  let cwd: String
+  let skills: [ServerSkillMetadata]
+  let errors: [ServerSkillErrorInfo]
+}
+
+struct ServerRemoteSkillSummary: Codable, Identifiable {
+  let id: String
+  let name: String
+  let description: String
+}
+
 // MARK: - Server → Client Messages
 
 enum ServerToClientMessage: Codable {
@@ -330,6 +374,10 @@ enum ServerToClientMessage: Codable {
   case approvalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem])
   case approvalDeleted(approvalId: Int64)
   case modelsList(models: [ServerCodexModelOption])
+  case skillsList(sessionId: String, skills: [ServerSkillsListEntry], errors: [ServerSkillErrorInfo])
+  case remoteSkillsList(sessionId: String, skills: [ServerRemoteSkillSummary])
+  case remoteSkillDownloaded(sessionId: String, skillId: String, name: String, path: String)
+  case skillsUpdateAvailable(sessionId: String)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -347,6 +395,11 @@ enum ServerToClientMessage: Codable {
     case approvals
     case approvalId = "approval_id"
     case models
+    case skills
+    case errors
+    case id
+    case name
+    case path
   }
 
   init(from decoder: Decoder) throws {
@@ -409,6 +462,28 @@ enum ServerToClientMessage: Codable {
       case "models_list":
         let models = try container.decode([ServerCodexModelOption].self, forKey: .models)
         self = .modelsList(models: models)
+
+      case "skills_list":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let skills = try container.decode([ServerSkillsListEntry].self, forKey: .skills)
+        let errors = try container.decodeIfPresent([ServerSkillErrorInfo].self, forKey: .errors) ?? []
+        self = .skillsList(sessionId: sessionId, skills: skills, errors: errors)
+
+      case "remote_skills_list":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let skills = try container.decode([ServerRemoteSkillSummary].self, forKey: .skills)
+        self = .remoteSkillsList(sessionId: sessionId, skills: skills)
+
+      case "remote_skill_downloaded":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let id = try container.decode(String.self, forKey: .id)
+        let name = try container.decode(String.self, forKey: .name)
+        let path = try container.decode(String.self, forKey: .path)
+        self = .remoteSkillDownloaded(sessionId: sessionId, skillId: id, name: name, path: path)
+
+      case "skills_update_available":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        self = .skillsUpdateAvailable(sessionId: sessionId)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -486,6 +561,28 @@ enum ServerToClientMessage: Codable {
         try container.encode("models_list", forKey: .type)
         try container.encode(models, forKey: .models)
 
+      case let .skillsList(sessionId, skills, errors):
+        try container.encode("skills_list", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(skills, forKey: .skills)
+        try container.encode(errors, forKey: .errors)
+
+      case let .remoteSkillsList(sessionId, skills):
+        try container.encode("remote_skills_list", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(skills, forKey: .skills)
+
+      case let .remoteSkillDownloaded(sessionId, skillId, name, path):
+        try container.encode("remote_skill_downloaded", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(skillId, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(path, forKey: .path)
+
+      case let .skillsUpdateAvailable(sessionId):
+        try container.encode("skills_update_available", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -508,7 +605,7 @@ enum ClientToServerMessage: Codable {
     approvalPolicy: String?,
     sandboxMode: String?
   )
-  case sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil)
+  case sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [])
   case approveTool(sessionId: String, requestId: String, decision: String)
   case answerQuestion(sessionId: String, requestId: String, answer: String)
   case interruptSession(sessionId: String)
@@ -519,6 +616,9 @@ enum ClientToServerMessage: Codable {
   case listApprovals(sessionId: String?, limit: Int?)
   case deleteApproval(approvalId: Int64)
   case listModels
+  case listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false)
+  case listRemoteSkills(sessionId: String)
+  case downloadRemoteSkill(sessionId: String, hazelnutId: String)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -536,6 +636,10 @@ enum ClientToServerMessage: Codable {
     case effort
     case limit
     case approvalId = "approval_id"
+    case skills
+    case cwds
+    case forceReload = "force_reload"
+    case hazelnutId = "hazelnut_id"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -561,12 +665,15 @@ enum ClientToServerMessage: Codable {
         try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
         try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
 
-      case let .sendMessage(sessionId, content, model, effort):
+      case let .sendMessage(sessionId, content, model, effort, skills):
         try container.encode("send_message", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(content, forKey: .content)
         try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(effort, forKey: .effort)
+        if !skills.isEmpty {
+          try container.encode(skills, forKey: .skills)
+        }
 
       case let .approveTool(sessionId, requestId, decision):
         try container.encode("approve_tool", forKey: .type)
@@ -614,6 +721,25 @@ enum ClientToServerMessage: Codable {
 
       case .listModels:
         try container.encode("list_models", forKey: .type)
+
+      case let .listSkills(sessionId, cwds, forceReload):
+        try container.encode("list_skills", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        if !cwds.isEmpty {
+          try container.encode(cwds, forKey: .cwds)
+        }
+        if forceReload {
+          try container.encode(forceReload, forKey: .forceReload)
+        }
+
+      case let .listRemoteSkills(sessionId):
+        try container.encode("list_remote_skills", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+
+      case let .downloadRemoteSkill(sessionId, hazelnutId):
+        try container.encode("download_remote_skill", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(hazelnutId, forKey: .hazelnutId)
     }
   }
 
@@ -641,7 +767,8 @@ enum ClientToServerMessage: Codable {
           sessionId: container.decode(String.self, forKey: .sessionId),
           content: container.decode(String.self, forKey: .content),
           model: container.decodeIfPresent(String.self, forKey: .model),
-          effort: container.decodeIfPresent(String.self, forKey: .effort)
+          effort: container.decodeIfPresent(String.self, forKey: .effort),
+          skills: container.decodeIfPresent([ServerSkillInput].self, forKey: .skills) ?? []
         )
       case "approve_tool":
         self = try .approveTool(
@@ -681,6 +808,19 @@ enum ClientToServerMessage: Codable {
         self = try .deleteApproval(approvalId: container.decode(Int64.self, forKey: .approvalId))
       case "list_models":
         self = .listModels
+      case "list_skills":
+        self = try .listSkills(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          cwds: container.decodeIfPresent([String].self, forKey: .cwds) ?? [],
+          forceReload: container.decodeIfPresent(Bool.self, forKey: .forceReload) ?? false
+        )
+      case "list_remote_skills":
+        self = try .listRemoteSkills(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "download_remote_skill":
+        self = try .downloadRemoteSkill(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          hazelnutId: container.decode(String.self, forKey: .hazelnutId)
+        )
       default:
         throw DecodingError.dataCorrupted(
           DecodingError.Context(

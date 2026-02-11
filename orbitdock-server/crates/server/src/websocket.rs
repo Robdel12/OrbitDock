@@ -611,6 +611,7 @@ async fn handle_client_message(
             content,
             model,
             effort,
+            skills,
         } => {
             info!(
                 component = "session",
@@ -620,6 +621,7 @@ async fn handle_client_message(
                 content_chars = content.chars().count(),
                 model = ?model,
                 effort = ?effort,
+                skills_count = skills.len(),
                 "Sending message to session"
             );
 
@@ -675,6 +677,7 @@ async fn handle_client_message(
                         content,
                         model,
                         effort,
+                        skills,
                     })
                     .await;
             } else {
@@ -866,6 +869,68 @@ async fn handle_client_message(
                 .await;
             }
         },
+
+        ClientMessage::ListSkills {
+            session_id,
+            cwds,
+            force_reload,
+        } => {
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+                let _ = tx
+                    .send(CodexAction::ListSkills { cwds, force_reload })
+                    .await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "session_not_found".into(),
+                        message: format!("Session {} not found or has no active connector", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+            }
+        }
+
+        ClientMessage::ListRemoteSkills { session_id } => {
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+                let _ = tx.send(CodexAction::ListRemoteSkills).await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "session_not_found".into(),
+                        message: format!("Session {} not found or has no active connector", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+            }
+        }
+
+        ClientMessage::DownloadRemoteSkill {
+            session_id,
+            hazelnut_id,
+        } => {
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+                let _ = tx
+                    .send(CodexAction::DownloadRemoteSkill { hazelnut_id })
+                    .await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "session_not_found".into(),
+                        message: format!("Session {} not found or has no active connector", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+            }
+        }
 
         ClientMessage::AnswerQuestion {
             session_id,
@@ -2351,6 +2416,7 @@ mod tests {
                 content: "<environment_context>...</environment_context>".to_string(),
                 model: None,
                 effort: None,
+                skills: vec![],
             },
             &client_tx,
             &state,
@@ -2364,6 +2430,7 @@ mod tests {
                 content: "Investigate flaky auth and propose a safe migration plan".to_string(),
                 model: None,
                 effort: None,
+                skills: vec![],
             },
             &client_tx,
             &state,
