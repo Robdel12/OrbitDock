@@ -359,6 +359,164 @@ struct ServerRemoteSkillSummary: Codable, Identifiable {
   let description: String
 }
 
+// MARK: - MCP Types
+
+struct ServerMcpTool: Codable {
+  let name: String
+  let title: String?
+  let description: String?
+  let inputSchema: AnyCodable
+  let outputSchema: AnyCodable?
+  let annotations: AnyCodable?
+
+  enum CodingKeys: String, CodingKey {
+    case name, title, description, annotations
+    case inputSchema = "inputSchema"
+    case outputSchema = "outputSchema"
+  }
+}
+
+struct ServerMcpResource: Codable {
+  let name: String
+  let uri: String
+  let description: String?
+  let mimeType: String?
+  let title: String?
+  let size: Int64?
+  let annotations: AnyCodable?
+
+  enum CodingKeys: String, CodingKey {
+    case name, uri, description, title, size, annotations
+    case mimeType = "mimeType"
+  }
+}
+
+struct ServerMcpResourceTemplate: Codable {
+  let name: String
+  let uriTemplate: String
+  let title: String?
+  let description: String?
+  let mimeType: String?
+  let annotations: AnyCodable?
+
+  enum CodingKeys: String, CodingKey {
+    case name, title, description, annotations
+    case uriTemplate = "uriTemplate"
+    case mimeType = "mimeType"
+  }
+}
+
+enum ServerMcpAuthStatus: String, Codable {
+  case unsupported
+  case notLoggedIn = "not_logged_in"
+  case bearerToken = "bearer_token"
+  case oauth
+}
+
+/// Tagged enum matching Rust's `#[serde(tag = "state", rename_all = "snake_case")]`
+enum ServerMcpStartupStatus: Codable {
+  case starting
+  case ready
+  case failed(error: String)
+  case cancelled
+
+  enum CodingKeys: String, CodingKey {
+    case state
+    case error
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let state = try container.decode(String.self, forKey: .state)
+    switch state {
+      case "starting": self = .starting
+      case "ready": self = .ready
+      case "failed":
+        let error = try container.decode(String.self, forKey: .error)
+        self = .failed(error: error)
+      case "cancelled": self = .cancelled
+      default:
+        throw DecodingError.dataCorrupted(
+          DecodingError.Context(codingPath: container.codingPath, debugDescription: "Unknown MCP startup state: \(state)")
+        )
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+      case .starting:
+        try container.encode("starting", forKey: .state)
+      case .ready:
+        try container.encode("ready", forKey: .state)
+      case let .failed(error):
+        try container.encode("failed", forKey: .state)
+        try container.encode(error, forKey: .error)
+      case .cancelled:
+        try container.encode("cancelled", forKey: .state)
+    }
+  }
+}
+
+struct ServerMcpStartupFailure: Codable {
+  let server: String
+  let error: String
+}
+
+/// Wrapper for arbitrary JSON values (used for MCP schemas/annotations)
+struct AnyCodable: Codable {
+  let value: Any
+
+  init(_ value: Any) {
+    self.value = value
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    if let dict = try? container.decode([String: AnyCodable].self) {
+      value = dict.mapValues { $0.value }
+    } else if let array = try? container.decode([AnyCodable].self) {
+      value = array.map { $0.value }
+    } else if let string = try? container.decode(String.self) {
+      value = string
+    } else if let int = try? container.decode(Int.self) {
+      value = int
+    } else if let double = try? container.decode(Double.self) {
+      value = double
+    } else if let bool = try? container.decode(Bool.self) {
+      value = bool
+    } else if container.decodeNil() {
+      value = NSNull()
+    } else {
+      throw DecodingError.dataCorrupted(
+        DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unsupported JSON value")
+      )
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    switch value {
+      case let dict as [String: Any]:
+        try container.encode(dict.mapValues { AnyCodable($0) })
+      case let array as [Any]:
+        try container.encode(array.map { AnyCodable($0) })
+      case let string as String:
+        try container.encode(string)
+      case let int as Int:
+        try container.encode(int)
+      case let double as Double:
+        try container.encode(double)
+      case let bool as Bool:
+        try container.encode(bool)
+      case is NSNull:
+        try container.encodeNil()
+      default:
+        try container.encodeNil()
+    }
+  }
+}
+
 // MARK: - Server → Client Messages
 
 enum ServerToClientMessage: Codable {
@@ -378,6 +536,9 @@ enum ServerToClientMessage: Codable {
   case remoteSkillsList(sessionId: String, skills: [ServerRemoteSkillSummary])
   case remoteSkillDownloaded(sessionId: String, skillId: String, name: String, path: String)
   case skillsUpdateAvailable(sessionId: String)
+  case mcpToolsList(sessionId: String, tools: [String: ServerMcpTool], resources: [String: [ServerMcpResource]], resourceTemplates: [String: [ServerMcpResourceTemplate]], authStatuses: [String: ServerMcpAuthStatus])
+  case mcpStartupUpdate(sessionId: String, server: String, status: ServerMcpStartupStatus)
+  case mcpStartupComplete(sessionId: String, ready: [String], failed: [ServerMcpStartupFailure], cancelled: [String])
   case contextCompacted(sessionId: String)
   case undoStarted(sessionId: String, message: String?)
   case undoCompleted(sessionId: String, success: Bool, message: String?)
@@ -406,6 +567,15 @@ enum ServerToClientMessage: Codable {
     case path
     case success
     case numTurns = "num_turns"
+    case tools
+    case resources
+    case resourceTemplates = "resource_templates"
+    case authStatuses = "auth_statuses"
+    case server
+    case status
+    case ready
+    case failed
+    case cancelled
   }
 
   init(from decoder: Decoder) throws {
@@ -490,6 +660,27 @@ enum ServerToClientMessage: Codable {
       case "skills_update_available":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         self = .skillsUpdateAvailable(sessionId: sessionId)
+
+      case "mcp_tools_list":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let tools = try container.decode([String: ServerMcpTool].self, forKey: .tools)
+        let resources = try container.decode([String: [ServerMcpResource]].self, forKey: .resources)
+        let resourceTemplates = try container.decode([String: [ServerMcpResourceTemplate]].self, forKey: .resourceTemplates)
+        let authStatuses = try container.decode([String: ServerMcpAuthStatus].self, forKey: .authStatuses)
+        self = .mcpToolsList(sessionId: sessionId, tools: tools, resources: resources, resourceTemplates: resourceTemplates, authStatuses: authStatuses)
+
+      case "mcp_startup_update":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let server = try container.decode(String.self, forKey: .server)
+        let status = try container.decode(ServerMcpStartupStatus.self, forKey: .status)
+        self = .mcpStartupUpdate(sessionId: sessionId, server: server, status: status)
+
+      case "mcp_startup_complete":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let ready = try container.decode([String].self, forKey: .ready)
+        let failed = try container.decode([ServerMcpStartupFailure].self, forKey: .failed)
+        let cancelled = try container.decode([String].self, forKey: .cancelled)
+        self = .mcpStartupComplete(sessionId: sessionId, ready: ready, failed: failed, cancelled: cancelled)
 
       case "context_compacted":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -609,6 +800,27 @@ enum ServerToClientMessage: Codable {
         try container.encode("skills_update_available", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
 
+      case let .mcpToolsList(sessionId, tools, resources, resourceTemplates, authStatuses):
+        try container.encode("mcp_tools_list", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(tools, forKey: .tools)
+        try container.encode(resources, forKey: .resources)
+        try container.encode(resourceTemplates, forKey: .resourceTemplates)
+        try container.encode(authStatuses, forKey: .authStatuses)
+
+      case let .mcpStartupUpdate(sessionId, server, status):
+        try container.encode("mcp_startup_update", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(server, forKey: .server)
+        try container.encode(status, forKey: .status)
+
+      case let .mcpStartupComplete(sessionId, ready, failed, cancelled):
+        try container.encode("mcp_startup_complete", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(ready, forKey: .ready)
+        try container.encode(failed, forKey: .failed)
+        try container.encode(cancelled, forKey: .cancelled)
+
       case let .contextCompacted(sessionId):
         try container.encode("context_compacted", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
@@ -665,6 +877,8 @@ enum ClientToServerMessage: Codable {
   case listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false)
   case listRemoteSkills(sessionId: String)
   case downloadRemoteSkill(sessionId: String, hazelnutId: String)
+  case listMcpTools(sessionId: String)
+  case refreshMcpServers(sessionId: String)
   case compactContext(sessionId: String)
   case undoLastTurn(sessionId: String)
   case rollbackTurns(sessionId: String, numTurns: UInt32)
@@ -791,6 +1005,14 @@ enum ClientToServerMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(hazelnutId, forKey: .hazelnutId)
 
+      case let .listMcpTools(sessionId):
+        try container.encode("list_mcp_tools", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+
+      case let .refreshMcpServers(sessionId):
+        try container.encode("refresh_mcp_servers", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+
       case let .compactContext(sessionId):
         try container.encode("compact_context", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
@@ -884,6 +1106,10 @@ enum ClientToServerMessage: Codable {
           sessionId: container.decode(String.self, forKey: .sessionId),
           hazelnutId: container.decode(String.self, forKey: .hazelnutId)
         )
+      case "list_mcp_tools":
+        self = try .listMcpTools(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "refresh_mcp_servers":
+        self = try .refreshMcpServers(sessionId: container.decode(String.self, forKey: .sessionId))
       case "compact_context":
         self = try .compactContext(sessionId: container.decode(String.self, forKey: .sessionId))
       case "undo_last_turn":

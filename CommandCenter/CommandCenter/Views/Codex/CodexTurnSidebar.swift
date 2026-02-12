@@ -11,18 +11,23 @@ import SwiftUI
 struct CodexTurnSidebar: View {
   let sessionId: String
   let onClose: () -> Void
+  @Binding var selectedTab: Tab
+  @Binding var selectedSkills: Set<String>
 
   @Environment(ServerAppState.self) private var serverState
-  @State private var selectedTab: Tab = .plan
 
   enum Tab: String, CaseIterable {
     case plan = "Plan"
     case changes = "Changes"
+    case servers = "Servers"
+    case skills = "Skills"
 
     var icon: String {
       switch self {
         case .plan: "list.bullet.clipboard"
         case .changes: "doc.badge.plus"
+        case .servers: "puzzlepiece.extension"
+        case .skills: "bolt.fill"
       }
     }
   }
@@ -33,6 +38,10 @@ struct CodexTurnSidebar: View {
 
   private var diff: String? {
     serverState.getDiff(sessionId: sessionId)
+  }
+
+  private var skills: [ServerSkillMetadata] {
+    (serverState.sessionSkills[sessionId] ?? []).filter { $0.enabled }
   }
 
   var body: some View {
@@ -86,17 +95,59 @@ struct CodexTurnSidebar: View {
                 message: "File changes will appear here during the turn"
               )
             }
+
+          case .servers:
+            if serverState.hasMcpData(sessionId: sessionId) {
+              McpServersTab(sessionId: sessionId)
+            } else {
+              emptyState(
+                icon: "puzzlepiece.extension",
+                title: "No MCP Servers",
+                message: "MCP servers will appear here when configured"
+              )
+            }
+
+          case .skills:
+            if !skills.isEmpty {
+              SkillsTab(sessionId: sessionId, selectedSkills: $selectedSkills)
+            } else {
+              emptyState(
+                icon: "bolt.slash",
+                title: "No Skills",
+                message: "Skills will appear here when available"
+              )
+            }
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .background(Color.backgroundSecondary)
     .onAppear {
-      // Auto-select tab based on available content
-      if plan != nil, !plan!.isEmpty {
-        selectedTab = .plan
-      } else if diff != nil, !diff!.isEmpty {
-        selectedTab = .changes
+      // Auto-select only when default tab (plan) has no content
+      // Respects parent-set tab (e.g. when opened via input bar bolt)
+      if selectedTab == .plan, plan == nil || plan!.isEmpty {
+        if diff != nil, !diff!.isEmpty {
+          selectedTab = .changes
+        } else if serverState.hasMcpData(sessionId: sessionId) {
+          selectedTab = .servers
+        } else if !skills.isEmpty {
+          selectedTab = .skills
+        }
+      }
+    }
+    .onChange(of: selectedTab) { _, newTab in
+      // Auto-fetch MCP tools when switching to servers tab
+      if newTab == .servers {
+        let hasTools = !(serverState.mcpTools[sessionId]?.isEmpty ?? true)
+        if !hasTools {
+          serverState.listMcpTools(sessionId: sessionId)
+        }
+      }
+      // Auto-fetch skills when switching to skills tab
+      if newTab == .skills {
+        if skills.isEmpty {
+          serverState.listSkills(sessionId: sessionId)
+        }
       }
     }
   }
@@ -104,7 +155,6 @@ struct CodexTurnSidebar: View {
   @ViewBuilder
   private func tabButton(_ tab: Tab) -> some View {
     let isSelected = selectedTab == tab
-    let hasContent = tab == .plan ? (plan?.isEmpty == false) : (diff?.isEmpty == false)
 
     Button {
       withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -113,19 +163,14 @@ struct CodexTurnSidebar: View {
     } label: {
       HStack(spacing: 5) {
         Image(systemName: tab.icon)
-          .font(.system(size: 10, weight: .medium))
-
-        Text(tab.rawValue)
           .font(.system(size: 11, weight: .medium))
 
-        // Badge for content indicator
-        if hasContent, !isSelected {
-          Circle()
-            .fill(Color.accent)
-            .frame(width: 5, height: 5)
+        if isSelected {
+          Text(tab.rawValue)
+            .font(.system(size: 11, weight: .medium))
         }
       }
-      .padding(.horizontal, 10)
+      .padding(.horizontal, isSelected ? 10 : 8)
       .padding(.vertical, 6)
       .foregroundStyle(isSelected ? Color.accent : .secondary)
       .background(
@@ -134,6 +179,7 @@ struct CodexTurnSidebar: View {
       )
     }
     .buttonStyle(.plain)
+    .help(tab.rawValue)
   }
 
   private func planContent(steps: [Session.PlanStep]) -> some View {
@@ -487,9 +533,13 @@ private struct SpinningModifier: ViewModifier {
 // MARK: - Preview
 
 #Preview("With Content") {
+  @Previewable @State var tab: CodexTurnSidebar.Tab = .plan
+  @Previewable @State var skills: Set<String> = []
   CodexTurnSidebar(
     sessionId: "test",
-    onClose: {}
+    onClose: {},
+    selectedTab: $tab,
+    selectedSkills: $skills
   )
   .environment(ServerAppState())
   .frame(width: 320, height: 500)
@@ -497,9 +547,13 @@ private struct SpinningModifier: ViewModifier {
 }
 
 #Preview("Empty") {
+  @Previewable @State var tab: CodexTurnSidebar.Tab = .plan
+  @Previewable @State var skills: Set<String> = []
   CodexTurnSidebar(
     sessionId: "empty",
-    onClose: {}
+    onClose: {},
+    selectedTab: $tab,
+    selectedSkills: $skills
   )
   .environment(ServerAppState())
   .frame(width: 320, height: 400)

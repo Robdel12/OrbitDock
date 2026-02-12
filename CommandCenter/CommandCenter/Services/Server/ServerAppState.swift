@@ -59,6 +59,18 @@ final class ServerAppState {
   /// Whether an undo operation is in progress per session
   private(set) var undoInProgress: [String: Bool] = [:]
 
+  /// MCP tools per session (keyed by fully qualified tool name)
+  private(set) var mcpTools: [String: [String: ServerMcpTool]] = [:]
+
+  /// MCP resources per session (keyed by server name)
+  private(set) var mcpResources: [String: [String: [ServerMcpResource]]] = [:]
+
+  /// MCP auth statuses per session (keyed by server name)
+  private(set) var mcpAuthStatuses: [String: [String: ServerMcpAuthStatus]] = [:]
+
+  /// MCP startup state per session (tracks per-server startup status)
+  private(set) var mcpStartupState: [String: McpStartupState] = [:]
+
   /// Raw config values used to derive autonomy accurately across partial deltas
   private var approvalPolicies: [String: String] = [:]
   private var sandboxModes: [String: String] = [:]
@@ -179,6 +191,36 @@ final class ServerAppState {
     conn.onSkillsUpdateAvailable = { sessionId in
       Task { @MainActor in
         ServerConnection.shared.listSkills(sessionId: sessionId)
+      }
+    }
+
+    conn.onMcpToolsList = { [weak self] sessionId, tools, resources, _, authStatuses in
+      Task { @MainActor in
+        self?.mcpTools[sessionId] = tools
+        self?.mcpResources[sessionId] = resources
+        self?.mcpAuthStatuses[sessionId] = authStatuses
+        logger.info("MCP tools list received for \(sessionId): \(tools.count) tools")
+      }
+    }
+
+    conn.onMcpStartupUpdate = { [weak self] sessionId, server, status in
+      Task { @MainActor in
+        var state = self?.mcpStartupState[sessionId] ?? McpStartupState()
+        state.serverStatuses[server] = status
+        self?.mcpStartupState[sessionId] = state
+        logger.info("MCP startup update for \(sessionId): \(server)")
+      }
+    }
+
+    conn.onMcpStartupComplete = { [weak self] sessionId, ready, failed, cancelled in
+      Task { @MainActor in
+        var state = self?.mcpStartupState[sessionId] ?? McpStartupState()
+        state.readyServers = ready
+        state.failedServers = failed
+        state.cancelledServers = cancelled
+        state.isComplete = true
+        self?.mcpStartupState[sessionId] = state
+        logger.info("MCP startup complete for \(sessionId): \(ready.count) ready, \(failed.count) failed")
       }
     }
 
@@ -885,4 +927,39 @@ final class ServerAppState {
   func getDiff(sessionId: String) -> String? {
     sessionDiffs[sessionId]
   }
+
+  /// Whether we have any MCP data (tools or startup state) for a session
+  func hasMcpData(sessionId: String) -> Bool {
+    !(mcpTools[sessionId]?.isEmpty ?? true) || mcpStartupState[sessionId] != nil
+  }
+
+  /// List MCP tools for a session
+  func listMcpTools(sessionId: String) {
+    ServerConnection.shared.listMcpTools(sessionId: sessionId)
+  }
+
+  /// Refresh MCP servers for a session
+  func refreshMcpServers(sessionId: String) {
+    ServerConnection.shared.refreshMcpServers(sessionId: sessionId)
+  }
+}
+
+// MARK: - MCP Startup State
+
+/// Tracks per-server MCP startup status for a session
+struct McpStartupState {
+  /// Per-server startup status
+  var serverStatuses: [String: ServerMcpStartupStatus] = [:]
+
+  /// Servers that are ready
+  var readyServers: [String] = []
+
+  /// Servers that failed with errors
+  var failedServers: [ServerMcpStartupFailure] = []
+
+  /// Servers that were cancelled
+  var cancelledServers: [String] = []
+
+  /// Whether startup is complete
+  var isComplete: Bool = false
 }

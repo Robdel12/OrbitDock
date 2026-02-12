@@ -99,6 +99,14 @@ pub enum ClientMessage {
         hazelnut_id: String,
     },
 
+    // MCP
+    ListMcpTools {
+        session_id: String,
+    },
+    RefreshMcpServers {
+        session_id: String,
+    },
+
     // Context management
     CompactContext {
         session_id: String,
@@ -359,6 +367,34 @@ mod tests {
 
         let serialized = serde_json::to_string(&parsed).expect("serialize");
         let _: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    }
+
+    #[test]
+    fn roundtrip_list_mcp_tools() {
+        let json = r#"{"type":"list_mcp_tools","session_id":"sess-m1"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse list_mcp_tools");
+        match &parsed {
+            ClientMessage::ListMcpTools { session_id } => {
+                assert_eq!(session_id, "sess-m1");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_refresh_mcp_servers() {
+        let json = r#"{"type":"refresh_mcp_servers","session_id":"sess-m2"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse refresh_mcp_servers");
+        match &parsed {
+            ClientMessage::RefreshMcpServers { session_id } => {
+                assert_eq!(session_id, "sess-m2");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
     }
 
     #[test]

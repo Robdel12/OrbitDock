@@ -453,6 +453,71 @@ impl CodexSession {
                     .await;
             }
 
+            ConnectorEvent::McpToolsList {
+                tools,
+                resources,
+                resource_templates,
+                auth_statuses,
+            } => {
+                debug!(
+                    component = "codex_connector",
+                    event = "codex.mcp.tools_list",
+                    session_id = %session_id,
+                    tool_count = tools.len(),
+                    "MCP tools list received"
+                );
+                session
+                    .broadcast(ServerMessage::McpToolsList {
+                        session_id: session_id.to_string(),
+                        tools,
+                        resources,
+                        resource_templates,
+                        auth_statuses,
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::McpStartupUpdate { server, status } => {
+                info!(
+                    component = "codex_connector",
+                    event = "codex.mcp.startup_update",
+                    session_id = %session_id,
+                    server = %server,
+                    "MCP startup update"
+                );
+                session
+                    .broadcast(ServerMessage::McpStartupUpdate {
+                        session_id: session_id.to_string(),
+                        server,
+                        status,
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::McpStartupComplete {
+                ready,
+                failed,
+                cancelled,
+            } => {
+                info!(
+                    component = "codex_connector",
+                    event = "codex.mcp.startup_complete",
+                    session_id = %session_id,
+                    ready_count = ready.len(),
+                    failed_count = failed.len(),
+                    cancelled_count = cancelled.len(),
+                    "MCP startup complete"
+                );
+                session
+                    .broadcast(ServerMessage::McpStartupComplete {
+                        session_id: session_id.to_string(),
+                        ready,
+                        failed,
+                        cancelled,
+                    })
+                    .await;
+            }
+
             ConnectorEvent::ContextCompacted => {
                 debug!(
                     component = "codex_connector",
@@ -677,6 +742,12 @@ impl CodexSession {
             CodexAction::SetThreadName { name } => {
                 connector.set_thread_name(&name).await?;
             }
+            CodexAction::ListMcpTools => {
+                connector.list_mcp_tools().await?;
+            }
+            CodexAction::RefreshMcpServers => {
+                connector.refresh_mcp_servers().await?;
+            }
             CodexAction::Compact => {
                 connector.compact().await?;
             }
@@ -732,6 +803,8 @@ pub enum CodexAction {
     SetThreadName {
         name: String,
     },
+    ListMcpTools,
+    RefreshMcpServers,
     Compact,
     Undo,
     ThreadRollback {

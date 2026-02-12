@@ -7,7 +7,8 @@
 pub mod codex;
 
 pub use codex::{discover_models, CodexConnector};
-use orbitdock_protocol::TokenUsage;
+use orbitdock_protocol::{McpAuthStatus, McpStartupFailure, McpStartupStatus, McpTool, McpResource, McpResourceTemplate, TokenUsage};
+use std::collections::HashMap;
 use thiserror::Error;
 
 /// Errors that can occur in connectors
@@ -93,6 +94,27 @@ pub enum ConnectorEvent {
 
     /// Skills update available notification
     SkillsUpdateAvailable,
+
+    /// MCP tools list response
+    McpToolsList {
+        tools: HashMap<String, McpTool>,
+        resources: HashMap<String, Vec<McpResource>>,
+        resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
+        auth_statuses: HashMap<String, McpAuthStatus>,
+    },
+
+    /// MCP server startup progress update
+    McpStartupUpdate {
+        server: String,
+        status: McpStartupStatus,
+    },
+
+    /// MCP server startup complete
+    McpStartupComplete {
+        ready: Vec<String>,
+        failed: Vec<McpStartupFailure>,
+        cancelled: Vec<String>,
+    },
 
     /// Context was compacted (summarized)
     ContextCompacted,

@@ -15,7 +15,8 @@ use codex_core::features::Feature;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, CodexThread, ThreadManager};
 use codex_protocol::protocol::{
-    AskForApproval, Event, EventMsg, FileChange, Op, ReviewDecision, SandboxPolicy, SessionSource,
+    AskForApproval, Event, EventMsg, FileChange, McpServerRefreshConfig, Op, ReviewDecision,
+    SandboxPolicy, SessionSource,
 };
 use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInputResponse};
 use codex_protocol::user_input::UserInput;
@@ -767,6 +768,123 @@ impl CodexConnector {
                 vec![ConnectorEvent::SkillsUpdateAvailable]
             }
 
+            EventMsg::McpListToolsResponse(e) => {
+                // Map codex-core types to our protocol types via serialize→deserialize
+                let tools: HashMap<String, orbitdock_protocol::McpTool> = e
+                    .tools
+                    .into_iter()
+                    .map(|(k, t)| {
+                        let v = serde_json::to_value(&t).unwrap_or_default();
+                        let mapped: orbitdock_protocol::McpTool =
+                            serde_json::from_value(v).unwrap_or_else(|_| orbitdock_protocol::McpTool {
+                                name: t.name,
+                                title: t.title,
+                                description: t.description,
+                                input_schema: t.input_schema,
+                                output_schema: t.output_schema,
+                                annotations: t.annotations,
+                            });
+                        (k, mapped)
+                    })
+                    .collect();
+
+                let resources: HashMap<String, Vec<orbitdock_protocol::McpResource>> = e
+                    .resources
+                    .into_iter()
+                    .map(|(k, rs)| {
+                        let mapped: Vec<orbitdock_protocol::McpResource> = rs
+                            .into_iter()
+                            .filter_map(|r| {
+                                let v = serde_json::to_value(&r).ok()?;
+                                serde_json::from_value(v).ok()
+                            })
+                            .collect();
+                        (k, mapped)
+                    })
+                    .collect();
+
+                let resource_templates: HashMap<String, Vec<orbitdock_protocol::McpResourceTemplate>> = e
+                    .resource_templates
+                    .into_iter()
+                    .map(|(k, ts)| {
+                        let mapped: Vec<orbitdock_protocol::McpResourceTemplate> = ts
+                            .into_iter()
+                            .filter_map(|t| {
+                                let v = serde_json::to_value(&t).ok()?;
+                                serde_json::from_value(v).ok()
+                            })
+                            .collect();
+                        (k, mapped)
+                    })
+                    .collect();
+
+                let auth_statuses: HashMap<String, orbitdock_protocol::McpAuthStatus> = e
+                    .auth_statuses
+                    .into_iter()
+                    .map(|(k, s)| {
+                        let mapped = match s {
+                            codex_protocol::protocol::McpAuthStatus::Unsupported => {
+                                orbitdock_protocol::McpAuthStatus::Unsupported
+                            }
+                            codex_protocol::protocol::McpAuthStatus::NotLoggedIn => {
+                                orbitdock_protocol::McpAuthStatus::NotLoggedIn
+                            }
+                            codex_protocol::protocol::McpAuthStatus::BearerToken => {
+                                orbitdock_protocol::McpAuthStatus::BearerToken
+                            }
+                            codex_protocol::protocol::McpAuthStatus::OAuth => {
+                                orbitdock_protocol::McpAuthStatus::OAuth
+                            }
+                        };
+                        (k, mapped)
+                    })
+                    .collect();
+
+                vec![ConnectorEvent::McpToolsList {
+                    tools,
+                    resources,
+                    resource_templates,
+                    auth_statuses,
+                }]
+            }
+
+            EventMsg::McpStartupUpdate(e) => {
+                let status = match e.status {
+                    codex_protocol::protocol::McpStartupStatus::Starting => {
+                        orbitdock_protocol::McpStartupStatus::Starting
+                    }
+                    codex_protocol::protocol::McpStartupStatus::Ready => {
+                        orbitdock_protocol::McpStartupStatus::Ready
+                    }
+                    codex_protocol::protocol::McpStartupStatus::Failed { error } => {
+                        orbitdock_protocol::McpStartupStatus::Failed { error }
+                    }
+                    codex_protocol::protocol::McpStartupStatus::Cancelled => {
+                        orbitdock_protocol::McpStartupStatus::Cancelled
+                    }
+                };
+                vec![ConnectorEvent::McpStartupUpdate {
+                    server: e.server,
+                    status,
+                }]
+            }
+
+            EventMsg::McpStartupComplete(e) => {
+                let failed = e
+                    .failed
+                    .into_iter()
+                    .map(|f| orbitdock_protocol::McpStartupFailure {
+                        server: f.server,
+                        error: f.error,
+                    })
+                    .collect();
+                vec![ConnectorEvent::McpStartupComplete {
+                    ready: e.ready,
+                    failed,
+                    cancelled: e.cancelled,
+                }]
+            }
+
             // Ignore other high-frequency streaming events
             EventMsg::AgentReasoningDelta(_)
             | EventMsg::AgentReasoningRawContent(_)
@@ -896,6 +1014,30 @@ impl CodexConnector {
             ConnectorError::ProviderError(format!("Failed to download skill: {}", e))
         })?;
         info!("Requested remote skill download: {}", hazelnut_id);
+        Ok(())
+    }
+
+    /// List MCP tools across all configured servers
+    pub async fn list_mcp_tools(&self) -> Result<(), ConnectorError> {
+        let op = Op::ListMcpTools;
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to list MCP tools: {}", e))
+        })?;
+        info!("Requested MCP tools list");
+        Ok(())
+    }
+
+    /// Refresh MCP servers (reinitialize and refresh cached tool lists)
+    pub async fn refresh_mcp_servers(&self) -> Result<(), ConnectorError> {
+        let config = McpServerRefreshConfig {
+            mcp_servers: serde_json::Value::Object(Default::default()),
+            mcp_oauth_credentials_store_mode: serde_json::Value::Null,
+        };
+        let op = Op::RefreshMcpServers { config };
+        self.thread.submit(op).await.map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to refresh MCP servers: {}", e))
+        })?;
+        info!("Requested MCP servers refresh");
         Ok(())
     }
 

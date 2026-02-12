@@ -55,6 +55,9 @@ final class ServerConnection: ObservableObject {
   var onRemoteSkillsList: ((String, [ServerRemoteSkillSummary]) -> Void)?
   var onRemoteSkillDownloaded: ((String, String, String, String) -> Void)?
   var onSkillsUpdateAvailable: ((String) -> Void)?
+  var onMcpToolsList: ((String, [String: ServerMcpTool], [String: [ServerMcpResource]], [String: [ServerMcpResourceTemplate]], [String: ServerMcpAuthStatus]) -> Void)?
+  var onMcpStartupUpdate: ((String, String, ServerMcpStartupStatus) -> Void)?
+  var onMcpStartupComplete: ((String, [String], [ServerMcpStartupFailure], [String]) -> Void)?
   var onContextCompacted: ((String) -> Void)?
   var onUndoStarted: ((String, String?) -> Void)?
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
@@ -274,6 +277,15 @@ final class ServerConnection: ObservableObject {
       case let .skillsUpdateAvailable(sessionId):
         onSkillsUpdateAvailable?(sessionId)
 
+      case let .mcpToolsList(sessionId, tools, resources, resourceTemplates, authStatuses):
+        onMcpToolsList?(sessionId, tools, resources, resourceTemplates, authStatuses)
+
+      case let .mcpStartupUpdate(sessionId, server, status):
+        onMcpStartupUpdate?(sessionId, server, status)
+
+      case let .mcpStartupComplete(sessionId, ready, failed, cancelled):
+        onMcpStartupComplete?(sessionId, ready, failed, cancelled)
+
       case let .contextCompacted(sessionId):
         onContextCompacted?(sessionId)
 
@@ -418,6 +430,16 @@ final class ServerConnection: ObservableObject {
   /// Download a remote skill by hazelnut ID
   func downloadRemoteSkill(sessionId: String, hazelnutId: String) {
     send(.downloadRemoteSkill(sessionId: sessionId, hazelnutId: hazelnutId))
+  }
+
+  /// List MCP tools for a session
+  func listMcpTools(sessionId: String) {
+    send(.listMcpTools(sessionId: sessionId))
+  }
+
+  /// Refresh MCP servers for a session
+  func refreshMcpServers(sessionId: String) {
+    send(.refreshMcpServers(sessionId: sessionId))
   }
 
   /// Compact (summarize) the conversation context

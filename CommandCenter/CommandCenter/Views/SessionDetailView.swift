@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import OSLog
 
 struct SessionDetailView: View {
   @Environment(ServerAppState.self) private var serverState
@@ -20,9 +21,13 @@ struct SessionDetailView: View {
   @State private var unreadCount = 0
   @State private var scrollToBottomTrigger = 0
 
-  // Turn sidebar state (plan + diff) - starts closed, user must trigger it
+  // Turn sidebar state - starts closed, user must trigger it
   @State private var showTurnSidebar = false
   @State private var showApprovalHistory = false
+
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
+  @State private var sidebarSelectedTab: CodexTurnSidebar.Tab = .plan
+  @State private var selectedSkills: Set<String> = []
 
   var body: some View {
     VStack(spacing: 0) {
@@ -34,7 +39,9 @@ struct SessionDetailView: View {
         onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
         onGoToDashboard: onGoToDashboard,
-        onEndSession: session.isDirectCodex ? { endCodexSession() } : nil
+        onEndSession: session.isDirectCodex ? { endCodexSession() } : nil,
+        showTurnSidebar: session.isDirectCodex ? $showTurnSidebar : nil,
+        hasSidebarContent: hasSidebarContent
       )
 
       Divider()
@@ -59,21 +66,19 @@ struct SessionDetailView: View {
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-        // Turn sidebar - plan + diff (Codex direct only)
+        // Turn sidebar - plan + diff + servers + skills (Codex direct only)
         if session.isDirectCodex, showTurnSidebar {
-          let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
-          let hasDiff = serverState.getDiff(sessionId: session.id) != nil
+          Divider()
+            .foregroundStyle(Color.panelBorder)
 
-          if hasPlan || hasDiff {
-            Divider()
-              .foregroundStyle(Color.panelBorder)
-
-            CodexTurnSidebar(
-              sessionId: session.id,
-              onClose: { showTurnSidebar = false }
-            )
-            .frame(width: 320)
-          }
+          CodexTurnSidebar(
+            sessionId: session.id,
+            onClose: { showTurnSidebar = false },
+            selectedTab: $sidebarSelectedTab,
+            selectedSkills: $selectedSkills
+          )
+          .frame(width: 320)
+          .transition(.move(edge: .trailing).combined(with: .opacity))
         }
       }
 
@@ -110,6 +115,8 @@ struct SessionDetailView: View {
         if session.isDirectCodex {
           serverState.loadApprovalHistory(sessionId: session.id)
           serverState.loadGlobalApprovalHistory()
+          serverState.listMcpTools(sessionId: session.id)
+          serverState.listSkills(sessionId: session.id)
         }
       }
     }
@@ -128,11 +135,15 @@ struct SessionDetailView: View {
         if session.isDirectCodex {
           serverState.loadApprovalHistory(sessionId: newId)
           serverState.loadGlobalApprovalHistory()
+          serverState.listMcpTools(sessionId: newId)
+          serverState.listSkills(sessionId: newId)
         }
       }
-      // Reset scroll state for new session
+      // Reset state for new session
       isPinned = true
       unreadCount = 0
+      selectedSkills = []
+      sidebarSelectedTab = .plan
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
       Button("Open New") { TerminalService.shared.focusSession(session) }
@@ -305,7 +316,16 @@ struct SessionDetailView: View {
       } else {
         // Input bar when waiting for input
         if session.workStatus == .waiting || session.workStatus == .unknown {
-          CodexInputBar(sessionId: session.id)
+          CodexInputBar(
+            sessionId: session.id,
+            selectedSkills: $selectedSkills,
+            onOpenSkills: {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                sidebarSelectedTab = .skills
+                showTurnSidebar = true
+              }
+            }
+          )
         }
 
         // Status bar
@@ -364,30 +384,6 @@ struct SessionDetailView: View {
           .buttonStyle(.plain)
           .disabled(serverState.undoInProgress[session.id] == true)
           .help("Undo last turn (reverts filesystem changes)")
-
-          // Turn sidebar toggle (plan + changes)
-          if hasTurnStateContent {
-            Button {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                showTurnSidebar.toggle()
-              }
-            } label: {
-              HStack(spacing: 4) {
-                Image(systemName: turnSidebarIcon)
-                  .font(.system(size: 11, weight: .medium))
-                Text(turnSidebarLabel)
-                  .font(.system(size: 11, weight: .medium))
-              }
-              .foregroundStyle(showTurnSidebar ? Color.accent : .secondary)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 6)
-              .background(
-                showTurnSidebar ? Color.accent.opacity(0.15) : Color.surfaceHover,
-                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
-              )
-            }
-            .buttonStyle(.plain)
-          }
 
           Button {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
@@ -484,34 +480,14 @@ struct SessionDetailView: View {
 
   // MARK: - Turn Sidebar Helpers
 
-  /// Whether there's any turn state content to show
-  private var hasTurnStateContent: Bool {
+  /// Whether any sidebar tab has content (for header badge indicator)
+  private var hasSidebarContent: Bool {
+    guard session.isDirectCodex else { return false }
     let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
     let hasDiff = serverState.getDiff(sessionId: session.id) != nil
-    return session.isDirectCodex && (hasPlan || hasDiff)
-  }
-
-  /// Icon for the turn sidebar toggle button
-  private var turnSidebarIcon: String {
-    if serverState.getPlanSteps(sessionId: session.id) != nil {
-      "list.bullet.clipboard"
-    } else {
-      "doc.badge.plus"
-    }
-  }
-
-  /// Label for the turn sidebar toggle button
-  private var turnSidebarLabel: String {
-    let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
-    let hasDiff = serverState.getDiff(sessionId: session.id) != nil
-
-    if hasPlan {
-      return "Plan"
-    } else if hasDiff {
-      return "Changes"
-    } else {
-      return "Plan"
-    }
+    let hasMcp = serverState.hasMcpData(sessionId: session.id)
+    let hasSkills = !(serverState.sessionSkills[session.id]?.isEmpty ?? true)
+    return hasPlan || hasDiff || hasMcp || hasSkills
   }
 
   private var approvalHistoryCount: Int {
@@ -562,6 +538,7 @@ struct SessionDetailView: View {
   }
 
   private func openInITerm() {
+    logger.info("focus terminal clicked session=\(session.id, privacy: .public) provider=\(String(describing: session.provider), privacy: .public)")
     TerminalService.shared.focusSession(session)
   }
 

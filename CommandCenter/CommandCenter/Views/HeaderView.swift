@@ -15,6 +15,8 @@ struct HeaderView: View {
   let onFocusTerminal: () -> Void
   let onGoToDashboard: () -> Void
   var onEndSession: (() -> Void)?
+  var showTurnSidebar: Binding<Bool>? = nil
+  var hasSidebarContent: Bool = false
 
   @State private var isHoveringPath = false
   @State private var isHoveringProject = false
@@ -131,6 +133,26 @@ struct HeaderView: View {
           }
           .buttonStyle(.plain)
           .help(session.isActive ? "Focus terminal" : "Resume in terminal")
+
+          // Sidebar toggle for Codex direct sessions
+          if let sidebarBinding = showTurnSidebar {
+            Button {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                sidebarBinding.wrappedValue.toggle()
+              }
+            } label: {
+              Image(systemName: "sidebar.right")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(sidebarBinding.wrappedValue ? AnyShapeStyle(Color.accent) : AnyShapeStyle(.tertiary))
+                .frame(width: 28, height: 28)
+                .background(
+                  sidebarBinding.wrappedValue ? Color.accent.opacity(0.15) : Color.surfaceHover,
+                  in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Toggle sidebar")
+          }
 
           // End session button for Codex direct sessions
           if session.isDirectCodex, session.isActive, let onEnd = onEndSession {

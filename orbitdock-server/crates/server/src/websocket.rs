@@ -932,6 +932,40 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::ListMcpTools { session_id } => {
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+                let _ = tx.send(CodexAction::ListMcpTools).await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "session_not_found".into(),
+                        message: format!("Session {} not found or has no active connector", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+            }
+        }
+
+        ClientMessage::RefreshMcpServers { session_id } => {
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+                let _ = tx.send(CodexAction::RefreshMcpServers).await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "session_not_found".into(),
+                        message: format!("Session {} not found or has no active connector", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+            }
+        }
+
         ClientMessage::AnswerQuestion {
             session_id,
             request_id,

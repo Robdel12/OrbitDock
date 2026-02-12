@@ -6,12 +6,15 @@
 //
 
 import Foundation
+import OSLog
 
 @MainActor
 final class TerminalService {
   static let shared = TerminalService()
 
   private let appleScript = AppleScriptService.shared
+  private let iTermApplicationReference = "application id \"com.googlecode.iterm2\""
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "terminal-service")
 
   private init() {}
 
@@ -30,8 +33,9 @@ final class TerminalService {
   /// Claude's TUI requires keystroke events, so we activate iTerm and send Return
   func sendInput(_ text: String, to session: Session, completion: ((Bool) -> Void)? = nil) {
     guard let terminalId = session.terminalSessionId, !terminalId.isEmpty,
-          session.terminalApp == "iTerm.app"
+          isITermSession(session.terminalApp)
     else {
+      logger.error("sendInput skipped unsupported terminal app session=\(session.id, privacy: .public) terminalApp=\(session.terminalApp ?? "nil", privacy: .public)")
       completion?(false)
       return
     }
@@ -44,7 +48,7 @@ final class TerminalService {
     // Write text, activate iTerm, send Return - user stays in iTerm to watch Claude
     // Use explicit indexing to avoid reference issues when reordering windows
     let script = """
-    tell application "iTerm2"
+    tell \(iTermApplicationReference)
         repeat with winIdx from 1 to count of windows
             set aWindow to window winIdx
             repeat with tabIdx from 1 to count of tabs of aWindow
@@ -77,7 +81,8 @@ final class TerminalService {
       switch result {
         case let .success(output):
           completion?(output == "sent")
-        case .failure:
+        case let .failure(error):
+          self.logger.error("sendInput AppleScript failed session=\(session.id, privacy: .public) terminalId=\(terminalId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
           completion?(false)
       }
     }
@@ -86,16 +91,18 @@ final class TerminalService {
   // MARK: - Private Implementation
 
   private func focusActiveSession(_ session: Session) {
+    logger.info("focus requested session=\(session.id, privacy: .public) terminalApp=\(session.terminalApp ?? "nil", privacy: .public) terminalId=\(session.terminalSessionId ?? "nil", privacy: .public)")
+
     // First try by terminal session ID (most reliable)
     if let terminalId = session.terminalSessionId, !terminalId.isEmpty,
-       session.terminalApp == "iTerm.app"
+       isITermSession(session.terminalApp)
     {
       focusBySessionId(terminalId) { [weak self] found in
         if !found {
           // Fallback to path-based matching
           self?.focusByPath(session.projectPath) { found in
             if !found {
-              print("TerminalService: Could not find terminal for session \(session.id)")
+              self?.logger.error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_id_or_path")
             }
           }
         }
@@ -104,7 +111,7 @@ final class TerminalService {
       // No terminal ID, try path-based matching
       focusByPath(session.projectPath) { found in
         if !found {
-          print("TerminalService: Could not find terminal by path for session \(session.id)")
+          self.logger.error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_path_no_terminal_id")
         }
       }
     }
@@ -112,16 +119,20 @@ final class TerminalService {
 
   private func focusBySessionId(_ terminalId: String, completion: @escaping (Bool) -> Void) {
     // terminalId format from hooks: "w9t1p0:UUID" - iTerm only knows the UUID part
+    let terminalUUID = extractTerminalUUID(from: terminalId)
+    let escapedTerminalId = terminalId.replacingOccurrences(of: "\"", with: "\\\"")
+    let escapedTerminalUUID = terminalUUID.replacingOccurrences(of: "\"", with: "\\\"")
+
     // Use explicit indexing to avoid reference issues when reordering windows
     let script = """
-    tell application "iTerm2"
+    tell \(iTermApplicationReference)
         repeat with winIdx from 1 to count of windows
             set aWindow to window winIdx
             repeat with tabIdx from 1 to count of tabs of aWindow
                 set aTab to tab tabIdx of aWindow
                 repeat with aSession in sessions of aTab
                     try
-                        if "\(terminalId)" contains (unique ID of aSession) then
+                        if (unique ID of aSession) is "\(escapedTerminalUUID)" or "\(escapedTerminalId)" contains (unique ID of aSession) then
                             -- Bring window to front first
                             set index of aWindow to 1
                             -- Select the tab
@@ -143,7 +154,8 @@ final class TerminalService {
       switch result {
         case let .success(output):
           completion(output?.hasPrefix("found") ?? false)
-        case .failure:
+        case let .failure(error):
+          self.logger.error("focusBySessionId AppleScript failed terminalId=\(terminalId, privacy: .public) terminalUUID=\(terminalUUID, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
           completion(false)
       }
     }
@@ -154,7 +166,7 @@ final class TerminalService {
 
     // Use explicit indexing to avoid reference issues when reordering windows
     let script = """
-    tell application "iTerm2"
+    tell \(iTermApplicationReference)
         repeat with winIdx from 1 to count of windows
             set aWindow to window winIdx
             repeat with tabIdx from 1 to count of tabs of aWindow
@@ -185,7 +197,7 @@ final class TerminalService {
         case let .success(output):
           completion(output == "found")
         case let .failure(error):
-          print("TerminalService focusByPath error: \(error)")
+          self.logger.error("focusByPath AppleScript failed path=\(projectPath, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
           completion(false)
       }
     }
@@ -196,7 +208,7 @@ final class TerminalService {
     let command = "cd '\(escapedPath)' && claude --resume \(session.id)"
 
     let script = """
-    tell application "iTerm2"
+    tell \(iTermApplicationReference)
         activate
         set newWindow to (create window with default profile)
         tell current session of newWindow
@@ -207,8 +219,20 @@ final class TerminalService {
 
     appleScript.execute(script) { result in
       if case let .failure(error) = result {
-        print("TerminalService openNewTerminal error: \(error)")
+        self.logger.error("openNewTerminal AppleScript failed session=\(session.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
       }
     }
+  }
+
+  private func isITermSession(_ terminalApp: String?) -> Bool {
+    guard let terminalApp else { return false }
+    return terminalApp == "iTerm.app" || terminalApp == "iTerm2" || terminalApp == "iTerm"
+  }
+
+  private func extractTerminalUUID(from terminalId: String) -> String {
+    guard let uuid = terminalId.split(separator: ":").last, !uuid.isEmpty else {
+      return terminalId
+    }
+    return String(uuid)
   }
 }

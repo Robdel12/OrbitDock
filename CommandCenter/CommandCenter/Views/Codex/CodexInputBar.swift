@@ -10,6 +10,9 @@ import SwiftUI
 
 struct CodexInputBar: View {
   let sessionId: String
+  @Binding var selectedSkills: Set<String>
+  var onOpenSkills: (() -> Void)? = nil
+
   @Environment(ServerAppState.self) private var serverState
 
   @State private var message = ""
@@ -18,8 +21,6 @@ struct CodexInputBar: View {
   @State private var showConfig = false
   @State private var selectedModel: String = ""
   @State private var selectedEffort: EffortLevel = .default
-  @State private var showSkills = false
-  @State private var selectedSkills: Set<String> = []
   @State private var completionActive = false
   @State private var completionQuery = ""
   @State private var completionIndex = 0
@@ -154,10 +155,10 @@ struct CodexInputBar: View {
         .buttonStyle(.plain)
         .help("Per-turn config overrides")
 
-        // Skills toggle
+        // Skills - opens sidebar skills tab
         Button {
           serverState.listSkills(sessionId: sessionId)
-          showSkills.toggle()
+          onOpenSkills?()
         } label: {
           Image(systemName: "bolt.fill")
             .font(.system(size: 14))
@@ -165,12 +166,6 @@ struct CodexInputBar: View {
         }
         .buttonStyle(.plain)
         .help("Attach skills")
-        .popover(isPresented: $showSkills) {
-          SkillsPicker(
-            skills: serverState.sessionSkills[sessionId] ?? [],
-            selectedSkills: $selectedSkills
-          )
-        }
 
         // Text field
         TextField("Send a message...", text: $message, axis: .vertical)
@@ -522,7 +517,8 @@ private struct SkillCompletionList: View {
 }
 
 #Preview {
-  CodexInputBar(sessionId: "test-session")
+  @Previewable @State var skills: Set<String> = []
+  CodexInputBar(sessionId: "test-session", selectedSkills: $skills)
     .environment(ServerAppState())
     .frame(width: 400)
 }
