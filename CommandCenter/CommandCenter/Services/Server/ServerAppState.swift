@@ -56,6 +56,9 @@ final class ServerAppState {
   /// Available skills per session (from skills_list responses)
   private(set) var sessionSkills: [String: [ServerSkillMetadata]] = [:]
 
+  /// Whether an undo operation is in progress per session
+  private(set) var undoInProgress: [String: Bool] = [:]
+
   /// Raw config values used to derive autonomy accurately across partial deltas
   private var approvalPolicies: [String: String] = [:]
   private var sandboxModes: [String: String] = [:]
@@ -179,6 +182,31 @@ final class ServerAppState {
       }
     }
 
+    conn.onContextCompacted = { sessionId in
+      Task { @MainActor in
+        logger.info("Context compacted for \(sessionId)")
+      }
+    }
+
+    conn.onUndoStarted = { [weak self] sessionId, _ in
+      Task { @MainActor in
+        self?.undoInProgress[sessionId] = true
+      }
+    }
+
+    conn.onUndoCompleted = { [weak self] sessionId, _, _ in
+      Task { @MainActor in
+        self?.undoInProgress[sessionId] = false
+        self?.messageRevisions[sessionId, default: 0] += 1
+      }
+    }
+
+    conn.onThreadRolledBack = { [weak self] sessionId, _ in
+      Task { @MainActor in
+        self?.messageRevisions[sessionId, default: 0] += 1
+      }
+    }
+
     conn.onError = { [weak self] code, message, sessionId in
       Task { @MainActor in
         self?.handleError(code, message, sessionId)
@@ -258,6 +286,24 @@ final class ServerAppState {
     ServerConnection.shared.answerQuestion(sessionId: sessionId, requestId: requestId, answer: answer)
     ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
     ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
+  }
+
+  /// Compact (summarize) the conversation context
+  func compactContext(sessionId: String) {
+    logger.info("Compacting context for \(sessionId)")
+    ServerConnection.shared.compactContext(sessionId: sessionId)
+  }
+
+  /// Undo the last turn (reverts filesystem changes + removes from context)
+  func undoLastTurn(sessionId: String) {
+    logger.info("Undoing last turn for \(sessionId)")
+    ServerConnection.shared.undoLastTurn(sessionId: sessionId)
+  }
+
+  /// Roll back N turns from context (does NOT revert filesystem changes)
+  func rollbackTurns(sessionId: String, numTurns: UInt32) {
+    logger.info("Rolling back \(numTurns) turns for \(sessionId)")
+    ServerConnection.shared.rollbackTurns(sessionId: sessionId, numTurns: numTurns)
   }
 
   /// Interrupt a session

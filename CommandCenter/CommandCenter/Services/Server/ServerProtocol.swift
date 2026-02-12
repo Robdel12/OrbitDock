@@ -378,6 +378,10 @@ enum ServerToClientMessage: Codable {
   case remoteSkillsList(sessionId: String, skills: [ServerRemoteSkillSummary])
   case remoteSkillDownloaded(sessionId: String, skillId: String, name: String, path: String)
   case skillsUpdateAvailable(sessionId: String)
+  case contextCompacted(sessionId: String)
+  case undoStarted(sessionId: String, message: String?)
+  case undoCompleted(sessionId: String, success: Bool, message: String?)
+  case threadRolledBack(sessionId: String, numTurns: UInt32)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -400,6 +404,8 @@ enum ServerToClientMessage: Codable {
     case id
     case name
     case path
+    case success
+    case numTurns = "num_turns"
   }
 
   init(from decoder: Decoder) throws {
@@ -484,6 +490,26 @@ enum ServerToClientMessage: Codable {
       case "skills_update_available":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         self = .skillsUpdateAvailable(sessionId: sessionId)
+
+      case "context_compacted":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        self = .contextCompacted(sessionId: sessionId)
+
+      case "undo_started":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let message = try container.decodeIfPresent(String.self, forKey: .message)
+        self = .undoStarted(sessionId: sessionId, message: message)
+
+      case "undo_completed":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let success = try container.decode(Bool.self, forKey: .success)
+        let message = try container.decodeIfPresent(String.self, forKey: .message)
+        self = .undoCompleted(sessionId: sessionId, success: success, message: message)
+
+      case "thread_rolled_back":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let numTurns = try container.decode(UInt32.self, forKey: .numTurns)
+        self = .threadRolledBack(sessionId: sessionId, numTurns: numTurns)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -583,6 +609,26 @@ enum ServerToClientMessage: Codable {
         try container.encode("skills_update_available", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
 
+      case let .contextCompacted(sessionId):
+        try container.encode("context_compacted", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+
+      case let .undoStarted(sessionId, message):
+        try container.encode("undo_started", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(message, forKey: .message)
+
+      case let .undoCompleted(sessionId, success, message):
+        try container.encode("undo_completed", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(success, forKey: .success)
+        try container.encodeIfPresent(message, forKey: .message)
+
+      case let .threadRolledBack(sessionId, numTurns):
+        try container.encode("thread_rolled_back", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(numTurns, forKey: .numTurns)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -619,6 +665,9 @@ enum ClientToServerMessage: Codable {
   case listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false)
   case listRemoteSkills(sessionId: String)
   case downloadRemoteSkill(sessionId: String, hazelnutId: String)
+  case compactContext(sessionId: String)
+  case undoLastTurn(sessionId: String)
+  case rollbackTurns(sessionId: String, numTurns: UInt32)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -640,6 +689,7 @@ enum ClientToServerMessage: Codable {
     case cwds
     case forceReload = "force_reload"
     case hazelnutId = "hazelnut_id"
+    case numTurns = "num_turns"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -740,6 +790,19 @@ enum ClientToServerMessage: Codable {
         try container.encode("download_remote_skill", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(hazelnutId, forKey: .hazelnutId)
+
+      case let .compactContext(sessionId):
+        try container.encode("compact_context", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+
+      case let .undoLastTurn(sessionId):
+        try container.encode("undo_last_turn", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+
+      case let .rollbackTurns(sessionId, numTurns):
+        try container.encode("rollback_turns", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(numTurns, forKey: .numTurns)
     }
   }
 
@@ -820,6 +883,15 @@ enum ClientToServerMessage: Codable {
         self = try .downloadRemoteSkill(
           sessionId: container.decode(String.self, forKey: .sessionId),
           hazelnutId: container.decode(String.self, forKey: .hazelnutId)
+        )
+      case "compact_context":
+        self = try .compactContext(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "undo_last_turn":
+        self = try .undoLastTurn(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "rollback_turns":
+        self = try .rollbackTurns(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          numTurns: container.decode(UInt32.self, forKey: .numTurns)
         )
       default:
         throw DecodingError.dataCorrupted(

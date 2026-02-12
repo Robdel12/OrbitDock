@@ -99,6 +99,18 @@ pub enum ClientMessage {
         hazelnut_id: String,
     },
 
+    // Context management
+    CompactContext {
+        session_id: String,
+    },
+    UndoLastTurn {
+        session_id: String,
+    },
+    RollbackTurns {
+        session_id: String,
+        num_turns: u32,
+    },
+
     // Claude hook transport (server-owned write path)
     ClaudeSessionStart {
         session_id: String,
@@ -347,5 +359,48 @@ mod tests {
 
         let serialized = serde_json::to_string(&parsed).expect("serialize");
         let _: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+    }
+
+    #[test]
+    fn roundtrip_compact_context() {
+        let json = r#"{"type":"compact_context","session_id":"sess-c1"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse compact_context");
+        match &parsed {
+            ClientMessage::CompactContext { session_id } => {
+                assert_eq!(session_id, "sess-c1");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_undo_last_turn() {
+        let json = r#"{"type":"undo_last_turn","session_id":"sess-u1"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse undo_last_turn");
+        match &parsed {
+            ClientMessage::UndoLastTurn { session_id } => {
+                assert_eq!(session_id, "sess-u1");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_rollback_turns() {
+        let json = r#"{"type":"rollback_turns","session_id":"sess-r1","num_turns":3}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse rollback_turns");
+        match &parsed {
+            ClientMessage::RollbackTurns { session_id, num_turns } => {
+                assert_eq!(session_id, "sess-r1");
+                assert_eq!(*num_turns, 3);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
     }
 }

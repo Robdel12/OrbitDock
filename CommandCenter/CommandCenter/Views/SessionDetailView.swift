@@ -318,10 +318,52 @@ struct SessionDetailView: View {
           // Token usage for this session
           if session.hasTokenUsage {
             CodexTokenBadge(session: session)
+
+            // Compact context button (next to token badge)
+            Button {
+              serverState.compactContext(sessionId: session.id)
+            } label: {
+              HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                  .font(.system(size: 11, weight: .medium))
+                Text("Compact")
+                  .font(.system(size: 11, weight: .medium))
+              }
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
+              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("Summarize conversation to free context window")
           }
 
           // Autonomy level pill
           AutonomyPill(sessionId: session.id)
+
+          // Undo last turn button
+          Button {
+            serverState.undoLastTurn(sessionId: session.id)
+          } label: {
+            HStack(spacing: 4) {
+              if serverState.undoInProgress[session.id] == true {
+                ProgressView()
+                  .controlSize(.mini)
+              } else {
+                Image(systemName: "arrow.uturn.backward")
+                  .font(.system(size: 11, weight: .medium))
+              }
+              Text("Undo")
+                .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .disabled(serverState.undoInProgress[session.id] == true)
+          .help("Undo last turn (reverts filesystem changes)")
 
           // Turn sidebar toggle (plan + changes)
           if hasTurnStateContent {

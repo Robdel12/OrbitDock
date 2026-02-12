@@ -94,6 +94,18 @@ pub enum ConnectorEvent {
     /// Skills update available notification
     SkillsUpdateAvailable,
 
+    /// Context was compacted (summarized)
+    ContextCompacted,
+
+    /// Undo operation started
+    UndoStarted { message: Option<String> },
+
+    /// Undo operation completed
+    UndoCompleted { success: bool, message: Option<String> },
+
+    /// Thread context was rolled back by N turns
+    ThreadRolledBack { num_turns: u32 },
+
     /// Error occurred
     Error(String),
 }

@@ -150,8 +150,31 @@ struct ConversationView: View {
                   .id(message.id)
               } else {
                 let showHeader = shouldShowHeader(at: index, in: msgs)
-                ThreadMessage(message: message, provider: provider, model: model, showHeader: showHeader)
-                  .id(message.id)
+                // turnsAfter: how many complete turns exist after this user message
+                // For the last user message, if agent has responded (messages exist after it), count as 1
+                let turnsAfter: Int = {
+                  guard message.isUser else { return 0 }
+                  let userMsgsAfter = msgs[(index + 1)...].filter(\.isUser).count
+                  if userMsgsAfter > 0 {
+                    return userMsgsAfter
+                  }
+                  // Last user message: show rollback if agent has responded after it
+                  let hasResponseAfter = msgs[(index + 1)...].contains { !$0.isUser }
+                  return hasResponseAfter ? 1 : 0
+                }()
+                ThreadMessage(
+                  message: message,
+                  provider: provider,
+                  model: model,
+                  showHeader: showHeader,
+                  rollbackTurns: turnsAfter > 0 ? turnsAfter : nil,
+                  onRollback: turnsAfter > 0 ? {
+                    if let sid = sessionId {
+                      serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turnsAfter))
+                    }
+                  } : nil
+                )
+                .id(message.id)
               }
             }
 
@@ -328,6 +351,8 @@ struct ThreadMessage: View {
   var provider: Provider = .claude
   var model: String?
   var showHeader: Bool = true
+  var rollbackTurns: Int? = nil
+  var onRollback: (() -> Void)? = nil
   @State private var isContentExpanded = false
   @State private var isThinkingExpanded = false
 
@@ -371,20 +396,43 @@ struct ThreadMessage: View {
   }
 
   private var userMessage: some View {
-    HStack(alignment: .top, spacing: 0) {
-      Spacer(minLength: 100)
+    VStack(alignment: .trailing, spacing: 6) {
+      HStack(alignment: .top, spacing: 0) {
+        Spacer(minLength: 100)
 
-      // Check for special content types
-      if let bash = parsedBashContent {
-        UserBashCard(bash: bash, timestamp: message.timestamp)
-      } else if let command = parsedSlashCommand {
-        UserSlashCommandCard(command: command, timestamp: message.timestamp)
-      } else if let notification = parsedTaskNotification {
-        TaskNotificationCard(notification: notification, timestamp: message.timestamp)
-      } else if let caveat = parsedSystemCaveat {
-        SystemCaveatView(caveat: caveat)
-      } else {
-        standardUserMessage
+        // Check for special content types
+        if let bash = parsedBashContent {
+          UserBashCard(bash: bash, timestamp: message.timestamp)
+        } else if let command = parsedSlashCommand {
+          UserSlashCommandCard(command: command, timestamp: message.timestamp)
+        } else if let notification = parsedTaskNotification {
+          TaskNotificationCard(notification: notification, timestamp: message.timestamp)
+        } else if let caveat = parsedSystemCaveat {
+          SystemCaveatView(caveat: caveat)
+        } else {
+          standardUserMessage
+        }
+      }
+
+      // Rollback pill
+      if let turns = rollbackTurns, let action = onRollback {
+        HStack {
+          Spacer()
+          Button(action: action) {
+            HStack(spacing: 4) {
+              Image(systemName: "arrow.uturn.backward")
+                .font(.system(size: 10, weight: .medium))
+              Text("Roll back to here · \(turns) turn\(turns == 1 ? "" : "s")")
+                .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color.surfaceHover, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.surfaceBorder, lineWidth: 1))
+          }
+          .buttonStyle(.plain)
+        }
       }
     }
   }

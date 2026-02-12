@@ -55,6 +55,10 @@ final class ServerConnection: ObservableObject {
   var onRemoteSkillsList: ((String, [ServerRemoteSkillSummary]) -> Void)?
   var onRemoteSkillDownloaded: ((String, String, String, String) -> Void)?
   var onSkillsUpdateAvailable: ((String) -> Void)?
+  var onContextCompacted: ((String) -> Void)?
+  var onUndoStarted: ((String, String?) -> Void)?
+  var onUndoCompleted: ((String, Bool, String?) -> Void)?
+  var onThreadRolledBack: ((String, UInt32) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
@@ -270,6 +274,18 @@ final class ServerConnection: ObservableObject {
       case let .skillsUpdateAvailable(sessionId):
         onSkillsUpdateAvailable?(sessionId)
 
+      case let .contextCompacted(sessionId):
+        onContextCompacted?(sessionId)
+
+      case let .undoStarted(sessionId, message):
+        onUndoStarted?(sessionId, message)
+
+      case let .undoCompleted(sessionId, success, message):
+        onUndoCompleted?(sessionId, success, message)
+
+      case let .threadRolledBack(sessionId, numTurns):
+        onThreadRolledBack?(sessionId, numTurns)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
         onError?(code, errorMessage, sessionId)
@@ -402,5 +418,20 @@ final class ServerConnection: ObservableObject {
   /// Download a remote skill by hazelnut ID
   func downloadRemoteSkill(sessionId: String, hazelnutId: String) {
     send(.downloadRemoteSkill(sessionId: sessionId, hazelnutId: hazelnutId))
+  }
+
+  /// Compact (summarize) the conversation context
+  func compactContext(sessionId: String) {
+    send(.compactContext(sessionId: sessionId))
+  }
+
+  /// Undo the last turn (reverts filesystem changes + removes from context)
+  func undoLastTurn(sessionId: String) {
+    send(.undoLastTurn(sessionId: sessionId))
+  }
+
+  /// Roll back N turns from context (does NOT revert filesystem changes)
+  func rollbackTurns(sessionId: String, numTurns: UInt32) {
+    send(.rollbackTurns(sessionId: sessionId, numTurns: numTurns))
   }
 }

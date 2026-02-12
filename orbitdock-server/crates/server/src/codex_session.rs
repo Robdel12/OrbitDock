@@ -453,6 +453,136 @@ impl CodexSession {
                     .await;
             }
 
+            ConnectorEvent::ContextCompacted => {
+                debug!(
+                    component = "codex_connector",
+                    event = "codex.context.compacted",
+                    session_id = %session_id,
+                    "Context compacted"
+                );
+                // Turn lifecycle (TurnStarted→TurnCompleted) handles status transitions.
+                // Just broadcast the event so clients know compaction happened.
+                session
+                    .broadcast(ServerMessage::ContextCompacted {
+                        session_id: session_id.to_string(),
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::UndoStarted { message } => {
+                info!(
+                    component = "codex_connector",
+                    event = "codex.undo.started",
+                    session_id = %session_id,
+                    "Undo started"
+                );
+                session.set_work_status(WorkStatus::Working);
+
+                let _ = persist_tx
+                    .send(PersistCommand::SessionUpdate {
+                        id: session_id.to_string(),
+                        status: None,
+                        work_status: Some(WorkStatus::Working),
+                        last_activity_at: Some(chrono_now()),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.to_string(),
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(WorkStatus::Working),
+                            last_activity_at: Some(chrono_now()),
+                            ..Default::default()
+                        },
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::UndoStarted {
+                        session_id: session_id.to_string(),
+                        message,
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::UndoCompleted { success, message } => {
+                info!(
+                    component = "codex_connector",
+                    event = "codex.undo.completed",
+                    session_id = %session_id,
+                    success = success,
+                    "Undo completed"
+                );
+                session.set_work_status(WorkStatus::Waiting);
+
+                let _ = persist_tx
+                    .send(PersistCommand::SessionUpdate {
+                        id: session_id.to_string(),
+                        status: None,
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.to_string(),
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(WorkStatus::Waiting),
+                            last_activity_at: Some(chrono_now()),
+                            ..Default::default()
+                        },
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::UndoCompleted {
+                        session_id: session_id.to_string(),
+                        success,
+                        message,
+                    })
+                    .await;
+            }
+
+            ConnectorEvent::ThreadRolledBack { num_turns } => {
+                info!(
+                    component = "codex_connector",
+                    event = "codex.thread.rolled_back",
+                    session_id = %session_id,
+                    num_turns = num_turns,
+                    "Thread rolled back"
+                );
+                session.set_work_status(WorkStatus::Waiting);
+
+                let _ = persist_tx
+                    .send(PersistCommand::SessionUpdate {
+                        id: session_id.to_string(),
+                        status: None,
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.to_string(),
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(WorkStatus::Waiting),
+                            last_activity_at: Some(chrono_now()),
+                            ..Default::default()
+                        },
+                    })
+                    .await;
+
+                session
+                    .broadcast(ServerMessage::ThreadRolledBack {
+                        session_id: session_id.to_string(),
+                        num_turns,
+                    })
+                    .await;
+            }
+
             ConnectorEvent::Error(msg) => {
                 warn!(
                     component = "codex_connector",
@@ -547,6 +677,15 @@ impl CodexSession {
             CodexAction::SetThreadName { name } => {
                 connector.set_thread_name(&name).await?;
             }
+            CodexAction::Compact => {
+                connector.compact().await?;
+            }
+            CodexAction::Undo => {
+                connector.undo().await?;
+            }
+            CodexAction::ThreadRollback { num_turns } => {
+                connector.thread_rollback(num_turns).await?;
+            }
             CodexAction::EndSession => {
                 connector.shutdown().await?;
             }
@@ -592,6 +731,11 @@ pub enum CodexAction {
     },
     SetThreadName {
         name: String,
+    },
+    Compact,
+    Undo,
+    ThreadRollback {
+        num_turns: u32,
     },
     EndSession,
 }

@@ -975,6 +975,65 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::CompactContext { session_id } => {
+            info!(
+                component = "session",
+                event = "session.compact.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                "Compact context requested"
+            );
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx.send(CodexAction::Compact).await;
+            }
+        }
+
+        ClientMessage::UndoLastTurn { session_id } => {
+            info!(
+                component = "session",
+                event = "session.undo.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                "Undo last turn requested"
+            );
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx.send(CodexAction::Undo).await;
+            }
+        }
+
+        ClientMessage::RollbackTurns { session_id, num_turns } => {
+            if num_turns < 1 {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "invalid_argument".into(),
+                        message: "num_turns must be >= 1".into(),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+                return;
+            }
+
+            info!(
+                component = "session",
+                event = "session.rollback.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                num_turns = num_turns,
+                "Rollback turns requested"
+            );
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx.send(CodexAction::ThreadRollback { num_turns }).await;
+            }
+        }
+
         ClientMessage::RenameSession { session_id, name } => {
             info!(
                 component = "session",

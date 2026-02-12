@@ -82,6 +82,26 @@ pub enum ServerMessage {
         session_id: String,
     },
 
+    // Context management
+    ContextCompacted {
+        session_id: String,
+    },
+    UndoStarted {
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    UndoCompleted {
+        session_id: String,
+        success: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    ThreadRolledBack {
+        session_id: String,
+        num_turns: u32,
+    },
+
     // Errors
     Error {
         code: String,

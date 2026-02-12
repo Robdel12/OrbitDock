@@ -61,58 +61,30 @@
 
 ---
 
-## Phase 2: Context Compaction + Undo/Rollback
+## Phase 2: Context Compaction + Undo/Rollback ✅
 
-**Why**: Running out of context window is a constant problem. Need to compact manually and undo bad turns without starting over.
+**Status**: Complete
 
-### codex-core mapping
-| Op | EventMsg |
-|----|----------|
-| `Op::Compact` | `ContextCompacted` (+ normal turn events during summarization) |
-| `Op::Undo` | `UndoStarted { message? }` → `UndoCompleted { success, message? }` |
-| `Op::ThreadRollback { num_turns }` | `ThreadRolledBack { num_turns }` |
+### What was built
 
-### How each works
-- **Compact**: Starts a summarization turn. The summary replaces older context. Normal turn events fire (TurnStarted, AgentMessage, TurnComplete) plus `ContextCompacted`.
-- **Undo**: Reverses the last turn's filesystem changes AND removes it from context. Two-event sequence.
-- **Rollback**: Drops N turns from in-memory context only. Does NOT revert filesystem changes.
+**Rust server** (protocol + connectors + server):
+- [x] 3 client messages: `CompactContext`, `UndoLastTurn`, `RollbackTurns`
+- [x] 4 server messages: `ContextCompacted`, `UndoStarted`, `UndoCompleted`, `ThreadRolledBack`
+- [x] Connector: 3 action methods (`compact`, `undo`, `thread_rollback`) + 4 event translations
+- [x] Session: 3 `CodexAction` variants + dispatch + 4 event handlers with state transitions
+- [x] WebSocket: 3 client message handlers (rollback validates `num_turns >= 1`)
+- [x] Protocol roundtrip tests pass
 
-### Protocol layer (`crates/protocol`)
-- [ ] Add `ClientMessage::CompactContext { session_id }`
-- [ ] Add `ClientMessage::Undo { session_id }`
-- [ ] Add `ClientMessage::RollbackThread { session_id, num_turns: u32 }`
-- [ ] Add `ServerMessage::ContextCompacted { session_id }`
-- [ ] Add `ServerMessage::UndoStarted { session_id, message: Option<String> }`
-- [ ] Add `ServerMessage::UndoCompleted { session_id, success: bool, message: Option<String> }`
-- [ ] Add `ServerMessage::ThreadRolledBack { session_id, num_turns: u32 }`
+**SwiftUI frontend**:
+- [x] `ServerProtocol.swift`: 3 client + 4 server message types with manual Codable
+- [x] `ServerConnection.swift`: 4 callbacks + routing + 3 convenience methods
+- [x] `ServerAppState.swift`: `undoInProgress` state + 4 callbacks + 3 action methods
+- [x] `SessionDetailView.swift`: Compact button (inline next to token badge) + Undo button in action bar
+- [x] `ConversationView.swift`: "Roll back to here" pill on user messages — shows on all user messages where agent has responded, including the last turn
 
-### Connector layer (`crates/connectors`)
-- [ ] Add `compact()` action → sends `Op::Compact`
-- [ ] Add `undo()` action → sends `Op::Undo`
-- [ ] Add `rollback(num_turns)` action → sends `Op::ThreadRollback`
-- [ ] Handle `EventMsg::ContextCompacted` → `ConnectorEvent::ContextCompacted`
-- [ ] Handle `EventMsg::UndoStarted` → `ConnectorEvent::UndoStarted`
-- [ ] Handle `EventMsg::UndoCompleted` → `ConnectorEvent::UndoCompleted`
-- [ ] Handle `EventMsg::ThreadRolledBack` → `ConnectorEvent::ThreadRolledBack`
-
-### Server layer (`crates/server`)
-- [ ] `websocket.rs`: Handle `CompactContext`, `Undo`, `RollbackThread` client messages
-- [ ] `codex_session.rs`: Add `CodexAction` variants: `Compact`, `Undo`, `Rollback`
-- [ ] `codex_session.rs`: Handle 4 new connector events, broadcast to subscribers
-
-### Tests
-- [ ] `test_compact_roundtrip` - CompactContext dispatches `Op::Compact`
-- [ ] `test_compact_event_broadcast` - ContextCompacted reaches subscribers
-- [ ] `test_undo_roundtrip` - Undo dispatches `Op::Undo`
-- [ ] `test_undo_events_sequence` - UndoStarted followed by UndoCompleted broadcasts correctly
-- [ ] `test_rollback_roundtrip` - RollbackThread dispatches `Op::ThreadRollback` with correct num_turns
-- [ ] `test_rollback_event_broadcast` - ThreadRolledBack reaches subscribers with turn count
-- [ ] `test_rollback_zero_turns_rejected` - Edge case: num_turns=0 returns error
-
-### MCP bridge
-- [ ] `POST /api/sessions/:id/compact` → trigger compaction
-- [ ] `POST /api/sessions/:id/undo` → undo last turn
-- [ ] `POST /api/sessions/:id/rollback` → `{ num_turns: N }`
+### Not implemented (deferred)
+- [ ] MCP bridge endpoints (`/compact`, `/undo`, `/rollback`)
+- [ ] Dedicated roundtrip tests for each operation (protocol serialization covered by existing tests)
 
 ---
 

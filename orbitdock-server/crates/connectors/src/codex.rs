@@ -742,6 +742,27 @@ impl CodexConnector {
                 }]
             }
 
+            EventMsg::ContextCompacted(_) => {
+                vec![ConnectorEvent::ContextCompacted]
+            }
+
+            EventMsg::UndoStarted(e) => {
+                vec![ConnectorEvent::UndoStarted { message: e.message }]
+            }
+
+            EventMsg::UndoCompleted(e) => {
+                vec![ConnectorEvent::UndoCompleted {
+                    success: e.success,
+                    message: e.message,
+                }]
+            }
+
+            EventMsg::ThreadRolledBack(e) => {
+                vec![ConnectorEvent::ThreadRolledBack {
+                    num_turns: e.num_turns,
+                }]
+            }
+
             EventMsg::SkillsUpdateAvailable => {
                 vec![ConnectorEvent::SkillsUpdateAvailable]
             }
@@ -1045,6 +1066,41 @@ impl CodexConnector {
             "Updated session config: approval={:?}, sandbox={:?}",
             approval_policy, sandbox_mode
         );
+        Ok(())
+    }
+
+    /// Compact (summarize) the conversation context
+    pub async fn compact(&self) -> Result<(), ConnectorError> {
+        self.thread
+            .submit(Op::Compact)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to compact: {}", e)))?;
+
+        info!("Sent compact");
+        Ok(())
+    }
+
+    /// Undo the last turn (reverts filesystem changes and removes from context)
+    pub async fn undo(&self) -> Result<(), ConnectorError> {
+        self.thread
+            .submit(Op::Undo)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to undo: {}", e)))?;
+
+        info!("Sent undo");
+        Ok(())
+    }
+
+    /// Roll back N turns from context (does NOT revert filesystem changes)
+    pub async fn thread_rollback(&self, num_turns: u32) -> Result<(), ConnectorError> {
+        self.thread
+            .submit(Op::ThreadRollback { num_turns })
+            .await
+            .map_err(|e| {
+                ConnectorError::ProviderError(format!("Failed to thread rollback: {}", e))
+            })?;
+
+        info!("Sent thread rollback: {} turns", num_turns);
         Ok(())
     }
 
