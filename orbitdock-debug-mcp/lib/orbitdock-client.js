@@ -95,6 +95,14 @@ export class OrbitDockClient {
   }
 
   /**
+   * Steer the active turn with additional guidance
+   */
+  async steerTurn(sessionId, content) {
+    let response = await this.request("POST", `/api/sessions/${sessionId}/steer`, { content });
+    return response;
+  }
+
+  /**
    * Make an HTTP request to OrbitDock
    */
   async request(method, path, body = null) {

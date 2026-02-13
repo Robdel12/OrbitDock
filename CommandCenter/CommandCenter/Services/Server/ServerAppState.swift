@@ -351,6 +351,12 @@ final class ServerAppState {
     ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
   }
 
+  /// Steer the active turn with additional guidance
+  func steerTurn(sessionId: String, content: String) {
+    logger.info("Steering turn for \(sessionId)")
+    ServerConnection.shared.steerTurn(sessionId: sessionId, content: content)
+  }
+
   /// Compact (summarize) the conversation context
   func compactContext(sessionId: String) {
     logger.info("Compacting context for \(sessionId)")

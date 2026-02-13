@@ -107,6 +107,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "steer_turn",
+        description:
+          "Inject guidance into an active turn without stopping it. If no turn is active, falls back to starting a new turn.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session_id: {
+              type: "string",
+              description: "Session ID",
+            },
+            content: {
+              type: "string",
+              description: "Steering guidance to inject into the active turn",
+            },
+          },
+          required: ["session_id", "content"],
+        },
+      },
+      {
         name: "fork_session",
         description:
           "Fork a Codex session, creating a new session with conversation history. Optionally fork from a specific user message.",
@@ -192,6 +211,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleInterruptTurn(args);
       case "approve":
         return await handleApprove(args);
+      case "steer_turn":
+        return await handleSteerTurn(args);
       case "fork_session":
         return await handleForkSession(args);
       case "list_sessions":
@@ -284,6 +305,22 @@ async function handleApprove({ session_id, request_id, approved, decision, type 
       {
         type: "text",
         text: `${type} ${resolvedDecision} for ${session_id} (${resolvedRequestId})`,
+      },
+    ],
+  };
+}
+
+async function handleSteerTurn({ session_id, content }) {
+  ensureOrbitDock();
+  await requireControllableSession(session_id);
+
+  await orbitdock.steerTurn(session_id, content);
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Steering guidance sent to ${session_id}. If a turn was active, it received the input. Otherwise, a new turn was started.`,
       },
     ],
   };

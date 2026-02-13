@@ -698,6 +698,9 @@ impl CodexSession {
                     .send_message(&content, model.as_deref(), effort.as_deref(), &skills)
                     .await?;
             }
+            CodexAction::SteerTurn { content } => {
+                connector.steer_turn(&content).await?;
+            }
             CodexAction::Interrupt => {
                 connector.interrupt().await?;
             }
@@ -793,6 +796,9 @@ pub enum CodexAction {
         effort: Option<String>,
         skills: Vec<orbitdock_protocol::SkillInput>,
     },
+    SteerTurn {
+        content: String,
+    },
     Interrupt,
     ListSkills {
         cwds: Vec<String>,
@@ -850,6 +856,10 @@ impl std::fmt::Debug for CodexAction {
                 .field("model", model)
                 .field("effort", effort)
                 .field("skills_count", &skills.len())
+                .finish(),
+            Self::SteerTurn { content } => f
+                .debug_struct("SteerTurn")
+                .field("content_len", &content.len())
                 .finish(),
             Self::Interrupt => write!(f, "Interrupt"),
             Self::ListSkills { cwds, force_reload } => f

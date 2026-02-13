@@ -120,6 +120,12 @@ pub enum ClientMessage {
         session_id: String,
     },
 
+    // Turn steering
+    SteerTurn {
+        session_id: String,
+        content: String,
+    },
+
     // Context management
     CompactContext {
         session_id: String,
@@ -403,6 +409,21 @@ mod tests {
         match &parsed {
             ClientMessage::RefreshMcpServers { session_id } => {
                 assert_eq!(session_id, "sess-m2");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_steer_turn() {
+        let json = r#"{"type":"steer_turn","session_id":"sess-s1","content":"use postgres instead"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse steer_turn");
+        match &parsed {
+            ClientMessage::SteerTurn { session_id, content } => {
+                assert_eq!(session_id, "sess-s1");
+                assert_eq!(content, "use postgres instead");
             }
             other => panic!("unexpected variant: {:?}", other),
         }

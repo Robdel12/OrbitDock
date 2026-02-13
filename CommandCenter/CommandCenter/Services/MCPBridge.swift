@@ -183,6 +183,18 @@ final class MCPBridge {
       return response
     }
 
+    // POST /api/sessions/:id/steer
+    if request.method == "POST",
+       pathParts.count == 4,
+       pathParts[0] == "api",
+       pathParts[1] == "sessions",
+       pathParts[3] == "steer"
+    {
+      let response = handleSteerTurn(sessionId: pathParts[2], body: request.body)
+      logResponse(start: start, request: request, response: response)
+      return response
+    }
+
     // POST /api/sessions/:id/fork
     if request.method == "POST",
        pathParts.count == 4,
@@ -298,6 +310,19 @@ final class MCPBridge {
       ] as [String: Any]
     }
     return HTTPResponse(status: 200, body: ["models": models])
+  }
+
+  private func handleSteerTurn(sessionId: String, body: [String: Any]) -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
+    }
+
+    guard let content = body["content"] as? String, !content.isEmpty else {
+      return HTTPResponse(status: 400, body: ["error": "Missing 'content' field"])
+    }
+
+    state.steerTurn(sessionId: sessionId, content: content)
+    return HTTPResponse(status: 200, body: ["status": "steered", "session_id": sessionId])
   }
 
   private func handleForkSession(sessionId: String, body: [String: Any]) -> HTTPResponse {

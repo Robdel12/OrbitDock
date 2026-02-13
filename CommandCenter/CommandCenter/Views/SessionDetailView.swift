@@ -315,7 +315,7 @@ struct SessionDetailView: View {
         .background(Color.backgroundSecondary)
       } else {
         // Input bar when waiting for input
-        if session.workStatus == .waiting || session.workStatus == .unknown {
+        if session.workStatus == .waiting || session.workStatus == .unknown || session.workStatus == .working {
           CodexInputBar(
             sessionId: session.id,
             selectedSkills: $selectedSkills,

@@ -704,6 +704,40 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::SteerTurn {
+            session_id,
+            content,
+        } => {
+            info!(
+                component = "session",
+                event = "session.steer.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                content_chars = content.chars().count(),
+                "Steering active turn"
+            );
+
+            let state = state.lock().await;
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+                let _ = tx
+                    .send(CodexAction::SteerTurn { content })
+                    .await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".into(),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+            }
+        }
+
         ClientMessage::ApproveTool {
             session_id,
             request_id,

@@ -26,6 +26,10 @@ struct CodexInputBar: View {
   @State private var completionIndex = 0
   @FocusState private var isFocused: Bool
 
+  private var isSessionWorking: Bool {
+    serverState.sessions.first(where: { $0.id == sessionId })?.workStatus == .working
+  }
+
   private var hasOverrides: Bool {
     selectedEffort != .default
   }
@@ -71,8 +75,8 @@ struct CodexInputBar: View {
     VStack(spacing: 0) {
       Divider()
 
-      // Collapsible config row
-      if showConfig {
+      // Collapsible config row (hidden when steering)
+      if showConfig, !isSessionWorking {
         HStack(spacing: 20) {
           // Model picker
           HStack(spacing: 6) {
@@ -128,8 +132,8 @@ struct CodexInputBar: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      // Inline $ skill completion
-      if shouldShowCompletion {
+      // Inline $ skill completion (hidden when steering)
+      if shouldShowCompletion, !isSessionWorking {
         SkillCompletionList(
           skills: filteredSkills,
           selectedIndex: completionIndex,
@@ -142,33 +146,35 @@ struct CodexInputBar: View {
       }
 
       HStack(spacing: 12) {
-        // Config toggle
-        Button {
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            showConfig.toggle()
+        if !isSessionWorking {
+          // Config toggle
+          Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              showConfig.toggle()
+            }
+          } label: {
+            Image(systemName: "slider.horizontal.3")
+              .font(.system(size: 14))
+              .foregroundStyle(hasOverrides ? Color.accent : .secondary)
           }
-        } label: {
-          Image(systemName: "slider.horizontal.3")
-            .font(.system(size: 14))
-            .foregroundStyle(hasOverrides ? Color.accent : .secondary)
-        }
-        .buttonStyle(.plain)
-        .help("Per-turn config overrides")
+          .buttonStyle(.plain)
+          .help("Per-turn config overrides")
 
-        // Skills - opens sidebar skills tab
-        Button {
-          serverState.listSkills(sessionId: sessionId)
-          onOpenSkills?()
-        } label: {
-          Image(systemName: "bolt.fill")
-            .font(.system(size: 14))
-            .foregroundStyle(!selectedSkills.isEmpty || hasInlineSkills ? Color.accent : .secondary)
+          // Skills - opens sidebar skills tab
+          Button {
+            serverState.listSkills(sessionId: sessionId)
+            onOpenSkills?()
+          } label: {
+            Image(systemName: "bolt.fill")
+              .font(.system(size: 14))
+              .foregroundStyle(!selectedSkills.isEmpty || hasInlineSkills ? Color.accent : .secondary)
+          }
+          .buttonStyle(.plain)
+          .help("Attach skills")
         }
-        .buttonStyle(.plain)
-        .help("Attach skills")
 
         // Text field
-        TextField("Send a message...", text: $message, axis: .vertical)
+        TextField(isSessionWorking ? "Steer the current turn..." : "Send a message...", text: $message, axis: .vertical)
           .textFieldStyle(.plain)
           .lineLimit(1 ... 5)
           .focused($isFocused)
@@ -187,20 +193,22 @@ struct CodexInputBar: View {
             }
           }
 
-        // Override indicator (when collapsed and overrides active)
-        if !showConfig, hasOverrides {
-          overrideBadge
-        }
+        if !isSessionWorking {
+          // Override indicator (when collapsed and overrides active)
+          if !showConfig, hasOverrides {
+            overrideBadge
+          }
 
-        // Skills badge
-        if !selectedSkills.isEmpty {
-          Text("\(selectedSkills.count) skill\(selectedSkills.count == 1 ? "" : "s")")
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.accent.opacity(0.15))
-            .foregroundStyle(Color.accent)
-            .clipShape(Capsule())
+          // Skills badge
+          if !selectedSkills.isEmpty {
+            Text("\(selectedSkills.count) skill\(selectedSkills.count == 1 ? "" : "s")")
+              .font(.caption2)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(Color.accent.opacity(0.15))
+              .foregroundStyle(Color.accent)
+              .clipShape(Capsule())
+          }
         }
 
         // Send button
@@ -210,7 +218,7 @@ struct CodexInputBar: View {
               ProgressView()
                 .controlSize(.small)
             } else {
-              Image(systemName: "arrow.up.circle.fill")
+              Image(systemName: isSessionWorking ? "arrow.uturn.right.circle.fill" : "arrow.up.circle.fill")
                 .font(.title2)
             }
           }
@@ -276,12 +284,21 @@ struct CodexInputBar: View {
   }
 
   private var canSend: Bool {
-    !isSending && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !selectedModel.isEmpty
+    let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    if isSessionWorking { return !isSending && hasContent }
+    return !isSending && hasContent && !selectedModel.isEmpty
   }
 
   private func sendMessage() {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty, !isSending else { return }
+
+    if isSessionWorking {
+      serverState.steerTurn(sessionId: sessionId, content: trimmed)
+      message = ""
+      return
+    }
+
     guard !selectedModel.isEmpty else {
       errorMessage = "No model available yet. Wait for model list to load."
       return

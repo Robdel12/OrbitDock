@@ -13,7 +13,7 @@ use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
 use codex_core::features::Feature;
 use codex_core::models_manager::manager::RefreshStrategy;
-use codex_core::{AuthManager, CodexThread, ThreadManager};
+use codex_core::{AuthManager, CodexThread, SteerInputError, ThreadManager};
 use codex_protocol::protocol::{
     AskForApproval, Event, EventMsg, FileChange, McpServerRefreshConfig, Op, ReviewDecision,
     SandboxPolicy, SessionSource,
@@ -1046,6 +1046,45 @@ impl CodexConnector {
 
         info!("Sent user message");
         Ok(())
+    }
+
+    /// Steer the active turn with additional user input.
+    /// If no turn is active (race condition), falls back to starting a new turn.
+    pub async fn steer_turn(&self, content: &str) -> Result<(), ConnectorError> {
+        let items = vec![UserInput::Text {
+            text: content.to_string(),
+            text_elements: Vec::new(),
+        }];
+        match self.thread.steer_input(items, None).await {
+            Ok(turn_id) => {
+                info!("Steered active turn: {}", turn_id);
+                Ok(())
+            }
+            Err(SteerInputError::NoActiveTurn(items)) => {
+                info!("No active turn for steer, falling back to send_message");
+                self.thread
+                    .submit(Op::UserInput {
+                        items,
+                        final_output_json_schema: None,
+                    })
+                    .await
+                    .map_err(|e| {
+                        ConnectorError::ProviderError(format!(
+                            "Failed to send fallback message: {}",
+                            e
+                        ))
+                    })?;
+                Ok(())
+            }
+            Err(SteerInputError::EmptyInput) => {
+                Err(ConnectorError::ProviderError("Empty steer input".into()))
+            }
+            Err(SteerInputError::ExpectedTurnMismatch { expected, actual }) => {
+                Err(ConnectorError::ProviderError(format!(
+                    "Turn mismatch: expected {expected}, got {actual}"
+                )))
+            }
+        }
     }
 
     /// List skills for the given working directories

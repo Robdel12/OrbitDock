@@ -446,6 +446,11 @@ final class ServerConnection: ObservableObject {
     send(.refreshMcpServers(sessionId: sessionId))
   }
 
+  /// Steer the active turn with additional guidance
+  func steerTurn(sessionId: String, content: String) {
+    send(.steerTurn(sessionId: sessionId, content: content))
+  }
+
   /// Compact (summarize) the conversation context
   func compactContext(sessionId: String) {
     send(.compactContext(sessionId: sessionId))

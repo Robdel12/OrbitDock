@@ -156,38 +156,30 @@
 
 ---
 
-## Phase 5: Turn Steering
+## Phase 5: Turn Steering ✅
 
 **Why**: Correct the agent mid-turn without losing work. "Actually, use postgres not sqlite" while it's still running.
 
-### Investigation needed first
-Our connector sends Ops via `CodexThread::submit(op)`. Need to verify:
-1. Can we `submit(Op::UserInput { items })` while a turn is in progress?
-2. Does it append to the current turn or start a new one?
-3. Does codex-core handle this gracefully or do we need the app-server's `turn/steer` path?
-
-- [ ] **Spike**: Test `submit(Op::UserInput)` during active turn in a throwaway Codex session
+Uses `CodexThread::steer_input()` which queues into the active turn's pending buffer. On `NoActiveTurn` (race: turn ended before steer arrives), falls back to `send_message()` — user's message is never lost.
 
 ### Protocol layer (`crates/protocol`)
-- [ ] Add `ClientMessage::SteerTurn { session_id, content: String }`
+- [x] `ClientMessage::SteerTurn { session_id, content }` + roundtrip test
 
 ### Connector layer (`crates/connectors`)
-- [ ] Add `steer(content)` action → sends `Op::UserInput { items: [UserInput::Text { text }] }`
-- [ ] Validate turn is in progress before sending (or let codex-core reject it)
+- [x] `steer_turn(content)` with `NoActiveTurn` → `send_message()` fallback
 
 ### Server layer (`crates/server`)
-- [ ] `websocket.rs`: Handle `SteerTurn` client message
-- [ ] Verify session has an active turn, return error if not
-- [ ] `codex_session.rs`: Add `CodexAction::Steer`
-- [ ] Track `is_turn_active` flag on `SessionHandle` (set on TurnStarted, cleared on TurnCompleted/TurnAborted)
+- [x] `CodexAction::SteerTurn` + dispatch in `handle_action()`
+- [x] `websocket.rs`: Handle `SteerTurn` (fire-and-forget, same pattern as CompactContext)
 
-### Tests
-- [ ] `test_steer_turn_dispatches_input` - SteerTurn sends Op::UserInput to connector
-- [ ] `test_steer_rejects_when_no_turn` - Error returned when no turn is active
-- [ ] `test_steer_message_appears_in_stream` - Steered content shows up as a user message event
+### Swift app
+- [x] `ClientToServerMessage.steerTurn` + `ServerConnection.steerTurn()` + `ServerAppState.steerTurn()`
+- [x] `SessionDetailView`: Show input bar when `.working`
+- [x] `CodexInputBar`: Route to `steerTurn` when working, change placeholder/icon, relax `canSend`, hide config/skills UI
 
 ### MCP bridge
-- [ ] `POST /api/sessions/:id/steer` → `{ content: "..." }`
+- [x] `POST /api/sessions/:id/steer` → `{ content: "..." }`
+- [x] `steer_turn` MCP tool in `orbitdock-debug-mcp`
 
 ---
 
