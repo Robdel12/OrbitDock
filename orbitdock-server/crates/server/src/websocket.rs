@@ -613,6 +613,8 @@ async fn handle_client_message(
             model,
             effort,
             skills,
+            images,
+            mentions,
         } => {
             info!(
                 component = "session",
@@ -623,6 +625,8 @@ async fn handle_client_message(
                 model = ?model,
                 effort = ?effort,
                 skills_count = skills.len(),
+                images_count = images.len(),
+                mentions_count = mentions.len(),
                 "Sending message to session"
             );
 
@@ -673,12 +677,50 @@ async fn handle_client_message(
                     }
                 }
 
+                // Persist user message immediately (Codex may not echo UserMessage on resumed sessions)
+                let ts_millis = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let user_msg = orbitdock_protocol::Message {
+                    id: format!("user-ws-{}-{}", ts_millis, conn_id),
+                    session_id: session_id.clone(),
+                    message_type: orbitdock_protocol::MessageType::User,
+                    content: content.clone(),
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    timestamp: iso_timestamp(ts_millis),
+                    duration_ms: None,
+                };
+
+                if let Some(session) = state.get_session(&session_id) {
+                    let mut session = session.lock().await;
+                    session.add_message(user_msg.clone());
+                    let _ = state
+                        .persist()
+                        .send(PersistCommand::MessageAppend {
+                            session_id: session_id.clone(),
+                            message: user_msg.clone(),
+                        })
+                        .await;
+                    session
+                        .broadcast(ServerMessage::MessageAppended {
+                            session_id: session_id.clone(),
+                            message: user_msg,
+                        })
+                        .await;
+                }
+
                 let _ = tx
                     .send(CodexAction::SendMessage {
                         content,
                         model,
                         effort,
                         skills,
+                        images,
+                        mentions,
                     })
                     .await;
             } else {
@@ -718,9 +760,49 @@ async fn handle_client_message(
             );
 
             let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+                // Persist steer message so it appears in conversation
+                let ts_millis = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis();
+                let steer_msg_id = format!("steer-ws-{}-{}", ts_millis, conn_id);
+                let steer_msg = orbitdock_protocol::Message {
+                    id: steer_msg_id.clone(),
+                    session_id: session_id.clone(),
+                    message_type: orbitdock_protocol::MessageType::Steer,
+                    content: content.clone(),
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    timestamp: iso_timestamp(ts_millis),
+                    duration_ms: None,
+                };
+
+                if let Some(session) = state.get_session(&session_id) {
+                    let mut session = session.lock().await;
+                    session.add_message(steer_msg.clone());
+                    let _ = state
+                        .persist()
+                        .send(PersistCommand::MessageAppend {
+                            session_id: session_id.clone(),
+                            message: steer_msg.clone(),
+                        })
+                        .await;
+                    session
+                        .broadcast(ServerMessage::MessageAppended {
+                            session_id: session_id.clone(),
+                            message: steer_msg,
+                        })
+                        .await;
+                }
+
                 let _ = tx
-                    .send(CodexAction::SteerTurn { content })
+                    .send(CodexAction::SteerTurn {
+                        content,
+                        message_id: steer_msg_id,
+                    })
                     .await;
             } else {
                 send_json(
@@ -2483,6 +2565,65 @@ async fn sync_transcript_messages(
     }
 }
 
+/// Format millis-since-epoch as ISO 8601 timestamp
+fn iso_timestamp(millis: u128) -> String {
+    let total_secs = millis / 1000;
+    let secs = total_secs % 60;
+    let total_mins = total_secs / 60;
+    let mins = total_mins % 60;
+    let total_hours = total_mins / 60;
+    let hours = total_hours % 24;
+    let days_since_epoch = total_hours / 24;
+
+    // Simplified date calc (good enough for timestamps)
+    let mut y = 1970i64;
+    let mut remaining_days = days_since_epoch as i64;
+    loop {
+        let days_in_year = if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 {
+            366
+        } else {
+            365
+        };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        y += 1;
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let month_days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut m = 0usize;
+    for &md in &month_days {
+        if remaining_days < md {
+            break;
+        }
+        remaining_days -= md;
+        m += 1;
+    }
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        y,
+        m + 1,
+        remaining_days + 1,
+        hours,
+        mins,
+        secs
+    )
+}
+
 #[cfg(test)]
 pub(crate) async fn end_session_for_test(state: &Arc<Mutex<AppState>>, session_id: String) {
     let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
@@ -2818,6 +2959,8 @@ mod tests {
                 model: None,
                 effort: None,
                 skills: vec![],
+                images: vec![],
+                mentions: vec![],
             },
             &client_tx,
             &state,
@@ -2832,6 +2975,8 @@ mod tests {
                 model: None,
                 effort: None,
                 skills: vec![],
+                images: vec![],
+                mentions: vec![],
             },
             &client_tx,
             &state,

@@ -52,6 +52,7 @@ struct TranscriptMessage: Identifiable, Hashable {
     case toolResult // Result of tool call
     case thinking // Claude's internal reasoning
     case system
+    case steer // User guidance injected mid-turn
   }
 
   var isUser: Bool {
@@ -68,6 +69,10 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   var isThinking: Bool {
     type == .thinking
+  }
+
+  var isSteer: Bool {
+    type == .steer
   }
 
   /// Hashable conformance - exclude toolInput since [String: Any] isn't Hashable

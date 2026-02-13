@@ -44,6 +44,7 @@ enum ServerMessageType: String, Codable {
   case thinking
   case tool
   case toolResult = "tool_result"
+  case steer
 }
 
 // MARK: - Core Types
@@ -320,6 +321,25 @@ struct ServerCodexModelOption: Codable, Identifiable {
 // MARK: - Skills
 
 struct ServerSkillInput: Codable {
+  let name: String
+  let path: String
+}
+
+// MARK: - Images
+
+struct ServerImageInput: Codable {
+  let inputType: String
+  let value: String
+
+  enum CodingKeys: String, CodingKey {
+    case inputType = "input_type"
+    case value
+  }
+}
+
+// MARK: - Mentions
+
+struct ServerMentionInput: Codable {
   let name: String
   let path: String
 }
@@ -881,7 +901,7 @@ enum ClientToServerMessage: Codable {
     approvalPolicy: String?,
     sandboxMode: String?
   )
-  case sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [])
+  case sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [], images: [ServerImageInput] = [], mentions: [ServerMentionInput] = [])
   case approveTool(sessionId: String, requestId: String, decision: String)
   case answerQuestion(sessionId: String, requestId: String, answer: String)
   case interruptSession(sessionId: String)
@@ -928,6 +948,8 @@ enum ClientToServerMessage: Codable {
     case limit
     case approvalId = "approval_id"
     case skills
+    case images
+    case mentions
     case cwds
     case forceReload = "force_reload"
     case hazelnutId = "hazelnut_id"
@@ -958,7 +980,7 @@ enum ClientToServerMessage: Codable {
         try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
         try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
 
-      case let .sendMessage(sessionId, content, model, effort, skills):
+      case let .sendMessage(sessionId, content, model, effort, skills, images, mentions):
         try container.encode("send_message", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(content, forKey: .content)
@@ -966,6 +988,12 @@ enum ClientToServerMessage: Codable {
         try container.encodeIfPresent(effort, forKey: .effort)
         if !skills.isEmpty {
           try container.encode(skills, forKey: .skills)
+        }
+        if !images.isEmpty {
+          try container.encode(images, forKey: .images)
+        }
+        if !mentions.isEmpty {
+          try container.encode(mentions, forKey: .mentions)
         }
 
       case let .approveTool(sessionId, requestId, decision):
@@ -1096,7 +1124,9 @@ enum ClientToServerMessage: Codable {
           content: container.decode(String.self, forKey: .content),
           model: container.decodeIfPresent(String.self, forKey: .model),
           effort: container.decodeIfPresent(String.self, forKey: .effort),
-          skills: container.decodeIfPresent([ServerSkillInput].self, forKey: .skills) ?? []
+          skills: container.decodeIfPresent([ServerSkillInput].self, forKey: .skills) ?? [],
+          images: container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? [],
+          mentions: container.decodeIfPresent([ServerMentionInput].self, forKey: .mentions) ?? []
         )
       case "approve_tool":
         self = try .approveTool(

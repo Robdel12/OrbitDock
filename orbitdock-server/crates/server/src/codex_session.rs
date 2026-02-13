@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use orbitdock_connectors::{ApprovalType, CodexConnector, ConnectorError, ConnectorEvent};
+use orbitdock_connectors::{ApprovalType, CodexConnector, ConnectorError, ConnectorEvent, SteerOutcome};
 use orbitdock_protocol::{ServerMessage, WorkStatus};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
@@ -67,14 +67,61 @@ impl CodexSession {
 
                     // Handle actions from WebSocket
                     Some(action) = action_rx.recv() => {
-                        if let Err(e) = Self::handle_action(&mut self.connector, action).await {
-                            error!(
-                                component = "codex_connector",
-                                event = "codex.action.failed",
-                                session_id = %session_id,
-                                error = %e,
-                                "Failed to handle codex action"
-                            );
+                        match action {
+                            CodexAction::SteerTurn { content, message_id } => {
+                                let status = match self.connector.steer_turn(&content).await {
+                                    Ok(SteerOutcome::Accepted) => "delivered",
+                                    Ok(SteerOutcome::FellBackToNewTurn) => "fallback",
+                                    Err(e) => {
+                                        error!(
+                                            component = "codex_connector",
+                                            event = "codex.steer.failed",
+                                            session_id = %session_id,
+                                            error = %e,
+                                            "Steer turn failed"
+                                        );
+                                        "failed"
+                                    }
+                                };
+
+                                // Persist the delivery status
+                                let _ = persist_tx
+                                    .send(PersistCommand::MessageUpdate {
+                                        session_id: session_id.to_string(),
+                                        message_id: message_id.clone(),
+                                        content: None,
+                                        tool_output: Some(status.to_string()),
+                                        duration_ms: None,
+                                        is_error: None,
+                                    })
+                                    .await;
+
+                                // Broadcast so the UI transitions from "sending" to delivered/fallback/failed
+                                let mut session = session.lock().await;
+                                session
+                                    .broadcast(ServerMessage::MessageUpdated {
+                                        session_id: session_id.to_string(),
+                                        message_id,
+                                        changes: orbitdock_protocol::MessageChanges {
+                                            content: None,
+                                            tool_output: Some(status.to_string()),
+                                            is_error: None,
+                                            duration_ms: None,
+                                        },
+                                    })
+                                    .await;
+                            }
+                            other => {
+                                if let Err(e) = Self::handle_action(&mut self.connector, other).await {
+                                    error!(
+                                        component = "codex_connector",
+                                        event = "codex.action.failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "Failed to handle codex action"
+                                    );
+                                }
+                            }
                         }
                     }
 
@@ -693,13 +740,16 @@ impl CodexSession {
                 model,
                 effort,
                 skills,
+                images,
+                mentions,
             } => {
                 connector
-                    .send_message(&content, model.as_deref(), effort.as_deref(), &skills)
+                    .send_message(&content, model.as_deref(), effort.as_deref(), &skills, &images, &mentions)
                     .await?;
             }
-            CodexAction::SteerTurn { content } => {
-                connector.steer_turn(&content).await?;
+            CodexAction::SteerTurn { .. } => {
+                // Handled in main select loop (needs access to session + persist_tx)
+                unreachable!("SteerTurn should be handled in the main event loop");
             }
             CodexAction::Interrupt => {
                 connector.interrupt().await?;
@@ -795,9 +845,12 @@ pub enum CodexAction {
         model: Option<String>,
         effort: Option<String>,
         skills: Vec<orbitdock_protocol::SkillInput>,
+        images: Vec<orbitdock_protocol::ImageInput>,
+        mentions: Vec<orbitdock_protocol::MentionInput>,
     },
     SteerTurn {
         content: String,
+        message_id: String,
     },
     Interrupt,
     ListSkills {
@@ -850,16 +903,19 @@ pub enum CodexAction {
 impl std::fmt::Debug for CodexAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SendMessage { content, model, effort, skills } => f
+            Self::SendMessage { content, model, effort, skills, images, mentions } => f
                 .debug_struct("SendMessage")
                 .field("content_len", &content.len())
                 .field("model", model)
                 .field("effort", effort)
                 .field("skills_count", &skills.len())
+                .field("images_count", &images.len())
+                .field("mentions_count", &mentions.len())
                 .finish(),
-            Self::SteerTurn { content } => f
+            Self::SteerTurn { content, message_id } => f
                 .debug_struct("SteerTurn")
                 .field("content_len", &content.len())
+                .field("message_id", message_id)
                 .finish(),
             Self::Interrupt => write!(f, "Interrupt"),
             Self::ListSkills { cwds, force_reload } => f

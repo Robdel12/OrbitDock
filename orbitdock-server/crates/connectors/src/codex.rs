@@ -22,9 +22,17 @@ use codex_protocol::request_user_input::{RequestUserInputAnswer, RequestUserInpu
 use codex_protocol::user_input::UserInput;
 use serde_json::json;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{ApprovalType, ConnectorError, ConnectorEvent};
+
+/// Outcome of a steer_turn attempt
+pub enum SteerOutcome {
+    /// The steer was accepted by the active turn
+    Accepted,
+    /// No active turn was running; fell back to starting a new turn
+    FellBackToNewTurn,
+}
 
 /// Tracks an in-progress assistant message being streamed via deltas
 struct StreamingMessage {
@@ -986,13 +994,15 @@ impl CodexConnector {
 
     // MARK: - Actions
 
-    /// Send a user message (starts a turn), with optional per-turn overrides and skills
+    /// Send a user message (starts a turn), with optional per-turn overrides, skills, images, and mentions
     pub async fn send_message(
         &self,
         content: &str,
         model: Option<&str>,
         effort: Option<&str>,
         skills: &[orbitdock_protocol::SkillInput],
+        images: &[orbitdock_protocol::ImageInput],
+        mentions: &[orbitdock_protocol::MentionInput],
     ) -> Result<(), ConnectorError> {
         // Submit per-turn overrides before the user message when present
         if model.is_some() || effort.is_some() {
@@ -1034,6 +1044,30 @@ impl CodexConnector {
             });
         }
 
+        for image in images {
+            match image.input_type.as_str() {
+                "url" => items.push(UserInput::Image {
+                    image_url: image.value.clone(),
+                }),
+                "path" => items.push(UserInput::LocalImage {
+                    path: PathBuf::from(&image.value),
+                }),
+                other => {
+                    warn!("Unknown image input_type: {}, treating as url", other);
+                    items.push(UserInput::Image {
+                        image_url: image.value.clone(),
+                    });
+                }
+            }
+        }
+
+        for mention in mentions {
+            items.push(UserInput::Mention {
+                name: mention.name.clone(),
+                path: mention.path.clone(),
+            });
+        }
+
         let op = Op::UserInput {
             items,
             final_output_json_schema: None,
@@ -1050,7 +1084,7 @@ impl CodexConnector {
 
     /// Steer the active turn with additional user input.
     /// If no turn is active (race condition), falls back to starting a new turn.
-    pub async fn steer_turn(&self, content: &str) -> Result<(), ConnectorError> {
+    pub async fn steer_turn(&self, content: &str) -> Result<SteerOutcome, ConnectorError> {
         let items = vec![UserInput::Text {
             text: content.to_string(),
             text_elements: Vec::new(),
@@ -1058,7 +1092,7 @@ impl CodexConnector {
         match self.thread.steer_input(items, None).await {
             Ok(turn_id) => {
                 info!("Steered active turn: {}", turn_id);
-                Ok(())
+                Ok(SteerOutcome::Accepted)
             }
             Err(SteerInputError::NoActiveTurn(items)) => {
                 info!("No active turn for steer, falling back to send_message");
@@ -1074,7 +1108,7 @@ impl CodexConnector {
                             e
                         ))
                     })?;
-                Ok(())
+                Ok(SteerOutcome::FellBackToNewTurn)
             }
             Err(SteerInputError::EmptyInput) => {
                 Err(ConnectorError::ProviderError("Empty steer input".into()))

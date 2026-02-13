@@ -388,7 +388,9 @@ struct ThreadMessage: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      if message.isUser {
+      if message.isSteer {
+        steerMessage
+      } else if message.isUser {
         userMessage
       } else {
         assistantMessage
@@ -526,6 +528,90 @@ struct ThreadMessage: View {
             expandCollapseButton
           }
         }
+      }
+    }
+  }
+
+  // MARK: - Steer Message (Right-aligned, status-aware)
+
+  private var steerStatus: String? {
+    message.toolOutput
+  }
+
+  private var steerIcon: String {
+    switch steerStatus {
+      case "delivered": return "checkmark.circle"
+      case "fallback": return "arrow.uturn.forward"
+      case let s where s?.hasPrefix("failed") == true: return "exclamationmark.circle"
+      default: return "arrow.up.circle" // nil = sending
+    }
+  }
+
+  private var steerLabel: String {
+    switch steerStatus {
+      case "delivered": return "Steered"
+      case "fallback": return "Sent as new turn"
+      case let s where s?.hasPrefix("failed") == true: return "Failed"
+      default: return "Sending..."
+    }
+  }
+
+  private var steerHeaderColor: Color {
+    switch steerStatus {
+      case "delivered": return Color.accent
+      case "fallback": return .secondary
+      case let s where s?.hasPrefix("failed") == true: return Color.statusError
+      default: return .secondary
+    }
+  }
+
+  private var steerMessage: some View {
+    HStack(alignment: .top, spacing: 0) {
+      Spacer(minLength: 100)
+
+      VStack(alignment: .trailing, spacing: 6) {
+        // Header
+        HStack(spacing: 6) {
+          Text(formatTime(message.timestamp))
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(.quaternary)
+
+          HStack(spacing: 4) {
+            Image(systemName: steerIcon)
+              .font(.system(size: 9, weight: .semibold))
+            Text(steerLabel)
+              .font(.system(size: 12, weight: .semibold))
+          }
+          .foregroundStyle(steerHeaderColor)
+        }
+
+        // Content bubble — style varies by delivery status
+        Text(displayContent)
+          .font(.system(size: 14.5))
+          .foregroundStyle(.primary.opacity(steerStatus == nil ? 0.65 : 0.85))
+          .italic(steerStatus == nil)
+          .lineSpacing(3)
+          .textSelection(.enabled)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 10)
+          .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .fill(steerStatus?.hasPrefix("failed") == true
+                ? Color.statusError.opacity(0.08)
+                : Color.accent.opacity(steerStatus == nil ? 0.04 : 0.08))
+          )
+          .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+              .strokeBorder(
+                steerStatus?.hasPrefix("failed") == true
+                  ? Color.statusError.opacity(0.2)
+                  : Color.accent.opacity(steerStatus == nil ? 0.12 : 0.15),
+                style: steerStatus == nil
+                  ? StrokeStyle(lineWidth: 1, dash: [6, 3])
+                  : StrokeStyle(lineWidth: 1)
+              )
+          )
+          .animation(.easeInOut(duration: 0.3), value: steerStatus)
       }
     }
   }

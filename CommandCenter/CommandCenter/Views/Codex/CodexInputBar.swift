@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct CodexInputBar: View {
   let sessionId: String
@@ -25,6 +26,14 @@ struct CodexInputBar: View {
   @State private var completionQuery = ""
   @State private var completionIndex = 0
   @FocusState private var isFocused: Bool
+
+  // Attachments
+  @State private var fileIndex = ProjectFileIndex()
+  @State private var attachedImages: [AttachedImage] = []
+  @State private var attachedMentions: [AttachedMention] = []
+  @State private var mentionActive = false
+  @State private var mentionQuery = ""
+  @State private var mentionIndex = 0
 
   private var isSessionWorking: Bool {
     serverState.sessions.first(where: { $0.id == sessionId })?.workStatus == .working
@@ -69,6 +78,23 @@ struct CodexInputBar: View {
       return model
     }
     return modelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
+  }
+
+  private var projectPath: String? {
+    serverState.sessions.first(where: { $0.id == sessionId })?.projectPath
+  }
+
+  private var filteredFiles: [ProjectFileIndex.ProjectFile] {
+    guard let path = projectPath else { return [] }
+    return fileIndex.search(mentionQuery, in: path)
+  }
+
+  private var shouldShowMentionCompletion: Bool {
+    mentionActive && !filteredFiles.isEmpty
+  }
+
+  private var hasAttachments: Bool {
+    !attachedImages.isEmpty || !attachedMentions.isEmpty
   }
 
   var body: some View {
@@ -145,6 +171,25 @@ struct CodexInputBar: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
+      // @ mention completion
+      if shouldShowMentionCompletion, !isSessionWorking {
+        MentionCompletionList(
+          files: filteredFiles,
+          selectedIndex: mentionIndex,
+          query: mentionQuery,
+          onSelect: acceptMentionCompletion
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
+      // Attachment bar
+      if hasAttachments {
+        AttachmentBar(images: $attachedImages, mentions: $attachedMentions)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
       HStack(spacing: 12) {
         if !isSessionWorking {
           // Config toggle
@@ -171,6 +216,15 @@ struct CodexInputBar: View {
           }
           .buttonStyle(.plain)
           .help("Attach skills")
+
+          // Attach images
+          Button { pickImages() } label: {
+            Image(systemName: "paperclip")
+              .font(.system(size: 14))
+              .foregroundStyle(!attachedImages.isEmpty ? Color.accent : .secondary)
+          }
+          .buttonStyle(.plain)
+          .help("Attach images")
         }
 
         // Text field
@@ -182,13 +236,21 @@ struct CodexInputBar: View {
           .onChange(of: message) { _, newValue in
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
               updateSkillCompletion(newValue)
+              updateMentionCompletion(newValue)
             }
           }
           .onKeyPress(phases: .down) { keyPress in
-            handleCompletionKeyPress(keyPress)
+            // Check for paste (Cmd+V) with image on clipboard
+            if keyPress.modifiers.contains(.command), keyPress.key == KeyEquivalent("v") {
+              if pasteImageFromClipboard() {
+                return .handled
+              }
+            }
+            return handleCompletionKeyPress(keyPress)
           }
           .onSubmit {
-            if !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if hasContent || hasAttachments {
               sendMessage()
             }
           }
@@ -253,10 +315,16 @@ struct CodexInputBar: View {
       }
     }
     .background(Color.backgroundSecondary)
+    .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+      handleDrop(providers)
+    }
     .onAppear {
       serverState.refreshCodexModels()
       if selectedModel.isEmpty {
         selectedModel = defaultModelSelection
+      }
+      if let path = projectPath {
+        Task { await fileIndex.loadIfNeeded(path) }
       }
     }
     .onChange(of: serverState.codexModels.count) { _, _ in
@@ -286,14 +354,16 @@ struct CodexInputBar: View {
   private var canSend: Bool {
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     if isSessionWorking { return !isSending && hasContent }
-    return !isSending && hasContent && !selectedModel.isEmpty
+    return !isSending && (hasContent || hasAttachments) && !selectedModel.isEmpty
   }
 
   private func sendMessage() {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty, !isSending else { return }
+    guard !isSending else { return }
+    guard !trimmed.isEmpty || hasAttachments else { return }
 
     if isSessionWorking {
+      guard !trimmed.isEmpty else { return }
       serverState.steerTurn(sessionId: sessionId, content: trimmed)
       message = ""
       return
@@ -306,8 +376,14 @@ struct CodexInputBar: View {
 
     let effort = selectedEffort == .default ? nil : selectedEffort.rawValue
 
+    // Expand @filename mentions to absolute paths for the model
+    var expandedContent = trimmed
+    for mention in attachedMentions {
+      expandedContent = expandedContent.replacingOccurrences(of: "@\(mention.name)", with: mention.path)
+    }
+
     // Extract inline $skill-name references from message
-    let inlineSkillNames = extractInlineSkillNames(from: trimmed)
+    let inlineSkillNames = extractInlineSkillNames(from: expandedContent)
 
     // Combine popover-selected skills with inline $ skills (deduplicated)
     var skillPaths = selectedSkills
@@ -321,9 +397,23 @@ struct CodexInputBar: View {
       return ServerSkillInput(name: skill.name, path: skill.path)
     }
 
-    // Send full message (keep $tokens for context) with skills array
-    serverState.sendMessage(sessionId: sessionId, content: trimmed, model: selectedModel, effort: effort, skills: skillInputs)
+    // Build image inputs (mentions are already in the message text as paths)
+    let imageInputs = attachedImages.map { $0.serverInput }
+
+    // Send with attachments (expanded content has absolute paths)
+    serverState.sendMessage(
+      sessionId: sessionId,
+      content: expandedContent,
+      model: selectedModel,
+      effort: effort,
+      skills: skillInputs,
+      images: imageInputs
+    )
     message = ""
+    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+      attachedImages = []
+      attachedMentions = []
+    }
   }
 
   // MARK: - Inline Skill Completion
@@ -389,11 +479,88 @@ struct CodexInputBar: View {
     return names
   }
 
+  // MARK: - @ Mention Completion
+
+  private func updateMentionCompletion(_ text: String) {
+    guard let atIdx = text.lastIndex(of: "@") else {
+      mentionActive = false
+      return
+    }
+
+    // Only trigger if @ is at start or preceded by whitespace
+    if atIdx != text.startIndex {
+      let before = text[text.index(before: atIdx)]
+      if !before.isWhitespace {
+        mentionActive = false
+        return
+      }
+    }
+
+    let afterAt = text[text.index(after: atIdx)...]
+
+    // Dismiss if there's whitespace after the last @
+    if afterAt.contains(where: { $0.isWhitespace }) {
+      mentionActive = false
+      return
+    }
+
+    let query = String(afterAt)
+
+    // Don't re-trigger when the query matches an attached mention's name or path (already accepted)
+    if attachedMentions.contains(where: { $0.name == query || $0.path.hasSuffix(query) }) {
+      mentionActive = false
+      return
+    }
+
+    mentionQuery = query
+    mentionIndex = 0
+    mentionActive = true
+
+    // Ensure file index is loaded
+    if let path = projectPath {
+      Task { await fileIndex.loadIfNeeded(path) }
+    }
+  }
+
+  private func acceptMentionCompletion(_ file: ProjectFileIndex.ProjectFile) {
+    // Replace @query with @filename (friendly display in input box)
+    if let atIdx = message.lastIndex(of: "@") {
+      let prefix = String(message[..<atIdx])
+      message = prefix + "@" + file.name + " "
+    }
+    mentionActive = false
+    mentionQuery = ""
+    mentionIndex = 0
+    isFocused = true
+
+    // Store with absolute path — expanded at send time
+    guard !attachedMentions.contains(where: { $0.id == file.id }) else { return }
+    let absolutePath = if let base = projectPath {
+      (base as NSString).appendingPathComponent(file.relativePath)
+    } else {
+      file.relativePath
+    }
+    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+      attachedMentions.append(AttachedMention(id: file.id, name: file.name, path: absolutePath))
+    }
+  }
+
+  // MARK: - Keyboard Navigation
+
   private func handleCompletionKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
     if keyPress.key == .escape {
+      if mentionActive {
+        mentionActive = false
+        return .handled
+      }
       guard completionActive else { return .ignored }
       completionActive = false
       return .handled
+    }
+
+    // Mention completion takes priority when active
+    if shouldShowMentionCompletion {
+      return handleMentionKeyPress(keyPress)
     }
 
     guard shouldShowCompletion else { return .ignored }
@@ -425,6 +592,162 @@ struct CodexInputBar: View {
     }
 
     return .ignored
+  }
+
+  private func handleMentionKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+    let maxIndex = filteredFiles.count - 1
+    guard maxIndex >= 0 else { return .ignored }
+
+    if keyPress.key == .upArrow {
+      mentionIndex = max(0, mentionIndex - 1)
+      return .handled
+    } else if keyPress.key == .downArrow {
+      mentionIndex = min(maxIndex, mentionIndex + 1)
+      return .handled
+    }
+
+    if keyPress.modifiers.contains(.control) {
+      if keyPress.key == KeyEquivalent("n") {
+        mentionIndex = min(maxIndex, mentionIndex + 1)
+        return .handled
+      } else if keyPress.key == KeyEquivalent("p") {
+        mentionIndex = max(0, mentionIndex - 1)
+        return .handled
+      }
+    }
+
+    if keyPress.key == .return || keyPress.key == .tab {
+      if mentionIndex < filteredFiles.count {
+        acceptMentionCompletion(filteredFiles[mentionIndex])
+      }
+      return .handled
+    }
+
+    return .ignored
+  }
+
+  // MARK: - Image Input
+
+  private func pickImages() {
+    let panel = NSOpenPanel()
+    panel.allowedContentTypes = [.image]
+    panel.allowsMultipleSelection = true
+    panel.canChooseDirectories = false
+    panel.message = "Select images to attach"
+
+    guard panel.runModal() == .OK else { return }
+
+    for url in panel.urls {
+      guard let nsImage = NSImage(contentsOf: url) else { continue }
+      let thumbnail = createThumbnail(from: nsImage)
+      let input = ServerImageInput(inputType: "path", value: url.path)
+      let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        attachedImages.append(attached)
+      }
+    }
+  }
+
+  private func pasteImageFromClipboard() -> Bool {
+    let pasteboard = NSPasteboard.general
+
+    // Check for image data on clipboard
+    guard let imageType = pasteboard.availableType(from: [.tiff, .png]) else {
+      return false
+    }
+
+    guard let data = pasteboard.data(forType: imageType),
+          let nsImage = NSImage(data: data)
+    else {
+      return false
+    }
+
+    // Convert to PNG for base64 encoding
+    guard let tiffData = nsImage.tiffRepresentation,
+          let bitmapRep = NSBitmapImageRep(data: tiffData),
+          let pngData = bitmapRep.representation(using: .png, properties: [:])
+    else {
+      return false
+    }
+
+    let base64 = pngData.base64EncodedString()
+    let dataURI = "data:image/png;base64,\(base64)"
+    let thumbnail = createThumbnail(from: nsImage)
+    let input = ServerImageInput(inputType: "url", value: dataURI)
+    let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+
+    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+      attachedImages.append(attached)
+    }
+    return true
+  }
+
+  private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+    var handled = false
+
+    for provider in providers {
+      // File URLs (images)
+      if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
+          guard let urlData = data as? Data,
+                let url = URL(dataRepresentation: urlData, relativeTo: nil),
+                let nsImage = NSImage(contentsOf: url)
+          else { return }
+
+          let thumbnail = createThumbnail(from: nsImage)
+          let input = ServerImageInput(inputType: "path", value: url.path)
+          let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+
+          DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              attachedImages.append(attached)
+            }
+          }
+        }
+        handled = true
+      }
+      // Raw image data
+      else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+        provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, _ in
+          guard let imageData = data as? Data,
+                let nsImage = NSImage(data: imageData),
+                let tiffData = nsImage.tiffRepresentation,
+                let bitmapRep = NSBitmapImageRep(data: tiffData),
+                let pngData = bitmapRep.representation(using: .png, properties: [:])
+          else { return }
+
+          let base64 = pngData.base64EncodedString()
+          let dataURI = "data:image/png;base64,\(base64)"
+          let thumbnail = createThumbnail(from: nsImage)
+          let input = ServerImageInput(inputType: "url", value: dataURI)
+          let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+
+          DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              attachedImages.append(attached)
+            }
+          }
+        }
+        handled = true
+      }
+    }
+
+    return handled
+  }
+
+  private func createThumbnail(from image: NSImage) -> NSImage {
+    let size = NSSize(width: 80, height: 80) // 2x for retina
+    let thumbnail = NSImage(size: size)
+    thumbnail.lockFocus()
+    NSGraphicsContext.current?.imageInterpolation = .high
+    image.draw(
+      in: NSRect(origin: .zero, size: size),
+      from: NSRect(origin: .zero, size: image.size),
+      operation: .copy,
+      fraction: 1.0
+    )
+    thumbnail.unlockFocus()
+    return thumbnail
   }
 }
 

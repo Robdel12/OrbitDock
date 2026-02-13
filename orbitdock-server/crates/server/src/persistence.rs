@@ -464,6 +464,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 MessageType::Thinking => "thinking",
                 MessageType::Tool => "tool",
                 MessageType::ToolResult => "tool_result",
+                MessageType::Steer => "steer",
             };
 
             // Get next sequence number
@@ -474,7 +475,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             )?;
 
             conn.execute(
-                "INSERT INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_in_progress)
+                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_in_progress)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     message.id,
@@ -1319,6 +1320,7 @@ fn load_messages_from_db(
                 "thinking" => MessageType::Thinking,
                 "tool" => MessageType::Tool,
                 "tool_result" | "toolResult" => MessageType::ToolResult,
+                "steer" => MessageType::Steer,
                 _ => MessageType::Assistant,
             };
 

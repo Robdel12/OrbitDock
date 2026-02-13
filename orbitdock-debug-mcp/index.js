@@ -51,6 +51,43 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               enum: ["low", "medium", "high"],
               description: "Optional reasoning effort override for this turn",
             },
+            images: {
+              type: "array",
+              description: "Optional images to attach (data URIs or local file paths)",
+              items: {
+                type: "object",
+                properties: {
+                  input_type: {
+                    type: "string",
+                    enum: ["url", "path"],
+                    description: "'url' for data URI, 'path' for local file",
+                  },
+                  value: {
+                    type: "string",
+                    description: "Data URI string or local file path",
+                  },
+                },
+                required: ["input_type", "value"],
+              },
+            },
+            mentions: {
+              type: "array",
+              description: "Optional file/resource mentions to attach",
+              items: {
+                type: "object",
+                properties: {
+                  name: {
+                    type: "string",
+                    description: "Display name of the mentioned file/resource",
+                  },
+                  path: {
+                    type: "string",
+                    description: "Path or URI of the mentioned file/resource",
+                  },
+                },
+                required: ["name", "path"],
+              },
+            },
           },
           required: ["session_id", "message"],
         },
@@ -236,7 +273,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Tool handlers
 
-async function handleSendMessage({ session_id, message, model, effort }) {
+async function handleSendMessage({ session_id, message, model, effort, images, mentions }) {
   ensureOrbitDock();
   let session = await requireControllableSession(session_id);
 
@@ -250,13 +287,17 @@ async function handleSendMessage({ session_id, message, model, effort }) {
     }
   }
 
-  await orbitdock.sendMessage(session_id, message, { model, effort });
+  await orbitdock.sendMessage(session_id, message, { model, effort, images, mentions });
+
+  let parts = [`Message sent to ${session_id} (${session.provider}). Turn started.`];
+  if (images && images.length > 0) parts.push(`Attached ${images.length} image(s).`);
+  if (mentions && mentions.length > 0) parts.push(`Attached ${mentions.length} mention(s).`);
 
   return {
     content: [
       {
         type: "text",
-        text: `Message sent to ${session_id} (${session.provider}). Turn started.`,
+        text: parts.join(" "),
       },
     ],
   };

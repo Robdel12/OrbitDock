@@ -4,6 +4,13 @@
 > Each phase is a shippable unit with Rust server changes + tests.
 > macOS UI polish is a separate pass after the data layer works.
 
+## Companion Plan
+
+This roadmap tracks protocol/server/client parity work.
+
+For the product UX direction (including a fluid, non-rigid interaction model for planning, steering, approvals, and review), see:
+- `plans/agent-workbench-ux-plan.md`
+
 ## Current State (what works today)
 
 | Feature | Server | Swift UI |
@@ -183,7 +190,9 @@ Uses `CodexThread::steer_input()` which queues into the active turn's pending bu
 
 ---
 
-## Phase 6: Rich Input (Images + Mentions)
+## Phase 6: Rich Input (Images + Mentions) ✅
+
+**Status**: Complete
 
 **Why**: Can't paste screenshots or reference files. Important for debugging and providing context.
 
@@ -193,25 +202,27 @@ Uses `CodexThread::steer_input()` which queues into the active turn's pending bu
 - `UserInput::Mention { name, path }` - explicit file/resource mention
 
 ### Protocol layer (`crates/protocol`)
-- [ ] Expand `ClientMessage::SendMessage` with `images: Option<Vec<ImageInput>>` field
-- [ ] Expand `ClientMessage::SendMessage` with `mentions: Option<Vec<MentionInput>>` field
-- [ ] Add `ImageInput { input_type: String, value: String }` ("url" or "path")
-- [ ] Add `MentionInput { name: String, path: String }`
+- [x] Expand `ClientMessage::SendMessage` with `images: Vec<ImageInput>` field
+- [x] Expand `ClientMessage::SendMessage` with `mentions: Vec<MentionInput>` field
+- [x] Add `ImageInput { input_type: String, value: String }` ("url" or "path")
+- [x] Add `MentionInput { name: String, path: String }`
 
 ### Connector layer (`crates/connectors`)
-- [ ] Expand `send_message` to build `Vec<UserInput>` from all input types
-- [ ] Map `ImageInput` with type "url" → `UserInput::Image { image_url }`
-- [ ] Map `ImageInput` with type "path" → `UserInput::LocalImage { path }`
-- [ ] Map `MentionInput` → `UserInput::Mention { name, path }`
+- [x] Expand `send_message` to build `Vec<UserInput>` from all input types
+- [x] Map `ImageInput` with type "url" → `UserInput::Image { image_url }`
+- [x] Map `ImageInput` with type "path" → `UserInput::LocalImage { path }`
+- [x] Map `MentionInput` → `UserInput::Mention { name, path }`
 
 ### Tests
-- [ ] `test_send_message_with_image_url` - Image URL becomes UserInput::Image
-- [ ] `test_send_message_with_local_image` - Path becomes UserInput::LocalImage
-- [ ] `test_send_message_with_mention` - Mention becomes UserInput::Mention
-- [ ] `test_send_message_mixed_inputs` - Text + image + skill + mention all included correctly
+- [x] `roundtrip_send_message_with_image_url` - Image URL roundtrips correctly
+- [x] `roundtrip_send_message_with_local_image` - Path roundtrips correctly
+- [x] `roundtrip_send_message_with_mention` - Mention roundtrips correctly
+- [x] `roundtrip_send_message_mixed_inputs` - Skills + images + mentions together
 
 ### MCP bridge
-- [ ] Expand `POST /api/sessions/:id/message` payload to accept `images` and `mentions`
+- [x] Expand `POST /api/sessions/:id/message` payload to accept `images` and `mentions`
+- [x] MCP tool schema updated with `images` and `mentions` parameters
+- [x] Swift MCPBridge parses and forwards both fields
 
 ---
 

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::types::{Provider, SkillInput};
+use crate::types::{ImageInput, MentionInput, Provider, SkillInput};
 
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +28,10 @@ pub enum ClientMessage {
         effort: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         skills: Vec<SkillInput>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageInput>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mentions: Vec<MentionInput>,
     },
     ApproveTool {
         session_id: String,
@@ -537,6 +541,125 @@ mod tests {
                 assert_eq!(*model, None);
             }
             other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_send_message_with_image_url() {
+        let json = r#"{
+          "type":"send_message",
+          "session_id":"sess-img1",
+          "content":"check this screenshot",
+          "images":[{"input_type":"url","value":"data:image/png;base64,iVBOR"}]
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with image url");
+        match &parsed {
+            ClientMessage::SendMessage { session_id, content, images, .. } => {
+                assert_eq!(session_id, "sess-img1");
+                assert_eq!(content, "check this screenshot");
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "url");
+                assert_eq!(images[0].value, "data:image/png;base64,iVBOR");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::SendMessage { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "url");
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_send_message_with_local_image() {
+        let json = r#"{
+          "type":"send_message",
+          "session_id":"sess-img2",
+          "content":"look at this",
+          "images":[{"input_type":"path","value":"/tmp/screenshot.png"}]
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with local image");
+        match &parsed {
+            ClientMessage::SendMessage { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert_eq!(images[0].value, "/tmp/screenshot.png");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_send_message_with_mention() {
+        let json = r#"{
+          "type":"send_message",
+          "session_id":"sess-men1",
+          "content":"update this file",
+          "mentions":[{"name":"main.rs","path":"/project/src/main.rs"}]
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with mention");
+        match &parsed {
+            ClientMessage::SendMessage { mentions, .. } => {
+                assert_eq!(mentions.len(), 1);
+                assert_eq!(mentions[0].name, "main.rs");
+                assert_eq!(mentions[0].path, "/project/src/main.rs");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::SendMessage { mentions, .. } => {
+                assert_eq!(mentions.len(), 1);
+                assert_eq!(mentions[0].name, "main.rs");
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_send_message_mixed_inputs() {
+        let json = r#"{
+          "type":"send_message",
+          "session_id":"sess-mix1",
+          "content":"deploy with these files",
+          "skills":[{"name":"deploy","path":"/skills/deploy.md"}],
+          "images":[{"input_type":"url","value":"data:image/png;base64,abc"}],
+          "mentions":[{"name":"config.toml","path":"/project/config.toml"}]
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse mixed inputs");
+        match &parsed {
+            ClientMessage::SendMessage { skills, images, mentions, .. } => {
+                assert_eq!(skills.len(), 1);
+                assert_eq!(images.len(), 1);
+                assert_eq!(mentions.len(), 1);
+                assert_eq!(skills[0].name, "deploy");
+                assert_eq!(images[0].input_type, "url");
+                assert_eq!(mentions[0].name, "config.toml");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        // Roundtrip
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::SendMessage { skills, images, mentions, .. } => {
+                assert_eq!(skills.len(), 1);
+                assert_eq!(images.len(), 1);
+                assert_eq!(mentions.len(), 1);
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
         }
     }
 }

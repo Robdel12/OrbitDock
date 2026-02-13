@@ -320,10 +320,10 @@ final class ServerAppState {
     }
   }
 
-  /// Send a message to a session with optional per-turn overrides and skills
-  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = []) {
+  /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
+  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [], images: [ServerImageInput] = [], mentions: [ServerMentionInput] = []) {
     logger.info("Sending message to \(sessionId)")
-    ServerConnection.shared.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills)
+    ServerConnection.shared.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills, images: images, mentions: mentions)
   }
 
   /// Request the list of available skills for a session

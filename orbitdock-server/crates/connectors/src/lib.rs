@@ -6,7 +6,7 @@
 
 pub mod codex;
 
-pub use codex::{discover_models, CodexConnector};
+pub use codex::{discover_models, CodexConnector, SteerOutcome};
 use orbitdock_protocol::{McpAuthStatus, McpStartupFailure, McpStartupStatus, McpTool, McpResource, McpResourceTemplate, TokenUsage};
 use std::collections::HashMap;
 use thiserror::Error;

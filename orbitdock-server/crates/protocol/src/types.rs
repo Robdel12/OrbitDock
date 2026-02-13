@@ -57,6 +57,7 @@ pub enum MessageType {
     Thinking,
     Tool,
     ToolResult,
+    Steer,
 }
 
 /// A message in the conversation
@@ -252,6 +253,22 @@ pub struct CodexModelOption {
 /// Skill attached to a message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillInput {
+    pub name: String,
+    pub path: String,
+}
+
+/// Image attached to a message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageInput {
+    /// "url" for data URI, "path" for local file
+    pub input_type: String,
+    /// Data URI string or local file path
+    pub value: String,
+}
+
+/// File/resource mention attached to a message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MentionInput {
     pub name: String,
     pub path: String,
 }

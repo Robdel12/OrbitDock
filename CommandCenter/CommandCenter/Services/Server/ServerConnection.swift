@@ -366,9 +366,9 @@ final class ServerConnection: ObservableObject {
     ))
   }
 
-  /// Send a message to a session with optional per-turn overrides and skills
-  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = []) {
-    send(.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills))
+  /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
+  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [], images: [ServerImageInput] = [], mentions: [ServerMentionInput] = []) {
+    send(.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills, images: images, mentions: mentions))
   }
 
   /// Approve or reject a tool with a specific decision

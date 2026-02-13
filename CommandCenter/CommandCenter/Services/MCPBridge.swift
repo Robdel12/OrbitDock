@@ -281,7 +281,26 @@ final class MCPBridge {
 
     let model = body["model"] as? String
     let effort = body["effort"] as? String
-    state.sendMessage(sessionId: sessionId, content: message, model: model, effort: effort)
+
+    var images: [ServerImageInput] = []
+    if let rawImages = body["images"] as? [[String: Any]] {
+      for raw in rawImages {
+        if let inputType = raw["input_type"] as? String, let value = raw["value"] as? String {
+          images.append(ServerImageInput(inputType: inputType, value: value))
+        }
+      }
+    }
+
+    var mentions: [ServerMentionInput] = []
+    if let rawMentions = body["mentions"] as? [[String: Any]] {
+      for raw in rawMentions {
+        if let name = raw["name"] as? String, let path = raw["path"] as? String {
+          mentions.append(ServerMentionInput(name: name, path: path))
+        }
+      }
+    }
+
+    state.sendMessage(sessionId: sessionId, content: message, model: model, effort: effort, images: images, mentions: mentions)
     return HTTPResponse(status: 200, body: ["status": "sent", "session_id": sessionId])
   }
 

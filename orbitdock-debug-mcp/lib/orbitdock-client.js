@@ -44,11 +44,15 @@ export class OrbitDockClient {
    * @param {Object} [options] - Optional per-turn overrides
    * @param {string} [options.model] - Model override for this turn
    * @param {string} [options.effort] - Reasoning effort override (low/medium/high)
+   * @param {Array} [options.images] - Images to attach ({input_type, value})
+   * @param {Array} [options.mentions] - File mentions to attach ({name, path})
    */
   async sendMessage(sessionId, message, options = {}) {
     let body = { message };
     if (options.model) body.model = options.model;
     if (options.effort) body.effort = options.effort;
+    if (options.images && options.images.length > 0) body.images = options.images;
+    if (options.mentions && options.mentions.length > 0) body.mentions = options.mentions;
     let response = await this.request("POST", `/api/sessions/${sessionId}/message`, body);
     return response;
   }
