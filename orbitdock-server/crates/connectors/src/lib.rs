@@ -7,7 +7,10 @@
 pub mod codex;
 
 pub use codex::{discover_models, CodexConnector, SteerOutcome};
-use orbitdock_protocol::{McpAuthStatus, McpStartupFailure, McpStartupStatus, McpTool, McpResource, McpResourceTemplate, TokenUsage};
+use orbitdock_protocol::{
+    McpAuthStatus, McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool,
+    TokenUsage,
+};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -123,7 +126,10 @@ pub enum ConnectorEvent {
     UndoStarted { message: Option<String> },
 
     /// Undo operation completed
-    UndoCompleted { success: bool, message: Option<String> },
+    UndoCompleted {
+        success: bool,
+        message: Option<String>,
+    },
 
     /// Thread context was rolled back by N turns
     ThreadRolledBack { num_turns: u32 },

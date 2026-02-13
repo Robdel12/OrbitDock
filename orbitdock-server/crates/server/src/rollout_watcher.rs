@@ -486,8 +486,7 @@ impl WatcherRuntime {
                 app.broadcast_to_list(ServerMessage::SessionEnded {
                     session_id: session_id.clone(),
                     reason: "direct_session_thread_claimed".into(),
-                })
-                .await;
+                });
             }
             if let Some(state) = self.file_states.get_mut(path) {
                 state.session_id = Some(session_id);
@@ -533,8 +532,7 @@ impl WatcherRuntime {
             let summary = handle.summary();
             let mut app = self.app_state.lock().await;
             app.add_session(handle);
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                .await;
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         } else if let Some(session_arc) = {
             let state = self.app_state.lock().await;
             state.get_session(&session_id)
@@ -552,9 +550,8 @@ impl WatcherRuntime {
                 session.set_last_activity_at(Some(current_time_unix_z()));
                 session.summary()
             };
-            let mut app = self.app_state.lock().await;
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                .await;
+            let app = self.app_state.lock().await;
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
 
         let _ = self
@@ -952,12 +949,10 @@ impl WatcherRuntime {
         {
             let mut session = session_arc.lock().await;
             session.add_message(message.clone());
-            session
-                .broadcast(ServerMessage::MessageAppended {
-                    session_id: session_id.to_string(),
-                    message: message.clone(),
-                })
-                .await;
+            session.broadcast(ServerMessage::MessageAppended {
+                session_id: session_id.to_string(),
+                message: message.clone(),
+            });
         }
 
         let _ = self
@@ -1166,16 +1161,14 @@ impl WatcherRuntime {
         } {
             let mut session = session_arc.lock().await;
             session.set_custom_name(name.clone());
-            session
-                .broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.to_string(),
-                    changes: StateChanges {
-                        custom_name: Some(name),
-                        last_activity_at: Some(current_time_unix_z()),
-                        ..Default::default()
-                    },
-                })
-                .await;
+            session.broadcast(ServerMessage::SessionDelta {
+                session_id: session_id.to_string(),
+                changes: StateChanges {
+                    custom_name: Some(name),
+                    last_activity_at: Some(current_time_unix_z()),
+                    ..Default::default()
+                },
+            });
         }
 
         if let Some(session_arc) = {
@@ -1186,9 +1179,8 @@ impl WatcherRuntime {
                 let session = session_arc.lock().await;
                 session.summary()
             };
-            let mut app = self.app_state.lock().await;
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                .await;
+            let app = self.app_state.lock().await;
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
     }
 
@@ -1262,18 +1254,15 @@ impl WatcherRuntime {
                         "Reactivated ended passive session from rollout activity"
                     );
                 }
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes,
+                });
                 session.summary()
             };
 
-            let mut app = self.app_state.lock().await;
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                .await;
+            let app = self.app_state.lock().await;
+            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
     }
 
@@ -1345,25 +1334,22 @@ impl WatcherRuntime {
             let mut session = session_arc.lock().await;
             session.set_status(SessionStatus::Ended);
             session.set_work_status(WorkStatus::Ended);
-            session
-                .broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.clone(),
-                    changes: StateChanges {
-                        status: Some(SessionStatus::Ended),
-                        work_status: Some(WorkStatus::Ended),
-                        last_activity_at: Some(current_time_unix_z()),
-                        ..Default::default()
-                    },
-                })
-                .await;
+            session.broadcast(ServerMessage::SessionDelta {
+                session_id: session_id.clone(),
+                changes: StateChanges {
+                    status: Some(SessionStatus::Ended),
+                    work_status: Some(WorkStatus::Ended),
+                    last_activity_at: Some(current_time_unix_z()),
+                    ..Default::default()
+                },
+            });
         }
 
-        let mut app = self.app_state.lock().await;
+        let app = self.app_state.lock().await;
         app.broadcast_to_list(ServerMessage::SessionEnded {
             session_id,
             reason: "timeout".to_string(),
-        })
-        .await;
+        });
     }
 
     fn ensure_file_state(&mut self, path: &str, size: u64, created_at: Option<SystemTime>) {

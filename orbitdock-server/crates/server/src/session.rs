@@ -6,9 +6,10 @@ use orbitdock_protocol::{
     ApprovalType, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
     SessionSummary, TokenUsage, WorkStatus,
 };
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 
 const EVENT_LOG_CAPACITY: usize = 1000;
+const BROADCAST_CAPACITY: usize = 512;
 
 /// Handle to a running session
 pub struct SessionHandle {
@@ -32,7 +33,7 @@ pub struct SessionHandle {
     started_at: Option<String>,
     last_activity_at: Option<String>,
     forked_from_session_id: Option<String>,
-    subscribers: Vec<mpsc::Sender<orbitdock_protocol::ServerMessage>>,
+    broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Track approval type by request_id so we can dispatch correctly
     pending_approval_types: HashMap<String, ApprovalType>,
     /// Store proposed amendment by request_id for "always allow" decisions
@@ -47,6 +48,7 @@ impl SessionHandle {
     /// Create a new session handle
     pub fn new(id: String, provider: Provider, project_path: String) -> Self {
         let now = chrono_now();
+        let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         Self {
             id,
             provider,
@@ -68,7 +70,7 @@ impl SessionHandle {
             started_at: Some(now.clone()),
             last_activity_at: Some(now),
             forked_from_session_id: None,
-            subscribers: Vec::new(),
+            broadcast_tx,
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
             revision: 0,
@@ -95,6 +97,7 @@ impl SessionHandle {
         last_activity_at: Option<String>,
         messages: Vec<Message>,
     ) -> Self {
+        let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         Self {
             id,
             provider,
@@ -116,7 +119,7 @@ impl SessionHandle {
             started_at,
             last_activity_at,
             forked_from_session_id: None,
-            subscribers: Vec::new(),
+            broadcast_tx,
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
             revision: 0,
@@ -188,13 +191,8 @@ impl SessionHandle {
     }
 
     /// Subscribe to session updates
-    pub fn subscribe(&mut self, tx: mpsc::Sender<orbitdock_protocol::ServerMessage>) {
-        self.subscribers.push(tx);
-    }
-
-    /// Clean up any closed subscriber channels
-    pub fn unsubscribe_by_closed(&mut self) {
-        self.subscribers.retain(|tx| !tx.is_closed());
+    pub fn subscribe(&self) -> broadcast::Receiver<orbitdock_protocol::ServerMessage> {
+        self.broadcast_tx.subscribe()
     }
 
     /// Set the custom name for this session
@@ -234,9 +232,11 @@ impl SessionHandle {
     /// Check if a user message with this content already exists (dedup for connector echo)
     pub fn has_user_message_with_content(&self, content: &str) -> bool {
         use orbitdock_protocol::MessageType;
-        self.messages.iter().rev().take(5).any(|m| {
-            m.message_type == MessageType::User && m.content == content
-        })
+        self.messages
+            .iter()
+            .rev()
+            .take(5)
+            .any(|m| m.message_type == MessageType::User && m.content == content)
     }
 
     /// Set model
@@ -344,7 +344,7 @@ impl SessionHandle {
     }
 
     /// Broadcast a message to all subscribers
-    pub async fn broadcast(&mut self, msg: orbitdock_protocol::ServerMessage) {
+    pub fn broadcast(&mut self, msg: orbitdock_protocol::ServerMessage) {
         self.revision += 1;
         let rev = self.revision;
 
@@ -356,11 +356,8 @@ impl SessionHandle {
             }
         }
 
-        // Send to subscribers (no revision in live events)
-        self.subscribers.retain(|tx| !tx.is_closed());
-        for tx in &self.subscribers {
-            let _ = tx.send(msg.clone()).await;
-        }
+        // Non-blocking fan-out to all receivers
+        let _ = self.broadcast_tx.send(msg);
     }
 
     /// Replay events since a given revision.
@@ -378,7 +375,6 @@ impl SessionHandle {
             .collect();
         Some(events)
     }
-
 }
 
 /// Serialize a ServerMessage with a revision field injected at the top level

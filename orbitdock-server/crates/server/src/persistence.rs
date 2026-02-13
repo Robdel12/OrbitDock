@@ -1346,7 +1346,6 @@ fn load_messages_from_db(
     Ok(messages)
 }
 
-
 /// A parsed item from a single JSONL entry. One entry can yield multiple items
 /// (e.g. an assistant entry with both text and tool_use content blocks).
 struct ParsedItem {
@@ -1420,7 +1419,10 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                 }
             }
             "tool_use" => {
-                let name = item.get("name").and_then(Value::as_str).unwrap_or("unknown");
+                let name = item
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
                 let input = item.get("input").map(|v| v.to_string());
                 let id = item.get("id").and_then(Value::as_str).map(String::from);
                 items.push(ParsedItem {
@@ -1538,7 +1540,8 @@ fn load_messages_from_transcript(
     let mut messages: Vec<Message> = Vec::new();
     let mut msg_counter: usize = 0;
     // Map tool_use_id → message index for pairing tool_result with its tool_use
-    let mut tool_use_index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut tool_use_index: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
 
     for line_result in reader.lines() {
         let line = match line_result {

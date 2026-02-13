@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use orbitdock_connectors::{ApprovalType, CodexConnector, ConnectorError, ConnectorEvent, SteerOutcome};
+use orbitdock_connectors::{
+    ApprovalType, CodexConnector, ConnectorError, ConnectorEvent, SteerOutcome,
+};
 use orbitdock_protocol::{ServerMessage, WorkStatus};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
@@ -108,8 +110,7 @@ impl CodexSession {
                                             is_error: None,
                                             duration_ms: None,
                                         },
-                                    })
-                                    .await;
+                                    });
                             }
                             other => {
                                 if let Err(e) = Self::handle_action(&mut self.connector, other).await {
@@ -167,16 +168,14 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(WorkStatus::Working),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(WorkStatus::Working),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
             }
 
             ConnectorEvent::TurnCompleted => {
@@ -196,16 +195,14 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(WorkStatus::Waiting),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
             }
 
             ConnectorEvent::TurnAborted { reason } => {
@@ -227,16 +224,14 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(WorkStatus::Waiting),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
             }
 
             ConnectorEvent::MessageCreated(mut message) => {
@@ -263,12 +258,10 @@ impl CodexSession {
                         })
                         .await;
 
-                    session
-                        .broadcast(ServerMessage::MessageAppended {
-                            session_id: session_id.to_string(),
-                            message,
-                        })
-                        .await;
+                    session.broadcast(ServerMessage::MessageAppended {
+                        session_id: session_id.to_string(),
+                        message,
+                    });
                 }
             }
 
@@ -290,18 +283,16 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::MessageUpdated {
-                        session_id: session_id.to_string(),
-                        message_id,
-                        changes: orbitdock_protocol::MessageChanges {
-                            content,
-                            tool_output,
-                            is_error,
-                            duration_ms,
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::MessageUpdated {
+                    session_id: session_id.to_string(),
+                    message_id,
+                    changes: orbitdock_protocol::MessageChanges {
+                        content,
+                        tool_output,
+                        is_error,
+                        duration_ms,
+                    },
+                });
             }
 
             ConnectorEvent::ApprovalRequested {
@@ -373,12 +364,10 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::ApprovalRequested {
-                        session_id: session_id.to_string(),
-                        request,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::ApprovalRequested {
+                    session_id: session_id.to_string(),
+                    request,
+                });
             }
 
             ConnectorEvent::TokensUpdated(usage) => {
@@ -391,12 +380,10 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::TokensUpdated {
-                        session_id: session_id.to_string(),
-                        usage,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::TokensUpdated {
+                    session_id: session_id.to_string(),
+                    usage,
+                });
             }
 
             ConnectorEvent::DiffUpdated(diff) => {
@@ -440,15 +427,13 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            custom_name: Some(Some(name)),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        custom_name: Some(Some(name)),
+                        ..Default::default()
+                    },
+                });
             }
 
             ConnectorEvent::SessionEnded { reason } => {
@@ -468,50 +453,40 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionEnded {
-                        session_id: session_id.to_string(),
-                        reason,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionEnded {
+                    session_id: session_id.to_string(),
+                    reason,
+                });
             }
 
             ConnectorEvent::SkillsList { skills, errors } => {
-                session
-                    .broadcast(ServerMessage::SkillsList {
-                        session_id: session_id.to_string(),
-                        skills,
-                        errors,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SkillsList {
+                    session_id: session_id.to_string(),
+                    skills,
+                    errors,
+                });
             }
 
             ConnectorEvent::RemoteSkillsList { skills } => {
-                session
-                    .broadcast(ServerMessage::RemoteSkillsList {
-                        session_id: session_id.to_string(),
-                        skills,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::RemoteSkillsList {
+                    session_id: session_id.to_string(),
+                    skills,
+                });
             }
 
             ConnectorEvent::RemoteSkillDownloaded { id, name, path } => {
-                session
-                    .broadcast(ServerMessage::RemoteSkillDownloaded {
-                        session_id: session_id.to_string(),
-                        id,
-                        name,
-                        path,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::RemoteSkillDownloaded {
+                    session_id: session_id.to_string(),
+                    id,
+                    name,
+                    path,
+                });
             }
 
             ConnectorEvent::SkillsUpdateAvailable => {
-                session
-                    .broadcast(ServerMessage::SkillsUpdateAvailable {
-                        session_id: session_id.to_string(),
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SkillsUpdateAvailable {
+                    session_id: session_id.to_string(),
+                });
             }
 
             ConnectorEvent::McpToolsList {
@@ -527,15 +502,13 @@ impl CodexSession {
                     tool_count = tools.len(),
                     "MCP tools list received"
                 );
-                session
-                    .broadcast(ServerMessage::McpToolsList {
-                        session_id: session_id.to_string(),
-                        tools,
-                        resources,
-                        resource_templates,
-                        auth_statuses,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::McpToolsList {
+                    session_id: session_id.to_string(),
+                    tools,
+                    resources,
+                    resource_templates,
+                    auth_statuses,
+                });
             }
 
             ConnectorEvent::McpStartupUpdate { server, status } => {
@@ -546,13 +519,11 @@ impl CodexSession {
                     server = %server,
                     "MCP startup update"
                 );
-                session
-                    .broadcast(ServerMessage::McpStartupUpdate {
-                        session_id: session_id.to_string(),
-                        server,
-                        status,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::McpStartupUpdate {
+                    session_id: session_id.to_string(),
+                    server,
+                    status,
+                });
             }
 
             ConnectorEvent::McpStartupComplete {
@@ -569,14 +540,12 @@ impl CodexSession {
                     cancelled_count = cancelled.len(),
                     "MCP startup complete"
                 );
-                session
-                    .broadcast(ServerMessage::McpStartupComplete {
-                        session_id: session_id.to_string(),
-                        ready,
-                        failed,
-                        cancelled,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::McpStartupComplete {
+                    session_id: session_id.to_string(),
+                    ready,
+                    failed,
+                    cancelled,
+                });
             }
 
             ConnectorEvent::ContextCompacted => {
@@ -588,11 +557,9 @@ impl CodexSession {
                 );
                 // Turn lifecycle (TurnStarted→TurnCompleted) handles status transitions.
                 // Just broadcast the event so clients know compaction happened.
-                session
-                    .broadcast(ServerMessage::ContextCompacted {
-                        session_id: session_id.to_string(),
-                    })
-                    .await;
+                session.broadcast(ServerMessage::ContextCompacted {
+                    session_id: session_id.to_string(),
+                });
             }
 
             ConnectorEvent::UndoStarted { message } => {
@@ -613,23 +580,19 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(WorkStatus::Working),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(WorkStatus::Working),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
 
-                session
-                    .broadcast(ServerMessage::UndoStarted {
-                        session_id: session_id.to_string(),
-                        message,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::UndoStarted {
+                    session_id: session_id.to_string(),
+                    message,
+                });
             }
 
             ConnectorEvent::UndoCompleted { success, message } => {
@@ -651,24 +614,20 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(WorkStatus::Waiting),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
 
-                session
-                    .broadcast(ServerMessage::UndoCompleted {
-                        session_id: session_id.to_string(),
-                        success,
-                        message,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::UndoCompleted {
+                    session_id: session_id.to_string(),
+                    success,
+                    message,
+                });
             }
 
             ConnectorEvent::ThreadRolledBack { num_turns } => {
@@ -690,23 +649,19 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(WorkStatus::Waiting),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
 
-                session
-                    .broadcast(ServerMessage::ThreadRolledBack {
-                        session_id: session_id.to_string(),
-                        num_turns,
-                    })
-                    .await;
+                session.broadcast(ServerMessage::ThreadRolledBack {
+                    session_id: session_id.to_string(),
+                    num_turns,
+                });
             }
 
             ConnectorEvent::Error(msg) => {
@@ -729,16 +684,14 @@ impl CodexSession {
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.to_string(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(WorkStatus::Waiting),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.to_string(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
             }
         }
     }
@@ -758,7 +711,14 @@ impl CodexSession {
                 mentions,
             } => {
                 connector
-                    .send_message(&content, model.as_deref(), effort.as_deref(), &skills, &images, &mentions)
+                    .send_message(
+                        &content,
+                        model.as_deref(),
+                        effort.as_deref(),
+                        &skills,
+                        &images,
+                        &mentions,
+                    )
                     .await?;
             }
             CodexAction::SteerTurn { .. } => {
@@ -917,7 +877,14 @@ pub enum CodexAction {
 impl std::fmt::Debug for CodexAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SendMessage { content, model, effort, skills, images, mentions } => f
+            Self::SendMessage {
+                content,
+                model,
+                effort,
+                skills,
+                images,
+                mentions,
+            } => f
                 .debug_struct("SendMessage")
                 .field("content_len", &content.len())
                 .field("model", model)
@@ -926,7 +893,10 @@ impl std::fmt::Debug for CodexAction {
                 .field("images_count", &images.len())
                 .field("mentions_count", &mentions.len())
                 .finish(),
-            Self::SteerTurn { content, message_id } => f
+            Self::SteerTurn {
+                content,
+                message_id,
+            } => f
                 .debug_struct("SteerTurn")
                 .field("content_len", &content.len())
                 .field("message_id", message_id)
@@ -942,12 +912,19 @@ impl std::fmt::Debug for CodexAction {
                 .debug_struct("DownloadRemoteSkill")
                 .field("hazelnut_id", hazelnut_id)
                 .finish(),
-            Self::ApproveExec { request_id, decision, .. } => f
+            Self::ApproveExec {
+                request_id,
+                decision,
+                ..
+            } => f
                 .debug_struct("ApproveExec")
                 .field("request_id", request_id)
                 .field("decision", decision)
                 .finish(),
-            Self::ApprovePatch { request_id, decision } => f
+            Self::ApprovePatch {
+                request_id,
+                decision,
+            } => f
                 .debug_struct("ApprovePatch")
                 .field("request_id", request_id)
                 .field("decision", decision)
@@ -956,15 +933,17 @@ impl std::fmt::Debug for CodexAction {
                 .debug_struct("AnswerQuestion")
                 .field("request_id", request_id)
                 .finish(),
-            Self::UpdateConfig { approval_policy, sandbox_mode } => f
+            Self::UpdateConfig {
+                approval_policy,
+                sandbox_mode,
+            } => f
                 .debug_struct("UpdateConfig")
                 .field("approval_policy", approval_policy)
                 .field("sandbox_mode", sandbox_mode)
                 .finish(),
-            Self::SetThreadName { name } => f
-                .debug_struct("SetThreadName")
-                .field("name", name)
-                .finish(),
+            Self::SetThreadName { name } => {
+                f.debug_struct("SetThreadName").field("name", name).finish()
+            }
             Self::ListMcpTools => write!(f, "ListMcpTools"),
             Self::RefreshMcpServers => write!(f, "RefreshMcpServers"),
             Self::Compact => write!(f, "Compact"),
@@ -974,7 +953,12 @@ impl std::fmt::Debug for CodexAction {
                 .field("num_turns", num_turns)
                 .finish(),
             Self::EndSession => write!(f, "EndSession"),
-            Self::ForkSession { source_session_id, nth_user_message, model, .. } => f
+            Self::ForkSession {
+                source_session_id,
+                nth_user_message,
+                model,
+                ..
+            } => f
                 .debug_struct("ForkSession")
                 .field("source_session_id", source_session_id)
                 .field("nth_user_message", nth_user_message)

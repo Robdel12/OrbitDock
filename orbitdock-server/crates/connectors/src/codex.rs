@@ -133,9 +133,7 @@ impl CodexConnector {
 
         Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
             .await
-            .map_err(|e| {
-                ConnectorError::ProviderError(format!("Failed to load config: {}", e))
-            })
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))
     }
 
     /// Create a connector from an existing NewThread (shared by new() and fork_thread())
@@ -182,22 +180,26 @@ impl CodexConnector {
         cwd: Option<&str>,
     ) -> Result<(CodexConnector, String), ConnectorError> {
         // Find the source rollout path (same approach as app-server)
-        let rollout_path = codex_core::find_thread_path_by_id_str(&self.codex_home, &self.thread_id)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to find rollout path: {}", e)))?
-            .ok_or_else(|| ConnectorError::ProviderError(format!(
-                "No rollout file found for thread {}",
-                self.thread_id
-            )))?;
+        let rollout_path =
+            codex_core::find_thread_path_by_id_str(&self.codex_home, &self.thread_id)
+                .await
+                .map_err(|e| {
+                    ConnectorError::ProviderError(format!("Failed to find rollout path: {}", e))
+                })?
+                .ok_or_else(|| {
+                    ConnectorError::ProviderError(format!(
+                        "No rollout file found for thread {}",
+                        self.thread_id
+                    ))
+                })?;
 
         // Build config with overrides — use source session's cwd as fallback
         let effective_cwd = cwd.unwrap_or(".");
-        let config = Self::build_config(effective_cwd, model, approval_policy, sandbox_mode).await?;
+        let config =
+            Self::build_config(effective_cwd, model, approval_policy, sandbox_mode).await?;
 
         // Convert nth_user_message: None means full history (usize::MAX)
-        let nth = nth_user_message
-            .map(|n| n as usize)
-            .unwrap_or(usize::MAX);
+        let nth = nth_user_message.map(|n| n as usize).unwrap_or(usize::MAX);
 
         let new_thread = self
             .thread_manager
@@ -206,7 +208,11 @@ impl CodexConnector {
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to fork thread: {}", e)))?;
 
         let new_thread_id = new_thread.thread_id.to_string();
-        let connector = Self::from_thread(new_thread, self.thread_manager.clone(), self.codex_home.clone())?;
+        let connector = Self::from_thread(
+            new_thread,
+            self.thread_manager.clone(),
+            self.codex_home.clone(),
+        )?;
 
         Ok((connector, new_thread_id))
     }
@@ -841,8 +847,8 @@ impl CodexConnector {
                     .into_iter()
                     .map(|(k, t)| {
                         let v = serde_json::to_value(&t).unwrap_or_default();
-                        let mapped: orbitdock_protocol::McpTool =
-                            serde_json::from_value(v).unwrap_or_else(|_| orbitdock_protocol::McpTool {
+                        let mapped: orbitdock_protocol::McpTool = serde_json::from_value(v)
+                            .unwrap_or_else(|_| orbitdock_protocol::McpTool {
                                 name: t.name,
                                 title: t.title,
                                 description: t.description,
@@ -869,7 +875,10 @@ impl CodexConnector {
                     })
                     .collect();
 
-                let resource_templates: HashMap<String, Vec<orbitdock_protocol::McpResourceTemplate>> = e
+                let resource_templates: HashMap<
+                    String,
+                    Vec<orbitdock_protocol::McpResourceTemplate>,
+                > = e
                     .resource_templates
                     .into_iter()
                     .map(|(k, ts)| {
@@ -1129,9 +1138,10 @@ impl CodexConnector {
     ) -> Result<(), ConnectorError> {
         let cwds: Vec<PathBuf> = cwds.into_iter().map(PathBuf::from).collect();
         let op = Op::ListSkills { cwds, force_reload };
-        self.thread.submit(op).await.map_err(|e| {
-            ConnectorError::ProviderError(format!("Failed to list skills: {}", e))
-        })?;
+        self.thread
+            .submit(op)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to list skills: {}", e)))?;
         info!("Requested skills list");
         Ok(())
     }
@@ -1147,10 +1157,7 @@ impl CodexConnector {
     }
 
     /// Download a remote skill by hazelnut ID
-    pub async fn download_remote_skill(
-        &self,
-        hazelnut_id: &str,
-    ) -> Result<(), ConnectorError> {
+    pub async fn download_remote_skill(&self, hazelnut_id: &str) -> Result<(), ConnectorError> {
         let op = Op::DownloadRemoteSkill {
             hazelnut_id: hazelnut_id.to_string(),
             is_preload: false,

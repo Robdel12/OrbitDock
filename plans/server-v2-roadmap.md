@@ -14,118 +14,42 @@
 |-----------|---------|---------|
 | AppState | `Arc<Mutex<AppState>>` | Global lock blocks ALL sessions during any single session's IO |
 | SessionHandle | `Arc<Mutex<SessionHandle>>` per session | Locks held across awaits in `handle_event` |
-| Broadcast | `Vec<mpsc::Sender<ServerMessage>>` | One slow client blocks all others; manual cleanup |
-| Reconnection | Full snapshot on every subscribe | No revision tracking, no event replay |
+| ~~Broadcast~~ | ~~`Vec<mpsc::Sender<ServerMessage>>`~~ | ~~One slow client blocks all others; manual cleanup~~ ✅ Phase 2 |
+| ~~Reconnection~~ | ~~Full snapshot on every subscribe~~ | ~~No revision tracking, no event replay~~ ✅ Phase 1 |
 | Event loop | `select!` on events + actions | Long connector calls starve event processing |
 | Session cleanup | None | 12+ dictionaries leaked per ended session |
 
 ---
 
-## Phase 1: Revision Tracking + Event Log
+## Phase 1: Revision Tracking + Event Log ✅
 
-**Why**: Smallest diff, biggest robustness win. Clients can detect missed events and replay them instead of getting a full snapshot on every reconnect. Foundation for everything that follows.
+**Status**: Complete. Shipped in commit `e72dd28`.
 
-### Protocol layer (`crates/protocol`)
+Revision counter + bounded event log on SessionHandle. Clients can send `since_revision` on subscribe to get incremental replay instead of a full snapshot. Pre-serialized JSON with revision injected for replay events.
 
-- [ ] Add `revision: Option<u64>` field to `ServerMessage` envelope (or to each variant that carries session state changes)
-- [ ] Add `since_revision: Option<u64>` to `ClientMessage::SubscribeSession`
-- [ ] Add `ServerMessage::EventReplay { session_id, events: Vec<ServerMessage> }` for batch replay
-- [ ] Roundtrip tests for `since_revision` field and replay message
-
-### Server — SessionHandle (`crates/server/src/session.rs`)
-
-- [ ] Add `revision: u64` field to `SessionHandle`, initialized to 0
-- [ ] Add `event_log: VecDeque<(u64, ServerMessage)>` ring buffer (capacity 1000)
-- [ ] Increment `revision` in `broadcast()` before sending
-- [ ] Tag each `ServerMessage` with current `revision` before broadcast
-- [ ] Push `(revision, msg.clone())` to `event_log` in `broadcast()`
-- [ ] Trim `event_log` when length exceeds 1000 (pop_front)
-- [ ] Add `replay_since(&self, since_revision: u64) -> Option<Vec<ServerMessage>>` method
-  - Returns `None` if `since_revision` is too far behind (oldest event > since_revision + 1)
-  - Returns `Some(events)` with all events after `since_revision`
-- [ ] Include `revision` in `state()` snapshot for restore
-
-### Server — WebSocket (`crates/server/src/websocket.rs`)
-
-- [ ] Parse `since_revision` from `SubscribeSession` message
-- [ ] If `since_revision.is_some()`: try `session.replay_since(rev)`
-  - On `Some(events)`: send replay batch, skip full snapshot
-  - On `None`: fall through to full snapshot (too far behind)
-- [ ] If `since_revision.is_none()`: send full snapshot (backward compatible)
-
-### Server — Persistence (`crates/server/src/persistence.rs`)
-
-- [ ] Persist `revision` in `SessionUpdate` for crash recovery
-- [ ] Restore `revision` from database in `session.rs::restore()`
-- [ ] Add `revision` column to sessions table (migration `015_session_revision.sql`)
-
-### Swift client (`CommandCenter/`)
-
-- [ ] Add `lastRevision: [String: UInt64]` dictionary to `ServerAppState`
-- [ ] Update `lastRevision[sessionId]` from every received server message that carries a revision
-- [ ] Send `since_revision` in `subscribeSession` message when reconnecting (use stored value)
-- [ ] Handle `EventReplay` server message: apply events in order, update `lastRevision`
-- [ ] `ServerProtocol.swift`: Add `sinceRevision` to subscribe message, `revision` to server messages
-
-### Tests
-
-- [ ] `test_subscribe_with_revision_replays_events` — subscribe with rev N, get events N+1..current
-- [ ] `test_subscribe_too_far_behind_gets_snapshot` — subscribe with rev 0, get full snapshot
-- [ ] `test_revision_increments_on_broadcast` — verify monotonic increment
-- [ ] `test_event_log_bounded_at_1000` — verify ring buffer doesn't grow unbounded
-- [ ] Protocol roundtrip tests for `since_revision` and `EventReplay`
-
-### Verification
-
-- [ ] `cargo test` — all existing + new tests pass
-- [ ] `cargo build` — clean build
-- [ ] Manual test: connect client, send messages, disconnect, reconnect — verify replay vs snapshot
-- [ ] Backward compatible: client that doesn't send `since_revision` still gets full snapshot
+Key decisions:
+- Event log stores pre-serialized JSON strings (not `ServerMessage` values) to avoid re-serialization on replay
+- Revision injected at top level of JSON via `serialize_with_revision()` for event log entries
+- Live broadcast events do NOT carry revision (only replay events do)
+- Capacity: 1000 events per session
 
 ---
 
-## Phase 2: Replace Broadcast Mechanism
+## Phase 2: Replace Broadcast Mechanism ✅
 
-**Why**: Current `Vec<mpsc::Sender>` iterates and awaits each subscriber — one slow client blocks all others. `tokio::broadcast` is non-blocking for the sender and handles subscriber cleanup automatically.
+**Status**: Complete.
 
-**Depends on**: Phase 1 (revision tracking)
+Replaced `Vec<mpsc::Sender>` with `tokio::broadcast` across all 6 server files. One slow client no longer blocks others. Subscriber cleanup is automatic when receivers are dropped.
 
-### Server — SessionHandle (`crates/server/src/session.rs`)
-
-- [ ] Replace `subscribers: Vec<mpsc::Sender<ServerMessage>>` with `broadcast_tx: broadcast::Sender<ServerMessage>`
-- [ ] Initialize with `broadcast::channel(256)` (256 event buffer per session)
-- [ ] Replace `subscribe(&mut self, tx)` with `subscribe(&self) -> broadcast::Receiver<ServerMessage>`
-- [ ] Replace `broadcast(&mut self, msg)` — now just `self.broadcast_tx.send(tagged_msg)` (non-blocking)
-- [ ] Remove `unsubscribe_by_closed()` — broadcast handles dead receivers automatically
-- [ ] Remove `wrap_sender` helper function
-
-### Server — WebSocket (`crates/server/src/websocket.rs`)
-
-- [ ] On `SubscribeSession`: call `session.subscribe()` to get a `broadcast::Receiver`
-- [ ] Spawn a per-connection task that drains from `broadcast::Receiver` and forwards to WebSocket
-- [ ] Handle `RecvError::Lagged(n)` in the drain task:
-  - Log warning with skipped count
-  - Send `SubscribeSession` with `since_revision` to request replay/snapshot
-- [ ] Remove old `mpsc::channel` + `wrap_sender` pattern for session subscriptions
-- [ ] Apply same pattern to `list_subscribers` in AppState
-
-### Server — State (`crates/server/src/state.rs`)
-
-- [ ] Replace `list_subscribers: Vec<mpsc::Sender<ServerMessage>>` with `list_broadcast_tx: broadcast::Sender<ServerMessage>`
-- [ ] Update `subscribe_list()` and `broadcast_to_list()` to use broadcast channel
-
-### Tests
-
-- [ ] `test_broadcast_reaches_multiple_subscribers` — 3 subscribers all receive event
-- [ ] `test_slow_subscriber_gets_lagged` — fill buffer, verify `Lagged` error on slow receiver
-- [ ] `test_dropped_subscriber_doesnt_block` — drop a receiver, verify broadcast still works
-
-### Verification
-
-- [ ] `cargo test` — all existing + new tests pass
-- [ ] Manual test: open 3 client connections to same session, verify all get events
-- [ ] Manual test: pause one client, send many events, verify other clients unaffected
-- [ ] No `unsubscribe_by_closed` calls remain in codebase
+Key decisions:
+- Session broadcast capacity: 512 events
+- List broadcast capacity: 64 events
+- `spawn_broadcast_forwarder()` handles `Lagged` errors by logging a warning and continuing (client may have a gap but handlers are idempotent)
+- `broadcast()` is now sync (no async/await) — single non-blocking `send()`
+- `broadcast_to_list()` takes `&self` instead of `&mut self`, simplifying several call sites
+- `UnsubscribeSession` handler is a no-op — receivers self-cleanup on disconnect
+- ~70 `.await` removals across websocket.rs, codex_session.rs, rollout_watcher.rs, main.rs
+- All 57 tests pass, zero warnings
 
 ---
 

@@ -203,17 +203,34 @@ async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
     let _ = tx.send(OutboundMessage::Raw(json)).await;
 }
 
-/// Create a ServerMessage sender that wraps an OutboundMessage sender
-fn wrap_sender(tx: mpsc::Sender<OutboundMessage>) -> mpsc::Sender<ServerMessage> {
-    let (server_tx, mut server_rx) = mpsc::channel::<ServerMessage>(100);
+/// Spawn a task that drains a broadcast receiver and forwards messages to an outbound channel.
+/// When the outbound channel closes (client disconnects), the task exits and the
+/// broadcast::Receiver is dropped — automatic cleanup, no manual unsubscribe needed.
+fn spawn_broadcast_forwarder(
+    mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
+    outbound_tx: mpsc::Sender<OutboundMessage>,
+) {
     tokio::spawn(async move {
-        while let Some(msg) = server_rx.recv().await {
-            if tx.send(OutboundMessage::Json(msg)).await.is_err() {
-                break;
+        loop {
+            match rx.recv().await {
+                Ok(msg) => {
+                    if outbound_tx.send(OutboundMessage::Json(msg)).await.is_err() {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    warn!(
+                        component = "websocket",
+                        event = "ws.broadcast.lagged",
+                        skipped = n,
+                        "Broadcast subscriber lagged, skipped {n} messages"
+                    );
+                    // Continue receiving — client may have a gap but handlers are idempotent.
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });
-    server_tx
 }
 
 fn chrono_now() -> String {
@@ -334,15 +351,19 @@ async fn handle_client_message(
 
     match msg {
         ClientMessage::SubscribeList => {
-            let mut state = state.lock().await;
-            state.subscribe_list(wrap_sender(client_tx.clone()));
+            let state = state.lock().await;
+            let rx = state.subscribe_list();
+            spawn_broadcast_forwarder(rx, client_tx.clone());
 
             // Send current list
             let sessions = state.get_session_summaries().await;
             send_json(client_tx, ServerMessage::SessionsList { sessions }).await;
         }
 
-        ClientMessage::SubscribeSession { session_id, since_revision } => {
+        ClientMessage::SubscribeSession {
+            session_id,
+            since_revision,
+        } => {
             let state = state.lock().await;
             if let Some(session_arc) = state.get_session(&session_id) {
                 let mut session = session_arc.lock().await;
@@ -361,9 +382,10 @@ async fn handle_client_message(
                             events.len(),
                             since_rev
                         );
-                        session.subscribe(wrap_sender(client_tx.clone()));
+                        let rx = session.subscribe();
                         drop(session);
                         drop(state);
+                        spawn_broadcast_forwarder(rx, client_tx.clone());
                         for json in events {
                             send_raw(client_tx, json).await;
                         }
@@ -423,17 +445,15 @@ async fn handle_client_message(
                         }
                         session.set_last_activity_at(Some(now.clone()));
                         let summary = session.summary();
-                        session
-                            .broadcast(ServerMessage::SessionDelta {
-                                session_id: session_id.clone(),
-                                changes: orbitdock_protocol::StateChanges {
-                                    status: Some(orbitdock_protocol::SessionStatus::Active),
-                                    work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
-                                    last_activity_at: Some(now),
-                                    ..Default::default()
-                                },
-                            })
-                            .await;
+                        session.broadcast(ServerMessage::SessionDelta {
+                            session_id: session_id.clone(),
+                            changes: orbitdock_protocol::StateChanges {
+                                status: Some(orbitdock_protocol::SessionStatus::Active),
+                                work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                last_activity_at: Some(now),
+                                ..Default::default()
+                            },
+                        });
                         drop(session);
                         let _ = state
                             .persist()
@@ -453,15 +473,14 @@ async fn handle_client_message(
                                 custom_name: None,
                             })
                             .await;
-                        let mut state = state;
-                        state
-                            .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                            .await;
+                        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
                         if let Some(session) = state.get_session(&session_id) {
-                            let mut session = session.lock().await;
-                            session.subscribe(wrap_sender(client_tx.clone()));
+                            let session = session.lock().await;
+                            let rx = session.subscribe();
                             let snapshot = session.state();
                             let snapshot = compact_snapshot_for_transport(snapshot);
+                            drop(session);
+                            spawn_broadcast_forwarder(rx, client_tx.clone());
                             send_json(
                                 client_tx,
                                 ServerMessage::SessionSnapshot { session: snapshot },
@@ -471,7 +490,8 @@ async fn handle_client_message(
                         return;
                     }
                 }
-                session.subscribe(wrap_sender(client_tx.clone()));
+                let rx = session.subscribe();
+                spawn_broadcast_forwarder(rx, client_tx.clone());
 
                 // Send current state
                 send_json(
@@ -494,14 +514,9 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::UnsubscribeSession { session_id } => {
-            let state = state.lock().await;
-            if let Some(session) = state.get_session(&session_id) {
-                let mut session = session.lock().await;
-                // Note: unsubscribe won't match the wrapped sender, but that's OK
-                // The session will clean up closed channels on broadcast
-                session.unsubscribe_by_closed();
-            }
+        ClientMessage::UnsubscribeSession { session_id: _ } => {
+            // No-op: broadcast receivers clean up automatically when the
+            // forwarder task exits (client disconnect drops the Receiver).
         }
 
         ClientMessage::CreateSession {
@@ -532,7 +547,8 @@ async fn handle_client_message(
             }
 
             // Subscribe the creator
-            handle.subscribe(wrap_sender(client_tx.clone()));
+            let rx = handle.subscribe();
+            spawn_broadcast_forwarder(rx, client_tx.clone());
 
             let summary = handle.summary();
             let snapshot = handle.state();
@@ -564,9 +580,7 @@ async fn handle_client_message(
             .await;
 
             // Notify list subscribers
-            state_guard
-                .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                .await;
+            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
 
             // Spawn Codex connector if it's a Codex session
             if provider == Provider::Codex {
@@ -600,12 +614,10 @@ async fn handle_client_message(
                         // evict it immediately so the direct session remains canonical.
                         let thread_id = codex_session.thread_id().to_string();
                         if state_guard.remove_session(&thread_id).is_some() {
-                            state_guard
-                                .broadcast_to_list(ServerMessage::SessionEnded {
-                                    session_id: thread_id.clone(),
-                                    reason: "direct_session_thread_claimed".into(),
-                                })
-                                .await;
+                            state_guard.broadcast_to_list(ServerMessage::SessionEnded {
+                                session_id: thread_id.clone(),
+                                reason: "direct_session_thread_claimed".into(),
+                            });
                         }
                         let _ = persist_tx
                             .send(PersistCommand::CleanupThreadShadowSession {
@@ -671,7 +683,7 @@ async fn handle_client_message(
                 "Sending message to session"
             );
 
-            let mut state = state.lock().await;
+            let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
                 let first_prompt = name_from_first_prompt(&content);
 
@@ -697,23 +709,19 @@ async fn handle_client_message(
                                 })
                                 .await;
 
-                            session
-                                .broadcast(ServerMessage::SessionDelta {
-                                    session_id: session_id.clone(),
-                                    changes: orbitdock_protocol::StateChanges {
-                                        custom_name: Some(Some(derived_name.clone())),
-                                        ..Default::default()
-                                    },
-                                })
-                                .await;
+                            session.broadcast(ServerMessage::SessionDelta {
+                                session_id: session_id.clone(),
+                                changes: orbitdock_protocol::StateChanges {
+                                    custom_name: Some(Some(derived_name.clone())),
+                                    ..Default::default()
+                                },
+                            });
 
                             let summary = session.summary();
                             drop(session);
-                            state
-                                .broadcast_to_list(ServerMessage::SessionCreated {
-                                    session: summary,
-                                })
-                                .await;
+                            state.broadcast_to_list(ServerMessage::SessionCreated {
+                                session: summary,
+                            });
                         }
                     }
                 }
@@ -746,12 +754,10 @@ async fn handle_client_message(
                             message: user_msg.clone(),
                         })
                         .await;
-                    session
-                        .broadcast(ServerMessage::MessageAppended {
-                            session_id: session_id.clone(),
-                            message: user_msg,
-                        })
-                        .await;
+                    session.broadcast(ServerMessage::MessageAppended {
+                        session_id: session_id.clone(),
+                        message: user_msg,
+                    });
                 }
 
                 let _ = tx
@@ -831,12 +837,10 @@ async fn handle_client_message(
                             message: steer_msg.clone(),
                         })
                         .await;
-                    session
-                        .broadcast(ServerMessage::MessageAppended {
-                            session_id: session_id.clone(),
-                            message: steer_msg,
-                        })
-                        .await;
+                    session.broadcast(ServerMessage::MessageAppended {
+                        session_id: session_id.clone(),
+                        message: steer_msg,
+                    });
                 }
 
                 let _ = tx
@@ -944,16 +948,14 @@ async fn handle_client_message(
                 let mut session = session.lock().await;
                 session.set_work_status(next_work_status);
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(next_work_status),
-                            pending_approval: Some(None), // Explicitly clear
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.clone(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(next_work_status),
+                        pending_approval: Some(None), // Explicitly clear
+                        ..Default::default()
+                    },
+                });
             }
         }
 
@@ -1043,7 +1045,10 @@ async fn handle_client_message(
                     client_tx,
                     ServerMessage::Error {
                         code: "session_not_found".into(),
-                        message: format!("Session {} not found or has no active connector", session_id),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
                         session_id: Some(session_id),
                     },
                 )
@@ -1060,7 +1065,10 @@ async fn handle_client_message(
                     client_tx,
                     ServerMessage::Error {
                         code: "session_not_found".into(),
-                        message: format!("Session {} not found or has no active connector", session_id),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
                         session_id: Some(session_id),
                     },
                 )
@@ -1082,7 +1090,10 @@ async fn handle_client_message(
                     client_tx,
                     ServerMessage::Error {
                         code: "session_not_found".into(),
-                        message: format!("Session {} not found or has no active connector", session_id),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
                         session_id: Some(session_id),
                     },
                 )
@@ -1099,7 +1110,10 @@ async fn handle_client_message(
                     client_tx,
                     ServerMessage::Error {
                         code: "session_not_found".into(),
-                        message: format!("Session {} not found or has no active connector", session_id),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
                         session_id: Some(session_id),
                     },
                 )
@@ -1116,7 +1130,10 @@ async fn handle_client_message(
                     client_tx,
                     ServerMessage::Error {
                         code: "session_not_found".into(),
-                        message: format!("Session {} not found or has no active connector", session_id),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
                         session_id: Some(session_id),
                     },
                 )
@@ -1197,7 +1214,10 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::RollbackTurns { session_id, num_turns } => {
+        ClientMessage::RollbackTurns {
+            session_id,
+            num_turns,
+        } => {
             if num_turns < 1 {
                 send_json(
                     client_tx,
@@ -1236,7 +1256,7 @@ async fn handle_client_message(
                 "Rename session requested"
             );
 
-            let mut state = state.lock().await;
+            let state = state.lock().await;
             if let Some(session) = state.get_session(&session_id) {
                 let mut session = session.lock().await;
                 session.set_custom_name(name.clone());
@@ -1251,22 +1271,18 @@ async fn handle_client_message(
                     .await;
 
                 // Broadcast delta to session subscribers
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
-                        changes: orbitdock_protocol::StateChanges {
-                            custom_name: Some(name.clone()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.clone(),
+                    changes: orbitdock_protocol::StateChanges {
+                        custom_name: Some(name.clone()),
+                        ..Default::default()
+                    },
+                });
 
                 // Update list subscribers with the new summary
                 let summary = session.summary();
                 drop(session);
-                state
-                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                    .await;
+                state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
 
             // Also set in codex-core if it's a Codex session
@@ -1294,7 +1310,7 @@ async fn handle_client_message(
                 "Session config update requested"
             );
 
-            let mut state = state.lock().await;
+            let state = state.lock().await;
             if let Some(session) = state.get_session(&session_id) {
                 let mut session = session.lock().await;
                 session.set_config(approval_policy.clone(), sandbox_mode.clone());
@@ -1309,21 +1325,17 @@ async fn handle_client_message(
                     })
                     .await;
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
-                        changes: orbitdock_protocol::StateChanges {
-                            approval_policy: Some(approval_policy.clone()),
-                            sandbox_mode: Some(sandbox_mode.clone()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.clone(),
+                    changes: orbitdock_protocol::StateChanges {
+                        approval_policy: Some(approval_policy.clone()),
+                        sandbox_mode: Some(sandbox_mode.clone()),
+                        ..Default::default()
+                    },
+                });
 
                 drop(session);
-                state
-                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                    .await;
+                state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
@@ -1418,8 +1430,8 @@ async fn handle_client_message(
             let mut state_guard = state.lock().await;
 
             // Subscribe the requesting client
-            let mut handle = handle;
-            handle.subscribe(wrap_sender(client_tx.clone()));
+            let rx = handle.subscribe();
+            spawn_broadcast_forwarder(rx, client_tx.clone());
 
             let summary = handle.summary();
             let snapshot = handle.state();
@@ -1453,12 +1465,10 @@ async fn handle_client_message(
                         .await;
                     state_guard.register_codex_thread(&session_id, &new_thread_id);
                     if state_guard.remove_session(&new_thread_id).is_some() {
-                        state_guard
-                            .broadcast_to_list(ServerMessage::SessionEnded {
-                                session_id: new_thread_id.clone(),
-                                reason: "direct_session_thread_claimed".into(),
-                            })
-                            .await;
+                        state_guard.broadcast_to_list(ServerMessage::SessionEnded {
+                            session_id: new_thread_id.clone(),
+                            reason: "direct_session_thread_claimed".into(),
+                        });
                     }
                     let _ = persist_tx
                         .send(PersistCommand::CleanupThreadShadowSession {
@@ -1508,9 +1518,7 @@ async fn handle_client_message(
             .await;
 
             // Broadcast to list subscribers (session reappears in sidebar)
-            state_guard
-                .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                .await;
+            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
 
         ClientMessage::ClaudeSessionStart {
@@ -1554,12 +1562,10 @@ async fn handle_client_message(
                     })
                     .await;
                 if state.remove_session(&stale_id).is_some() {
-                    state
-                        .broadcast_to_list(ServerMessage::SessionEnded {
-                            session_id: stale_id,
-                            reason: "stale_empty_shell".to_string(),
-                        })
-                        .await;
+                    state.broadcast_to_list(ServerMessage::SessionEnded {
+                        session_id: stale_id,
+                        reason: "stale_empty_shell".to_string(),
+                    });
                 }
             }
 
@@ -1592,23 +1598,19 @@ async fn handle_client_message(
                 }
                 session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
 
-                session
-                    .broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    })
-                    .await;
+                session.broadcast(ServerMessage::SessionDelta {
+                    session_id: session_id.clone(),
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    },
+                });
 
                 if created {
-                    state
-                        .broadcast_to_list(ServerMessage::SessionCreated {
-                            session: session.summary(),
-                        })
-                        .await;
+                    state.broadcast_to_list(ServerMessage::SessionCreated {
+                        session: session.summary(),
+                    });
                 }
             }
 
@@ -1651,12 +1653,10 @@ async fn handle_client_message(
                 .await;
 
             if state.remove_session(&session_id).is_some() {
-                state
-                    .broadcast_to_list(ServerMessage::SessionEnded {
-                        session_id,
-                        reason: reason.unwrap_or_else(|| "hook_session_end".to_string()),
-                    })
-                    .await;
+                state.broadcast_to_list(ServerMessage::SessionEnded {
+                    session_id,
+                    reason: reason.unwrap_or_else(|| "hook_session_end".to_string()),
+                });
             }
         }
 
@@ -1702,11 +1702,9 @@ async fn handle_client_message(
                 let arc = state.add_session(handle);
                 {
                     let session = arc.lock().await;
-                    state
-                        .broadcast_to_list(ServerMessage::SessionCreated {
-                            session: session.summary(),
-                        })
-                        .await;
+                    state.broadcast_to_list(ServerMessage::SessionCreated {
+                        session: session.summary(),
+                    });
                 }
                 arc
             };
@@ -1815,24 +1813,20 @@ async fn handle_client_message(
                                 })
                                 .await;
 
-                            session
-                                .broadcast(ServerMessage::SessionDelta {
-                                    session_id: session_id.clone(),
-                                    changes: orbitdock_protocol::StateChanges {
-                                        custom_name: Some(Some(derived_name.clone())),
-                                        last_activity_at: Some(chrono_now()),
-                                        ..Default::default()
-                                    },
-                                })
-                                .await;
+                            session.broadcast(ServerMessage::SessionDelta {
+                                session_id: session_id.clone(),
+                                changes: orbitdock_protocol::StateChanges {
+                                    custom_name: Some(Some(derived_name.clone())),
+                                    last_activity_at: Some(chrono_now()),
+                                    ..Default::default()
+                                },
+                            });
 
                             let summary = session.summary();
                             drop(session);
-                            state
-                                .broadcast_to_list(ServerMessage::SessionCreated {
-                                    session: summary,
-                                })
-                                .await;
+                            state.broadcast_to_list(ServerMessage::SessionCreated {
+                                session: summary,
+                            });
                         }
                     }
                 }
@@ -1869,16 +1863,14 @@ async fn handle_client_message(
                 {
                     let mut session = session_arc.lock().await;
                     session.set_work_status(work_status);
-                    session
-                        .broadcast(ServerMessage::SessionDelta {
-                            session_id: session_id.clone(),
-                            changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(work_status),
-                                last_activity_at: Some(chrono_now()),
-                                ..Default::default()
-                            },
-                        })
-                        .await;
+                    session.broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(work_status),
+                            last_activity_at: Some(chrono_now()),
+                            ..Default::default()
+                        },
+                    });
                 }
 
                 let _ = persist_tx
@@ -1945,11 +1937,9 @@ async fn handle_client_message(
                 let arc = state.add_session(handle);
                 {
                     let session = arc.lock().await;
-                    state
-                        .broadcast_to_list(ServerMessage::SessionCreated {
-                            session: session.summary(),
-                        })
-                        .await;
+                    state.broadcast_to_list(ServerMessage::SessionCreated {
+                        session: session.summary(),
+                    });
                 }
                 arc
             };
@@ -1988,16 +1978,14 @@ async fn handle_client_message(
                         let mut session = session_arc.lock().await;
                         session.set_last_tool(Some(tool_name.clone()));
                         session.set_work_status(orbitdock_protocol::WorkStatus::Working);
-                        session
-                            .broadcast(ServerMessage::SessionDelta {
-                                session_id: session_id.clone(),
-                                changes: orbitdock_protocol::StateChanges {
-                                    work_status: Some(orbitdock_protocol::WorkStatus::Working),
-                                    last_activity_at: Some(chrono_now()),
-                                    ..Default::default()
-                                },
-                            })
-                            .await;
+                        session.broadcast(ServerMessage::SessionDelta {
+                            session_id: session_id.clone(),
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
+                        });
                     }
 
                     let _ = persist_tx
@@ -2056,16 +2044,14 @@ async fn handle_client_message(
 
                     let mut session = session_arc.lock().await;
                     session.set_work_status(orbitdock_protocol::WorkStatus::Working);
-                    session
-                        .broadcast(ServerMessage::SessionDelta {
-                            session_id: session_id.clone(),
-                            changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
-                                last_activity_at: Some(chrono_now()),
-                                ..Default::default()
-                            },
-                        })
-                        .await;
+                    session.broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                            last_activity_at: Some(chrono_now()),
+                            ..Default::default()
+                        },
+                    });
                 }
                 "PostToolUseFailure" => {
                     let _ = persist_tx
@@ -2095,16 +2081,14 @@ async fn handle_client_message(
 
                     let mut session = session_arc.lock().await;
                     session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
-                    session
-                        .broadcast(ServerMessage::SessionDelta {
-                            session_id: session_id.clone(),
-                            changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
-                                last_activity_at: Some(chrono_now()),
-                                ..Default::default()
-                            },
-                        })
-                        .await;
+                    session.broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                            last_activity_at: Some(chrono_now()),
+                            ..Default::default()
+                        },
+                    });
                 }
                 _ => {}
             }
@@ -2215,24 +2199,25 @@ async fn handle_client_message(
             let state_guard = state.lock().await;
 
             // Verify source session exists and has an active connector
-            let source_action_tx = match state_guard.get_codex_action_tx(&source_session_id).cloned() {
-                Some(tx) => tx,
-                None => {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "not_found".into(),
-                            message: format!(
-                                "Source session {} not found or has no active connector",
-                                source_session_id
-                            ),
-                            session_id: Some(source_session_id),
-                        },
-                    )
-                    .await;
-                    return;
-                }
-            };
+            let source_action_tx =
+                match state_guard.get_codex_action_tx(&source_session_id).cloned() {
+                    Some(tx) => tx,
+                    None => {
+                        send_json(
+                            client_tx,
+                            ServerMessage::Error {
+                                code: "not_found".into(),
+                                message: format!(
+                                    "Source session {} not found or has no active connector",
+                                    source_session_id
+                                ),
+                                session_id: Some(source_session_id),
+                            },
+                        )
+                        .await;
+                        return;
+                    }
+                };
 
             // Get source session's cwd as fallback
             let source_cwd = if let Some(s) = state_guard.get_session(&source_session_id) {
@@ -2319,11 +2304,7 @@ async fn handle_client_message(
             let fork_cwd = effective_cwd.unwrap_or_else(|| ".".to_string());
             let project_name = fork_cwd.split('/').next_back().map(String::from);
 
-            let mut handle = SessionHandle::new(
-                new_id.clone(),
-                Provider::Codex,
-                fork_cwd.clone(),
-            );
+            let mut handle = SessionHandle::new(new_id.clone(), Provider::Codex, fork_cwd.clone());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
             handle.set_config(approval_policy.clone(), sandbox_mode.clone());
             handle.set_forked_from(source_session_id.clone());
@@ -2367,7 +2348,8 @@ async fn handle_client_message(
             };
 
             // Subscribe the requester to the new session
-            handle.subscribe(wrap_sender(client_tx.clone()));
+            let rx = handle.subscribe();
+            spawn_broadcast_forwarder(rx, client_tx.clone());
 
             let summary = handle.summary();
             let snapshot = handle.state();
@@ -2412,12 +2394,10 @@ async fn handle_client_message(
 
             // Clean up any shadow session from rollout watcher
             if state_guard.remove_session(&new_thread_id).is_some() {
-                state_guard
-                    .broadcast_to_list(ServerMessage::SessionEnded {
-                        session_id: new_thread_id.clone(),
-                        reason: "direct_session_thread_claimed".into(),
-                    })
-                    .await;
+                state_guard.broadcast_to_list(ServerMessage::SessionEnded {
+                    session_id: new_thread_id.clone(),
+                    reason: "direct_session_thread_claimed".into(),
+                });
             }
             let _ = persist_tx
                 .send(PersistCommand::CleanupThreadShadowSession {
@@ -2431,8 +2411,7 @@ async fn handle_client_message(
                 session_id: new_id.clone(),
                 connector: new_connector,
             };
-            let action_tx =
-                codex_session.start_event_loop(session_arc, persist_tx);
+            let action_tx = codex_session.start_event_loop(session_arc, persist_tx);
             state_guard.set_codex_action_tx(&new_id, action_tx);
 
             // Send snapshot to requester
@@ -2454,9 +2433,7 @@ async fn handle_client_message(
             .await;
 
             // Notify list subscribers
-            state_guard
-                .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
-                .await;
+            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
 
             info!(
                 component = "session",
@@ -2525,24 +2502,20 @@ async fn handle_client_message(
                     session.set_status(orbitdock_protocol::SessionStatus::Ended);
                     session.set_work_status(orbitdock_protocol::WorkStatus::Ended);
                     session.set_last_activity_at(Some(now.clone()));
-                    session
-                        .broadcast(ServerMessage::SessionDelta {
-                            session_id: session_id.clone(),
-                            changes: orbitdock_protocol::StateChanges {
-                                status: Some(orbitdock_protocol::SessionStatus::Ended),
-                                work_status: Some(orbitdock_protocol::WorkStatus::Ended),
-                                last_activity_at: Some(now),
-                                ..Default::default()
-                            },
-                        })
-                        .await;
+                    session.broadcast(ServerMessage::SessionDelta {
+                        session_id: session_id.clone(),
+                        changes: orbitdock_protocol::StateChanges {
+                            status: Some(orbitdock_protocol::SessionStatus::Ended),
+                            work_status: Some(orbitdock_protocol::WorkStatus::Ended),
+                            last_activity_at: Some(now),
+                            ..Default::default()
+                        },
+                    });
                 }
-                state
-                    .broadcast_to_list(ServerMessage::SessionEnded {
-                        session_id,
-                        reason: "user_requested".to_string(),
-                    })
-                    .await;
+                state.broadcast_to_list(ServerMessage::SessionEnded {
+                    session_id,
+                    reason: "user_requested".to_string(),
+                });
             // Direct sessions are removed from active runtime state.
             } else if state.remove_session(&session_id).is_some() {
                 info!(
@@ -2552,12 +2525,10 @@ async fn handle_client_message(
                     session_id = %session_id,
                     "Removed direct session from runtime state"
                 );
-                state
-                    .broadcast_to_list(ServerMessage::SessionEnded {
-                        session_id,
-                        reason: "user_requested".to_string(),
-                    })
-                    .await;
+                state.broadcast_to_list(ServerMessage::SessionEnded {
+                    session_id,
+                    reason: "user_requested".to_string(),
+                });
             }
         }
     }
@@ -2565,9 +2536,7 @@ async fn handle_client_message(
 
 /// Re-read a session's transcript and broadcast any new messages to subscribers.
 /// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
-async fn sync_transcript_messages(
-    session_arc: &Arc<Mutex<SessionHandle>>,
-) {
+async fn sync_transcript_messages(session_arc: &Arc<Mutex<SessionHandle>>) {
     let (transcript_path, session_id, existing_count) = {
         let session = session_arc.lock().await;
         let path = match session.transcript_path() {
@@ -2577,11 +2546,11 @@ async fn sync_transcript_messages(
         (path, session.id().to_string(), session.message_count())
     };
 
-    let all_messages =
-        match load_messages_from_transcript_path(&transcript_path, &session_id).await {
-            Ok(msgs) => msgs,
-            Err(_) => return,
-        };
+    let all_messages = match load_messages_from_transcript_path(&transcript_path, &session_id).await
+    {
+        Ok(msgs) => msgs,
+        Err(_) => return,
+    };
 
     if all_messages.len() <= existing_count {
         return;
@@ -2597,12 +2566,10 @@ async fn sync_transcript_messages(
 
     for msg in new_messages {
         session.add_message(msg.clone());
-        session
-            .broadcast(ServerMessage::MessageAppended {
-                session_id: session_id.clone(),
-                message: msg,
-            })
-            .await;
+        session.broadcast(ServerMessage::MessageAppended {
+            session_id: session_id.clone(),
+            message: msg,
+        });
     }
 }
 

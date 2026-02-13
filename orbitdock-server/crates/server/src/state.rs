@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use orbitdock_protocol::SessionSummary;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc, Mutex};
 
 use crate::codex_session::CodexAction;
 use crate::persistence::PersistCommand;
@@ -20,8 +20,8 @@ pub struct AppState {
     /// Map codex-core thread_id -> session_id for direct sessions
     codex_threads: HashMap<String, String>,
 
-    /// Subscribers to the session list
-    list_subscribers: Vec<mpsc::Sender<orbitdock_protocol::ServerMessage>>,
+    /// Broadcast channel for session list updates
+    list_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
 
     /// Persistence channel
     persist_tx: mpsc::Sender<PersistCommand>,
@@ -29,11 +29,12 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
+        let (list_tx, _) = broadcast::channel(64);
         Self {
             sessions: HashMap::new(),
             codex_actions: HashMap::new(),
             codex_threads: HashMap::new(),
-            list_subscribers: Vec::new(),
+            list_tx,
             persist_tx,
         }
     }
@@ -95,18 +96,13 @@ impl AppState {
     }
 
     /// Subscribe to list updates
-    pub fn subscribe_list(&mut self, tx: mpsc::Sender<orbitdock_protocol::ServerMessage>) {
-        self.list_subscribers.push(tx);
+    pub fn subscribe_list(&self) -> broadcast::Receiver<orbitdock_protocol::ServerMessage> {
+        self.list_tx.subscribe()
     }
 
     /// Broadcast a message to all list subscribers
-    pub async fn broadcast_to_list(&mut self, msg: orbitdock_protocol::ServerMessage) {
-        // Remove closed channels
-        self.list_subscribers.retain(|tx| !tx.is_closed());
-
-        for tx in &self.list_subscribers {
-            let _ = tx.send(msg.clone()).await;
-        }
+    pub fn broadcast_to_list(&self, msg: orbitdock_protocol::ServerMessage) {
+        let _ = self.list_tx.send(msg);
     }
 }
 

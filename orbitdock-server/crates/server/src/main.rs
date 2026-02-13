@@ -211,8 +211,7 @@ async fn async_main() -> anyhow::Result<()> {
                                     session_id: new_thread_id.clone(),
                                     reason: "direct_session_thread_claimed".into(),
                                 },
-                            )
-                            .await;
+                            );
                         }
                         let _ = persist
                             .send(PersistCommand::CleanupThreadShadowSession {

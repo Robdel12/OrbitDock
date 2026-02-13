@@ -25,6 +25,18 @@ This means the review surface is not a secondary feature — it is a **peer of t
 
 This loop is what makes OrbitDock the place you *want* to build from, not just a place you watch a terminal scroll.
 
+## What OrbitDock Is Not
+
+OrbitDock is mission control for LLM agents. It is not an editor, not a terminal, not an IDE.
+
+- **Not an editor.** Users have their own editors (emacs, vim, VS Code) with years of muscle memory and customization. OrbitDock shows diffs and accepts annotations — it does not provide editable code buffers or syntax-aware editing.
+- **Not a terminal.** Users have their own terminals (iTerm, kitty, etc.). OrbitDock shows tool execution results and approval prompts — it does not provide a shell.
+- **Not an IDE.** OrbitDock does not do file management, project scaffolding, build configuration, or debugging. Those belong to the user's existing tools.
+
+OrbitDock's job is to **manage, oversee, and steer LLM agents** that work inside the user's existing development environment. Every feature should be evaluated against this boundary: "Does this help the user oversee and direct agent work, or are we rebuilding something that already exists in their workflow?"
+
+The review canvas is a high-fidelity diff viewer with rich syntax highlighting, word-level diffs, and annotation capabilities — better rendering than GitHub's review UI, but not a code editor. You review what the agent produced, annotate your feedback, and the agent applies it in your actual codebase. When you want to touch code directly, "open in editor" takes you there. The value is in the live oversight loop: review, annotate, steer, verify.
+
 ## Design Principles
 
 ### 1) Fluid over rigid
@@ -97,7 +109,7 @@ This loop is what makes OrbitDock the place you *want* to build from, not just a
 Instead of fixed modes, OrbitDock should expose a **workspace with dynamic capability surfaces**:
 
 - **Conversation Canvas**: the main timeline and agent narrative. Groups activity into scannable turns with expand/collapse for raw detail.
-- **Review Canvas**: file tree, hunk navigation, line annotations, and "send notes to agent." A peer surface to conversation — not an overlay, not a sidebar panel. Can take the full center zone or share it with conversation in a split layout.
+- **Review Canvas**: high-fidelity diff viewer with syntax highlighting, word-level diff precision, file list, hunk navigation, line annotations, and "send notes to agent." A peer surface to conversation — not an overlay, not a sidebar panel. Can take the full center zone or share it with conversation in a split layout. Rendering quality should match or exceed GitHub's diff view, but the interaction model is fundamentally different: diffs stream in live, annotations flow back to the agent as steering, and the review-to-resolution loop is measured in seconds, not hours. Not an editor — users review and annotate, the agent applies changes. "Open in editor" bridges to the user's actual tools when they want to touch the code directly.
 - **Capability Rail**: plan steps, MCP/tool context, skills, approval queue, attention strip. Stackable sections that can expand/collapse independently.
 - **Action Dock**: prompt, steer, approve, fork, rollback, undo, compact. Always visible at the bottom. Context-aware: knows whether you're prompting, steering, or sending review feedback.
 
@@ -326,11 +338,12 @@ This is the core cohesion rule: each feature should be visible where it is neede
 - Provide safe, explicit decision language and risk cues.
 
 ### 3) Live Review Canvas with Line Annotations
-- Full review surface that can take the center zone — not just a sidebar panel.
-- File tree + hunk navigator with keyboard navigation.
-- Inline line comments with tags/severity.
+- High-fidelity diff viewer that can take the center zone — syntax highlighting, word-level diffs, unified/side-by-side toggle. Better than GitHub's review UI, not a watered-down version.
+- File list + hunk navigator with keyboard navigation.
+- Inline line comments with tags/severity for annotating feedback.
 - Batch review comments into structured steer messages.
-- Changes reviewable the moment they land, not after the turn ends.
+- Review activates when diffs land; live mid-turn streaming is a nice-to-have.
+- "Open in editor" bridges to the user's actual tools. OrbitDock reviews; the editor edits.
 
 ### 4) Steering That Feels Intentional
 - Make steering state obvious via the steer context indicator in the action dock.
@@ -353,6 +366,51 @@ To support 2-3 agents per project, add lightweight project lanes:
 
 This should remain optional and collapsible so solo flows stay fast.
 
+## Server Architecture Dependencies
+
+This plan depends on `plans/server-architecture-v2.md` (functional core, imperative shell refactor). The server v2 work is in progress and directly unblocks several UX features.
+
+### What server v2 provides
+
+| Server v2 Feature | UX Plan Dependency |
+|---|---|
+| `Input::TurnStarted` / `Input::TurnCompleted` as first-class state machine inputs | Turn timeline (Phase 2) — turn boundaries exist at the protocol level |
+| Per-session actors with `SessionState` | Clean place to add turn history and per-turn diff snapshots |
+| Revision-based event streaming + replay | Reliable delivery of turn lifecycle events to Swift UI |
+| `EventPayload` enum with typed broadcasts | Swift side can consume structured events instead of parsing raw data |
+| `ArcSwap<SessionSnapshot>` for lock-free reads | Attention strip can aggregate state across sessions without lock contention |
+
+### What still needs to be added (server-side)
+
+These are small additions to the server v2 architecture, not separate projects:
+
+- **Turn ID tracking**: Add `current_turn_id: Option<String>` and `turn_count: u64` to `SessionState`. Emit turn ID with `TurnStarted` / `TurnCompleted` events. Associate messages and diffs with the turn that produced them.
+- **Per-turn diff snapshots**: Currently `current_diff` is replaced each turn. Keep a `turn_diffs: Vec<(TurnId, String)>` history so the review canvas can show diffs from any turn, not just the latest.
+- **Structured diff model (optional server-side)**: Could parse unified diffs into `Vec<FileDiff>` at the server level, or leave parsing to the Swift client. Client-side parsing is fine for v1.
+
+### What is purely client-side
+
+These have no server dependency and can proceed independently:
+
+- Review comment model + storage (SQLite table, Swift model)
+- Layout configuration state
+- Input mode state machine
+- Diff parsing into `[FileDiff]` with hunks (can parse the raw string client-side)
+- All shared interaction primitives (SwiftUI components)
+
+## Implementation Assumptions (Verified Against Codebase)
+
+Assumptions verified by auditing the current codebase. Each gap is addressed in Phase 0.
+
+| Assumption | Current Reality | Resolution |
+|---|---|---|
+| Turn IDs exist | No turn concept in Swift UI. Server emits turn events but UI doesn't consume them. | Phase 0: add turn tracking. Server v2 makes this straightforward. |
+| Diff is a parsed model | Raw `String` only. `CodexTurnSidebar.parseDiffLines()` does line-by-line coloring at render time. No file/hunk structure. | Phase 0: add `DiffModel` layer (client-side parsing). |
+| Review comments can be stored | No table, no model, no CRUD. | Phase 0: add SQLite table + Swift model. |
+| Layout supports dual center zones | Simple `HStack` with optional sidebar. No multi-zone flexibility. | Phase 0: add `LayoutConfiguration` state. Phase 3a implements the actual layout. |
+| Input bar has a mode enum | Implicit `isSessionWorking` boolean. No manual override, no third mode. | Phase 0: add `InputMode` enum. |
+| Cross-session attention aggregation | `AgentListPanel` groups by `needsAttention` (permission/question only). No review state, no global counts. | Phase 1: extend existing pattern with `AttentionEvent` aggregation. |
+
 ## Actionable Delivery Phases (Roadmap Style)
 
 Each phase is intentionally scoped as one completable task a developer, designer, or LLM can execute end-to-end.
@@ -360,7 +418,9 @@ Each phase is intentionally scoped as one completable task a developer, designer
 Phases have been consolidated for tighter cohesion — related features ship together instead of accumulating incrementally.
 
 Recommended execution sequence:
-- `Phase 1 -> Phase 2 -> Phase 3 -> Phase 4 -> Phase 5 -> Phase 6`
+- `Phase 0 -> Phase 1 -> Phase 2 -> Phase 3a -> Phase 3b -> Phase 4 -> Phase 5 -> Phase 6`
+
+Phase 0 is data infrastructure (invisible to the user, unblocks everything). Phase 3 is split into 3a (layout + diff navigation) and 3b (line annotations) because the combined scope is too large for a single phase.
 
 ## Phase Execution Template (Per Task)
 
@@ -391,6 +451,43 @@ Preflight review questions:
 - What has changed since this plan was written?
 - What is the smallest shippable slice that still achieves the objective?
 - What should be deferred to a follow-up phase to keep this task completable?
+
+## Phase 0: Data Infrastructure (Invisible, Unblocks Everything)
+
+**Objective**: Build the data models, state tracking, and parsing layers that all subsequent UI phases depend on. This phase produces no visible UI changes but is a hard prerequisite.
+
+**Server v2 dependency**: Turn tracking depends on server v2 emitting turn IDs with `TurnStarted`/`TurnCompleted` events. If server v2 is not yet shipping turn IDs, this phase can still build the Swift-side models and populate them with synthetic turn boundaries (inferred from message type alternation). The models get upgraded to use real turn IDs once server v2 lands them.
+
+### Scope
+- [ ] **Turn tracking model**: `TurnSummary` struct (turn ID, start/end timestamps, messages, tools, changed files, status). Build a `TurnBuilder` that groups existing messages into turns by inferring boundaries from user→assistant message pairs (Codex direct: consume server events; Claude JSONL: infer from message types).
+- [ ] **Structured diff model**: `DiffModel` with `[FileDiff]` where each `FileDiff` has path, hunks, and each hunk has line ranges + content. Parse from the raw unified diff string that `ServerAppState.getDiff()` returns. This is client-side parsing — no server changes needed.
+- [ ] **Review comment model**: `ReviewComment` struct (id, sessionId, turnId, filePath, lineRange, body, tag, status, createdAt). SQLite table `review_comments`. Basic CRUD in a `ReviewStore` or extension on `ServerAppState`.
+- [ ] **Layout configuration state**: `LayoutConfiguration` enum (conversationOnly, reviewOnly, split) + `RailPreset` enum (planFocused, reviewFocused, triage). Persisted per-session in UserDefaults or SQLite.
+- [ ] **Input mode state machine**: Replace `isSessionWorking` boolean in `CodexInputBar` with `InputMode` enum (`.prompt`, `.steer`, `.reviewNotes`). Auto-transitions: idle → prompt, working → steer. Manual override for reviewNotes.
+- [ ] **Attention aggregation**: `AttentionService` that observes all sessions and produces `[AttentionEvent]` (pending approvals, questions, unreviewed diffs). Extend the existing `needsAttention` pattern in `Session`.
+
+### Primary surfaces
+- `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift`
+- `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
+- `CommandCenter/CommandCenter/Models/` (new files)
+
+### Likely new files
+- `CommandCenter/CommandCenter/Models/TurnSummary.swift`
+- `CommandCenter/CommandCenter/Models/DiffModel.swift`
+- `CommandCenter/CommandCenter/Models/ReviewComment.swift`
+- `CommandCenter/CommandCenter/Models/LayoutConfiguration.swift`
+- `CommandCenter/CommandCenter/Services/AttentionService.swift`
+- `CommandCenter/CommandCenter/Services/ReviewStore.swift`
+
+### Definition of done
+- [ ] `TurnBuilder` can group an existing conversation's messages into turns.
+- [ ] `DiffModel.parse(unifiedDiff:)` correctly splits a multi-file unified diff into `[FileDiff]` with hunks.
+- [ ] `ReviewComment` can be created, read, updated, and deleted from SQLite.
+- [ ] `LayoutConfiguration` persists across session switches.
+- [ ] `InputMode` enum drives the input bar with correct auto-transitions.
+- [ ] `AttentionService` produces accurate counts of pending approvals/questions across sessions.
+- [ ] All models have basic unit tests.
+- [ ] No visible UI changes — this is infrastructure only.
 
 ## Phase 1: Capability Rail + Action Dock Clarity
 
@@ -442,45 +539,86 @@ Preflight review questions:
 - [ ] Rollback/fork actions remain discoverable at turn level.
 - [ ] User can keep working entirely in detailed view if preferred.
 
-## Phase 3: Live Review Canvas (File/Hunk Navigation + Line Annotations)
+## Phase 3a: Live Review Canvas (Layout + Diff Navigation)
 
-**Objective**: Build the signature review experience — a full review surface that is a peer of the conversation canvas, enabling real-time annotation and feedback as the agent works.
+**Objective**: Build the review canvas as a first-class center-zone surface with file/hunk navigation. This is the structural foundation of the signature review experience.
 
-This is the core differentiator. The review canvas is not a sidebar panel or an afterthought. It is a first-class workspace surface that can take the center zone, share it with conversation in a split view, or expand to full focus.
+The review canvas is **read-only but high-fidelity** — not an editor, but a better review experience than GitHub. Rich syntax highlighting, word-level diff precision, fluid navigation, and live-streaming diffs as the agent works. If the user wants to edit a file directly, OrbitDock opens it in their preferred editor — we don't recreate that. But the review rendering itself should be best-in-class.
+
+### Rendering quality bar
+- **Syntax highlighting**: language-aware coloring for all major languages. Diffs should look as good as code in a proper editor, not like plain text with green/red lines.
+- **Word-level diff highlighting**: within changed lines, highlight the specific words/tokens that changed — not just "this whole line is red/green." This is what makes scanning large diffs fast.
+- **Unified and side-by-side views**: user can toggle between unified diff (compact, good for small changes) and side-by-side (better for large refactors). Default to unified.
+- **Collapsible unchanged regions**: large files with small changes should collapse unchanged sections with "show N hidden lines" expanders, like GitHub does.
+- **Line numbers**: gutter with original and new line numbers for both sides.
+- **"Open in editor" action**: from any file in the review canvas, one action to open that file at the relevant line in the user's preferred editor. OrbitDock shows you the diff; your editor is where you work.
+- **Nice-to-have: live diff streaming**: as the agent produces changes during a turn, the review canvas updates in real time — new files appear, hunks grow. Great if achievable, but the core value is the review-annotate-steer loop once diffs land, not mid-turn animation.
 
 ### Scope
-- [ ] Implement review canvas as a center-zone surface (not sidebar) with three layout modes: conversation-only, review-only, split.
-- [ ] Add focus zone transitions: animated split/swap between conversation and review (uses focus zone primitive).
-- [ ] File tree navigator with keyboard navigation (arrow keys, Enter to select, Escape to return to tree).
+- [ ] Implement review canvas as a center-zone surface (not sidebar) using `LayoutConfiguration` from Phase 0. Three layout modes: conversation-only, review-only, split.
+- [ ] Replace the simple HStack in `SessionDetailView` with an adaptive layout manager that supports the three configurations.
+- [ ] Add focus zone transitions: animated split/swap between conversation and review (uses focus zone primitive from Phase 1).
+- [ ] Render diffs using `DiffModel` from Phase 0 — file-level grouping with expandable hunks, syntax highlighting, word-level diff highlighting within changed lines.
+- [ ] Unified and side-by-side diff view toggle (default: unified).
+- [ ] Collapsible unchanged regions with "show N hidden lines" expanders.
+- [ ] Line number gutter with original and new line numbers.
+- [ ] File list navigator: flat list of changed files with change-type indicators (added/modified/deleted), language icon, and line count badges. Keyboard navigation (arrow keys, Enter to select, Escape to return to list).
 - [ ] Hunk-level navigation within files (n/p to jump between hunks).
-- [ ] Inline line comment model: `ReviewComment` (file, line/range, body, status, tag, createdAt).
-- [ ] Comment tags/severity: `clarity`, `scope`, `risk`, `nit`.
-- [ ] Review checklist panel in capability rail showing open comments with filter for unresolved.
-- [ ] Side-by-side relationship between turn and resulting file changes (jump from turn to exact changed file/hunk).
-- [ ] Review canvas activates as diffs land — changes are reviewable immediately, not after the turn ends.
+- [ ] Side-by-side relationship between turn and resulting file changes (jump from turn to exact changed file/hunk, using `TurnSummary` from Phase 0).
+- [ ] Review canvas activates (suggests layout switch) when diffs are available — after a turn completes or when the user explicitly opens review.
+- [ ] Nice-to-have: live diff streaming during active turns (diffs update as the agent works).
+- [ ] "Open in editor" action: open the file at the relevant line in the user's preferred editor ($EDITOR or configured default).
+- [ ] Preserve conversation scroll position when switching to/from review.
 
 ### Primary surfaces
 - `CommandCenter/CommandCenter/Views/Codex/CodexDiffSidebar.swift` (evolves into review canvas)
 - `CommandCenter/CommandCenter/Views/SessionDetailView.swift` (center zone layout management)
 - `CommandCenter/CommandCenter/Views/ConversationView.swift` (split layout integration)
-- `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift` (review comment state)
 
 ### Likely new files
 - `CommandCenter/CommandCenter/Views/Review/ReviewCanvas.swift`
-- `CommandCenter/CommandCenter/Views/Review/FileTreeView.swift`
-- `CommandCenter/CommandCenter/Views/Review/HunkNavigator.swift`
-- `CommandCenter/CommandCenter/Views/Review/LineAnnotationView.swift`
-- `CommandCenter/CommandCenter/Models/ReviewComment.swift`
+- `CommandCenter/CommandCenter/Views/Review/FileListView.swift`
+- `CommandCenter/CommandCenter/Views/Review/DiffHunkView.swift`
 
 ### Definition of done
 - [ ] User can review multi-file changes in a full-width review canvas, not just a sidebar.
-- [ ] User can annotate line by line on active diffs with comment tags.
 - [ ] User can jump from turn to exact changed file/hunk.
-- [ ] Comments are persistent in session state and filterable (unresolved/all).
-- [ ] Review canvas activates when diffs land without user needing to manually navigate.
+- [ ] Review canvas suggests activation when diffs land.
 - [ ] Conversation position is preserved when switching to/from review.
 - [ ] Review flow works for both short and verbose diffs.
-- [ ] Keyboard navigation covers: file selection, hunk jumping, comment placement, and return to conversation.
+- [ ] Keyboard navigation covers: file selection, hunk jumping, and return to conversation.
+- [ ] Layout transitions are animated and feel fluid, not jarring.
+
+## Phase 3b: Line Annotations + Review Checklist
+
+**Objective**: Add the annotation layer on top of the review canvas — inline line comments, review checklist, and the feedback infrastructure that Phase 4 will connect to steering.
+
+### Scope
+- [ ] Inline line comment UI: click on a diff line (or select a range) to open a comment composer. Uses `ReviewComment` model from Phase 0.
+- [ ] Comment tags/severity: `clarity`, `scope`, `risk`, `nit` — selectable when composing a comment.
+- [ ] Comment markers: purple accent markers on annotated lines in the diff view (per surface-to-color mapping).
+- [ ] Review checklist section in capability rail showing open comments with filter (unresolved/all/by-file).
+- [ ] Comment navigation: click a comment in the checklist to jump to the annotated line in the review canvas.
+- [ ] Keyboard: shortcut to add comment on current line, Tab to cycle through unresolved comments.
+- [ ] Comment resolution: mark comments as resolved manually (Phase 4 adds auto-resolution from agent responses).
+
+### Primary surfaces
+- `CommandCenter/CommandCenter/Views/Review/ReviewCanvas.swift`
+- `CommandCenter/CommandCenter/Views/Review/DiffHunkView.swift`
+- `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift` (comments checklist section)
+- `CommandCenter/CommandCenter/Services/ReviewStore.swift`
+
+### Likely new files
+- `CommandCenter/CommandCenter/Views/Review/LineAnnotationView.swift`
+- `CommandCenter/CommandCenter/Views/Review/CommentComposer.swift`
+- `CommandCenter/CommandCenter/Views/Review/ReviewChecklist.swift`
+
+### Definition of done
+- [ ] User can annotate line by line on active diffs with comment tags.
+- [ ] Comments are persistent in session state (SQLite) and filterable (unresolved/all).
+- [ ] Comment checklist in capability rail shows open comments with jump-to-line.
+- [ ] Keyboard navigation covers comment placement and cycling through unresolved comments.
+- [ ] Comment markers are visually distinct (purple accent) and don't interfere with diff readability.
 
 ## Phase 4: Comment-to-Steer Bridge
 
@@ -582,10 +720,13 @@ Likely new models/state:
 - **Risk**: Weak mapping between review notes and agent behavior.
   **Guardrail**: structured steer payloads with deterministic formatting. Comment-to-change traceability in transcript.
 
-- **Risk**: Review canvas becoming a half-baked code review tool.
-  **Guardrail**: the review canvas is live and collaborative, not forensic. It's fundamentally different from GitHub review — feedback flows to the agent immediately. Don't try to replicate GitHub's feature set; build for the live loop.
+- **Risk**: Review canvas drifting toward an editor.
+  **Guardrail**: the review canvas should have best-in-class rendering (syntax highlighting, word-level diffs, side-by-side view) but zero editing capabilities. The quality bar is *higher* than GitHub's diff view — but the interaction boundary is clear: review and annotate, don't edit. If you're tempted to add "edit this line directly," stop — use "open in editor" to bridge to the user's actual tools. The value is in the live oversight-and-steer loop, not in becoming another code editor.
 
-- **Risk**: 6 phases shipping incrementally cause visual/interaction drift.
+- **Risk**: Scope creep toward IDE/terminal features.
+  **Guardrail**: evaluate every feature against the product boundary: "Does this help oversee and direct agent work, or are we rebuilding something that already exists in the user's editor/terminal?" OrbitDock manages agents, it does not replace dev tools.
+
+- **Risk**: 8 phases shipping incrementally cause visual/interaction drift.
   **Guardrail**: shared interaction primitives established in Phase 1. Surface-to-color mapping enforced at preflight. Every phase reuses the same card/section/zone patterns.
 
 ## Success Criteria
@@ -604,9 +745,11 @@ Quantitative (post-instrumentation):
 
 ## Near-Term Deliverables
 
+- [ ] Phase 0: Data Infrastructure (turn tracking, diff parsing, review comments, layout state, input mode, attention aggregation).
 - [ ] Phase 1: Capability Rail + Action Dock Clarity (shared primitives, fluid sections, attention strip, steer context).
 - [ ] Phase 2: Turn Timeline with Oversight (density control, turn grouping, raw inspectability).
-- [ ] Phase 3: Live Review Canvas (file/hunk navigation, line annotations, center-zone review surface).
+- [ ] Phase 3a: Live Review Canvas (layout system, file/hunk navigation, center-zone diff viewer).
+- [ ] Phase 3b: Line Annotations + Review Checklist (inline comments, tags, review checklist in rail).
 - [ ] Phase 4: Comment-to-Steer Bridge (review feedback as structured agent steering).
 - [ ] Phase 5: Approval Oversight v2 (fast contextual approvals with risk cues).
 - [ ] Phase 6: Multi-Agent Project Lanes (project grouping, cross-agent attention, quick switching).

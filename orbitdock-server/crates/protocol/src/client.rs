@@ -325,7 +325,11 @@ mod tests {
         let serialized = serde_json::to_string(&parsed).expect("serialize");
         let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
         match reparsed {
-            ClientMessage::ListSkills { session_id, cwds, force_reload } => {
+            ClientMessage::ListSkills {
+                session_id,
+                cwds,
+                force_reload,
+            } => {
                 assert_eq!(session_id, "sess-3");
                 assert_eq!(cwds.len(), 2);
                 assert!(force_reload);
@@ -343,9 +347,15 @@ mod tests {
           "skills":[{"name":"deploy","path":"/home/.codex/skills/deploy.md"}]
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with skills");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse send_message with skills");
         match &parsed {
-            ClientMessage::SendMessage { session_id, content, skills, .. } => {
+            ClientMessage::SendMessage {
+                session_id,
+                content,
+                skills,
+                ..
+            } => {
                 assert_eq!(session_id, "sess-4");
                 assert_eq!(content, "hello");
                 assert_eq!(skills.len(), 1);
@@ -364,7 +374,8 @@ mod tests {
           "content":"hello"
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message without skills");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse send_message without skills");
         match parsed {
             ClientMessage::SendMessage { skills, .. } => {
                 assert!(skills.is_empty());
@@ -381,9 +392,13 @@ mod tests {
           "hazelnut_id":"hz-abc-123"
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse download_remote_skill");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse download_remote_skill");
         match &parsed {
-            ClientMessage::DownloadRemoteSkill { session_id, hazelnut_id } => {
+            ClientMessage::DownloadRemoteSkill {
+                session_id,
+                hazelnut_id,
+            } => {
                 assert_eq!(session_id, "sess-6");
                 assert_eq!(hazelnut_id, "hz-abc-123");
             }
@@ -424,10 +439,14 @@ mod tests {
 
     #[test]
     fn roundtrip_steer_turn() {
-        let json = r#"{"type":"steer_turn","session_id":"sess-s1","content":"use postgres instead"}"#;
+        let json =
+            r#"{"type":"steer_turn","session_id":"sess-s1","content":"use postgres instead"}"#;
         let parsed: ClientMessage = serde_json::from_str(json).expect("parse steer_turn");
         match &parsed {
-            ClientMessage::SteerTurn { session_id, content } => {
+            ClientMessage::SteerTurn {
+                session_id,
+                content,
+            } => {
                 assert_eq!(session_id, "sess-s1");
                 assert_eq!(content, "use postgres instead");
             }
@@ -470,7 +489,10 @@ mod tests {
         let json = r#"{"type":"rollback_turns","session_id":"sess-r1","num_turns":3}"#;
         let parsed: ClientMessage = serde_json::from_str(json).expect("parse rollback_turns");
         match &parsed {
-            ClientMessage::RollbackTurns { session_id, num_turns } => {
+            ClientMessage::RollbackTurns {
+                session_id,
+                num_turns,
+            } => {
                 assert_eq!(session_id, "sess-r1");
                 assert_eq!(*num_turns, 3);
             }
@@ -555,9 +577,15 @@ mod tests {
           "images":[{"input_type":"url","value":"data:image/png;base64,iVBOR"}]
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with image url");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse send_message with image url");
         match &parsed {
-            ClientMessage::SendMessage { session_id, content, images, .. } => {
+            ClientMessage::SendMessage {
+                session_id,
+                content,
+                images,
+                ..
+            } => {
                 assert_eq!(session_id, "sess-img1");
                 assert_eq!(content, "check this screenshot");
                 assert_eq!(images.len(), 1);
@@ -587,7 +615,8 @@ mod tests {
           "images":[{"input_type":"path","value":"/tmp/screenshot.png"}]
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with local image");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse send_message with local image");
         match &parsed {
             ClientMessage::SendMessage { images, .. } => {
                 assert_eq!(images.len(), 1);
@@ -607,7 +636,8 @@ mod tests {
           "mentions":[{"name":"main.rs","path":"/project/src/main.rs"}]
         }"#;
 
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse send_message with mention");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse send_message with mention");
         match &parsed {
             ClientMessage::SendMessage { mentions, .. } => {
                 assert_eq!(mentions.len(), 1);
@@ -631,9 +661,13 @@ mod tests {
     #[test]
     fn test_subscribe_session_with_revision() {
         let json = r#"{"type":"subscribe_session","session_id":"sess-r1","since_revision":42}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse subscribe_session with revision");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse subscribe_session with revision");
         match &parsed {
-            ClientMessage::SubscribeSession { session_id, since_revision } => {
+            ClientMessage::SubscribeSession {
+                session_id,
+                since_revision,
+            } => {
                 assert_eq!(session_id, "sess-r1");
                 assert_eq!(*since_revision, Some(42));
             }
@@ -642,7 +676,10 @@ mod tests {
         let serialized = serde_json::to_string(&parsed).expect("serialize");
         let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
         match reparsed {
-            ClientMessage::SubscribeSession { session_id, since_revision } => {
+            ClientMessage::SubscribeSession {
+                session_id,
+                since_revision,
+            } => {
                 assert_eq!(session_id, "sess-r1");
                 assert_eq!(since_revision, Some(42));
             }
@@ -653,9 +690,13 @@ mod tests {
     #[test]
     fn test_subscribe_session_without_revision() {
         let json = r#"{"type":"subscribe_session","session_id":"sess-r2"}"#;
-        let parsed: ClientMessage = serde_json::from_str(json).expect("parse subscribe_session without revision");
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse subscribe_session without revision");
         match &parsed {
-            ClientMessage::SubscribeSession { session_id, since_revision } => {
+            ClientMessage::SubscribeSession {
+                session_id,
+                since_revision,
+            } => {
                 assert_eq!(session_id, "sess-r2");
                 assert_eq!(*since_revision, None);
             }
@@ -663,7 +704,10 @@ mod tests {
         }
         // Verify None omits the field (backward compat)
         let serialized = serde_json::to_string(&parsed).expect("serialize");
-        assert!(!serialized.contains("since_revision"), "since_revision should be omitted when None");
+        assert!(
+            !serialized.contains("since_revision"),
+            "since_revision should be omitted when None"
+        );
         let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
         match reparsed {
             ClientMessage::SubscribeSession { since_revision, .. } => {
@@ -686,7 +730,12 @@ mod tests {
 
         let parsed: ClientMessage = serde_json::from_str(json).expect("parse mixed inputs");
         match &parsed {
-            ClientMessage::SendMessage { skills, images, mentions, .. } => {
+            ClientMessage::SendMessage {
+                skills,
+                images,
+                mentions,
+                ..
+            } => {
                 assert_eq!(skills.len(), 1);
                 assert_eq!(images.len(), 1);
                 assert_eq!(mentions.len(), 1);
@@ -701,7 +750,12 @@ mod tests {
         let serialized = serde_json::to_string(&parsed).expect("serialize");
         let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
         match reparsed {
-            ClientMessage::SendMessage { skills, images, mentions, .. } => {
+            ClientMessage::SendMessage {
+                skills,
+                images,
+                mentions,
+                ..
+            } => {
                 assert_eq!(skills.len(), 1);
                 assert_eq!(images.len(), 1);
                 assert_eq!(mentions.len(), 1);
