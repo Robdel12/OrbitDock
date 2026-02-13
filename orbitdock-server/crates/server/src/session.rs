@@ -8,6 +8,8 @@ use orbitdock_protocol::{
 };
 use tokio::sync::broadcast;
 
+use crate::transition::{TransitionState, WorkPhase};
+
 const EVENT_LOG_CAPACITY: usize = 1000;
 const BROADCAST_CAPACITY: usize = 512;
 
@@ -230,6 +232,7 @@ impl SessionHandle {
     }
 
     /// Check if a user message with this content already exists (dedup for connector echo)
+    #[allow(dead_code)]
     pub fn has_user_message_with_content(&self, content: &str) -> bool {
         use orbitdock_protocol::MessageType;
         self.messages
@@ -294,6 +297,7 @@ impl SessionHandle {
     }
 
     /// Update token usage
+    #[allow(dead_code)]
     pub fn update_tokens(&mut self, usage: TokenUsage) {
         self.token_usage = usage;
     }
@@ -310,16 +314,19 @@ impl SessionHandle {
     }
 
     /// Update aggregated diff
+    #[allow(dead_code)]
     pub fn update_diff(&mut self, diff: String) {
         self.current_diff = Some(diff);
     }
 
     /// Update plan
+    #[allow(dead_code)]
     pub fn update_plan(&mut self, plan: String) {
         self.current_plan = Some(plan);
     }
 
     /// Register a pending approval with optional proposed amendment
+    #[allow(dead_code)]
     pub fn set_pending_approval(
         &mut self,
         request_id: String,
@@ -374,6 +381,70 @@ impl SessionHandle {
             .map(|(_, json)| json.clone())
             .collect();
         Some(events)
+    }
+
+    // -- Transition bridge (temporary until Phase 4 actor model) ---------------
+
+    /// Extract a pure data snapshot for the transition function
+    pub fn extract_state(&self) -> TransitionState {
+        let phase = match self.work_status {
+            WorkStatus::Working => WorkPhase::Working,
+            WorkStatus::Permission => WorkPhase::AwaitingApproval {
+                request_id: String::new(),
+                approval_type: ApprovalType::Exec,
+                proposed_amendment: None,
+            },
+            WorkStatus::Question => WorkPhase::AwaitingApproval {
+                request_id: String::new(),
+                approval_type: ApprovalType::Question,
+                proposed_amendment: None,
+            },
+            WorkStatus::Ended => WorkPhase::Ended {
+                reason: String::new(),
+            },
+            _ => WorkPhase::Idle,
+        };
+
+        TransitionState {
+            id: self.id.clone(),
+            revision: self.revision,
+            phase,
+            messages: self.messages.clone(),
+            token_usage: self.token_usage.clone(),
+            current_diff: self.current_diff.clone(),
+            current_plan: self.current_plan.clone(),
+            custom_name: self.custom_name.clone(),
+            project_path: self.project_path.clone(),
+            last_activity_at: self.last_activity_at.clone(),
+        }
+    }
+
+    /// Apply the transition result back to this handle
+    pub fn apply_state(&mut self, state: TransitionState) {
+        self.work_status = state.phase.to_work_status();
+        self.messages = state.messages;
+        self.token_usage = state.token_usage;
+        self.current_diff = state.current_diff;
+        self.current_plan = state.current_plan;
+        self.custom_name = state.custom_name;
+        self.last_activity_at = state.last_activity_at;
+
+        // Sync pending approval tracking from phase
+        if let WorkPhase::AwaitingApproval {
+            request_id,
+            approval_type,
+            proposed_amendment,
+        } = &state.phase
+        {
+            if !request_id.is_empty() {
+                self.pending_approval_types
+                    .insert(request_id.clone(), *approval_type);
+                if let Some(amendment) = proposed_amendment {
+                    self.pending_amendments
+                        .insert(request_id.clone(), amendment.clone());
+                }
+            }
+        }
     }
 }
 

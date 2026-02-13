@@ -10,6 +10,7 @@ mod rollout_watcher;
 mod session;
 mod session_naming;
 mod state;
+mod transition;
 mod websocket;
 
 use std::net::SocketAddr;
