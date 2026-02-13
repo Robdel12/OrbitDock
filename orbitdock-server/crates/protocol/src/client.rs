@@ -12,6 +12,8 @@ pub enum ClientMessage {
     // Subscriptions
     SubscribeSession {
         session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        since_revision: Option<u64>,
     },
     UnsubscribeSession {
         session_id: String,
@@ -621,6 +623,51 @@ mod tests {
             ClientMessage::SendMessage { mentions, .. } => {
                 assert_eq!(mentions.len(), 1);
                 assert_eq!(mentions[0].name, "main.rs");
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_subscribe_session_with_revision() {
+        let json = r#"{"type":"subscribe_session","session_id":"sess-r1","since_revision":42}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse subscribe_session with revision");
+        match &parsed {
+            ClientMessage::SubscribeSession { session_id, since_revision } => {
+                assert_eq!(session_id, "sess-r1");
+                assert_eq!(*since_revision, Some(42));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::SubscribeSession { session_id, since_revision } => {
+                assert_eq!(session_id, "sess-r1");
+                assert_eq!(since_revision, Some(42));
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_subscribe_session_without_revision() {
+        let json = r#"{"type":"subscribe_session","session_id":"sess-r2"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse subscribe_session without revision");
+        match &parsed {
+            ClientMessage::SubscribeSession { session_id, since_revision } => {
+                assert_eq!(session_id, "sess-r2");
+                assert_eq!(*since_revision, None);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        // Verify None omits the field (backward compat)
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        assert!(!serialized.contains("since_revision"), "since_revision should be omitted when None");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::SubscribeSession { since_revision, .. } => {
+                assert_eq!(since_revision, None);
             }
             other => panic!("unexpected variant on roundtrip: {:?}", other),
         }

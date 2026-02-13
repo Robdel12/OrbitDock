@@ -241,21 +241,35 @@ impl CodexSession {
 
             ConnectorEvent::MessageCreated(mut message) => {
                 message.session_id = session_id.to_string();
-                session.add_message(message.clone());
 
-                let _ = persist_tx
-                    .send(PersistCommand::MessageAppend {
-                        session_id: session_id.to_string(),
-                        message: message.clone(),
-                    })
-                    .await;
+                // Skip duplicate user messages — the WebSocket layer eagerly
+                // creates a user message on SendMessage, then codex-core echoes
+                // the same message back as a UserMessage event.
+                if message.message_type == orbitdock_protocol::MessageType::User
+                    && session.has_user_message_with_content(&message.content)
+                {
+                    debug!(
+                        session_id = %session_id,
+                        message_id = %message.id,
+                        "Skipping duplicate user message from connector"
+                    );
+                } else {
+                    session.add_message(message.clone());
 
-                session
-                    .broadcast(ServerMessage::MessageAppended {
-                        session_id: session_id.to_string(),
-                        message,
-                    })
-                    .await;
+                    let _ = persist_tx
+                        .send(PersistCommand::MessageAppend {
+                            session_id: session_id.to_string(),
+                            message: message.clone(),
+                        })
+                        .await;
+
+                    session
+                        .broadcast(ServerMessage::MessageAppended {
+                            session_id: session_id.to_string(),
+                            message,
+                        })
+                        .await;
+                }
             }
 
             ConnectorEvent::MessageUpdated {

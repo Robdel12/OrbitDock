@@ -2153,6 +2153,7 @@ mod tests {
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    forked_from_session_id: None,
                 },
                 PersistCommand::RolloutSessionUpsert {
                     id: "passive-active".into(),
@@ -2173,6 +2174,7 @@ mod tests {
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    forked_from_session_id: None,
                 },
                 PersistCommand::SessionEnd {
                     id: "direct-ended".into(),
@@ -2480,6 +2482,7 @@ mod tests {
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    forked_from_session_id: None,
                 },
                 PersistCommand::SetThreadId {
                     session_id: "shared-thread".into(),
@@ -2641,6 +2644,7 @@ mod tests {
                     model: Some("gpt-5-codex".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    forked_from_session_id: None,
                 },
                 PersistCommand::CodexPromptIncrement {
                     id: "codex-1".into(),

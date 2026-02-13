@@ -1,12 +1,14 @@
 //! Session management
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use orbitdock_protocol::{
     ApprovalType, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
     SessionSummary, TokenUsage, WorkStatus,
 };
 use tokio::sync::mpsc;
+
+const EVENT_LOG_CAPACITY: usize = 1000;
 
 /// Handle to a running session
 pub struct SessionHandle {
@@ -35,6 +37,10 @@ pub struct SessionHandle {
     pending_approval_types: HashMap<String, ApprovalType>,
     /// Store proposed amendment by request_id for "always allow" decisions
     pending_amendments: HashMap<String, Vec<String>>,
+    /// Monotonic revision counter, incremented on every broadcast
+    revision: u64,
+    /// Ring buffer of (revision, pre-serialized JSON with revision injected)
+    event_log: VecDeque<(u64, String)>,
 }
 
 impl SessionHandle {
@@ -65,6 +71,8 @@ impl SessionHandle {
             subscribers: Vec::new(),
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
+            revision: 0,
+            event_log: VecDeque::new(),
         }
     }
 
@@ -111,6 +119,8 @@ impl SessionHandle {
             subscribers: Vec::new(),
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
+            revision: 0,
+            event_log: VecDeque::new(),
         }
     }
 
@@ -173,6 +183,7 @@ impl SessionHandle {
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             forked_from_session_id: self.forked_from_session_id.clone(),
+            revision: Some(self.revision),
         }
     }
 
@@ -218,6 +229,14 @@ impl SessionHandle {
 
     pub fn message_count(&self) -> usize {
         self.messages.len()
+    }
+
+    /// Check if a user message with this content already exists (dedup for connector echo)
+    pub fn has_user_message_with_content(&self, content: &str) -> bool {
+        use orbitdock_protocol::MessageType;
+        self.messages.iter().rev().take(5).any(|m| {
+            m.message_type == MessageType::User && m.content == content
+        })
     }
 
     /// Set model
@@ -326,13 +345,52 @@ impl SessionHandle {
 
     /// Broadcast a message to all subscribers
     pub async fn broadcast(&mut self, msg: orbitdock_protocol::ServerMessage) {
-        // Remove closed channels
-        self.subscribers.retain(|tx| !tx.is_closed());
+        self.revision += 1;
+        let rev = self.revision;
 
+        // Pre-serialize with revision for event log
+        if let Ok(json) = serialize_with_revision(&msg, rev) {
+            self.event_log.push_back((rev, json));
+            if self.event_log.len() > EVENT_LOG_CAPACITY {
+                self.event_log.pop_front();
+            }
+        }
+
+        // Send to subscribers (no revision in live events)
+        self.subscribers.retain(|tx| !tx.is_closed());
         for tx in &self.subscribers {
             let _ = tx.send(msg.clone()).await;
         }
     }
+
+    /// Replay events since a given revision.
+    /// Returns `None` if the gap is too large (caller should send full snapshot).
+    pub fn replay_since(&self, since_revision: u64) -> Option<Vec<String>> {
+        let oldest = self.event_log.front().map(|(rev, _)| *rev)?;
+        if oldest > since_revision + 1 {
+            return None; // Gap too large, need full snapshot
+        }
+        let events: Vec<String> = self
+            .event_log
+            .iter()
+            .filter(|(rev, _)| *rev > since_revision)
+            .map(|(_, json)| json.clone())
+            .collect();
+        Some(events)
+    }
+
+}
+
+/// Serialize a ServerMessage with a revision field injected at the top level
+fn serialize_with_revision(
+    msg: &orbitdock_protocol::ServerMessage,
+    revision: u64,
+) -> Result<String, serde_json::Error> {
+    let mut val = serde_json::to_value(msg)?;
+    if let Some(obj) = val.as_object_mut() {
+        obj.insert("revision".to_string(), serde_json::json!(revision));
+    }
+    serde_json::to_string(&val)
 }
 
 /// Get current time as ISO 8601 string

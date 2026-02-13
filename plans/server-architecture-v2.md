@@ -907,15 +907,15 @@ fn revision_increments_per_emit() {
 
 This is incremental — each step ships independently and the system stays running.
 
-### Phase 1: Revision tracking + event log (smallest diff, biggest robustness win)
+### Phase 1: Revision tracking + event log (smallest diff, biggest robustness win) ✅ DONE
 
-1. Add `revision: u64` to `SessionHandle` — increment on every broadcast
-2. Include `revision` in every `ServerMessage` variant
-3. Add `VecDeque<(u64, ServerMessage)>` ring buffer (1000 events) to `SessionHandle`
-4. Add `since_revision` to `SubscribeSession` — replay from log or send snapshot
-5. Swift client: track `lastRevision` per session, send on subscribe
+1. ✅ Add `revision: u64` to `SessionHandle` — increment on every broadcast
+2. ✅ Include `revision` in snapshots + replayed events (live events skip revision — idempotent handlers make this safe)
+3. ✅ Add `VecDeque<(u64, String)>` ring buffer (1000 events) to `SessionHandle` — pre-serialized with revision injected
+4. ✅ Add `since_revision` to `SubscribeSession` — replay from log or send snapshot
+5. ✅ Swift client: track `lastRevision` per session, send on subscribe
 
-**Wire format change:** Add optional `revision` field to server messages (clients ignore if absent).
+**Wire format change:** Optional `revision` field on `SessionState` (snapshots). Replayed events carry revision via injected JSON field.
 
 ### Phase 2: Replace broadcast mechanism
 
@@ -931,6 +931,7 @@ This is incremental — each step ships independently and the system stays runni
 3. `handle_event` becomes: call `transition()`, then execute effects
 4. Add unit tests for each transition
 5. Keep `handle_action` for connector calls initially
+6. **Fix dual user-message write path:** `UserSentMessage` transition owns message creation (emit + persist). Filter out the connector's `UserMessage` echo in the connector layer so it never becomes a `MessageCreated` input. Removes the content-based dedup hack in `codex_session.rs`.
 
 ### Phase 4: Session actor refactor
 

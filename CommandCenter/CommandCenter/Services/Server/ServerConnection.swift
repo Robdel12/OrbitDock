@@ -339,9 +339,9 @@ final class ServerConnection: ObservableObject {
     send(.subscribeList)
   }
 
-  /// Subscribe to a specific session
-  func subscribeSession(_ sessionId: String) {
-    send(.subscribeSession(sessionId: sessionId))
+  /// Subscribe to a specific session, optionally resuming from a known revision
+  func subscribeSession(_ sessionId: String, sinceRevision: UInt64? = nil) {
+    send(.subscribeSession(sessionId: sessionId, sinceRevision: sinceRevision))
   }
 
   /// Unsubscribe from a session

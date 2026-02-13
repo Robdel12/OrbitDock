@@ -197,6 +197,8 @@ pub struct SessionState {
     pub last_activity_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub forked_from_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<u64>,
 }
 
 /// Changes to apply to a session state (delta updates)

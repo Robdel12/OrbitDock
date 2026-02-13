@@ -229,6 +229,7 @@ struct ServerSessionState: Codable, Identifiable {
   let startedAt: String?
   let lastActivityAt: String?
   let forkedFromSessionId: String?
+  let revision: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -251,6 +252,7 @@ struct ServerSessionState: Codable, Identifiable {
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
     case forkedFromSessionId = "forked_from_session_id"
+    case revision
   }
 }
 
@@ -892,7 +894,7 @@ enum ServerToClientMessage: Codable {
 
 enum ClientToServerMessage: Codable {
   case subscribeList
-  case subscribeSession(sessionId: String)
+  case subscribeSession(sessionId: String, sinceRevision: UInt64? = nil)
   case unsubscribeSession(sessionId: String)
   case createSession(
     provider: ServerProvider,
@@ -955,6 +957,7 @@ enum ClientToServerMessage: Codable {
     case hazelnutId = "hazelnut_id"
     case numTurns = "num_turns"
     case nthUserMessage = "nth_user_message"
+    case sinceRevision = "since_revision"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -964,9 +967,10 @@ enum ClientToServerMessage: Codable {
       case .subscribeList:
         try container.encode("subscribe_list", forKey: .type)
 
-      case let .subscribeSession(sessionId):
+      case let .subscribeSession(sessionId, sinceRevision):
         try container.encode("subscribe_session", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
 
       case let .unsubscribeSession(sessionId):
         try container.encode("unsubscribe_session", forKey: .type)
@@ -1107,7 +1111,10 @@ enum ClientToServerMessage: Codable {
       case "subscribe_list":
         self = .subscribeList
       case "subscribe_session":
-        self = try .subscribeSession(sessionId: container.decode(String.self, forKey: .sessionId))
+        self = try .subscribeSession(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
+        )
       case "unsubscribe_session":
         self = try .unsubscribeSession(sessionId: container.decode(String.self, forKey: .sessionId))
       case "create_session":

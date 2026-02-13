@@ -77,6 +77,9 @@ final class ServerAppState {
   /// MCP startup state per session (tracks per-server startup status)
   private(set) var mcpStartupState: [String: McpStartupState] = [:]
 
+  /// Last known server revision per session (for incremental reconnection)
+  private var lastRevision: [String: UInt64] = [:]
+
   /// Raw config values used to derive autonomy accurately across partial deltas
   private var approvalPolicies: [String: String] = [:]
   private var sandboxModes: [String: String] = [:]
@@ -425,9 +428,10 @@ final class ServerAppState {
   func subscribeToSession(_ sessionId: String) {
     guard !subscribedSessions.contains(sessionId) else { return }
     subscribedSessions.insert(sessionId)
-    ServerConnection.shared.subscribeSession(sessionId)
+    let sinceRev = lastRevision[sessionId]
+    ServerConnection.shared.subscribeSession(sessionId, sinceRevision: sinceRev)
     ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
-    logger.debug("Subscribed to session \(sessionId)")
+    logger.debug("Subscribed to session \(sessionId) (sinceRevision: \(sinceRev.map(String.init) ?? "nil"))")
   }
 
   /// Unsubscribe from a session (called when navigating away)
@@ -526,6 +530,11 @@ final class ServerAppState {
   private func handleSessionSnapshot(_ state: ServerSessionState) {
     logger.info("Received snapshot for \(state.id): \(state.messages.count) messages")
     sessionStates[state.id] = state
+
+    // Track revision for incremental reconnection
+    if let rev = state.revision {
+      lastRevision[state.id] = rev
+    }
 
     // Mark as subscribed (server pre-subscribes creator on CreateSession)
     subscribedSessions.insert(state.id)
@@ -914,6 +923,7 @@ final class ServerAppState {
 
     pendingApprovals.removeValue(forKey: sessionId)
     subscribedSessions.remove(sessionId)
+    lastRevision.removeValue(forKey: sessionId)
     approvalPolicies.removeValue(forKey: sessionId)
     sandboxModes.removeValue(forKey: sessionId)
     currentAutonomy.removeValue(forKey: sessionId)

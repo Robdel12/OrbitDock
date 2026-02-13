@@ -54,6 +54,8 @@ const SNAPSHOT_MAX_CONTENT_CHARS: usize = 16_000;
 enum OutboundMessage {
     /// JSON-serialized ServerMessage
     Json(ServerMessage),
+    /// Pre-serialized JSON string (for replay)
+    Raw(String),
     /// Raw pong response
     Pong(Bytes),
 }
@@ -98,6 +100,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
                         continue;
                     }
                 },
+                OutboundMessage::Raw(json) => ws_tx.send(Message::Text(json.into())).await,
                 OutboundMessage::Pong(data) => ws_tx.send(Message::Pong(data)).await,
             };
 
@@ -193,6 +196,11 @@ fn truncate_for_log(value: &str, max_chars: usize) -> String {
 /// Send a ServerMessage through the outbound channel
 async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
     let _ = tx.send(OutboundMessage::Json(msg)).await;
+}
+
+/// Send a pre-serialized JSON string through the outbound channel (for replay)
+async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
+    let _ = tx.send(OutboundMessage::Raw(json)).await;
 }
 
 /// Create a ServerMessage sender that wraps an OutboundMessage sender
@@ -334,10 +342,43 @@ async fn handle_client_message(
             send_json(client_tx, ServerMessage::SessionsList { sessions }).await;
         }
 
-        ClientMessage::SubscribeSession { session_id } => {
+        ClientMessage::SubscribeSession { session_id, since_revision } => {
             let state = state.lock().await;
             if let Some(session_arc) = state.get_session(&session_id) {
                 let mut session = session_arc.lock().await;
+
+                // Try revision-based replay first
+                if let Some(since_rev) = since_revision {
+                    if let Some(events) = session.replay_since(since_rev) {
+                        info!(
+                            component = "websocket",
+                            event = "ws.subscribe.replay",
+                            connection_id = conn_id,
+                            session_id = %session_id,
+                            since_revision = since_rev,
+                            replay_count = events.len(),
+                            "Replaying {} events for session (since rev {})",
+                            events.len(),
+                            since_rev
+                        );
+                        session.subscribe(wrap_sender(client_tx.clone()));
+                        drop(session);
+                        drop(state);
+                        for json in events {
+                            send_raw(client_tx, json).await;
+                        }
+                        return;
+                    }
+                    info!(
+                        component = "websocket",
+                        event = "ws.subscribe.replay_miss",
+                        connection_id = conn_id,
+                        session_id = %session_id,
+                        since_revision = since_rev,
+                        "Replay not possible (rev too old), sending full snapshot"
+                    );
+                }
+
                 let mut snapshot = session.state();
                 if snapshot.messages.is_empty() {
                     if let Some(path) = snapshot.transcript_path.clone() {
@@ -2720,6 +2761,7 @@ mod tests {
     async fn recv_server_message(rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
         match rx.recv().await.expect("expected outbound server message") {
             OutboundMessage::Json(message) => message,
+            OutboundMessage::Raw(_) => panic!("expected JSON server message, got raw replay"),
             OutboundMessage::Pong(_) => panic!("expected JSON server message, got pong"),
         }
     }
@@ -2802,6 +2844,7 @@ mod tests {
         handle_client_message(
             ClientMessage::SubscribeSession {
                 session_id: session_id.clone(),
+                since_revision: None,
             },
             &client_tx,
             &state,
