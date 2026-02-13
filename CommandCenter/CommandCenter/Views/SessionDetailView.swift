@@ -385,6 +385,30 @@ struct SessionDetailView: View {
           .disabled(serverState.undoInProgress[session.id] == true)
           .help("Undo last turn (reverts filesystem changes)")
 
+          // Fork conversation button
+          Button {
+            serverState.forkSession(sessionId: session.id)
+          } label: {
+            HStack(spacing: 4) {
+              if serverState.forkInProgress[session.id] == true {
+                ProgressView()
+                  .controlSize(.mini)
+              } else {
+                Image(systemName: "arrow.triangle.branch")
+                  .font(.system(size: 11, weight: .medium))
+              }
+              Text("Fork")
+                .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .disabled(serverState.forkInProgress[session.id] == true)
+          .help("Fork conversation (creates a new session with full history)")
+
           Button {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
               showApprovalHistory.toggle()

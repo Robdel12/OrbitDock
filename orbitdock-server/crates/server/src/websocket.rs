@@ -509,6 +509,7 @@ async fn handle_client_message(
                     model: model.clone(),
                     approval_policy: approval_policy.clone(),
                     sandbox_mode: sandbox_mode.clone(),
+                    forked_from_session_id: None,
                 })
                 .await;
 
@@ -2035,6 +2036,279 @@ async fn handle_client_message(
                 }
                 _ => {}
             }
+        }
+
+        ClientMessage::ForkSession {
+            source_session_id,
+            nth_user_message,
+            model,
+            approval_policy,
+            sandbox_mode,
+            cwd,
+        } => {
+            info!(
+                component = "session",
+                event = "session.fork.requested",
+                connection_id = conn_id,
+                source_session_id = %source_session_id,
+                nth_user_message = ?nth_user_message,
+                "Fork session requested"
+            );
+
+            let state_guard = state.lock().await;
+
+            // Verify source session exists and has an active connector
+            let source_action_tx = match state_guard.get_codex_action_tx(&source_session_id).cloned() {
+                Some(tx) => tx,
+                None => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "not_found".into(),
+                            message: format!(
+                                "Source session {} not found or has no active connector",
+                                source_session_id
+                            ),
+                            session_id: Some(source_session_id),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            // Get source session's cwd as fallback
+            let source_cwd = if let Some(s) = state_guard.get_session(&source_session_id) {
+                let s = s.lock().await;
+                Some(s.project_path().to_string())
+            } else {
+                None
+            };
+
+            drop(state_guard);
+
+            // Send fork action to source session's event loop via oneshot
+            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+            let effective_cwd = cwd.clone().or(source_cwd);
+
+            if source_action_tx
+                .send(CodexAction::ForkSession {
+                    source_session_id: source_session_id.clone(),
+                    nth_user_message,
+                    model: model.clone(),
+                    approval_policy: approval_policy.clone(),
+                    sandbox_mode: sandbox_mode.clone(),
+                    cwd: effective_cwd.clone(),
+                    reply_tx,
+                })
+                .await
+                .is_err()
+            {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "channel_closed".into(),
+                        message: "Source session's action channel is closed".into(),
+                        session_id: Some(source_session_id),
+                    },
+                )
+                .await;
+                return;
+            }
+
+            // Await the fork result
+            let fork_result = match reply_rx.await {
+                Ok(result) => result,
+                Err(_) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "fork_failed".into(),
+                            message: "Fork operation was cancelled".into(),
+                            session_id: Some(source_session_id),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let (new_connector, new_thread_id) = match fork_result {
+                Ok(result) => result,
+                Err(e) => {
+                    error!(
+                        component = "session",
+                        event = "session.fork.failed",
+                        connection_id = conn_id,
+                        source_session_id = %source_session_id,
+                        error = %e,
+                        "Failed to fork session"
+                    );
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "fork_failed".into(),
+                            message: e.to_string(),
+                            session_id: Some(source_session_id),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            // Create new session handle
+            let new_id = orbitdock_protocol::new_id();
+            let fork_cwd = effective_cwd.unwrap_or_else(|| ".".to_string());
+            let project_name = fork_cwd.split('/').next_back().map(String::from);
+
+            let mut handle = SessionHandle::new(
+                new_id.clone(),
+                Provider::Codex,
+                fork_cwd.clone(),
+            );
+            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+            handle.set_config(approval_policy.clone(), sandbox_mode.clone());
+            handle.set_forked_from(source_session_id.clone());
+
+            // Load forked conversation history from the new thread's rollout
+            let forked_messages = if let Some(rollout_path) = new_connector.rollout_path().await {
+                match load_messages_from_transcript_path(&rollout_path, &new_id).await {
+                    Ok(messages) if !messages.is_empty() => {
+                        info!(
+                            component = "session",
+                            event = "session.fork.messages_loaded",
+                            new_session_id = %new_id,
+                            message_count = messages.len(),
+                            "Loaded forked conversation history"
+                        );
+                        handle.replace_messages(messages.clone());
+                        messages
+                    }
+                    Ok(_) => {
+                        debug!(
+                            component = "session",
+                            event = "session.fork.no_messages",
+                            new_session_id = %new_id,
+                            "Forked thread rollout has no parseable messages"
+                        );
+                        Vec::new()
+                    }
+                    Err(e) => {
+                        warn!(
+                            component = "session",
+                            event = "session.fork.messages_load_failed",
+                            new_session_id = %new_id,
+                            error = %e,
+                            "Failed to load forked conversation history"
+                        );
+                        Vec::new()
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+
+            // Subscribe the requester to the new session
+            handle.subscribe(wrap_sender(client_tx.clone()));
+
+            let summary = handle.summary();
+            let snapshot = handle.state();
+
+            let mut state_guard = state.lock().await;
+            let persist_tx = state_guard.persist().clone();
+
+            // Persist new session
+            let _ = persist_tx
+                .send(PersistCommand::SessionCreate {
+                    id: new_id.clone(),
+                    provider: Provider::Codex,
+                    project_path: fork_cwd,
+                    project_name,
+                    model,
+                    approval_policy,
+                    sandbox_mode,
+                    forked_from_session_id: Some(source_session_id.clone()),
+                })
+                .await;
+
+            // Persist forked messages so they survive server restarts
+            for msg in forked_messages {
+                let _ = persist_tx
+                    .send(PersistCommand::MessageAppend {
+                        session_id: new_id.clone(),
+                        message: msg,
+                    })
+                    .await;
+            }
+
+            let session_arc = state_guard.add_session(handle);
+
+            // Register thread ID
+            let _ = persist_tx
+                .send(PersistCommand::SetThreadId {
+                    session_id: new_id.clone(),
+                    thread_id: new_thread_id.clone(),
+                })
+                .await;
+            state_guard.register_codex_thread(&new_id, &new_thread_id);
+
+            // Clean up any shadow session from rollout watcher
+            if state_guard.remove_session(&new_thread_id).is_some() {
+                state_guard
+                    .broadcast_to_list(ServerMessage::SessionEnded {
+                        session_id: new_thread_id.clone(),
+                        reason: "direct_session_thread_claimed".into(),
+                    })
+                    .await;
+            }
+            let _ = persist_tx
+                .send(PersistCommand::CleanupThreadShadowSession {
+                    thread_id: new_thread_id.clone(),
+                    reason: "legacy_codex_thread_row_cleanup".into(),
+                })
+                .await;
+
+            // Start the new connector's event loop
+            let codex_session = CodexSession {
+                session_id: new_id.clone(),
+                connector: new_connector,
+            };
+            let action_tx =
+                codex_session.start_event_loop(session_arc, persist_tx);
+            state_guard.set_codex_action_tx(&new_id, action_tx);
+
+            // Send snapshot to requester
+            send_json(
+                client_tx,
+                ServerMessage::SessionSnapshot { session: snapshot },
+            )
+            .await;
+
+            // Send fork confirmation
+            send_json(
+                client_tx,
+                ServerMessage::SessionForked {
+                    source_session_id: source_session_id.clone(),
+                    new_session_id: new_id.clone(),
+                    forked_from_thread_id: Some(new_thread_id),
+                },
+            )
+            .await;
+
+            // Notify list subscribers
+            state_guard
+                .broadcast_to_list(ServerMessage::SessionCreated { session: summary })
+                .await;
+
+            info!(
+                component = "session",
+                event = "session.fork.completed",
+                connection_id = conn_id,
+                source_session_id = %source_session_id,
+                new_session_id = %new_id,
+                "Session forked successfully"
+            );
         }
 
         ClientMessage::EndSession { session_id } => {

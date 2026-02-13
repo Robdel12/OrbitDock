@@ -227,6 +227,7 @@ struct ServerSessionState: Codable, Identifiable {
   let sandboxMode: String?
   let startedAt: String?
   let lastActivityAt: String?
+  let forkedFromSessionId: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -248,6 +249,7 @@ struct ServerSessionState: Codable, Identifiable {
     case sandboxMode = "sandbox_mode"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
+    case forkedFromSessionId = "forked_from_session_id"
   }
 }
 
@@ -543,6 +545,7 @@ enum ServerToClientMessage: Codable {
   case undoStarted(sessionId: String, message: String?)
   case undoCompleted(sessionId: String, success: Bool, message: String?)
   case threadRolledBack(sessionId: String, numTurns: UInt32)
+  case sessionForked(sourceSessionId: String, newSessionId: String, forkedFromThreadId: String?)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -576,6 +579,9 @@ enum ServerToClientMessage: Codable {
     case ready
     case failed
     case cancelled
+    case sourceSessionId = "source_session_id"
+    case newSessionId = "new_session_id"
+    case forkedFromThreadId = "forked_from_thread_id"
   }
 
   init(from decoder: Decoder) throws {
@@ -701,6 +707,12 @@ enum ServerToClientMessage: Codable {
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let numTurns = try container.decode(UInt32.self, forKey: .numTurns)
         self = .threadRolledBack(sessionId: sessionId, numTurns: numTurns)
+
+      case "session_forked":
+        let sourceSessionId = try container.decode(String.self, forKey: .sourceSessionId)
+        let newSessionId = try container.decode(String.self, forKey: .newSessionId)
+        let forkedFromThreadId = try container.decodeIfPresent(String.self, forKey: .forkedFromThreadId)
+        self = .sessionForked(sourceSessionId: sourceSessionId, newSessionId: newSessionId, forkedFromThreadId: forkedFromThreadId)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -841,6 +853,12 @@ enum ServerToClientMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(numTurns, forKey: .numTurns)
 
+      case let .sessionForked(sourceSessionId, newSessionId, forkedFromThreadId):
+        try container.encode("session_forked", forKey: .type)
+        try container.encode(sourceSessionId, forKey: .sourceSessionId)
+        try container.encode(newSessionId, forKey: .newSessionId)
+        try container.encodeIfPresent(forkedFromThreadId, forKey: .forkedFromThreadId)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -882,10 +900,19 @@ enum ClientToServerMessage: Codable {
   case compactContext(sessionId: String)
   case undoLastTurn(sessionId: String)
   case rollbackTurns(sessionId: String, numTurns: UInt32)
+  case forkSession(
+    sourceSessionId: String,
+    nthUserMessage: UInt32? = nil,
+    model: String? = nil,
+    approvalPolicy: String? = nil,
+    sandboxMode: String? = nil,
+    cwd: String? = nil
+  )
 
   enum CodingKeys: String, CodingKey {
     case type
     case sessionId = "session_id"
+    case sourceSessionId = "source_session_id"
     case provider
     case cwd
     case model
@@ -904,6 +931,7 @@ enum ClientToServerMessage: Codable {
     case forceReload = "force_reload"
     case hazelnutId = "hazelnut_id"
     case numTurns = "num_turns"
+    case nthUserMessage = "nth_user_message"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -1025,6 +1053,15 @@ enum ClientToServerMessage: Codable {
         try container.encode("rollback_turns", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(numTurns, forKey: .numTurns)
+
+      case let .forkSession(sourceSessionId, nthUserMessage, model, approvalPolicy, sandboxMode, cwd):
+        try container.encode("fork_session", forKey: .type)
+        try container.encode(sourceSessionId, forKey: .sourceSessionId)
+        try container.encodeIfPresent(nthUserMessage, forKey: .nthUserMessage)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+        try container.encodeIfPresent(cwd, forKey: .cwd)
     }
   }
 
@@ -1118,6 +1155,15 @@ enum ClientToServerMessage: Codable {
         self = try .rollbackTurns(
           sessionId: container.decode(String.self, forKey: .sessionId),
           numTurns: container.decode(UInt32.self, forKey: .numTurns)
+        )
+      case "fork_session":
+        self = try .forkSession(
+          sourceSessionId: container.decode(String.self, forKey: .sourceSessionId),
+          nthUserMessage: container.decodeIfPresent(UInt32.self, forKey: .nthUserMessage),
+          model: container.decodeIfPresent(String.self, forKey: .model),
+          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
+          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
+          cwd: container.decodeIfPresent(String.self, forKey: .cwd)
         )
       default:
         throw DecodingError.dataCorrupted(

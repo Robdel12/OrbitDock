@@ -102,7 +102,19 @@ struct ConversationView: View {
       } else if messages.isEmpty {
         emptyState
       } else {
-        conversationThread
+        VStack(spacing: 0) {
+          // Fork origin banner (persistent, above scroll)
+          if let sid = sessionId, let sourceId = serverState.forkOrigins[sid] {
+            ForkOriginBanner(
+              sourceSessionId: sourceId,
+              sourceName: serverState.sessions.first(where: { $0.id == sourceId })?.displayName
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+          }
+          conversationThread
+        }
       }
     }
     .onAppear {
@@ -162,6 +174,11 @@ struct ConversationView: View {
                   let hasResponseAfter = msgs[(index + 1)...].contains { !$0.isUser }
                   return hasResponseAfter ? 1 : 0
                 }()
+                // nthUserMessage: 0-based index of this user message among all user messages
+                let nthUserMessage: Int? = {
+                  guard message.isUser else { return nil }
+                  return msgs[...index].filter(\.isUser).count - 1
+                }()
                 ThreadMessage(
                   message: message,
                   provider: provider,
@@ -171,6 +188,12 @@ struct ConversationView: View {
                   onRollback: turnsAfter > 0 ? {
                     if let sid = sessionId {
                       serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turnsAfter))
+                    }
+                  } : nil,
+                  nthUserMessage: nthUserMessage,
+                  onFork: nthUserMessage != nil ? {
+                    if let sid = sessionId, let nth = nthUserMessage {
+                      serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
                     }
                   } : nil
                 )
@@ -353,6 +376,8 @@ struct ThreadMessage: View {
   var showHeader: Bool = true
   var rollbackTurns: Int? = nil
   var onRollback: (() -> Void)? = nil
+  var nthUserMessage: Int? = nil
+  var onFork: (() -> Void)? = nil
   @State private var isContentExpanded = false
   @State private var isThinkingExpanded = false
 
@@ -430,6 +455,27 @@ struct ThreadMessage: View {
             .padding(.vertical, 4)
             .background(Color.surfaceHover, in: Capsule())
             .overlay(Capsule().strokeBorder(Color.surfaceBorder, lineWidth: 1))
+          }
+          .buttonStyle(.plain)
+        }
+      }
+
+      // Fork from here pill
+      if let _ = nthUserMessage, let forkAction = onFork {
+        HStack {
+          Spacer()
+          Button(action: forkAction) {
+            HStack(spacing: 4) {
+              Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 10, weight: .medium))
+              Text("Fork from here")
+                .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(Color.accent.opacity(0.8))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(Color.accent.opacity(0.08), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.accent.opacity(0.2), lineWidth: 1))
           }
           .buttonStyle(.plain)
         }
@@ -1349,6 +1395,53 @@ struct ActivityBanner: View {
         .strokeBorder(color.opacity(0.15), lineWidth: 1)
     )
     .padding(.top, 16)
+  }
+}
+
+// MARK: - Fork Origin Banner
+
+private struct ForkOriginBanner: View {
+  let sourceSessionId: String
+  let sourceName: String?
+
+  var body: some View {
+    Button {
+      NotificationCenter.default.post(
+        name: .selectSession,
+        object: nil,
+        userInfo: ["sessionId": sourceSessionId]
+      )
+    } label: {
+      HStack(spacing: 8) {
+        Image(systemName: "arrow.triangle.branch")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(Color.accent)
+
+        Text("Forked from")
+          .font(.system(size: 12))
+          .foregroundStyle(.secondary)
+
+        Text(sourceName ?? sourceSessionId.prefix(8).description)
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(Color.accent)
+          .lineLimit(1)
+
+        Image(systemName: "arrow.right")
+          .font(.system(size: 9, weight: .semibold))
+          .foregroundStyle(Color.accent.opacity(0.6))
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(Color.accent.opacity(0.06))
+      .overlay(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .strokeBorder(Color.accent.opacity(0.15), lineWidth: 1)
+      )
+      .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .padding(.bottom, 8)
   }
 }
 

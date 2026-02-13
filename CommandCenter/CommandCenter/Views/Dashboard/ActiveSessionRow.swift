@@ -13,6 +13,7 @@ struct ActiveSessionRow: View {
   let onFocusTerminal: (() -> Void)?
   var isSelected: Bool = false
 
+  @Environment(ServerAppState.self) private var serverState
   @State private var isHovering = false
 
   private var displayStatus: SessionDisplayStatus {
@@ -88,10 +89,16 @@ struct ActiveSessionRow: View {
 
         // Name + activity
         VStack(alignment: .leading, spacing: 3) {
-          Text(session.displayName)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
+          HStack(spacing: 6) {
+            Text(session.displayName)
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(.primary)
+              .lineLimit(1)
+
+            if serverState.forkOrigins[session.id] != nil {
+              ForkBadge()
+            }
+          }
 
           HStack(spacing: 6) {
             Image(systemName: activityIcon)

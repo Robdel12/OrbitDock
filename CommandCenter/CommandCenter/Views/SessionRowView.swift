@@ -9,6 +9,8 @@ struct SessionRowView: View {
   let session: Session
   var isSelected: Bool = false
 
+  @Environment(ServerAppState.self) private var serverState
+
   private var displayStatus: SessionDisplayStatus {
     SessionDisplayStatus.from(session)
   }
@@ -26,6 +28,10 @@ struct SessionRowView: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.primary)
             .lineLimit(1)
+
+          if serverState.forkOrigins[session.id] != nil {
+            ForkBadge()
+          }
 
           if session.isActive, session.workStatus != .unknown {
             CompactStatusBadge(workStatus: session.workStatus)
@@ -218,6 +224,23 @@ struct WorkStatusBadge: View {
     if displayStatus != .ended {
       SessionStatusBadge(status: displayStatus, size: .regular)
     }
+  }
+}
+
+// MARK: - Fork Badge
+
+struct ForkBadge: View {
+  var body: some View {
+    HStack(spacing: 3) {
+      Image(systemName: "arrow.triangle.branch")
+        .font(.system(size: 8, weight: .bold))
+      Text("Fork")
+        .font(.system(size: 9, weight: .medium))
+    }
+    .foregroundStyle(Color.accent)
+    .padding(.horizontal, 5)
+    .padding(.vertical, 2)
+    .background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
   }
 }
 

@@ -59,6 +59,12 @@ final class ServerAppState {
   /// Whether an undo operation is in progress per session
   private(set) var undoInProgress: [String: Bool] = [:]
 
+  /// Whether a fork operation is in progress per session
+  private(set) var forkInProgress: [String: Bool] = [:]
+
+  /// Fork origin: maps forked session ID → source session ID
+  private(set) var forkOrigins: [String: String] = [:]
+
   /// MCP tools per session (keyed by fully qualified tool name)
   private(set) var mcpTools: [String: [String: ServerMcpTool]] = [:]
 
@@ -249,6 +255,21 @@ final class ServerAppState {
       }
     }
 
+    conn.onSessionForked = { [weak self] sourceSessionId, newSessionId, _ in
+      Task { @MainActor in
+        self?.forkInProgress[sourceSessionId] = false
+        // Track fork lineage
+        self?.forkOrigins[newSessionId] = sourceSessionId
+        logger.info("Fork tracked: \(newSessionId) forked from \(sourceSessionId), forkOrigins count: \(self?.forkOrigins.count ?? 0)")
+        // Navigate to the new forked session
+        NotificationCenter.default.post(
+          name: .selectSession,
+          object: nil,
+          userInfo: ["sessionId": newSessionId]
+        )
+      }
+    }
+
     conn.onError = { [weak self] code, message, sessionId in
       Task { @MainActor in
         self?.handleError(code, message, sessionId)
@@ -346,6 +367,13 @@ final class ServerAppState {
   func rollbackTurns(sessionId: String, numTurns: UInt32) {
     logger.info("Rolling back \(numTurns) turns for \(sessionId)")
     ServerConnection.shared.rollbackTurns(sessionId: sessionId, numTurns: numTurns)
+  }
+
+  /// Fork a session (creates a new session with conversation history)
+  func forkSession(sessionId: String, nthUserMessage: UInt32? = nil) {
+    logger.info("Forking session \(sessionId) at turn \(nthUserMessage.map(String.init) ?? "full")")
+    forkInProgress[sessionId] = true
+    ServerConnection.shared.forkSession(sourceSessionId: sessionId, nthUserMessage: nthUserMessage)
   }
 
   /// Interrupt a session
@@ -529,6 +557,11 @@ final class ServerAppState {
     }
     if let plan = state.currentPlan {
       sessionPlans[state.id] = plan
+    }
+
+    // Track fork origin
+    if let sourceId = state.forkedFromSessionId {
+      forkOrigins[state.id] = sourceId
     }
   }
 
@@ -882,6 +915,13 @@ final class ServerAppState {
 
   private func handleError(_ code: String, _ message: String, _ sessionId: String?) {
     logger.error("Server error [\(code)]: \(message)")
+
+    // Clear fork progress on fork-related errors
+    if code == "fork_failed" || code == "not_found" {
+      if let sid = sessionId {
+        forkInProgress[sid] = false
+      }
+    }
   }
 
   // MARK: - Helpers

@@ -307,6 +307,8 @@ struct HistorySessionRow: View {
   let referenceDate: Date
   let onSelect: () -> Void
 
+  @Environment(ServerAppState.self) private var serverState
+
   @State private var isHovering = false
   private static let timeAgoFormatter: RelativeDateTimeFormatter = {
     let formatter = RelativeDateTimeFormatter()
@@ -329,10 +331,16 @@ struct HistorySessionRow: View {
 
         // Project + Session name
         VStack(alignment: .leading, spacing: 2) {
-          Text(session.displayName)
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
+          HStack(spacing: 6) {
+            Text(session.displayName)
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+
+            if serverState.forkOrigins[session.id] != nil {
+              ForkBadge()
+            }
+          }
 
           HStack(spacing: 6) {
             // Project
@@ -506,6 +514,7 @@ struct CompactHistoryRow: View {
   let referenceDate: Date
   let onSelect: () -> Void
 
+  @Environment(ServerAppState.self) private var serverState
   @State private var isHovering = false
   private static let timeAgoFormatter: RelativeDateTimeFormatter = {
     let formatter = RelativeDateTimeFormatter()
@@ -529,6 +538,10 @@ struct CompactHistoryRow: View {
           .font(.system(size: 11, weight: .medium))
           .foregroundStyle(.tertiary)
           .lineLimit(1)
+
+        if serverState.forkOrigins[session.id] != nil {
+          ForkBadge()
+        }
 
         Spacer()
 

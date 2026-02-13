@@ -82,6 +82,19 @@ export class OrbitDockClient {
   }
 
   /**
+   * Fork a session (creates a new session with conversation history)
+   * @param {string} sessionId - Source session ID to fork from
+   * @param {Object} [options] - Fork options
+   * @param {number} [options.nth_user_message] - Fork at this user message index (0-based). Omit for full fork.
+   */
+  async forkSession(sessionId, options = {}) {
+    let body = {};
+    if (options.nth_user_message != null) body.nth_user_message = options.nth_user_message;
+    let response = await this.request("POST", `/api/sessions/${sessionId}/fork`, body);
+    return response;
+  }
+
+  /**
    * Make an HTTP request to OrbitDock
    */
   async request(method, path, body = null) {

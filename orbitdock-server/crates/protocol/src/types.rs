@@ -194,6 +194,8 @@ pub struct SessionState {
     pub sandbox_mode: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forked_from_session_id: Option<String>,
 }
 
 /// Changes to apply to a session state (delta updates)

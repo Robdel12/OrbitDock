@@ -29,6 +29,7 @@ pub struct SessionHandle {
     current_plan: Option<String>,
     started_at: Option<String>,
     last_activity_at: Option<String>,
+    forked_from_session_id: Option<String>,
     subscribers: Vec<mpsc::Sender<orbitdock_protocol::ServerMessage>>,
     /// Track approval type by request_id so we can dispatch correctly
     pending_approval_types: HashMap<String, ApprovalType>,
@@ -60,6 +61,7 @@ impl SessionHandle {
             current_plan: None,
             started_at: Some(now.clone()),
             last_activity_at: Some(now),
+            forked_from_session_id: None,
             subscribers: Vec::new(),
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
@@ -105,6 +107,7 @@ impl SessionHandle {
             current_plan: None,
             started_at,
             last_activity_at,
+            forked_from_session_id: None,
             subscribers: Vec::new(),
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
@@ -169,6 +172,7 @@ impl SessionHandle {
             sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            forked_from_session_id: self.forked_from_session_id.clone(),
         }
     }
 
@@ -225,6 +229,11 @@ impl SessionHandle {
     pub fn set_config(&mut self, approval_policy: Option<String>, sandbox_mode: Option<String>) {
         self.approval_policy = approval_policy;
         self.sandbox_mode = sandbox_mode;
+    }
+
+    /// Set fork origin
+    pub fn set_forked_from(&mut self, source_session_id: String) {
+        self.forked_from_session_id = Some(source_session_id);
     }
 
     /// Set status

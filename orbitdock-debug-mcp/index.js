@@ -107,6 +107,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "fork_session",
+        description:
+          "Fork a Codex session, creating a new session with conversation history. Optionally fork from a specific user message.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session_id: {
+              type: "string",
+              description: "Source session ID to fork from",
+            },
+            nth_user_message: {
+              type: "integer",
+              description:
+                "Fork at this user message index (0-based). Omit to fork the full conversation.",
+            },
+          },
+          required: ["session_id"],
+        },
+      },
+      {
         name: "list_sessions",
         description: "List active OrbitDock sessions (Codex and/or Claude) with controllability metadata",
         inputSchema: {
@@ -172,6 +192,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleInterruptTurn(args);
       case "approve":
         return await handleApprove(args);
+      case "fork_session":
+        return await handleForkSession(args);
       case "list_sessions":
         return await handleListSessions(args);
       case "get_session":
@@ -262,6 +284,26 @@ async function handleApprove({ session_id, request_id, approved, decision, type 
       {
         type: "text",
         text: `${type} ${resolvedDecision} for ${session_id} (${resolvedRequestId})`,
+      },
+    ],
+  };
+}
+
+async function handleForkSession({ session_id, nth_user_message }) {
+  ensureOrbitDock();
+  let session = await requireControllableSession(session_id);
+
+  let options = {};
+  if (nth_user_message != null) options.nth_user_message = nth_user_message;
+
+  await orbitdock.forkSession(session_id, options);
+
+  let turnInfo = nth_user_message != null ? ` from user message #${nth_user_message}` : " (full conversation)";
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Fork requested for ${session_id}${turnInfo}. The new session will appear in OrbitDock once created.`,
       },
     ],
   };

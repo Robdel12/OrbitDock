@@ -5,9 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use orbitdock_connectors::{ApprovalType, CodexConnector, ConnectorEvent};
+use orbitdock_connectors::{ApprovalType, CodexConnector, ConnectorError, ConnectorEvent};
 use orbitdock_protocol::{ServerMessage, WorkStatus};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
 use crate::persistence::PersistCommand;
@@ -760,13 +760,32 @@ impl CodexSession {
             CodexAction::EndSession => {
                 connector.shutdown().await?;
             }
+            CodexAction::ForkSession {
+                nth_user_message,
+                model,
+                approval_policy,
+                sandbox_mode,
+                cwd,
+                reply_tx,
+                ..
+            } => {
+                let result = connector
+                    .fork_thread(
+                        nth_user_message,
+                        model.as_deref(),
+                        approval_policy.as_deref(),
+                        sandbox_mode.as_deref(),
+                        cwd.as_deref(),
+                    )
+                    .await;
+                let _ = reply_tx.send(result);
+            }
         }
         Ok(())
     }
 }
 
 /// Actions that can be sent to a Codex session
-#[derive(Debug)]
 pub enum CodexAction {
     SendMessage {
         content: String,
@@ -811,6 +830,78 @@ pub enum CodexAction {
         num_turns: u32,
     },
     EndSession,
+    ForkSession {
+        source_session_id: String,
+        nth_user_message: Option<u32>,
+        model: Option<String>,
+        approval_policy: Option<String>,
+        sandbox_mode: Option<String>,
+        cwd: Option<String>,
+        reply_tx: oneshot::Sender<Result<(CodexConnector, String), ConnectorError>>,
+    },
+}
+
+impl std::fmt::Debug for CodexAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SendMessage { content, model, effort, skills } => f
+                .debug_struct("SendMessage")
+                .field("content_len", &content.len())
+                .field("model", model)
+                .field("effort", effort)
+                .field("skills_count", &skills.len())
+                .finish(),
+            Self::Interrupt => write!(f, "Interrupt"),
+            Self::ListSkills { cwds, force_reload } => f
+                .debug_struct("ListSkills")
+                .field("cwds", cwds)
+                .field("force_reload", force_reload)
+                .finish(),
+            Self::ListRemoteSkills => write!(f, "ListRemoteSkills"),
+            Self::DownloadRemoteSkill { hazelnut_id } => f
+                .debug_struct("DownloadRemoteSkill")
+                .field("hazelnut_id", hazelnut_id)
+                .finish(),
+            Self::ApproveExec { request_id, decision, .. } => f
+                .debug_struct("ApproveExec")
+                .field("request_id", request_id)
+                .field("decision", decision)
+                .finish(),
+            Self::ApprovePatch { request_id, decision } => f
+                .debug_struct("ApprovePatch")
+                .field("request_id", request_id)
+                .field("decision", decision)
+                .finish(),
+            Self::AnswerQuestion { request_id, .. } => f
+                .debug_struct("AnswerQuestion")
+                .field("request_id", request_id)
+                .finish(),
+            Self::UpdateConfig { approval_policy, sandbox_mode } => f
+                .debug_struct("UpdateConfig")
+                .field("approval_policy", approval_policy)
+                .field("sandbox_mode", sandbox_mode)
+                .finish(),
+            Self::SetThreadName { name } => f
+                .debug_struct("SetThreadName")
+                .field("name", name)
+                .finish(),
+            Self::ListMcpTools => write!(f, "ListMcpTools"),
+            Self::RefreshMcpServers => write!(f, "RefreshMcpServers"),
+            Self::Compact => write!(f, "Compact"),
+            Self::Undo => write!(f, "Undo"),
+            Self::ThreadRollback { num_turns } => f
+                .debug_struct("ThreadRollback")
+                .field("num_turns", num_turns)
+                .finish(),
+            Self::EndSession => write!(f, "EndSession"),
+            Self::ForkSession { source_session_id, nth_user_message, model, .. } => f
+                .debug_struct("ForkSession")
+                .field("source_session_id", source_session_id)
+                .field("nth_user_message", nth_user_message)
+                .field("model", model)
+                .finish(),
+        }
+    }
 }
 
 /// Get current time as ISO 8601 string

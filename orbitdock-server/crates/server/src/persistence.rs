@@ -34,6 +34,7 @@ pub enum PersistCommand {
         model: Option<String>,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        forked_from_session_id: Option<String>,
     },
 
     /// Update session status/work_status
@@ -376,6 +377,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             model,
             approval_policy,
             sandbox_mode,
+            forked_from_session_id,
         } => {
             let provider_str = match provider {
                 Provider::Claude => "claude",
@@ -389,13 +391,13 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             };
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, model, provider, status, work_status, codex_integration_mode, approval_policy, sandbox_mode, started_at, last_activity_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'active', 'waiting', ?7, ?8, ?9, ?6, ?6)
+                "INSERT INTO sessions (id, project_path, project_name, model, provider, status, work_status, codex_integration_mode, approval_policy, sandbox_mode, started_at, last_activity_at, forked_from_session_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'active', 'waiting', ?7, ?8, ?9, ?6, ?6, ?10)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    model = COALESCE(?4, model),
                    last_activity_at = ?6",
-                params![id, project_path, project_name, model, provider_str, now, integration_mode, approval_policy, sandbox_mode],
+                params![id, project_path, project_name, model, provider_str, now, integration_mode, approval_policy, sandbox_mode, forked_from_session_id],
             )?;
         }
 
@@ -1268,6 +1270,7 @@ pub struct RestoredSession {
     pub codex_cached_tokens: i64,
     pub codex_context_window: i64,
     pub messages: Vec<Message>,
+    pub forked_from_session_id: Option<String>,
 }
 
 fn resolve_custom_name_from_first_prompt(
@@ -1720,6 +1723,15 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 first_prompt.as_deref(),
             )?;
 
+            // Query fork origin separately (column may not exist on old schemas)
+            let forked_from_session_id: Option<String> = conn
+                .query_row(
+                    "SELECT forked_from_session_id FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
             sessions.push(RestoredSession {
                 id,
                 provider,
@@ -1741,6 +1753,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 codex_cached_tokens,
                 codex_context_window,
                 messages,
+                forked_from_session_id,
             });
         }
 
@@ -1845,6 +1858,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             codex_cached_tokens,
             codex_context_window,
             messages,
+            forked_from_session_id: None, // load_session_by_id is for resume, fork origin not needed
         }))
     }).await??;
 

@@ -42,7 +42,8 @@ const STREAM_THROTTLE_MS: u128 = 50;
 /// Codex connector using direct codex-core integration
 pub struct CodexConnector {
     thread: Arc<CodexThread>,
-    _thread_manager: Arc<ThreadManager>,
+    thread_manager: Arc<ThreadManager>,
+    codex_home: PathBuf,
     event_rx: Option<mpsc::Receiver<ConnectorEvent>>,
     thread_id: String,
 }
@@ -71,12 +72,29 @@ impl CodexConnector {
 
         // Create thread manager
         let thread_manager = Arc::new(ThreadManager::new(
-            codex_home,
+            codex_home.clone(),
             auth_manager.clone(),
             SessionSource::Mcp,
         ));
 
-        // Load config from user's existing setup (~/.codex/config.toml)
+        let config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+
+        // Start a thread
+        let new_thread = thread_manager
+            .start_thread(config)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
+
+        Self::from_thread(new_thread, thread_manager, codex_home)
+    }
+
+    /// Build a Config with optional overrides
+    async fn build_config(
+        cwd: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+    ) -> Result<Config, ConnectorError> {
         let mut cli_overrides = Vec::new();
 
         // Override model if specified (model IS a TOML config field)
@@ -105,19 +123,19 @@ impl CodexConnector {
             ..Default::default()
         };
 
-        let config =
-            Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
-                .await
-                .map_err(|e| {
-                    ConnectorError::ProviderError(format!("Failed to load config: {}", e))
-                })?;
-
-        // Start a thread
-        let new_thread = thread_manager
-            .start_thread(config)
+        Config::load_with_cli_overrides_and_harness_overrides(cli_overrides, harness_overrides)
             .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
+            .map_err(|e| {
+                ConnectorError::ProviderError(format!("Failed to load config: {}", e))
+            })
+    }
 
+    /// Create a connector from an existing NewThread (shared by new() and fork_thread())
+    fn from_thread(
+        new_thread: codex_core::NewThread,
+        thread_manager: Arc<ThreadManager>,
+        codex_home: PathBuf,
+    ) -> Result<Self, ConnectorError> {
         let thread = new_thread.thread;
         let thread_id = new_thread.thread_id;
         info!("Started codex thread: {:?}", thread_id);
@@ -139,10 +157,50 @@ impl CodexConnector {
 
         Ok(Self {
             thread,
-            _thread_manager: thread_manager,
+            thread_manager,
+            codex_home,
             event_rx: Some(event_rx),
             thread_id: thread_id.to_string(),
         })
+    }
+
+    /// Fork this session's thread at a given point in history, returning a new connector
+    pub async fn fork_thread(
+        &self,
+        nth_user_message: Option<u32>,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+        cwd: Option<&str>,
+    ) -> Result<(CodexConnector, String), ConnectorError> {
+        // Find the source rollout path (same approach as app-server)
+        let rollout_path = codex_core::find_thread_path_by_id_str(&self.codex_home, &self.thread_id)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to find rollout path: {}", e)))?
+            .ok_or_else(|| ConnectorError::ProviderError(format!(
+                "No rollout file found for thread {}",
+                self.thread_id
+            )))?;
+
+        // Build config with overrides — use source session's cwd as fallback
+        let effective_cwd = cwd.unwrap_or(".");
+        let config = Self::build_config(effective_cwd, model, approval_policy, sandbox_mode).await?;
+
+        // Convert nth_user_message: None means full history (usize::MAX)
+        let nth = nth_user_message
+            .map(|n| n as usize)
+            .unwrap_or(usize::MAX);
+
+        let new_thread = self
+            .thread_manager
+            .fork_thread(nth, config, rollout_path)
+            .await
+            .map_err(|e| ConnectorError::ProviderError(format!("Failed to fork thread: {}", e)))?;
+
+        let new_thread_id = new_thread.thread_id.to_string();
+        let connector = Self::from_thread(new_thread, self.thread_manager.clone(), self.codex_home.clone())?;
+
+        Ok((connector, new_thread_id))
     }
 
     /// Async event loop — pulls events from CodexThread and translates them
@@ -910,6 +968,20 @@ impl CodexConnector {
     /// Get the codex-core thread ID (used to link with rollout files)
     pub fn thread_id(&self) -> &str {
         &self.thread_id
+    }
+
+    /// Get the codex home directory path
+    pub fn codex_home(&self) -> &std::path::Path {
+        &self.codex_home
+    }
+
+    /// Find the rollout file path for this connector's thread
+    pub async fn rollout_path(&self) -> Option<String> {
+        codex_core::find_thread_path_by_id_str(&self.codex_home, &self.thread_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|p| p.to_string_lossy().to_string())
     }
 
     // MARK: - Actions

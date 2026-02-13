@@ -105,6 +105,7 @@ async fn async_main() -> anyhow::Result<()> {
                     codex_cached_tokens,
                     codex_context_window,
                     messages,
+                    forked_from_session_id,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -155,6 +156,9 @@ async fn async_main() -> anyhow::Result<()> {
                 } else {
                     None
                 });
+                if let Some(source_id) = forked_from_session_id {
+                    handle.set_forked_from(source_id);
+                }
                 let mut app = state.lock().await;
                 let session_arc = app.add_session(handle);
                 if is_codex && !is_passive {

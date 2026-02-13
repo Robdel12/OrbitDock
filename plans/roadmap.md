@@ -88,102 +88,71 @@
 
 ---
 
-## Phase 3: MCP Server Visibility
+## Phase 3: MCP Server Visibility ✅
 
-**Why**: Need to see what MCP tools are connected, which servers are healthy, and refresh them. When MCP servers are your development tools, this is critical.
+**Status**: Complete (Rust + Swift done, tests/bridge deferred)
 
-### codex-core mapping
-| Op | EventMsg |
-|----|----------|
-| `Op::ListMcpTools` | `McpListToolsResponse { tools, resources, resource_templates, auth_statuses }` |
-| `Op::RefreshMcpServers { config }` | `McpStartupUpdate` / `McpStartupComplete` sequence |
-| *(server-initiated on session start)* | `McpStartupUpdate { server, status }` |
-| *(server-initiated on session start)* | `McpStartupComplete { ready, failed, cancelled }` |
+### What was built
 
-### Protocol layer (`crates/protocol`)
-- [ ] Add `ClientMessage::ListMcpTools { session_id }`
-- [ ] Add `ClientMessage::RefreshMcpServers { session_id }` (server passes empty `McpServerRefreshConfig` to codex-core — config re-read from disk)
-- [ ] Add `ServerMessage::McpToolsList { session_id, tools, resources, auth_statuses }`
-- [ ] Add `ServerMessage::McpStartupUpdate { session_id, server, status }`
-- [ ] Add `ServerMessage::McpStartupComplete { session_id, ready, failed, cancelled }`
-- [ ] Add shared types: `McpStartupStatus`, `McpStartupFailure`, `McpAuthStatus`, `McpTool`, `McpResource`
+**Rust server** (protocol + connectors + server):
+- [x] 2 client messages: `ListMcpTools`, `RefreshMcpServers`
+- [x] 3 server messages: `McpToolsList`, `McpStartupUpdate`, `McpStartupComplete`
+- [x] Shared types: `McpStartupStatus`, `McpStartupFailure`, `McpAuthStatus`, `McpTool`, `McpResource`, `McpResourceTemplate`
+- [x] Connector: 2 action methods + 3 event handlers (McpListToolsResponse, McpStartupUpdate, McpStartupComplete)
+- [x] Session: 2 `CodexAction` variants + 3 event broadcasts
+- [x] WebSocket: 2 client message handlers
+- [x] Protocol roundtrip tests (3 new: McpToolsList, McpStartupUpdate, McpStartupComplete)
 
-### Connector layer (`crates/connectors`)
-- [ ] Add `list_mcp_tools()` action → sends `Op::ListMcpTools`
-- [ ] Add `refresh_mcp_servers()` action → sends `Op::RefreshMcpServers`
-- [ ] Handle `EventMsg::McpListToolsResponse` → `ConnectorEvent::McpToolsList`
-- [ ] Handle `EventMsg::McpStartupUpdate` → `ConnectorEvent::McpStartupUpdate`
-- [ ] Handle `EventMsg::McpStartupComplete` → `ConnectorEvent::McpStartupComplete`
-
-### Server layer (`crates/server`)
-- [ ] `websocket.rs`: Handle `ListMcpTools`, `RefreshMcpServers` client messages
-- [ ] `codex_session.rs`: Add `CodexAction` variants: `ListMcpTools`, `RefreshMcpServers`
-- [ ] `codex_session.rs`: Handle 3 new connector events, broadcast to subscribers
-- [ ] Handle `McpStartupUpdate`/`McpStartupComplete` during initial session creation (fires on startup too)
-
-### Tests
-- [ ] `test_list_mcp_tools_roundtrip` - ListMcpTools dispatches correct Op
-- [ ] `test_mcp_tools_response_broadcast` - McpToolsList with tools + auth reaches subscribers
-- [ ] `test_refresh_mcp_servers_roundtrip` - RefreshMcpServers dispatches Op
-- [ ] `test_mcp_startup_update_broadcast` - McpStartupUpdate events reach subscribers
-- [ ] `test_mcp_startup_complete_broadcast` - McpStartupComplete with ready/failed/cancelled
-- [ ] `test_mcp_auth_status_serialization` - All McpAuthStatus variants serialize correctly
-
-### MCP bridge
-- [ ] `GET /api/sessions/:id/mcp-tools` → list MCP tools, resources, auth status
-- [ ] `POST /api/sessions/:id/mcp-refresh` → refresh MCP servers
+### Not implemented (deferred)
+- [ ] MCP bridge endpoints (`GET /api/sessions/:id/mcp-tools`, `POST /api/sessions/:id/mcp-refresh`)
+- [ ] Integration tests for MCP startup sequence
 
 ---
 
-## Phase 4: Thread Forking
+## Phase 4: Thread Forking ✅
 
-**Why**: Branch a conversation to explore alternatives without losing the original. Essential for iterative development where you want to try different approaches.
+**Status**: Complete
 
-### How it works in codex-core
+### What was built
 
-`ThreadManager::fork_thread(nth_user_message, config, rollout_path)` is already accessible from our connector. It:
-1. Reads the rollout history from the source thread's file
-2. Truncates at `nth_user_message` (use `usize::MAX` for full history)
-3. Spawns a new thread with that history as `InitialHistory::Forked`
-4. The new thread gets a fresh `ThreadId` and its own rollout file
-5. `SessionConfiguredEvent.forked_from_id` is set to the source thread's ID
+**Rust server** (protocol + connectors + server):
+- [x] `ClientMessage::ForkSession { source_session_id, nth_user_message?, model?, approval_policy?, sandbox_mode?, cwd? }`
+- [x] `ServerMessage::SessionForked { source_session_id, new_session_id, forked_from_thread_id? }`
+- [x] Connector: renamed `_thread_manager` → `thread_manager`, stored `codex_home: PathBuf`
+- [x] Connector: extracted `build_config()` + `from_thread()` helpers to share between `new()` and `fork_thread()`
+- [x] Connector: `fork_thread()` uses `find_thread_path_by_id_str` (same as app-server) to locate rollout path
+- [x] Connector: `rollout_path()` + `codex_home()` accessors for loading forked messages
+- [x] Session: `CodexAction::ForkSession` with oneshot reply channel for async result
+- [x] Session: `forked_from_session_id` field with `set_forked_from()` setter, included in `state()` snapshots
+- [x] WebSocket: `ForkSession` handler — forks thread, loads messages from rollout, persists to SQLite, creates new session
+- [x] Persistence: `forked_from_session_id` in `SessionCreate`, `RestoredSession`, and session restoration
+- [x] Migration `014_fork_origin.sql`: adds `forked_from_session_id` column
+- [x] Protocol roundtrip tests: `test_fork_session_roundtrip`, `fork_session_minimal`, `test_session_forked_roundtrip`, `session_forked_without_thread_id`
+- [x] All 50 tests pass (18 protocol + 32 server)
 
-### Important: `_thread_manager` is already on `CodexSession`
-The connector already stores `_thread_manager: Arc<ThreadManager>` (prefixed with `_` because it's unused). Just rename it to `thread_manager` and call `fork_thread()`. No new dependencies needed.
+**SwiftUI frontend**:
+- [x] `ServerProtocol.swift`: `forkSession` client message + `sessionForked` server message + `forkedFromSessionId` in snapshot
+- [x] `ServerConnection.swift`: `onSessionForked` callback + `forkSession()` convenience method
+- [x] `ServerAppState.swift`: `forkSession()` action + `forkInProgress` + `forkOrigins` dictionary populated from snapshots + live callbacks
+- [x] `SessionDetailView.swift`: "Fork" button in codex action bar with progress spinner
+- [x] `ConversationView.swift`: "Fork from here" pill on user messages + persistent `ForkOriginBanner` header (above scroll)
+- [x] Fork badge (`ForkBadge`) shown in sidebar, dashboard (active + history), and quick switcher
+- [x] `MCPBridge.swift`: `POST /api/sessions/:id/fork` endpoint
 
-### Rollout path
-`SessionConfiguredEvent` (fired on session creation) includes `rollout_path`. We don't currently capture this — the connector's `translate_event()` doesn't match `EventMsg::SessionConfigured`. Need to store it on the session struct so fork can read it later.
+**MCP debug tool**:
+- [x] `fork_session` tool in orbitdock-debug-mcp with `nth_user_message` support
 
-### Protocol layer (`crates/protocol`)
-- [ ] Add `ClientMessage::ForkSession { session_id, nth_user_message: Option<u32>, model: Option<String>, approval_policy: Option<String>, sandbox_mode: Option<String>, cwd: Option<String> }`
-- [ ] Add `ServerMessage::SessionForked { original_session_id, new_session_id, forked_from_id }`
+### Design decisions
+- Uses `find_thread_path_by_id_str` to locate rollout path (same approach as codex app-server)
+- Fork action dispatched via oneshot channel so websocket handler can await the result and register the new session
+- `from_thread()` helper avoids duplicating event loop setup between `new()` and `fork_thread()`
+- Fork origin tracked via `forkOrigins: [String: String]` dictionary on `ServerAppState` (not per-session field) to survive session overwrites from `handleSessionCreated`
+- Fork origin persists across restarts: SQLite → `RestoredSession` → `SessionHandle` → snapshot → Swift `forkOrigins`
+- `ForkOriginBanner` placed above ScrollView as persistent header (not inside scroll content) so it's always visible
+- "Fork from here" pills use accent color to differentiate from rollback pills (neutral)
 
-### Connector layer (`crates/connectors`)
-- [ ] Rename `_thread_manager` → `thread_manager` on `CodexSession`
-- [ ] Handle `EventMsg::SessionConfigured` to capture `rollout_path` on the session
-- [ ] Add `fork(nth_user_message, config, rollout_path)` method → calls `thread_manager.fork_thread()`
-- [ ] Return a new `CodexSession` (same flow as `create_session` but with forked history)
-
-### Server layer (`crates/server`)
-- [ ] `websocket.rs`: Handle `ForkSession` client message
-- [ ] Look up source session's rollout path and config from `SessionHandle`
-- [ ] Call connector fork (similar flow to `CreateSession` but with history)
-- [ ] Register new session in AppState, start event loop
-- [ ] Send `SessionForked` to requesting client
-- [ ] Send `SessionCreated` to all list subscribers
-- [ ] Store `rollout_path` on `SessionHandle` (if not already stored)
-
-### Tests
-- [ ] `test_fork_session_creates_new_session` - Fork produces a new session with unique ID
-- [ ] `test_fork_session_broadcasts_created` - SessionCreated event sent to list subscribers
-- [ ] `test_fork_session_inherits_config` - New session has source session's model/policy/cwd
-- [ ] `test_fork_session_with_overrides` - Model/policy overrides apply to forked session
-- [ ] `test_fork_session_source_not_found` - Error when source session_id doesn't exist
-- [ ] `test_fork_session_at_turn` - nth_user_message truncates history correctly
-- [ ] `test_fork_preserves_forked_from_id` - SessionConfigured has forked_from_id set
-
-### MCP bridge
-- [ ] `POST /api/sessions/:id/fork` → `{ nth_user_message?: N, model?: "...", approval_policy?: "...", sandbox_mode?: "...", cwd?: "..." }`
+### Not implemented (deferred)
+- [ ] Integration tests requiring live codex-core
 
 ---
 
@@ -385,5 +354,5 @@ Every feature follows this path through the codebase:
 - [ ] `cargo test` passes with no warnings
 - [ ] No regressions in existing functionality (run full test suite)
 
-### Current test count: ~38
+### Current test count: 50
 ### Target test count after all phases: ~80+

@@ -49,6 +49,12 @@ pub enum ServerMessage {
         session_id: String,
         reason: String,
     },
+    SessionForked {
+        source_session_id: String,
+        new_session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        forked_from_thread_id: Option<String>,
+    },
 
     // Approval history
     ApprovalsList {
@@ -260,5 +266,43 @@ mod tests {
             }
             other => panic!("unexpected variant: {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_session_forked_roundtrip() {
+        let msg = ServerMessage::SessionForked {
+            source_session_id: "sess-src-1".to_string(),
+            new_session_id: "sess-fork-1".to_string(),
+            forked_from_thread_id: Some("thread-abc-123".to_string()),
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::SessionForked {
+                source_session_id,
+                new_session_id,
+                forked_from_thread_id,
+            } => {
+                assert_eq!(source_session_id, "sess-src-1");
+                assert_eq!(new_session_id, "sess-fork-1");
+                assert_eq!(forked_from_thread_id.as_deref(), Some("thread-abc-123"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn session_forked_without_thread_id() {
+        let msg = ServerMessage::SessionForked {
+            source_session_id: "sess-src-2".to_string(),
+            new_session_id: "sess-fork-2".to_string(),
+            forked_from_thread_id: None,
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        // Ensure forked_from_thread_id is omitted when None
+        assert!(!json.contains("forked_from_thread_id"));
+        let _: ServerMessage = serde_json::from_str(&json).expect("roundtrip");
     }
 }

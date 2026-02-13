@@ -635,6 +635,10 @@ struct QuickSwitcher: View {
               }
               .foregroundStyle(Color.gitBranch.opacity(0.7))
             }
+
+            if serverState.forkOrigins[session.id] != nil {
+              ForkBadge()
+            }
           }
 
           // Agent name (main line, prominent)

@@ -183,6 +183,18 @@ final class MCPBridge {
       return response
     }
 
+    // POST /api/sessions/:id/fork
+    if request.method == "POST",
+       pathParts.count == 4,
+       pathParts[0] == "api",
+       pathParts[1] == "sessions",
+       pathParts[3] == "fork"
+    {
+      let response = handleForkSession(sessionId: pathParts[2], body: request.body)
+      logResponse(start: start, request: request, response: response)
+      return response
+    }
+
     // GET /api/sessions
     if request.method == "GET",
        pathParts.count == 2,
@@ -286,6 +298,20 @@ final class MCPBridge {
       ] as [String: Any]
     }
     return HTTPResponse(status: 200, body: ["models": models])
+  }
+
+  private func handleForkSession(sessionId: String, body: [String: Any]) -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
+    }
+
+    let nthUserMessage = (body["nth_user_message"] as? Int).map { UInt32($0) }
+    state.forkSession(sessionId: sessionId, nthUserMessage: nthUserMessage)
+    return HTTPResponse(status: 200, body: [
+      "status": "fork_requested",
+      "session_id": sessionId,
+      "nth_user_message": nthUserMessage as Any,
+    ])
   }
 
   private func handleApprove(sessionId: String, body: [String: Any]) -> HTTPResponse {

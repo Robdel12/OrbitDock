@@ -62,6 +62,7 @@ final class ServerConnection: ObservableObject {
   var onUndoStarted: ((String, String?) -> Void)?
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
   var onThreadRolledBack: ((String, UInt32) -> Void)?
+  var onSessionForked: ((String, String, String?) -> Void)?  // sourceSessionId, newSessionId, forkedFromThreadId
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
@@ -298,6 +299,9 @@ final class ServerConnection: ObservableObject {
       case let .threadRolledBack(sessionId, numTurns):
         onThreadRolledBack?(sessionId, numTurns)
 
+      case let .sessionForked(sourceSessionId, newSessionId, forkedFromThreadId):
+        onSessionForked?(sourceSessionId, newSessionId, forkedFromThreadId)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
         onError?(code, errorMessage, sessionId)
@@ -455,5 +459,24 @@ final class ServerConnection: ObservableObject {
   /// Roll back N turns from context (does NOT revert filesystem changes)
   func rollbackTurns(sessionId: String, numTurns: UInt32) {
     send(.rollbackTurns(sessionId: sessionId, numTurns: numTurns))
+  }
+
+  /// Fork a session (creates a new session with conversation history)
+  func forkSession(
+    sourceSessionId: String,
+    nthUserMessage: UInt32? = nil,
+    model: String? = nil,
+    approvalPolicy: String? = nil,
+    sandboxMode: String? = nil,
+    cwd: String? = nil
+  ) {
+    send(.forkSession(
+      sourceSessionId: sourceSessionId,
+      nthUserMessage: nthUserMessage,
+      model: model,
+      approvalPolicy: approvalPolicy,
+      sandboxMode: sandboxMode,
+      cwd: cwd
+    ))
   }
 }
