@@ -72,6 +72,10 @@ enum RailPreset: String, CaseIterable {
   var expandSkills: Bool {
     false
   }
+
+  var expandComments: Bool {
+    self == .reviewFocused
+  }
 }
 
 // MARK: - Review Navigation (Environment)

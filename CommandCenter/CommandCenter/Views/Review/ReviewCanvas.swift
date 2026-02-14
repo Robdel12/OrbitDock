@@ -14,6 +14,14 @@
 //    q            — close review pane
 //    f            — toggle follow mode
 //
+//  Comment model:
+//    C-space      — set mark for range selection
+//    c            — open comment composer (range if mark active, single line otherwise)
+//    C-g / Escape — clear mark / cancel composer (Emacs abort)
+//    ] / [        — jump to next/prev unresolved comment
+//    r            — toggle resolve on comment at cursor
+//    S            — send all open comments to model as structured review feedback
+//
 
 import SwiftUI
 
@@ -52,6 +60,18 @@ private enum CursorTarget: Equatable, Hashable {
   }
 }
 
+// MARK: - Composer Line Range
+
+private struct ComposerLineRange: Equatable {
+  let filePath: String
+  let fileIndex: Int
+  let hunkIndex: Int
+  let lineStartIdx: Int    // Index in hunk.lines
+  let lineEndIdx: Int
+  let lineStart: UInt32    // Actual new-side line number for server
+  let lineEnd: UInt32?
+}
+
 // MARK: - ReviewCanvas
 
 struct ReviewCanvas: View {
@@ -61,6 +81,7 @@ struct ReviewCanvas: View {
   var compact: Bool = false
   var navigateToFileId: Binding<String?>? = nil
   var onDismiss: (() -> Void)? = nil
+  var navigateToComment: Binding<ServerReviewComment?>? = nil
 
   @Environment(ServerAppState.self) private var serverState
 
@@ -72,6 +93,12 @@ struct ReviewCanvas: View {
   @State private var isFollowing = true
   @State private var previousFileCount = 0
   @FocusState private var isCanvasFocused: Bool
+
+  // Comment state
+  @State private var commentMark: CursorTarget?
+  @State private var composerTarget: ComposerLineRange?
+  @State private var composerBody: String = ""
+  @State private var composerTag: ServerReviewCommentTag? = nil
 
   private var obs: SessionObservable {
     serverState.session(sessionId)
@@ -192,6 +219,11 @@ struct ReviewCanvas: View {
     .onChange(of: navigateToFileId?.wrappedValue) { _, _ in
       handlePendingNavigation()
     }
+    .onChange(of: navigateToComment?.wrappedValue?.id) { _, _ in
+      if let model = diffModel {
+        handleNavigateToComment(model)
+      }
+    }
     .onAppear {
       isCanvasFocused = true
       handlePendingNavigation()
@@ -206,7 +238,8 @@ struct ReviewCanvas: View {
         files: model.files,
         turnDiffs: obs.turnDiffs,
         selectedFileId: fileListBinding(model),
-        selectedTurnDiffId: $selectedTurnDiffId
+        selectedTurnDiffId: $selectedTurnDiffId,
+        commentCounts: buildCommentCounts()
       )
 
       Divider()
@@ -272,6 +305,9 @@ struct ReviewCanvas: View {
                   }
                 }
 
+                let hunkKey = "\(fileIdx)-\(hunkIdx)"
+                let isHunkCollapsed = collapsedHunks.contains(hunkKey)
+
                 DiffHunkView(
                   hunk: hunk,
                   language: language,
@@ -279,8 +315,38 @@ struct ReviewCanvas: View {
                   fileIndex: fileIdx,
                   cursorLineIndex: cursorLineForHunk(fileIdx: fileIdx, hunkIdx: hunkIdx, target: target),
                   isCursorOnHeader: isCursorOnHunkHeader(fileIdx: fileIdx, hunkIdx: hunkIdx, target: target),
-                  isHunkCollapsed: collapsedHunks.contains("\(fileIdx)-\(hunkIdx)")
-                )
+                  isHunkCollapsed: isHunkCollapsed,
+                  commentedLines: commentedNewLineNums(forFile: file.newPath),
+                  selectionLines: selectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)
+                ) { lineIdx, line in
+                  // Inline comments
+                  if let newLine = line.newLineNum {
+                    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
+                    if !lineComments.isEmpty {
+                      InlineCommentThread(
+                        comments: lineComments,
+                        onResolve: { comment in
+                          resolveComment(comment)
+                        }
+                      )
+                      .id("comments-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
+                    }
+                  }
+
+                  // Composer (appears after last line of selection)
+                  if let ct = composerTarget,
+                     ct.fileIndex == fileIdx,
+                     ct.hunkIndex == hunkIdx,
+                     ct.lineEndIdx == lineIdx {
+                    CommentComposerView(
+                      commentBody: $composerBody,
+                      tag: $composerTag,
+                      onSubmit: { submitComment() },
+                      onCancel: { composerTarget = nil; composerBody = ""; composerTag = nil }
+                    )
+                    .id("composer-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
+                  }
+                }
               }
             }
           }
@@ -299,7 +365,20 @@ struct ReviewCanvas: View {
     }
     .focusable()
     .focused($isCanvasFocused)
+    .onKeyPress(keys: [.escape]) { _ in
+      // Clear mark first, then composer — always consume to prevent closing review
+      if commentMark != nil {
+        commentMark = nil
+      } else if composerTarget != nil {
+        composerTarget = nil
+        composerBody = ""
+        composerTag = nil
+      }
+      // Always handled: q is the close key, not Escape
+      return .handled
+    }
     .onKeyPress(keys: [.tab]) { _ in
+      guard composerTarget == nil else { return .ignored }
       guard let model = diffModel else { return .ignored }
       let target = currentTarget(model)
       switch target {
@@ -315,15 +394,52 @@ struct ReviewCanvas: View {
       return .handled
     }
     .onKeyPress(keys: [.return]) { _ in
+      guard composerTarget == nil else { return .ignored }
       guard let model = diffModel, let file = currentFile(model) else { return .ignored }
       openFileInEditor(file)
       return .handled
     }
     .onKeyPress { keyPress in
+      guard composerTarget == nil else { return .ignored }
       guard let model = diffModel else { return .ignored }
       return handleKeyPress(keyPress, model: model)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .overlay(alignment: .bottom) {
+      if hasOpenComments {
+        sendReviewBar
+      }
+    }
+  }
+
+  private var sendReviewBar: some View {
+    let count = obs.reviewComments.filter { $0.status == .open }.count
+
+    return Button(action: sendReview) {
+      HStack(spacing: 8) {
+        Image(systemName: "paperplane.fill")
+          .font(.system(size: 11, weight: .medium))
+
+        Text("Send \(count) comment\(count == 1 ? "" : "s") to model")
+          .font(.system(size: 12, weight: .semibold))
+
+        Text("S")
+          .font(.system(size: 10, weight: .bold, design: .monospaced))
+          .foregroundStyle(.white.opacity(0.5))
+          .padding(.horizontal, 5)
+          .padding(.vertical, 2)
+          .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+      }
+      .foregroundStyle(.white)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 8)
+      .background(Color.statusQuestion, in: Capsule())
+      .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+    }
+    .buttonStyle(.plain)
+    .padding(.bottom, 16)
+    .transition(.move(edge: .bottom).combined(with: .opacity))
+    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: count)
   }
 
   // MARK: - File Section Header
@@ -391,7 +507,7 @@ struct ReviewCanvas: View {
     }
     .padding(.vertical, 8)
     .padding(.trailing, 8)
-    .background(isCursor ? Color.accent.opacity(0.06) : Color.backgroundSecondary)
+    .background(isCursor ? Color.accent.opacity(0.12) : Color.backgroundSecondary)
     .contentShape(Rectangle())
   }
 
@@ -417,7 +533,11 @@ struct ReviewCanvas: View {
   //
   // C-n / C-p    — move cursor one line (Emacs line nav)
   // C-f / C-b    — jump cursor to next/prev section (file + hunk headers)
+  // C-space      — set mark for range selection
   // n / p        — jump cursor to next/prev section (file + hunk headers)
+  // c            — open comment composer (range if mark, single line otherwise)
+  // ] / [        — jump to next/prev unresolved comment
+  // r            — toggle resolve on comment at cursor
   // TAB          — toggle collapse at cursor (file header → file, hunk → hunk)
   // RET          — open file in editor (dedicated handler)
   // q            — close review pane
@@ -444,6 +564,31 @@ struct ReviewCanvas: View {
       jumpToNextHunk(forward: false, in: model)
       return .handled
     }
+    // Emacs: C-g — abort / cancel mark / cancel composer
+    if keyPress.key == "g", keyPress.modifiers.contains(.control) {
+      if commentMark != nil {
+        commentMark = nil
+      } else if composerTarget != nil {
+        composerTarget = nil
+        composerBody = ""
+        composerTag = nil
+      }
+      return .handled
+    }
+    // C-space — set mark for range selection
+    if keyPress.key == " ", keyPress.modifiers.contains(.control) {
+      let target = currentTarget(model)
+      if case .diffLine = target, let t = target, diffLineHasNewLineNum(t, model: model) {
+        commentMark = t
+      }
+      return .handled
+    }
+
+    // Shift+S — send review (all open comments) to model
+    if keyPress.key == "S", keyPress.modifiers == .shift {
+      sendReview()
+      return .handled
+    }
 
     // Bare keys (no modifiers)
     guard keyPress.modifiers.isEmpty else { return .ignored }
@@ -455,6 +600,25 @@ struct ReviewCanvas: View {
       return .handled
     case "p":
       jumpToNextHunk(forward: false, in: model)
+      return .handled
+
+    // c — open comment composer
+    case "c":
+      return openComposer(model: model)
+
+    // ] — jump to next unresolved comment
+    case "]":
+      jumpToNextComment(forward: true, in: model)
+      return .handled
+
+    // [ — jump to previous unresolved comment
+    case "[":
+      jumpToNextComment(forward: false, in: model)
+      return .handled
+
+    // r — toggle resolve on comment at cursor
+    case "r":
+      resolveCommentAtCursor(model: model)
       return .handled
 
     // q — dismiss review pane
@@ -566,6 +730,411 @@ struct ReviewCanvas: View {
     } else if !newTargets.isEmpty {
       cursorIndex = min(cursorIndex, newTargets.count - 1)
     }
+  }
+
+  // MARK: - Comment Helpers
+
+  /// Get all comments whose range ends at this line (so thread appears after the last selected line).
+  private func commentsForLine(filePath: String, lineNum: Int) -> [ServerReviewComment] {
+    obs.reviewComments.filter { comment in
+      comment.filePath == filePath &&
+      Int(comment.lineEnd ?? comment.lineStart) == lineNum
+    }
+  }
+
+  /// Build a map of filePath → comment count for the file list.
+  private func buildCommentCounts() -> [String: Int] {
+    var counts: [String: Int] = [:]
+    for comment in obs.reviewComments {
+      counts[comment.filePath, default: 0] += 1
+    }
+    return counts
+  }
+
+  /// Set of new-side line numbers that have comments for a given file.
+  /// Marks ALL lines in the range (not just lineStart) for purple indicator.
+  private func commentedNewLineNums(forFile filePath: String) -> Set<Int> {
+    var result = Set<Int>()
+    for comment in obs.reviewComments where comment.filePath == filePath {
+      let start = Int(comment.lineStart)
+      let end = Int(comment.lineEnd ?? comment.lineStart)
+      for line in start...end {
+        result.insert(line)
+      }
+    }
+    return result
+  }
+
+  /// Set of line indices within a hunk that fall in the mark-to-cursor selection range.
+  private func selectionLineIndices(fileIdx: Int, hunkIdx: Int) -> Set<Int> {
+    guard let mark = commentMark else { return [] }
+    guard let model = diffModel else { return [] }
+    guard case .diffLine(let mf, let mh, let ml) = mark else { return [] }
+    guard let target = currentTarget(model) else { return [] }
+    guard case .diffLine(let cf, let ch, let cl) = target else { return [] }
+
+    // Only highlight when both mark and cursor are in the same file
+    guard mf == cf, mf == fileIdx else { return [] }
+
+    // Build range across hunks
+    let startHunk = min(mh, ch)
+    let endHunk = max(mh, ch)
+
+    guard hunkIdx >= startHunk, hunkIdx <= endHunk else { return [] }
+
+    let startLine = mh < ch ? ml : (mh == ch ? min(ml, cl) : cl)
+    let endLine = mh < ch ? cl : (mh == ch ? max(ml, cl) : ml)
+
+    if startHunk == endHunk {
+      // Same hunk
+      guard hunkIdx == startHunk else { return [] }
+      return Set(min(startLine, endLine)...max(startLine, endLine))
+    }
+
+    // Cross-hunk selection
+    if hunkIdx == startHunk {
+      let hunkLineCount = model.files[fileIdx].hunks[hunkIdx].lines.count
+      let sl = mh < ch ? ml : cl
+      return Set(sl..<hunkLineCount)
+    } else if hunkIdx == endHunk {
+      let el = mh < ch ? cl : ml
+      return Set(0...el)
+    } else {
+      // Entire hunk is in selection
+      let hunkLineCount = model.files[fileIdx].hunks[hunkIdx].lines.count
+      return Set(0..<hunkLineCount)
+    }
+  }
+
+  /// Check if a cursor target (diffLine) has a non-nil newLineNum.
+  private func diffLineHasNewLineNum(_ target: CursorTarget, model: DiffModel) -> Bool {
+    guard case .diffLine(let f, let h, let l) = target else { return false }
+    guard f < model.files.count else { return false }
+    let file = model.files[f]
+    guard h < file.hunks.count else { return false }
+    let hunk = file.hunks[h]
+    guard l < hunk.lines.count else { return false }
+    return hunk.lines[l].newLineNum != nil
+  }
+
+  /// Open the comment composer for the current cursor position or mark range.
+  private func openComposer(model: DiffModel) -> KeyPress.Result {
+    let target = currentTarget(model)
+
+    if let mark = commentMark {
+      // Range comment: mark to cursor
+      guard case .diffLine(let mf, let mh, let ml) = mark,
+            case .diffLine(let cf, let ch, let cl) = target,
+            mf == cf else {
+        commentMark = nil
+        return .handled
+      }
+
+      let file = model.files[mf]
+      let startHunk = min(mh, ch)
+      let endHunk = max(mh, ch)
+      let startLine = startHunk == endHunk ? min(ml, cl) : (mh <= ch ? ml : cl)
+      let endLine = startHunk == endHunk ? max(ml, cl) : (mh <= ch ? cl : ml)
+
+      let startNewLine = file.hunks[startHunk].lines[startLine].newLineNum
+      let endNewLine = file.hunks[endHunk].lines[endLine].newLineNum
+
+      guard let sn = startNewLine else {
+        commentMark = nil
+        return .handled
+      }
+
+      composerTarget = ComposerLineRange(
+        filePath: file.newPath,
+        fileIndex: mf,
+        hunkIndex: endHunk,
+        lineStartIdx: startLine,
+        lineEndIdx: endLine,
+        lineStart: UInt32(sn),
+        lineEnd: endNewLine.map { UInt32($0) }
+      )
+      composerBody = ""
+      composerTag = nil
+      commentMark = nil
+      return .handled
+    }
+
+    // Single-line comment
+    guard case .diffLine(let f, let h, let l) = target else { return .ignored }
+    let file = model.files[f]
+    let line = file.hunks[h].lines[l]
+    guard let newLine = line.newLineNum else { return .ignored }
+
+    composerTarget = ComposerLineRange(
+      filePath: file.newPath,
+      fileIndex: f,
+      hunkIndex: h,
+      lineStartIdx: l,
+      lineEndIdx: l,
+      lineStart: UInt32(newLine),
+      lineEnd: nil
+    )
+    composerBody = ""
+    composerTag = nil
+    return .handled
+  }
+
+  /// Submit the current comment to the server.
+  private func submitComment() {
+    guard let ct = composerTarget else { return }
+    let trimmed = composerBody.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+
+    serverState.createReviewComment(
+      sessionId: sessionId,
+      turnId: nil,
+      filePath: ct.filePath,
+      lineStart: ct.lineStart,
+      lineEnd: ct.lineEnd,
+      body: trimmed,
+      tag: composerTag
+    )
+
+    composerTarget = nil
+    composerBody = ""
+    composerTag = nil
+  }
+
+  /// Resolve/unresolve a comment.
+  private func resolveComment(_ comment: ServerReviewComment) {
+    let newStatus: ServerReviewCommentStatus = comment.status == .open ? .resolved : .open
+    serverState.updateReviewComment(
+      commentId: comment.id,
+      body: nil,
+      tag: nil,
+      status: newStatus
+    )
+  }
+
+  /// Toggle resolve on the first open comment at the current cursor line.
+  private func resolveCommentAtCursor(model: DiffModel) {
+    guard let target = currentTarget(model),
+          case .diffLine(let f, _, _) = target else { return }
+
+    let file = model.files[f]
+    guard case .diffLine(_, let h, let l) = target else { return }
+    let line = file.hunks[h].lines[l]
+    guard let newLine = line.newLineNum else { return }
+
+    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
+    if let first = lineComments.first(where: { $0.status == .open }) {
+      resolveComment(first)
+    } else if let first = lineComments.first {
+      resolveComment(first)
+    }
+  }
+
+  /// Jump cursor to the next/prev diff line that has an unresolved comment.
+  private func jumpToNextComment(forward: Bool, in model: DiffModel) {
+    let targets = computeVisibleTargets(model)
+    guard !targets.isEmpty else { return }
+    let safeIdx = min(cursorIndex, targets.count - 1)
+
+    let unresolvedFiles = buildUnresolvedCommentLineMap(model: model)
+
+    let range = forward
+      ? Array((safeIdx + 1)..<targets.count) + Array(0..<safeIdx)
+      : (Array(stride(from: safeIdx - 1, through: 0, by: -1)) + Array(stride(from: targets.count - 1, through: safeIdx + 1, by: -1)))
+
+    for i in range {
+      guard case .diffLine(let f, let h, let l) = targets[i] else { continue }
+      let file = model.files[f]
+      let line = file.hunks[h].lines[l]
+      guard let newLine = line.newLineNum else { continue }
+
+      if let fileSet = unresolvedFiles[file.newPath], fileSet.contains(newLine) {
+        // Auto-expand collapsed file/hunk
+        let fileId = file.id
+        if collapsedFiles.contains(fileId) {
+          _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+            collapsedFiles.remove(fileId)
+          }
+        }
+        let hunkKey = "\(f)-\(h)"
+        if collapsedHunks.contains(hunkKey) {
+          _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+            collapsedHunks.remove(hunkKey)
+          }
+        }
+
+        // Recompute targets after expansion and find the right index
+        let newTargets = computeVisibleTargets(model)
+        if let newIdx = newTargets.firstIndex(of: .diffLine(fileIndex: f, hunkIndex: h, lineIndex: l)) {
+          isFollowing = false
+          cursorIndex = newIdx
+        } else {
+          isFollowing = false
+          cursorIndex = i
+        }
+        return
+      }
+    }
+  }
+
+  /// Build a map of filePath → Set<newLineNum> for unresolved comments.
+  private func buildUnresolvedCommentLineMap(model: DiffModel) -> [String: Set<Int>] {
+    var map: [String: Set<Int>] = [:]
+    for comment in obs.reviewComments where comment.status == .open {
+      map[comment.filePath, default: []].insert(Int(comment.lineStart))
+    }
+    return map
+  }
+
+  // MARK: - Navigate to Comment
+
+  private func handleNavigateToComment(_ model: DiffModel) {
+    guard let comment = navigateToComment?.wrappedValue else { return }
+
+    // Find the file
+    guard let fileIdx = model.files.firstIndex(where: { $0.newPath == comment.filePath }) else { return }
+    let file = model.files[fileIdx]
+
+    // Expand file if collapsed
+    if collapsedFiles.contains(file.id) {
+      _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+        collapsedFiles.remove(file.id)
+      }
+    }
+
+    // Find the hunk and line
+    for (hunkIdx, hunk) in file.hunks.enumerated() {
+      for (lineIdx, line) in hunk.lines.enumerated() {
+        if let newLine = line.newLineNum, newLine == Int(comment.lineStart) {
+          // Expand hunk if collapsed
+          let hunkKey = "\(fileIdx)-\(hunkIdx)"
+          if collapsedHunks.contains(hunkKey) {
+            _ = withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+              collapsedHunks.remove(hunkKey)
+            }
+          }
+
+          // Move cursor
+          let targets = computeVisibleTargets(model)
+          if let idx = targets.firstIndex(of: .diffLine(fileIndex: fileIdx, hunkIndex: hunkIdx, lineIndex: lineIdx)) {
+            isFollowing = false
+            cursorIndex = idx
+          }
+
+          navigateToComment?.wrappedValue = nil
+          return
+        }
+      }
+    }
+
+    navigateToComment?.wrappedValue = nil
+  }
+
+  // MARK: - Send Review to Model
+
+  /// Format all open comments into a structured review message the model can act on.
+  /// Includes actual diff content so the model sees exactly what's being commented on.
+  private func formatReviewMessage() -> String? {
+    let openComments = obs.reviewComments.filter { $0.status == .open }
+    guard !openComments.isEmpty else { return nil }
+
+    let model = diffModel
+
+    // Group by file path, preserving order of first appearance
+    var fileOrder: [String] = []
+    var grouped: [String: [ServerReviewComment]] = [:]
+    for comment in openComments {
+      if grouped[comment.filePath] == nil {
+        fileOrder.append(comment.filePath)
+      }
+      grouped[comment.filePath, default: []].append(comment)
+    }
+
+    var lines: [String] = ["## Code Review Feedback", ""]
+
+    for filePath in fileOrder {
+      let comments = grouped[filePath] ?? []
+      let ext = filePath.components(separatedBy: ".").last ?? ""
+      lines.append("### \(filePath)")
+
+      for comment in comments.sorted(by: { $0.lineStart < $1.lineStart }) {
+        let lineRef: String
+        if let end = comment.lineEnd, end != comment.lineStart {
+          lineRef = "Lines \(comment.lineStart)–\(end)"
+        } else {
+          lineRef = "Line \(comment.lineStart)"
+        }
+
+        let tagStr = comment.tag.map { " [\($0.rawValue)]" } ?? ""
+        lines.append("")
+        lines.append("**\(lineRef)**\(tagStr):")
+
+        // Include actual diff content for this line range
+        if let diffContent = extractDiffLines(
+          model: model,
+          filePath: filePath,
+          lineStart: Int(comment.lineStart),
+          lineEnd: comment.lineEnd.map { Int($0) }
+        ) {
+          lines.append("```\(ext)")
+          lines.append(diffContent)
+          lines.append("```")
+        }
+
+        lines.append("> \(comment.body)")
+      }
+
+      lines.append("")
+    }
+
+    // No trailing instruction — the code + comments speak for themselves
+    return lines.joined(separator: "\n")
+  }
+
+  /// Extract actual diff lines for a comment's file + line range from the parsed diff model.
+  private func extractDiffLines(model: DiffModel?, filePath: String, lineStart: Int, lineEnd: Int?) -> String? {
+    guard let model else { return nil }
+    guard let file = model.files.first(where: { $0.newPath == filePath }) else { return nil }
+
+    let end = lineEnd ?? lineStart
+    var extracted: [String] = []
+
+    for hunk in file.hunks {
+      for line in hunk.lines {
+        guard let newNum = line.newLineNum else {
+          // Removed lines adjacent to the range — include for context
+          if !extracted.isEmpty && line.type == .removed {
+            extracted.append("\(line.prefix)\(line.content)")
+          }
+          continue
+        }
+        if newNum >= lineStart && newNum <= end {
+          extracted.append("\(line.prefix)\(line.content)")
+        }
+      }
+    }
+
+    return extracted.isEmpty ? nil : extracted.joined(separator: "\n")
+  }
+
+  /// Send all open review comments as structured feedback to the model, then resolve them.
+  private func sendReview() {
+    guard let message = formatReviewMessage() else { return }
+
+    serverState.sendMessage(sessionId: sessionId, content: message)
+
+    // Mark all open comments as resolved after sending
+    for comment in obs.reviewComments where comment.status == .open {
+      serverState.updateReviewComment(
+        commentId: comment.id,
+        body: nil,
+        tag: nil,
+        status: .resolved
+      )
+    }
+  }
+
+  private var hasOpenComments: Bool {
+    obs.reviewComments.contains { $0.status == .open }
   }
 
   // MARK: - Compact File Strip

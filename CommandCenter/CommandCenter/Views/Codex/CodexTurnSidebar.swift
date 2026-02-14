@@ -16,6 +16,8 @@ struct CodexTurnSidebar: View {
   @Binding var selectedSkills: Set<String>
   var onOpenReview: (() -> Void)? = nil
   var onNavigateToSession: ((String) -> Void)? = nil
+  var onNavigateToComment: ((ServerReviewComment) -> Void)? = nil
+  var onSendReview: (() -> Void)? = nil
 
   @Environment(ServerAppState.self) private var serverState
   @Environment(AttentionService.self) private var attentionService
@@ -25,6 +27,7 @@ struct CodexTurnSidebar: View {
   @State private var expandChanges = false
   @State private var expandServers = false
   @State private var expandSkills = false
+  @State private var expandComments = false
 
   private var plan: [Session.PlanStep]? {
     serverState.session(sessionId).getPlanSteps()
@@ -56,8 +59,20 @@ struct CodexTurnSidebar: View {
     !skills.isEmpty
   }
 
+  private var reviewComments: [ServerReviewComment] {
+    serverState.session(sessionId).reviewComments
+  }
+
+  private var hasComments: Bool {
+    !reviewComments.isEmpty
+  }
+
+  private var openCommentCount: Int {
+    reviewComments.filter { $0.status == .open }.count
+  }
+
   private var hasAnyContent: Bool {
-    hasPlan || hasDiff || hasMcp || hasSkills
+    hasPlan || hasDiff || hasMcp || hasSkills || hasComments
   }
 
   var body: some View {
@@ -100,6 +115,25 @@ struct CodexTurnSidebar: View {
                 badge: diffBadge
               ) {
                 diffContent(diff: diff!)
+              }
+            }
+
+            // Comments section
+            if hasComments {
+              CollapsibleSection(
+                title: "Comments",
+                icon: "text.bubble",
+                isExpanded: $expandComments,
+                badge: openCommentCount > 0 ? "\(openCommentCount) open" : nil,
+                badgeColor: .statusQuestion
+              ) {
+                ReviewChecklistSection(
+                  comments: reviewComments,
+                  onNavigate: { comment in
+                    onNavigateToComment?(comment)
+                  },
+                  onSendReview: onSendReview
+                )
               }
             }
 
@@ -205,6 +239,7 @@ struct CodexTurnSidebar: View {
       expandChanges = preset.expandChanges
       expandServers = preset.expandServers
       expandSkills = preset.expandSkills
+      expandComments = preset.expandComments
     }
   }
 

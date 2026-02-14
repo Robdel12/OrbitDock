@@ -618,16 +618,6 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             turn_id,
             diff,
         } => {
-            // Ensure table exists (safe for databases without migration 016)
-            conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS turn_diffs (
-                    session_id TEXT NOT NULL,
-                    turn_id TEXT NOT NULL,
-                    diff TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-                    PRIMARY KEY (session_id, turn_id)
-                )"
-            )?;
             conn.execute(
                 "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff) VALUES (?1, ?2, ?3)",
                 params![session_id, turn_id, diff],

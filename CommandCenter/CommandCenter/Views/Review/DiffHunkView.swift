@@ -9,7 +9,7 @@
 
 import SwiftUI
 
-struct DiffHunkView: View {
+struct DiffHunkView<AfterLineContent: View>: View {
   let hunk: DiffHunk
   let language: String
   let hunkIndex: Int
@@ -17,6 +17,9 @@ struct DiffHunkView: View {
   var cursorLineIndex: Int? = nil
   var isCursorOnHeader: Bool = false
   var isHunkCollapsed: Bool = false
+  var commentedLines: Set<Int> = []    // newLineNum values with comments
+  var selectionLines: Set<Int> = []    // Line indices in mark-to-cursor range
+  @ViewBuilder var afterLine: (Int, DiffLine) -> AfterLineContent
 
   // Diff background colors — muted, translucent washes
   private let addedBg = Color(red: 0.12, green: 0.26, blue: 0.15).opacity(0.55)
@@ -51,10 +54,13 @@ struct DiffHunkView: View {
             .id("file-\(fileIndex)-hunk-\(hunkIndex)-line-\(index)")
             .overlay {
               if cursorLineIndex == index {
-                Color.accent.opacity(0.08)
+                Color.accent.opacity(0.15)
                   .allowsHitTesting(false)
               }
             }
+
+          // Inline content injected by parent (comments, composer)
+          afterLine(index, line)
         }
       }
     }
@@ -117,22 +123,34 @@ struct DiffHunkView: View {
   private func diffLineRow(_ line: DiffLine, index: Int) -> some View {
     let inlineRanges = computeInlineRanges(for: line, at: index)
     let isChanged = line.type == .added || line.type == .removed
+    let hasComment = line.newLineNum.map { commentedLines.contains($0) } ?? false
+    let isInSelection = selectionLines.contains(index)
 
     return HStack(spacing: 0) {
-      // Left edge accent bar — 3px, only on changed lines
+      // Left edge accent bar — 3px; purple for commented lines, else add/remove color
       Rectangle()
-        .fill(edgeBarColor(for: line.type))
+        .fill(hasComment ? Color.statusQuestion : edgeBarColor(for: line.type))
         .frame(width: 3)
 
       // Line number gutter
       HStack(spacing: 0) {
         // Old line number
         Text(line.oldLineNum.map { String($0) } ?? "")
-          .frame(width: 36, alignment: .trailing)
+          .frame(width: 32, alignment: .trailing)
+
+        // Comment dot between line numbers
+        ZStack {
+          if hasComment {
+            Circle()
+              .fill(Color.statusQuestion)
+              .frame(width: 4, height: 4)
+          }
+        }
+        .frame(width: 8)
 
         // New line number
         Text(line.newLineNum.map { String($0) } ?? "")
-          .frame(width: 36, alignment: .trailing)
+          .frame(width: 32, alignment: .trailing)
       }
       .font(.system(size: 10.5, design: .monospaced))
       .foregroundStyle(.primary.opacity(isChanged ? 0.4 : 0.25))
@@ -155,6 +173,12 @@ struct DiffHunkView: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(backgroundColor(for: line.type))
+    .overlay {
+      if isInSelection {
+        Color.statusQuestion.opacity(0.18)
+          .allowsHitTesting(false)
+      }
+    }
   }
 
   // MARK: - Inline Highlights

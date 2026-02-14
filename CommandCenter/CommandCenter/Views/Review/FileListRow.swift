@@ -10,6 +10,7 @@ import SwiftUI
 struct FileListRow: View {
   let fileDiff: FileDiff
   let isSelected: Bool
+  var commentCount: Int = 0
 
   @State private var isHovered = false
 
@@ -37,6 +38,16 @@ struct FileListRow: View {
       }
 
       Spacer(minLength: 0)
+
+      // Comment count badge
+      if commentCount > 0 {
+        Text("\(commentCount)")
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(Color.statusQuestion)
+          .padding(.horizontal, 5)
+          .padding(.vertical, 1)
+          .background(Color.statusQuestion.opacity(0.15), in: Capsule())
+      }
 
       // Stats — compact
       HStack(spacing: 3) {

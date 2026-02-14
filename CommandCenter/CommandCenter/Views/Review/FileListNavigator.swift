@@ -13,6 +13,7 @@ struct FileListNavigator: View {
   let turnDiffs: [ServerTurnDiff]
   @Binding var selectedFileId: String?
   @Binding var selectedTurnDiffId: String?
+  var commentCounts: [String: Int] = [:]  // filePath → count
 
   var body: some View {
     VStack(spacing: 0) {
@@ -148,7 +149,8 @@ struct FileListNavigator: View {
           ForEach(files) { file in
             FileListRow(
               fileDiff: file,
-              isSelected: selectedFileId == file.id
+              isSelected: selectedFileId == file.id,
+              commentCount: commentCounts[file.newPath] ?? 0
             )
             .id(file.id)
             .onTapGesture {

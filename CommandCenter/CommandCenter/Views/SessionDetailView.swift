@@ -33,6 +33,7 @@ struct SessionDetailView: View {
   @State private var layoutConfig: LayoutConfiguration = .conversationOnly
   @State private var showDiffBanner = false
   @State private var reviewFileId: String?
+  @State private var navigateToComment: ServerReviewComment?
 
   var body: some View {
     VStack(spacing: 0) {
@@ -58,53 +59,34 @@ struct SessionDetailView: View {
         diffAvailableBanner
       }
 
-      // Main content area with layout switch
+      // Main content area — stable structure so ConversationView preserves @State
       HStack(spacing: 0) {
-        // Center zone — layout-dependent
-        Group {
-          switch layoutConfig {
-          case .conversationOnly:
-            conversationContent
-
-          case .reviewOnly:
-            ReviewCanvas(
-              sessionId: session.id,
-              projectPath: session.projectPath,
-              isSessionActive: session.isActive,
-              navigateToFileId: $reviewFileId,
-              onDismiss: {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                  layoutConfig = .conversationOnly
-                }
-              }
-            )
-
-          case .split:
-            HStack(spacing: 0) {
-              conversationContent
-                .frame(maxWidth: .infinity)
-
-              Divider()
-                .foregroundStyle(Color.panelBorder)
-
-              ReviewCanvas(
-                sessionId: session.id,
-                projectPath: session.projectPath,
-                isSessionActive: session.isActive,
-                compact: true,
-                navigateToFileId: $reviewFileId,
-                onDismiss: {
-                  withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    layoutConfig = .conversationOnly
-                  }
-                }
-              )
-              .frame(maxWidth: .infinity)
-            }
-          }
+        // Conversation stays in a stable position across layout switches
+        if layoutConfig != .reviewOnly {
+          conversationContent
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: layoutConfig)
+
+        // Review canvas (split or full)
+        if layoutConfig != .conversationOnly {
+          Divider()
+            .foregroundStyle(Color.panelBorder)
+
+          ReviewCanvas(
+            sessionId: session.id,
+            projectPath: session.projectPath,
+            isSessionActive: session.isActive,
+            compact: layoutConfig == .split,
+            navigateToFileId: $reviewFileId,
+            onDismiss: {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                layoutConfig = .conversationOnly
+              }
+            },
+            navigateToComment: $navigateToComment
+          )
+          .frame(maxWidth: .infinity)
+        }
 
         // Turn sidebar - plan + diff + servers + skills (Codex direct only)
         if session.isDirectCodex, showTurnSidebar {
@@ -131,6 +113,17 @@ struct SessionDetailView: View {
                 object: nil,
                 userInfo: ["sessionId": id]
               )
+            },
+            onNavigateToComment: { comment in
+              navigateToComment = comment
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                if layoutConfig == .conversationOnly {
+                  layoutConfig = .split
+                }
+              }
+            },
+            onSendReview: {
+              sendReviewToModel()
             }
           )
           .frame(width: 320)
@@ -174,6 +167,7 @@ struct SessionDetailView: View {
           serverState.loadGlobalApprovalHistory()
           serverState.listMcpTools(sessionId: session.id)
           serverState.listSkills(sessionId: session.id)
+          serverState.listReviewComments(sessionId: session.id)
         }
       }
     }
@@ -194,6 +188,7 @@ struct SessionDetailView: View {
           serverState.loadGlobalApprovalHistory()
           serverState.listMcpTools(sessionId: newId)
           serverState.listSkills(sessionId: newId)
+          serverState.listReviewComments(sessionId: newId)
         }
       }
       // Reset state for new session
@@ -203,6 +198,7 @@ struct SessionDetailView: View {
       railPreset = .planFocused
       layoutConfig = .conversationOnly
       showDiffBanner = false
+      navigateToComment = nil
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
       Button("Open New") { TerminalService.shared.focusSession(session) }
@@ -266,13 +262,8 @@ struct SessionDetailView: View {
         return .handled
       }
 
-      // Escape: Return to conversation from review/split
-      if keyPress.key == .escape, layoutConfig != .conversationOnly {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-          layoutConfig = .conversationOnly
-        }
-        return .handled
-      }
+      // Note: Escape intentionally not used here — ReviewCanvas uses q to close,
+      // and Escape is reserved for canceling mark/composer within the canvas.
 
       return .ignored
     }
@@ -790,6 +781,101 @@ struct SessionDetailView: View {
 
   private func endCodexSession() {
     serverState.endSession(session.id)
+  }
+
+  // MARK: - Send Review
+
+  /// Format all open review comments and send as a structured message to the model.
+  /// Includes actual diff content so the model sees exactly what's being commented on.
+  private func sendReviewToModel() {
+    let obs = serverState.session(session.id)
+    let openComments = obs.reviewComments.filter { $0.status == .open }
+    guard !openComments.isEmpty else { return }
+
+    // Build diff model for code extraction
+    let diffModel: DiffModel? = {
+      var parts: [String] = []
+      for td in obs.turnDiffs { parts.append(td.diff) }
+      if let current = obs.diff, !current.isEmpty {
+        if obs.turnDiffs.last?.diff != current { parts.append(current) }
+      }
+      let combined = parts.joined(separator: "\n")
+      return combined.isEmpty ? nil : DiffModel.parse(unifiedDiff: combined)
+    }()
+
+    // Group by file path, preserving order of first appearance
+    var fileOrder: [String] = []
+    var grouped: [String: [ServerReviewComment]] = [:]
+    for comment in openComments {
+      if grouped[comment.filePath] == nil {
+        fileOrder.append(comment.filePath)
+      }
+      grouped[comment.filePath, default: []].append(comment)
+    }
+
+    var lines: [String] = ["## Code Review Feedback", ""]
+
+    for filePath in fileOrder {
+      let comments = grouped[filePath] ?? []
+      let ext = filePath.components(separatedBy: ".").last ?? ""
+      lines.append("### \(filePath)")
+
+      for comment in comments.sorted(by: { $0.lineStart < $1.lineStart }) {
+        let lineRef: String
+        if let end = comment.lineEnd, end != comment.lineStart {
+          lineRef = "Lines \(comment.lineStart)–\(end)"
+        } else {
+          lineRef = "Line \(comment.lineStart)"
+        }
+
+        let tagStr = comment.tag.map { " [\($0.rawValue)]" } ?? ""
+        lines.append("")
+        lines.append("**\(lineRef)**\(tagStr):")
+
+        // Include actual diff content
+        if let file = diffModel?.files.first(where: { $0.newPath == filePath }) {
+          let start = Int(comment.lineStart)
+          let end = comment.lineEnd.map { Int($0) } ?? start
+          var extracted: [String] = []
+          for hunk in file.hunks {
+            for line in hunk.lines {
+              guard let newNum = line.newLineNum else {
+                if !extracted.isEmpty && line.type == .removed {
+                  extracted.append("\(line.prefix)\(line.content)")
+                }
+                continue
+              }
+              if newNum >= start && newNum <= end {
+                extracted.append("\(line.prefix)\(line.content)")
+              }
+            }
+          }
+          if !extracted.isEmpty {
+            lines.append("```\(ext)")
+            lines.append(extracted.joined(separator: "\n"))
+            lines.append("```")
+          }
+        }
+
+        lines.append("> \(comment.body)")
+      }
+
+      lines.append("")
+    }
+
+    let message = lines.joined(separator: "\n")
+
+    serverState.sendMessage(sessionId: session.id, content: message)
+
+    // Resolve all sent comments
+    for comment in openComments {
+      serverState.updateReviewComment(
+        commentId: comment.id,
+        body: nil,
+        tag: nil,
+        status: .resolved
+      )
+    }
   }
 }
 

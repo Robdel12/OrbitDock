@@ -51,7 +51,7 @@ struct DiffFileView: View {
               hunk: hunk,
               language: language,
               hunkIndex: index
-            )
+            ) { _, _ in }
           }
 
           // Bottom spacing

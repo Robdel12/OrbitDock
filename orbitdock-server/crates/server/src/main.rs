@@ -5,6 +5,7 @@
 
 mod codex_session;
 mod logging;
+mod migration_runner;
 mod persistence;
 mod rollout_watcher;
 mod session;
@@ -16,6 +17,7 @@ mod transition;
 mod websocket;
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
@@ -66,6 +68,26 @@ async fn async_main() -> anyhow::Result<()> {
         binary_mtime_unix = binary_mtime_unix,
         "Starting OrbitDock Server..."
     );
+
+    // Run database migrations before anything else
+    let db_path = {
+        let home = std::env::var("HOME").expect("HOME not set");
+        let dir = PathBuf::from(&home).join(".orbitdock");
+        std::fs::create_dir_all(&dir).expect("create .orbitdock dir");
+        dir.join("orbitdock.db")
+    };
+    {
+        let mut conn = rusqlite::Connection::open(&db_path)
+            .expect("open db for migrations");
+        if let Err(e) = migration_runner::run_migrations(&mut conn) {
+            warn!(
+                component = "migrations",
+                event = "migrations.error",
+                error = %e,
+                "Migration runner failed — continuing with existing schema"
+            );
+        }
+    }
 
     // Create persistence channel and spawn writer
     let (persist_tx, persist_rx) = create_persistence_channel();
