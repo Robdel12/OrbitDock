@@ -356,7 +356,10 @@ pub async fn handle_session_command(
             }
             let rx = handle.subscribe();
             let state = handle.state();
-            let _ = reply.send(SubscribeResult::Snapshot { state, rx });
+            let _ = reply.send(SubscribeResult::Snapshot {
+                state: Box::new(state),
+                rx,
+            });
         }
         SessionCommand::GetWorkStatus { reply } => {
             let _ = reply.send(handle.work_status());

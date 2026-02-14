@@ -21,7 +21,6 @@ use std::time::UNIX_EPOCH;
 
 use axum::{response::IntoResponse, routing::get, Router};
 use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, TokenUsage, WorkStatus};
-use tokio::sync::Mutex;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
@@ -32,7 +31,7 @@ use crate::persistence::{
     create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
 };
 use crate::session::SessionHandle;
-use crate::state::AppState;
+use crate::state::SessionRegistry;
 use crate::websocket::ws_handler;
 
 fn main() -> anyhow::Result<()> {
@@ -74,7 +73,7 @@ async fn async_main() -> anyhow::Result<()> {
     tokio::spawn(persistence_writer.run());
 
     // Create app state with persistence sender
-    let state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+    let state = Arc::new(SessionRegistry::new(persist_tx.clone()));
 
     // Restore active sessions from database
     match load_sessions_for_startup().await {
@@ -164,11 +163,10 @@ async fn async_main() -> anyhow::Result<()> {
                 }
                 if !is_active || !is_codex || is_passive {
                     // Passive session: spawn a passive actor
-                    let mut app = state.lock().await;
-                    app.add_session(handle);
+                    state.add_session(handle);
                     if is_codex && !is_passive {
                         if let Some(existing_thread_id) = codex_thread_id.as_deref() {
-                            app.register_codex_thread(&id, existing_thread_id);
+                            state.register_codex_thread(&id, existing_thread_id);
                         }
                     }
                     info!(
@@ -196,8 +194,7 @@ async fn async_main() -> anyhow::Result<()> {
                 .await
                 {
                     Ok(codex) => {
-                        let mut app = state.lock().await;
-                        let persist = app.persist().clone();
+                        let persist = state.persist().clone();
 
                         let new_thread_id = codex.thread_id().to_string();
                         let _ = persist
@@ -206,10 +203,10 @@ async fn async_main() -> anyhow::Result<()> {
                                 thread_id: new_thread_id.clone(),
                             })
                             .await;
-                        app.register_codex_thread(&id, &new_thread_id);
+                        state.register_codex_thread(&id, &new_thread_id);
 
-                        if app.remove_session(&new_thread_id).is_some() {
-                            app.broadcast_to_list(
+                        if state.remove_session(&new_thread_id).is_some() {
+                            state.broadcast_to_list(
                                 orbitdock_protocol::ServerMessage::SessionEnded {
                                     session_id: new_thread_id.clone(),
                                     reason: "direct_session_thread_claimed".into(),
@@ -225,10 +222,10 @@ async fn async_main() -> anyhow::Result<()> {
 
                         // start_event_loop takes owned handle, returns (SessionActorHandle, action_tx)
                         let (actor_handle, action_tx) = codex.start_event_loop(handle, persist);
-                        app.add_session_actor(actor_handle);
-                        app.set_codex_action_tx(&id, action_tx);
+                        state.add_session_actor(actor_handle);
+                        state.set_codex_action_tx(&id, action_tx);
                         if let Some(existing_thread_id) = codex_thread_id.as_deref() {
-                            app.register_codex_thread(&id, existing_thread_id);
+                            state.register_codex_thread(&id, existing_thread_id);
                         }
                         info!(
                             component = "restore",
@@ -241,10 +238,9 @@ async fn async_main() -> anyhow::Result<()> {
                     }
                     Err(e) => {
                         // Session visible with messages but not interactive — spawn passive actor
-                        let mut app = state.lock().await;
-                        app.add_session(handle);
+                        state.add_session(handle);
                         if let Some(existing_thread_id) = codex_thread_id.as_deref() {
-                            app.register_codex_thread(&id, existing_thread_id);
+                            state.register_codex_thread(&id, existing_thread_id);
                         }
                         info!(
                             component = "restore",

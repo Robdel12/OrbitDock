@@ -174,7 +174,7 @@ pub enum SessionCommand {
 pub enum SubscribeResult {
     /// Full snapshot (when replay not possible)
     Snapshot {
-        state: SessionState,
+        state: Box<SessionState>,
         rx: broadcast::Receiver<ServerMessage>,
     },
     /// Replay events (when revision is close enough)

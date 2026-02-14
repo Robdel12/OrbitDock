@@ -46,6 +46,7 @@ futures = "0.3"
 bytes = "1"
 notify = "7"
 arc-swap = "1"
+dashmap = "6"
 
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }

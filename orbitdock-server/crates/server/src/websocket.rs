@@ -14,7 +14,7 @@ use axum::{
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
@@ -31,7 +31,7 @@ use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::{PersistOp, SessionCommand, SubscribeResult};
 use crate::session_naming::name_from_first_prompt;
-use crate::state::AppState;
+use crate::state::SessionRegistry;
 
 static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -65,13 +65,13 @@ enum OutboundMessage {
 /// WebSocket upgrade handler
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(state): State<Arc<Mutex<AppState>>>,
+    State(state): State<Arc<SessionRegistry>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 /// Handle a WebSocket connection
-async fn handle_socket(socket: WebSocket, state: Arc<Mutex<AppState>>) {
+async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
     let conn_id = NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed);
     info!(
         component = "websocket",
@@ -340,7 +340,7 @@ fn compact_snapshot_for_transport(mut snapshot: SessionState) -> SessionState {
 async fn handle_client_message(
     msg: ClientMessage,
     client_tx: &mpsc::Sender<OutboundMessage>,
-    state: &Arc<Mutex<AppState>>,
+    state: &Arc<SessionRegistry>,
     conn_id: u64,
 ) {
     debug!(
@@ -353,7 +353,6 @@ async fn handle_client_message(
 
     match msg {
         ClientMessage::SubscribeList => {
-            let state = state.lock().await;
             let rx = state.subscribe_list();
             spawn_broadcast_forwarder(rx, client_tx.clone());
 
@@ -366,8 +365,7 @@ async fn handle_client_message(
             session_id,
             since_revision,
         } => {
-            let state_guard = state.lock().await;
-            if let Some(actor) = state_guard.get_session(&session_id) {
+            if let Some(actor) = state.get_session(&session_id) {
                 let snap = actor.snapshot();
 
                 // Check for passive ended sessions that may need reactivation
@@ -406,7 +404,7 @@ async fn handle_client_message(
                             })
                             .await;
 
-                        let _ = state_guard
+                        let _ = state
                             .persist()
                             .send(PersistCommand::RolloutSessionUpdate {
                                 id: session_id.clone(),
@@ -430,7 +428,7 @@ async fn handle_client_message(
                             .send(SessionCommand::GetSummary { reply: sum_tx })
                             .await;
                         if let Ok(summary) = sum_rx.await {
-                            state_guard.broadcast_to_list(ServerMessage::SessionCreated {
+                            state.broadcast_to_list(ServerMessage::SessionCreated {
                                 session: summary,
                             });
                         }
@@ -443,7 +441,7 @@ async fn handle_client_message(
                                 reply: sub_tx,
                             })
                             .await;
-                        drop(state_guard);
+
                         if let Ok(result) = sub_rx.await {
                             match result {
                                 SubscribeResult::Snapshot {
@@ -454,7 +452,7 @@ async fn handle_client_message(
                                     send_json(
                                         client_tx,
                                         ServerMessage::SessionSnapshot {
-                                            session: compact_snapshot_for_transport(snapshot),
+                                            session: compact_snapshot_for_transport(*snapshot),
                                         },
                                     )
                                     .await;
@@ -479,7 +477,6 @@ async fn handle_client_message(
                         reply: sub_tx,
                     })
                     .await;
-                drop(state_guard);
 
                 if let Ok(result) = sub_rx.await {
                     match result {
@@ -502,6 +499,7 @@ async fn handle_client_message(
                             state: snapshot,
                             rx,
                         } => {
+                            let snapshot = *snapshot;
                             // If snapshot has no messages, try loading from transcript
                             let snapshot = if snapshot.messages.is_empty() {
                                 if let Some(path) = snapshot.transcript_path.clone() {
@@ -588,10 +586,8 @@ async fn handle_client_message(
             let summary = handle.summary();
             let snapshot = handle.state();
 
-            let mut state_guard = state.lock().await;
-
             // Persist session creation
-            let persist_tx = state_guard.persist().clone();
+            let persist_tx = state.persist().clone();
             let _ = persist_tx
                 .send(PersistCommand::SessionCreate {
                     id: id.clone(),
@@ -637,10 +633,10 @@ async fn handle_client_message(
                                 thread_id: thread_id.clone(),
                             })
                             .await;
-                        state_guard.register_codex_thread(&session_id, codex_session.thread_id());
+                        state.register_codex_thread(&session_id, codex_session.thread_id());
 
-                        if state_guard.remove_session(&thread_id).is_some() {
-                            state_guard.broadcast_to_list(ServerMessage::SessionEnded {
+                        if state.remove_session(&thread_id).is_some() {
+                            state.broadcast_to_list(ServerMessage::SessionEnded {
                                 session_id: thread_id.clone(),
                                 reason: "direct_session_thread_claimed".into(),
                             });
@@ -654,8 +650,8 @@ async fn handle_client_message(
 
                         let (actor_handle, action_tx) =
                             codex_session.start_event_loop(handle, persist_tx);
-                        state_guard.add_session_actor(actor_handle);
-                        state_guard.set_codex_action_tx(&session_id, action_tx);
+                        state.add_session_actor(actor_handle);
+                        state.set_codex_action_tx(&session_id, action_tx);
                         info!(
                             component = "session",
                             event = "session.create.connector_started",
@@ -666,7 +662,7 @@ async fn handle_client_message(
                     }
                     Err(e) => {
                         // No Codex connector; add as passive actor
-                        state_guard.add_session(handle);
+                        state.add_session(handle);
                         error!(
                             component = "session",
                             event = "session.create.connector_failed",
@@ -687,11 +683,11 @@ async fn handle_client_message(
                     }
                 }
             } else {
-                state_guard.add_session(handle);
+                state.add_session(handle);
             }
 
             // Notify list subscribers
-            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
 
         ClientMessage::SendMessage {
@@ -717,8 +713,7 @@ async fn handle_client_message(
                 "Sending message to session"
             );
 
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let first_prompt = name_from_first_prompt(&content);
 
                 let _ = state
@@ -830,8 +825,7 @@ async fn handle_client_message(
                 "Steering active turn"
             );
 
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 // Persist steer message so it appears in conversation
                 let ts_millis = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -900,8 +894,6 @@ async fn handle_client_message(
                 decision = %decision,
                 "Approval decision received"
             );
-
-            let state = state.lock().await;
 
             let _ = state
                 .persist()
@@ -1059,8 +1051,7 @@ async fn handle_client_message(
             cwds,
             force_reload,
         } => {
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx
                     .send(CodexAction::ListSkills { cwds, force_reload })
                     .await;
@@ -1081,8 +1072,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::ListRemoteSkills { session_id } => {
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::ListRemoteSkills).await;
             } else {
                 send_json(
@@ -1104,8 +1094,7 @@ async fn handle_client_message(
             session_id,
             hazelnut_id,
         } => {
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx
                     .send(CodexAction::DownloadRemoteSkill { hazelnut_id })
                     .await;
@@ -1126,8 +1115,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::ListMcpTools { session_id } => {
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::ListMcpTools).await;
             } else {
                 send_json(
@@ -1146,8 +1134,7 @@ async fn handle_client_message(
         }
 
         ClientMessage::RefreshMcpServers { session_id } => {
-            let state = state.lock().await;
-            if let Some(tx) = state.get_codex_action_tx(&session_id).cloned() {
+            if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::RefreshMcpServers).await;
             } else {
                 send_json(
@@ -1180,7 +1167,6 @@ async fn handle_client_message(
                 "Answer submitted for question approval"
             );
 
-            let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let mut answers = std::collections::HashMap::new();
                 answers.insert("0".to_string(), answer);
@@ -1202,7 +1188,6 @@ async fn handle_client_message(
                 "Interrupt session requested"
             );
 
-            let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Interrupt).await;
             }
@@ -1217,7 +1202,6 @@ async fn handle_client_message(
                 "Compact context requested"
             );
 
-            let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Compact).await;
             }
@@ -1232,7 +1216,6 @@ async fn handle_client_message(
                 "Undo last turn requested"
             );
 
-            let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Undo).await;
             }
@@ -1264,7 +1247,6 @@ async fn handle_client_message(
                 "Rollback turns requested"
             );
 
-            let state = state.lock().await;
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::ThreadRollback { num_turns }).await;
             }
@@ -1280,7 +1262,6 @@ async fn handle_client_message(
                 "Rename session requested"
             );
 
-            let state = state.lock().await;
             if let Some(actor) = state.get_session(&session_id) {
                 let (sum_tx, sum_rx) = oneshot::channel();
                 actor
@@ -1322,7 +1303,6 @@ async fn handle_client_message(
                 "Session config update requested"
             );
 
-            let state = state.lock().await;
             if let Some(actor) = state.get_session(&session_id) {
                 actor
                     .send(SessionCommand::ApplyDelta {
@@ -1368,20 +1348,17 @@ async fn handle_client_message(
             );
 
             // Check if session is already active in state
-            {
-                let state_guard = state.lock().await;
-                if state_guard.get_session(&session_id).is_some() {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "already_active".into(),
-                            message: format!("Session {} is already active", session_id),
-                            session_id: Some(session_id),
-                        },
-                    )
-                    .await;
-                    return;
-                }
+            if state.get_session(&session_id).is_some() {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "already_active".into(),
+                        message: format!("Session {} is already active", session_id),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+                return;
             }
 
             // Load session data from DB
@@ -1437,8 +1414,6 @@ async fn handle_client_message(
                 restored.messages,
             );
 
-            let mut state_guard = state.lock().await;
-
             // Subscribe the requesting client
             let rx = handle.subscribe();
             spawn_broadcast_forwarder(rx, client_tx.clone());
@@ -1447,7 +1422,7 @@ async fn handle_client_message(
             let snapshot = handle.state();
 
             // Reactivate in DB
-            let persist_tx = state_guard.persist().clone();
+            let persist_tx = state.persist().clone();
             let _ = persist_tx
                 .send(PersistCommand::ReactivateSession {
                     id: session_id.clone(),
@@ -1472,9 +1447,9 @@ async fn handle_client_message(
                             thread_id: new_thread_id.clone(),
                         })
                         .await;
-                    state_guard.register_codex_thread(&session_id, &new_thread_id);
-                    if state_guard.remove_session(&new_thread_id).is_some() {
-                        state_guard.broadcast_to_list(ServerMessage::SessionEnded {
+                    state.register_codex_thread(&session_id, &new_thread_id);
+                    if state.remove_session(&new_thread_id).is_some() {
+                        state.broadcast_to_list(ServerMessage::SessionEnded {
                             session_id: new_thread_id.clone(),
                             reason: "direct_session_thread_claimed".into(),
                         });
@@ -1488,8 +1463,8 @@ async fn handle_client_message(
 
                     let (actor_handle, action_tx) =
                         codex_session.start_event_loop(handle, persist_tx);
-                    state_guard.add_session_actor(actor_handle);
-                    state_guard.set_codex_action_tx(&session_id, action_tx);
+                    state.add_session_actor(actor_handle);
+                    state.set_codex_action_tx(&session_id, action_tx);
                     info!(
                         component = "session",
                         event = "session.resume.connector_started",
@@ -1502,7 +1477,7 @@ async fn handle_client_message(
                 }
                 Err(e) => {
                     // No connector; add as passive actor
-                    state_guard.add_session(handle);
+                    state.add_session(handle);
                     error!(
                         component = "session",
                         event = "session.resume.connector_failed",
@@ -1531,7 +1506,7 @@ async fn handle_client_message(
             .await;
 
             // Broadcast to list subscribers (session reappears in sidebar)
-            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
 
         ClientMessage::ClaudeSessionStart {
@@ -1551,7 +1526,6 @@ async fn handle_client_message(
                 return;
             }
 
-            let mut state = state.lock().await;
             let persist_tx = state.persist().clone();
             let now_secs = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -1650,7 +1624,6 @@ async fn handle_client_message(
         }
 
         ClientMessage::ClaudeSessionEnd { session_id, reason } => {
-            let mut state = state.lock().await;
             let persist_tx = state.persist().clone();
 
             if let Some(existing) = state.get_session(&session_id) {
@@ -1688,7 +1661,6 @@ async fn handle_client_message(
             trigger: _,
             custom_instructions: _,
         } => {
-            let mut state = state.lock().await;
             let persist_tx = state.persist().clone();
             let derived_transcript_path = cwd
                 .as_deref()
@@ -1928,7 +1900,6 @@ async fn handle_client_message(
             error: _,
             is_interrupt: _,
         } => {
-            let mut state = state.lock().await;
             let persist_tx = state.persist().clone();
             let derived_transcript_path = claude_transcript_path_from_cwd(&cwd, &session_id);
 
@@ -2113,14 +2084,12 @@ async fn handle_client_message(
             agent_type,
             agent_transcript_path,
         } => {
-            let state = state.lock().await;
             let persist_tx = state.persist().clone();
             if let Some(existing) = state.get_session(&session_id) {
                 if existing.snapshot().provider == Provider::Codex {
                     return;
                 }
             }
-            drop(state);
 
             match hook_event_name.as_str() {
                 "SubagentStart" => {
@@ -2201,35 +2170,30 @@ async fn handle_client_message(
                 "Fork session requested"
             );
 
-            let state_guard = state.lock().await;
-
             // Verify source session exists and has an active connector
-            let source_action_tx =
-                match state_guard.get_codex_action_tx(&source_session_id).cloned() {
-                    Some(tx) => tx,
-                    None => {
-                        send_json(
-                            client_tx,
-                            ServerMessage::Error {
-                                code: "not_found".into(),
-                                message: format!(
-                                    "Source session {} not found or has no active connector",
-                                    source_session_id
-                                ),
-                                session_id: Some(source_session_id),
-                            },
-                        )
-                        .await;
-                        return;
-                    }
-                };
+            let source_action_tx = match state.get_codex_action_tx(&source_session_id) {
+                Some(tx) => tx,
+                None => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "not_found".into(),
+                            message: format!(
+                                "Source session {} not found or has no active connector",
+                                source_session_id
+                            ),
+                            session_id: Some(source_session_id),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            };
 
             // Get source session's cwd as fallback
-            let source_cwd = state_guard
+            let source_cwd = state
                 .get_session(&source_session_id)
                 .map(|s| s.snapshot().project_path.clone());
-
-            drop(state_guard);
 
             // Send fork action to source session's event loop via oneshot
             let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
@@ -2356,8 +2320,7 @@ async fn handle_client_message(
             let summary = handle.summary();
             let snapshot = handle.state();
 
-            let mut state_guard = state.lock().await;
-            let persist_tx = state_guard.persist().clone();
+            let persist_tx = state.persist().clone();
 
             // Persist new session
             let _ = persist_tx
@@ -2390,11 +2353,11 @@ async fn handle_client_message(
                     thread_id: new_thread_id.clone(),
                 })
                 .await;
-            state_guard.register_codex_thread(&new_id, &new_thread_id);
+            state.register_codex_thread(&new_id, &new_thread_id);
 
             // Clean up any shadow session from rollout watcher
-            if state_guard.remove_session(&new_thread_id).is_some() {
-                state_guard.broadcast_to_list(ServerMessage::SessionEnded {
+            if state.remove_session(&new_thread_id).is_some() {
+                state.broadcast_to_list(ServerMessage::SessionEnded {
                     session_id: new_thread_id.clone(),
                     reason: "direct_session_thread_claimed".into(),
                 });
@@ -2412,8 +2375,8 @@ async fn handle_client_message(
                 connector: new_connector,
             };
             let (actor_handle, action_tx) = codex_session.start_event_loop(handle, persist_tx);
-            state_guard.add_session_actor(actor_handle);
-            state_guard.set_codex_action_tx(&new_id, action_tx);
+            state.add_session_actor(actor_handle);
+            state.set_codex_action_tx(&new_id, action_tx);
 
             // Send snapshot to requester
             send_json(
@@ -2434,7 +2397,7 @@ async fn handle_client_message(
             .await;
 
             // Notify list subscribers
-            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
 
             info!(
                 component = "session",
@@ -2454,8 +2417,6 @@ async fn handle_client_message(
                 session_id = %session_id,
                 "End session requested"
             );
-
-            let mut state = state.lock().await;
 
             let actor = state.get_session(&session_id);
             let is_passive_rollout = if let Some(ref actor) = actor {
@@ -2620,21 +2581,6 @@ fn iso_timestamp(millis: u128) -> String {
 }
 
 #[cfg(test)]
-pub(crate) async fn end_session_for_test(state: &Arc<Mutex<AppState>>, session_id: String) {
-    let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
-    handle_client_message(
-        ClientMessage::EndSession { session_id },
-        &client_tx,
-        state,
-        1,
-    )
-    .await;
-    // Yield so the actor task processes the queued commands
-    tokio::task::yield_now().await;
-    tokio::task::yield_now().await;
-}
-
-#[cfg(test)]
 mod tests {
     use super::{
         claude_transcript_path_from_cwd, handle_client_message, work_status_for_approval_decision,
@@ -2642,12 +2588,12 @@ mod tests {
     };
     use crate::session::SessionHandle;
     use crate::session_naming::name_from_first_prompt;
-    use crate::state::AppState;
+    use crate::state::SessionRegistry;
     use orbitdock_protocol::{
         ClientMessage, CodexIntegrationMode, Provider, ServerMessage, SessionStatus, WorkStatus,
     };
     use std::sync::Arc;
-    use tokio::sync::{mpsc, Mutex};
+    use tokio::sync::mpsc;
 
     #[test]
     fn approval_decisions_that_continue_tooling_stay_working() {
@@ -2710,9 +2656,9 @@ mod tests {
         );
     }
 
-    fn new_test_state() -> Arc<Mutex<AppState>> {
+    fn new_test_state() -> Arc<SessionRegistry> {
         let (persist_tx, _persist_rx) = mpsc::channel(128);
-        Arc::new(Mutex::new(AppState::new(persist_tx)))
+        Arc::new(SessionRegistry::new(persist_tx))
     }
 
     async fn recv_server_message(rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
@@ -2730,14 +2676,13 @@ mod tests {
         let session_id = "passive-end-keep".to_string();
 
         {
-            let mut app = state.lock().await;
             let mut handle = SessionHandle::new(
                 session_id.clone(),
                 Provider::Codex,
                 "/Users/tester/repo".to_string(),
             );
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-            app.add_session(handle);
+            state.add_session(handle);
         }
 
         handle_client_message(
@@ -2753,11 +2698,9 @@ mod tests {
         tokio::task::yield_now().await;
         tokio::task::yield_now().await;
 
-        let actor = {
-            let app = state.lock().await;
-            app.get_session(&session_id)
-        }
-        .expect("passive session should remain in app state");
+        let actor = state
+            .get_session(&session_id)
+            .expect("passive session should remain in app state");
 
         let snap = actor.snapshot();
         assert_eq!(snap.status, SessionStatus::Ended);
@@ -2771,14 +2714,13 @@ mod tests {
         let session_id = "passive-list-detail-consistency".to_string();
 
         {
-            let mut app = state.lock().await;
             let mut handle = SessionHandle::new(
                 session_id.clone(),
                 Provider::Codex,
                 "/Users/tester/repo".to_string(),
             );
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-            app.add_session(handle);
+            state.add_session(handle);
         }
 
         handle_client_message(
@@ -2853,8 +2795,7 @@ mod tests {
         .await;
 
         let actor = {
-            let state_guard = state.lock().await;
-            state_guard
+            state
                 .get_session(&session_id)
                 .expect("session should exist")
         };
@@ -2929,8 +2870,7 @@ mod tests {
         .await;
 
         let actor = {
-            let state_guard = state.lock().await;
-            state_guard
+            state
                 .get_session(&session_id)
                 .expect("session should exist")
         };
@@ -2950,13 +2890,12 @@ mod tests {
         let (action_tx, _action_rx) = mpsc::channel(8);
 
         {
-            let mut app = state.lock().await;
-            app.add_session(SessionHandle::new(
+            state.add_session(SessionHandle::new(
                 session_id.clone(),
                 Provider::Codex,
                 "/Users/tester/repo".to_string(),
             ));
-            app.set_codex_action_tx(&session_id, action_tx);
+            state.set_codex_action_tx(&session_id, action_tx);
         }
 
         handle_client_message(
@@ -2992,8 +2931,7 @@ mod tests {
         .await;
 
         let actor = {
-            let state_guard = state.lock().await;
-            state_guard
+            state
                 .get_session(&session_id)
                 .expect("session should exist")
         };
@@ -3051,8 +2989,7 @@ mod tests {
         .await;
 
         let actor = {
-            let state_guard = state.lock().await;
-            state_guard
+            state
                 .get_session(&session_id)
                 .expect("session should exist")
         };

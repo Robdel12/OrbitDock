@@ -17,7 +17,7 @@ use orbitdock_protocol::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
@@ -25,7 +25,7 @@ use crate::persistence::{is_direct_thread_owned_async, PersistCommand};
 use crate::session::SessionHandle;
 use crate::session_command::SessionCommand;
 use crate::session_naming::name_from_first_prompt;
-use crate::state::AppState;
+use crate::state::SessionRegistry;
 use tokio::sync::oneshot;
 
 const DEBOUNCE_MS: u64 = 150;
@@ -34,7 +34,7 @@ const STARTUP_SEED_RECENT_SECS: u64 = 15 * 60;
 const CATCHUP_SWEEP_SECS: u64 = 3;
 
 pub async fn start_rollout_watcher(
-    app_state: Arc<Mutex<AppState>>,
+    app_state: Arc<SessionRegistry>,
     persist_tx: mpsc::Sender<PersistCommand>,
 ) -> anyhow::Result<()> {
     if std::env::var("ORBITDOCK_DISABLE_CODEX_WATCHER").as_deref() == Ok("1") {
@@ -213,7 +213,7 @@ enum WatcherMessage {
 }
 
 struct WatcherRuntime {
-    app_state: Arc<Mutex<AppState>>,
+    app_state: Arc<SessionRegistry>,
     persist_tx: mpsc::Sender<PersistCommand>,
     tx: mpsc::UnboundedSender<WatcherMessage>,
     state_path: PathBuf,
@@ -345,8 +345,7 @@ impl WatcherRuntime {
             .get(&path_string)
             .and_then(|state| state.session_id.clone());
         let has_runtime_session = if let Some(session_id) = existing_session_id {
-            let state = self.app_state.lock().await;
-            state.get_session(&session_id).is_some()
+            self.app_state.get_session(&session_id).is_some()
         } else {
             false
         };
@@ -471,10 +470,7 @@ impl WatcherRuntime {
             return;
         };
 
-        let is_direct = {
-            let state = self.app_state.lock().await;
-            state.is_managed_codex_thread(&session_id)
-        };
+        let is_direct = self.app_state.is_managed_codex_thread(&session_id);
         let is_direct_in_db = is_direct_thread_owned_async(&session_id)
             .await
             .unwrap_or(false);
@@ -483,12 +479,12 @@ impl WatcherRuntime {
             if let Some(state) = self.file_states.get_mut(path) {
                 state.session_id = Some(session_id.clone());
             }
-            let mut app = self.app_state.lock().await;
-            if app.remove_session(&session_id).is_some() {
-                app.broadcast_to_list(ServerMessage::SessionEnded {
-                    session_id: session_id.clone(),
-                    reason: "direct_session_thread_claimed".into(),
-                });
+            if self.app_state.remove_session(&session_id).is_some() {
+                self.app_state
+                    .broadcast_to_list(ServerMessage::SessionEnded {
+                        session_id: session_id.clone(),
+                        reason: "direct_session_thread_claimed".into(),
+                    });
             }
             if let Some(state) = self.file_states.get_mut(path) {
                 state.session_id = Some(session_id);
@@ -517,10 +513,7 @@ impl WatcherRuntime {
             .map(|s| s.to_string_lossy().to_string());
         let project_name = project_name.or(fallback_name);
 
-        let exists = {
-            let state = self.app_state.lock().await;
-            state.get_session(&session_id).is_some()
-        };
+        let exists = self.app_state.get_session(&session_id).is_some();
 
         if !exists {
             let mut handle = SessionHandle::new(session_id.clone(), Provider::Codex, cwd.clone());
@@ -532,13 +525,10 @@ impl WatcherRuntime {
             handle.set_last_activity_at(Some(current_time_unix_z()));
 
             let summary = handle.summary();
-            let mut app = self.app_state.lock().await;
-            app.add_session(handle);
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
-        } else if let Some(actor) = {
-            let state = self.app_state.lock().await;
-            state.get_session(&session_id)
-        } {
+            self.app_state.add_session(handle);
+            self.app_state
+                .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+        } else if let Some(actor) = self.app_state.get_session(&session_id) {
             let snap = actor.snapshot();
             actor
                 .send(SessionCommand::SetCodexIntegrationMode {
@@ -581,8 +571,8 @@ impl WatcherRuntime {
             let (tx, rx) = oneshot::channel();
             actor.send(SessionCommand::GetSummary { reply: tx }).await;
             if let Ok(summary) = rx.await {
-                let app = self.app_state.lock().await;
-                app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                self.app_state
+                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
         }
 
@@ -671,10 +661,7 @@ impl WatcherRuntime {
             .await;
 
         if project_path_update.is_some() || model_update.is_some() {
-            if let Some(actor) = {
-                let app = self.app_state.lock().await;
-                app.get_session(&session_id)
-            } {
+            if let Some(actor) = self.app_state.get_session(&session_id) {
                 if project_path_update.is_some() {
                     actor
                         .send(SessionCommand::SetLastActivityAt {
@@ -975,11 +962,7 @@ impl WatcherRuntime {
             duration_ms: None,
         };
 
-        let actor = {
-            let app = self.app_state.lock().await;
-            app.get_session(session_id)
-        };
-        let Some(actor) = actor else {
+        let Some(actor) = self.app_state.get_session(session_id) else {
             return;
         };
 
@@ -1002,12 +985,10 @@ impl WatcherRuntime {
         let first_prompt = message.as_deref().and_then(name_from_first_prompt);
 
         if let Some(prompt) = first_prompt.as_ref() {
-            let current_name = {
-                let app = self.app_state.lock().await;
-                app.get_session(session_id)
-                    .map(|actor| actor.snapshot().custom_name.clone())
-                    .flatten()
-            };
+            let current_name = self
+                .app_state
+                .get_session(session_id)
+                .and_then(|actor| actor.snapshot().custom_name.clone());
 
             if current_name.is_none() {
                 self.set_custom_name(session_id, Some(prompt.clone())).await;
@@ -1186,10 +1167,7 @@ impl WatcherRuntime {
             })
             .await;
 
-        if let Some(actor) = {
-            let state = self.app_state.lock().await;
-            state.get_session(session_id)
-        } {
+        if let Some(actor) = self.app_state.get_session(session_id) {
             let (tx, rx) = oneshot::channel();
             actor
                 .send(SessionCommand::SetCustomNameAndNotify {
@@ -1199,8 +1177,8 @@ impl WatcherRuntime {
                 })
                 .await;
             if let Ok(summary) = rx.await {
-                let app = self.app_state.lock().await;
-                app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                self.app_state
+                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
         }
     }
@@ -1253,10 +1231,7 @@ impl WatcherRuntime {
     }
 
     async fn broadcast_session_delta(&mut self, session_id: &str, changes: StateChanges) {
-        if let Some(actor) = {
-            let state = self.app_state.lock().await;
-            state.get_session(session_id)
-        } {
+        if let Some(actor) = self.app_state.get_session(session_id) {
             let was_ended = actor.snapshot().status == SessionStatus::Ended;
 
             // Ensure status is Active (merge into changes) for reactivation
@@ -1288,8 +1263,8 @@ impl WatcherRuntime {
             let (tx, rx) = oneshot::channel();
             actor.send(SessionCommand::GetSummary { reply: tx }).await;
             if let Ok(summary) = rx.await {
-                let app = self.app_state.lock().await;
-                app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                self.app_state
+                    .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
         }
     }
@@ -1302,12 +1277,10 @@ impl WatcherRuntime {
     }
 
     async fn should_backfill_name_from_history(&self, session_id: &str) -> bool {
-        let current_name = {
-            let app = self.app_state.lock().await;
-            app.get_session(session_id)
-                .map(|actor| actor.snapshot().custom_name.clone())
-                .flatten()
-        };
+        let current_name = self
+            .app_state
+            .get_session(session_id)
+            .and_then(|actor| actor.snapshot().custom_name.clone());
 
         current_name.is_none()
     }
@@ -1330,12 +1303,11 @@ impl WatcherRuntime {
     async fn handle_session_timeout(&mut self, session_id: String) {
         self.session_timeouts.remove(&session_id);
 
-        let is_active = {
-            let app = self.app_state.lock().await;
-            app.get_session(&session_id)
-                .map(|actor| actor.snapshot().status == SessionStatus::Active)
-                .unwrap_or(false)
-        };
+        let is_active = self
+            .app_state
+            .get_session(&session_id)
+            .map(|actor| actor.snapshot().status == SessionStatus::Active)
+            .unwrap_or(false);
 
         if !is_active {
             return;
@@ -1349,18 +1321,15 @@ impl WatcherRuntime {
             })
             .await;
 
-        if let Some(actor) = {
-            let app = self.app_state.lock().await;
-            app.get_session(&session_id)
-        } {
+        if let Some(actor) = self.app_state.get_session(&session_id) {
             actor.send(SessionCommand::EndLocally).await;
         }
 
-        let app = self.app_state.lock().await;
-        app.broadcast_to_list(ServerMessage::SessionEnded {
-            session_id,
-            reason: "timeout".to_string(),
-        });
+        self.app_state
+            .broadcast_to_list(ServerMessage::SessionEnded {
+                session_id,
+                reason: "timeout".to_string(),
+            });
     }
 
     fn ensure_file_state(&mut self, path: &str, size: u64, created_at: Option<SystemTime>) {
@@ -1744,7 +1713,6 @@ fn tool_label(raw: Option<&str>) -> Option<String> {
 mod tests {
     use super::*;
     use crate::persistence::flush_batch_for_test;
-    use crate::websocket::end_session_for_test;
     use rusqlite::{params, Connection};
     use serde_json::json;
     use std::collections::HashMap;
@@ -1752,7 +1720,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
-    use tokio::sync::{mpsc, Mutex};
+    use tokio::sync::mpsc;
     use tokio::time::timeout;
 
     #[test]
@@ -1829,7 +1797,7 @@ mod tests {
         .expect("write rollout seed");
 
         let (persist_tx, _persist_rx) = mpsc::channel(128);
-        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
         let mut runtime = WatcherRuntime {
             app_state: app_state.clone(),
@@ -1849,8 +1817,7 @@ mod tests {
             .expect("seed session meta");
 
         let snapshot = {
-            let app = app_state.lock().await;
-            let actor = app.get_session(&session_id).expect("session exists");
+            let actor = app_state.get_session(&session_id).expect("session exists");
             actor.snapshot()
         };
 
@@ -1884,15 +1851,14 @@ mod tests {
             .len();
 
         let (persist_tx, _persist_rx) = mpsc::channel(128);
-        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         {
-            let mut app = app_state.lock().await;
             let mut handle =
                 SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_status(SessionStatus::Ended);
             handle.set_work_status(WorkStatus::Ended);
-            app.add_session(handle);
+            app_state.add_session(handle);
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
@@ -1937,8 +1903,7 @@ mod tests {
             .expect("process rollout");
 
         let snapshot = {
-            let app = app_state.lock().await;
-            let actor = app.get_session(&session_id).expect("session exists");
+            let actor = app_state.get_session(&session_id).expect("session exists");
             actor.snapshot()
         };
         assert_eq!(snapshot.status, SessionStatus::Active);
@@ -2048,16 +2013,15 @@ mod tests {
         .expect("seed ended passive session");
 
         let (persist_tx, mut persist_rx) = mpsc::channel(128);
-        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         {
-            let mut app = app_state.lock().await;
             let mut handle =
                 SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
             handle.set_status(SessionStatus::Ended);
             handle.set_work_status(WorkStatus::Ended);
-            app.add_session(handle);
+            app_state.add_session(handle);
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
@@ -2108,8 +2072,7 @@ mod tests {
         flush_batch_for_test(&db_path, persist_batch).expect("flush watcher updates");
 
         let snapshot = {
-            let app = app_state.lock().await;
-            let actor = app.get_session(&session_id).expect("session exists");
+            let actor = app_state.get_session(&session_id).expect("session exists");
             actor.snapshot()
         };
         assert_eq!(snapshot.status, SessionStatus::Active);
@@ -2158,20 +2121,24 @@ mod tests {
             .len();
 
         let (persist_tx, _persist_rx) = mpsc::channel(128);
-        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         {
-            let mut app = app_state.lock().await;
             let mut handle =
                 SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
-            app.add_session(handle);
+            app_state.add_session(handle);
         }
 
-        end_session_for_test(&app_state, session_id.clone()).await;
+        // End the session directly via actor command
+        {
+            let actor = app_state.get_session(&session_id).expect("session exists");
+            actor.send(SessionCommand::EndLocally).await;
+            tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+        }
         let ended_snapshot = {
-            let app = app_state.lock().await;
-            let actor = app.get_session(&session_id).expect("session exists");
+            let actor = app_state.get_session(&session_id).expect("session exists");
             actor.snapshot()
         };
         assert_eq!(ended_snapshot.status, SessionStatus::Ended);
@@ -2227,8 +2194,7 @@ mod tests {
         }
 
         let reactivated_snapshot = {
-            let app = app_state.lock().await;
-            let actor = app.get_session(&session_id).expect("session exists");
+            let actor = app_state.get_session(&session_id).expect("session exists");
             actor.snapshot()
         };
         assert_eq!(reactivated_snapshot.status, SessionStatus::Active);
@@ -2263,10 +2229,8 @@ mod tests {
             .len();
 
         let (persist_tx, _persist_rx) = mpsc::channel(128);
-        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         {
-            let mut app = app_state.lock().await;
-
             let mut stale_handle = SessionHandle::new(
                 stale_session_id.clone(),
                 Provider::Codex,
@@ -2275,7 +2239,7 @@ mod tests {
             stale_handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             stale_handle.set_status(SessionStatus::Ended);
             stale_handle.set_work_status(WorkStatus::Ended);
-            app.add_session(stale_handle);
+            app_state.add_session(stale_handle);
 
             let mut actual_handle = SessionHandle::new(
                 actual_session_id.clone(),
@@ -2286,7 +2250,7 @@ mod tests {
             actual_handle.set_status(SessionStatus::Ended);
             actual_handle.set_work_status(WorkStatus::Ended);
             actual_handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
-            app.add_session(actual_handle);
+            app_state.add_session(actual_handle);
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
@@ -2331,12 +2295,11 @@ mod tests {
             .expect("process rollout");
 
         let (actual_snapshot, stale_snapshot) = {
-            let app = app_state.lock().await;
-            let actual = app
+            let actual = app_state
                 .get_session(&actual_session_id)
                 .expect("actual session exists")
                 .snapshot();
-            let stale = app
+            let stale = app_state
                 .get_session(&stale_session_id)
                 .expect("stale session exists")
                 .snapshot();
@@ -2372,16 +2335,15 @@ mod tests {
             .len();
 
         let (persist_tx, _persist_rx) = mpsc::channel(128);
-        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         {
-            let mut app = app_state.lock().await;
             let mut handle =
                 SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
             handle.set_status(SessionStatus::Ended);
             handle.set_work_status(WorkStatus::Ended);
-            app.add_session(handle);
+            app_state.add_session(handle);
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
@@ -2423,8 +2385,7 @@ mod tests {
         runtime.sweep_files().await.expect("run catchup sweep");
 
         let snapshot = {
-            let app = app_state.lock().await;
-            let actor = app.get_session(&session_id).expect("session exists");
+            let actor = app_state.get_session(&session_id).expect("session exists");
             actor.snapshot()
         };
         assert_eq!(snapshot.status, SessionStatus::Active);
@@ -2454,14 +2415,13 @@ mod tests {
             .len();
 
         let (persist_tx, _persist_rx) = mpsc::channel(128);
-        let app_state = Arc::new(Mutex::new(AppState::new(persist_tx.clone())));
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         {
-            let mut app = app_state.lock().await;
             let mut handle =
                 SessionHandle::new(session_id.clone(), Provider::Codex, "/tmp/repo".to_string());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
             handle.set_transcript_path(Some(rollout_path.to_string_lossy().to_string()));
-            app.add_session(handle);
+            app_state.add_session(handle);
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
@@ -2506,8 +2466,7 @@ mod tests {
             .expect("process rollout");
 
         let state = {
-            let app = app_state.lock().await;
-            let actor = app.get_session(&session_id).expect("session exists");
+            let actor = app_state.get_session(&session_id).expect("session exists");
             let (tx, rx) = tokio::sync::oneshot::channel();
             actor.send(SessionCommand::GetState { reply: tx }).await;
             rx.await.expect("get state")

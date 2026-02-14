@@ -31,3 +31,4 @@ futures = { workspace = true }
 bytes = { workspace = true }
 notify = { workspace = true }
 arc-swap = { workspace = true }
+dashmap = { workspace = true }

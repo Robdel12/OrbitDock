@@ -177,7 +177,7 @@ mod tests {
         let result = rx.await.unwrap();
         match result {
             crate::session_command::SubscribeResult::Snapshot { state, .. } => {
-                assert_eq!(state.id, "test-session");
+                assert_eq!(state.as_ref().id, "test-session");
             }
             crate::session_command::SubscribeResult::Replay { .. } => {
                 panic!("expected snapshot, got replay")

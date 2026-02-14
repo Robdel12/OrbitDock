@@ -848,7 +848,7 @@ impl CodexConnector {
                     .map(|(k, t)| {
                         let v = serde_json::to_value(&t).unwrap_or_default();
                         let mapped: orbitdock_protocol::McpTool = serde_json::from_value(v)
-                            .unwrap_or_else(|_| orbitdock_protocol::McpTool {
+                            .unwrap_or(orbitdock_protocol::McpTool {
                                 name: t.name,
                                 title: t.title,
                                 description: t.description,
