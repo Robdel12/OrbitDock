@@ -619,9 +619,16 @@ pub fn transition(
             state.current_diff = Some(diff.clone());
 
             effects.push(Effect::Persist(Box::new(PersistOp::TurnStateUpdate {
-                session_id: sid,
-                diff: Some(diff),
+                session_id: sid.clone(),
+                diff: Some(diff.clone()),
                 plan: None,
+            })));
+            effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+                session_id: sid,
+                changes: StateChanges {
+                    current_diff: Some(Some(diff)),
+                    ..Default::default()
+                },
             })));
         }
 
@@ -629,9 +636,16 @@ pub fn transition(
             state.current_plan = Some(plan.clone());
 
             effects.push(Effect::Persist(Box::new(PersistOp::TurnStateUpdate {
-                session_id: sid,
+                session_id: sid.clone(),
                 diff: None,
-                plan: Some(plan),
+                plan: Some(plan.clone()),
+            })));
+            effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+                session_id: sid,
+                changes: StateChanges {
+                    current_plan: Some(Some(plan)),
+                    ..Default::default()
+                },
             })));
         }
 

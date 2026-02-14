@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
   @Environment(ServerAppState.self) private var serverState
+  @Environment(AttentionService.self) private var attentionService
   @State private var sessions: [Session] = []
   @State private var selectedSessionId: String?
   @StateObject private var toastManager = ToastManager.shared
@@ -274,11 +275,15 @@ struct ContentView: View {
 
     // Check for in-app toast notifications
     toastManager.checkForAttentionChanges(sessions: sessions, previousSessions: oldSessions)
+
+    // Update attention service for cross-session urgency strip
+    attentionService.update(sessions: sessions, sessionObservable: serverState.session)
   }
 }
 
 #Preview {
   ContentView()
     .environment(ServerAppState())
+    .environment(AttentionService())
     .frame(width: 1_000, height: 700)
 }

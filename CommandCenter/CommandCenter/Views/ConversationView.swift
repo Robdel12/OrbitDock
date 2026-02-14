@@ -1343,7 +1343,7 @@ struct ActivityBanner: View {
           let data = inputJson.data(using: .utf8),
           let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     else {
-      return (toolIconFor(toolName), "Accept or reject in terminal")
+      return (ToolCardStyle.icon(for: toolName), "Accept or reject in terminal")
     }
 
     switch toolName {
@@ -1382,21 +1382,7 @@ struct ActivityBanner: View {
         break
     }
 
-    return (toolIconFor(toolName), "Accept or reject in terminal")
-  }
-
-  private func toolIconFor(_ tool: String) -> String {
-    switch tool {
-      case "Bash": "terminal.fill"
-      case "Edit": "pencil"
-      case "Write": "doc.badge.plus"
-      case "Read": "doc.text"
-      case "WebFetch": "globe"
-      case "WebSearch": "magnifyingglass"
-      case "Glob", "Grep": "magnifyingglass.circle"
-      case "Task": "person.2.fill"
-      default: "gearshape"
-    }
+    return (ToolCardStyle.icon(for: toolName), "Accept or reject in terminal")
   }
 
   var body: some View {

@@ -28,6 +28,14 @@ final class SessionObservable {
   var autonomy: AutonomyLevel = .suggest
   var skills: [ServerSkillMetadata] = []
 
+  // Turn tracking
+  var currentTurnId: String? = nil
+  var turnCount: UInt64 = 0
+  var turnDiffs: [ServerTurnDiff] = []
+
+  // Review comments
+  var reviewComments: [ServerReviewComment] = []
+
   // Operation flags
   var undoInProgress: Bool = false
   var forkInProgress: Bool = false
@@ -72,5 +80,6 @@ final class SessionObservable {
     skills = []
     diff = nil
     plan = nil
+    currentTurnId = nil
   }
 }

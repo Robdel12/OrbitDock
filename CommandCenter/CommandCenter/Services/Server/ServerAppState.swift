@@ -196,6 +196,36 @@ final class ServerAppState {
       }
     }
 
+    conn.onTurnDiffSnapshot = { [weak self] sessionId, turnId, diff in
+      Task { @MainActor in
+        self?.handleTurnDiffSnapshot(sessionId, turnId: turnId, diff: diff)
+      }
+    }
+
+    conn.onReviewCommentCreated = { [weak self] sessionId, comment in
+      Task { @MainActor in
+        self?.handleReviewCommentCreated(sessionId, comment: comment)
+      }
+    }
+
+    conn.onReviewCommentUpdated = { [weak self] sessionId, comment in
+      Task { @MainActor in
+        self?.handleReviewCommentUpdated(sessionId, comment: comment)
+      }
+    }
+
+    conn.onReviewCommentDeleted = { [weak self] sessionId, commentId in
+      Task { @MainActor in
+        self?.handleReviewCommentDeleted(sessionId, commentId: commentId)
+      }
+    }
+
+    conn.onReviewCommentsList = { [weak self] sessionId, comments in
+      Task { @MainActor in
+        self?.session(sessionId).reviewComments = comments
+      }
+    }
+
     conn.onContextCompacted = { sessionId in
       Task { @MainActor in
         logger.info("Context compacted for \(sessionId)")
@@ -554,6 +584,11 @@ final class ServerAppState {
     if let sourceId = state.forkedFromSessionId {
       obs.forkedFrom = sourceId
     }
+
+    // Turn tracking
+    obs.currentTurnId = state.currentTurnId
+    obs.turnCount = state.turnCount
+    obs.turnDiffs = state.turnDiffs
   }
 
   private func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -641,6 +676,16 @@ final class ServerAppState {
       let approval = approvalPolicies[sessionId]
       let sandbox = sandboxModes[sessionId]
       obs.autonomy = AutonomyLevel.from(approvalPolicy: approval, sandboxMode: sandbox)
+    }
+    if let turnIdOuter = changes.currentTurnId {
+      if let turnId = turnIdOuter {
+        obs.currentTurnId = turnId
+      } else {
+        obs.currentTurnId = nil
+      }
+    }
+    if let count = changes.turnCount {
+      obs.turnCount = count
     }
     if let lastActivity = changes.lastActivityAt {
       let stripped = lastActivity.hasSuffix("Z") ? String(lastActivity.dropLast()) : lastActivity
@@ -907,6 +952,65 @@ final class ServerAppState {
       subscribedSessions.remove(sid)
       subscribeToSession(sid)
     }
+  }
+
+  // MARK: - Turn Diff Handlers
+
+  private func handleTurnDiffSnapshot(_ sessionId: String, turnId: String, diff: String) {
+    logger.debug("Turn diff snapshot for \(sessionId), turn \(turnId)")
+    let obs = session(sessionId)
+    let newDiff = ServerTurnDiff(turnId: turnId, diff: diff)
+    if let idx = obs.turnDiffs.firstIndex(where: { $0.turnId == turnId }) {
+      obs.turnDiffs[idx] = newDiff
+    } else {
+      obs.turnDiffs.append(newDiff)
+    }
+  }
+
+  // MARK: - Review Comment Handlers
+
+  private func handleReviewCommentCreated(_ sessionId: String, comment: ServerReviewComment) {
+    logger.debug("Review comment created in \(sessionId): \(comment.id)")
+    let obs = session(sessionId)
+    if !obs.reviewComments.contains(where: { $0.id == comment.id }) {
+      obs.reviewComments.append(comment)
+    }
+  }
+
+  private func handleReviewCommentUpdated(_ sessionId: String, comment: ServerReviewComment) {
+    logger.debug("Review comment updated in \(sessionId): \(comment.id)")
+    let obs = session(sessionId)
+    if let idx = obs.reviewComments.firstIndex(where: { $0.id == comment.id }) {
+      obs.reviewComments[idx] = comment
+    } else {
+      obs.reviewComments.append(comment)
+    }
+  }
+
+  private func handleReviewCommentDeleted(_ sessionId: String, commentId: String) {
+    logger.debug("Review comment deleted in \(sessionId): \(commentId)")
+    session(sessionId).reviewComments.removeAll { $0.id == commentId }
+  }
+
+  // MARK: - Review Comment Actions
+
+  func createReviewComment(sessionId: String, turnId: String?, filePath: String, lineStart: UInt32, lineEnd: UInt32?, body: String, tag: ServerReviewCommentTag?) {
+    logger.info("Creating review comment in \(sessionId)")
+    ServerConnection.shared.createReviewComment(sessionId: sessionId, turnId: turnId, filePath: filePath, lineStart: lineStart, lineEnd: lineEnd, body: body, tag: tag)
+  }
+
+  func updateReviewComment(commentId: String, body: String?, tag: ServerReviewCommentTag?, status: ServerReviewCommentStatus?) {
+    logger.info("Updating review comment \(commentId)")
+    ServerConnection.shared.updateReviewComment(commentId: commentId, body: body, tag: tag, status: status)
+  }
+
+  func deleteReviewComment(commentId: String) {
+    logger.info("Deleting review comment \(commentId)")
+    ServerConnection.shared.deleteReviewComment(commentId: commentId)
+  }
+
+  func listReviewComments(sessionId: String, turnId: String? = nil) {
+    ServerConnection.shared.listReviewComments(sessionId: sessionId, turnId: turnId)
   }
 
   // MARK: - Helpers

@@ -708,7 +708,7 @@ struct QuickSwitcher: View {
           .transition(.opacity.combined(with: .scale(scale: 0.9)))
         } else {
           // Provider + Model badge (shown when not highlighted)
-          ModelBadgeMini(model: session.model, provider: session.provider)
+          UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
         }
       }
       .padding(.horizontal, 16)
@@ -917,29 +917,13 @@ struct QuickSwitcher: View {
         return "questionmark.bubble"
       case .working:
         if let tool = session.lastTool {
-          return toolIcon(for: tool)
+          return ToolCardStyle.icon(for: tool)
         }
         return "bolt.fill"
       case .reply:
         return "checkmark.circle"
       case .ended:
         return "moon.fill"
-    }
-  }
-
-  private func toolIcon(for tool: String) -> String {
-    switch tool.lowercased() {
-      case "read": "doc.text"
-      case "edit": "pencil"
-      case "write": "square.and.pencil"
-      case "bash": "terminal"
-      case "glob": "folder.badge.gearshape"
-      case "grep": "magnifyingglass"
-      case "task": "person.2"
-      case "webfetch": "globe"
-      case "websearch": "magnifyingglass.circle"
-      case "skill": "sparkles"
-      default: "gearshape"
     }
   }
 }

@@ -12,12 +12,14 @@ import UserNotifications
 struct OrbitDockApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   @State private var serverAppState = ServerAppState()
+  @State private var attentionService = AttentionService()
 
   var body: some Scene {
     // Main window
     WindowGroup {
       ContentView()
         .environment(serverAppState)
+        .environment(attentionService)
         .preferredColorScheme(.dark)
         .task {
           // Wire up server state after connection is established
@@ -39,6 +41,7 @@ struct OrbitDockApp: App {
     MenuBarExtra {
       MenuBarView()
         .environment(serverAppState)
+        .environment(attentionService)
     } label: {
       Image(systemName: "terminal.fill")
         .symbolRenderingMode(.monochrome)

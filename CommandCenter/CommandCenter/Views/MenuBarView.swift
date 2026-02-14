@@ -199,7 +199,7 @@ struct MenuBarSessionRow: View {
 
       Spacer(minLength: 4)
 
-      ModelBadge(model: session.model, provider: session.provider)
+      UnifiedModelBadge(model: session.model, provider: session.provider)
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 6)

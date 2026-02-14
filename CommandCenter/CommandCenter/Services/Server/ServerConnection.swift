@@ -63,6 +63,11 @@ final class ServerConnection: ObservableObject {
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
   var onThreadRolledBack: ((String, UInt32) -> Void)?
   var onSessionForked: ((String, String, String?) -> Void)?  // sourceSessionId, newSessionId, forkedFromThreadId
+  var onTurnDiffSnapshot: ((String, String, String) -> Void)?  // sessionId, turnId, diff
+  var onReviewCommentCreated: ((String, ServerReviewComment) -> Void)?
+  var onReviewCommentUpdated: ((String, ServerReviewComment) -> Void)?
+  var onReviewCommentDeleted: ((String, String) -> Void)?  // sessionId, commentId
+  var onReviewCommentsList: ((String, [ServerReviewComment]) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
@@ -314,6 +319,21 @@ final class ServerConnection: ObservableObject {
       case let .sessionForked(sourceSessionId, newSessionId, forkedFromThreadId):
         onSessionForked?(sourceSessionId, newSessionId, forkedFromThreadId)
 
+      case let .turnDiffSnapshot(sessionId, turnId, diff):
+        onTurnDiffSnapshot?(sessionId, turnId, diff)
+
+      case let .reviewCommentCreated(sessionId, comment):
+        onReviewCommentCreated?(sessionId, comment)
+
+      case let .reviewCommentUpdated(sessionId, comment):
+        onReviewCommentUpdated?(sessionId, comment)
+
+      case let .reviewCommentDeleted(sessionId, commentId):
+        onReviewCommentDeleted?(sessionId, commentId)
+
+      case let .reviewCommentsList(sessionId, comments):
+        onReviewCommentsList?(sessionId, comments)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
         onError?(code, errorMessage, sessionId)
@@ -476,6 +496,26 @@ final class ServerConnection: ObservableObject {
   /// Roll back N turns from context (does NOT revert filesystem changes)
   func rollbackTurns(sessionId: String, numTurns: UInt32) {
     send(.rollbackTurns(sessionId: sessionId, numTurns: numTurns))
+  }
+
+  /// Create a review comment
+  func createReviewComment(sessionId: String, turnId: String?, filePath: String, lineStart: UInt32, lineEnd: UInt32?, body: String, tag: ServerReviewCommentTag?) {
+    send(.createReviewComment(sessionId: sessionId, turnId: turnId, filePath: filePath, lineStart: lineStart, lineEnd: lineEnd, body: body, tag: tag))
+  }
+
+  /// Update a review comment
+  func updateReviewComment(commentId: String, body: String?, tag: ServerReviewCommentTag?, status: ServerReviewCommentStatus?) {
+    send(.updateReviewComment(commentId: commentId, body: body, tag: tag, status: status))
+  }
+
+  /// Delete a review comment
+  func deleteReviewComment(commentId: String) {
+    send(.deleteReviewComment(commentId: commentId))
+  }
+
+  /// List review comments for a session
+  func listReviewComments(sessionId: String, turnId: String? = nil) {
+    send(.listReviewComments(sessionId: sessionId, turnId: turnId))
   }
 
   /// Fork a session (creates a new session with conversation history)

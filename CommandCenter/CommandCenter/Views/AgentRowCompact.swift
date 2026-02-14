@@ -38,7 +38,7 @@ struct AgentRowCompact: View {
             Spacer()
 
             // Provider + Model badge
-            ModelBadgeMini(model: session.model, provider: session.provider)
+            UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
           }
 
           HStack(spacing: 6) {
@@ -128,50 +128,6 @@ struct AgentRowCompact: View {
   }
 }
 
-// MARK: - Mini Model Badge
-
-struct ModelBadgeMini: View {
-  let model: String?
-  let provider: Provider
-
-  private var displayModel: String {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
-    // Claude
-    if model.contains("opus") { return "Opus" }
-    if model.contains("sonnet") { return "Sonnet" }
-    if model.contains("haiku") { return "Haiku" }
-    // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
-    if model.hasPrefix("gpt-") {
-      let version = model.dropFirst(4).split(separator: "-").first ?? ""
-      return "GPT-\(version)"
-    }
-    if model == "openai" { return "OpenAI" }
-    return provider.displayName
-  }
-
-  private var modelColor: Color {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.accentColor }
-    // Claude-specific model colors
-    if model.contains("opus") { return .modelOpus }
-    if model.contains("sonnet") { return .modelSonnet }
-    if model.contains("haiku") { return .modelHaiku }
-    // For other providers, use their accent color
-    return provider.accentColor
-  }
-
-  var body: some View {
-    HStack(spacing: 3) {
-      Image(systemName: provider.icon)
-        .font(.system(size: 8, weight: .bold))
-      Text(displayModel)
-        .font(.system(size: 9, weight: .semibold))
-    }
-    .foregroundStyle(modelColor)
-    .padding(.horizontal, 6)
-    .padding(.vertical, 3)
-    .background(modelColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-  }
-}
 
 // MARK: - Preview
 

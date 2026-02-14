@@ -128,7 +128,7 @@ struct CodexApprovalView: View {
     VStack(alignment: .leading, spacing: 8) {
       // Tool badge
       HStack(spacing: 6) {
-        Image(systemName: toolIcon(for: toolName))
+        Image(systemName: ToolCardStyle.icon(for: toolName))
           .font(.caption)
         Text(toolName)
           .font(.caption.bold())
@@ -199,16 +199,6 @@ struct CodexApprovalView: View {
             .background(Color.backgroundPrimary)
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
-    }
-  }
-
-  private func toolIcon(for toolName: String) -> String {
-    switch toolName {
-      case "Shell", "Bash": "terminal"
-      case "Edit": "pencil"
-      case "Write": "doc.badge.plus"
-      case "Read": "doc.text"
-      default: "wrench"
     }
   }
 

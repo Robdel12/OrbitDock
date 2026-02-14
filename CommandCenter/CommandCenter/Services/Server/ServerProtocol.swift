@@ -206,6 +206,60 @@ struct ServerSessionSummary: Codable, Identifiable {
   }
 }
 
+// MARK: - Turn Diffs
+
+struct ServerTurnDiff: Codable {
+  let turnId: String
+  let diff: String
+
+  enum CodingKeys: String, CodingKey {
+    case turnId = "turn_id"
+    case diff
+  }
+}
+
+// MARK: - Review Comments
+
+enum ServerReviewCommentTag: String, Codable {
+  case clarity
+  case scope
+  case risk
+  case nit
+}
+
+enum ServerReviewCommentStatus: String, Codable {
+  case open
+  case resolved
+}
+
+struct ServerReviewComment: Codable, Identifiable {
+  let id: String
+  let sessionId: String
+  let turnId: String?
+  let filePath: String
+  let lineStart: UInt32
+  let lineEnd: UInt32?
+  let body: String
+  let tag: ServerReviewCommentTag?
+  let status: ServerReviewCommentStatus
+  let createdAt: String
+  let updatedAt: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case sessionId = "session_id"
+    case turnId = "turn_id"
+    case filePath = "file_path"
+    case lineStart = "line_start"
+    case lineEnd = "line_end"
+    case body
+    case tag
+    case status
+    case createdAt = "created_at"
+    case updatedAt = "updated_at"
+  }
+}
+
 // MARK: - Session State
 
 struct ServerSessionState: Codable, Identifiable {
@@ -230,6 +284,9 @@ struct ServerSessionState: Codable, Identifiable {
   let lastActivityAt: String?
   let forkedFromSessionId: String?
   let revision: UInt64?
+  let currentTurnId: String?
+  let turnCount: UInt64
+  let turnDiffs: [ServerTurnDiff]
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -253,6 +310,37 @@ struct ServerSessionState: Codable, Identifiable {
     case lastActivityAt = "last_activity_at"
     case forkedFromSessionId = "forked_from_session_id"
     case revision
+    case currentTurnId = "current_turn_id"
+    case turnCount = "turn_count"
+    case turnDiffs = "turn_diffs"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    provider = try container.decode(ServerProvider.self, forKey: .provider)
+    projectPath = try container.decode(String.self, forKey: .projectPath)
+    transcriptPath = try container.decodeIfPresent(String.self, forKey: .transcriptPath)
+    projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
+    model = try container.decodeIfPresent(String.self, forKey: .model)
+    customName = try container.decodeIfPresent(String.self, forKey: .customName)
+    status = try container.decode(ServerSessionStatus.self, forKey: .status)
+    workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
+    messages = try container.decode([ServerMessage].self, forKey: .messages)
+    pendingApproval = try container.decodeIfPresent(ServerApprovalRequest.self, forKey: .pendingApproval)
+    tokenUsage = try container.decode(ServerTokenUsage.self, forKey: .tokenUsage)
+    currentDiff = try container.decodeIfPresent(String.self, forKey: .currentDiff)
+    currentPlan = try container.decodeIfPresent(String.self, forKey: .currentPlan)
+    codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
+    approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
+    sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
+    startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
+    lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
+    forkedFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkedFromSessionId)
+    revision = try container.decodeIfPresent(UInt64.self, forKey: .revision)
+    currentTurnId = try container.decodeIfPresent(String.self, forKey: .currentTurnId)
+    turnCount = try container.decodeIfPresent(UInt64.self, forKey: .turnCount) ?? 0
+    turnDiffs = try container.decodeIfPresent([ServerTurnDiff].self, forKey: .turnDiffs) ?? []
   }
 }
 
@@ -270,6 +358,8 @@ struct ServerStateChanges: Codable {
   let approvalPolicy: String??
   let sandboxMode: String??
   let lastActivityAt: String?
+  let currentTurnId: String??
+  let turnCount: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -283,6 +373,8 @@ struct ServerStateChanges: Codable {
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case lastActivityAt = "last_activity_at"
+    case currentTurnId = "current_turn_id"
+    case turnCount = "turn_count"
   }
 }
 
@@ -568,6 +660,11 @@ enum ServerToClientMessage: Codable {
   case undoCompleted(sessionId: String, success: Bool, message: String?)
   case threadRolledBack(sessionId: String, numTurns: UInt32)
   case sessionForked(sourceSessionId: String, newSessionId: String, forkedFromThreadId: String?)
+  case turnDiffSnapshot(sessionId: String, turnId: String, diff: String)
+  case reviewCommentCreated(sessionId: String, comment: ServerReviewComment)
+  case reviewCommentUpdated(sessionId: String, comment: ServerReviewComment)
+  case reviewCommentDeleted(sessionId: String, commentId: String)
+  case reviewCommentsList(sessionId: String, comments: [ServerReviewComment])
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -604,6 +701,11 @@ enum ServerToClientMessage: Codable {
     case sourceSessionId = "source_session_id"
     case newSessionId = "new_session_id"
     case forkedFromThreadId = "forked_from_thread_id"
+    case turnId = "turn_id"
+    case diff
+    case comment
+    case commentId = "comment_id"
+    case comments
   }
 
   init(from decoder: Decoder) throws {
@@ -735,6 +837,32 @@ enum ServerToClientMessage: Codable {
         let newSessionId = try container.decode(String.self, forKey: .newSessionId)
         let forkedFromThreadId = try container.decodeIfPresent(String.self, forKey: .forkedFromThreadId)
         self = .sessionForked(sourceSessionId: sourceSessionId, newSessionId: newSessionId, forkedFromThreadId: forkedFromThreadId)
+
+      case "turn_diff_snapshot":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let turnId = try container.decode(String.self, forKey: .turnId)
+        let diff = try container.decode(String.self, forKey: .diff)
+        self = .turnDiffSnapshot(sessionId: sessionId, turnId: turnId, diff: diff)
+
+      case "review_comment_created":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let comment = try container.decode(ServerReviewComment.self, forKey: .comment)
+        self = .reviewCommentCreated(sessionId: sessionId, comment: comment)
+
+      case "review_comment_updated":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let comment = try container.decode(ServerReviewComment.self, forKey: .comment)
+        self = .reviewCommentUpdated(sessionId: sessionId, comment: comment)
+
+      case "review_comment_deleted":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let commentId = try container.decode(String.self, forKey: .commentId)
+        self = .reviewCommentDeleted(sessionId: sessionId, commentId: commentId)
+
+      case "review_comments_list":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let comments = try container.decode([ServerReviewComment].self, forKey: .comments)
+        self = .reviewCommentsList(sessionId: sessionId, comments: comments)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -881,6 +1009,32 @@ enum ServerToClientMessage: Codable {
         try container.encode(newSessionId, forKey: .newSessionId)
         try container.encodeIfPresent(forkedFromThreadId, forKey: .forkedFromThreadId)
 
+      case let .turnDiffSnapshot(sessionId, turnId, diff):
+        try container.encode("turn_diff_snapshot", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(turnId, forKey: .turnId)
+        try container.encode(diff, forKey: .diff)
+
+      case let .reviewCommentCreated(sessionId, comment):
+        try container.encode("review_comment_created", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(comment, forKey: .comment)
+
+      case let .reviewCommentUpdated(sessionId, comment):
+        try container.encode("review_comment_updated", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(comment, forKey: .comment)
+
+      case let .reviewCommentDeleted(sessionId, commentId):
+        try container.encode("review_comment_deleted", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(commentId, forKey: .commentId)
+
+      case let .reviewCommentsList(sessionId, comments):
+        try container.encode("review_comments_list", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(comments, forKey: .comments)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -931,6 +1085,10 @@ enum ClientToServerMessage: Codable {
     sandboxMode: String? = nil,
     cwd: String? = nil
   )
+  case createReviewComment(sessionId: String, turnId: String?, filePath: String, lineStart: UInt32, lineEnd: UInt32?, body: String, tag: ServerReviewCommentTag?)
+  case updateReviewComment(commentId: String, body: String?, tag: ServerReviewCommentTag?, status: ServerReviewCommentStatus?)
+  case deleteReviewComment(commentId: String)
+  case listReviewComments(sessionId: String, turnId: String? = nil)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -958,6 +1116,14 @@ enum ClientToServerMessage: Codable {
     case numTurns = "num_turns"
     case nthUserMessage = "nth_user_message"
     case sinceRevision = "since_revision"
+    case turnId = "turn_id"
+    case filePath = "file_path"
+    case lineStart = "line_start"
+    case lineEnd = "line_end"
+    case body
+    case tag
+    case commentId = "comment_id"
+    case status
   }
 
   func encode(to encoder: Encoder) throws {
@@ -1100,6 +1266,32 @@ enum ClientToServerMessage: Codable {
         try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
         try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
         try container.encodeIfPresent(cwd, forKey: .cwd)
+
+      case let .createReviewComment(sessionId, turnId, filePath, lineStart, lineEnd, body, tag):
+        try container.encode("create_review_comment", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(turnId, forKey: .turnId)
+        try container.encode(filePath, forKey: .filePath)
+        try container.encode(lineStart, forKey: .lineStart)
+        try container.encodeIfPresent(lineEnd, forKey: .lineEnd)
+        try container.encode(body, forKey: .body)
+        try container.encodeIfPresent(tag, forKey: .tag)
+
+      case let .updateReviewComment(commentId, body, tag, status):
+        try container.encode("update_review_comment", forKey: .type)
+        try container.encode(commentId, forKey: .commentId)
+        try container.encodeIfPresent(body, forKey: .body)
+        try container.encodeIfPresent(tag, forKey: .tag)
+        try container.encodeIfPresent(status, forKey: .status)
+
+      case let .deleteReviewComment(commentId):
+        try container.encode("delete_review_comment", forKey: .type)
+        try container.encode(commentId, forKey: .commentId)
+
+      case let .listReviewComments(sessionId, turnId):
+        try container.encode("list_review_comments", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(turnId, forKey: .turnId)
     }
   }
 
@@ -1212,6 +1404,30 @@ enum ClientToServerMessage: Codable {
           approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
           sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
           cwd: container.decodeIfPresent(String.self, forKey: .cwd)
+        )
+      case "create_review_comment":
+        self = try .createReviewComment(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          turnId: container.decodeIfPresent(String.self, forKey: .turnId),
+          filePath: container.decode(String.self, forKey: .filePath),
+          lineStart: container.decode(UInt32.self, forKey: .lineStart),
+          lineEnd: container.decodeIfPresent(UInt32.self, forKey: .lineEnd),
+          body: container.decode(String.self, forKey: .body),
+          tag: container.decodeIfPresent(ServerReviewCommentTag.self, forKey: .tag)
+        )
+      case "update_review_comment":
+        self = try .updateReviewComment(
+          commentId: container.decode(String.self, forKey: .commentId),
+          body: container.decodeIfPresent(String.self, forKey: .body),
+          tag: container.decodeIfPresent(ServerReviewCommentTag.self, forKey: .tag),
+          status: container.decodeIfPresent(ServerReviewCommentStatus.self, forKey: .status)
+        )
+      case "delete_review_comment":
+        self = try .deleteReviewComment(commentId: container.decode(String.self, forKey: .commentId))
+      case "list_review_comments":
+        self = try .listReviewComments(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          turnId: container.decodeIfPresent(String.self, forKey: .turnId)
         )
       default:
         throw DecodingError.dataCorrupted(

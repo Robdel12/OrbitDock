@@ -35,8 +35,21 @@ struct CodexInputBar: View {
   @State private var mentionQuery = ""
   @State private var mentionIndex = 0
 
+  // Input mode
+  @State private var manualReviewMode = false
+
+  private var inputMode: InputMode {
+    if manualReviewMode { return .reviewNotes }
+    if isSessionWorking { return .steer }
+    return .prompt
+  }
+
   private var isSessionWorking: Bool {
     serverState.sessions.first(where: { $0.id == sessionId })?.workStatus == .working
+  }
+
+  private var isSessionActive: Bool {
+    serverState.sessions.first(where: { $0.id == sessionId })?.isActive ?? false
   }
 
   private var hasOverrides: Bool {
@@ -100,6 +113,15 @@ struct CodexInputBar: View {
   var body: some View {
     VStack(spacing: 0) {
       Divider()
+
+      // Input mode indicator
+      if isSessionActive {
+        SteerContextIndicator(mode: inputMode) {
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            manualReviewMode.toggle()
+          }
+        }
+      }
 
       // Collapsible config row (hidden when steering)
       if showConfig, !isSessionWorking {

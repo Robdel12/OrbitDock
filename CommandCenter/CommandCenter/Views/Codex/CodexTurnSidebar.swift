@@ -2,8 +2,9 @@
 //  CodexTurnSidebar.swift
 //  OrbitDock
 //
-//  Combined sidebar for Codex turn state: Plan and Changes.
-//  Allows switching between views with animated tabs.
+//  Right rail with independently collapsible sections for plan,
+//  changes, servers, and skills. Preset picker controls initial
+//  expansion state; users can still manually toggle each section.
 //
 
 import SwiftUI
@@ -11,26 +12,18 @@ import SwiftUI
 struct CodexTurnSidebar: View {
   let sessionId: String
   let onClose: () -> Void
-  @Binding var selectedTab: Tab
+  @Binding var railPreset: RailPreset
   @Binding var selectedSkills: Set<String>
+  var onNavigateToSession: ((String) -> Void)? = nil
 
   @Environment(ServerAppState.self) private var serverState
+  @Environment(AttentionService.self) private var attentionService
 
-  enum Tab: String, CaseIterable {
-    case plan = "Plan"
-    case changes = "Changes"
-    case servers = "Servers"
-    case skills = "Skills"
-
-    var icon: String {
-      switch self {
-        case .plan: "list.bullet.clipboard"
-        case .changes: "doc.badge.plus"
-        case .servers: "puzzlepiece.extension"
-        case .skills: "bolt.fill"
-      }
-    }
-  }
+  // Section expansion state
+  @State private var expandPlan = true
+  @State private var expandChanges = false
+  @State private var expandServers = false
+  @State private var expandSkills = false
 
   private var plan: [Session.PlanStep]? {
     serverState.session(sessionId).getPlanSteps()
@@ -44,176 +37,263 @@ struct CodexTurnSidebar: View {
     serverState.session(sessionId).skills.filter { $0.enabled }
   }
 
+  private var hasPlan: Bool {
+    if let steps = plan { return !steps.isEmpty }
+    return false
+  }
+
+  private var hasDiff: Bool {
+    if let d = diff { return !d.isEmpty }
+    return false
+  }
+
+  private var hasMcp: Bool {
+    serverState.session(sessionId).hasMcpData
+  }
+
+  private var hasSkills: Bool {
+    !skills.isEmpty
+  }
+
+  private var hasAnyContent: Bool {
+    hasPlan || hasDiff || hasMcp || hasSkills
+  }
+
   var body: some View {
     VStack(spacing: 0) {
-      // Tab header
-      HStack(spacing: 0) {
-        ForEach(Tab.allCases, id: \.self) { tab in
-          tabButton(tab)
-        }
-
-        Spacer()
-
-        Button(action: onClose) {
-          Image(systemName: "xmark")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .frame(width: 24, height: 24)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4))
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, 12)
-      }
-      .padding(.leading, 4)
-      .padding(.vertical, 6)
-      .background(Color.backgroundSecondary)
+      // Rail header: preset picker + close
+      railHeader
 
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      // Content
-      Group {
-        switch selectedTab {
-          case .plan:
-            if let steps = plan, !steps.isEmpty {
-              planContent(steps: steps)
-            } else {
-              emptyState(
+      // Attention strip for cross-session urgency
+      AttentionStripView(
+        events: attentionService.events,
+        currentSessionId: sessionId,
+        onNavigateToSession: onNavigateToSession
+      )
+
+      if hasAnyContent {
+        // Scrollable collapsible sections
+        ScrollView(.vertical, showsIndicators: true) {
+          VStack(spacing: 1) {
+            // Plan section
+            if hasPlan {
+              CollapsibleSection(
+                title: "Plan",
                 icon: "list.bullet.clipboard",
-                title: "No Plan Yet",
-                message: "The agent's plan will appear here when working"
-              )
+                isExpanded: $expandPlan,
+                badge: planBadge
+              ) {
+                planContent(steps: plan!)
+              }
             }
 
-          case .changes:
-            if let diff, !diff.isEmpty {
-              diffContent(diff: diff)
-            } else {
-              emptyState(
+            // Changes section
+            if hasDiff {
+              CollapsibleSection(
+                title: "Changes",
                 icon: "doc.badge.plus",
-                title: "No Changes Yet",
-                message: "File changes will appear here during the turn"
-              )
+                isExpanded: $expandChanges,
+                badge: diffBadge
+              ) {
+                diffContent(diff: diff!)
+              }
             }
 
-          case .servers:
-            if serverState.session(sessionId).hasMcpData {
-              McpServersTab(sessionId: sessionId)
-            } else {
-              emptyState(
+            // Servers section
+            if hasMcp {
+              CollapsibleSection(
+                title: "Servers",
                 icon: "puzzlepiece.extension",
-                title: "No MCP Servers",
-                message: "MCP servers will appear here when configured"
-              )
+                isExpanded: $expandServers
+              ) {
+                McpServersTab(sessionId: sessionId)
+                  .onAppear { fetchMcpToolsIfNeeded() }
+              }
             }
 
-          case .skills:
-            if !skills.isEmpty {
-              SkillsTab(sessionId: sessionId, selectedSkills: $selectedSkills)
-            } else {
-              emptyState(
-                icon: "bolt.slash",
-                title: "No Skills",
-                message: "Skills will appear here when available"
-              )
+            // Skills section
+            if hasSkills {
+              CollapsibleSection(
+                title: "Skills",
+                icon: "bolt.fill",
+                isExpanded: $expandSkills,
+                badge: "\(skills.count)"
+              ) {
+                SkillsTab(sessionId: sessionId, selectedSkills: $selectedSkills)
+                  .onAppear { fetchSkillsIfNeeded() }
+              }
             }
+          }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        emptyRailState
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .background(Color.backgroundSecondary)
     .onAppear {
-      // Auto-select only when default tab (plan) has no content
-      // Respects parent-set tab (e.g. when opened via input bar bolt)
-      if selectedTab == .plan, plan == nil || plan!.isEmpty {
-        if diff != nil, !diff!.isEmpty {
-          selectedTab = .changes
-        } else if serverState.session(sessionId).hasMcpData {
-          selectedTab = .servers
-        } else if !skills.isEmpty {
-          selectedTab = .skills
-        }
-      }
+      applyPreset(railPreset)
     }
-    .onChange(of: selectedTab) { _, newTab in
-      // Auto-fetch MCP tools when switching to servers tab
-      if newTab == .servers {
-        let hasTools = !serverState.session(sessionId).mcpTools.isEmpty
-        if !hasTools {
-          serverState.listMcpTools(sessionId: sessionId)
-        }
-      }
-      // Auto-fetch skills when switching to skills tab
-      if newTab == .skills {
-        if skills.isEmpty {
-          serverState.listSkills(sessionId: sessionId)
-        }
-      }
+    .onChange(of: railPreset) { _, newPreset in
+      applyPreset(newPreset)
     }
   }
 
-  @ViewBuilder
-  private func tabButton(_ tab: Tab) -> some View {
-    let isSelected = selectedTab == tab
+  // MARK: - Rail Header
 
-    Button {
-      withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-        selectedTab = tab
-      }
-    } label: {
-      HStack(spacing: 5) {
-        Image(systemName: tab.icon)
-          .font(.system(size: 11, weight: .medium))
-
-        if isSelected {
-          Text(tab.rawValue)
-            .font(.system(size: 11, weight: .medium))
+  private var railHeader: some View {
+    HStack(spacing: 8) {
+      // Preset picker (segmented icon buttons)
+      HStack(spacing: 2) {
+        ForEach(RailPreset.allCases, id: \.self) { preset in
+          presetButton(preset)
         }
       }
-      .padding(.horizontal, isSelected ? 10 : 8)
-      .padding(.vertical, 6)
+      .padding(2)
+      .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+      Spacer()
+
+      Button(action: onClose) {
+        Image(systemName: "xmark")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(.tertiary)
+          .frame(width: 24, height: 24)
+          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4))
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 6)
+    .background(Color.backgroundSecondary)
+  }
+
+  private func presetButton(_ preset: RailPreset) -> some View {
+    let isSelected = railPreset == preset
+
+    return Button {
+      withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+        railPreset = preset
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: preset.icon)
+          .font(.system(size: 10, weight: .medium))
+        Text(preset.label)
+          .font(.system(size: 10, weight: .medium))
+      }
       .foregroundStyle(isSelected ? Color.accent : .secondary)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
       .background(
         isSelected ? Color.accent.opacity(0.15) : Color.clear,
-        in: RoundedRectangle(cornerRadius: 6)
+        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
       )
     }
     .buttonStyle(.plain)
-    .help(tab.rawValue)
   }
 
-  private func planContent(steps: [Session.PlanStep]) -> some View {
-    ScrollView(.vertical, showsIndicators: true) {
-      VStack(alignment: .leading, spacing: 0) {
-        // Progress header
-        HStack {
-          Text("\(completedCount(steps))/\(steps.count) steps")
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+  // MARK: - Preset Application
 
-          Spacer()
-
-          CircularProgressView(progress: progress(steps))
-            .frame(width: 14, height: 14)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-
-        Divider()
-          .foregroundStyle(Color.panelBorder.opacity(0.5))
-
-        ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-          PlanStepRow(
-            step: step,
-            index: index + 1,
-            isLast: index == steps.count - 1
-          )
-        }
-      }
-      .padding(.vertical, 4)
+  private func applyPreset(_ preset: RailPreset) {
+    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+      expandPlan = preset.expandPlan
+      expandChanges = preset.expandChanges
+      expandServers = preset.expandServers
+      expandSkills = preset.expandSkills
     }
+  }
+
+  // MARK: - Badges
+
+  private var planBadge: String? {
+    guard let steps = plan, !steps.isEmpty else { return nil }
+    let completed = steps.filter(\.isCompleted).count
+    return "\(completed)/\(steps.count)"
+  }
+
+  private var diffBadge: String? {
+    guard let d = diff, !d.isEmpty else { return nil }
+    let lines = parseDiffLines(d)
+    let adds = additionCount(lines)
+    let dels = deletionCount(lines)
+    return "+\(adds) −\(dels)"
+  }
+
+  // MARK: - Empty State
+
+  private var emptyRailState: some View {
+    VStack(spacing: 12) {
+      Image(systemName: "sidebar.right")
+        .font(.system(size: 32, weight: .light))
+        .foregroundStyle(.tertiary)
+
+      Text("No Content Yet")
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(.secondary)
+
+      Text("Plan, changes, servers, and skills will appear here as the agent works")
+        .font(.system(size: 11))
+        .foregroundStyle(.tertiary)
+        .multilineTextAlignment(.center)
+    }
+    .padding(.horizontal, 24)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color.backgroundPrimary)
   }
+
+  // MARK: - Data Fetching
+
+  private func fetchMcpToolsIfNeeded() {
+    let hasTools = !serverState.session(sessionId).mcpTools.isEmpty
+    if !hasTools {
+      serverState.listMcpTools(sessionId: sessionId)
+    }
+  }
+
+  private func fetchSkillsIfNeeded() {
+    if skills.isEmpty {
+      serverState.listSkills(sessionId: sessionId)
+    }
+  }
+
+  // MARK: - Plan Content
+
+  private func planContent(steps: [Session.PlanStep]) -> some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Progress header
+      HStack {
+        Text("\(completedCount(steps))/\(steps.count) steps")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.secondary)
+
+        Spacer()
+
+        CircularProgressView(progress: progress(steps))
+          .frame(width: 14, height: 14)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+
+      Divider()
+        .foregroundStyle(Color.panelBorder.opacity(0.5))
+
+      ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
+        PlanStepRow(
+          step: step,
+          index: index + 1,
+          isLast: index == steps.count - 1
+        )
+      }
+    }
+    .padding(.vertical, 4)
+    .background(Color.backgroundPrimary)
+  }
+
+  // MARK: - Diff Content
 
   @ViewBuilder
   private func diffContent(diff: String) -> some View {
@@ -238,7 +318,7 @@ struct CodexTurnSidebar: View {
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
 
-      ScrollView([.vertical, .horizontal], showsIndicators: true) {
+      ScrollView([.horizontal], showsIndicators: true) {
         VStack(alignment: .leading, spacing: 0) {
           ForEach(parsed) { line in
             DiffLineRow(line: line)
@@ -247,25 +327,6 @@ struct CodexTurnSidebar: View {
         .padding(.vertical, 4)
       }
     }
-    .background(Color.backgroundPrimary)
-  }
-
-  private func emptyState(icon: String, title: String, message: String) -> some View {
-    VStack(spacing: 12) {
-      Image(systemName: icon)
-        .font(.system(size: 32, weight: .light))
-        .foregroundStyle(.tertiary)
-
-      Text(title)
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(.secondary)
-
-      Text(message)
-        .font(.system(size: 11))
-        .foregroundStyle(.tertiary)
-        .multilineTextAlignment(.center)
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color.backgroundPrimary)
   }
 
@@ -416,6 +477,22 @@ private struct PlanStepRow: View {
   }
 }
 
+// MARK: - Codex Parsed Diff Line
+
+private struct CodexParsedDiffLine: Identifiable {
+  let id = UUID()
+  let text: String
+  let type: LineType
+
+  enum LineType {
+    case header
+    case hunk
+    case addition
+    case deletion
+    case context
+  }
+}
+
 // MARK: - Diff Line Row
 
 private struct DiffLineRow: View {
@@ -533,29 +610,31 @@ private struct SpinningModifier: ViewModifier {
 // MARK: - Preview
 
 #Preview("With Content") {
-  @Previewable @State var tab: CodexTurnSidebar.Tab = .plan
+  @Previewable @State var preset: RailPreset = .planFocused
   @Previewable @State var skills: Set<String> = []
   CodexTurnSidebar(
     sessionId: "test",
     onClose: {},
-    selectedTab: $tab,
+    railPreset: $preset,
     selectedSkills: $skills
   )
   .environment(ServerAppState())
+  .environment(AttentionService())
   .frame(width: 320, height: 500)
   .background(Color.backgroundPrimary)
 }
 
 #Preview("Empty") {
-  @Previewable @State var tab: CodexTurnSidebar.Tab = .plan
+  @Previewable @State var preset: RailPreset = .planFocused
   @Previewable @State var skills: Set<String> = []
   CodexTurnSidebar(
     sessionId: "empty",
     onClose: {},
-    selectedTab: $tab,
+    railPreset: $preset,
     selectedSkills: $skills
   )
   .environment(ServerAppState())
+  .environment(AttentionService())
   .frame(width: 320, height: 400)
   .background(Color.backgroundPrimary)
 }

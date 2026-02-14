@@ -63,7 +63,7 @@ struct ActiveSessionRow: View {
 
       case .working:
         if let tool = session.lastTool {
-          return toolIcon(for: tool)
+          return ToolCardStyle.icon(for: tool)
         }
         return "bolt.fill"
 
@@ -120,7 +120,7 @@ struct ActiveSessionRow: View {
         }
 
         // Provider + Model badge
-        ModelBadgeMini(model: session.model, provider: session.provider)
+        UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
       }
       .padding(.vertical, 10)
       .padding(.horizontal, 14)
@@ -232,23 +232,6 @@ struct ActiveSessionRow: View {
       )
   }
 
-  // MARK: - Helpers
-
-  private func toolIcon(for tool: String) -> String {
-    switch tool.lowercased() {
-      case "read": "doc.text"
-      case "edit": "pencil"
-      case "write": "square.and.pencil"
-      case "bash": "terminal"
-      case "glob": "folder.badge.gearshape"
-      case "grep": "magnifyingglass"
-      case "task": "person.2"
-      case "webfetch": "globe"
-      case "websearch": "magnifyingglass.circle"
-      case "skill": "sparkles"
-      default: "gearshape"
-    }
-  }
 }
 
 // MARK: - Preview

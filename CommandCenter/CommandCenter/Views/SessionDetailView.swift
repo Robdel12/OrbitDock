@@ -26,7 +26,7 @@ struct SessionDetailView: View {
   @State private var showApprovalHistory = false
 
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
-  @State private var sidebarSelectedTab: CodexTurnSidebar.Tab = .plan
+  @State private var railPreset: RailPreset = .planFocused
   @State private var selectedSkills: Set<String> = []
 
   var body: some View {
@@ -74,8 +74,15 @@ struct SessionDetailView: View {
           CodexTurnSidebar(
             sessionId: session.id,
             onClose: { showTurnSidebar = false },
-            selectedTab: $sidebarSelectedTab,
-            selectedSkills: $selectedSkills
+            railPreset: $railPreset,
+            selectedSkills: $selectedSkills,
+            onNavigateToSession: { id in
+              NotificationCenter.default.post(
+                name: .selectSession,
+                object: nil,
+                userInfo: ["sessionId": id]
+              )
+            }
           )
           .frame(width: 320)
           .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -143,13 +150,49 @@ struct SessionDetailView: View {
       isPinned = true
       unreadCount = 0
       selectedSkills = []
-      sidebarSelectedTab = .plan
+      railPreset = .planFocused
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
       Button("Open New") { TerminalService.shared.focusSession(session) }
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Couldn't find the terminal. Open a new iTerm window to resume?")
+    }
+    // Keyboard shortcuts for rail presets + rail toggle (Cmd+Option to avoid macOS screenshot conflicts)
+    .onKeyPress(phases: .down) { keyPress in
+      guard keyPress.modifiers == [.command, .option] else { return .ignored }
+
+      switch keyPress.key {
+      case KeyEquivalent("1"):
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          railPreset = .planFocused
+          showTurnSidebar = true
+        }
+        return .handled
+
+      case KeyEquivalent("2"):
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          railPreset = .reviewFocused
+          showTurnSidebar = true
+        }
+        return .handled
+
+      case KeyEquivalent("3"):
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          railPreset = .triage
+          showTurnSidebar = true
+        }
+        return .handled
+
+      case KeyEquivalent("r"):
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+          showTurnSidebar.toggle()
+        }
+        return .handled
+
+      default:
+        return .ignored
+      }
     }
   }
 
@@ -321,7 +364,6 @@ struct SessionDetailView: View {
             selectedSkills: $selectedSkills,
             onOpenSkills: {
               withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                sidebarSelectedTab = .skills
                 showTurnSidebar = true
               }
             }
@@ -586,5 +628,6 @@ struct SessionDetailView: View {
     onGoToDashboard: {}
   )
   .environment(ServerAppState())
+  .environment(AttentionService())
   .frame(width: 800, height: 600)
 }

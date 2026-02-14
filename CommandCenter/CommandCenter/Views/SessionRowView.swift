@@ -73,7 +73,7 @@ struct SessionRowView: View {
       }
 
       // Provider + Model badge
-      CompactModelBadge(model: session.model, provider: session.provider)
+      UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
@@ -115,93 +115,6 @@ struct CompactStatusBadge: View {
   }
 }
 
-struct CompactModelBadge: View {
-  let model: String?
-  let provider: Provider
-
-  private var displayName: String {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
-    // Claude models
-    if model.contains("opus") { return "Opus" }
-    if model.contains("sonnet") { return "Sonnet" }
-    if model.contains("haiku") { return "Haiku" }
-    // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
-    if model.hasPrefix("gpt-") {
-      let version = model.dropFirst(4).split(separator: "-").first ?? ""
-      return "GPT-\(version)"
-    }
-    if model == "openai" { return "OpenAI" }
-    return String(model.prefix(6))
-  }
-
-  private var badgeColor: Color {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.accentColor }
-    // Claude-specific model colors
-    if model.contains("opus") { return .modelOpus }
-    if model.contains("sonnet") { return .modelSonnet }
-    if model.contains("haiku") { return .modelHaiku }
-    // For other providers, use their accent color
-    return provider.accentColor
-  }
-
-  var body: some View {
-    HStack(spacing: 4) {
-      Image(systemName: provider.icon)
-        .font(.system(size: 8, weight: .bold))
-      Text(displayName)
-        .font(.system(size: 9, weight: .medium, design: .rounded))
-    }
-    .foregroundStyle(badgeColor)
-    .padding(.horizontal, 6)
-    .padding(.vertical, 3)
-    .background(badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-  }
-}
-
-// MARK: - Model Badge (Standalone - for detail view)
-
-struct ModelBadge: View {
-  let model: String?
-  var provider: Provider = .claude
-
-  private var displayName: String {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.displayName }
-    // Claude models
-    if model.contains("opus") { return "Opus" }
-    if model.contains("sonnet") { return "Sonnet" }
-    if model.contains("haiku") { return "Haiku" }
-    // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
-    if model.hasPrefix("gpt-") {
-      let version = model.dropFirst(4).split(separator: "-").first ?? ""
-      return "GPT-\(version)"
-    }
-    if model == "openai" { return "OpenAI" }
-    return String(model.prefix(8))
-  }
-
-  private var badgeColor: Color {
-    guard let model = model?.lowercased(), !model.isEmpty else { return provider.accentColor }
-    // Claude-specific model colors
-    if model.contains("opus") { return .modelOpus }
-    if model.contains("sonnet") { return .modelSonnet }
-    if model.contains("haiku") { return .modelHaiku }
-    // For other providers, use their accent color
-    return provider.accentColor
-  }
-
-  var body: some View {
-    HStack(spacing: 5) {
-      Image(systemName: provider.icon)
-        .font(.system(size: 9, weight: .bold))
-      Text(displayName)
-        .font(.system(size: 10, weight: .semibold, design: .rounded))
-    }
-    .foregroundStyle(badgeColor)
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
-    .background(badgeColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-  }
-}
 
 // MARK: - Work Status Badge (Standalone - legacy support)
 

@@ -456,22 +456,24 @@ Preflight review questions:
 - What is the smallest shippable slice that still achieves the objective?
 - What should be deferred to a follow-up phase to keep this task completable?
 
-## Phase 0: Data Infrastructure (Invisible, Unblocks Everything)
+## Phase 0: Data Infrastructure (Invisible, Unblocks Everything) — COMPLETE
 
 **Objective**: Build the data models, state tracking, and parsing layers that all subsequent UI phases depend on. This phase produces no visible UI changes but is a hard prerequisite.
+
+**Status**: ✅ Complete. All scope items implemented and building clean.
 
 **Server dependency**: ✅ All server-side work is complete. The server now emits turn IDs with `TurnStarted`/`TurnCompleted`, snapshots diffs per-turn, and provides review comment CRUD over WebSocket. Phase 0 client work consumes these server features directly — no synthetic boundaries needed for Codex direct sessions. (Claude JSONL sessions still infer turn boundaries from message types.)
 
 ### Scope
-- [ ] **Turn tracking model**: `TurnSummary` struct (turn ID, start/end timestamps, messages, tools, changed files, status). Build a `TurnBuilder` that groups existing messages into turns. Codex direct sessions consume the server's `current_turn_id` and `turn_count` from `SessionDelta` events. Claude JSONL sessions infer turn boundaries from message types (a turn starts at a `human` message and ends at the next `human` message).
-- [ ] **Structured diff model**: `DiffModel` with `[FileDiff]` where each `FileDiff` has path, change type (add/modify/delete), hunks, and each hunk has line ranges + content lines. Parse from the aggregated unified diff string (`ServerAppState.getDiff()`) which already contains `---/+++` file headers. Add word-level diff highlighting: within changed line pairs (adjacent removal + addition), run character-level diff to produce `inlineChanges: [Range<String.Index>]` per line. Can reuse/extend the existing LCS algorithm from `EditCard.computeLCSDiff()`.
-- [ ] **Extract and unify SyntaxHighlighter**: Move `SyntaxHighlighter` from `MarkdownView.swift` (lines 470-1558) into its own file. Unify `SyntaxColors` enum with `Color.syntax*` in Theme.swift so all syntax highlighting uses the same color source.
-- [ ] **Review comment model (Swift side)**: `ReviewComment` Swift struct mirroring the server's type. CRUD operations via WebSocket (`CreateReviewComment`, `UpdateReviewComment`, `DeleteReviewComment`, `ListReviewComments`). Server-side table and persistence are already implemented.
-- [ ] **Layout configuration state**: `LayoutConfiguration` enum (conversationOnly, reviewOnly, split) + `RailPreset` enum (planFocused, reviewFocused, triage). Persisted per-session in UserDefaults or SQLite.
-- [ ] **Input mode state machine**: Replace `isSessionWorking` boolean in `CodexInputBar` with `InputMode` enum (`.prompt`, `.steer`, `.reviewNotes`). Auto-transitions: idle → prompt, working → steer. Manual override for reviewNotes.
-- [ ] **Attention aggregation**: `AttentionService` that observes all sessions and produces `[AttentionEvent]` (pending approvals, questions, unreviewed diffs). Extend the existing `needsAttention` pattern in `Session`.
-- [ ] **Component consolidation**: Unify the 5 model badge variants into one parameterized `ModelBadge` component with size enum. Extract `displayNameForModel()` / `colorForModel()` into a single `ModelStyle` utility. Consolidate duplicated tool icon mapping into `ToolCardStyle` as the single source of truth.
-- [ ] **Orphan cleanup**: Remove `ProjectArchiveSection`, `StatsSummary`, `SessionCard`, `CodexDiffSidebar`. Decide on `InboxView` and Quest system stubs (remove if no plans to rebuild; keep stubs if they'll become project lanes / attention features in Phase 6).
+- [x] **Turn tracking model**: `TurnSummary` struct (turn ID, start/end timestamps, messages, tools, changed files, status). Build a `TurnBuilder` that groups existing messages into turns. Codex direct sessions consume the server's `current_turn_id` and `turn_count` from `SessionDelta` events. Claude JSONL sessions infer turn boundaries from message types (a turn starts at a `human` message and ends at the next `human` message).
+- [x] **Structured diff model**: `DiffModel` with `[FileDiff]` where each `FileDiff` has path, change type (add/modify/delete), hunks, and each hunk has line ranges + content lines. Parse from the aggregated unified diff string (`ServerAppState.getDiff()`) which already contains `---/+++` file headers. Add word-level diff highlighting: within changed line pairs (adjacent removal + addition), run character-level diff to produce `inlineChanges: [Range<String.Index>]` per line. Can reuse/extend the existing LCS algorithm from `EditCard.computeLCSDiff()`.
+- [x] **Extract and unify SyntaxHighlighter**: Move `SyntaxHighlighter` from `MarkdownView.swift` (lines 470-1558) into its own file. Unify `SyntaxColors` enum with `Color.syntax*` in Theme.swift so all syntax highlighting uses the same color source.
+- [x] **Review comment model (Swift side)**: `ReviewComment` Swift struct mirroring the server's type. CRUD operations via WebSocket (`CreateReviewComment`, `UpdateReviewComment`, `DeleteReviewComment`, `ListReviewComments`). Server-side table and persistence are already implemented.
+- [x] **Layout configuration state**: `LayoutConfiguration` enum (conversationOnly, reviewOnly, split) + `RailPreset` enum (planFocused, reviewFocused, triage). Persisted per-session in UserDefaults or SQLite.
+- [x] **Input mode state machine**: Replace `isSessionWorking` boolean in `CodexInputBar` with `InputMode` enum (`.prompt`, `.steer`, `.reviewNotes`). Auto-transitions: idle → prompt, working → steer. Manual override for reviewNotes.
+- [x] **Attention aggregation**: `AttentionService` that observes all sessions and produces `[AttentionEvent]` (pending approvals, questions, unreviewed diffs). Extend the existing `needsAttention` pattern in `Session`.
+- [x] **Component consolidation**: Unify the 5 model badge variants into one parameterized `ModelBadge` component with size enum. Extract `displayNameForModel()` / `colorForModel()` into a single `ModelStyle` utility. Consolidate duplicated tool icon mapping into `ToolCardStyle` as the single source of truth.
+- [x] **Orphan cleanup**: Remove `ProjectArchiveSection`, `StatsSummary`, `SessionCard`, `CodexDiffSidebar`. Decide on `InboxView` and Quest system stubs (remove if no plans to rebuild; keep stubs if they'll become project lanes / attention features in Phase 6).
 
 ### Primary surfaces
 - `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift`
@@ -489,46 +491,62 @@ Preflight review questions:
 - `CommandCenter/CommandCenter/Services/AttentionService.swift`
 
 ### Definition of done
-- [ ] `TurnBuilder` can group an existing conversation's messages into turns (handles human → tool_use → tool_result → assistant chains).
-- [ ] `DiffModel.parse(unifiedDiff:)` correctly splits a multi-file unified diff into `[FileDiff]` with hunks, using `---/+++` file headers.
-- [ ] Word-level diff highlighting produces `inlineChanges` ranges for changed line pairs.
-- [ ] `SyntaxHighlighter` is extracted into its own file; `SyntaxColors` and `Color.syntax*` in Theme.swift are unified.
-- [ ] `ReviewComment` can be created, read, updated, and deleted via WebSocket (server handles persistence).
-- [ ] `LayoutConfiguration` persists across session switches.
-- [ ] `InputMode` enum drives the input bar with correct auto-transitions.
-- [ ] `AttentionService` produces accurate counts of pending approvals/questions across sessions.
-- [ ] Model badge consolidated into one component with size variants; model name/color utilities in one place.
-- [ ] Tool icon/color mapping consolidated into `ToolCardStyle` as single source.
-- [ ] Orphaned views removed (ProjectArchiveSection, StatsSummary, SessionCard, CodexDiffSidebar).
+- [x] `TurnBuilder` can group an existing conversation's messages into turns (handles human → tool_use → tool_result → assistant chains).
+- [x] `DiffModel.parse(unifiedDiff:)` correctly splits a multi-file unified diff into `[FileDiff]` with hunks, using `---/+++` file headers.
+- [x] Word-level diff highlighting produces `inlineChanges` ranges for changed line pairs.
+- [x] `SyntaxHighlighter` is extracted into its own file; `SyntaxColors` and `Color.syntax*` in Theme.swift are unified.
+- [x] `ReviewComment` can be created, read, updated, and deleted via WebSocket (server handles persistence).
+- [x] `LayoutConfiguration` persists across session switches.
+- [x] `InputMode` enum drives the input bar with correct auto-transitions.
+- [x] `AttentionService` produces accurate counts of pending approvals/questions across sessions.
+- [x] Model badge consolidated into one component with size variants; model name/color utilities in one place.
+- [x] Tool icon/color mapping consolidated into `ToolCardStyle` as single source.
+- [x] Orphaned views removed (ProjectArchiveSection, StatsSummary, SessionCard, CodexDiffSidebar).
 - [ ] All models have basic unit tests.
-- [ ] No *new* visible UI changes — consolidation should be visually identical. Infrastructure only.
+- [x] No *new* visible UI changes — consolidation should be visually identical. Infrastructure only.
 
-## Phase 1: Capability Rail + Action Dock Clarity
+## Phase 1: Capability Rail + Action Dock Clarity — COMPLETE
 
 **Objective**: Replace tab-like rigidity with fluid capability sections. Make the action dock's intent explicit. Establish the shared interaction primitives used by all subsequent phases.
 
+**Status**: ✅ Complete. All scope items implemented and building clean.
+
 ### Scope
-- [ ] Define and implement shared interaction primitives: collapsible section, focus zone transition, inline action card, steer context indicator.
-- [ ] Refactor right rail into stackable capability sections (replacing tab enum with independently collapsible sections).
-- [ ] Add quick-switchable layout presets: "plan focused" (plan expanded, others collapsed), "review focused" (comments/changes expanded), "triage" (approvals prominent).
-- [ ] Show capability badges in header (`Direct`, `Passive`, `Can Steer`, `Can Approve`).
-- [ ] Add attention strip to capability rail or header showing cross-session urgency counts.
-- [ ] Clarify input state with steer context indicator (`New Prompt` vs `Steer Active Turn`).
-- [ ] Keep existing plan/diff/skills/servers functionality intact during refactor.
+- [x] Define and implement shared interaction primitives: collapsible section, steer context indicator, capability badge, attention strip.
+- [x] Refactor right rail into stackable capability sections (replacing tab enum with independently collapsible sections).
+- [x] Add quick-switchable layout presets: "plan focused" (plan expanded, others collapsed), "review focused" (changes expanded), "triage" (all collapsed for scanning).
+- [x] Show capability badges in header (`Direct`, `Passive`, `Can Steer`, `Can Approve`).
+- [x] Add attention strip to capability rail showing cross-session urgency counts.
+- [x] Clarify input state with steer context indicator (`New Prompt` vs `Steering Active Turn` vs `Review Notes`).
+- [x] Keep existing plan/diff/skills/servers functionality intact during refactor.
+- [x] Keyboard shortcuts: `Cmd+Option+1/2/3` for presets, `Cmd+Option+R` for rail toggle.
+- [x] Fix server broadcast gap: `DiffUpdated` and `PlanUpdated` transitions now emit `SessionDelta` broadcasts (were previously persist-only, preventing live diff/plan data from reaching the Swift app).
+
+### New files created
+- `Views/Components/CollapsibleSection.swift` — Reusable disclosure section for the rail
+- `Views/Components/SteerContextIndicator.swift` — Input mode strip above action dock
+- `Views/Components/CapabilityBadge.swift` — Session capability capsule badges + `SessionCapability` enum
+- `Views/Components/AttentionStripView.swift` — Cross-session urgency strip
+
+### Key decisions
+- **Sidebar is for operational context** (skills, MCP servers, approval queue, plan steps), not for deep content like diffs. The Changes section will become a compact summary linking to the full review canvas in Phase 3a.
+- Keyboard shortcuts use `Cmd+Option` (not `Cmd+Shift`) to avoid macOS screenshot conflicts.
+- Preset picker shows icon + text label for clarity.
 
 ### Primary surfaces
 - `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift`
 - `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
 - `CommandCenter/CommandCenter/Views/SessionDetailView.swift`
-- `CommandCenter/CommandCenter/Theme.swift`
+- `CommandCenter/CommandCenter/Views/HeaderView.swift`
+- `orbitdock-server/crates/server/src/transition.rs`
 
 ### Definition of done
-- [ ] User can access all capabilities without entering fixed modes.
-- [ ] Urgent actions (approvals/questions) are visible without tab hunting.
-- [ ] Attention strip shows pending approvals/questions across sessions.
-- [ ] User always knows what action the send button will perform.
-- [ ] Shared primitives are documented and reusable for subsequent phases.
-- [ ] Existing keyboard shortcuts continue to work.
+- [x] User can access all capabilities without entering fixed modes.
+- [x] Urgent actions (approvals/questions) are visible without tab hunting.
+- [x] Attention strip shows pending approvals/questions across sessions.
+- [x] User always knows what action the send button will perform.
+- [x] Shared primitives are reusable for subsequent phases.
+- [x] Existing keyboard shortcuts continue to work.
 
 ## Phase 2: Turn Timeline with Oversight
 
@@ -863,8 +881,8 @@ Quantitative (post-instrumentation):
 
 ## Near-Term Deliverables
 
-- [ ] Phase 0: Data Infrastructure (turn tracking, diff parsing, review comments, layout state, input mode, attention aggregation).
-- [ ] Phase 1: Capability Rail + Action Dock Clarity (shared primitives, fluid sections, attention strip, steer context).
+- [x] Phase 0: Data Infrastructure (turn tracking, diff parsing, review comments, layout state, input mode, attention aggregation).
+- [x] Phase 1: Capability Rail + Action Dock Clarity (shared primitives, fluid sections, attention strip, steer context, server broadcast fix).
 - [ ] Phase 2: Turn Timeline with Oversight (density control, turn grouping, raw inspectability).
 - [ ] Phase 3a: Live Review Canvas (layout system, file/hunk navigation, center-zone diff viewer).
 - [ ] Phase 3b: Line Annotations + Review Checklist (inline comments, tags, review checklist in rail).

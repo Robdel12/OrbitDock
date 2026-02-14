@@ -443,19 +443,7 @@ struct UnifiedDiffView: View {
   }
 }
 
-// MARK: - Diff Types
-
-enum DiffLineType {
-  case added, removed, context
-}
-
-struct DiffLine {
-  let type: DiffLineType
-  let content: String
-  let oldLineNum: Int?
-  let newLineNum: Int?
-  let prefix: String
-}
+// DiffLine and DiffLineType are defined in DiffModel.swift
 
 // MARK: - Diff Section (for Write tool)
 
