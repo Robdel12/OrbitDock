@@ -4,8 +4,8 @@
 //
 //  WebSocket-backed state store for server-managed sessions.
 //  Listens to ServerConnection callbacks and maintains Session/TranscriptMessage
-//  state that views can observe. Equivalent to SessionStore but for Codex sessions
-//  flowing through the Rust server.
+//  state that views can observe. Per-session state lives in SessionObservable;
+//  this class is a registry + global state holder.
 //
 
 import Foundation
@@ -18,64 +18,31 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "server-app-st
 final class ServerAppState {
   private static let codexModelsCacheKey = "orbitdock.server.codex_models_cache.v1"
 
-  // MARK: - Observable State
+  // MARK: - Observable State (global, not per-session)
 
   /// Sessions managed by the server (converted to Session model for view compatibility)
   private(set) var sessions: [Session] = []
 
-  /// Messages per session (converted to TranscriptMessage for view compatibility)
-  private(set) var sessionMessages: [String: [TranscriptMessage]] = [:]
-
-  /// Pending approval requests per session
-  private(set) var pendingApprovals: [String: ServerApprovalRequest] = [:]
-
-  /// Token usage per session
-  private(set) var tokenUsage: [String: ServerTokenUsage] = [:]
-
-  /// Diff per session (aggregated turn diff)
-  private(set) var sessionDiffs: [String: String] = [:]
-
-  /// Plan per session (JSON string)
-  private(set) var sessionPlans: [String: String] = [:]
-
-  /// Approval history per session
-  private(set) var approvalHistoryBySession: [String: [ServerApprovalHistoryItem]] = [:]
-
   /// Cross-session approval history (global view)
   private(set) var globalApprovalHistory: [ServerApprovalHistoryItem] = []
-
-  /// Revision counter per session - incremented on message append/update for change tracking
-  private(set) var messageRevisions: [String: Int] = [:]
-
-  /// Current autonomy level per session
-  private(set) var currentAutonomy: [String: AutonomyLevel] = [:]
 
   /// Codex models discovered by the server for the current account
   private(set) var codexModels: [ServerCodexModelOption] = []
 
-  /// Available skills per session (from skills_list responses)
-  private(set) var sessionSkills: [String: [ServerSkillMetadata]] = [:]
+  // MARK: - Per-Session Observable Registry
 
-  /// Whether an undo operation is in progress per session
-  private(set) var undoInProgress: [String: Bool] = [:]
+  @ObservationIgnored
+  private var _sessionObservables: [String: SessionObservable] = [:]
 
-  /// Whether a fork operation is in progress per session
-  private(set) var forkInProgress: [String: Bool] = [:]
+  /// Get or create per-session observable. Does NOT trigger observation on ServerAppState.
+  func session(_ id: String) -> SessionObservable {
+    if let existing = _sessionObservables[id] { return existing }
+    let obs = SessionObservable(id: id)
+    _sessionObservables[id] = obs
+    return obs
+  }
 
-  /// Fork origin: maps forked session ID → source session ID
-  private(set) var forkOrigins: [String: String] = [:]
-
-  /// MCP tools per session (keyed by fully qualified tool name)
-  private(set) var mcpTools: [String: [String: ServerMcpTool]] = [:]
-
-  /// MCP resources per session (keyed by server name)
-  private(set) var mcpResources: [String: [String: [ServerMcpResource]]] = [:]
-
-  /// MCP auth statuses per session (keyed by server name)
-  private(set) var mcpAuthStatuses: [String: [String: ServerMcpAuthStatus]] = [:]
-
-  /// MCP startup state per session (tracks per-server startup status)
-  private(set) var mcpStartupState: [String: McpStartupState] = [:]
+  // MARK: - Private Internal State
 
   /// Last known server revision per session (for incremental reconnection)
   private var lastRevision: [String: UInt64] = [:]
@@ -84,6 +51,15 @@ final class ServerAppState {
   private var approvalPolicies: [String: String] = [:]
   private var sandboxModes: [String: String] = [:]
 
+  /// Full session state cache (from snapshots)
+  private var sessionStates: [String: ServerSessionState] = [:]
+
+  /// Track which sessions we're subscribed to
+  private var subscribedSessions: Set<String> = []
+
+  /// Temporary: autonomy level from the most recent createSession call
+  private var pendingCreationAutonomy: AutonomyLevel?
+
   init() {
     if let data = UserDefaults.standard.data(forKey: Self.codexModelsCacheKey),
        let models = try? JSONDecoder().decode([ServerCodexModelOption].self, from: data)
@@ -91,25 +67,6 @@ final class ServerAppState {
       codexModels = models
     }
   }
-
-  // MARK: - Internal State
-
-  /// Full session state cache (from snapshots)
-  private var sessionStates: [String: ServerSessionState] = [:]
-
-  /// Track which sessions we're subscribed to
-  private var subscribedSessions: Set<String> = []
-
-  // Lifecycle guardrail:
-  // Session status/work status transitions are server-owned.
-  // App code should only reflect lifecycle changes from:
-  // - SessionSnapshot
-  // - SessionDelta
-  // - SessionCreated
-  // - SessionEnded
-
-  /// Temporary: autonomy level from the most recent createSession call
-  private var pendingCreationAutonomy: AutonomyLevel?
 
   // MARK: - Setup
 
@@ -193,7 +150,7 @@ final class ServerAppState {
     conn.onSkillsList = { [weak self] sessionId, entries, _ in
       Task { @MainActor in
         let allSkills = entries.flatMap { $0.skills }
-        self?.sessionSkills[sessionId] = allSkills
+        self?.session(sessionId).skills = allSkills
       }
     }
 
@@ -205,30 +162,36 @@ final class ServerAppState {
 
     conn.onMcpToolsList = { [weak self] sessionId, tools, resources, _, authStatuses in
       Task { @MainActor in
-        self?.mcpTools[sessionId] = tools
-        self?.mcpResources[sessionId] = resources
-        self?.mcpAuthStatuses[sessionId] = authStatuses
+        guard let self else { return }
+        let obs = self.session(sessionId)
+        obs.mcpTools = tools
+        obs.mcpResources = resources
+        obs.mcpAuthStatuses = authStatuses
         logger.info("MCP tools list received for \(sessionId): \(tools.count) tools")
       }
     }
 
     conn.onMcpStartupUpdate = { [weak self] sessionId, server, status in
       Task { @MainActor in
-        var state = self?.mcpStartupState[sessionId] ?? McpStartupState()
+        guard let self else { return }
+        let obs = self.session(sessionId)
+        var state = obs.mcpStartupState ?? McpStartupState()
         state.serverStatuses[server] = status
-        self?.mcpStartupState[sessionId] = state
+        obs.mcpStartupState = state
         logger.info("MCP startup update for \(sessionId): \(server)")
       }
     }
 
     conn.onMcpStartupComplete = { [weak self] sessionId, ready, failed, cancelled in
       Task { @MainActor in
-        var state = self?.mcpStartupState[sessionId] ?? McpStartupState()
+        guard let self else { return }
+        let obs = self.session(sessionId)
+        var state = obs.mcpStartupState ?? McpStartupState()
         state.readyServers = ready
         state.failedServers = failed
         state.cancelledServers = cancelled
         state.isComplete = true
-        self?.mcpStartupState[sessionId] = state
+        obs.mcpStartupState = state
         logger.info("MCP startup complete for \(sessionId): \(ready.count) ready, \(failed.count) failed")
       }
     }
@@ -241,30 +204,28 @@ final class ServerAppState {
 
     conn.onUndoStarted = { [weak self] sessionId, _ in
       Task { @MainActor in
-        self?.undoInProgress[sessionId] = true
+        self?.session(sessionId).undoInProgress = true
       }
     }
 
     conn.onUndoCompleted = { [weak self] sessionId, _, _ in
       Task { @MainActor in
-        self?.undoInProgress[sessionId] = false
-        self?.messageRevisions[sessionId, default: 0] += 1
+        self?.session(sessionId).undoInProgress = false
       }
     }
 
-    conn.onThreadRolledBack = { [weak self] sessionId, _ in
+    conn.onRevision = { [weak self] sessionId, revision in
       Task { @MainActor in
-        self?.messageRevisions[sessionId, default: 0] += 1
+        self?.lastRevision[sessionId] = revision
       }
     }
 
     conn.onSessionForked = { [weak self] sourceSessionId, newSessionId, _ in
       Task { @MainActor in
-        self?.forkInProgress[sourceSessionId] = false
-        // Track fork lineage
-        self?.forkOrigins[newSessionId] = sourceSessionId
-        logger.info("Fork tracked: \(newSessionId) forked from \(sourceSessionId), forkOrigins count: \(self?.forkOrigins.count ?? 0)")
-        // Navigate to the new forked session
+        guard let self else { return }
+        self.session(sourceSessionId).forkInProgress = false
+        self.session(newSessionId).forkedFrom = sourceSessionId
+        logger.info("Fork tracked: \(newSessionId) forked from \(sourceSessionId)")
         NotificationCenter.default.post(
           name: .selectSession,
           object: nil,
@@ -295,7 +256,6 @@ final class ServerAppState {
   /// Create a new Codex session
   func createSession(cwd: String, model: String? = nil, approvalPolicy: String? = nil, sandboxMode: String? = nil) {
     logger.info("Creating Codex session in \(cwd)")
-    // Track the initial autonomy level so we can show it in the UI
     let autonomy = AutonomyLevel.from(approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
     pendingCreationAutonomy = autonomy
     ServerConnection.shared.createSession(
@@ -381,7 +341,7 @@ final class ServerAppState {
   /// Fork a session (creates a new session with conversation history)
   func forkSession(sessionId: String, nthUserMessage: UInt32? = nil) {
     logger.info("Forking session \(sessionId) at turn \(nthUserMessage.map(String.init) ?? "full")")
-    forkInProgress[sessionId] = true
+    session(sessionId).forkInProgress = true
     ServerConnection.shared.forkSession(sourceSessionId: sessionId, nthUserMessage: nthUserMessage)
   }
 
@@ -416,7 +376,7 @@ final class ServerAppState {
   /// Update session config (change autonomy level mid-session)
   func updateSessionConfig(sessionId: String, autonomy: AutonomyLevel) {
     logger.info("Updating session config \(sessionId) to \(autonomy.displayName)")
-    currentAutonomy[sessionId] = autonomy
+    session(sessionId).autonomy = autonomy
     ServerConnection.shared.updateSessionConfig(
       sessionId: sessionId,
       approvalPolicy: autonomy.approvalPolicy,
@@ -461,6 +421,16 @@ final class ServerAppState {
     ServerConnection.shared.deleteApproval(approvalId)
   }
 
+  /// List MCP tools for a session
+  func listMcpTools(sessionId: String) {
+    ServerConnection.shared.listMcpTools(sessionId: sessionId)
+  }
+
+  /// Refresh MCP servers for a session
+  func refreshMcpServers(sessionId: String) {
+    ServerConnection.shared.refreshMcpServers(sessionId: sessionId)
+  }
+
   // MARK: - Reconnection
 
   /// Re-subscribe to all previously subscribed sessions after reconnect
@@ -480,21 +450,28 @@ final class ServerAppState {
     sessions = summaries.map { $0.toSession() }
     for summary in summaries where summary.provider == .codex {
       setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
-      currentAutonomy[summary.id] = AutonomyLevel.from(
+      session(summary.id).autonomy = AutonomyLevel.from(
         approvalPolicy: summary.approvalPolicy,
         sandboxMode: summary.sandboxMode
       )
+    }
+
+    // Clean up observables for sessions that disappeared from the server
+    let liveIds = Set(summaries.map { $0.id })
+    let staleIds = _sessionObservables.keys.filter { !liveIds.contains($0) }
+    for id in staleIds {
+      _sessionObservables.removeValue(forKey: id)
     }
   }
 
   private func handleApprovalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem]) {
     let merged = mergeApprovalsPreferResolved(
-      existing: sessionId.flatMap { approvalHistoryBySession[$0] } ?? globalApprovalHistory,
+      existing: sessionId.flatMap { session($0).approvalHistory } ?? globalApprovalHistory,
       incoming: approvals
     )
 
     if let sessionId {
-      approvalHistoryBySession[sessionId] = merged
+      session(sessionId).approvalHistory = merged
     } else {
       globalApprovalHistory = merged
     }
@@ -522,8 +499,10 @@ final class ServerAppState {
 
   private func handleApprovalDeleted(approvalId: Int64) {
     globalApprovalHistory.removeAll { $0.id == approvalId }
-    for key in approvalHistoryBySession.keys {
-      approvalHistoryBySession[key]?.removeAll { $0.id == approvalId }
+    for (id, obs) in _sessionObservables {
+      if obs.approvalHistory.contains(where: { $0.id == approvalId }) {
+        _sessionObservables[id]?.approvalHistory.removeAll { $0.id == approvalId }
+      }
     }
   }
 
@@ -540,115 +519,108 @@ final class ServerAppState {
     subscribedSessions.insert(state.id)
 
     // Update session in list
-    var session = state.toSession()
-    session.customName = state.customName
-    updateSessionInList(session)
+    var sess = state.toSession()
+    sess.customName = state.customName
+    updateSessionInList(sess)
 
-    // Store messages
-    sessionMessages[state.id] = state.messages.map { $0.toTranscriptMessage() }
-    messageRevisions[state.id, default: 0] += 1
+    // Update per-session observable
+    let obs = session(state.id)
+    obs.messages = state.messages.map { $0.toTranscriptMessage() }
+    obs.bumpMessagesRevision()
 
-    // Store approval if present
     if let approval = state.pendingApproval {
-      pendingApprovals[state.id] = approval
+      obs.pendingApproval = approval
     } else {
-      pendingApprovals.removeValue(forKey: state.id)
+      obs.pendingApproval = nil
     }
 
-    // Store token usage
-    tokenUsage[state.id] = state.tokenUsage
+    obs.tokenUsage = state.tokenUsage
 
     if state.provider == .codex {
       setConfigCache(sessionId: state.id, approvalPolicy: state.approvalPolicy, sandboxMode: state.sandboxMode)
-      currentAutonomy[state.id] = AutonomyLevel.from(
+      obs.autonomy = AutonomyLevel.from(
         approvalPolicy: state.approvalPolicy,
         sandboxMode: state.sandboxMode
       )
     }
 
-    // Store diff/plan
     if let diff = state.currentDiff {
-      sessionDiffs[state.id] = diff
+      obs.diff = diff
     }
     if let plan = state.currentPlan {
-      sessionPlans[state.id] = plan
+      obs.plan = plan
     }
 
-    // Track fork origin
     if let sourceId = state.forkedFromSessionId {
-      forkOrigins[state.id] = sourceId
+      obs.forkedFrom = sourceId
     }
   }
 
   private func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
     logger.debug("Session delta for \(sessionId)")
 
-    // Find and update the session
     guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
-    var session = sessions[idx]
-    let hadPendingApproval = pendingApprovals[sessionId] != nil
+    var sess = sessions[idx]
+    let obs = session(sessionId)
+    let hadPendingApproval = obs.pendingApproval != nil
 
     if let status = changes.status {
-      session.status = status == .active ? .active : .ended
+      sess.status = status == .active ? .active : .ended
     }
     if let workStatus = changes.workStatus {
-      session.workStatus = workStatus.toSessionWorkStatus()
-      session.attentionReason = workStatus.toAttentionReason()
+      sess.workStatus = workStatus.toSessionWorkStatus()
+      sess.attentionReason = workStatus.toAttentionReason()
     }
-    // Handle optional-optional for pendingApproval (nil = unchanged, .some(nil) = cleared)
     if let approvalOuter = changes.pendingApproval {
       if let approval = approvalOuter {
-        pendingApprovals[sessionId] = approval
-        session.pendingApprovalId = approval.id
-        session.pendingToolName = approval.toolNameForDisplay
-        session.pendingToolInput = approval.toolInputForDisplay
-        session.pendingQuestion = approval.question
+        obs.pendingApproval = approval
+        sess.pendingApprovalId = approval.id
+        sess.pendingToolName = approval.toolNameForDisplay
+        sess.pendingToolInput = approval.toolInputForDisplay
+        sess.pendingQuestion = approval.question
       } else {
-        pendingApprovals.removeValue(forKey: sessionId)
-        session.pendingApprovalId = nil
-        session.pendingToolName = nil
-        session.pendingToolInput = nil
-        session.pendingQuestion = nil
+        obs.pendingApproval = nil
+        sess.pendingApprovalId = nil
+        sess.pendingToolName = nil
+        sess.pendingToolInput = nil
+        sess.pendingQuestion = nil
       }
     }
     if let usage = changes.tokenUsage {
-      tokenUsage[sessionId] = usage
-      session.codexInputTokens = Int(usage.inputTokens)
-      session.codexOutputTokens = Int(usage.outputTokens)
-      session.codexCachedTokens = Int(usage.cachedTokens)
-      session.codexContextWindow = Int(usage.contextWindow)
+      obs.tokenUsage = usage
+      sess.codexInputTokens = Int(usage.inputTokens)
+      sess.codexOutputTokens = Int(usage.outputTokens)
+      sess.codexCachedTokens = Int(usage.cachedTokens)
+      sess.codexContextWindow = Int(usage.contextWindow)
     }
-    // Handle optional-optional for diff
     if let diffOuter = changes.currentDiff {
       if let diff = diffOuter {
-        sessionDiffs[sessionId] = diff
-        session.currentDiff = diff
+        obs.diff = diff
+        sess.currentDiff = diff
       } else {
-        sessionDiffs.removeValue(forKey: sessionId)
-        session.currentDiff = nil
+        obs.diff = nil
+        sess.currentDiff = nil
       }
     }
-    // Handle optional-optional for plan
     if let planOuter = changes.currentPlan {
       if let plan = planOuter {
-        sessionPlans[sessionId] = plan
+        obs.plan = plan
       } else {
-        sessionPlans.removeValue(forKey: sessionId)
+        obs.plan = nil
       }
     }
-    // Handle optional-optional for custom name
     if let nameOuter = changes.customName {
       if let name = nameOuter {
-        session.customName = name
+        sess.customName = name
       } else {
-        session.customName = nil
+        sess.customName = nil
       }
     }
     if let modeOuter = changes.codexIntegrationMode {
       if let mode = modeOuter {
-        session.codexIntegrationMode = mode.toSessionMode()
+        sess.codexIntegrationMode = mode.toSessionMode()
       } else {
-        session.codexIntegrationMode = nil
+        sess.codexIntegrationMode = nil
       }
     }
     if let approvalOuter = changes.approvalPolicy {
@@ -668,25 +640,21 @@ final class ServerAppState {
     if changes.approvalPolicy != nil || changes.sandboxMode != nil {
       let approval = approvalPolicies[sessionId]
       let sandbox = sandboxModes[sessionId]
-      currentAutonomy[sessionId] = AutonomyLevel.from(approvalPolicy: approval, sandboxMode: sandbox)
+      obs.autonomy = AutonomyLevel.from(approvalPolicy: approval, sandboxMode: sandbox)
     }
     if let lastActivity = changes.lastActivityAt {
-      // Parse and update
       let stripped = lastActivity.hasSuffix("Z") ? String(lastActivity.dropLast()) : lastActivity
       if let secs = TimeInterval(stripped) {
-        session.lastActivityAt = Date(timeIntervalSince1970: secs)
+        sess.lastActivityAt = Date(timeIntervalSince1970: secs)
       }
     }
 
-    sessions[idx] = session
+    sessions[idx] = sess
 
     // Keep approval history in sync when approval resolves without a manual UI action
-    // (e.g. session/global allow rules auto-approve a matching command).
-    let hasPendingApproval = pendingApprovals[sessionId] != nil
+    let hasPendingApproval = obs.pendingApproval != nil
     if hadPendingApproval, !hasPendingApproval {
       refreshApprovalHistory(sessionId: sessionId)
-      // Persistence writes are batched server-side; issue a few bounded retries
-      // so just-resolved approvals don't remain visually stuck as "pending".
       Task { @MainActor in
         for delayMs in [250, 1_000, 2_000] {
           try? await Task.sleep(for: .milliseconds(delayMs))
@@ -703,25 +671,25 @@ final class ServerAppState {
 
   private func resolvePendingApprovalLocally(sessionId: String, requestId: String, decision: String) {
     let decidedAt = ISO8601DateFormatter().string(from: Date())
+    let obs = session(sessionId)
 
-    // Clear local pending gate immediately once user has decided.
-    if let pending = pendingApprovals[sessionId], pending.id == requestId {
-      pendingApprovals.removeValue(forKey: sessionId)
+    if let pending = obs.pendingApproval, pending.id == requestId {
+      obs.pendingApproval = nil
 
       if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-        var session = sessions[idx]
-        session.pendingApprovalId = nil
-        session.pendingToolName = nil
-        session.pendingToolInput = nil
-        session.pendingQuestion = nil
-        session.workStatus = .working
-        session.attentionReason = .none
-        sessions[idx] = session
+        var sess = sessions[idx]
+        sess.pendingApprovalId = nil
+        sess.pendingToolName = nil
+        sess.pendingToolInput = nil
+        sess.pendingQuestion = nil
+        sess.workStatus = .working
+        sess.attentionReason = .none
+        sessions[idx] = sess
       }
     }
 
-    // Optimistically mark matching history row(s) as decided so chips do not stick on "pending".
-    if let rows = approvalHistoryBySession[sessionId] {
+    let rows = obs.approvalHistory
+    if !rows.isEmpty {
       var updatedRows: [ServerApprovalHistoryItem] = []
       for row in rows {
         if row.requestId == requestId, row.decision == nil {
@@ -745,7 +713,7 @@ final class ServerAppState {
           updatedRows.append(row)
         }
       }
-      approvalHistoryBySession[sessionId] = updatedRows
+      obs.approvalHistory = updatedRows
       globalApprovalHistory = globalApprovalHistory.map { item in
         guard item.sessionId == sessionId, item.requestId == requestId, item.decision == nil else { return item }
         return ServerApprovalHistoryItem(
@@ -769,11 +737,10 @@ final class ServerAppState {
   private func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
     logger.debug("Message appended to \(sessionId): \(message.type.rawValue)")
     let transcriptMsg = message.toTranscriptMessage()
-    var messages = sessionMessages[sessionId] ?? []
+    let obs = session(sessionId)
+    var messages = obs.messages
 
     if let idx = messages.firstIndex(where: { $0.id == transcriptMsg.id }) {
-      // Streaming edge case: update can arrive before append.
-      // Merge to avoid duplicate IDs in ForEach, which can cause stale render frames.
       let existing = messages[idx]
       let merged = TranscriptMessage(
         id: transcriptMsg.id,
@@ -793,18 +760,17 @@ final class ServerAppState {
       messages.append(transcriptMsg)
     }
 
-    sessionMessages[sessionId] = messages
-    messageRevisions[sessionId, default: 0] += 1
+    obs.messages = messages
+    obs.bumpMessagesRevision()
   }
 
   private func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {
     logger.debug("Message updated in \(sessionId): \(messageId)")
 
-    var messages = sessionMessages[sessionId] ?? []
+    let obs = session(sessionId)
+    var messages = obs.messages
 
     guard let idx = messages.firstIndex(where: { $0.id == messageId }) else {
-      // Streaming edge case: we can receive an update before create (or with a remapped ID).
-      // Upsert an assistant message so content isn't dropped in the UI.
       guard let content = changes.content else { return }
       let fallback = TranscriptMessage(
         id: messageId,
@@ -820,15 +786,14 @@ final class ServerAppState {
         isInProgress: false
       )
       messages.append(fallback)
-      sessionMessages[sessionId] = messages
-      messageRevisions[sessionId, default: 0] += 1
+      obs.messages = messages
+      obs.bumpMessagesRevision()
       logger.warning("Message update arrived before create; upserted \(messageId) in \(sessionId)")
       return
     }
 
     var msg = messages[idx]
     if let content = changes.content {
-      // TranscriptMessage.content is let, so we need to create a new one
       msg = TranscriptMessage(
         id: msg.id,
         type: msg.type,
@@ -843,38 +808,36 @@ final class ServerAppState {
         isInProgress: false
       )
     } else {
-      // Only updating mutable fields
       if let output = changes.toolOutput {
         msg.toolOutput = output
       }
       msg.isInProgress = false
     }
     messages[idx] = msg
-    sessionMessages[sessionId] = messages
-    messageRevisions[sessionId, default: 0] += 1
+    obs.messages = messages
+    obs.bumpMessagesRevision()
   }
 
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest) {
     logger.info("Approval requested in \(sessionId): \(request.type.rawValue)")
-    pendingApprovals[sessionId] = request
+    session(sessionId).pendingApproval = request
     ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
     ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
 
-    // Update session state
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-      var session = sessions[idx]
-      session.pendingApprovalId = request.id
-      session.pendingToolName = request.toolNameForDisplay
-      session.pendingToolInput = request.toolInputForDisplay
-      session.pendingQuestion = request.question
-      session.attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
-      session.workStatus = .permission
-      sessions[idx] = session
+      var sess = sessions[idx]
+      sess.pendingApprovalId = request.id
+      sess.pendingToolName = request.toolNameForDisplay
+      sess.pendingToolInput = request.toolInputForDisplay
+      sess.pendingQuestion = request.question
+      sess.attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
+      sess.workStatus = .permission
+      sessions[idx] = sess
     }
   }
 
   private func handleTokensUpdated(_ sessionId: String, _ usage: ServerTokenUsage) {
-    tokenUsage[sessionId] = usage
+    session(sessionId).tokenUsage = usage
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].codexInputTokens = Int(usage.inputTokens)
@@ -886,29 +849,25 @@ final class ServerAppState {
 
   private func handleSessionCreated(_ summary: ServerSessionSummary) {
     logger.info("Session created: \(summary.id)")
-    let session = summary.toSession()
+    let sess = summary.toSession()
 
-    // Upsert summary. Rollout watcher uses session_created as a list-level
-    // upsert for passive sessions (including ended -> active reactivation).
-    if let idx = sessions.firstIndex(where: { $0.id == session.id }) {
-      sessions[idx] = session
+    if let idx = sessions.firstIndex(where: { $0.id == sess.id }) {
+      sessions[idx] = sess
     } else {
-      sessions.append(session)
+      sessions.append(sess)
     }
 
-    // Set autonomy level from creation or from summary payload.
     if let autonomy = pendingCreationAutonomy {
-      currentAutonomy[summary.id] = autonomy
+      session(summary.id).autonomy = autonomy
       pendingCreationAutonomy = nil
     } else if summary.provider == .codex {
       setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
-      currentAutonomy[summary.id] = AutonomyLevel.from(
+      session(summary.id).autonomy = AutonomyLevel.from(
         approvalPolicy: summary.approvalPolicy,
         sandboxMode: summary.sandboxMode
       )
     }
 
-    // Auto-subscribe to get detailed updates
     subscribeToSession(summary.id)
   }
 
@@ -921,21 +880,24 @@ final class ServerAppState {
       sessions[idx].attentionReason = .none
     }
 
-    pendingApprovals.removeValue(forKey: sessionId)
+    // Clear transient per-session state (keeps messages/tokens/history for viewing)
+    session(sessionId).clearTransientState()
+
+    // Clean up internal tracking
     subscribedSessions.remove(sessionId)
     lastRevision.removeValue(forKey: sessionId)
     approvalPolicies.removeValue(forKey: sessionId)
     sandboxModes.removeValue(forKey: sessionId)
-    currentAutonomy.removeValue(forKey: sessionId)
+    sessionStates.removeValue(forKey: sessionId)
+    // Keep SessionObservable alive — user may still be viewing the conversation
   }
 
   private func handleError(_ code: String, _ message: String, _ sessionId: String?) {
     logger.error("Server error [\(code)]: \(message)")
 
-    // Clear fork progress on fork-related errors
     if code == "fork_failed" || code == "not_found" {
       if let sid = sessionId {
-        forkInProgress[sid] = false
+        session(sid).forkInProgress = false
       }
     }
   }
@@ -962,41 +924,6 @@ final class ServerAppState {
     } else {
       sandboxModes.removeValue(forKey: sessionId)
     }
-  }
-
-  /// Parse plan JSON string into PlanStep array for UI
-  func getPlanSteps(sessionId: String) -> [Session.PlanStep]? {
-    guard let json = sessionPlans[sessionId],
-          let data = json.data(using: .utf8),
-          let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-    else { return nil }
-
-    let steps = array.compactMap { dict -> Session.PlanStep? in
-      guard let step = dict["step"] as? String else { return nil }
-      let status = dict["status"] as? String ?? "pending"
-      return Session.PlanStep(step: step, status: status)
-    }
-    return steps.isEmpty ? nil : steps
-  }
-
-  /// Get diff for a session
-  func getDiff(sessionId: String) -> String? {
-    sessionDiffs[sessionId]
-  }
-
-  /// Whether we have any MCP data (tools or startup state) for a session
-  func hasMcpData(sessionId: String) -> Bool {
-    !(mcpTools[sessionId]?.isEmpty ?? true) || mcpStartupState[sessionId] != nil
-  }
-
-  /// List MCP tools for a session
-  func listMcpTools(sessionId: String) {
-    ServerConnection.shared.listMcpTools(sessionId: sessionId)
-  }
-
-  /// Refresh MCP servers for a session
-  func refreshMcpServers(sessionId: String) {
-    ServerConnection.shared.refreshMcpServers(sessionId: sessionId)
   }
 }
 

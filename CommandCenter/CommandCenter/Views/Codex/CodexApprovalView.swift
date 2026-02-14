@@ -17,12 +17,12 @@ struct CodexApprovalView: View {
 
   /// Whether this approval has a proposed exec policy amendment (enables "Always Allow")
   private var hasAmendment: Bool {
-    serverState.pendingApprovals[session.id]?.proposedAmendment != nil
+    serverState.session(session.id).pendingApproval?.proposedAmendment != nil
   }
 
   /// Whether this is an exec approval (vs patch)
   private var isExecApproval: Bool {
-    serverState.pendingApprovals[session.id]?.type == .exec
+    serverState.session(session.id).pendingApproval?.type == .exec
   }
 
   var body: some View {

@@ -33,15 +33,15 @@ struct CodexTurnSidebar: View {
   }
 
   private var plan: [Session.PlanStep]? {
-    serverState.getPlanSteps(sessionId: sessionId)
+    serverState.session(sessionId).getPlanSteps()
   }
 
   private var diff: String? {
-    serverState.getDiff(sessionId: sessionId)
+    serverState.session(sessionId).diff
   }
 
   private var skills: [ServerSkillMetadata] {
-    (serverState.sessionSkills[sessionId] ?? []).filter { $0.enabled }
+    serverState.session(sessionId).skills.filter { $0.enabled }
   }
 
   var body: some View {
@@ -97,7 +97,7 @@ struct CodexTurnSidebar: View {
             }
 
           case .servers:
-            if serverState.hasMcpData(sessionId: sessionId) {
+            if serverState.session(sessionId).hasMcpData {
               McpServersTab(sessionId: sessionId)
             } else {
               emptyState(
@@ -128,7 +128,7 @@ struct CodexTurnSidebar: View {
       if selectedTab == .plan, plan == nil || plan!.isEmpty {
         if diff != nil, !diff!.isEmpty {
           selectedTab = .changes
-        } else if serverState.hasMcpData(sessionId: sessionId) {
+        } else if serverState.session(sessionId).hasMcpData {
           selectedTab = .servers
         } else if !skills.isEmpty {
           selectedTab = .skills
@@ -138,7 +138,7 @@ struct CodexTurnSidebar: View {
     .onChange(of: selectedTab) { _, newTab in
       // Auto-fetch MCP tools when switching to servers tab
       if newTab == .servers {
-        let hasTools = !(serverState.mcpTools[sessionId]?.isEmpty ?? true)
+        let hasTools = !serverState.session(sessionId).mcpTools.isEmpty
         if !hasTools {
           serverState.listMcpTools(sessionId: sessionId)
         }

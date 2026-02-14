@@ -98,7 +98,7 @@ struct AutonomyPill: View {
   @Environment(ServerAppState.self) private var serverState
 
   private var currentLevel: AutonomyLevel {
-    serverState.currentAutonomy[sessionId] ?? .suggest
+    serverState.session(sessionId).autonomy
   }
 
   var body: some View {

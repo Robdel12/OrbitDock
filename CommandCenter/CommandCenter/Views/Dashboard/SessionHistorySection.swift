@@ -337,7 +337,7 @@ struct HistorySessionRow: View {
               .foregroundStyle(.secondary)
               .lineLimit(1)
 
-            if serverState.forkOrigins[session.id] != nil {
+            if serverState.session(session.id).forkedFrom != nil {
               ForkBadge()
             }
           }
@@ -539,7 +539,7 @@ struct CompactHistoryRow: View {
           .foregroundStyle(.tertiary)
           .lineLimit(1)
 
-        if serverState.forkOrigins[session.id] != nil {
+        if serverState.session(session.id).forkedFrom != nil {
           ForkBadge()
         }
 

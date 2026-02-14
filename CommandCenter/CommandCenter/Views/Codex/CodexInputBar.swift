@@ -44,7 +44,7 @@ struct CodexInputBar: View {
   }
 
   private var availableSkills: [ServerSkillMetadata] {
-    (serverState.sessionSkills[sessionId] ?? []).filter { $0.enabled }
+    serverState.session(sessionId).skills.filter { $0.enabled }
   }
 
   private var filteredSkills: [ServerSkillMetadata] {

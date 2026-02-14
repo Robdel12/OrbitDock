@@ -104,7 +104,7 @@ struct ConversationView: View {
       } else {
         VStack(spacing: 0) {
           // Fork origin banner (persistent, above scroll)
-          if let sid = sessionId, let sourceId = serverState.forkOrigins[sid] {
+          if let sid = sessionId, let sourceId = serverState.session(sid).forkedFrom {
             ForkOriginBanner(
               sourceSessionId: sourceId,
               sourceName: serverState.sessions.first(where: { $0.id == sourceId })?.displayName
@@ -123,13 +123,8 @@ struct ConversationView: View {
     .onChange(of: sessionId) { _, _ in
       loadMessagesIfNeeded()
     }
-    // Server sessions: observe message changes via revision map.
-    // Watching the full map is more reliable than dynamic key-path subscript observation.
-    .onChange(of: serverState.messageRevisions) { _, _ in
-      refreshFromServerStateIfNeeded()
-    }
-    // Also react directly to snapshot/message map updates to avoid missed render updates.
-    .onChange(of: serverState.sessionMessages) { _, _ in
+    // React to server message changes (appends, updates, undo, rollback) — only THIS session
+    .onChange(of: serverState.session(sessionId ?? "").messagesRevision) { _, _ in
       refreshFromServerStateIfNeeded()
     }
   }
@@ -333,7 +328,7 @@ struct ConversationView: View {
       return
     }
 
-    let serverMessages = serverState.sessionMessages[sid] ?? []
+    let serverMessages = serverState.session(sid).messages
     messages = serverMessages
     displayedCount = serverMessages.count
     isLoading = false
@@ -341,7 +336,7 @@ struct ConversationView: View {
 
   private func refreshFromServerStateIfNeeded() {
     guard let sid = sessionId else { return }
-    let serverMessages = serverState.sessionMessages[sid] ?? []
+    let serverMessages = serverState.session(sid).messages
     messages = serverMessages
     displayedCount = max(displayedCount, serverMessages.count)
     isLoading = false

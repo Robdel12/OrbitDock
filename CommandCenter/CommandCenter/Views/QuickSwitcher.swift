@@ -636,7 +636,7 @@ struct QuickSwitcher: View {
               .foregroundStyle(Color.gitBranch.opacity(0.7))
             }
 
-            if serverState.forkOrigins[session.id] != nil {
+            if serverState.session(session.id).forkedFrom != nil {
               ForkBadge()
             }
           }

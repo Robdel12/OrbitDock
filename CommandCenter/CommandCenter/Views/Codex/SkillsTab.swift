@@ -16,7 +16,7 @@ struct SkillsTab: View {
   private let scopeOrder: [ServerSkillScope] = [.repo, .user, .system, .admin]
 
   private var skills: [ServerSkillMetadata] {
-    (serverState.sessionSkills[sessionId] ?? []).filter { $0.enabled }
+    serverState.session(sessionId).skills.filter { $0.enabled }
   }
 
   private var groupedSkills: [(scope: ServerSkillScope, skills: [ServerSkillMetadata])] {

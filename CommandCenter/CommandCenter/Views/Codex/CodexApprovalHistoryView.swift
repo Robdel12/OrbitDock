@@ -22,7 +22,7 @@ struct CodexApprovalHistoryView: View {
   private var approvals: [ServerApprovalHistoryItem] {
     let source: [ServerApprovalHistoryItem] = switch scope {
       case .session:
-        serverState.approvalHistoryBySession[sessionId] ?? []
+        serverState.session(sessionId).approvalHistory
       case .global:
         serverState.globalApprovalHistory
     }
@@ -158,7 +158,7 @@ struct CodexApprovalHistoryView: View {
   }
 
   private func isLivePending(_ approval: ServerApprovalHistoryItem) -> Bool {
-    guard let pending = serverState.pendingApprovals[approval.sessionId] else { return false }
+    guard let pending = serverState.session(approval.sessionId).pendingApproval else { return false }
     guard pending.id == approval.requestId else { return false }
 
     // request_id can be reused (often "0"), so also try to match payload details.

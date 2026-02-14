@@ -15,15 +15,15 @@ struct McpServersTab: View {
   @State private var expandedServers: Set<String> = []
 
   private var startupState: McpStartupState? {
-    serverState.mcpStartupState[sessionId]
+    serverState.session(sessionId).mcpStartupState
   }
 
   private var tools: [String: ServerMcpTool] {
-    serverState.mcpTools[sessionId] ?? [:]
+    serverState.session(sessionId).mcpTools
   }
 
   private var authStatuses: [String: ServerMcpAuthStatus] {
-    serverState.mcpAuthStatuses[sessionId] ?? [:]
+    serverState.session(sessionId).mcpAuthStatuses
   }
 
   /// All known server names from startup state + tools

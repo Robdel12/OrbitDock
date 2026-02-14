@@ -366,7 +366,7 @@ struct SessionDetailView: View {
             serverState.undoLastTurn(sessionId: session.id)
           } label: {
             HStack(spacing: 4) {
-              if serverState.undoInProgress[session.id] == true {
+              if serverState.session(session.id).undoInProgress {
                 ProgressView()
                   .controlSize(.mini)
               } else {
@@ -382,7 +382,7 @@ struct SessionDetailView: View {
             .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
           }
           .buttonStyle(.plain)
-          .disabled(serverState.undoInProgress[session.id] == true)
+          .disabled(serverState.session(session.id).undoInProgress)
           .help("Undo last turn (reverts filesystem changes)")
 
           // Fork conversation button
@@ -390,7 +390,7 @@ struct SessionDetailView: View {
             serverState.forkSession(sessionId: session.id)
           } label: {
             HStack(spacing: 4) {
-              if serverState.forkInProgress[session.id] == true {
+              if serverState.session(session.id).forkInProgress {
                 ProgressView()
                   .controlSize(.mini)
               } else {
@@ -406,7 +406,7 @@ struct SessionDetailView: View {
             .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
           }
           .buttonStyle(.plain)
-          .disabled(serverState.forkInProgress[session.id] == true)
+          .disabled(serverState.session(session.id).forkInProgress)
           .help("Fork conversation (creates a new session with full history)")
 
           Button {
@@ -507,15 +507,16 @@ struct SessionDetailView: View {
   /// Whether any sidebar tab has content (for header badge indicator)
   private var hasSidebarContent: Bool {
     guard session.isDirectCodex else { return false }
-    let hasPlan = serverState.getPlanSteps(sessionId: session.id) != nil
-    let hasDiff = serverState.getDiff(sessionId: session.id) != nil
-    let hasMcp = serverState.hasMcpData(sessionId: session.id)
-    let hasSkills = !(serverState.sessionSkills[session.id]?.isEmpty ?? true)
+    let obs = serverState.session(session.id)
+    let hasPlan = obs.getPlanSteps() != nil
+    let hasDiff = obs.diff != nil
+    let hasMcp = obs.hasMcpData
+    let hasSkills = !obs.skills.isEmpty
     return hasPlan || hasDiff || hasMcp || hasSkills
   }
 
   private var approvalHistoryCount: Int {
-    serverState.approvalHistoryBySession[session.id]?.count ?? 0
+    serverState.session(session.id).approvalHistory.count
   }
 
   private var currentTool: String? {

@@ -95,7 +95,7 @@ struct ActiveSessionRow: View {
               .foregroundStyle(.primary)
               .lineLimit(1)
 
-            if serverState.forkOrigins[session.id] != nil {
+            if serverState.session(session.id).forkedFrom != nil {
               ForkBadge()
             }
           }
