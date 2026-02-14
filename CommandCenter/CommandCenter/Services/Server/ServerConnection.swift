@@ -66,6 +66,9 @@ final class ServerConnection: ObservableObject {
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
+  /// Called when a replay event carries a revision number (for tracking last-seen revision)
+  var onRevision: ((String, UInt64) -> Void)?
+
   private init() {}
 
   // MARK: - Connection Lifecycle
@@ -218,6 +221,15 @@ final class ServerConnection: ObservableObject {
 
     do {
       let message = try JSONDecoder().decode(ServerToClientMessage.self, from: data)
+
+      // Extract revision from replay events (server injects it at the top level)
+      if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let rev = json["revision"] as? Int,
+        let sid = json["session_id"] as? String
+      {
+        onRevision?(sid, UInt64(rev))
+      }
+
       routeMessage(message)
     } catch {
       logger.error("Failed to decode message: \(error.localizedDescription)")
