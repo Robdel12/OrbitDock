@@ -23,8 +23,10 @@ use tracing::{debug, info, warn};
 
 use crate::persistence::{is_direct_thread_owned_async, PersistCommand};
 use crate::session::SessionHandle;
+use crate::session_command::SessionCommand;
 use crate::session_naming::name_from_first_prompt;
 use crate::state::AppState;
+use tokio::sync::oneshot;
 
 const DEBOUNCE_MS: u64 = 150;
 const SESSION_TIMEOUT_SECS: u64 = 120;
@@ -533,25 +535,55 @@ impl WatcherRuntime {
             let mut app = self.app_state.lock().await;
             app.add_session(handle);
             app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
-        } else if let Some(session_arc) = {
+        } else if let Some(actor) = {
             let state = self.app_state.lock().await;
             state.get_session(&session_id)
         } {
-            let summary = {
-                let mut session = session_arc.lock().await;
-                session.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-                session.set_transcript_path(Some(path.to_string()));
-                session.set_project_name(project_name.clone());
-                session.set_model(model_provider.clone());
-                session.set_status(SessionStatus::Active);
-                if session.work_status() == WorkStatus::Ended {
-                    session.set_work_status(WorkStatus::Waiting);
-                }
-                session.set_last_activity_at(Some(current_time_unix_z()));
-                session.summary()
-            };
-            let app = self.app_state.lock().await;
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            let snap = actor.snapshot();
+            actor
+                .send(SessionCommand::SetCodexIntegrationMode {
+                    mode: Some(CodexIntegrationMode::Passive),
+                })
+                .await;
+            actor
+                .send(SessionCommand::SetTranscriptPath {
+                    path: Some(path.to_string()),
+                })
+                .await;
+            actor
+                .send(SessionCommand::SetProjectName {
+                    name: project_name.clone(),
+                })
+                .await;
+            actor
+                .send(SessionCommand::SetModel {
+                    model: model_provider.clone(),
+                })
+                .await;
+            actor
+                .send(SessionCommand::SetStatus {
+                    status: SessionStatus::Active,
+                })
+                .await;
+            if snap.work_status == WorkStatus::Ended {
+                actor
+                    .send(SessionCommand::SetWorkStatus {
+                        status: WorkStatus::Waiting,
+                    })
+                    .await;
+            }
+            actor
+                .send(SessionCommand::SetLastActivityAt {
+                    ts: Some(current_time_unix_z()),
+                })
+                .await;
+
+            let (tx, rx) = oneshot::channel();
+            actor.send(SessionCommand::GetSummary { reply: tx }).await;
+            if let Ok(summary) = rx.await {
+                let app = self.app_state.lock().await;
+                app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            }
         }
 
         let _ = self
@@ -639,16 +671,21 @@ impl WatcherRuntime {
             .await;
 
         if project_path_update.is_some() || model_update.is_some() {
-            if let Some(session_arc) = {
+            if let Some(actor) = {
                 let app = self.app_state.lock().await;
                 app.get_session(&session_id)
             } {
-                let mut session = session_arc.lock().await;
                 if project_path_update.is_some() {
-                    session.set_last_activity_at(Some(current_time_unix_z()));
+                    actor
+                        .send(SessionCommand::SetLastActivityAt {
+                            ts: Some(current_time_unix_z()),
+                        })
+                        .await;
                 }
                 if let Some(model) = model_update {
-                    session.set_model(Some(model));
+                    actor
+                        .send(SessionCommand::SetModel { model: Some(model) })
+                        .await;
                 }
             }
             self.schedule_session_timeout(&session_id);
@@ -938,22 +975,19 @@ impl WatcherRuntime {
             duration_ms: None,
         };
 
-        let session_arc = {
+        let actor = {
             let app = self.app_state.lock().await;
             app.get_session(session_id)
         };
-        let Some(session_arc) = session_arc else {
+        let Some(actor) = actor else {
             return;
         };
 
-        {
-            let mut session = session_arc.lock().await;
-            session.add_message(message.clone());
-            session.broadcast(ServerMessage::MessageAppended {
-                session_id: session_id.to_string(),
+        actor
+            .send(SessionCommand::AddMessageAndBroadcast {
                 message: message.clone(),
-            });
-        }
+            })
+            .await;
 
         let _ = self
             .persist_tx
@@ -968,14 +1002,11 @@ impl WatcherRuntime {
         let first_prompt = message.as_deref().and_then(name_from_first_prompt);
 
         if let Some(prompt) = first_prompt.as_ref() {
-            let current_name = if let Some(session_arc) = {
-                let state = self.app_state.lock().await;
-                state.get_session(session_id)
-            } {
-                let session = session_arc.lock().await;
-                session.state().custom_name
-            } else {
-                None
+            let current_name = {
+                let app = self.app_state.lock().await;
+                app.get_session(session_id)
+                    .map(|actor| actor.snapshot().custom_name.clone())
+                    .flatten()
             };
 
             if current_name.is_none() {
@@ -1155,32 +1186,22 @@ impl WatcherRuntime {
             })
             .await;
 
-        if let Some(session_arc) = {
+        if let Some(actor) = {
             let state = self.app_state.lock().await;
             state.get_session(session_id)
         } {
-            let mut session = session_arc.lock().await;
-            session.set_custom_name(name.clone());
-            session.broadcast(ServerMessage::SessionDelta {
-                session_id: session_id.to_string(),
-                changes: StateChanges {
-                    custom_name: Some(name),
-                    last_activity_at: Some(current_time_unix_z()),
-                    ..Default::default()
-                },
-            });
-        }
-
-        if let Some(session_arc) = {
-            let state = self.app_state.lock().await;
-            state.get_session(session_id)
-        } {
-            let summary = {
-                let session = session_arc.lock().await;
-                session.summary()
-            };
-            let app = self.app_state.lock().await;
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            let (tx, rx) = oneshot::channel();
+            actor
+                .send(SessionCommand::SetCustomNameAndNotify {
+                    name,
+                    persist_op: None, // Already persisted via RolloutSessionUpdate above
+                    reply: tx,
+                })
+                .await;
+            if let Ok(summary) = rx.await {
+                let app = self.app_state.lock().await;
+                app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            }
         }
     }
 
@@ -1232,21 +1253,29 @@ impl WatcherRuntime {
     }
 
     async fn broadcast_session_delta(&mut self, session_id: &str, changes: StateChanges) {
-        if let Some(session_arc) = {
+        if let Some(actor) = {
             let state = self.app_state.lock().await;
             state.get_session(session_id)
         } {
-            let summary = {
-                let mut session = session_arc.lock().await;
-                let was_ended = session.state().status == SessionStatus::Ended;
-                session.set_status(SessionStatus::Active);
-                if let Some(work_status) = changes.work_status {
-                    session.set_work_status(work_status);
-                }
-                if let Some(status) = changes.status {
-                    session.set_status(status);
-                }
-                if was_ended && session.state().status == SessionStatus::Active {
+            let was_ended = actor.snapshot().status == SessionStatus::Ended;
+
+            // Ensure status is Active (merge into changes) for reactivation
+            let mut merged = changes;
+            if merged.status.is_none() {
+                merged.status = Some(SessionStatus::Active);
+            }
+
+            actor
+                .send(SessionCommand::ApplyDelta {
+                    changes: merged,
+                    persist_op: None,
+                })
+                .await;
+
+            if was_ended {
+                // Check if reactivation happened by reading snapshot
+                let snap = actor.snapshot();
+                if snap.status == SessionStatus::Active {
                     info!(
                         component = "rollout_watcher",
                         event = "rollout_watcher.session_reactivated",
@@ -1254,15 +1283,14 @@ impl WatcherRuntime {
                         "Reactivated ended passive session from rollout activity"
                     );
                 }
-                session.broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.to_string(),
-                    changes,
-                });
-                session.summary()
-            };
+            }
 
-            let app = self.app_state.lock().await;
-            app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            let (tx, rx) = oneshot::channel();
+            actor.send(SessionCommand::GetSummary { reply: tx }).await;
+            if let Ok(summary) = rx.await {
+                let app = self.app_state.lock().await;
+                app.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+            }
         }
     }
 
@@ -1274,14 +1302,11 @@ impl WatcherRuntime {
     }
 
     async fn should_backfill_name_from_history(&self, session_id: &str) -> bool {
-        let current_name = if let Some(session_arc) = {
-            let state = self.app_state.lock().await;
-            state.get_session(session_id)
-        } {
-            let session = session_arc.lock().await;
-            session.state().custom_name
-        } else {
-            None
+        let current_name = {
+            let app = self.app_state.lock().await;
+            app.get_session(session_id)
+                .map(|actor| actor.snapshot().custom_name.clone())
+                .flatten()
         };
 
         current_name.is_none()
@@ -1305,14 +1330,11 @@ impl WatcherRuntime {
     async fn handle_session_timeout(&mut self, session_id: String) {
         self.session_timeouts.remove(&session_id);
 
-        let is_active = if let Some(session_arc) = {
+        let is_active = {
             let app = self.app_state.lock().await;
             app.get_session(&session_id)
-        } {
-            let session = session_arc.lock().await;
-            session.state().status == SessionStatus::Active
-        } else {
-            false
+                .map(|actor| actor.snapshot().status == SessionStatus::Active)
+                .unwrap_or(false)
         };
 
         if !is_active {
@@ -1327,22 +1349,11 @@ impl WatcherRuntime {
             })
             .await;
 
-        if let Some(session_arc) = {
+        if let Some(actor) = {
             let app = self.app_state.lock().await;
             app.get_session(&session_id)
         } {
-            let mut session = session_arc.lock().await;
-            session.set_status(SessionStatus::Ended);
-            session.set_work_status(WorkStatus::Ended);
-            session.broadcast(ServerMessage::SessionDelta {
-                session_id: session_id.clone(),
-                changes: StateChanges {
-                    status: Some(SessionStatus::Ended),
-                    work_status: Some(WorkStatus::Ended),
-                    last_activity_at: Some(current_time_unix_z()),
-                    ..Default::default()
-                },
-            });
+            actor.send(SessionCommand::EndLocally).await;
         }
 
         let app = self.app_state.lock().await;
@@ -1839,9 +1850,8 @@ mod tests {
 
         let snapshot = {
             let app = app_state.lock().await;
-            let arc = app.get_session(&session_id).expect("session exists");
-            let snapshot = arc.lock().await.state();
-            snapshot
+            let actor = app.get_session(&session_id).expect("session exists");
+            actor.snapshot()
         };
 
         assert_eq!(
@@ -1926,11 +1936,11 @@ mod tests {
             .await
             .expect("process rollout");
 
-        let session = {
+        let snapshot = {
             let app = app_state.lock().await;
-            app.get_session(&session_id).expect("session exists")
+            let actor = app.get_session(&session_id).expect("session exists");
+            actor.snapshot()
         };
-        let snapshot = session.lock().await.state();
         assert_eq!(snapshot.status, SessionStatus::Active);
         assert_eq!(snapshot.work_status, WorkStatus::Working);
 
@@ -2097,11 +2107,11 @@ mod tests {
         }
         flush_batch_for_test(&db_path, persist_batch).expect("flush watcher updates");
 
-        let session = {
+        let snapshot = {
             let app = app_state.lock().await;
-            app.get_session(&session_id).expect("session exists")
+            let actor = app.get_session(&session_id).expect("session exists");
+            actor.snapshot()
         };
-        let snapshot = session.lock().await.state();
         assert_eq!(snapshot.status, SessionStatus::Active);
         assert_eq!(snapshot.work_status, WorkStatus::Working);
 
@@ -2161,9 +2171,8 @@ mod tests {
         end_session_for_test(&app_state, session_id.clone()).await;
         let ended_snapshot = {
             let app = app_state.lock().await;
-            let arc = app.get_session(&session_id).expect("session exists");
-            let snapshot = arc.lock().await.state();
-            snapshot
+            let actor = app.get_session(&session_id).expect("session exists");
+            actor.snapshot()
         };
         assert_eq!(ended_snapshot.status, SessionStatus::Ended);
 
@@ -2219,9 +2228,8 @@ mod tests {
 
         let reactivated_snapshot = {
             let app = app_state.lock().await;
-            let arc = app.get_session(&session_id).expect("session exists");
-            let snapshot = arc.lock().await.state();
-            snapshot
+            let actor = app.get_session(&session_id).expect("session exists");
+            actor.snapshot()
         };
         assert_eq!(reactivated_snapshot.status, SessionStatus::Active);
         assert_eq!(reactivated_snapshot.work_status, WorkStatus::Working);
@@ -2327,15 +2335,11 @@ mod tests {
             let actual = app
                 .get_session(&actual_session_id)
                 .expect("actual session exists")
-                .lock()
-                .await
-                .state();
+                .snapshot();
             let stale = app
                 .get_session(&stale_session_id)
                 .expect("stale session exists")
-                .lock()
-                .await
-                .state();
+                .snapshot();
             (actual, stale)
         };
 
@@ -2420,9 +2424,8 @@ mod tests {
 
         let snapshot = {
             let app = app_state.lock().await;
-            let arc = app.get_session(&session_id).expect("session exists");
-            let snapshot = arc.lock().await.state();
-            snapshot
+            let actor = app.get_session(&session_id).expect("session exists");
+            actor.snapshot()
         };
         assert_eq!(snapshot.status, SessionStatus::Active);
         assert_eq!(snapshot.work_status, WorkStatus::Working);
@@ -2502,13 +2505,14 @@ mod tests {
             .await
             .expect("process rollout");
 
-        let snapshot = {
+        let state = {
             let app = app_state.lock().await;
-            let arc = app.get_session(&session_id).expect("session exists");
-            let snapshot = arc.lock().await.state();
-            snapshot
+            let actor = app.get_session(&session_id).expect("session exists");
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            actor.send(SessionCommand::GetState { reply: tx }).await;
+            rx.await.expect("get state")
         };
-        let has_user_message = snapshot.messages.iter().any(|msg| {
+        let has_user_message = state.messages.iter().any(|msg| {
             msg.message_type == MessageType::User && msg.content.contains("hello from passive")
         });
         assert!(

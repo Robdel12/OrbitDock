@@ -72,72 +72,39 @@ Key decisions:
 
 ---
 
-## Phase 4: Session Actor Refactor
+## Phase 4: Session Actor Refactor ✅
 
-**Why**: Replace `Arc<Mutex<SessionHandle>>` with a single-threaded actor that owns its state directly. Eliminates all session-level locking. Each actor is independently scheduled by tokio.
+**Status**: Complete. Actor owns `SessionHandle` directly (no `Arc<Mutex>`). External callers use `SessionActorHandle` which sends `SessionCommand` over mpsc. Lock-free reads via `ArcSwap<SessionSnapshot>`.
 
-**Depends on**: Phase 3 (pure transition function)
+Key decisions:
+- `SessionActorHandle` is the thin routing handle: `command_tx`, `snapshot: Arc<ArcSwap<SessionSnapshot>>`
+- `SessionHandle` retains all state fields (messages, tokens, etc.) — owned by actor task
+- `handle_session_command()` shared by both `CodexSession` event loop and passive `SessionActor`
+- `ProcessEvent` command bridges to transition function for connector events
+- `session_actor.rs` for passive sessions, `codex_session.rs` for active Codex connector sessions
+- 4 actor tests: sequential commands, snapshot updates, subscribe, connector events
 
-### New file: `crates/server/src/actor.rs`
+---
 
-- [ ] Define `SessionActor` struct:
-  - `state: SessionState` (owned, no Arc/Mutex)
-  - `connector: CodexConnector`
-  - `inbox: mpsc::Receiver<SessionCommand>` (unified inbound channel)
-  - `event_rx: mpsc::Receiver<ConnectorEvent>` (from codex-core)
-  - `event_bus: broadcast::Sender<SessionEvent>` (outbound events)
-  - `persist_tx: mpsc::Sender<PersistCommand>`
-  - `snapshot: Arc<ArcSwap<SessionSnapshot>>` (lock-free reads)
-  - `event_log: VecDeque<SessionEvent>` (bounded replay buffer)
-- [ ] Define `SessionCommand` enum: `Action(Input)`, `Subscribe { since_revision, reply_tx }`
-- [ ] Define `SubscribeResponse` enum: `Snapshot(SessionSnapshot)`, `Replay(Vec<SessionEvent>)`
-- [ ] Define `SessionEvent` struct: `revision`, `session_id`, `payload: EventPayload`
-- [ ] Implement `SessionActor::run()` — the main select loop:
-  - `event_rx.recv()` → convert to Input → transition → execute effects
-  - `inbox.recv()` → match Action/Subscribe → transition or handle_subscribe
-  - Update `snapshot` after every transition
-- [ ] Implement `execute(&mut self, effect: Effect)` — effect executor:
-  - `Persist(op)` → send to `persist_tx`
-  - `Emit(payload)` → push to `event_log`, send to `event_bus`
-  - `Connector(call)` → dispatch to `self.connector`
-- [ ] Implement `handle_subscribe(since_revision, reply_tx)` — replay or snapshot
+## Phase 4b: Actor Command Cleanup ✅
 
-### Dependencies
+**Status**: Complete.
 
-- [ ] Add `arc-swap = "1"` to `crates/server/Cargo.toml`
+Cleaned up the command layer that was designed 1:1 with setter methods during Phase 4 migration. Three problems fixed:
 
-### Migrate `codex_session.rs`
+1. **Unconditional `refresh_snapshot()`** — removed 10 per-command `refresh_snapshot()` calls, added single unconditional call at end of `handle_session_command`. Every command now gets a fresh snapshot automatically.
 
-- [ ] Replace `start_event_loop` → `SessionActor::spawn()` returning `SessionHandle`
-- [ ] `SessionHandle` now holds: `inbox: mpsc::Sender<SessionCommand>`, `event_bus`, `snapshot`
-- [ ] Remove `Arc<Mutex<SessionHandle>>` pattern — actor owns state directly
-- [ ] Remove old `handle_event` / `handle_action` — replaced by actor's transition + execute
-- [ ] Keep `CodexSession::new()` for connector creation, but move event loop into actor
+2. **Compound commands replace multi-send patterns** — callers no longer need 3-11 separate commands for one logical operation:
+   - `ApplyDelta { changes, persist_op }` — apply StateChanges + persist + broadcast SessionDelta
+   - `EndLocally` — status=Ended, work_status=Ended, broadcast delta
+   - `SetCustomNameAndNotify { name, persist_op, reply }` — set name + persist + broadcast + return summary
 
-### Update `session.rs`
+3. **Dead code removed** — `SetWorkStatusAndBroadcast` (unused, carried redundant `persist_tx`)
 
-- [ ] `SessionHandle` struct becomes thin routing handle (no more session state):
-  - `inbox: mpsc::Sender<SessionCommand>`
-  - `event_bus: broadcast::Sender<SessionEvent>`
-  - `snapshot: Arc<ArcSwap<SessionSnapshot>>`
-- [ ] Remove `messages`, `token_usage`, `work_status`, etc. from `SessionHandle` — all in actor
-- [ ] `subscribe()` → sends `SessionCommand::Subscribe` to actor inbox
-- [ ] Remove `broadcast()` from SessionHandle — actor does this internally
-
-### Tests
-
-- [ ] `test_actor_processes_connector_events` — feed events, verify state transitions
-- [ ] `test_actor_handles_client_actions` — send via inbox, verify effects
-- [ ] `test_actor_snapshot_updates_on_transition` — verify ArcSwap snapshot changes
-- [ ] `test_actor_replay_from_event_log` — subscribe with revision, verify replay
-- [ ] `test_actor_snapshot_fallback` — subscribe with revision=0, verify snapshot
-
-### Verification
-
-- [ ] `cargo test` — all tests pass
-- [ ] No `Arc<Mutex<SessionHandle>>` remains for session state access
-- [ ] Actor is single-threaded — no data races possible
-- [ ] Snapshot reads from WebSocket layer are lock-free
+Supporting additions:
+- `SessionHandle::apply_changes(&StateChanges)` — applies each `Some` field from delta
+- `PersistOp` enum — actor converts to `PersistCommand` internally, callers don't need `persist_tx`
+- Individual `Set*` commands kept for standalone fire-and-forget metadata updates (rollout_watcher, session creation)
 
 ---
 

@@ -45,6 +45,7 @@ anyhow = "1"
 futures = "0.3"
 bytes = "1"
 notify = "7"
+arc-swap = "1"
 
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }

@@ -8,6 +8,8 @@ mod logging;
 mod persistence;
 mod rollout_watcher;
 mod session;
+mod session_actor;
+mod session_command;
 mod session_naming;
 mod state;
 mod transition;
@@ -160,15 +162,15 @@ async fn async_main() -> anyhow::Result<()> {
                 if let Some(source_id) = forked_from_session_id {
                     handle.set_forked_from(source_id);
                 }
-                let mut app = state.lock().await;
-                let session_arc = app.add_session(handle);
-                if is_codex && !is_passive {
-                    if let Some(existing_thread_id) = codex_thread_id.as_deref() {
-                        app.register_codex_thread(&id, existing_thread_id);
-                    }
-                }
-
                 if !is_active || !is_codex || is_passive {
+                    // Passive session: spawn a passive actor
+                    let mut app = state.lock().await;
+                    app.add_session(handle);
+                    if is_codex && !is_passive {
+                        if let Some(existing_thread_id) = codex_thread_id.as_deref() {
+                            app.register_codex_thread(&id, existing_thread_id);
+                        }
+                    }
                     info!(
                         component = "restore",
                         event = "restore.session.passive",
@@ -183,7 +185,7 @@ async fn async_main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                // Try to reconnect a CodexConnector with original autonomy settings
+                // Active Codex direct session: try to reconnect with a CodexConnector
                 match CodexSession::new(
                     id.clone(),
                     &project_path,
@@ -194,9 +196,9 @@ async fn async_main() -> anyhow::Result<()> {
                 .await
                 {
                     Ok(codex) => {
+                        let mut app = state.lock().await;
                         let persist = app.persist().clone();
 
-                        // Persist the new thread ID so the rollout watcher skips this session
                         let new_thread_id = codex.thread_id().to_string();
                         let _ = persist
                             .send(PersistCommand::SetThreadId {
@@ -221,8 +223,13 @@ async fn async_main() -> anyhow::Result<()> {
                             })
                             .await;
 
-                        let action_tx = codex.start_event_loop(session_arc, persist);
+                        // start_event_loop takes owned handle, returns (SessionActorHandle, action_tx)
+                        let (actor_handle, action_tx) = codex.start_event_loop(handle, persist);
+                        app.add_session_actor(actor_handle);
                         app.set_codex_action_tx(&id, action_tx);
+                        if let Some(existing_thread_id) = codex_thread_id.as_deref() {
+                            app.register_codex_thread(&id, existing_thread_id);
+                        }
                         info!(
                             component = "restore",
                             event = "restore.session.connected",
@@ -233,7 +240,12 @@ async fn async_main() -> anyhow::Result<()> {
                         );
                     }
                     Err(e) => {
-                        // Session visible with messages but not interactive
+                        // Session visible with messages but not interactive — spawn passive actor
+                        let mut app = state.lock().await;
+                        app.add_session(handle);
+                        if let Some(existing_thread_id) = codex_thread_id.as_deref() {
+                            app.register_codex_thread(&id, existing_thread_id);
+                        }
                         info!(
                             component = "restore",
                             event = "restore.session.connector_unavailable",

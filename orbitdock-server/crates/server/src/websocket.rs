@@ -14,7 +14,7 @@ use axum::{
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
@@ -28,6 +28,8 @@ use crate::persistence::{
     PersistCommand,
 };
 use crate::session::SessionHandle;
+use crate::session_actor::SessionActorHandle;
+use crate::session_command::{PersistOp, SessionCommand, SubscribeResult};
 use crate::session_naming::name_from_first_prompt;
 use crate::state::AppState;
 
@@ -356,7 +358,7 @@ async fn handle_client_message(
             spawn_broadcast_forwarder(rx, client_tx.clone());
 
             // Send current list
-            let sessions = state.get_session_summaries().await;
+            let sessions = state.get_session_summaries();
             send_json(client_tx, ServerMessage::SessionsList { sessions }).await;
         }
 
@@ -364,98 +366,47 @@ async fn handle_client_message(
             session_id,
             since_revision,
         } => {
-            let state = state.lock().await;
-            if let Some(session_arc) = state.get_session(&session_id) {
-                let mut session = session_arc.lock().await;
+            let state_guard = state.lock().await;
+            if let Some(actor) = state_guard.get_session(&session_id) {
+                let snap = actor.snapshot();
 
-                // Try revision-based replay first
-                if let Some(since_rev) = since_revision {
-                    if let Some(events) = session.replay_since(since_rev) {
-                        info!(
-                            component = "websocket",
-                            event = "ws.subscribe.replay",
-                            connection_id = conn_id,
-                            session_id = %session_id,
-                            since_revision = since_rev,
-                            replay_count = events.len(),
-                            "Replaying {} events for session (since rev {})",
-                            events.len(),
-                            since_rev
-                        );
-                        let rx = session.subscribe();
-                        drop(session);
-                        drop(state);
-                        spawn_broadcast_forwarder(rx, client_tx.clone());
-                        for json in events {
-                            send_raw(client_tx, json).await;
-                        }
-                        return;
-                    }
-                    info!(
-                        component = "websocket",
-                        event = "ws.subscribe.replay_miss",
-                        connection_id = conn_id,
-                        session_id = %session_id,
-                        since_revision = since_rev,
-                        "Replay not possible (rev too old), sending full snapshot"
-                    );
-                }
-
-                let mut snapshot = session.state();
-                if snapshot.messages.is_empty() {
-                    if let Some(path) = snapshot.transcript_path.clone() {
-                        drop(session);
-                        if let Ok(messages) =
-                            load_messages_from_transcript_path(&path, &session_id).await
-                        {
-                            let mut session_reloaded = session_arc.lock().await;
-                            if !messages.is_empty() {
-                                session_reloaded.replace_messages(messages);
-                                snapshot = session_reloaded.state();
-                                session = session_reloaded;
-                            } else {
-                                session = session_reloaded;
-                            }
-                        } else {
-                            session = session_arc.lock().await;
-                        }
-                    }
-                }
-                let is_passive_ended = snapshot.provider == Provider::Codex
-                    && snapshot.status == orbitdock_protocol::SessionStatus::Ended
-                    && (snapshot.codex_integration_mode == Some(CodexIntegrationMode::Passive)
-                        || (snapshot.codex_integration_mode != Some(CodexIntegrationMode::Direct)
-                            && snapshot.transcript_path.is_some()));
+                // Check for passive ended sessions that may need reactivation
+                let is_passive_ended = snap.provider == Provider::Codex
+                    && snap.status == orbitdock_protocol::SessionStatus::Ended
+                    && (snap.codex_integration_mode == Some(CodexIntegrationMode::Passive)
+                        || (snap.codex_integration_mode != Some(CodexIntegrationMode::Direct)
+                            && snap.transcript_path.is_some()));
                 if is_passive_ended {
-                    let should_reactivate = snapshot
+                    let should_reactivate = snap
                         .transcript_path
                         .as_deref()
                         .and_then(|path| std::fs::metadata(path).ok())
                         .and_then(|meta| meta.modified().ok())
                         .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
                         .map(|d| d.as_secs())
-                        .zip(parse_unix_z(snapshot.last_activity_at.as_deref()))
+                        .zip(parse_unix_z(snap.last_activity_at.as_deref()))
                         .map(|(modified_at, last_activity_at)| modified_at > last_activity_at)
                         .unwrap_or(false);
                     if should_reactivate {
                         let now = chrono_now();
-                        session.set_status(orbitdock_protocol::SessionStatus::Active);
-                        if session.work_status() == orbitdock_protocol::WorkStatus::Ended {
-                            session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
-                        }
-                        session.set_last_activity_at(Some(now.clone()));
-                        let summary = session.summary();
-                        session.broadcast(ServerMessage::SessionDelta {
-                            session_id: session_id.clone(),
-                            changes: orbitdock_protocol::StateChanges {
-                                status: Some(orbitdock_protocol::SessionStatus::Active),
-                                work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
-                                last_activity_at: Some(now),
-                                ..Default::default()
-                            },
-                        });
-                        drop(session);
-                        let _ = state
+                        actor
+                            .send(SessionCommand::ApplyDelta {
+                                changes: orbitdock_protocol::StateChanges {
+                                    status: Some(orbitdock_protocol::SessionStatus::Active),
+                                    work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                    last_activity_at: Some(now),
+                                    ..Default::default()
+                                },
+                                persist_op: Some(PersistOp::SessionUpdate {
+                                    id: session_id.clone(),
+                                    status: Some(orbitdock_protocol::SessionStatus::Active),
+                                    work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                    last_activity_at: Some(chrono_now()),
+                                }),
+                            })
+                            .await;
+
+                        let _ = state_guard
                             .persist()
                             .send(PersistCommand::RolloutSessionUpdate {
                                 id: session_id.clone(),
@@ -473,34 +424,118 @@ async fn handle_client_message(
                                 custom_name: None,
                             })
                             .await;
-                        state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
-                        if let Some(session) = state.get_session(&session_id) {
-                            let session = session.lock().await;
-                            let rx = session.subscribe();
-                            let snapshot = session.state();
-                            let snapshot = compact_snapshot_for_transport(snapshot);
-                            drop(session);
-                            spawn_broadcast_forwarder(rx, client_tx.clone());
-                            send_json(
-                                client_tx,
-                                ServerMessage::SessionSnapshot { session: snapshot },
-                            )
+
+                        let (sum_tx, sum_rx) = oneshot::channel();
+                        actor
+                            .send(SessionCommand::GetSummary { reply: sum_tx })
                             .await;
+                        if let Ok(summary) = sum_rx.await {
+                            state_guard.broadcast_to_list(ServerMessage::SessionCreated {
+                                session: summary,
+                            });
+                        }
+
+                        // Subscribe via actor command
+                        let (sub_tx, sub_rx) = oneshot::channel();
+                        actor
+                            .send(SessionCommand::Subscribe {
+                                since_revision: None,
+                                reply: sub_tx,
+                            })
+                            .await;
+                        drop(state_guard);
+                        if let Ok(result) = sub_rx.await {
+                            match result {
+                                SubscribeResult::Snapshot {
+                                    state: snapshot,
+                                    rx,
+                                } => {
+                                    spawn_broadcast_forwarder(rx, client_tx.clone());
+                                    send_json(
+                                        client_tx,
+                                        ServerMessage::SessionSnapshot {
+                                            session: compact_snapshot_for_transport(snapshot),
+                                        },
+                                    )
+                                    .await;
+                                }
+                                SubscribeResult::Replay { events, rx } => {
+                                    spawn_broadcast_forwarder(rx, client_tx.clone());
+                                    for json in events {
+                                        send_raw(client_tx, json).await;
+                                    }
+                                }
+                            }
                         }
                         return;
                     }
                 }
-                let rx = session.subscribe();
-                spawn_broadcast_forwarder(rx, client_tx.clone());
 
-                // Send current state
-                send_json(
-                    client_tx,
-                    ServerMessage::SessionSnapshot {
-                        session: compact_snapshot_for_transport(snapshot),
-                    },
-                )
-                .await;
+                // Normal subscribe flow via actor command
+                let (sub_tx, sub_rx) = oneshot::channel();
+                actor
+                    .send(SessionCommand::Subscribe {
+                        since_revision,
+                        reply: sub_tx,
+                    })
+                    .await;
+                drop(state_guard);
+
+                if let Ok(result) = sub_rx.await {
+                    match result {
+                        SubscribeResult::Replay { events, rx } => {
+                            info!(
+                                component = "websocket",
+                                event = "ws.subscribe.replay",
+                                connection_id = conn_id,
+                                session_id = %session_id,
+                                replay_count = events.len(),
+                                "Replaying {} events for session",
+                                events.len()
+                            );
+                            spawn_broadcast_forwarder(rx, client_tx.clone());
+                            for json in events {
+                                send_raw(client_tx, json).await;
+                            }
+                        }
+                        SubscribeResult::Snapshot {
+                            state: snapshot,
+                            rx,
+                        } => {
+                            // If snapshot has no messages, try loading from transcript
+                            let snapshot = if snapshot.messages.is_empty() {
+                                if let Some(path) = snapshot.transcript_path.clone() {
+                                    let (reply_tx, reply_rx) = oneshot::channel();
+                                    actor
+                                        .send(SessionCommand::LoadTranscriptAndSync {
+                                            path,
+                                            session_id: session_id.clone(),
+                                            reply: reply_tx,
+                                        })
+                                        .await;
+                                    if let Ok(Some(loaded_snapshot)) = reply_rx.await {
+                                        loaded_snapshot
+                                    } else {
+                                        snapshot
+                                    }
+                                } else {
+                                    snapshot
+                                }
+                            } else {
+                                snapshot
+                            };
+
+                            spawn_broadcast_forwarder(rx, client_tx.clone());
+                            send_json(
+                                client_tx,
+                                ServerMessage::SessionSnapshot {
+                                    session: compact_snapshot_for_transport(snapshot),
+                                },
+                            )
+                            .await;
+                        }
+                    }
+                }
             } else {
                 send_json(
                     client_tx,
@@ -546,7 +581,7 @@ async fn handle_client_message(
                 handle.set_config(approval_policy.clone(), sandbox_mode.clone());
             }
 
-            // Subscribe the creator
+            // Subscribe the creator before handing off handle
             let rx = handle.subscribe();
             spawn_broadcast_forwarder(rx, client_tx.clone());
 
@@ -570,17 +605,12 @@ async fn handle_client_message(
                 })
                 .await;
 
-            let session_arc = state_guard.add_session(handle);
-
             // Notify creator
             send_json(
                 client_tx,
                 ServerMessage::SessionSnapshot { session: snapshot },
             )
             .await;
-
-            // Notify list subscribers
-            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
 
             // Spawn Codex connector if it's a Codex session
             if provider == Provider::Codex {
@@ -600,19 +630,15 @@ async fn handle_client_message(
                 .await
                 {
                     Ok(codex_session) => {
-                        // Persist the codex-core thread ID so the watcher can skip this session
                         let thread_id = codex_session.thread_id().to_string();
                         let _ = persist_tx
                             .send(PersistCommand::SetThreadId {
                                 session_id: session_id.clone(),
-                                thread_id,
+                                thread_id: thread_id.clone(),
                             })
                             .await;
                         state_guard.register_codex_thread(&session_id, codex_session.thread_id());
 
-                        // If rollout watcher raced and created a shadow session keyed by thread id,
-                        // evict it immediately so the direct session remains canonical.
-                        let thread_id = codex_session.thread_id().to_string();
                         if state_guard.remove_session(&thread_id).is_some() {
                             state_guard.broadcast_to_list(ServerMessage::SessionEnded {
                                 session_id: thread_id.clone(),
@@ -626,8 +652,9 @@ async fn handle_client_message(
                             })
                             .await;
 
-                        let action_tx =
-                            codex_session.start_event_loop(session_arc.clone(), persist_tx);
+                        let (actor_handle, action_tx) =
+                            codex_session.start_event_loop(handle, persist_tx);
+                        state_guard.add_session_actor(actor_handle);
                         state_guard.set_codex_action_tx(&session_id, action_tx);
                         info!(
                             component = "session",
@@ -638,6 +665,8 @@ async fn handle_client_message(
                         );
                     }
                     Err(e) => {
+                        // No Codex connector; add as passive actor
+                        state_guard.add_session(handle);
                         error!(
                             component = "session",
                             event = "session.create.connector_failed",
@@ -657,7 +686,12 @@ async fn handle_client_message(
                         .await;
                     }
                 }
+            } else {
+                state_guard.add_session(handle);
             }
+
+            // Notify list subscribers
+            state_guard.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
         }
 
         ClientMessage::SendMessage {
@@ -696,32 +730,25 @@ async fn handle_client_message(
                     .await;
 
                 if let Some(derived_name) = first_prompt {
-                    if let Some(session) = state.get_session(&session_id) {
-                        let mut session = session.lock().await;
-                        if session.custom_name().is_none() {
-                            session.set_custom_name(Some(derived_name.clone()));
-
-                            let _ = state
-                                .persist()
-                                .send(PersistCommand::SetCustomName {
-                                    session_id: session_id.clone(),
-                                    custom_name: Some(derived_name.clone()),
+                    if let Some(actor) = state.get_session(&session_id) {
+                        let snap = actor.snapshot();
+                        if snap.custom_name.is_none() {
+                            let (sum_tx, sum_rx) = oneshot::channel();
+                            actor
+                                .send(SessionCommand::SetCustomNameAndNotify {
+                                    name: Some(derived_name.clone()),
+                                    persist_op: Some(PersistOp::SetCustomName {
+                                        session_id: session_id.clone(),
+                                        name: Some(derived_name),
+                                    }),
+                                    reply: sum_tx,
                                 })
                                 .await;
-
-                            session.broadcast(ServerMessage::SessionDelta {
-                                session_id: session_id.clone(),
-                                changes: orbitdock_protocol::StateChanges {
-                                    custom_name: Some(Some(derived_name.clone())),
-                                    ..Default::default()
-                                },
-                            });
-
-                            let summary = session.summary();
-                            drop(session);
-                            state.broadcast_to_list(ServerMessage::SessionCreated {
-                                session: summary,
-                            });
+                            if let Ok(summary) = sum_rx.await {
+                                state.broadcast_to_list(ServerMessage::SessionCreated {
+                                    session: summary,
+                                });
+                            }
                         }
                     }
                 }
@@ -744,9 +771,7 @@ async fn handle_client_message(
                     duration_ms: None,
                 };
 
-                if let Some(session) = state.get_session(&session_id) {
-                    let mut session = session.lock().await;
-                    session.add_message(user_msg.clone());
+                if let Some(actor) = state.get_session(&session_id) {
                     let _ = state
                         .persist()
                         .send(PersistCommand::MessageAppend {
@@ -754,10 +779,9 @@ async fn handle_client_message(
                             message: user_msg.clone(),
                         })
                         .await;
-                    session.broadcast(ServerMessage::MessageAppended {
-                        session_id: session_id.clone(),
-                        message: user_msg,
-                    });
+                    actor
+                        .send(SessionCommand::AddMessageAndBroadcast { message: user_msg })
+                        .await;
                 }
 
                 let _ = tx
@@ -827,9 +851,7 @@ async fn handle_client_message(
                     duration_ms: None,
                 };
 
-                if let Some(session) = state.get_session(&session_id) {
-                    let mut session = session.lock().await;
-                    session.add_message(steer_msg.clone());
+                if let Some(actor) = state.get_session(&session_id) {
                     let _ = state
                         .persist()
                         .send(PersistCommand::MessageAppend {
@@ -837,10 +859,9 @@ async fn handle_client_message(
                             message: steer_msg.clone(),
                         })
                         .await;
-                    session.broadcast(ServerMessage::MessageAppended {
-                        session_id: session_id.clone(),
-                        message: steer_msg,
-                    });
+                    actor
+                        .send(SessionCommand::AddMessageAndBroadcast { message: steer_msg })
+                        .await;
                 }
 
                 let _ = tx
@@ -893,11 +914,15 @@ async fn handle_client_message(
 
             // Look up approval type and proposed amendment from session state
             let (approval_type, proposed_amendment) =
-                if let Some(session) = state.get_session(&session_id) {
-                    let mut session = session.lock().await;
-                    let atype = session.take_pending_approval(&request_id);
-                    let amendment = session.take_pending_amendment(&request_id);
-                    (atype, amendment)
+                if let Some(actor) = state.get_session(&session_id) {
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    actor
+                        .send(SessionCommand::TakePendingApproval {
+                            request_id: request_id.clone(),
+                            reply: reply_tx,
+                        })
+                        .await;
+                    reply_rx.await.unwrap_or((None, None))
                 } else {
                     (None, None)
                 };
@@ -944,18 +969,17 @@ async fn handle_client_message(
                 })
                 .await;
 
-            if let Some(session) = state.get_session(&session_id) {
-                let mut session = session.lock().await;
-                session.set_work_status(next_work_status);
-
-                session.broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.clone(),
-                    changes: orbitdock_protocol::StateChanges {
-                        work_status: Some(next_work_status),
-                        pending_approval: Some(None), // Explicitly clear
-                        ..Default::default()
-                    },
-                });
+            if let Some(actor) = state.get_session(&session_id) {
+                actor
+                    .send(SessionCommand::ApplyDelta {
+                        changes: orbitdock_protocol::StateChanges {
+                            work_status: Some(next_work_status),
+                            pending_approval: Some(None),
+                            ..Default::default()
+                        },
+                        persist_op: None,
+                    })
+                    .await;
             }
         }
 
@@ -1257,35 +1281,23 @@ async fn handle_client_message(
             );
 
             let state = state.lock().await;
-            if let Some(session) = state.get_session(&session_id) {
-                let mut session = session.lock().await;
-                session.set_custom_name(name.clone());
-
-                // Persist
-                let _ = state
-                    .persist()
-                    .send(PersistCommand::SetCustomName {
-                        session_id: session_id.clone(),
-                        custom_name: name.clone(),
+            if let Some(actor) = state.get_session(&session_id) {
+                let (sum_tx, sum_rx) = oneshot::channel();
+                actor
+                    .send(SessionCommand::SetCustomNameAndNotify {
+                        name: name.clone(),
+                        persist_op: Some(PersistOp::SetCustomName {
+                            session_id: session_id.clone(),
+                            name: name.clone(),
+                        }),
+                        reply: sum_tx,
                     })
                     .await;
-
-                // Broadcast delta to session subscribers
-                session.broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.clone(),
-                    changes: orbitdock_protocol::StateChanges {
-                        custom_name: Some(name.clone()),
-                        ..Default::default()
-                    },
-                });
-
-                // Update list subscribers with the new summary
-                let summary = session.summary();
-                drop(session);
-                state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                if let Ok(summary) = sum_rx.await {
+                    state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                }
             }
 
-            // Also set in codex-core if it's a Codex session
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 if let Some(ref n) = name {
                     let _ = tx
@@ -1311,31 +1323,29 @@ async fn handle_client_message(
             );
 
             let state = state.lock().await;
-            if let Some(session) = state.get_session(&session_id) {
-                let mut session = session.lock().await;
-                session.set_config(approval_policy.clone(), sandbox_mode.clone());
-                let summary = session.summary();
-
-                let _ = state
-                    .persist()
-                    .send(PersistCommand::SetSessionConfig {
-                        session_id: session_id.clone(),
-                        approval_policy: approval_policy.clone(),
-                        sandbox_mode: sandbox_mode.clone(),
+            if let Some(actor) = state.get_session(&session_id) {
+                actor
+                    .send(SessionCommand::ApplyDelta {
+                        changes: orbitdock_protocol::StateChanges {
+                            approval_policy: Some(approval_policy.clone()),
+                            sandbox_mode: Some(sandbox_mode.clone()),
+                            ..Default::default()
+                        },
+                        persist_op: Some(PersistOp::SetSessionConfig {
+                            session_id: session_id.clone(),
+                            approval_policy: approval_policy.clone(),
+                            sandbox_mode: sandbox_mode.clone(),
+                        }),
                     })
                     .await;
 
-                session.broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.clone(),
-                    changes: orbitdock_protocol::StateChanges {
-                        approval_policy: Some(approval_policy.clone()),
-                        sandbox_mode: Some(sandbox_mode.clone()),
-                        ..Default::default()
-                    },
-                });
-
-                drop(session);
-                state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                let (sum_tx, sum_rx) = oneshot::channel();
+                actor
+                    .send(SessionCommand::GetSummary { reply: sum_tx })
+                    .await;
+                if let Ok(summary) = sum_rx.await {
+                    state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                }
             }
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
@@ -1435,7 +1445,6 @@ async fn handle_client_message(
 
             let summary = handle.summary();
             let snapshot = handle.state();
-            let session_arc = state_guard.add_session(handle);
 
             // Reactivate in DB
             let persist_tx = state_guard.persist().clone();
@@ -1477,7 +1486,9 @@ async fn handle_client_message(
                         })
                         .await;
 
-                    let action_tx = codex_session.start_event_loop(session_arc, persist_tx);
+                    let (actor_handle, action_tx) =
+                        codex_session.start_event_loop(handle, persist_tx);
+                    state_guard.add_session_actor(actor_handle);
                     state_guard.set_codex_action_tx(&session_id, action_tx);
                     info!(
                         component = "session",
@@ -1490,6 +1501,8 @@ async fn handle_client_message(
                     );
                 }
                 Err(e) => {
+                    // No connector; add as passive actor
+                    state_guard.add_session(handle);
                     error!(
                         component = "session",
                         event = "session.resume.connector_failed",
@@ -1549,7 +1562,6 @@ async fn handle_client_message(
             // linger as ghost active sessions.
             let stale_shell_ids: Vec<String> = state
                 .get_session_summaries()
-                .await
                 .into_iter()
                 .filter(|summary| is_stale_empty_claude_shell(summary, &session_id, &cwd, now_secs))
                 .map(|summary| summary.id)
@@ -1570,12 +1582,9 @@ async fn handle_client_message(
             }
 
             let mut created = false;
-            let session_arc = if let Some(existing) = state.get_session(&session_id) {
-                let provider = {
-                    let session = existing.lock().await;
-                    session.provider()
-                };
-                if provider == Provider::Codex {
+            let actor = if let Some(existing) = state.get_session(&session_id) {
+                let snap = existing.snapshot();
+                if snap.provider == Provider::Codex {
                     return;
                 }
                 existing
@@ -1590,27 +1599,36 @@ async fn handle_client_message(
                 state.add_session(handle)
             };
 
-            {
-                let mut session = session_arc.lock().await;
-                session.set_model(model.clone());
-                if transcript_path.is_some() {
-                    session.set_transcript_path(transcript_path.clone());
-                }
-                session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
-
-                session.broadcast(ServerMessage::SessionDelta {
-                    session_id: session_id.clone(),
+            actor
+                .send(SessionCommand::SetModel {
+                    model: model.clone(),
+                })
+                .await;
+            if transcript_path.is_some() {
+                actor
+                    .send(SessionCommand::SetTranscriptPath {
+                        path: transcript_path.clone(),
+                    })
+                    .await;
+            }
+            actor
+                .send(SessionCommand::ApplyDelta {
                     changes: orbitdock_protocol::StateChanges {
                         work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
                         last_activity_at: Some(chrono_now()),
                         ..Default::default()
                     },
-                });
+                    persist_op: None,
+                })
+                .await;
 
-                if created {
-                    state.broadcast_to_list(ServerMessage::SessionCreated {
-                        session: session.summary(),
-                    });
+            if created {
+                let (sum_tx, sum_rx) = oneshot::channel();
+                actor
+                    .send(SessionCommand::GetSummary { reply: sum_tx })
+                    .await;
+                if let Ok(summary) = sum_rx.await {
+                    state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
                 }
             }
 
@@ -1636,11 +1654,7 @@ async fn handle_client_message(
             let persist_tx = state.persist().clone();
 
             if let Some(existing) = state.get_session(&session_id) {
-                let provider = {
-                    let session = existing.lock().await;
-                    session.provider()
-                };
-                if provider == Provider::Codex {
+                if existing.snapshot().provider == Provider::Codex {
                     return;
                 }
             }
@@ -1680,12 +1694,8 @@ async fn handle_client_message(
                 .as_deref()
                 .and_then(|path| claude_transcript_path_from_cwd(path, &session_id));
 
-            let session_arc = if let Some(existing) = state.get_session(&session_id) {
-                let provider = {
-                    let session = existing.lock().await;
-                    session.provider()
-                };
-                if provider == Provider::Codex {
+            let actor = if let Some(existing) = state.get_session(&session_id) {
+                if existing.snapshot().provider == Provider::Codex {
                     return;
                 }
                 existing
@@ -1699,23 +1709,25 @@ async fn handle_client_message(
                         .clone()
                         .or_else(|| derived_transcript_path.clone()),
                 );
-                let arc = state.add_session(handle);
-                {
-                    let session = arc.lock().await;
-                    state.broadcast_to_list(ServerMessage::SessionCreated {
-                        session: session.summary(),
-                    });
+                let actor = state.add_session(handle);
+                let (sum_tx, sum_rx) = oneshot::channel();
+                actor
+                    .send(SessionCommand::GetSummary { reply: sum_tx })
+                    .await;
+                if let Ok(summary) = sum_rx.await {
+                    state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
                 }
-                arc
+                actor
             };
 
             if transcript_path.is_some() || derived_transcript_path.is_some() {
-                let mut session = session_arc.lock().await;
-                session.set_transcript_path(
-                    transcript_path
-                        .clone()
-                        .or_else(|| derived_transcript_path.clone()),
-                );
+                actor
+                    .send(SessionCommand::SetTranscriptPath {
+                        path: transcript_path
+                            .clone()
+                            .or_else(|| derived_transcript_path.clone()),
+                    })
+                    .await;
             }
 
             if let Some(cwd) = cwd.clone() {
@@ -1745,8 +1757,11 @@ async fn handle_client_message(
                 ),
                 "Stop" => {
                     let is_question = {
-                        let session = session_arc.lock().await;
-                        session.last_tool() == Some("AskUserQuestion")
+                        let (lt_tx, lt_rx) = oneshot::channel();
+                        actor
+                            .send(SessionCommand::GetLastTool { reply: lt_tx })
+                            .await;
+                        lt_rx.await.ok().flatten().as_deref() == Some("AskUserQuestion")
                     };
                     if is_question {
                         (
@@ -1771,8 +1786,11 @@ async fn handle_client_message(
                     ),
                     Some("idle_prompt") => {
                         let is_question = {
-                            let session = session_arc.lock().await;
-                            session.last_tool() == Some("AskUserQuestion")
+                            let (lt_tx, lt_rx) = oneshot::channel();
+                            actor
+                                .send(SessionCommand::GetLastTool { reply: lt_tx })
+                                .await;
+                            lt_rx.await.ok().flatten().as_deref() == Some("AskUserQuestion")
                         };
                         if is_question {
                             (
@@ -1802,31 +1820,24 @@ async fn handle_client_message(
                 if let Some(prompt_text) = prompt.as_deref() {
                     let derived_name = name_from_first_prompt(prompt_text);
                     if let Some(derived_name) = derived_name {
-                        let mut session = session_arc.lock().await;
-                        if session.custom_name().is_none() {
-                            session.set_custom_name(Some(derived_name.clone()));
-
-                            let _ = persist_tx
-                                .send(PersistCommand::SetCustomName {
-                                    session_id: session_id.clone(),
-                                    custom_name: Some(derived_name.clone()),
+                        let snap = actor.snapshot();
+                        if snap.custom_name.is_none() {
+                            let (sum_tx, sum_rx) = oneshot::channel();
+                            actor
+                                .send(SessionCommand::SetCustomNameAndNotify {
+                                    name: Some(derived_name.clone()),
+                                    persist_op: Some(PersistOp::SetCustomName {
+                                        session_id: session_id.clone(),
+                                        name: Some(derived_name),
+                                    }),
+                                    reply: sum_tx,
                                 })
                                 .await;
-
-                            session.broadcast(ServerMessage::SessionDelta {
-                                session_id: session_id.clone(),
-                                changes: orbitdock_protocol::StateChanges {
-                                    custom_name: Some(Some(derived_name.clone())),
-                                    last_activity_at: Some(chrono_now()),
-                                    ..Default::default()
-                                },
-                            });
-
-                            let summary = session.summary();
-                            drop(session);
-                            state.broadcast_to_list(ServerMessage::SessionCreated {
-                                session: summary,
-                            });
+                            if let Ok(summary) = sum_rx.await {
+                                state.broadcast_to_list(ServerMessage::SessionCreated {
+                                    session: summary,
+                                });
+                            }
                         }
                     }
                 }
@@ -1855,23 +1866,24 @@ async fn handle_client_message(
             }
 
             if let Some(tool_name) = tool_name {
-                let mut session = session_arc.lock().await;
-                session.set_last_tool(Some(tool_name));
+                actor
+                    .send(SessionCommand::SetLastTool {
+                        tool: Some(tool_name),
+                    })
+                    .await;
             }
 
             if let Some(work_status) = next_work_status {
-                {
-                    let mut session = session_arc.lock().await;
-                    session.set_work_status(work_status);
-                    session.broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
+                actor
+                    .send(SessionCommand::ApplyDelta {
                         changes: orbitdock_protocol::StateChanges {
                             work_status: Some(work_status),
                             last_activity_at: Some(chrono_now()),
                             ..Default::default()
                         },
-                    });
-                }
+                        persist_op: None,
+                    })
+                    .await;
 
                 let _ = persist_tx
                     .send(PersistCommand::ClaudeSessionUpdate {
@@ -1902,7 +1914,7 @@ async fn handle_client_message(
             }
 
             // Sync new messages from transcript
-            sync_transcript_messages(&session_arc).await;
+            sync_transcript_messages(&actor).await;
         }
 
         ClientMessage::ClaudeToolEvent {
@@ -1920,12 +1932,8 @@ async fn handle_client_message(
             let persist_tx = state.persist().clone();
             let derived_transcript_path = claude_transcript_path_from_cwd(&cwd, &session_id);
 
-            let session_arc = if let Some(existing) = state.get_session(&session_id) {
-                let provider = {
-                    let session = existing.lock().await;
-                    session.provider()
-                };
-                if provider == Provider::Codex {
+            let actor = if let Some(existing) = state.get_session(&session_id) {
+                if existing.snapshot().provider == Provider::Codex {
                     return;
                 }
                 existing
@@ -1934,14 +1942,15 @@ async fn handle_client_message(
                     SessionHandle::new(session_id.clone(), Provider::Claude, cwd.clone());
                 handle.set_project_name(project_name_from_cwd(handle.project_path()));
                 handle.set_transcript_path(derived_transcript_path.clone());
-                let arc = state.add_session(handle);
-                {
-                    let session = arc.lock().await;
-                    state.broadcast_to_list(ServerMessage::SessionCreated {
-                        session: session.summary(),
-                    });
+                let actor = state.add_session(handle);
+                let (sum_tx, sum_rx) = oneshot::channel();
+                actor
+                    .send(SessionCommand::GetSummary { reply: sum_tx })
+                    .await;
+                if let Ok(summary) = sum_rx.await {
+                    state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
                 }
-                arc
+                actor
             };
 
             let _ = persist_tx
@@ -1962,10 +1971,8 @@ async fn handle_client_message(
 
             match hook_event_name.as_str() {
                 "PreToolUse" => {
-                    let was_permission = {
-                        let session = session_arc.lock().await;
-                        session.work_status() == orbitdock_protocol::WorkStatus::Permission
-                    };
+                    let was_permission =
+                        actor.snapshot().work_status == orbitdock_protocol::WorkStatus::Permission;
                     let question = tool_input
                         .as_ref()
                         .and_then(|value| value.get("question"))
@@ -1974,19 +1981,21 @@ async fn handle_client_message(
                     let serialized_input =
                         tool_input.and_then(|value| serde_json::to_string(&value).ok());
 
-                    {
-                        let mut session = session_arc.lock().await;
-                        session.set_last_tool(Some(tool_name.clone()));
-                        session.set_work_status(orbitdock_protocol::WorkStatus::Working);
-                        session.broadcast(ServerMessage::SessionDelta {
-                            session_id: session_id.clone(),
+                    actor
+                        .send(SessionCommand::SetLastTool {
+                            tool: Some(tool_name.clone()),
+                        })
+                        .await;
+                    actor
+                        .send(SessionCommand::ApplyDelta {
                             changes: orbitdock_protocol::StateChanges {
                                 work_status: Some(orbitdock_protocol::WorkStatus::Working),
                                 last_activity_at: Some(chrono_now()),
                                 ..Default::default()
                             },
-                        });
-                    }
+                            persist_op: None,
+                        })
+                        .await;
 
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeSessionUpdate {
@@ -2042,16 +2051,16 @@ async fn handle_client_message(
                         })
                         .await;
 
-                    let mut session = session_arc.lock().await;
-                    session.set_work_status(orbitdock_protocol::WorkStatus::Working);
-                    session.broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(orbitdock_protocol::WorkStatus::Working),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    });
+                    actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
+                            persist_op: None,
+                        })
+                        .await;
                 }
                 "PostToolUseFailure" => {
                     let _ = persist_tx
@@ -2079,22 +2088,22 @@ async fn handle_client_message(
                         })
                         .await;
 
-                    let mut session = session_arc.lock().await;
-                    session.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
-                    session.broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
-                            last_activity_at: Some(chrono_now()),
-                            ..Default::default()
-                        },
-                    });
+                    actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
+                            persist_op: None,
+                        })
+                        .await;
                 }
                 _ => {}
             }
 
             // Sync new messages from transcript
-            sync_transcript_messages(&session_arc).await;
+            sync_transcript_messages(&actor).await;
         }
 
         ClientMessage::ClaudeSubagentEvent {
@@ -2107,11 +2116,7 @@ async fn handle_client_message(
             let state = state.lock().await;
             let persist_tx = state.persist().clone();
             if let Some(existing) = state.get_session(&session_id) {
-                let provider = {
-                    let session = existing.lock().await;
-                    session.provider()
-                };
-                if provider == Provider::Codex {
+                if existing.snapshot().provider == Provider::Codex {
                     return;
                 }
             }
@@ -2220,12 +2225,9 @@ async fn handle_client_message(
                 };
 
             // Get source session's cwd as fallback
-            let source_cwd = if let Some(s) = state_guard.get_session(&source_session_id) {
-                let s = s.lock().await;
-                Some(s.project_path().to_string())
-            } else {
-                None
-            };
+            let source_cwd = state_guard
+                .get_session(&source_session_id)
+                .map(|s| s.snapshot().project_path.clone());
 
             drop(state_guard);
 
@@ -2381,8 +2383,6 @@ async fn handle_client_message(
                     .await;
             }
 
-            let session_arc = state_guard.add_session(handle);
-
             // Register thread ID
             let _ = persist_tx
                 .send(PersistCommand::SetThreadId {
@@ -2411,7 +2411,8 @@ async fn handle_client_message(
                 session_id: new_id.clone(),
                 connector: new_connector,
             };
-            let action_tx = codex_session.start_event_loop(session_arc, persist_tx);
+            let (actor_handle, action_tx) = codex_session.start_event_loop(handle, persist_tx);
+            state_guard.add_session_actor(actor_handle);
             state_guard.set_codex_action_tx(&new_id, action_tx);
 
             // Send snapshot to requester
@@ -2456,16 +2457,13 @@ async fn handle_client_message(
 
             let mut state = state.lock().await;
 
-            let session_arc = state.get_session(&session_id);
-            let is_passive_rollout = if let Some(session_arc) = session_arc.as_ref() {
-                let session = session_arc.lock().await;
-                let state_snapshot = session.state();
-                state_snapshot.provider == Provider::Codex
-                    && (state_snapshot.codex_integration_mode
-                        == Some(CodexIntegrationMode::Passive)
-                        || (state_snapshot.codex_integration_mode
-                            != Some(CodexIntegrationMode::Direct)
-                            && state_snapshot.transcript_path.is_some()))
+            let actor = state.get_session(&session_id);
+            let is_passive_rollout = if let Some(ref actor) = actor {
+                let snap = actor.snapshot();
+                snap.provider == Provider::Codex
+                    && (snap.codex_integration_mode == Some(CodexIntegrationMode::Passive)
+                        || (snap.codex_integration_mode != Some(CodexIntegrationMode::Direct)
+                            && snap.transcript_path.is_some()))
             } else {
                 false
             };
@@ -2496,21 +2494,8 @@ async fn handle_client_message(
                     session_id = %session_id,
                     "Keeping passive rollout session in memory for future watcher reactivation"
                 );
-                if let Some(session_arc) = session_arc {
-                    let mut session = session_arc.lock().await;
-                    let now = chrono_now();
-                    session.set_status(orbitdock_protocol::SessionStatus::Ended);
-                    session.set_work_status(orbitdock_protocol::WorkStatus::Ended);
-                    session.set_last_activity_at(Some(now.clone()));
-                    session.broadcast(ServerMessage::SessionDelta {
-                        session_id: session_id.clone(),
-                        changes: orbitdock_protocol::StateChanges {
-                            status: Some(orbitdock_protocol::SessionStatus::Ended),
-                            work_status: Some(orbitdock_protocol::WorkStatus::Ended),
-                            last_activity_at: Some(now),
-                            ..Default::default()
-                        },
-                    });
+                if let Some(actor) = actor {
+                    actor.send(SessionCommand::EndLocally).await;
                 }
                 state.broadcast_to_list(ServerMessage::SessionEnded {
                     session_id,
@@ -2536,15 +2521,14 @@ async fn handle_client_message(
 
 /// Re-read a session's transcript and broadcast any new messages to subscribers.
 /// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
-async fn sync_transcript_messages(session_arc: &Arc<Mutex<SessionHandle>>) {
-    let (transcript_path, session_id, existing_count) = {
-        let session = session_arc.lock().await;
-        let path = match session.transcript_path() {
-            Some(p) => p.to_string(),
-            None => return,
-        };
-        (path, session.id().to_string(), session.message_count())
+async fn sync_transcript_messages(actor: &SessionActorHandle) {
+    let snap = actor.snapshot();
+    let transcript_path = match snap.transcript_path.as_deref() {
+        Some(p) => p.to_string(),
+        None => return,
     };
+    let session_id = snap.id.clone();
+    let existing_count = snap.message_count;
 
     let all_messages = match load_messages_from_transcript_path(&transcript_path, &session_id).await
     {
@@ -2557,19 +2541,22 @@ async fn sync_transcript_messages(session_arc: &Arc<Mutex<SessionHandle>>) {
     }
 
     let new_messages = all_messages[existing_count..].to_vec();
-    let mut session = session_arc.lock().await;
 
     // Double-check count hasn't changed while we were reading
-    if session.message_count() != existing_count {
-        return;
+    let (count_tx, count_rx) = oneshot::channel();
+    actor
+        .send(SessionCommand::GetMessageCount { reply: count_tx })
+        .await;
+    if let Ok(current_count) = count_rx.await {
+        if current_count != existing_count {
+            return;
+        }
     }
 
     for msg in new_messages {
-        session.add_message(msg.clone());
-        session.broadcast(ServerMessage::MessageAppended {
-            session_id: session_id.clone(),
-            message: msg,
-        });
+        actor
+            .send(SessionCommand::AddMessageAndBroadcast { message: msg })
+            .await;
     }
 }
 
@@ -2642,6 +2629,9 @@ pub(crate) async fn end_session_for_test(state: &Arc<Mutex<AppState>>, session_i
         1,
     )
     .await;
+    // Yield so the actor task processes the queued commands
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
 }
 
 #[cfg(test)]
@@ -2759,16 +2749,19 @@ mod tests {
             1,
         )
         .await;
+        // Yield so the actor processes queued commands
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
 
-        let session_arc = {
+        let actor = {
             let app = state.lock().await;
             app.get_session(&session_id)
         }
         .expect("passive session should remain in app state");
 
-        let snapshot = session_arc.lock().await.state();
-        assert_eq!(snapshot.status, SessionStatus::Ended);
-        assert_eq!(snapshot.work_status, WorkStatus::Ended);
+        let snap = actor.snapshot();
+        assert_eq!(snap.status, SessionStatus::Ended);
+        assert_eq!(snap.work_status, WorkStatus::Ended);
     }
 
     #[tokio::test]
@@ -2797,6 +2790,9 @@ mod tests {
             1,
         )
         .await;
+        // Yield so the actor processes queued commands
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
 
         handle_client_message(ClientMessage::SubscribeList, &client_tx, &state, 1).await;
         let list_message = recv_server_message(&mut client_rx).await;
@@ -2856,18 +2852,19 @@ mod tests {
         )
         .await;
 
-        let session_arc = {
+        let actor = {
             let state_guard = state.lock().await;
             state_guard
                 .get_session(&session_id)
                 .expect("session should exist")
         };
-        let snapshot = session_arc.lock().await.state();
+        let snapshot = actor.snapshot();
 
         assert_eq!(snapshot.provider, Provider::Claude);
         assert_eq!(snapshot.work_status, WorkStatus::Working);
         let transcript_path = snapshot
             .transcript_path
+            .clone()
             .expect("transcript path should be derived");
         assert!(
             transcript_path.ends_with(
@@ -2931,13 +2928,13 @@ mod tests {
         )
         .await;
 
-        let session_arc = {
+        let actor = {
             let state_guard = state.lock().await;
             state_guard
                 .get_session(&session_id)
                 .expect("session should exist")
         };
-        let snapshot = session_arc.lock().await.state();
+        let snapshot = actor.snapshot();
         assert_eq!(snapshot.work_status, WorkStatus::Working);
         assert_eq!(
             snapshot.custom_name.as_deref(),
@@ -2994,13 +2991,13 @@ mod tests {
         )
         .await;
 
-        let session_arc = {
+        let actor = {
             let state_guard = state.lock().await;
             state_guard
                 .get_session(&session_id)
                 .expect("session should exist")
         };
-        let snapshot = session_arc.lock().await.state();
+        let snapshot = actor.snapshot();
 
         assert_eq!(
             snapshot.custom_name.as_deref(),
@@ -3053,13 +3050,13 @@ mod tests {
         )
         .await;
 
-        let session_arc = {
+        let actor = {
             let state_guard = state.lock().await;
             state_guard
                 .get_session(&session_id)
                 .expect("session should exist")
         };
-        let snapshot = session_arc.lock().await.state();
+        let snapshot = actor.snapshot();
         assert_eq!(snapshot.work_status, WorkStatus::Question);
     }
 }

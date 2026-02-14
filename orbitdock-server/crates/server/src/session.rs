@@ -1,14 +1,41 @@
 //! Session management
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use orbitdock_protocol::{
     ApprovalType, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
-    SessionSummary, TokenUsage, WorkStatus,
+    SessionSummary, StateChanges, TokenUsage, WorkStatus,
 };
 use tokio::sync::broadcast;
 
 use crate::transition::{TransitionState, WorkPhase};
+
+/// Lightweight, lock-free snapshot of session metadata.
+/// Used by `ArcSwap` so list subscribers and snapshot readers never block
+/// the actor.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct SessionSnapshot {
+    pub id: String,
+    pub provider: Provider,
+    pub status: SessionStatus,
+    pub work_status: WorkStatus,
+    pub project_path: String,
+    pub project_name: Option<String>,
+    pub transcript_path: Option<String>,
+    pub custom_name: Option<String>,
+    pub model: Option<String>,
+    pub codex_integration_mode: Option<CodexIntegrationMode>,
+    pub approval_policy: Option<String>,
+    pub sandbox_mode: Option<String>,
+    pub message_count: usize,
+    pub token_usage: TokenUsage,
+    pub started_at: Option<String>,
+    pub last_activity_at: Option<String>,
+    pub revision: u64,
+}
 
 const EVENT_LOG_CAPACITY: usize = 1000;
 const BROADCAST_CAPACITY: usize = 512;
@@ -44,6 +71,8 @@ pub struct SessionHandle {
     revision: u64,
     /// Ring buffer of (revision, pre-serialized JSON with revision injected)
     event_log: VecDeque<(u64, String)>,
+    /// Lock-free snapshot for read-only access from outside the actor
+    snapshot_handle: Arc<ArcSwap<SessionSnapshot>>,
 }
 
 impl SessionHandle {
@@ -51,6 +80,25 @@ impl SessionHandle {
     pub fn new(id: String, provider: Provider, project_path: String) -> Self {
         let now = chrono_now();
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let snapshot = SessionSnapshot {
+            id: id.clone(),
+            provider,
+            status: SessionStatus::Active,
+            work_status: WorkStatus::Waiting,
+            project_path: project_path.clone(),
+            project_name: None,
+            transcript_path: None,
+            custom_name: None,
+            model: None,
+            codex_integration_mode: None,
+            approval_policy: None,
+            sandbox_mode: None,
+            message_count: 0,
+            token_usage: TokenUsage::default(),
+            started_at: Some(now.clone()),
+            last_activity_at: Some(now.clone()),
+            revision: 0,
+        };
         Self {
             id,
             provider,
@@ -77,6 +125,7 @@ impl SessionHandle {
             pending_amendments: HashMap::new(),
             revision: 0,
             event_log: VecDeque::new(),
+            snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
         }
     }
 
@@ -100,6 +149,25 @@ impl SessionHandle {
         messages: Vec<Message>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let snapshot = SessionSnapshot {
+            id: id.clone(),
+            provider,
+            status,
+            work_status,
+            project_path: project_path.clone(),
+            project_name: project_name.clone(),
+            transcript_path: transcript_path.clone(),
+            custom_name: custom_name.clone(),
+            model: model.clone(),
+            codex_integration_mode: Some(CodexIntegrationMode::Direct),
+            approval_policy: approval_policy.clone(),
+            sandbox_mode: sandbox_mode.clone(),
+            message_count: messages.len(),
+            token_usage: token_usage.clone(),
+            started_at: started_at.clone(),
+            last_activity_at: last_activity_at.clone(),
+            revision: 0,
+        };
         Self {
             id,
             provider,
@@ -126,6 +194,7 @@ impl SessionHandle {
             pending_amendments: HashMap::new(),
             revision: 0,
             event_log: VecDeque::new(),
+            snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
         }
     }
 
@@ -223,6 +292,7 @@ impl SessionHandle {
         self.transcript_path = transcript_path;
     }
 
+    #[allow(dead_code)]
     pub fn transcript_path(&self) -> Option<&str> {
         self.transcript_path.as_deref()
     }
@@ -350,6 +420,74 @@ impl SessionHandle {
         self.pending_amendments.remove(request_id)
     }
 
+    /// Apply a `StateChanges` delta to the handle fields.
+    /// Each `Some` field overwrites the corresponding handle field.
+    pub fn apply_changes(&mut self, changes: &StateChanges) {
+        if let Some(status) = changes.status {
+            self.status = status;
+        }
+        if let Some(work_status) = changes.work_status {
+            self.work_status = work_status;
+        }
+        if let Some(ref custom_name) = changes.custom_name {
+            self.custom_name = custom_name.clone();
+        }
+        if let Some(ref approval_policy) = changes.approval_policy {
+            self.approval_policy = approval_policy.clone();
+        }
+        if let Some(ref sandbox_mode) = changes.sandbox_mode {
+            self.sandbox_mode = sandbox_mode.clone();
+        }
+        if let Some(ref codex_integration_mode) = changes.codex_integration_mode {
+            self.codex_integration_mode = *codex_integration_mode;
+        }
+        if let Some(ref last_activity_at) = changes.last_activity_at {
+            self.last_activity_at = Some(last_activity_at.clone());
+        }
+        if let Some(ref token_usage) = changes.token_usage {
+            self.token_usage = token_usage.clone();
+        }
+        if let Some(ref current_diff) = changes.current_diff {
+            self.current_diff = current_diff.clone();
+        }
+        if let Some(ref current_plan) = changes.current_plan {
+            self.current_plan = current_plan.clone();
+        }
+    }
+
+    /// Create a snapshot of current session metadata
+    pub fn to_snapshot(&self) -> SessionSnapshot {
+        SessionSnapshot {
+            id: self.id.clone(),
+            provider: self.provider,
+            status: self.status,
+            work_status: self.work_status,
+            project_path: self.project_path.clone(),
+            project_name: self.project_name.clone(),
+            transcript_path: self.transcript_path.clone(),
+            custom_name: self.custom_name.clone(),
+            model: self.model.clone(),
+            codex_integration_mode: self.codex_integration_mode,
+            approval_policy: self.approval_policy.clone(),
+            sandbox_mode: self.sandbox_mode.clone(),
+            message_count: self.messages.len(),
+            token_usage: self.token_usage.clone(),
+            started_at: self.started_at.clone(),
+            last_activity_at: self.last_activity_at.clone(),
+            revision: self.revision,
+        }
+    }
+
+    /// Update the ArcSwap snapshot (call after mutations)
+    pub fn refresh_snapshot(&self) {
+        self.snapshot_handle.store(Arc::new(self.to_snapshot()));
+    }
+
+    /// Get the ArcSwap handle for lock-free reads
+    pub fn snapshot_arc(&self) -> Arc<ArcSwap<SessionSnapshot>> {
+        self.snapshot_handle.clone()
+    }
+
     /// Broadcast a message to all subscribers
     pub fn broadcast(&mut self, msg: orbitdock_protocol::ServerMessage) {
         self.revision += 1;
@@ -365,6 +503,9 @@ impl SessionHandle {
 
         // Non-blocking fan-out to all receivers
         let _ = self.broadcast_tx.send(msg);
+
+        // Update lock-free snapshot
+        self.refresh_snapshot();
     }
 
     /// Replay events since a given revision.
