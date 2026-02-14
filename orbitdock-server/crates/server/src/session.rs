@@ -6,7 +6,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use orbitdock_protocol::{
     ApprovalType, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
-    SessionSummary, StateChanges, TokenUsage, WorkStatus,
+    SessionSummary, StateChanges, TokenUsage, TurnDiff, WorkStatus,
 };
 use tokio::sync::broadcast;
 
@@ -59,6 +59,9 @@ pub struct SessionHandle {
     token_usage: TokenUsage,
     current_diff: Option<String>,
     current_plan: Option<String>,
+    current_turn_id: Option<String>,
+    turn_count: u64,
+    turn_diffs: Vec<TurnDiff>,
     started_at: Option<String>,
     last_activity_at: Option<String>,
     forked_from_session_id: Option<String>,
@@ -117,6 +120,9 @@ impl SessionHandle {
             token_usage: TokenUsage::default(),
             current_diff: None,
             current_plan: None,
+            current_turn_id: None,
+            turn_count: 0,
+            turn_diffs: Vec::new(),
             started_at: Some(now.clone()),
             last_activity_at: Some(now),
             forked_from_session_id: None,
@@ -186,6 +192,9 @@ impl SessionHandle {
             token_usage,
             current_diff: None,
             current_plan: None,
+            current_turn_id: None,
+            turn_count: 0,
+            turn_diffs: Vec::new(),
             started_at,
             last_activity_at,
             forked_from_session_id: None,
@@ -258,6 +267,9 @@ impl SessionHandle {
             last_activity_at: self.last_activity_at.clone(),
             forked_from_session_id: self.forked_from_session_id.clone(),
             revision: Some(self.revision),
+            current_turn_id: self.current_turn_id.clone(),
+            turn_count: self.turn_count,
+            turn_diffs: self.turn_diffs.clone(),
         }
     }
 
@@ -453,6 +465,12 @@ impl SessionHandle {
         if let Some(ref current_plan) = changes.current_plan {
             self.current_plan = current_plan.clone();
         }
+        if let Some(ref current_turn_id) = changes.current_turn_id {
+            self.current_turn_id = current_turn_id.clone();
+        }
+        if let Some(turn_count) = changes.turn_count {
+            self.turn_count = turn_count;
+        }
     }
 
     /// Create a snapshot of current session metadata
@@ -557,6 +575,9 @@ impl SessionHandle {
             custom_name: self.custom_name.clone(),
             project_path: self.project_path.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            current_turn_id: self.current_turn_id.clone(),
+            turn_count: self.turn_count,
+            turn_diffs: self.turn_diffs.clone(),
         }
     }
 
@@ -569,6 +590,9 @@ impl SessionHandle {
         self.current_plan = state.current_plan;
         self.custom_name = state.custom_name;
         self.last_activity_at = state.last_activity_at;
+        self.current_turn_id = state.current_turn_id;
+        self.turn_count = state.turn_count;
+        self.turn_diffs = state.turn_diffs;
 
         // Sync pending approval tracking from phase
         if let WorkPhase::AwaitingApproval {

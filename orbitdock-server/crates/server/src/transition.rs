@@ -11,7 +11,7 @@ use orbitdock_protocol::{
     ApprovalRequest, ApprovalType, McpAuthStatus, McpResource, McpResourceTemplate,
     McpStartupFailure, McpStartupStatus, McpTool, Message, MessageChanges, MessageType,
     RemoteSkillSummary, ServerMessage, SessionStatus, SkillErrorInfo, SkillsListEntry,
-    StateChanges, TokenUsage, WorkStatus,
+    StateChanges, TokenUsage, TurnDiff, WorkStatus,
 };
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,9 @@ pub struct TransitionState {
     pub custom_name: Option<String>,
     pub project_path: String,
     pub last_activity_at: Option<String>,
+    pub current_turn_id: Option<String>,
+    pub turn_count: u64,
+    pub turn_diffs: Vec<TurnDiff>,
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +393,9 @@ pub fn transition(
         Input::TurnStarted => {
             state.phase = WorkPhase::Working;
             state.last_activity_at = Some(now.to_string());
+            state.turn_count += 1;
+            let turn_id = format!("turn-{}", state.turn_count);
+            state.current_turn_id = Some(turn_id.clone());
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
@@ -402,17 +408,36 @@ pub fn transition(
                 changes: StateChanges {
                     work_status: Some(WorkStatus::Working),
                     last_activity_at: Some(now.to_string()),
+                    current_turn_id: Some(Some(turn_id)),
+                    turn_count: Some(state.turn_count),
                     ..Default::default()
                 },
             })));
         }
 
         Input::TurnCompleted => {
+            // Snapshot the current diff for this turn before clearing
+            if let (Some(turn_id), Some(diff)) =
+                (state.current_turn_id.as_ref(), state.current_diff.as_ref())
+            {
+                let snapshot = TurnDiff {
+                    turn_id: turn_id.clone(),
+                    diff: diff.clone(),
+                };
+                state.turn_diffs.push(snapshot);
+                effects.push(Effect::Emit(Box::new(ServerMessage::TurnDiffSnapshot {
+                    session_id: sid.clone(),
+                    turn_id: turn_id.clone(),
+                    diff: diff.clone(),
+                })));
+            }
+
             // Only transition if we're actually working
             if matches!(state.phase, WorkPhase::Working) {
                 state.phase = WorkPhase::Idle;
             }
             state.last_activity_at = Some(now.to_string());
+            state.current_turn_id = None;
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
@@ -425,6 +450,7 @@ pub fn transition(
                 changes: StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
+                    current_turn_id: Some(None),
                     ..Default::default()
                 },
             })));
@@ -433,6 +459,7 @@ pub fn transition(
         Input::TurnAborted { .. } => {
             state.phase = WorkPhase::Idle;
             state.last_activity_at = Some(now.to_string());
+            state.current_turn_id = None;
 
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
@@ -445,6 +472,7 @@ pub fn transition(
                 changes: StateChanges {
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
+                    current_turn_id: Some(None),
                     ..Default::default()
                 },
             })));
@@ -815,6 +843,9 @@ mod tests {
             custom_name: None,
             project_path: "/tmp/project".to_string(),
             last_activity_at: None,
+            current_turn_id: None,
+            turn_count: 0,
+            turn_diffs: Vec::new(),
         }
     }
 
@@ -1043,5 +1074,111 @@ mod tests {
         assert_eq!(new_state.phase, WorkPhase::Idle);
         // Persist + SessionDelta + ThreadRolledBack
         assert_eq!(effects.len(), 3);
+    }
+
+    #[test]
+    fn turn_started_generates_turn_id() {
+        let state = test_state();
+        assert_eq!(state.turn_count, 0);
+        assert!(state.current_turn_id.is_none());
+
+        let (new_state, effects) = transition(state, Input::TurnStarted, NOW);
+
+        assert_eq!(new_state.turn_count, 1);
+        assert_eq!(new_state.current_turn_id, Some("turn-1".to_string()));
+
+        // Verify turn_id and turn_count are in the delta
+        if let Effect::Emit(ref msg) = effects[1] {
+            if let ServerMessage::SessionDelta { changes, .. } = msg.as_ref() {
+                assert_eq!(changes.current_turn_id, Some(Some("turn-1".to_string())));
+                assert_eq!(changes.turn_count, Some(1));
+            } else {
+                panic!("expected SessionDelta");
+            }
+        }
+    }
+
+    #[test]
+    fn turn_count_increments_across_turns() {
+        let state = test_state();
+
+        // First turn
+        let (state1, _) = transition(state, Input::TurnStarted, NOW);
+        assert_eq!(state1.turn_count, 1);
+        assert_eq!(state1.current_turn_id, Some("turn-1".to_string()));
+
+        let (state2, _) = transition(state1, Input::TurnCompleted, NOW);
+        assert!(state2.current_turn_id.is_none());
+
+        // Second turn
+        let (state3, _) = transition(state2, Input::TurnStarted, NOW);
+        assert_eq!(state3.turn_count, 2);
+        assert_eq!(state3.current_turn_id, Some("turn-2".to_string()));
+    }
+
+    #[test]
+    fn turn_completed_snapshots_diff() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.current_turn_id = Some("turn-1".to_string());
+        state.turn_count = 1;
+        state.current_diff =
+            Some("--- a/file.rs\n+++ b/file.rs\n@@ -1 +1 @@\n-old\n+new".to_string());
+
+        let (new_state, effects) = transition(state, Input::TurnCompleted, NOW);
+
+        // Diff should be snapshotted
+        assert_eq!(new_state.turn_diffs.len(), 1);
+        assert_eq!(new_state.turn_diffs[0].turn_id, "turn-1");
+        assert!(new_state.turn_diffs[0].diff.contains("+new"));
+
+        // Turn ID should be cleared
+        assert!(new_state.current_turn_id.is_none());
+
+        // Should emit TurnDiffSnapshot
+        let has_snapshot = effects.iter().any(|e| matches!(
+            e,
+            Effect::Emit(ref msg) if matches!(msg.as_ref(), ServerMessage::TurnDiffSnapshot { .. })
+        ));
+        assert!(has_snapshot, "should emit TurnDiffSnapshot");
+    }
+
+    #[test]
+    fn turn_completed_without_diff_skips_snapshot() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.current_turn_id = Some("turn-1".to_string());
+        state.turn_count = 1;
+        state.current_diff = None;
+
+        let (new_state, effects) = transition(state, Input::TurnCompleted, NOW);
+
+        assert!(new_state.turn_diffs.is_empty());
+
+        let has_snapshot = effects.iter().any(|e| matches!(
+            e,
+            Effect::Emit(ref msg) if matches!(msg.as_ref(), ServerMessage::TurnDiffSnapshot { .. })
+        ));
+        assert!(
+            !has_snapshot,
+            "should NOT emit TurnDiffSnapshot without diff"
+        );
+    }
+
+    #[test]
+    fn turn_aborted_clears_turn_id() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.current_turn_id = Some("turn-1".to_string());
+
+        let (new_state, _) = transition(
+            state,
+            Input::TurnAborted {
+                reason: "interrupted".to_string(),
+            },
+            NOW,
+        );
+
+        assert!(new_state.current_turn_id.is_none());
     }
 }

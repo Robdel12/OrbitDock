@@ -224,6 +224,29 @@ pub enum PersistCommand {
         request_id: String,
         decision: String,
     },
+
+    /// Create a review comment
+    ReviewCommentCreate {
+        id: String,
+        session_id: String,
+        turn_id: Option<String>,
+        file_path: String,
+        line_start: u32,
+        line_end: Option<u32>,
+        body: String,
+        tag: Option<String>,
+    },
+
+    /// Update a review comment
+    ReviewCommentUpdate {
+        id: String,
+        body: Option<String>,
+        tag: Option<String>,
+        status: Option<String>,
+    },
+
+    /// Delete a review comment
+    ReviewCommentDelete { id: String },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -1146,6 +1169,67 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 params![decision, now, session_id, request_id],
             )?;
         }
+
+        PersistCommand::ReviewCommentCreate {
+            id,
+            session_id,
+            turn_id,
+            file_path,
+            line_start,
+            line_end,
+            body,
+            tag,
+        } => {
+            let now = chrono_now();
+            conn.execute(
+                "INSERT INTO review_comments (id, session_id, turn_id, file_path, line_start, line_end, body, tag, status, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'open', ?9)",
+                params![id, session_id, turn_id, file_path, line_start, line_end, body, tag, now],
+            )?;
+        }
+
+        PersistCommand::ReviewCommentUpdate {
+            id,
+            body,
+            tag,
+            status,
+        } => {
+            let now = chrono_now();
+            let mut updates = Vec::new();
+            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(b) = body {
+                updates.push("body = ?");
+                params_vec.push(Box::new(b));
+            }
+            if let Some(t) = tag {
+                updates.push("tag = ?");
+                params_vec.push(Box::new(t));
+            }
+            if let Some(s) = status {
+                updates.push("status = ?");
+                params_vec.push(Box::new(s));
+            }
+
+            if !updates.is_empty() {
+                updates.push("updated_at = ?");
+                params_vec.push(Box::new(now));
+
+                let sql = format!(
+                    "UPDATE review_comments SET {} WHERE id = ?",
+                    updates.join(", ")
+                );
+                params_vec.push(Box::new(id));
+
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params_vec.iter().map(|p| p.as_ref()).collect();
+                conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            }
+        }
+
+        PersistCommand::ReviewCommentDelete { id } => {
+            conn.execute("DELETE FROM review_comments WHERE id = ?1", params![id])?;
+        }
     }
 
     Ok(())
@@ -2021,6 +2105,95 @@ pub async fn delete_approval(approval_id: i64) -> Result<bool, anyhow::Error> {
     .await??;
 
     Ok(deleted)
+}
+
+/// List review comments for a session, optionally filtered by turn_id
+pub async fn list_review_comments(
+    session_id: &str,
+    turn_id: Option<&str>,
+) -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
+    let session_id = session_id.to_string();
+    let turn_id = turn_id.map(|s| s.to_string());
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+
+    let comments = tokio::task::spawn_blocking(move || -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(Vec::new());
+        }
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        // Check table exists
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'review_comments'",
+            [],
+            |row| row.get(0),
+        )?;
+        if table_exists == 0 {
+            return Ok(Vec::new());
+        }
+
+        let (sql, params_vec): (String, Vec<Box<dyn rusqlite::ToSql>>) = if let Some(ref tid) = turn_id {
+            (
+                "SELECT id, session_id, turn_id, file_path, line_start, line_end, body, tag, status, created_at, updated_at
+                 FROM review_comments WHERE session_id = ?1 AND turn_id = ?2 ORDER BY created_at".to_string(),
+                vec![Box::new(session_id.clone()) as Box<dyn rusqlite::ToSql>, Box::new(tid.clone())],
+            )
+        } else {
+            (
+                "SELECT id, session_id, turn_id, file_path, line_start, line_end, body, tag, status, created_at, updated_at
+                 FROM review_comments WHERE session_id = ?1 ORDER BY created_at".to_string(),
+                vec![Box::new(session_id.clone()) as Box<dyn rusqlite::ToSql>],
+            )
+        };
+
+        let params_refs: Vec<&dyn rusqlite::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params_refs), |row| {
+            let tag_str: Option<String> = row.get(7)?;
+            let status_str: String = row.get(8)?;
+
+            let tag = tag_str.and_then(|t| match t.as_str() {
+                "clarity" => Some(orbitdock_protocol::ReviewCommentTag::Clarity),
+                "scope" => Some(orbitdock_protocol::ReviewCommentTag::Scope),
+                "risk" => Some(orbitdock_protocol::ReviewCommentTag::Risk),
+                "nit" => Some(orbitdock_protocol::ReviewCommentTag::Nit),
+                _ => None,
+            });
+
+            let status = match status_str.as_str() {
+                "resolved" => orbitdock_protocol::ReviewCommentStatus::Resolved,
+                _ => orbitdock_protocol::ReviewCommentStatus::Open,
+            };
+
+            Ok(orbitdock_protocol::ReviewComment {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                turn_id: row.get(2)?,
+                file_path: row.get(3)?,
+                line_start: row.get(4)?,
+                line_end: row.get(5)?,
+                body: row.get(6)?,
+                tag,
+                status,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        })?;
+
+        let mut comments = Vec::new();
+        for row in rows {
+            comments.push(row?);
+        }
+        Ok(comments)
+    })
+    .await??;
+
+    Ok(comments)
 }
 
 #[cfg(test)]

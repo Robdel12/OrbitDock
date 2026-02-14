@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::types::{ImageInput, MentionInput, Provider, SkillInput};
+use crate::types::{
+    ImageInput, MentionInput, Provider, ReviewCommentStatus, ReviewCommentTag, SkillInput,
+};
 
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -142,6 +144,37 @@ pub enum ClientMessage {
     RollbackTurns {
         session_id: String,
         num_turns: u32,
+    },
+
+    // Review comments
+    CreateReviewComment {
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        file_path: String,
+        line_start: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        line_end: Option<u32>,
+        body: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tag: Option<ReviewCommentTag>,
+    },
+    UpdateReviewComment {
+        comment_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        body: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tag: Option<ReviewCommentTag>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        status: Option<ReviewCommentStatus>,
+    },
+    DeleteReviewComment {
+        comment_id: String,
+    },
+    ListReviewComments {
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
     },
 
     // Claude hook transport (server-owned write path)

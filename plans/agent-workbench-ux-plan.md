@@ -380,22 +380,24 @@ This plan depends on `plans/server-architecture-v2.md` (functional core, imperat
 | `EventPayload` enum with typed broadcasts | Swift side can consume structured events instead of parsing raw data |
 | `ArcSwap<SessionSnapshot>` for lock-free reads | Attention strip can aggregate state across sessions without lock contention |
 
-### What still needs to be added (server-side)
+### Server-side additions (DONE)
 
-These are small additions to the server v2 architecture, not separate projects:
+All server changes needed for the workbench UX are implemented and tested:
 
-- **Turn ID tracking**: Add `current_turn_id: Option<String>` and `turn_count: u64` to `SessionState`. Emit turn ID with `TurnStarted` / `TurnCompleted` events. Associate messages and diffs with the turn that produced them.
-- **Per-turn diff snapshots**: Currently `current_diff` is replaced each turn. Keep a `turn_diffs: Vec<(TurnId, String)>` history so the review canvas can show diffs from any turn, not just the latest.
-- **Structured diff model (optional server-side)**: Could parse unified diffs into `Vec<FileDiff>` at the server level, or leave parsing to the Swift client. Client-side parsing is fine for v1.
+- **Turn ID tracking** ✅: `current_turn_id` and `turn_count` on `TransitionState`, `SessionHandle`, `SessionState`. Turn IDs (`turn-{N}`) generated on `TurnStarted`, cleared on `TurnCompleted`/`TurnAborted`. Emitted via `SessionDelta` with `current_turn_id` and `turn_count` fields in `StateChanges`.
+- **Per-turn diff snapshots** ✅: `TurnDiff { turn_id, diff }` struct. `turn_diffs: Vec<TurnDiff>` accumulates across turns. On `TurnCompleted`, `current_diff` is snapshotted into history and a `TurnDiffSnapshot` event is emitted. Full history included in `SessionState` snapshots.
+- **Review comments** ✅: Migration `015_review_comments.sql`. `ReviewComment` type with tags (clarity/scope/risk/nit) and status (open/resolved). Full CRUD via WebSocket: `CreateReviewComment`, `UpdateReviewComment`, `DeleteReviewComment`, `ListReviewComments` → persisted to SQLite, broadcast to session subscribers.
+- **Structured diff model**: Client-side parsing is fine for v1 — the server provides the raw unified diff string.
 
 ### What is purely client-side
 
-These have no server dependency and can proceed independently:
+All remaining work has no server dependency and can proceed independently:
 
-- Review comment model + storage (SQLite table, Swift model)
-- Layout configuration state
+- Swift-side `TurnSummary` model consuming the server's turn IDs (or synthetic boundaries for Claude sessions)
+- `DiffModel` parser (parse the raw unified diff string into `[FileDiff]` with hunks)
+- Swift-side `ReviewComment` model consuming the server's WebSocket CRUD
+- Layout configuration state (`@AppStorage`)
 - Input mode state machine
-- Diff parsing into `[FileDiff]` with hunks (can parse the raw string client-side)
 - All shared interaction primitives (SwiftUI components)
 
 ## Implementation Assumptions (Verified Against Codebase)
@@ -404,12 +406,14 @@ Assumptions verified by auditing the current codebase. Each gap is addressed in 
 
 | Assumption | Current Reality | Resolution |
 |---|---|---|
-| Turn IDs exist | No turn concept in Swift UI. Server emits turn events but UI doesn't consume them. | Phase 0: add turn tracking. Server v2 makes this straightforward. |
-| Diff is a parsed model | Raw `String` only. `CodexTurnSidebar.parseDiffLines()` does line-by-line coloring at render time. No file/hunk structure. | Phase 0: add `DiffModel` layer (client-side parsing). |
-| Review comments can be stored | No table, no model, no CRUD. | Phase 0: add SQLite table + Swift model. |
+| Turn IDs exist | ✅ Server now emits `current_turn_id` and `turn_count` via `SessionDelta`. `TurnDiffSnapshot` events provide per-turn diff history. | Phase 0: build Swift-side `TurnSummary` model consuming these server events. |
+| Diff is a parsed model | Raw `String` in sidebar. BUT `EditCard` has a real LCS diff algorithm and `UnifiedDiffView` with line numbers + syntax highlighting. Aggregated diff string has `---/+++` file headers. | Phase 0: add `DiffModel` parser for file/hunk structure. Reuse existing LCS algorithm. Add word-level diff layer. |
+| Syntax highlighting exists | Yes — `SyntaxHighlighter` with 12 languages via regex. Used in `EditCard` and `CodeBlockView`. NOT used in sidebar diff views. Separate `SyntaxColors` vs `Color.syntax*` in Theme.swift. | Phase 0: extract into own file, unify colors with Theme.swift. Apply to all diff surfaces. |
+| Review comments can be stored | ✅ Server has `review_comments` table, full CRUD over WebSocket, broadcast to session subscribers. | Phase 0: build Swift-side model + WebSocket integration. |
 | Layout supports dual center zones | Simple `HStack` with optional sidebar. No multi-zone flexibility. | Phase 0: add `LayoutConfiguration` state. Phase 3a implements the actual layout. |
 | Input bar has a mode enum | Implicit `isSessionWorking` boolean. No manual override, no third mode. | Phase 0: add `InputMode` enum. |
 | Cross-session attention aggregation | `AgentListPanel` groups by `needsAttention` (permission/question only). No review state, no global counts. | Phase 1: extend existing pattern with `AttentionEvent` aggregation. |
+| Approval diffs are rendered | `ServerApprovalRequest.diff` field exists but is never shown in `CodexApprovalView`. | Phase 5: render approval diffs using existing `UnifiedDiffView`. |
 
 ## Actionable Delivery Phases (Roadmap Style)
 
@@ -456,38 +460,48 @@ Preflight review questions:
 
 **Objective**: Build the data models, state tracking, and parsing layers that all subsequent UI phases depend on. This phase produces no visible UI changes but is a hard prerequisite.
 
-**Server v2 dependency**: Turn tracking depends on server v2 emitting turn IDs with `TurnStarted`/`TurnCompleted` events. If server v2 is not yet shipping turn IDs, this phase can still build the Swift-side models and populate them with synthetic turn boundaries (inferred from message type alternation). The models get upgraded to use real turn IDs once server v2 lands them.
+**Server dependency**: ✅ All server-side work is complete. The server now emits turn IDs with `TurnStarted`/`TurnCompleted`, snapshots diffs per-turn, and provides review comment CRUD over WebSocket. Phase 0 client work consumes these server features directly — no synthetic boundaries needed for Codex direct sessions. (Claude JSONL sessions still infer turn boundaries from message types.)
 
 ### Scope
-- [ ] **Turn tracking model**: `TurnSummary` struct (turn ID, start/end timestamps, messages, tools, changed files, status). Build a `TurnBuilder` that groups existing messages into turns by inferring boundaries from user→assistant message pairs (Codex direct: consume server events; Claude JSONL: infer from message types).
-- [ ] **Structured diff model**: `DiffModel` with `[FileDiff]` where each `FileDiff` has path, hunks, and each hunk has line ranges + content. Parse from the raw unified diff string that `ServerAppState.getDiff()` returns. This is client-side parsing — no server changes needed.
-- [ ] **Review comment model**: `ReviewComment` struct (id, sessionId, turnId, filePath, lineRange, body, tag, status, createdAt). SQLite table `review_comments`. Basic CRUD in a `ReviewStore` or extension on `ServerAppState`.
+- [ ] **Turn tracking model**: `TurnSummary` struct (turn ID, start/end timestamps, messages, tools, changed files, status). Build a `TurnBuilder` that groups existing messages into turns. Codex direct sessions consume the server's `current_turn_id` and `turn_count` from `SessionDelta` events. Claude JSONL sessions infer turn boundaries from message types (a turn starts at a `human` message and ends at the next `human` message).
+- [ ] **Structured diff model**: `DiffModel` with `[FileDiff]` where each `FileDiff` has path, change type (add/modify/delete), hunks, and each hunk has line ranges + content lines. Parse from the aggregated unified diff string (`ServerAppState.getDiff()`) which already contains `---/+++` file headers. Add word-level diff highlighting: within changed line pairs (adjacent removal + addition), run character-level diff to produce `inlineChanges: [Range<String.Index>]` per line. Can reuse/extend the existing LCS algorithm from `EditCard.computeLCSDiff()`.
+- [ ] **Extract and unify SyntaxHighlighter**: Move `SyntaxHighlighter` from `MarkdownView.swift` (lines 470-1558) into its own file. Unify `SyntaxColors` enum with `Color.syntax*` in Theme.swift so all syntax highlighting uses the same color source.
+- [ ] **Review comment model (Swift side)**: `ReviewComment` Swift struct mirroring the server's type. CRUD operations via WebSocket (`CreateReviewComment`, `UpdateReviewComment`, `DeleteReviewComment`, `ListReviewComments`). Server-side table and persistence are already implemented.
 - [ ] **Layout configuration state**: `LayoutConfiguration` enum (conversationOnly, reviewOnly, split) + `RailPreset` enum (planFocused, reviewFocused, triage). Persisted per-session in UserDefaults or SQLite.
 - [ ] **Input mode state machine**: Replace `isSessionWorking` boolean in `CodexInputBar` with `InputMode` enum (`.prompt`, `.steer`, `.reviewNotes`). Auto-transitions: idle → prompt, working → steer. Manual override for reviewNotes.
 - [ ] **Attention aggregation**: `AttentionService` that observes all sessions and produces `[AttentionEvent]` (pending approvals, questions, unreviewed diffs). Extend the existing `needsAttention` pattern in `Session`.
+- [ ] **Component consolidation**: Unify the 5 model badge variants into one parameterized `ModelBadge` component with size enum. Extract `displayNameForModel()` / `colorForModel()` into a single `ModelStyle` utility. Consolidate duplicated tool icon mapping into `ToolCardStyle` as the single source of truth.
+- [ ] **Orphan cleanup**: Remove `ProjectArchiveSection`, `StatsSummary`, `SessionCard`, `CodexDiffSidebar`. Decide on `InboxView` and Quest system stubs (remove if no plans to rebuild; keep stubs if they'll become project lanes / attention features in Phase 6).
 
 ### Primary surfaces
 - `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift`
 - `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
+- `CommandCenter/CommandCenter/Views/MarkdownView.swift` (extract SyntaxHighlighter)
 - `CommandCenter/CommandCenter/Models/` (new files)
+- Various views with duplicated model badge / tool icon code (consolidation)
 
 ### Likely new files
 - `CommandCenter/CommandCenter/Models/TurnSummary.swift`
 - `CommandCenter/CommandCenter/Models/DiffModel.swift`
 - `CommandCenter/CommandCenter/Models/ReviewComment.swift`
 - `CommandCenter/CommandCenter/Models/LayoutConfiguration.swift`
+- `CommandCenter/CommandCenter/Views/SyntaxHighlighter.swift` (extracted from MarkdownView.swift)
 - `CommandCenter/CommandCenter/Services/AttentionService.swift`
-- `CommandCenter/CommandCenter/Services/ReviewStore.swift`
 
 ### Definition of done
-- [ ] `TurnBuilder` can group an existing conversation's messages into turns.
-- [ ] `DiffModel.parse(unifiedDiff:)` correctly splits a multi-file unified diff into `[FileDiff]` with hunks.
-- [ ] `ReviewComment` can be created, read, updated, and deleted from SQLite.
+- [ ] `TurnBuilder` can group an existing conversation's messages into turns (handles human → tool_use → tool_result → assistant chains).
+- [ ] `DiffModel.parse(unifiedDiff:)` correctly splits a multi-file unified diff into `[FileDiff]` with hunks, using `---/+++` file headers.
+- [ ] Word-level diff highlighting produces `inlineChanges` ranges for changed line pairs.
+- [ ] `SyntaxHighlighter` is extracted into its own file; `SyntaxColors` and `Color.syntax*` in Theme.swift are unified.
+- [ ] `ReviewComment` can be created, read, updated, and deleted via WebSocket (server handles persistence).
 - [ ] `LayoutConfiguration` persists across session switches.
 - [ ] `InputMode` enum drives the input bar with correct auto-transitions.
 - [ ] `AttentionService` produces accurate counts of pending approvals/questions across sessions.
+- [ ] Model badge consolidated into one component with size variants; model name/color utilities in one place.
+- [ ] Tool icon/color mapping consolidated into `ToolCardStyle` as single source.
+- [ ] Orphaned views removed (ProjectArchiveSection, StatsSummary, SessionCard, CodexDiffSidebar).
 - [ ] All models have basic unit tests.
-- [ ] No visible UI changes — this is infrastructure only.
+- [ ] No *new* visible UI changes — consolidation should be visually identical. Infrastructure only.
 
 ## Phase 1: Capability Rail + Action Dock Clarity
 
@@ -521,12 +535,13 @@ Preflight review questions:
 **Objective**: Make verbose activity scannable without removing detail. Guarantee raw inspectability.
 
 ### Scope
-- [ ] Group transcript events into turn containers with clear boundaries.
+- [ ] Group transcript events into turn containers with clear boundaries (uses `TurnSummary` from Phase 0).
 - [ ] Show turn summary chips (plan progress, tools, changed files, status).
 - [ ] Add expand/collapse for per-turn raw details (uses collapsible section primitive).
 - [ ] Add density toggle: `Detailed` (default, expand/collapse per turn) and `Turns` (summary chips only).
 - [ ] Add jump links from turn summaries back to raw tool events.
 - [ ] Ensure no existing transcript data is hidden or dropped in any density level.
+- [ ] Turn containers must be responsive at both full and compact widths (anticipating split layout in Phase 3a — conversation canvas may share the center zone with review canvas).
 
 ### Primary surfaces
 - `CommandCenter/CommandCenter/Views/ConversationView.swift`
@@ -545,13 +560,21 @@ Preflight review questions:
 
 The review canvas is **read-only but high-fidelity** — not an editor, but a better review experience than GitHub. Rich syntax highlighting, word-level diff precision, fluid navigation, and live-streaming diffs as the agent works. If the user wants to edit a file directly, OrbitDock opens it in their preferred editor — we don't recreate that. But the review rendering itself should be best-in-class.
 
+### Building on existing infrastructure
+
+The review canvas extends what already works — it does not start from scratch:
+- **`EditCard` + `UnifiedDiffView`** already render syntax-highlighted diffs with dual line numbers, LCS diff computation, and green/red coloring. This is the rendering quality baseline.
+- **`SyntaxHighlighter`** already supports 12 languages via regex. Extracted and unified in Phase 0.
+- **`DiffModel`** (built in Phase 0) provides file-level and hunk-level structure with word-level inline changes.
+- **`CodexDiffSidebar`** can be removed — its functionality is subsumed by the review canvas.
+
 ### Rendering quality bar
-- **Syntax highlighting**: language-aware coloring for all major languages. Diffs should look as good as code in a proper editor, not like plain text with green/red lines.
-- **Word-level diff highlighting**: within changed lines, highlight the specific words/tokens that changed — not just "this whole line is red/green." This is what makes scanning large diffs fast.
-- **Unified and side-by-side views**: user can toggle between unified diff (compact, good for small changes) and side-by-side (better for large refactors). Default to unified.
+- **Syntax highlighting**: use the existing `SyntaxHighlighter` (12 languages, extracted in Phase 0). Diffs should look as good as code blocks in conversation messages, not like the current sidebar's plain text. TreeSitter is a future upgrade if regex coverage becomes limiting.
+- **Word-level diff highlighting**: use `inlineChanges` from `DiffModel` (built in Phase 0) to highlight specific changed tokens within lines. This is what makes scanning large diffs fast.
+- **Unified and side-by-side views**: user can toggle between unified diff (compact, good for small changes) and side-by-side (better for large refactors). Default to unified. Side-by-side only available in review-only layout mode (not split mode) to avoid screen real estate issues.
 - **Collapsible unchanged regions**: large files with small changes should collapse unchanged sections with "show N hidden lines" expanders, like GitHub does.
-- **Line numbers**: gutter with original and new line numbers for both sides.
-- **"Open in editor" action**: from any file in the review canvas, one action to open that file at the relevant line in the user's preferred editor. OrbitDock shows you the diff; your editor is where you work.
+- **Line numbers**: gutter with original and new line numbers for both sides (extend the existing dual line number pattern from `UnifiedDiffView`).
+- **"Open in editor" action**: from any file in the review canvas, one action to open that file at the relevant line in the user's preferred editor. Uses the editor already configured in Settings > General (7 editors supported). No new configuration needed.
 - **Nice-to-have: live diff streaming**: as the agent produces changes during a turn, the review canvas updates in real time — new files appear, hunks grow. Great if achievable, but the core value is the review-annotate-steer loop once diffs land, not mid-turn animation.
 
 ### Scope
@@ -567,7 +590,7 @@ The review canvas is **read-only but high-fidelity** — not an editor, but a be
 - [ ] Side-by-side relationship between turn and resulting file changes (jump from turn to exact changed file/hunk, using `TurnSummary` from Phase 0).
 - [ ] Review canvas activates (suggests layout switch) when diffs are available — after a turn completes or when the user explicitly opens review.
 - [ ] Nice-to-have: live diff streaming during active turns (diffs update as the agent works).
-- [ ] "Open in editor" action: open the file at the relevant line in the user's preferred editor ($EDITOR or configured default).
+- [ ] "Open in editor" action: open the file at the relevant line using the editor already configured in Settings > General (VS Code, Cursor, Zed, Sublime, Emacs, Vim, Neovim — stored in `@AppStorage`). HeaderView already has an editor picker in the project path context menu — reuse the same preference.
 - [ ] Preserve conversation scroll position when switching to/from review.
 
 ### Primary surfaces
@@ -630,7 +653,7 @@ The review canvas is **read-only but high-fidelity** — not an editor, but a be
 - [ ] Add "Send all unresolved comments" bulk action.
 - [ ] Serialize comments into deterministic steer payload format (file, line, tag, body).
 - [ ] Add transcript markers linking steer payload to source comment IDs.
-- [ ] After agent responds, review canvas marks which comments were addressed (links changed lines back to comment IDs).
+- [ ] After agent responds, review canvas highlights which files changed since comments were written — "this file was modified" indicator on commented files. User resolves comments manually after verifying the fix. (Auto-detection of which specific comments were addressed is not reliable and should not be attempted.)
 - [ ] Follow-up review round: user can re-review, resolve addressed comments, add new ones, and send another round.
 
 ### Primary surfaces
@@ -654,6 +677,7 @@ The review canvas is **read-only but high-fidelity** — not an editor, but a be
 - [ ] Add approval queue section in capability rail with filters (`pending`, `resolved`, `tool`, `session`).
 - [ ] Improve inline action cards for approvals with clear decision labels/scopes (`once`, `session`, `always`, `abort`).
 - [ ] Add risk cues to approval cards (command preview, affected files, tool type).
+- [ ] Render the approval diff preview for Edit/Write approvals — `ServerApprovalRequest.diff` field exists in the data model but is currently unused. Use the existing syntax-highlighted diff rendering from `UnifiedDiffView`.
 - [ ] Link approvals to related turn + changed files where possible.
 - [ ] Keyboard shortcuts for rapid approval triage (approve/deny/skip without mouse).
 
@@ -690,21 +714,115 @@ The review canvas is **read-only but high-fidelity** — not an editor, but a be
 
 ## Technical Mapping (Current Codebase)
 
-Primary files/surfaces involved:
+### Existing diff and syntax highlighting infrastructure
+
+The codebase already has significant diff rendering and syntax highlighting. The review canvas builds on this foundation — it does not start from scratch.
+
+**`EditCard` + `UnifiedDiffView`** (`Views/ToolCards/EditCard.swift`):
+- Custom LCS diff algorithm (`computeLCSDiff`) — computes Longest Common Subsequence between old/new string arrays. This is a real diff algorithm, not just line-prefix parsing.
+- Dual line numbers (old + new columns, like GitHub).
+- Syntax highlighting on every diff line via `SyntaxHighlighter.highlightLine()`.
+- Green addition / red deletion backgrounds with bright accent text.
+- Expand/collapse for diffs over 25 lines, stats header (+N/-N).
+- Handles Claude Edit tool (old_string/new_string), Write tool (full content), and Codex fileChange (unified diff parsing).
+- **This is the rendering quality baseline for the review canvas.**
+
+**`SyntaxHighlighter`** (`Views/MarkdownView.swift`, lines 470-1558):
+- Custom regex-based highlighter, no third-party dependencies.
+- 12 languages: Swift, JavaScript/TypeScript, Python, JSON, Bash, YAML, SQL, Go, Rust, HTML/XML, CSS, plus generic fallback.
+- Keyword, type, string, comment, number pattern detection via `NSRegularExpression`.
+- Own `SyntaxColors` enum (separate from `Color.syntax*` in Theme.swift — needs unification).
+- **Good enough for v1. TreeSitter is a future upgrade, not a blocker.**
+
+**`CodeBlockView`** (`Views/MarkdownView.swift`):
+- Language badge with colored dot, language normalization (js→javascript, etc.).
+- Line numbers, copy to clipboard, expand/collapse for blocks over 15 lines.
+- Syntax highlighting via `SyntaxHighlighter`.
+
+**Aggregated turn diff** (`ServerAppState.sessionDiffs`):
+- Unified diff string per session, populated from Rust server via WebSocket.
+- Contains `---/+++` file headers for multi-file diffs — parseable into file-level structure.
+
+### Existing but disconnected / underused
+
+- **`CodexDiffSidebar`** — standalone diff component, NOT wired into any view. Can be removed or cannibalized.
+- **`CodexTurnSidebar` Changes tab** — renders aggregated diff but with NO syntax highlighting (plain text + line-prefix coloring). Should be upgraded to use `SyntaxHighlighter` and eventually replaced by review canvas link.
+- **`ServerApprovalRequest.diff`** — field decoded from Rust server but never rendered in `CodexApprovalView`. Phase 5 should render this.
+- **`SyntaxColors` enum vs `Color.syntax*` in Theme.swift** — duplicated color systems for syntax highlighting. Phase 0 should unify these.
+
+### What needs to be built
+
+- **File-level diff grouping**: parse the aggregated unified diff string (which has `---/+++` file headers) into `[FileDiff]` structs. The string format is well-defined.
+- **Word-level (intra-line) diff highlighting**: within changed line pairs, highlight the specific tokens that changed. Extend `computeLCSDiff` or add a character-level pass.
+- **File list navigation**: flat list of changed files extracted from the parsed diff, with change-type indicators and jump-to-file.
+- **Side-by-side diff view**: render old and new side by side (in addition to existing unified view). Only available in review-only layout mode to avoid screen real estate issues.
+- **Review canvas layout**: center-zone surface that hosts the file list + diff view, using the `LayoutConfiguration` state.
+- **Line annotation layer**: comment markers on diff lines, comment composer, review checklist.
+- **Comment-to-steer bridge**: serialize annotations into steering payloads.
+
+### Component quality assessment
+
+**Already polished — preserve and extend, don't rewrite:**
+- Theme.swift design system (700 lines, comprehensive tokens, status system, effects)
+- ConversationView message rendering (all message types, images, thinking, tool cards)
+- MarkdownView + SyntaxHighlighter (production-quality markdown, 12-language highlighting)
+- Tool cards (16 distinct types via `ToolIndicator` router, consistent `ToolCardContainer` pattern)
+- QuickSwitcher / command palette (1129 lines, search, keyboard nav, inline actions)
+- Toast notification system (ToastManager + ToastView)
+- KeyboardNavigationModifier (arrow keys + Emacs bindings, used by QuickSwitcher + DashboardView)
+- CodexInputBar (rich input: model/effort pickers, $skill and @mention completion, image attachments)
+- CodexApprovalView / CodexQuestionView (5 decision options, question flow)
+- CommandBar (rich stats: cost, tokens, cache savings, model distribution, rate limit gauges)
+- DashboardView (active sessions, session history with date/project grouping, command bar)
+- HeaderView (breadcrumb, status dot with orbit glow, model badge, editor picker via @AppStorage)
+- SettingsView (4 tabs: General with editor picker, Notifications, Setup, Debug)
+- Usage system (multi-provider: Claude 5h/7d windows, Codex primary/secondary, projection bars)
+
+**Needs consolidation (component duplication):**
+- **Model badges**: 5 separate implementations (`ModelBadge`, `ModelBadgeMini`, `ModelBadgeCompact`, `CompactModelBadge`, inline in MenuBarSessionRow) all with copy-pasted model name normalization. Should be one parameterized component with size variants.
+- **Model name/color utilities**: `displayNameForModel()` and `colorForModel()` duplicated across HeaderView, AgentRowCompact, CommandBar, SessionRowView, SessionCard. Should be a single `ModelStyle` enum or extension.
+- **Tool icon mapping**: Duplicated in `ActiveSessionRow`, `QuickSwitcher`, `CodexApprovalView`, `ToolCardStyle`, `ToolIndicator`, `ActivityBanner`. Should be a single `ToolStyle` source of truth.
+- **CompactStatusBadge legacy shim**: Creates fake `Session` objects just to bridge APIs. Should use `SessionDisplayStatus` directly.
+
+**Orphaned / disabled views to clean up:**
+- `ProjectArchiveSection` — superseded by `SessionHistorySection` (which has its own project grouping toggle). DashboardView doesn't use it.
+- `StatsSummary` — superseded by `CommandBar`'s integrated stats display.
+- `SessionCard` — grid-style card using the old 3-state status system. Dashboard uses `ActiveSessionRow` (list layout) now.
+- `CodexDiffSidebar` — superseded by `CodexTurnSidebar` Changes tab. Will be fully replaced by review canvas.
+- `InboxView` — disabled stub ("temporarily unavailable"). Decide: remove or rebuild as part of attention strip / project lanes.
+- `QuestListView`, `QuestDetailView`, `QuestRow` + `Quest.swift`, `QuestLink.swift` models — disabled stubs. Decide: remove or rebuild as part of project management features.
+
+**Existing feature: editor picker in Settings.** `SettingsView` General tab already has an editor picker (VS Code, Cursor, Zed, Sublime, Emacs, Vim, Neovim) stored in `@AppStorage`. Phase 3a's "open in editor" action should use this — no need to build a new configuration system.
+
+### Reuse strategy for Phase 3a
+
+The review canvas should **extend** `UnifiedDiffView`'s rendering approach, not replace it:
+1. Extract `SyntaxHighlighter` into its own file and unify colors with Theme.swift.
+2. Build `DiffModel` parser that splits the aggregated diff string into `[FileDiff]` (using the existing `---/+++` file header format).
+3. Reuse the existing LCS diff computation for per-file rendering.
+4. Add word-level highlighting as a layer on top of existing line-level highlighting.
+5. Wrap the per-file diff rendering in a new `ReviewCanvas` that adds file navigation, layout management, and annotation support.
+
+### Primary files/surfaces involved
+
 - `CommandCenter/CommandCenter/Views/SessionDetailView.swift`
 - `CommandCenter/CommandCenter/Views/ConversationView.swift`
+- `CommandCenter/CommandCenter/Views/ToolCards/EditCard.swift` (existing diff rendering to reuse)
+- `CommandCenter/CommandCenter/Views/MarkdownView.swift` (existing SyntaxHighlighter to extract)
 - `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift`
 - `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
 - `CommandCenter/CommandCenter/Views/Codex/CodexApprovalView.swift`
 - `CommandCenter/CommandCenter/Views/Codex/CodexApprovalHistoryView.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexDiffSidebar.swift`
+- `CommandCenter/CommandCenter/Views/Codex/CodexDiffSidebar.swift` (likely removed, replaced by review canvas)
 - `CommandCenter/CommandCenter/Views/QuickSwitcher.swift`
 - `CommandCenter/CommandCenter/Views/DashboardView.swift`
 - `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift`
 
-Likely new models/state:
+### Likely new models/state
+
 - `ReviewComment` (file, line/range, body, status, tag, author, createdAt)
 - `TurnSummary` (turn id, prompt, tools, files, status, timestamps)
+- `DiffModel` / `FileDiff` / `DiffHunk` (structured parsing of aggregated unified diff)
 - `SessionCapabilityState` (derived capability flags by session type/status)
 - `LayoutConfiguration` (conversation-only, review-only, split, and rail preset)
 - `AttentionEvent` (cross-session urgency: pending approvals, questions, failures)

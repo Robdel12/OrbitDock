@@ -130,6 +130,31 @@ pub enum ServerMessage {
         num_turns: u32,
     },
 
+    // Turn diffs
+    TurnDiffSnapshot {
+        session_id: String,
+        turn_id: String,
+        diff: String,
+    },
+
+    // Review comments
+    ReviewCommentCreated {
+        session_id: String,
+        comment: ReviewComment,
+    },
+    ReviewCommentUpdated {
+        session_id: String,
+        comment: ReviewComment,
+    },
+    ReviewCommentDeleted {
+        session_id: String,
+        comment_id: String,
+    },
+    ReviewCommentsList {
+        session_id: String,
+        comments: Vec<ReviewComment>,
+    },
+
     // Errors
     Error {
         code: String,
@@ -304,5 +329,69 @@ mod tests {
         // Ensure forked_from_thread_id is omitted when None
         assert!(!json.contains("forked_from_thread_id"));
         let _: ServerMessage = serde_json::from_str(&json).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_review_comment_created() {
+        let comment = ReviewComment {
+            id: "rc-abc-123".to_string(),
+            session_id: "sess-1".to_string(),
+            turn_id: Some("turn-1".to_string()),
+            file_path: "src/main.rs".to_string(),
+            line_start: 42,
+            line_end: Some(45),
+            body: "This function should handle errors".to_string(),
+            tag: Some(ReviewCommentTag::Risk),
+            status: ReviewCommentStatus::Open,
+            created_at: "2024-01-15T10:30:00Z".to_string(),
+            updated_at: None,
+        };
+
+        let msg = ServerMessage::ReviewCommentCreated {
+            session_id: "sess-1".to_string(),
+            comment,
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::ReviewCommentCreated {
+                session_id,
+                comment,
+            } => {
+                assert_eq!(session_id, "sess-1");
+                assert_eq!(comment.id, "rc-abc-123");
+                assert_eq!(comment.file_path, "src/main.rs");
+                assert_eq!(comment.line_start, 42);
+                assert_eq!(comment.line_end, Some(45));
+                assert_eq!(comment.tag, Some(ReviewCommentTag::Risk));
+                assert_eq!(comment.status, ReviewCommentStatus::Open);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_turn_diff_snapshot() {
+        let msg = ServerMessage::TurnDiffSnapshot {
+            session_id: "sess-1".to_string(),
+            turn_id: "turn-3".to_string(),
+            diff: "--- a/foo.rs\n+++ b/foo.rs\n@@ -1 +1 @@\n-old\n+new".to_string(),
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::TurnDiffSnapshot {
+                session_id,
+                turn_id,
+                diff,
+            } => {
+                assert_eq!(session_id, "sess-1");
+                assert_eq!(turn_id, "turn-3");
+                assert!(diff.contains("+new"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
     }
 }

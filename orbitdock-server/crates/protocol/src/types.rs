@@ -168,6 +168,13 @@ pub struct SessionSummary {
     pub last_activity_at: Option<String>,
 }
 
+/// A diff snapshot from a completed turn
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TurnDiff {
+    pub turn_id: String,
+    pub diff: String,
+}
+
 /// Full session state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
@@ -199,6 +206,12 @@ pub struct SessionState {
     pub forked_from_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_turn_id: Option<String>,
+    #[serde(default)]
+    pub turn_count: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turn_diffs: Vec<TurnDiff>,
 }
 
 /// Changes to apply to a session state (delta updates)
@@ -226,6 +239,10 @@ pub struct StateChanges {
     pub sandbox_mode: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_turn_id: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_count: Option<u64>,
 }
 
 /// Changes to apply to a message (delta updates)
@@ -397,4 +414,44 @@ pub enum McpStartupStatus {
 pub struct McpStartupFailure {
     pub server: String,
     pub error: String,
+}
+
+// MARK: - Review Comment Types
+
+/// Tag for a review comment
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewCommentTag {
+    Clarity,
+    Scope,
+    Risk,
+    Nit,
+}
+
+/// Status of a review comment
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewCommentStatus {
+    Open,
+    Resolved,
+}
+
+/// A review comment on a diff line or range
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReviewComment {
+    pub id: String,
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    pub file_path: String,
+    pub line_start: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_end: Option<u32>,
+    pub body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<ReviewCommentTag>,
+    pub status: ReviewCommentStatus,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
