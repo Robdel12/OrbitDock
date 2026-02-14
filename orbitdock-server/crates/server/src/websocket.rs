@@ -208,9 +208,13 @@ async fn send_raw(tx: &mpsc::Sender<OutboundMessage>, json: String) {
 /// Spawn a task that drains a broadcast receiver and forwards messages to an outbound channel.
 /// When the outbound channel closes (client disconnects), the task exits and the
 /// broadcast::Receiver is dropped — automatic cleanup, no manual unsubscribe needed.
+///
+/// If `session_id` is provided and the subscriber lags behind the broadcast buffer,
+/// a `lagged` error is sent to the client so it can re-subscribe for a fresh snapshot.
 fn spawn_broadcast_forwarder(
     mut rx: tokio::sync::broadcast::Receiver<ServerMessage>,
     outbound_tx: mpsc::Sender<OutboundMessage>,
+    session_id: Option<String>,
 ) {
     tokio::spawn(async move {
         loop {
@@ -224,10 +228,18 @@ fn spawn_broadcast_forwarder(
                     warn!(
                         component = "websocket",
                         event = "ws.broadcast.lagged",
+                        session_id = ?session_id,
                         skipped = n,
                         "Broadcast subscriber lagged, skipped {n} messages"
                     );
-                    // Continue receiving — client may have a gap but handlers are idempotent.
+                    // Notify the client so it can re-subscribe for a fresh snapshot.
+                    let _ = outbound_tx
+                        .send(OutboundMessage::Json(ServerMessage::Error {
+                            code: "lagged".to_string(),
+                            message: format!("Subscriber lagged, skipped {n} messages"),
+                            session_id: session_id.clone(),
+                        }))
+                        .await;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
@@ -354,7 +366,7 @@ async fn handle_client_message(
     match msg {
         ClientMessage::SubscribeList => {
             let rx = state.subscribe_list();
-            spawn_broadcast_forwarder(rx, client_tx.clone());
+            spawn_broadcast_forwarder(rx, client_tx.clone(), None);
 
             // Send current list
             let sessions = state.get_session_summaries();
@@ -448,7 +460,7 @@ async fn handle_client_message(
                                     state: snapshot,
                                     rx,
                                 } => {
-                                    spawn_broadcast_forwarder(rx, client_tx.clone());
+                                    spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
                                     send_json(
                                         client_tx,
                                         ServerMessage::SessionSnapshot {
@@ -458,7 +470,7 @@ async fn handle_client_message(
                                     .await;
                                 }
                                 SubscribeResult::Replay { events, rx } => {
-                                    spawn_broadcast_forwarder(rx, client_tx.clone());
+                                    spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
                                     for json in events {
                                         send_raw(client_tx, json).await;
                                     }
@@ -490,7 +502,7 @@ async fn handle_client_message(
                                 "Replaying {} events for session",
                                 events.len()
                             );
-                            spawn_broadcast_forwarder(rx, client_tx.clone());
+                            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
                             for json in events {
                                 send_raw(client_tx, json).await;
                             }
@@ -523,7 +535,7 @@ async fn handle_client_message(
                                 snapshot
                             };
 
-                            spawn_broadcast_forwarder(rx, client_tx.clone());
+                            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
                             send_json(
                                 client_tx,
                                 ServerMessage::SessionSnapshot {
@@ -581,7 +593,7 @@ async fn handle_client_message(
 
             // Subscribe the creator before handing off handle
             let rx = handle.subscribe();
-            spawn_broadcast_forwarder(rx, client_tx.clone());
+            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(id.clone()));
 
             let summary = handle.summary();
             let snapshot = handle.state();
@@ -1416,7 +1428,7 @@ async fn handle_client_message(
 
             // Subscribe the requesting client
             let rx = handle.subscribe();
-            spawn_broadcast_forwarder(rx, client_tx.clone());
+            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
 
             let summary = handle.summary();
             let snapshot = handle.state();
@@ -2315,7 +2327,7 @@ async fn handle_client_message(
 
             // Subscribe the requester to the new session
             let rx = handle.subscribe();
-            spawn_broadcast_forwarder(rx, client_tx.clone());
+            spawn_broadcast_forwarder(rx, client_tx.clone(), Some(new_id.clone()));
 
             let summary = handle.summary();
             let snapshot = handle.state();

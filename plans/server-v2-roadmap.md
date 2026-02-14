@@ -8,17 +8,17 @@
 
 ---
 
-## Current Architecture (what we're migrating from)
+## Current Architecture (what we migrated from)
 
-| Component | Pattern | Problem |
-|-----------|---------|---------|
-| AppState | `Arc<Mutex<AppState>>` | Global lock blocks ALL sessions during any single session's IO |
-| SessionHandle | `Arc<Mutex<SessionHandle>>` per session | Locks held across awaits in `handle_event` |
-| ~~Broadcast~~ | ~~`Vec<mpsc::Sender<ServerMessage>>`~~ | ~~One slow client blocks all others; manual cleanup~~ ✅ Phase 2 |
-| ~~Reconnection~~ | ~~Full snapshot on every subscribe~~ | ~~No revision tracking, no event replay~~ ✅ Phase 1 |
-| ~~Business logic~~ | ~~27 match arms mixing state + IO in handle_event~~ | ~~Untestable without IO mocking~~ ✅ Phase 3 |
-| Event loop | `select!` on events + actions | Long connector calls starve event processing |
-| Session cleanup | None | 12+ dictionaries leaked per ended session |
+| Component | Pattern | Problem | Fixed |
+|-----------|---------|---------|-------|
+| AppState | `Arc<Mutex<AppState>>` | Global lock blocks ALL sessions during any single session's IO | Phase 5 |
+| SessionHandle | `Arc<Mutex<SessionHandle>>` per session | Locks held across awaits in `handle_event` | Phase 4 |
+| Broadcast | `Vec<mpsc::Sender<ServerMessage>>` | One slow client blocks all others; manual cleanup | Phase 2 |
+| Reconnection | Full snapshot on every subscribe | No revision tracking, no event replay | Phase 1 |
+| Business logic | 27 match arms mixing state + IO in handle_event | Untestable without IO mocking | Phase 3 |
+| Event loop | `select!` on events + actions | Long connector calls starve event processing | Phase 4 |
+| Session cleanup | None | 12+ dictionaries leaked per ended session | Phase 6 (Swift) |
 
 ---
 
@@ -45,7 +45,7 @@ Replaced `Vec<mpsc::Sender>` with `tokio::broadcast` across all 6 server files. 
 Key decisions:
 - Session broadcast capacity: 512 events
 - List broadcast capacity: 64 events
-- `spawn_broadcast_forwarder()` handles `Lagged` errors by logging a warning and continuing (client may have a gap but handlers are idempotent)
+- `spawn_broadcast_forwarder()` handles `Lagged` errors by sending a `lagged` error to the client with the affected session ID, enabling automatic re-subscribe
 - `broadcast()` is now sync (no async/await) — single non-blocking `send()`
 - `broadcast_to_list()` takes `&self` instead of `&mut self`, simplifying several call sites
 - `UnsubscribeSession` handler is a no-op — receivers self-cleanup on disconnect
@@ -108,122 +108,57 @@ Supporting additions:
 
 ---
 
-## Phase 5: Replace AppState with SessionRegistry
+## Phase 5: Replace AppState with SessionRegistry ✅
 
-**Why**: The final piece. Replace the global `Arc<Mutex<AppState>>` with a lock-free `DashMap`. WebSocket handlers become pure routing — no locks held, no IO blocking.
+**Status**: Complete. Shipped in commit `79f8dd9`.
 
-**Depends on**: Phase 4 (session actor)
+Replaced `Arc<Mutex<AppState>>` with lock-free `SessionRegistry` backed by `DashMap`. WebSocket handlers are now pure routing — no locks held, no IO blocking.
 
-### Dependencies
-
-- [ ] Add `dashmap = "6"` to `crates/server/Cargo.toml`
-
-### New file: `crates/server/src/registry.rs`
-
-- [ ] Define `SessionRegistry` struct:
-  - `sessions: DashMap<String, SessionHandle>` (lock-free concurrent map)
-  - `persist_tx: mpsc::Sender<PersistCommand>`
-  - `list_bus: broadcast::Sender<ServerMessage>` (list-level events)
-- [ ] Implement `send(session_id, input) -> Result<()>` — route to actor inbox, no lock
-- [ ] Implement `snapshot(session_id) -> Option<Arc<SessionSnapshot>>` — lock-free ArcSwap read
-- [ ] Implement `list_summaries() -> Vec<SessionSummary>` — iterate DashMap, read snapshots
-- [ ] Implement `subscribe_events(session_id) -> Option<broadcast::Receiver>` — get event stream
-- [ ] Implement `subscribe_list() -> broadcast::Receiver<ServerMessage>` — list-level events
-- [ ] Implement `register_session(id, handle)` — insert into DashMap
-- [ ] Implement `remove_session(id)` — remove from DashMap (cleanup on session end)
-- [ ] Implement `spawn_session(config) -> SessionHandle` — create connector, spawn actor, register
-
-### Migrate `state.rs` → `registry.rs`
-
-- [ ] Replace `HashMap<String, Arc<Mutex<SessionHandle>>>` with `DashMap<String, SessionHandle>`
-- [ ] Replace `HashMap<String, mpsc::Sender<CodexAction>>` — action channels now inside actor
-- [ ] Move `codex_threads` mapping into registry
-- [ ] Replace `list_subscribers: Vec<mpsc::Sender>` with `list_bus: broadcast::Sender`
-- [ ] Remove all `Mutex` usage from AppState
-
-### Migrate `websocket.rs`
-
-- [ ] Replace `State(state): State<Arc<Mutex<AppState>>>` with `State(registry): State<Arc<SessionRegistry>>`
-- [ ] `SubscribeSession` → `registry.subscribe_events(id)` + snapshot/replay
-- [ ] `SendMessage` → `registry.send(id, Input::UserSentMessage { ... })`
-- [ ] `ApproveTool` → `registry.send(id, Input::UserApproved { ... })`
-- [ ] `SteerTurn` → `registry.send(id, Input::UserSteered { ... })`
-- [ ] All other actions → route through registry, no lock, no await on IO
-- [ ] `CreateSession` → `registry.spawn_session(config)`, broadcast to list
-- [ ] `SubscribeList` → `registry.subscribe_list()` + send current summaries
-- [ ] Remove all `state.lock().await` calls
-
-### Migrate `main.rs`
-
-- [ ] Replace `Arc::new(Mutex::new(AppState::new(persist_tx)))` with `Arc::new(SessionRegistry::new(persist_tx))`
-- [ ] Update session restoration to use registry
-- [ ] Update router state type
-- [ ] Clean up ended sessions on startup (or add TTL-based cleanup)
-
-### Session cleanup
-
-- [ ] Add cleanup for ended sessions: remove from DashMap after grace period
-- [ ] Track ended session count, log when cleanup runs
-- [ ] Ensure forked-from references survive cleanup (persist to SQLite, not in-memory only)
-
-### Tests
-
-- [ ] `test_registry_route_to_actor` — send action, verify actor receives it
-- [ ] `test_registry_snapshot_read` — read snapshot without blocking
-- [ ] `test_registry_list_summaries` — verify concurrent session list
-- [ ] `test_registry_remove_session` — verify cleanup
-- [ ] `test_concurrent_session_access` — spawn 10 sessions, send actions in parallel
-
-### Verification
-
-- [ ] `cargo test` — all tests pass
-- [ ] No `Arc<Mutex<AppState>>` in codebase
-- [ ] No `state.lock().await` in websocket.rs
-- [ ] `DashMap` lookups are lock-free on read path
-- [ ] Manual test: create 5+ sessions concurrently, verify no blocking
+Key decisions:
+- `DashMap<String, SessionActorHandle>` for sharded, lock-free lookups
+- `ArcSwap<SessionSnapshot>` for wait-free snapshot reads
+- `tokio::broadcast` for list-level events
+- Session cleanup on end: remove from DashMap after actor exits
+- All lock contention eliminated from the hot path
 
 ---
 
-## Phase 6: Swift Client Updates
+## Phase 6: Swift Client Updates ✅
 
-**Why**: Complete the feedback loop. The Swift client tracks revisions, requests replay on reconnect, and handles the new event streaming protocol.
+**Status**: Complete.
 
-**Depends on**: Phase 1 (revision tracking), Phase 2 (broadcast mechanism — for Lagged handling)
+The Swift client now fully supports the v2 server protocol: revision tracking, incremental replay, per-session observation, memory cleanup, and automatic recovery from broadcast lag.
 
-### ServerProtocol.swift
+### What was implemented
 
-- [ ] Add `revision: UInt64?` field to all server message types that carry it
-- [ ] Add `sinceRevision: UInt64?` to `ClientToServerMessage.subscribeSession`
-- [ ] Add `ServerToClientMessage.eventReplay` case with events array
-- [ ] Add `ServerToClientMessage.lagged` case (server signals client fell behind)
-- [ ] Decode `revision` from server messages
+**Revision tracking (during Phase 1):**
+- `revision: UInt64?` field on `ServerSessionState`
+- `sinceRevision: UInt64?` on `subscribeSession` client message
+- `lastRevision: [String: UInt64]` tracking in `ServerAppState`
+- Pass `lastRevision[sessionId]` on reconnect
 
-### ServerConnection.swift
+**Revision extraction (Phase 6):**
+- `onRevision` callback on `ServerConnection` — extracts revision from replay events via JSON
+- `lastRevision` updated from both snapshots and replay events
 
-- [ ] Pass `sinceRevision` parameter to `subscribeSession()` method
-- [ ] Handle `eventReplay` response: apply events in order via existing callbacks
-- [ ] Handle `lagged` response: trigger full re-subscribe with `sinceRevision: nil`
+**Per-session @Observable (Phase 6):**
+- `SessionObservable` — per-session `@Observable` class with all session-scoped state
+- `@ObservationIgnored` registry on `ServerAppState` with `session(_:)` accessor
+- 15 per-session dictionaries removed from `ServerAppState`
+- Views observe only the session they display — no cascading re-renders
+- `ConversationView` observes `messagesRevision` (scoped to displayed session)
+- 13 view files updated to use `serverState.session(id)` pattern
 
-### ServerAppState.swift
+**Memory cleanup (Phase 6):**
+- `clearTransientState()` on session end — clears pending approval, MCP, skills, diff, plan, fork/undo flags
+- Keeps messages/tokens/history alive for viewing ended sessions
+- Full eviction of `SessionObservable` when sessions disappear from server list
+- Internal tracking cleaned: `subscribedSessions`, `lastRevision`, `approvalPolicies`, `sandboxModes`, `sessionStates`
 
-- [ ] Add `lastRevision: [String: UInt64]` dictionary
-- [ ] Update `lastRevision[sessionId]` from every received server message
-- [ ] Pass `lastRevision[sessionId]` to `subscribeSession()` on reconnect
-- [ ] Remove `messageRevisions` counter (dead code — incremented but never read)
-- [ ] On `lagged`: clear local state for session, re-subscribe with `sinceRevision: nil`
-
-### Tests
-
-- [ ] Manual test: connect, send messages, kill server, restart, verify replay
-- [ ] Manual test: pause client for 30s during heavy activity, verify lagged → re-snapshot
-- [ ] Verify backward compatibility: old server (no revision) + new client still works
-
-### Verification
-
-- [ ] Xcode clean build
-- [ ] Reconnection is seamless — no duplicate messages, no missing events
-- [ ] `messageRevisions` removed, `lastRevision` used consistently
-- [ ] Works with both revision-aware server and pre-revision server (graceful fallback)
+**Lagged handling (Phase 6):**
+- Server: `spawn_broadcast_forwarder()` sends `Error { code: "lagged", session_id }` to client when broadcast buffer overflows
+- Client: `handleError` catches `"lagged"` code, unsubscribes and re-subscribes to get fresh snapshot
+- All 9 `spawn_broadcast_forwarder` call sites pass session ID (except `SubscribeList` which passes `None`)
 
 ---
 
@@ -239,7 +174,7 @@ Supporting additions:
 
 ---
 
-## Dependencies to Add
+## Dependencies Added
 
 ```toml
 # Phase 4
@@ -263,6 +198,7 @@ dashmap = "6"
 | `crates/server/src/actor.rs` | 4 | SessionActor impl |
 | `crates/server/src/registry.rs` | 5 | SessionRegistry (replaces state.rs) |
 | `migrations/015_session_revision.sql` | 1 | Add revision column |
+| `SessionObservable.swift` | 6 | Per-session @Observable class |
 
 ### Modified files
 | File | Phases | Changes |
@@ -270,33 +206,28 @@ dashmap = "6"
 | `crates/server/src/session.rs` | 1, 2, 4 | Revision → broadcast → thin handle |
 | `crates/server/src/state.rs` | 2, 5 | List broadcast → replaced by registry |
 | `crates/server/src/codex_session.rs` | 3, 4 | Extract transitions → actor |
-| `crates/server/src/websocket.rs` | 1, 2, 5 | Replay → broadcast drain → stateless routing |
+| `crates/server/src/websocket.rs` | 1, 2, 5, 6 | Replay → broadcast drain → stateless routing → lagged notification |
 | `crates/server/src/persistence.rs` | 1 | Persist/restore revision |
 | `crates/server/src/main.rs` | 5 | Registry instead of AppState |
 | `crates/protocol/src/server.rs` | 1 | Add revision field |
 | `crates/protocol/src/client.rs` | 1 | Add since_revision field |
-| `ServerProtocol.swift` | 6 | Revision fields + replay message |
-| `ServerConnection.swift` | 6 | Pass since_revision on subscribe |
-| `ServerAppState.swift` | 6 | Track revision, handle replay |
+| `ServerProtocol.swift` | 6 | Revision fields |
+| `ServerConnection.swift` | 6 | Pass since_revision, extract revision from replay |
+| `ServerAppState.swift` | 6 | Registry pattern, per-session observables, memory cleanup, lagged recovery |
+| 13 SwiftUI view files | 6 | Use `serverState.session(id)` pattern |
 
 ---
 
-## Implementation Order
+## Implementation Order (completed)
 
 ```
-Phase 1 ─────────────────────► Phase 2 ────────────────────► Phase 5
-  (revision + event log)         (broadcast channel)           (registry)
-         │                              │                          │
-         └──────► Phase 3 ──────► Phase 4 ─────────────────────────┘
-                   (pure fn)       (actor)
+Phase 1 ────► Phase 2 ────► Phase 5
+  (revision)    (broadcast)    (registry)
+     │               │            │
+     └──► Phase 3 ──► Phase 4 ───┘
+           (pure fn)   (actor)
 
-Phase 6 can start after Phase 1, runs in parallel with 3-5
+Phase 6 ran in parallel with 3-5 (Swift client)
 ```
 
-Phases 1 and 3 are independent of each other.
-Phase 2 depends on Phase 1 (uses revision for lagged recovery).
-Phase 4 depends on Phase 3 (actor uses transition function).
-Phase 5 depends on Phase 4 (registry holds actor handles).
-Phase 6 depends on Phase 1, can be done any time after.
-
-### Estimated test count: 50 existing + ~30 new = ~80 total
+All 6 phases complete. Server v2 architecture is fully shipped.

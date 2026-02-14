@@ -900,6 +900,13 @@ final class ServerAppState {
         session(sid).forkInProgress = false
       }
     }
+
+    // Broadcast subscriber lagged — re-subscribe to get a fresh snapshot
+    if code == "lagged", let sid = sessionId {
+      logger.info("Re-subscribing to \(sid) after lagged broadcast")
+      subscribedSessions.remove(sid)
+      subscribeToSession(sid)
+    }
   }
 
   // MARK: - Helpers
