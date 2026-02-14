@@ -27,6 +27,7 @@ struct MenuBarView: View {
           Text("OrbitDock")
             .font(.system(size: 13, weight: .semibold))
         }
+        .foregroundStyle(headerTitleColor)
 
         Spacer()
 
@@ -39,6 +40,9 @@ struct MenuBarView: View {
               .font(.system(size: 11, weight: .bold, design: .rounded))
               .foregroundStyle(Color.statusWorking)
           }
+          .padding(.horizontal, 6)
+          .padding(.vertical, 3)
+          .background(Color.statusWorking.opacity(colorScheme == .dark ? 0.16 : 0.12), in: Capsule())
         }
       }
       .padding(.horizontal, 16)
@@ -58,7 +62,7 @@ struct MenuBarView: View {
       .padding(.horizontal, 8)
       .padding(.bottom, 8)
 
-      Divider()
+      menuDivider
 
       // Content
       ScrollView {
@@ -73,7 +77,7 @@ struct MenuBarView: View {
 
           if !recentSessions.isEmpty {
             if !activeSessions.isEmpty {
-              Divider()
+              menuDivider
                 .padding(.vertical, 8)
             }
 
@@ -94,7 +98,7 @@ struct MenuBarView: View {
       .frame(minHeight: 150, maxHeight: 320)
       .layoutPriority(1)
 
-      Divider()
+      menuDivider
 
       // Footer
       HStack {
@@ -133,6 +137,7 @@ struct MenuBarView: View {
       .padding(.vertical, 12)
     }
     .frame(width: 332)
+    .background(colorScheme == .dark ? Color.backgroundPrimary : Color(nsColor: .windowBackgroundColor))
   }
 
   private func sectionHeader(_ title: String) -> some View {
@@ -145,24 +150,45 @@ struct MenuBarView: View {
 
   private var emptyView: some View {
     VStack(spacing: 10) {
-      Image(systemName: "terminal")
-        .font(.system(size: 28))
-        .foregroundStyle(tertiaryTextColor)
+      ZStack {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(Color.primary.opacity(colorScheme == .dark ? 0.06 : 0.08))
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .strokeBorder(Color.primary.opacity(colorScheme == .dark ? 0.1 : 0.12), lineWidth: 1)
+        Image(systemName: "terminal")
+          .font(.system(size: 23, weight: .semibold))
+          .foregroundStyle(tertiaryTextColor)
+      }
+      .frame(width: 52, height: 42)
 
       Text("No sessions")
-        .font(.system(size: 12))
+        .font(.system(size: 13, weight: .medium))
         .foregroundStyle(secondaryTextColor)
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 32)
   }
 
+  private var menuDivider: some View {
+    Rectangle()
+      .fill(dividerColor)
+      .frame(height: 1)
+  }
+
+  private var headerTitleColor: Color {
+    colorScheme == .dark ? Color.white.opacity(0.9) : .primary
+  }
+
   private var secondaryTextColor: Color {
-    colorScheme == .dark ? .secondary : .primary.opacity(0.78)
+    colorScheme == .dark ? Color.white.opacity(0.72) : .primary.opacity(0.78)
   }
 
   private var tertiaryTextColor: Color {
-    colorScheme == .dark ? Color.white.opacity(0.3) : .primary.opacity(0.62)
+    colorScheme == .dark ? Color.white.opacity(0.5) : .primary.opacity(0.62)
+  }
+
+  private var dividerColor: Color {
+    colorScheme == .dark ? Color.white.opacity(0.12) : Color.black.opacity(0.1)
   }
 }
 
@@ -213,18 +239,18 @@ struct MenuBarSessionRow: View {
     .padding(.horizontal, 8)
     .padding(.vertical, 6)
     .background(
-      isHovering ? Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.09) : Color.clear,
+      isHovering ? Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.09) : Color.clear,
       in: RoundedRectangle(cornerRadius: 6, style: .continuous)
     )
     .onHover { isHovering = $0 }
   }
 
   private var branchColor: Color {
-    colorScheme == .dark ? .secondary : .primary.opacity(0.75)
+    colorScheme == .dark ? Color.white.opacity(0.64) : .primary.opacity(0.75)
   }
 
   private var durationColor: Color {
-    colorScheme == .dark ? Color.white.opacity(0.3) : .primary.opacity(0.58)
+    colorScheme == .dark ? Color.white.opacity(0.46) : .primary.opacity(0.58)
   }
 }
 

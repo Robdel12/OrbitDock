@@ -64,18 +64,26 @@ struct ProviderMenuBarSection: View {
     .padding(.horizontal, 9)
     .padding(.vertical, 8)
     .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: 10, style: .continuous)
+        .strokeBorder(cardBorderColor, lineWidth: 1)
+    }
   }
 
   private var titleColor: Color {
-    colorScheme == .dark ? .primary : .primary.opacity(0.92)
+    colorScheme == .dark ? Color.white.opacity(0.9) : .primary.opacity(0.92)
   }
 
   private var errorTextColor: Color {
-    colorScheme == .dark ? Color.white.opacity(0.3) : .primary.opacity(0.66)
+    colorScheme == .dark ? Color.white.opacity(0.52) : .primary.opacity(0.66)
   }
 
   private var cardBackgroundColor: Color {
-    Color.primary.opacity(colorScheme == .dark ? 0.035 : 0.075)
+    Color.primary.opacity(colorScheme == .dark ? 0.04 : 0.075)
+  }
+
+  private var cardBorderColor: Color {
+    colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.06)
   }
 }
 

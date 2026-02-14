@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UserNotifications
+import AppKit
 
 @main
 struct OrbitDockApp: App {
@@ -42,6 +43,8 @@ struct OrbitDockApp: App {
       MenuBarView()
         .environment(serverAppState)
         .environment(attentionService)
+        .environment(\.colorScheme, .dark)
+        .preferredColorScheme(.dark)
     } label: {
       Image(systemName: "terminal.fill")
         .symbolRenderingMode(.monochrome)
@@ -59,6 +62,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     AppFileLogger.shared.start()
+    NSApp.appearance = NSAppearance(named: .darkAqua)
 
     // Set up notification delegate
     UNUserNotificationCenter.current().delegate = self

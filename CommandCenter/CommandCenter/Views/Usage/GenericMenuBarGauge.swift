@@ -57,6 +57,7 @@ struct GenericMenuBarGauge: View {
             .font(.system(size: 9, weight: .medium, design: .rounded))
             .foregroundStyle(resetTimeColor)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
         }
 
         Spacer()
@@ -94,20 +95,20 @@ struct GenericMenuBarGauge: View {
             .frame(width: geo.size.width * min(1, window.utilization / 100))
         }
       }
-      .frame(height: 5)
+      .frame(height: 6)
     }
   }
 
   private var secondaryLabelColor: Color {
-    colorScheme == .dark ? .secondary : .primary.opacity(0.74)
+    colorScheme == .dark ? Color.white.opacity(0.68) : .primary.opacity(0.74)
   }
 
   private var subtleLabelColor: Color {
-    colorScheme == .dark ? .secondary.opacity(0.6) : .primary.opacity(0.62)
+    colorScheme == .dark ? Color.white.opacity(0.52) : .primary.opacity(0.62)
   }
 
   private var trackColor: Color {
-    Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.14)
+    Color.primary.opacity(colorScheme == .dark ? 0.14 : 0.14)
   }
 
   /// Convert label to more descriptive form for menu bar
