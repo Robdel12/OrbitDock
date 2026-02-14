@@ -16,6 +16,7 @@
 | SessionHandle | `Arc<Mutex<SessionHandle>>` per session | Locks held across awaits in `handle_event` |
 | ~~Broadcast~~ | ~~`Vec<mpsc::Sender<ServerMessage>>`~~ | ~~One slow client blocks all others; manual cleanup~~ ✅ Phase 2 |
 | ~~Reconnection~~ | ~~Full snapshot on every subscribe~~ | ~~No revision tracking, no event replay~~ ✅ Phase 1 |
+| ~~Business logic~~ | ~~27 match arms mixing state + IO in handle_event~~ | ~~Untestable without IO mocking~~ ✅ Phase 3 |
 | Event loop | `select!` on events + actions | Long connector calls starve event processing |
 | Session cleanup | None | 12+ dictionaries leaked per ended session |
 
@@ -53,79 +54,21 @@ Key decisions:
 
 ---
 
-## Phase 3: Extract Pure Transition Function
+## Phase 3: Extract Pure Transition Function ✅
 
-**Why**: The heart of the architecture. All state transitions become pure functions that return data describing what happened. Fully testable without IO, fully deterministic.
+**Status**: Complete. Shipped in commit `c8f7fb1`.
 
-**Depends on**: Phase 1 (revision tracking, since transitions manage revision)
+Extracted all business logic from `handle_event()` (27 match arms) into a pure, synchronous `transition(state, input, now) -> (state, effects)` function in `transition.rs`. The existing `handle_event()` is now ~15 lines: convert → transition → execute.
 
-### New file: `crates/server/src/transition.rs`
-
-- [ ] Define `WorkPhase` enum: `Idle`, `Working`, `AwaitingApproval { request_id, approval_type, proposed_amendment }`, `Ended { reason }`
-- [ ] Define `SessionState` struct (pure data, no IO handles): `id`, `revision`, `phase`, `messages`, `tokens`, `meta`, `current_diff`, `current_plan`
-- [ ] Define `SessionMeta` struct: provider, project_path, model, custom_name, approval_policy, sandbox_mode, etc.
-- [ ] Define `Input` enum — all possible inputs (from connector events + client actions)
-- [ ] Define `Effect` enum: `Persist(PersistOp)`, `Emit(EventPayload)`, `Connector(ConnectorCall)`
-- [ ] Define `PersistOp` enum — mirrors current `PersistCommand` variants
-- [ ] Define `ConnectorCall` enum — mirrors current `CodexAction` variants
-- [ ] Define `EventPayload` enum — what gets broadcast to clients
-- [ ] Implement `fn transition(state: SessionState, input: Input) -> (SessionState, Vec<Effect>)`
-- [ ] Implement `Input::from_connector_event(ConnectorEvent) -> Input` conversion
-- [ ] Implement builder methods on `SessionState`: `with_phase()`, `with_message()`, `with_tokens()`, `tick()`, etc.
-
-### Extract from `codex_session.rs`
-
-- [ ] Move `TurnStarted` handling → `transition()` match arm
-- [ ] Move `TurnCompleted` handling → `transition()` match arm
-- [ ] Move `TurnAborted` handling → `transition()` match arm
-- [ ] Move `MessageCreated` handling → `transition()` match arm
-- [ ] Move `MessageUpdated` handling → `transition()` match arm
-- [ ] Move `ApprovalRequested` handling → `transition()` match arm
-- [ ] Move `TokensUpdated` handling → `transition()` match arm
-- [ ] Move `DiffUpdated` / `PlanUpdated` handling → `transition()` match arm
-- [ ] Move `ThreadNameUpdated` handling → `transition()` match arm
-- [ ] Move `SessionEnded` handling → `transition()` match arm
-- [ ] Move `UndoStarted` / `UndoCompleted` / `ThreadRolledBack` handling → `transition()` match arms
-- [ ] Move `ContextCompacted` handling → `transition()` match arm
-- [ ] Move `Error` handling → `transition()` match arm
-- [ ] Add invalid transition catch-all: log warning, return state unchanged
-- [ ] Replace `handle_event` body: convert event to Input → call `transition()` → execute effects
-
-### Effect executor (in `codex_session.rs` initially)
-
-- [ ] Add `async fn execute_effects(effects: Vec<Effect>, session, persist_tx, connector)` function
-- [ ] `Effect::Persist(op)` → convert to `PersistCommand`, send to `persist_tx`
-- [ ] `Effect::Emit(payload)` → convert to `ServerMessage`, call `session.broadcast()`
-- [ ] `Effect::Connector(call)` → dispatch to `connector` method (same as current `handle_action`)
-
-### New file: `crates/server/src/transition_tests.rs`
-
-- [ ] `test_turn_started_transitions_to_working` — Idle + TurnStarted → Working + persist + emit
-- [ ] `test_turn_completed_transitions_to_idle` — Working + TurnCompleted → Idle + persist + emit
-- [ ] `test_turn_aborted_transitions_to_idle` — Working + TurnAborted → Idle
-- [ ] `test_error_transitions_to_idle` — any phase + Error → Idle
-- [ ] `test_approval_requested_transitions_to_awaiting` — Working + ApprovalRequested → AwaitingApproval
-- [ ] `test_approval_approved_transitions_to_working` — AwaitingApproval + approved → Working + Connector call
-- [ ] `test_approval_denied_transitions_to_idle` — AwaitingApproval + denied → Idle + Connector call
-- [ ] `test_message_created_persists_and_emits` — any phase + MessageCreated → persist + emit
-- [ ] `test_message_updated_persists_and_emits` — any phase + MessageUpdated → persist + emit
-- [ ] `test_user_sent_message_creates_and_sends` — persist user msg + emit + Connector::SendMessage
-- [ ] `test_user_steered_sends_connector_call` — Connector::SteerTurn
-- [ ] `test_session_ended_transitions_to_ended` — any phase → Ended + persist + emit
-- [ ] `test_invalid_transition_is_noop` — Idle + TurnCompleted → no change, no effects
-- [ ] `test_revision_increments_per_emit` — count Emit effects, verify revision delta
-- [ ] `test_undo_started_transitions_to_working` — any + UndoStarted → Working
-- [ ] `test_undo_completed_transitions_to_idle` — Working + UndoCompleted → Idle
-- [ ] `test_thread_rolled_back_transitions_to_idle` — any + ThreadRolledBack → Idle
-- [ ] `test_context_compacted_emits_only` — any + ContextCompacted → emit, no state change
-- [ ] `test_user_config_change_persists_and_sends` — persist + connector + emit
-
-### Verification
-
-- [ ] `cargo test` — all 50+ existing tests pass + 18+ new transition tests
-- [ ] `handle_event` is now thin: convert → transition → execute
-- [ ] No business logic remains in `handle_event` — all in `transition()`
-- [ ] Zero behavioral change observable from clients
+Key decisions:
+- `WorkPhase` enum: `Idle`, `Working`, `AwaitingApproval { request_id, approval_type, proposed_amendment }`, `Ended { reason }`
+- `TransitionState` is a pure data snapshot; `extract_state()`/`apply_state()` bridge to `SessionHandle` (temporary until Phase 4)
+- Effects are `Box<PersistOp>` and `Box<ServerMessage>` (clippy-clean enum sizes)
+- `Input` enum is 1:1 with `ConnectorEvent` via `From` impl
+- `PersistOp::into_persist_command()` converts to existing `PersistCommand`
+- Pass-through events (skills, MCP, context compacted) go through transition too — they produce `Effect::Emit` with no state change
+- 12 unit tests: all pure, sync, zero mocks
+- All 70 tests pass (45 server + 25 protocol), zero clippy warnings
 
 ---
 
