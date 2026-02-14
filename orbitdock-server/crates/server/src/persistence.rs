@@ -77,6 +77,13 @@ pub enum PersistCommand {
         plan: Option<String>,
     },
 
+    /// Persist a per-turn diff snapshot
+    TurnDiffInsert {
+        session_id: String,
+        turn_id: String,
+        diff: String,
+    },
+
     /// Store codex-core thread ID for a session
     SetThreadId {
         session_id: String,
@@ -604,6 +611,27 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
 
                 conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
             }
+        }
+
+        PersistCommand::TurnDiffInsert {
+            session_id,
+            turn_id,
+            diff,
+        } => {
+            // Ensure table exists (safe for databases without migration 016)
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS turn_diffs (
+                    session_id TEXT NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    diff TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                    PRIMARY KEY (session_id, turn_id)
+                )"
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff) VALUES (?1, ?2, ?3)",
+                params![session_id, turn_id, diff],
+            )?;
         }
 
         PersistCommand::SetThreadId {
@@ -1356,6 +1384,9 @@ pub struct RestoredSession {
     pub codex_context_window: i64,
     pub messages: Vec<Message>,
     pub forked_from_session_id: Option<String>,
+    pub current_diff: Option<String>,
+    pub current_plan: Option<String>,
+    pub turn_diffs: Vec<(String, String)>, // (turn_id, diff)
 }
 
 fn resolve_custom_name_from_first_prompt(
@@ -1821,6 +1852,26 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or(None);
 
+            // Query diff/plan separately (column may not exist on old schemas)
+            let (current_diff, current_plan): (Option<String>, Option<String>) = conn
+                .query_row(
+                    "SELECT current_diff, current_plan FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap_or((None, None));
+
+            // Load persisted turn diffs (table may not exist on old schemas)
+            let turn_diffs: Vec<(String, String)> = conn
+                .prepare("SELECT turn_id, diff FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
+                .and_then(|mut stmt| {
+                    let rows = stmt.query_map(params![id], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?;
+                    rows.collect::<Result<Vec<_>, _>>()
+                })
+                .unwrap_or_default();
+
             sessions.push(RestoredSession {
                 id,
                 provider,
@@ -1843,6 +1894,9 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 codex_context_window,
                 messages,
                 forked_from_session_id,
+                current_diff,
+                current_plan,
+                turn_diffs,
             });
         }
 
@@ -1926,6 +1980,26 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         let custom_name =
             resolve_custom_name_from_first_prompt(&conn, &id, custom_name, first_prompt.as_deref())?;
 
+        // Query diff/plan separately (column may not exist on old schemas)
+        let (current_diff, current_plan): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT current_diff, current_plan FROM sessions WHERE id = ?1",
+                params![&id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap_or((None, None));
+
+        // Load persisted turn diffs (table may not exist on old schemas)
+        let turn_diffs: Vec<(String, String)> = conn
+            .prepare("SELECT turn_id, diff FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
+            .and_then(|mut stmt| {
+                let rows = stmt.query_map(params![&id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?;
+                rows.collect::<Result<Vec<_>, _>>()
+            })
+            .unwrap_or_default();
+
         Ok(Some(RestoredSession {
             id,
             provider: "codex".to_string(),
@@ -1947,7 +2021,10 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             codex_cached_tokens,
             codex_context_window,
             messages,
-            forked_from_session_id: None, // load_session_by_id is for resume, fork origin not needed
+            forked_from_session_id: None,
+            current_diff,
+            current_plan,
+            turn_diffs,
         }))
     }).await??;
 

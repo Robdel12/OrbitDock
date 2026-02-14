@@ -13,6 +13,25 @@ enum LayoutConfiguration: String, CaseIterable {
   case conversationOnly
   case reviewOnly
   case split
+
+  var showsConversation: Bool { self != .reviewOnly }
+  var showsReview: Bool { self != .conversationOnly }
+
+  var label: String {
+    switch self {
+    case .conversationOnly: "Conversation"
+    case .reviewOnly: "Review"
+    case .split: "Split"
+    }
+  }
+
+  var icon: String {
+    switch self {
+    case .conversationOnly: "text.bubble"
+    case .reviewOnly: "doc.text.magnifyingglass"
+    case .split: "rectangle.split.2x1"
+    }
+  }
 }
 
 // MARK: - Rail Preset
@@ -52,6 +71,22 @@ enum RailPreset: String, CaseIterable {
 
   var expandSkills: Bool {
     false
+  }
+}
+
+// MARK: - Review Navigation (Environment)
+
+/// Environment action that lets any view request "open this file in the review canvas."
+/// SessionDetailView provides this; EditCard and other tool cards consume it.
+private struct ReviewNavigationKey: EnvironmentKey {
+  static let defaultValue: ((String) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+  /// Call with a file path to open that file in the review canvas (switches to split if needed).
+  var openFileInReview: ((String) -> Void)? {
+    get { self[ReviewNavigationKey.self] }
+    set { self[ReviewNavigationKey.self] = newValue }
   }
 }
 

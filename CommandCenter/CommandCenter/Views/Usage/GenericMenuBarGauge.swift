@@ -11,6 +11,7 @@ import SwiftUI
 struct GenericMenuBarGauge: View {
   let window: RateLimitWindow
   let provider: Provider
+  @Environment(\.colorScheme) private var colorScheme
 
   /// Show day for multi-day windows
   private var showDay: Bool {
@@ -21,7 +22,7 @@ struct GenericMenuBarGauge: View {
   private var resetTimeColor: Color {
     if window.timeRemaining < 15 * 60 { return .statusError }
     if window.timeRemaining < 60 * 60 { return .statusWaiting }
-    return .secondary.opacity(0.6)
+    return subtleLabelColor
   }
 
   /// Projected usage color
@@ -42,7 +43,7 @@ struct GenericMenuBarGauge: View {
       HStack(alignment: .firstTextBaseline, spacing: 6) {
         Text(windowLabel)
           .font(.system(size: 10, weight: .medium, design: .rounded))
-          .foregroundStyle(.secondary)
+          .foregroundStyle(secondaryLabelColor)
 
         // Warning if will exceed
         if window.willExceed {
@@ -78,7 +79,7 @@ struct GenericMenuBarGauge: View {
       GeometryReader { geo in
         ZStack(alignment: .leading) {
           RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(Color.primary.opacity(0.08))
+            .fill(trackColor)
 
           // Projected usage (more visible)
           if window.projectedAtReset > window.utilization {
@@ -95,6 +96,18 @@ struct GenericMenuBarGauge: View {
       }
       .frame(height: 5)
     }
+  }
+
+  private var secondaryLabelColor: Color {
+    colorScheme == .dark ? .secondary : .primary.opacity(0.74)
+  }
+
+  private var subtleLabelColor: Color {
+    colorScheme == .dark ? .secondary.opacity(0.6) : .primary.opacity(0.62)
+  }
+
+  private var trackColor: Color {
+    Color.primary.opacity(colorScheme == .dark ? 0.08 : 0.14)
   }
 
   /// Convert label to more descriptive form for menu bar

@@ -11,6 +11,7 @@ import SwiftUI
 struct EditCard: View {
   let message: TranscriptMessage
   @Binding var isExpanded: Bool
+  @Environment(\.openFileInReview) private var openFileInReview
 
   private var color: Color {
     ToolCardStyle.color(for: message.toolName)
@@ -103,9 +104,30 @@ struct EditCard: View {
           .foregroundStyle(color)
 
         VStack(alignment: .leading, spacing: 2) {
-          Text(filename)
-            .font(.system(size: 13, weight: .semibold, design: .monospaced))
-            .foregroundStyle(.primary)
+          HStack(spacing: 6) {
+            Text(filename)
+              .font(.system(size: 13, weight: .semibold, design: .monospaced))
+              .foregroundStyle(.primary)
+
+            // "View in Review" link — only when review canvas is available
+            if let openFileInReview {
+              Button {
+                openFileInReview(path)
+              } label: {
+                HStack(spacing: 3) {
+                  Image(systemName: "arrow.up.right")
+                    .font(.system(size: 8, weight: .bold))
+                  Text("Review")
+                    .font(.system(size: 9, weight: .semibold))
+                }
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Color.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 3, style: .continuous))
+              }
+              .buttonStyle(.plain)
+            }
+          }
 
           Text(ToolCardStyle.shortenPath(path))
             .font(.system(size: 10, design: .monospaced))

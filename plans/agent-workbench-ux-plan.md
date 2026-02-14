@@ -572,11 +572,32 @@ Preflight review questions:
 - [ ] Rollback/fork actions remain discoverable at turn level.
 - [ ] User can keep working entirely in detailed view if preferred.
 
-## Phase 3a: Live Review Canvas (Layout + Diff Navigation)
+## Phase 3a: Live Review Canvas (Layout + Diff Navigation + Magit Cursor) — COMPLETE
 
-**Objective**: Build the review canvas as a first-class center-zone surface with file/hunk navigation. This is the structural foundation of the signature review experience.
+**Objective**: Build the review canvas as a first-class center-zone surface with magit-style cursor navigation. This is the structural foundation of the signature review experience.
+
+**Status**: ✅ Complete. All core scope items implemented including magit-style cursor UX. Side-by-side view deferred to Phase 3a.1.
 
 The review canvas is **read-only but high-fidelity** — not an editor, but a better review experience than GitHub. Rich syntax highlighting, word-level diff precision, fluid navigation, and live-streaming diffs as the agent works. If the user wants to edit a file directly, OrbitDock opens it in their preferred editor — we don't recreate that. But the review rendering itself should be best-in-class.
+
+### Magit-style cursor model
+
+The review canvas uses a **unified buffer** — one scrollable view showing ALL files and ALL diffs, with a non-editable cursor for keyboard-driven navigation. Like `magit-status` in Emacs.
+
+**Cursor target types**: `CursorTarget` enum — `fileHeader`, `hunkHeader`, `diffLine`. `computeVisibleTargets()` builds a flat ordered list respecting collapsed files and hunks. Cursor movement is index arithmetic on this flat list.
+
+**Keybindings**:
+- `C-n` / `C-p` — line-by-line cursor movement (Emacs line nav)
+- `C-f` / `C-b` — section jump (file headers + hunk headers)
+- `n` / `p` — section jump (same as C-f/C-b)
+- `TAB` — context-aware collapse (file header → collapse file, hunk header/line → collapse hunk)
+- `RET` — open file at cursor in editor
+- `q` — dismiss review pane
+- `f` — toggle follow mode (auto-scroll to new files as they appear)
+
+**Two-level collapse**: `collapsedFiles: Set<String>` for file sections, `collapsedHunks: Set<String>` for individual hunks. TAB differentiates based on cursor position. Collapse animates with spring, cursor snaps to the collapsed header.
+
+**Focus management**: `@FocusState` + `.focused()` + `.onAppear { isCanvasFocused = true }`. Keyboard handlers use the proven `keyPress.key == "n"` + `.contains(.control)` pattern from `KeyboardNavigationModifier`.
 
 ### Building on existing infrastructure
 
@@ -596,39 +617,72 @@ The review canvas extends what already works — it does not start from scratch:
 - **Nice-to-have: live diff streaming**: as the agent produces changes during a turn, the review canvas updates in real time — new files appear, hunks grow. Great if achievable, but the core value is the review-annotate-steer loop once diffs land, not mid-turn animation.
 
 ### Scope
-- [ ] Implement review canvas as a center-zone surface (not sidebar) using `LayoutConfiguration` from Phase 0. Three layout modes: conversation-only, review-only, split.
-- [ ] Replace the simple HStack in `SessionDetailView` with an adaptive layout manager that supports the three configurations.
-- [ ] Add focus zone transitions: animated split/swap between conversation and review (uses focus zone primitive from Phase 1).
-- [ ] Render diffs using `DiffModel` from Phase 0 — file-level grouping with expandable hunks, syntax highlighting, word-level diff highlighting within changed lines.
-- [ ] Unified and side-by-side diff view toggle (default: unified).
-- [ ] Collapsible unchanged regions with "show N hidden lines" expanders.
-- [ ] Line number gutter with original and new line numbers.
-- [ ] File list navigator: flat list of changed files with change-type indicators (added/modified/deleted), language icon, and line count badges. Keyboard navigation (arrow keys, Enter to select, Escape to return to list).
-- [ ] Hunk-level navigation within files (n/p to jump between hunks).
-- [ ] Side-by-side relationship between turn and resulting file changes (jump from turn to exact changed file/hunk, using `TurnSummary` from Phase 0).
-- [ ] Review canvas activates (suggests layout switch) when diffs are available — after a turn completes or when the user explicitly opens review.
-- [ ] Nice-to-have: live diff streaming during active turns (diffs update as the agent works).
-- [ ] "Open in editor" action: open the file at the relevant line using the editor already configured in Settings > General (VS Code, Cursor, Zed, Sublime, Emacs, Vim, Neovim — stored in `@AppStorage`). HeaderView already has an editor picker in the project path context menu — reuse the same preference.
-- [ ] Preserve conversation scroll position when switching to/from review.
+- [x] Implement review canvas as a center-zone surface (not sidebar) using `LayoutConfiguration` from Phase 0. Three layout modes: conversation-only, review-only, split.
+- [x] Replace the simple HStack in `SessionDetailView` with an adaptive layout manager that supports the three configurations.
+- [x] Add focus zone transitions: animated split/swap between conversation and review (spring animation on layout switch).
+- [x] Render diffs using `DiffModel` from Phase 0 — file-level grouping with expandable hunks, syntax highlighting via `SyntaxHighlighter.highlightLine()`, word-level diff highlighting within changed lines via `DiffModel.inlineChanges()`.
+- [ ] Unified and side-by-side diff view toggle (deferred to Phase 3a.1 — complex synced scrolling for side-by-side).
+- [x] Collapsible unchanged regions with "show N hidden lines" expanders (`ContextCollapseBar`).
+- [x] Line number gutter with original and new line numbers (36pt fixed columns, monospaced 11pt, 35% opacity).
+- [x] File list navigator: 220px left pane with changed files, change-type indicators (colored dots for added/modified/deleted), filename + parent path, +N/-N stats per file. Keyboard navigation (up/down arrows to navigate files).
+- [x] Hunk-level navigation within files (n/p to jump between hunks via `ScrollViewReader`).
+- [x] Historical per-turn diff viewing via source selector ("Live" vs per-turn entries from `obs.turnDiffs`).
+- [x] Review canvas activates (suggests layout switch) when diffs are available — diff-available banner pill appears between header and conversation when diffs transition nil → non-nil. Auto-dismisses after 8s. Click → split layout.
+- [x] Live diff streaming during active turns — diffs update live via `SessionObservable.diff` from server `SessionDelta` broadcasts.
+- [x] "Open in editor" action: RET on any file opens in preferred editor. Reads `@AppStorage("preferredEditor")`.
+- [x] Conversation scroll position preserved — `ConversationView` is its own component with independent scroll state, unaffected by layout switches.
+- [x] Layout toggle in `HeaderView`: three-button segmented control (conversation-only, split, review-only) visible for Codex direct sessions only.
+- [x] Keyboard shortcuts: Cmd+D toggles conversation <> split, Cmd+Shift+D → review-only, Escape returns from review/split to conversation-only.
+- [x] Sidebar Changes section replaced with compact summary: file count + stats, max 5 filenames, "Open Review" button that triggers layout switch via callback.
+- [x] `LayoutConfiguration` extended with `showsConversation`, `showsReview`, `label`, `icon` computed properties.
+- [x] **Magit-style unified buffer**: all files and hunks in one scrollable view (replaced single-file selection model).
+- [x] **Non-editable cursor**: `CursorTarget` enum with `computeVisibleTargets()` flat list. Three navigation granularities (line, section, file).
+- [x] **Emacs keybindings**: C-n/C-p line nav, C-f/C-b section nav, n/p section nav. Uses proven `keyPress.key` + `.contains(.control)` pattern.
+- [x] **Two-level collapse**: file-level and hunk-level independent collapse via TAB. Context-aware: TAB on file header collapses file, TAB on hunk header/line collapses hunk.
+- [x] **Focus management**: `@FocusState` + `.focused()` + `.onAppear` for reliable keyboard event capture.
+- [x] **Follow mode**: auto-scrolls to new files as they appear during active turns. Toggle with `f`.
 
-### Primary surfaces
-- `CommandCenter/CommandCenter/Views/Codex/CodexDiffSidebar.swift` (evolves into review canvas)
-- `CommandCenter/CommandCenter/Views/SessionDetailView.swift` (center zone layout management)
-- `CommandCenter/CommandCenter/Views/ConversationView.swift` (split layout integration)
+### Deferred to follow-up
+- **Side-by-side diff view** (Phase 3a.1): Complex synced scrolling between old/new panes. Unified view ships first.
+- **Line annotations/comments** (Phase 3b): Inline comment markers, review checklist. Separate phase.
+- **Draggable split divider**: Fixed 40/60 split for now. Draggable divider adds complexity without clear value until usage patterns emerge.
 
-### Likely new files
-- `CommandCenter/CommandCenter/Views/Review/ReviewCanvas.swift`
-- `CommandCenter/CommandCenter/Views/Review/FileListView.swift`
-- `CommandCenter/CommandCenter/Views/Review/DiffHunkView.swift`
+### New files created
+- `Views/Review/ReviewCanvas.swift` — Magit-style unified buffer with cursor navigation, composing FileListNavigator + inline file/hunk sections
+- `Views/Review/FileListNavigator.swift` — 220px left pane with diff source selector, stats summary, file list
+- `Views/Review/FileListRow.swift` — Individual file entry with change-type dot, filename, stats
+- `Views/Review/DiffFileView.swift` — Per-file hunk rendering (now orphaned — ReviewCanvas renders inline file sections directly)
+- `Views/Review/DiffHunkView.swift` — Single `DiffHunk` with line numbers, prefix, syntax highlighting, word-level inline changes. Extended with cursor + collapse params.
+- `Views/Review/ContextCollapseBar.swift` — Collapsible bar for hidden unchanged lines between hunks
+- `Views/Review/ReviewEmptyState.swift` — Empty state messaging
+
+### Modified files
+- `Models/LayoutConfiguration.swift` — Added computed properties (`showsConversation`, `showsReview`, `label`, `icon`)
+- `Views/SessionDetailView.swift` — Layout state, center zone switch, diff-available banner, keyboard shortcuts (Cmd+D, Cmd+Shift+D, Escape)
+- `Views/HeaderView.swift` — Layout toggle segmented control, `layoutConfig` binding parameter
+- `Views/Codex/CodexTurnSidebar.swift` — Changes section → compact summary with "Open Review" callback. Removed ~100 lines of old inline diff rendering (`CodexParsedDiffLine`, `DiffLineRow`)
+- `Views/Review/DiffHunkView.swift` — Added `fileIndex`, `cursorLineIndex`, `isCursorOnHeader`, `isHunkCollapsed` params for cursor highlight + per-hunk collapse
+- `Views/MenuBarView.swift` — Fixed pre-existing `.tertiary` Color type errors
+- `Views/Usage/ProviderMenuBarSection.swift` — Fixed pre-existing `.tertiary` Color type error
+
+### Key decisions
+- **Unified diff only for v1**: Side-by-side synced scrolling is complex and deferred. Unified view with word-level inline highlights provides strong review quality.
+- **Fixed 40/60 split**: No draggable divider — keeps implementation simple. Both panes use `maxWidth: .infinity` for equal flex.
+- **Sidebar becomes compact summary**: The Changes section in `CodexTurnSidebar` now shows file count, stats, and max 5 filenames with an "Open Review" link. The full diff rendering lives in the review canvas center zone.
+- **Reused `DiffModel.inlineChanges()` for word-level highlights**: Adjacent removed+added pairs get character-level LCS diff with accent color at 0.25 opacity behind changed ranges.
+- **Magit-style over single-file selection**: The unified buffer with cursor navigation replaced the original "select a file from the strip, see its diff" model. No empty state when diffs exist — everything is visible immediately.
+- **Flat cursor model**: `computeVisibleTargets()` produces a flat `[CursorTarget]` array. Cursor movement is simple index arithmetic. Collapse operations recompute the target list and snap the cursor.
+- **Vertical-only scroll**: `ScrollView(.vertical)` instead of dual-axis. Horizontal scroll prevented `Spacer` from filling width and broke collapsed layout.
 
 ### Definition of done
-- [ ] User can review multi-file changes in a full-width review canvas, not just a sidebar.
-- [ ] User can jump from turn to exact changed file/hunk.
-- [ ] Review canvas suggests activation when diffs land.
-- [ ] Conversation position is preserved when switching to/from review.
-- [ ] Review flow works for both short and verbose diffs.
-- [ ] Keyboard navigation covers: file selection, hunk jumping, and return to conversation.
-- [ ] Layout transitions are animated and feel fluid, not jarring.
+- [x] User can review multi-file changes in a full-width review canvas, not just a sidebar.
+- [x] Historical per-turn diff viewing via source selector.
+- [x] Review canvas suggests activation when diffs land (banner pill).
+- [x] Conversation position is preserved when switching to/from review.
+- [x] Review flow works for both short and verbose diffs.
+- [x] Magit-style cursor navigation: C-n/C-p for lines, n/p and C-f/C-b for sections, TAB for collapse, RET for open, q for dismiss, f for follow.
+- [x] Layout transitions are animated and feel fluid, not jarring (spring response 0.35, damping 0.8).
+- [x] All files and diffs visible immediately — no empty "select a file" state.
 
 ## Phase 3b: Line Annotations + Review Checklist
 
@@ -884,7 +938,7 @@ Quantitative (post-instrumentation):
 - [x] Phase 0: Data Infrastructure (turn tracking, diff parsing, review comments, layout state, input mode, attention aggregation).
 - [x] Phase 1: Capability Rail + Action Dock Clarity (shared primitives, fluid sections, attention strip, steer context, server broadcast fix).
 - [ ] Phase 2: Turn Timeline with Oversight (density control, turn grouping, raw inspectability).
-- [ ] Phase 3a: Live Review Canvas (layout system, file/hunk navigation, center-zone diff viewer).
+- [x] Phase 3a: Live Review Canvas + Magit Cursor (unified buffer, cursor navigation, two-level collapse, Emacs keybindings, layout system, syntax-highlighted diffs with word-level inline changes).
 - [ ] Phase 3b: Line Annotations + Review Checklist (inline comments, tags, review checklist in rail).
 - [ ] Phase 4: Comment-to-Steer Bridge (review feedback as structured agent steering).
 - [ ] Phase 5: Approval Oversight v2 (fast contextual approvals with risk cues).

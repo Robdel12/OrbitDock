@@ -1440,6 +1440,9 @@ async fn handle_client_message(
                 restored.started_at,
                 restored.last_activity_at,
                 restored.messages,
+                restored.current_diff,
+                restored.current_plan,
+                restored.turn_diffs.into_iter().map(|(turn_id, diff)| orbitdock_protocol::TurnDiff { turn_id, diff }).collect(),
             );
 
             // Subscribe the requesting client

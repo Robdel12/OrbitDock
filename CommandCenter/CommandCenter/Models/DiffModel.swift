@@ -64,10 +64,25 @@ struct DiffModel {
   let files: [FileDiff]
 
   /// Parse a multi-file unified diff string into structured data.
+  /// When the same file appears multiple times (e.g. from concatenated turn diffs),
+  /// the latest entry wins — this gives the most recent version of each file's changes.
   static func parse(unifiedDiff: String) -> DiffModel {
     let fileChunks = splitIntoFileChunks(unifiedDiff)
-    let files = fileChunks.compactMap { parseFileChunk($0) }
-    return DiffModel(files: files)
+    let allFiles = fileChunks.compactMap { parseFileChunk($0) }
+
+    // Deduplicate: keep latest entry per file ID
+    var seen: [String: Int] = [:]
+    var deduped: [FileDiff] = []
+    for file in allFiles {
+      if let existing = seen[file.id] {
+        deduped[existing] = file
+      } else {
+        seen[file.id] = deduped.count
+        deduped.append(file)
+      }
+    }
+
+    return DiffModel(files: deduped)
   }
 
   // MARK: - Private Parsing

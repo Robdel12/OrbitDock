@@ -29,6 +29,11 @@ struct SessionDetailView: View {
   @State private var railPreset: RailPreset = .planFocused
   @State private var selectedSkills: Set<String> = []
 
+  // Layout state for review canvas
+  @State private var layoutConfig: LayoutConfiguration = .conversationOnly
+  @State private var showDiffBanner = false
+  @State private var reviewFileId: String?
+
   var body: some View {
     VStack(spacing: 0) {
       // Compact header
@@ -41,30 +46,65 @@ struct SessionDetailView: View {
         onGoToDashboard: onGoToDashboard,
         onEndSession: session.isDirectCodex ? { endCodexSession() } : nil,
         showTurnSidebar: session.isDirectCodex ? $showTurnSidebar : nil,
-        hasSidebarContent: hasSidebarContent
+        hasSidebarContent: hasSidebarContent,
+        layoutConfig: session.isDirectCodex ? $layoutConfig : nil
       )
 
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      // Main content area with optional diff sidebar
+      // Diff-available banner
+      if showDiffBanner, layoutConfig == .conversationOnly {
+        diffAvailableBanner
+      }
+
+      // Main content area with layout switch
       HStack(spacing: 0) {
-        // Conversation (hero)
-        ConversationView(
-          transcriptPath: session.transcriptPath,
-          sessionId: session.id,
-          isSessionActive: session.isActive,
-          workStatus: session.workStatus,
-          currentTool: currentTool,
-          pendingToolName: session.pendingToolName,
-          pendingToolInput: session.pendingToolInput,
-          provider: session.provider,
-          model: session.model,
-          isPinned: $isPinned,
-          unreadCount: $unreadCount,
-          scrollToBottomTrigger: $scrollToBottomTrigger
-        )
+        // Center zone — layout-dependent
+        Group {
+          switch layoutConfig {
+          case .conversationOnly:
+            conversationContent
+
+          case .reviewOnly:
+            ReviewCanvas(
+              sessionId: session.id,
+              projectPath: session.projectPath,
+              isSessionActive: session.isActive,
+              navigateToFileId: $reviewFileId,
+              onDismiss: {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                  layoutConfig = .conversationOnly
+                }
+              }
+            )
+
+          case .split:
+            HStack(spacing: 0) {
+              conversationContent
+                .frame(maxWidth: .infinity)
+
+              Divider()
+                .foregroundStyle(Color.panelBorder)
+
+              ReviewCanvas(
+                sessionId: session.id,
+                projectPath: session.projectPath,
+                isSessionActive: session.isActive,
+                compact: true,
+                navigateToFileId: $reviewFileId,
+                onDismiss: {
+                  withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    layoutConfig = .conversationOnly
+                  }
+                }
+              )
+              .frame(maxWidth: .infinity)
+            }
+          }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: layoutConfig)
 
         // Turn sidebar - plan + diff + servers + skills (Codex direct only)
         if session.isDirectCodex, showTurnSidebar {
@@ -73,9 +113,18 @@ struct SessionDetailView: View {
 
           CodexTurnSidebar(
             sessionId: session.id,
-            onClose: { showTurnSidebar = false },
+            onClose: {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                showTurnSidebar = false
+              }
+            },
             railPreset: $railPreset,
             selectedSkills: $selectedSkills,
+            onOpenReview: {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                layoutConfig = .split
+              }
+            },
             onNavigateToSession: { id in
               NotificationCenter.default.post(
                 name: .selectSession,
@@ -88,6 +137,7 @@ struct SessionDetailView: View {
           .transition(.move(edge: .trailing).combined(with: .opacity))
         }
       }
+      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: showTurnSidebar)
 
       // Codex direct: Approval or question UI when needed
       if session.isDirectCodex {
@@ -151,6 +201,8 @@ struct SessionDetailView: View {
       unreadCount = 0
       selectedSkills = []
       railPreset = .planFocused
+      layoutConfig = .conversationOnly
+      showDiffBanner = false
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
       Button("Open New") { TerminalService.shared.focusSession(session) }
@@ -192,6 +244,54 @@ struct SessionDetailView: View {
 
       default:
         return .ignored
+      }
+    }
+    // Layout keyboard shortcuts
+    .onKeyPress(phases: .down) { keyPress in
+      guard session.isDirectCodex else { return .ignored }
+
+      // Cmd+D: Toggle conversation ↔ split
+      if keyPress.modifiers == .command, keyPress.key == KeyEquivalent("d") {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          layoutConfig = layoutConfig == .conversationOnly ? .split : .conversationOnly
+        }
+        return .handled
+      }
+
+      // Cmd+Shift+D: Review only
+      if keyPress.modifiers == [.command, .shift], keyPress.key == KeyEquivalent("d") {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          layoutConfig = .reviewOnly
+        }
+        return .handled
+      }
+
+      // Escape: Return to conversation from review/split
+      if keyPress.key == .escape, layoutConfig != .conversationOnly {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          layoutConfig = .conversationOnly
+        }
+        return .handled
+      }
+
+      return .ignored
+    }
+    // Diff-available banner trigger
+    .onChange(of: serverState.session(session.id).diff) { oldDiff, newDiff in
+      guard session.isDirectCodex else { return }
+      if oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+          showDiffBanner = true
+        }
+        // Auto-dismiss after 8 seconds
+        Task {
+          try? await Task.sleep(for: .seconds(8))
+          await MainActor.run {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+              showDiffBanner = false
+            }
+          }
+        }
       }
     }
   }
@@ -542,6 +642,85 @@ struct SessionDetailView: View {
         .background(Color.backgroundSecondary)
       }
     }
+  }
+
+  // MARK: - Conversation Content
+
+  private var conversationContent: some View {
+    ConversationView(
+      transcriptPath: session.transcriptPath,
+      sessionId: session.id,
+      isSessionActive: session.isActive,
+      workStatus: session.workStatus,
+      currentTool: currentTool,
+      pendingToolName: session.pendingToolName,
+      pendingToolInput: session.pendingToolInput,
+      provider: session.provider,
+      model: session.model,
+      isPinned: $isPinned,
+      unreadCount: $unreadCount,
+      scrollToBottomTrigger: $scrollToBottomTrigger
+    )
+    .environment(\.openFileInReview, session.isDirectCodex ? { filePath in
+      // Extract the relative file path (strip project path prefix if present)
+      let relative = filePath.hasPrefix(session.projectPath)
+        ? String(filePath.dropFirst(session.projectPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        : filePath
+      reviewFileId = relative
+      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        if layoutConfig == .conversationOnly {
+          layoutConfig = .split
+        }
+      }
+    } : nil)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  // MARK: - Diff Available Banner
+
+  private var diffAvailableBanner: some View {
+    let fileCount = diffFileCount
+    return Button {
+      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        layoutConfig = .split
+        showDiffBanner = false
+      }
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "doc.badge.plus")
+          .font(.system(size: 11, weight: .medium))
+        Text("\(fileCount) file\(fileCount == 1 ? "" : "s") changed — Review Diffs")
+          .font(.system(size: 11, weight: .medium))
+        Image(systemName: "arrow.right")
+          .font(.system(size: 9, weight: .bold))
+      }
+      .foregroundStyle(Color.accent)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 6)
+      .background(Color.accent.opacity(0.1), in: Capsule())
+    }
+    .buttonStyle(.plain)
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 4)
+    .background(Color.backgroundSecondary)
+    .transition(.move(edge: .top).combined(with: .opacity))
+  }
+
+  private var diffFileCount: Int {
+    let obs = serverState.session(session.id)
+    // Build cumulative diff from all turn snapshots + current live diff
+    var parts: [String] = []
+    for td in obs.turnDiffs {
+      parts.append(td.diff)
+    }
+    if let current = obs.diff, !current.isEmpty {
+      if obs.turnDiffs.last?.diff != current {
+        parts.append(current)
+      }
+    }
+    let combined = parts.joined(separator: "\n")
+    guard !combined.isEmpty else { return 0 }
+    return DiffModel.parse(unifiedDiff: combined).files.count
   }
 
   // MARK: - Turn Sidebar Helpers

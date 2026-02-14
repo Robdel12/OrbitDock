@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use axum::{response::IntoResponse, routing::get, Router};
-use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, TokenUsage, WorkStatus};
+use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff, WorkStatus};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
@@ -108,6 +108,9 @@ async fn async_main() -> anyhow::Result<()> {
                     codex_context_window,
                     messages,
                     forked_from_session_id,
+                    current_diff,
+                    current_plan,
+                    turn_diffs: restored_turn_diffs,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -146,6 +149,9 @@ async fn async_main() -> anyhow::Result<()> {
                     started_at,
                     last_activity_at,
                     messages,
+                    current_diff,
+                    current_plan,
+                    restored_turn_diffs.into_iter().map(|(turn_id, diff)| TurnDiff { turn_id, diff }).collect(),
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_passive =

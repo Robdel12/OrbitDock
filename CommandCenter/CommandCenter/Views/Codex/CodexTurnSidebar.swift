@@ -14,6 +14,7 @@ struct CodexTurnSidebar: View {
   let onClose: () -> Void
   @Binding var railPreset: RailPreset
   @Binding var selectedSkills: Set<String>
+  var onOpenReview: (() -> Void)? = nil
   var onNavigateToSession: ((String) -> Void)? = nil
 
   @Environment(ServerAppState.self) private var serverState
@@ -217,9 +218,9 @@ struct CodexTurnSidebar: View {
 
   private var diffBadge: String? {
     guard let d = diff, !d.isEmpty else { return nil }
-    let lines = parseDiffLines(d)
-    let adds = additionCount(lines)
-    let dels = deletionCount(lines)
+    let model = DiffModel.parse(unifiedDiff: d)
+    let adds = model.files.reduce(0) { $0 + $1.stats.additions }
+    let dels = model.files.reduce(0) { $0 + $1.stats.deletions }
     return "+\(adds) −\(dels)"
   }
 
@@ -293,24 +294,30 @@ struct CodexTurnSidebar: View {
     .background(Color.backgroundPrimary)
   }
 
-  // MARK: - Diff Content
+  // MARK: - Diff Content (Compact Summary)
 
   @ViewBuilder
   private func diffContent(diff: String) -> some View {
-    let parsed = parseDiffLines(diff)
+    let model = DiffModel.parse(unifiedDiff: diff)
+    let totalAdds = model.files.reduce(0) { $0 + $1.stats.additions }
+    let totalDels = model.files.reduce(0) { $0 + $1.stats.deletions }
 
-    VStack(spacing: 0) {
+    VStack(alignment: .leading, spacing: 0) {
       // Stats header
       HStack {
-        Text("+\(additionCount(parsed))")
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
-          .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5))
-
-        Text("−\(deletionCount(parsed))")
-          .font(.system(size: 11, weight: .semibold, design: .monospaced))
-          .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5))
+        Text("\(model.files.count) file\(model.files.count == 1 ? "" : "s") changed")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.secondary)
 
         Spacer()
+
+        HStack(spacing: 4) {
+          Text("+\(totalAdds)")
+            .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5))
+          Text("−\(totalDels)")
+            .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5))
+        }
+        .font(.system(size: 10, weight: .semibold, design: .monospaced))
       }
       .padding(.horizontal, 12)
       .padding(.vertical, 8)
@@ -318,16 +325,66 @@ struct CodexTurnSidebar: View {
       Divider()
         .foregroundStyle(Color.panelBorder.opacity(0.5))
 
-      ScrollView([.horizontal], showsIndicators: true) {
-        VStack(alignment: .leading, spacing: 0) {
-          ForEach(parsed) { line in
-            DiffLineRow(line: line)
+      // Compact file list (max 5, then "+N more")
+      VStack(alignment: .leading, spacing: 0) {
+        ForEach(Array(model.files.prefix(5).enumerated()), id: \.element.id) { _, file in
+          HStack(spacing: 6) {
+            Circle()
+              .fill(compactChangeColor(file.changeType))
+              .frame(width: 5, height: 5)
+
+            Text(file.newPath.components(separatedBy: "/").last ?? file.newPath)
+              .font(.system(size: 10, design: .monospaced))
+              .foregroundStyle(.primary.opacity(0.8))
+              .lineLimit(1)
+
+            Spacer()
           }
+          .padding(.horizontal, 12)
+          .padding(.vertical, 3)
         }
-        .padding(.vertical, 4)
+
+        if model.files.count > 5 {
+          Text("+\(model.files.count - 5) more")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+        }
+      }
+      .padding(.vertical, 4)
+
+      // Open Review button
+      if onOpenReview != nil {
+        Divider()
+          .foregroundStyle(Color.panelBorder.opacity(0.5))
+
+        Button {
+          onOpenReview?()
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: "doc.text.magnifyingglass")
+              .font(.system(size: 10, weight: .medium))
+            Text("Open Review")
+              .font(.system(size: 11, weight: .medium))
+          }
+          .foregroundStyle(Color.accent)
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 8)
+        }
+        .buttonStyle(.plain)
       }
     }
     .background(Color.backgroundPrimary)
+  }
+
+  private func compactChangeColor(_ type: FileChangeType) -> Color {
+    switch type {
+    case .added: Color(red: 0.4, green: 0.95, blue: 0.5)
+    case .deleted: Color(red: 1.0, green: 0.5, blue: 0.5)
+    case .renamed: Color.accent
+    case .modified: Color.accent
+    }
   }
 
   // MARK: - Helpers
@@ -341,29 +398,6 @@ struct CodexTurnSidebar: View {
     return Double(completedCount(steps)) / Double(steps.count)
   }
 
-  private func parseDiffLines(_ diff: String) -> [CodexParsedDiffLine] {
-    diff.components(separatedBy: "\n").map { line in
-      if line.hasPrefix("+++") || line.hasPrefix("---") {
-        CodexParsedDiffLine(text: line, type: .header)
-      } else if line.hasPrefix("@@") {
-        CodexParsedDiffLine(text: line, type: .hunk)
-      } else if line.hasPrefix("+") {
-        CodexParsedDiffLine(text: line, type: .addition)
-      } else if line.hasPrefix("-") {
-        CodexParsedDiffLine(text: line, type: .deletion)
-      } else {
-        CodexParsedDiffLine(text: line, type: .context)
-      }
-    }
-  }
-
-  private func additionCount(_ lines: [CodexParsedDiffLine]) -> Int {
-    lines.filter { $0.type == .addition }.count
-  }
-
-  private func deletionCount(_ lines: [CodexParsedDiffLine]) -> Int {
-    lines.filter { $0.type == .deletion }.count
-  }
 }
 
 // MARK: - Plan Step Row
@@ -473,98 +507,6 @@ private struct PlanStepRow: View {
       case "completed": .statusReady.opacity(0.3)
       case "inProgress": Color.accent.opacity(0.3)
       default: Color.secondary.opacity(0.2)
-    }
-  }
-}
-
-// MARK: - Codex Parsed Diff Line
-
-private struct CodexParsedDiffLine: Identifiable {
-  let id = UUID()
-  let text: String
-  let type: LineType
-
-  enum LineType {
-    case header
-    case hunk
-    case addition
-    case deletion
-    case context
-  }
-}
-
-// MARK: - Diff Line Row
-
-private struct DiffLineRow: View {
-  let line: CodexParsedDiffLine
-
-  private let addedBg = Color(red: 0.15, green: 0.32, blue: 0.18).opacity(0.6)
-  private let removedBg = Color(red: 0.35, green: 0.14, blue: 0.14).opacity(0.6)
-  private let addedAccent = Color(red: 0.4, green: 0.95, blue: 0.5)
-  private let removedAccent = Color(red: 1.0, green: 0.5, blue: 0.5)
-
-  var body: some View {
-    HStack(spacing: 0) {
-      Text(prefix)
-        .font(.system(size: 11, weight: .bold, design: .monospaced))
-        .foregroundStyle(prefixColor)
-        .frame(width: 16)
-
-      Text(lineContent)
-        .font(.system(size: 11, design: .monospaced))
-        .foregroundStyle(textColor)
-        .lineLimit(1)
-        .textSelection(.enabled)
-    }
-    .padding(.horizontal, 8)
-    .padding(.vertical, 2)
-    .background(backgroundColor)
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-
-  private var prefix: String {
-    switch line.type {
-      case .addition: "+"
-      case .deletion: "−"
-      case .hunk: "@"
-      default: " "
-    }
-  }
-
-  private var lineContent: String {
-    switch line.type {
-      case .addition, .deletion:
-        String(line.text.dropFirst())
-      default:
-        line.text
-    }
-  }
-
-  private var prefixColor: Color {
-    switch line.type {
-      case .addition: addedAccent
-      case .deletion: removedAccent
-      case .hunk: Color.accent
-      default: .clear
-    }
-  }
-
-  private var textColor: Color {
-    switch line.type {
-      case .header: .secondary
-      case .hunk: Color.accent
-      case .addition: addedAccent
-      case .deletion: removedAccent
-      case .context: .primary.opacity(0.7)
-    }
-  }
-
-  private var backgroundColor: Color {
-    switch line.type {
-      case .addition: addedBg
-      case .deletion: removedBg
-      case .hunk: Color.accent.opacity(0.05)
-      default: .clear
     }
   }
 }

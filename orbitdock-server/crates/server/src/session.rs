@@ -153,6 +153,9 @@ impl SessionHandle {
         started_at: Option<String>,
         last_activity_at: Option<String>,
         messages: Vec<Message>,
+        current_diff: Option<String>,
+        current_plan: Option<String>,
+        turn_diffs: Vec<TurnDiff>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -190,11 +193,11 @@ impl SessionHandle {
             last_tool: None,
             messages,
             token_usage,
-            current_diff: None,
-            current_plan: None,
+            current_diff,
+            current_plan,
             current_turn_id: None,
-            turn_count: 0,
-            turn_diffs: Vec::new(),
+            turn_count: turn_diffs.len() as u64,
+            turn_diffs,
             started_at,
             last_activity_at,
             forked_from_session_id: None,

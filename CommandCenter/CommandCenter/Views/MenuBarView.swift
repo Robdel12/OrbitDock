@@ -7,6 +7,7 @@ import SwiftUI
 
 struct MenuBarView: View {
   @Environment(ServerAppState.self) private var serverState
+  @Environment(\.colorScheme) private var colorScheme
 
   var activeSessions: [Session] {
     serverState.sessions.filter(\.isActive)
@@ -113,7 +114,7 @@ struct MenuBarView: View {
             Text("Open Window")
               .font(.system(size: 12, weight: .medium))
           }
-          .foregroundStyle(.secondary)
+          .foregroundStyle(secondaryTextColor)
         }
         .buttonStyle(.plain)
 
@@ -124,7 +125,7 @@ struct MenuBarView: View {
         } label: {
           Image(systemName: "arrow.clockwise")
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(tertiaryTextColor)
         }
         .buttonStyle(.plain)
       }
@@ -137,7 +138,7 @@ struct MenuBarView: View {
   private func sectionHeader(_ title: String) -> some View {
     Text(title.uppercased())
       .font(.system(size: 10, weight: .semibold, design: .rounded))
-      .foregroundStyle(.tertiary)
+      .foregroundStyle(tertiaryTextColor)
       .padding(.horizontal, 4)
       .padding(.bottom, 6)
   }
@@ -146,22 +147,30 @@ struct MenuBarView: View {
     VStack(spacing: 10) {
       Image(systemName: "terminal")
         .font(.system(size: 28))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(tertiaryTextColor)
 
       Text("No sessions")
         .font(.system(size: 12))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(secondaryTextColor)
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 32)
   }
 
+  private var secondaryTextColor: Color {
+    colorScheme == .dark ? .secondary : .primary.opacity(0.78)
+  }
+
+  private var tertiaryTextColor: Color {
+    colorScheme == .dark ? Color.white.opacity(0.3) : .primary.opacity(0.62)
+  }
 }
 
 struct MenuBarSessionRow: View {
   let session: Session
   let isActive: Bool
   @State private var isHovering = false
+  @Environment(\.colorScheme) private var colorScheme
 
   private var displayStatus: SessionDisplayStatus {
     SessionDisplayStatus.from(session)
@@ -187,13 +196,13 @@ struct MenuBarSessionRow: View {
               Text(branch)
                 .font(.system(size: 10, design: .monospaced))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(branchColor)
             .lineLimit(1)
           }
 
           Text(session.formattedDuration)
             .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(durationColor)
         }
       }
 
@@ -204,10 +213,18 @@ struct MenuBarSessionRow: View {
     .padding(.horizontal, 8)
     .padding(.vertical, 6)
     .background(
-      isHovering ? Color.primary.opacity(0.05) : Color.clear,
+      isHovering ? Color.primary.opacity(colorScheme == .dark ? 0.05 : 0.09) : Color.clear,
       in: RoundedRectangle(cornerRadius: 6, style: .continuous)
     )
     .onHover { isHovering = $0 }
+  }
+
+  private var branchColor: Color {
+    colorScheme == .dark ? .secondary : .primary.opacity(0.75)
+  }
+
+  private var durationColor: Color {
+    colorScheme == .dark ? Color.white.opacity(0.3) : .primary.opacity(0.58)
   }
 }
 

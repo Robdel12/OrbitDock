@@ -13,9 +13,12 @@ enum SyntaxHighlighter {
     var result = AttributedString(line)
     result.foregroundColor = Color.syntaxText
 
-    guard let lang = language, !line.isEmpty else { return result }
+    guard let lang = language, !lang.isEmpty, !line.isEmpty else { return result }
 
     switch lang {
+      case "markdown", "text", "plaintext":
+        // No highlighting for prose-oriented formats
+        return result
       case "swift":
         highlightSwiftLine(&result, line: line)
       case "javascript", "typescript":

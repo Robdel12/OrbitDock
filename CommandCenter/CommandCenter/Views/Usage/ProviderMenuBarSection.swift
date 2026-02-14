@@ -13,6 +13,7 @@ struct ProviderMenuBarSection: View {
   let windows: [RateLimitWindow]
   let isLoading: Bool
   let error: (any LocalizedError)?
+  @Environment(\.colorScheme) private var colorScheme
 
   /// Check if error is API key mode (for Codex)
   var isApiKeyMode: Bool {
@@ -29,7 +30,7 @@ struct ProviderMenuBarSection: View {
 
         Text(provider.displayName)
           .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(.primary)
+          .foregroundStyle(titleColor)
       }
 
       if !windows.isEmpty {
@@ -55,14 +56,26 @@ struct ProviderMenuBarSection: View {
           }
           Text(error.localizedDescription)
             .font(.system(size: 10))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(errorTextColor)
             .lineLimit(1)
         }
       }
     }
     .padding(.horizontal, 9)
     .padding(.vertical, 8)
-    .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .background(cardBackgroundColor, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private var titleColor: Color {
+    colorScheme == .dark ? .primary : .primary.opacity(0.92)
+  }
+
+  private var errorTextColor: Color {
+    colorScheme == .dark ? Color.white.opacity(0.3) : .primary.opacity(0.66)
+  }
+
+  private var cardBackgroundColor: Color {
+    Color.primary.opacity(colorScheme == .dark ? 0.035 : 0.075)
   }
 }
 

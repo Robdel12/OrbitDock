@@ -17,6 +17,7 @@ struct HeaderView: View {
   var onEndSession: (() -> Void)?
   var showTurnSidebar: Binding<Bool>? = nil
   var hasSidebarContent: Bool = false
+  var layoutConfig: Binding<LayoutConfiguration>? = nil
 
   @State private var isHoveringPath = false
   @State private var isHoveringProject = false
@@ -110,6 +111,11 @@ struct HeaderView: View {
           StatusPillCompact(workStatus: session.workStatus, currentTool: currentTool)
         }
 
+        // Layout toggle (Codex direct sessions only)
+        if let layoutBinding = layoutConfig {
+          layoutToggle(layoutBinding)
+        }
+
         Spacer()
 
         // Duration only (usage stats in bottom bar)
@@ -156,7 +162,7 @@ struct HeaderView: View {
                 )
             }
             .buttonStyle(.plain)
-            .help("Toggle sidebar")
+            .help("Toggle sidebar (⌥⌘R)")
           }
 
           // End session button for Codex direct sessions
@@ -236,6 +242,36 @@ struct HeaderView: View {
       .padding(.bottom, 10)
     }
     .background(Color.backgroundSecondary)
+  }
+
+  // MARK: - Layout Toggle
+
+  private func layoutToggle(_ binding: Binding<LayoutConfiguration>) -> some View {
+    HStack(spacing: 2) {
+      ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+        let isSelected = binding.wrappedValue == config
+
+        Button {
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            // Clicking the active button toggles back to conversation-only
+            binding.wrappedValue = isSelected ? .conversationOnly : config
+          }
+        } label: {
+          Image(systemName: config.icon)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(isSelected ? Color.accent : .secondary)
+            .frame(width: 26, height: 22)
+            .background(
+              isSelected ? Color.accent.opacity(0.15) : Color.clear,
+              in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(config.label)
+      }
+    }
+    .padding(2)
+    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
   }
 
   // MARK: - Helpers

@@ -275,6 +275,11 @@ pub enum PersistOp {
         diff: Option<String>,
         plan: Option<String>,
     },
+    TurnDiffInsert {
+        session_id: String,
+        turn_id: String,
+        diff: String,
+    },
     SetCustomName {
         session_id: String,
         custom_name: Option<String>,
@@ -341,6 +346,15 @@ impl PersistOp {
                 session_id,
                 diff,
                 plan,
+            },
+            PersistOp::TurnDiffInsert {
+                session_id,
+                turn_id,
+                diff,
+            } => PersistCommand::TurnDiffInsert {
+                session_id,
+                turn_id,
+                diff,
             },
             PersistOp::SetCustomName {
                 session_id,
@@ -425,6 +439,11 @@ pub fn transition(
                     diff: diff.clone(),
                 };
                 state.turn_diffs.push(snapshot);
+                effects.push(Effect::Persist(Box::new(PersistOp::TurnDiffInsert {
+                    session_id: sid.clone(),
+                    turn_id: turn_id.clone(),
+                    diff: diff.clone(),
+                })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::TurnDiffSnapshot {
                     session_id: sid.clone(),
                     turn_id: turn_id.clone(),
