@@ -86,7 +86,7 @@ struct ConversationView: View {
     ScrollViewReader { proxy in
       ZStack(alignment: .bottom) {
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: 0) {
+          LazyVStack(alignment: .leading, spacing: 2) {
             // Load more indicator
             if hasMoreMessages {
               loadMoreIndicator

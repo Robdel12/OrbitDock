@@ -103,6 +103,16 @@ pub enum ClientMessage {
 
     // Codex models
     ListModels,
+    // Codex account/auth state
+    CodexAccountRead {
+        #[serde(default)]
+        refresh_token: bool,
+    },
+    CodexLoginChatgptStart,
+    CodexLoginChatgptCancel {
+        login_id: String,
+    },
+    CodexAccountLogout,
 
     // Skills
     ListSkills {
@@ -464,6 +474,60 @@ mod tests {
             ClientMessage::RefreshMcpServers { session_id } => {
                 assert_eq!(session_id, "sess-m2");
             }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_codex_account_read() {
+        let json = r#"{"type":"codex_account_read","refresh_token":true}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex_account_read");
+        match &parsed {
+            ClientMessage::CodexAccountRead { refresh_token } => {
+                assert!(*refresh_token);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_codex_login_chatgpt_start() {
+        let json = r#"{"type":"codex_login_chatgpt_start"}"#;
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse codex_login_chatgpt_start");
+        match &parsed {
+            ClientMessage::CodexLoginChatgptStart => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_codex_login_chatgpt_cancel() {
+        let json = r#"{"type":"codex_login_chatgpt_cancel","login_id":"9fbdb600-7778-49a7-8d7a-adc9c52a2f1a"}"#;
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse codex_login_chatgpt_cancel");
+        match &parsed {
+            ClientMessage::CodexLoginChatgptCancel { login_id } => {
+                assert_eq!(login_id, "9fbdb600-7778-49a7-8d7a-adc9c52a2f1a");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_codex_account_logout() {
+        let json = r#"{"type":"codex_account_logout"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex_account_logout");
+        match &parsed {
+            ClientMessage::CodexAccountLogout => {}
             other => panic!("unexpected variant: {:?}", other),
         }
         let serialized = serde_json::to_string(&parsed).expect("serialize");

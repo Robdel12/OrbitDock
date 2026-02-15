@@ -8,6 +8,7 @@
 //  this class is a registry + global state holder.
 //
 
+import AppKit
 import Foundation
 import os.log
 
@@ -28,6 +29,12 @@ final class ServerAppState {
 
   /// Codex models discovered by the server for the current account
   private(set) var codexModels: [ServerCodexModelOption] = []
+
+  /// Current Codex account/auth status (global account state, not per-session)
+  private(set) var codexAccountStatus: ServerCodexAccountStatus?
+
+  /// Most recent Codex auth/login error suitable for UI display
+  private(set) var codexAuthError: String?
 
   // MARK: - Per-Session Observable Registry
 
@@ -66,6 +73,26 @@ final class ServerAppState {
     {
       codexModels = models
     }
+  }
+
+  var codexAccount: ServerCodexAccount? {
+    codexAccountStatus?.account
+  }
+
+  var codexAuthMode: ServerCodexAuthMode? {
+    codexAccountStatus?.authMode
+  }
+
+  var codexRequiresOpenAIAuth: Bool {
+    codexAccountStatus?.requiresOpenaiAuth ?? true
+  }
+
+  var codexLoginInProgress: Bool {
+    codexAccountStatus?.loginInProgress ?? false
+  }
+
+  var codexActiveLoginId: String? {
+    codexAccountStatus?.activeLoginId
   }
 
   // MARK: - Setup
@@ -147,9 +174,67 @@ final class ServerAppState {
       }
     }
 
+    conn.onCodexAccountStatus = { [weak self] status in
+      Task { @MainActor in
+        self?.applyCodexAccountStatus(status)
+      }
+    }
+
+    conn.onCodexLoginChatgptStarted = { [weak self] loginId, authUrl in
+      Task { @MainActor in
+        guard let self else { return }
+        self.codexAuthError = nil
+        self.markLoginInProgress(loginId: loginId)
+        self.openCodexAuthURL(authUrl)
+      }
+    }
+
+    conn.onCodexLoginChatgptCompleted = { [weak self] loginId, success, error in
+      Task { @MainActor in
+        guard let self else { return }
+        if let activeLoginId = self.codexActiveLoginId, activeLoginId != loginId {
+          logger.debug("Ignoring stale login completion for \(loginId)")
+          return
+        }
+        self.markLoginInProgress(loginId: nil)
+        if success {
+          self.codexAuthError = nil
+        } else {
+          self.codexAuthError = error ?? "ChatGPT sign-in failed"
+        }
+        self.refreshCodexAccount()
+      }
+    }
+
+    conn.onCodexLoginChatgptCanceled = { [weak self] loginId, status in
+      Task { @MainActor in
+        guard let self else { return }
+        if let activeLoginId = self.codexActiveLoginId, activeLoginId != loginId {
+          logger.debug("Ignoring stale login cancel for \(loginId)")
+          return
+        }
+        self.markLoginInProgress(loginId: nil)
+        switch status {
+          case .canceled:
+            self.codexAuthError = nil
+          case .notFound:
+            self.codexAuthError = "No active ChatGPT login was found to cancel."
+          case .invalidId:
+            self.codexAuthError = "Invalid login session. Please try signing in again."
+        }
+        self.refreshCodexAccount()
+      }
+    }
+
+    conn.onCodexAccountUpdated = { [weak self] status in
+      Task { @MainActor in
+        self?.applyCodexAccountStatus(status)
+      }
+    }
+
     conn.onSkillsList = { [weak self] sessionId, entries, _ in
       Task { @MainActor in
-        let allSkills = entries.flatMap { $0.skills }
+        let allSkills = entries.flatMap(\.skills)
         self?.session(sessionId).skills = allSkills
       }
     }
@@ -274,11 +359,13 @@ final class ServerAppState {
       Task { @MainActor in
         self?.resubscribeAll()
         self?.refreshCodexModels()
+        self?.refreshCodexAccount()
       }
     }
 
     logger.info("ServerAppState callbacks wired")
     refreshCodexModels()
+    refreshCodexAccount()
   }
 
   // MARK: - Actions
@@ -302,6 +389,31 @@ final class ServerAppState {
     ServerConnection.shared.listModels()
   }
 
+  /// Refresh global Codex account/auth status.
+  func refreshCodexAccount(refreshToken: Bool = false) {
+    ServerConnection.shared.readCodexAccount(refreshToken: refreshToken)
+  }
+
+  /// Start ChatGPT browser login for Codex.
+  func startCodexChatgptLogin() {
+    codexAuthError = nil
+    ServerConnection.shared.startCodexChatgptLogin()
+  }
+
+  /// Cancel an in-progress ChatGPT browser login for Codex.
+  func cancelCodexChatgptLogin() {
+    guard let loginId = codexActiveLoginId else {
+      codexAuthError = "No active sign-in request to cancel."
+      return
+    }
+    ServerConnection.shared.cancelCodexChatgptLogin(loginId: loginId)
+  }
+
+  /// Log out the current Codex account.
+  func logoutCodexAccount() {
+    ServerConnection.shared.logoutCodexAccount()
+  }
+
   /// Refresh the server-authoritative sessions list.
   func refreshSessionsList() {
     ServerConnection.shared.subscribeList()
@@ -314,9 +426,25 @@ final class ServerAppState {
   }
 
   /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
-  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [], images: [ServerImageInput] = [], mentions: [ServerMentionInput] = []) {
+  func sendMessage(
+    sessionId: String,
+    content: String,
+    model: String? = nil,
+    effort: String? = nil,
+    skills: [ServerSkillInput] = [],
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) {
     logger.info("Sending message to \(sessionId)")
-    ServerConnection.shared.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills, images: images, mentions: mentions)
+    ServerConnection.shared.sendMessage(
+      sessionId: sessionId,
+      content: content,
+      model: model,
+      effort: effort,
+      skills: skills,
+      images: images,
+      mentions: mentions
+    )
   }
 
   /// Request the list of available skills for a session
@@ -487,7 +615,7 @@ final class ServerAppState {
     }
 
     // Clean up observables for sessions that disappeared from the server
-    let liveIds = Set(summaries.map { $0.id })
+    let liveIds = Set(summaries.map(\.id))
     let staleIds = _sessionObservables.keys.filter { !liveIds.contains($0) }
     for id in staleIds {
       _sessionObservables.removeValue(forKey: id)
@@ -961,6 +1089,11 @@ final class ServerAppState {
       subscribedSessions.remove(sid)
       subscribeToSession(sid)
     }
+
+    if code.hasPrefix("codex_auth_") {
+      codexAuthError = message
+      refreshCodexAccount()
+    }
   }
 
   // MARK: - Turn Diff Handlers
@@ -1003,12 +1136,33 @@ final class ServerAppState {
 
   // MARK: - Review Comment Actions
 
-  func createReviewComment(sessionId: String, turnId: String?, filePath: String, lineStart: UInt32, lineEnd: UInt32?, body: String, tag: ServerReviewCommentTag?) {
+  func createReviewComment(
+    sessionId: String,
+    turnId: String?,
+    filePath: String,
+    lineStart: UInt32,
+    lineEnd: UInt32?,
+    body: String,
+    tag: ServerReviewCommentTag?
+  ) {
     logger.info("Creating review comment in \(sessionId)")
-    ServerConnection.shared.createReviewComment(sessionId: sessionId, turnId: turnId, filePath: filePath, lineStart: lineStart, lineEnd: lineEnd, body: body, tag: tag)
+    ServerConnection.shared.createReviewComment(
+      sessionId: sessionId,
+      turnId: turnId,
+      filePath: filePath,
+      lineStart: lineStart,
+      lineEnd: lineEnd,
+      body: body,
+      tag: tag
+    )
   }
 
-  func updateReviewComment(commentId: String, body: String?, tag: ServerReviewCommentTag?, status: ServerReviewCommentStatus?) {
+  func updateReviewComment(
+    commentId: String,
+    body: String?,
+    tag: ServerReviewCommentTag?,
+    status: ServerReviewCommentStatus?
+  ) {
     logger.info("Updating review comment \(commentId)")
     ServerConnection.shared.updateReviewComment(commentId: commentId, body: body, tag: tag, status: status)
   }
@@ -1023,6 +1177,35 @@ final class ServerAppState {
   }
 
   // MARK: - Helpers
+
+  private func applyCodexAccountStatus(_ status: ServerCodexAccountStatus) {
+    codexAccountStatus = status
+    if status.account != nil {
+      codexAuthError = nil
+    }
+  }
+
+  private func markLoginInProgress(loginId: String?) {
+    let current = codexAccountStatus
+    codexAccountStatus = ServerCodexAccountStatus(
+      authMode: current?.authMode,
+      requiresOpenaiAuth: current?.requiresOpenaiAuth ?? true,
+      account: current?.account,
+      loginInProgress: loginId != nil,
+      activeLoginId: loginId
+    )
+  }
+
+  private func openCodexAuthURL(_ authUrl: String) {
+    guard let url = URL(string: authUrl) else {
+      codexAuthError = "Sign-in URL was invalid."
+      return
+    }
+    let opened = NSWorkspace.shared.open(url)
+    if !opened {
+      codexAuthError = "Couldn’t open browser for ChatGPT sign-in."
+    }
+  }
 
   private func updateSessionInList(_ session: Session) {
     if let idx = sessions.firstIndex(where: { $0.id == session.id }) {

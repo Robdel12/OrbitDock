@@ -3,6 +3,7 @@
 //! Mission control for AI coding agents.
 //! Provides real-time session management via WebSocket.
 
+mod codex_auth;
 mod codex_session;
 mod logging;
 mod migration_runner;
@@ -22,7 +23,9 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use axum::{response::IntoResponse, routing::get, Router};
-use orbitdock_protocol::{CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff, WorkStatus};
+use orbitdock_protocol::{
+    CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
+};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
@@ -77,8 +80,7 @@ async fn async_main() -> anyhow::Result<()> {
         dir.join("orbitdock.db")
     };
     {
-        let mut conn = rusqlite::Connection::open(&db_path)
-            .expect("open db for migrations");
+        let mut conn = rusqlite::Connection::open(&db_path).expect("open db for migrations");
         if let Err(e) = migration_runner::run_migrations(&mut conn) {
             warn!(
                 component = "migrations",
@@ -176,7 +178,10 @@ async fn async_main() -> anyhow::Result<()> {
                     messages,
                     current_diff,
                     current_plan,
-                    restored_turn_diffs.into_iter().map(|(turn_id, diff)| TurnDiff { turn_id, diff }).collect(),
+                    restored_turn_diffs
+                        .into_iter()
+                        .map(|(turn_id, diff)| TurnDiff { turn_id, diff })
+                        .collect(),
                     git_branch,
                     git_sha,
                     current_cwd,

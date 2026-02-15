@@ -833,14 +833,12 @@ pub fn transition(
             if changed {
                 state.last_activity_at = Some(now.to_string());
 
-                effects.push(Effect::Persist(Box::new(
-                    PersistOp::EnvironmentUpdate {
-                        session_id: sid.clone(),
-                        cwd: state.current_cwd.clone(),
-                        git_branch: state.git_branch.clone(),
-                        git_sha: state.git_sha.clone(),
-                    },
-                )));
+                effects.push(Effect::Persist(Box::new(PersistOp::EnvironmentUpdate {
+                    session_id: sid.clone(),
+                    cwd: state.current_cwd.clone(),
+                    git_branch: state.git_branch.clone(),
+                    git_sha: state.git_sha.clone(),
+                })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                     session_id: sid,
                     changes: StateChanges {

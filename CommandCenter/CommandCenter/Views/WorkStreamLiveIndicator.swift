@@ -135,9 +135,10 @@ struct WorkStreamLiveIndicator: View {
     let toolName = pendingToolName ?? ""
     switch toolName {
     case "Bash":
-      if let cmd = (input["command"] as? String) ?? (input["cmd"] as? String) {
-        let cleaned = cmd.strippingShellWrapperPrefix()
-        return cleaned.count > 50 ? String(cleaned.prefix(47)) + "\u{2026}" : cleaned
+      if let cmd = String.shellCommandDisplay(from: input["command"])
+        ?? String.shellCommandDisplay(from: input["cmd"])
+      {
+        return cmd.count > 50 ? String(cmd.prefix(47)) + "\u{2026}" : cmd
       }
     case "Edit", "Write", "Read":
       if let path = input["file_path"] as? String {

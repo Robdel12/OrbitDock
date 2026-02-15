@@ -352,6 +352,7 @@ struct NotificationSettingsView: View {
 // MARK: - Setup Settings
 
 struct SetupSettingsView: View {
+  @Environment(ServerAppState.self) private var serverState
   @State private var copied = false
   @State private var hooksConfigured: Bool? = nil
 
@@ -449,13 +450,93 @@ struct SetupSettingsView: View {
 
       // Codex section
       SettingsSection(title: "CODEX CLI", icon: "sparkles") {
-        HStack {
-          Image(systemName: "checkmark.circle.fill")
-            .foregroundStyle(Color.statusSuccess)
-          Text("Automatic via FSEvents — no setup needed")
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-          Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+          HStack(spacing: 8) {
+            Image(systemName: serverState
+              .codexAccount == nil ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle.badge.checkmark")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(serverState.codexAccount == nil ? Color.statusPermission : Color.statusSuccess)
+            Text("Account")
+              .font(.system(size: 13, weight: .semibold))
+            Spacer()
+            codexAuthBadge
+          }
+
+          switch serverState.codexAccount {
+            case .apiKey?:
+              Text("Connected with API key. Switch to ChatGPT sign-in for subscription-backed limits.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            case let .chatgpt(email, planType)?:
+              VStack(alignment: .leading, spacing: 4) {
+                if let email {
+                  Text(email)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                } else {
+                  Text("Signed in with ChatGPT")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.primary)
+                }
+                if let planType {
+                  Text(planType.uppercased())
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.accent)
+                }
+              }
+            case .none:
+              Text("Sign in with ChatGPT to manage Codex sessions directly in OrbitDock.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+          }
+
+          HStack(spacing: 10) {
+            if serverState.codexLoginInProgress {
+              Button {
+                serverState.cancelCodexChatgptLogin()
+              } label: {
+                Label("Cancel Sign-In", systemImage: "xmark.circle")
+                  .font(.system(size: 12, weight: .semibold))
+              }
+              .buttonStyle(.bordered)
+            } else if serverState.codexAccount == nil {
+              Button {
+                serverState.startCodexChatgptLogin()
+              } label: {
+                Label("Sign in with ChatGPT", systemImage: "sparkles")
+                  .font(.system(size: 12, weight: .semibold))
+              }
+              .buttonStyle(.borderedProminent)
+              .tint(Color.accent)
+            }
+
+            if serverState.codexAccount != nil {
+              Button("Usage") {
+                openCodexUsagePage()
+              }
+              .font(.system(size: 12, weight: .semibold))
+              .buttonStyle(.bordered)
+
+              Button("Sign Out") {
+                serverState.logoutCodexAccount()
+              }
+              .font(.system(size: 12, weight: .semibold))
+              .buttonStyle(.bordered)
+            }
+
+            Spacer()
+          }
+
+          if let error = serverState.codexAuthError, !error.isEmpty {
+            HStack(spacing: 8) {
+              Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.statusPermission)
+              Text(error)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
+          }
         }
       }
 
@@ -464,6 +545,33 @@ struct SetupSettingsView: View {
     .padding(20)
     .onAppear {
       checkHooksConfiguration()
+      serverState.refreshCodexAccount()
+    }
+  }
+
+  @ViewBuilder
+  private var codexAuthBadge: some View {
+    if serverState.codexLoginInProgress {
+      Label("Signing In", systemImage: "clock")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.statusWorking.opacity(0.18), in: Capsule())
+        .foregroundStyle(Color.statusWorking)
+    } else if serverState.codexAccount == nil {
+      Label("Not Connected", systemImage: "xmark")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.statusPermission.opacity(0.16), in: Capsule())
+        .foregroundStyle(Color.statusPermission)
+    } else {
+      Label("Connected", systemImage: "checkmark")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.statusSuccess.opacity(0.2), in: Capsule())
+        .foregroundStyle(Color.statusSuccess)
     }
   }
 
@@ -504,6 +612,11 @@ struct SetupSettingsView: View {
       try? "{}".write(toFile: settingsPath, atomically: true, encoding: .utf8)
     }
     NSWorkspace.shared.open(URL(fileURLWithPath: settingsPath))
+  }
+
+  private func openCodexUsagePage() {
+    guard let url = URL(string: "https://chatgpt.com/codex/settings/usage") else { return }
+    NSWorkspace.shared.open(url)
   }
 
   private var hooksConfigJSON: String {

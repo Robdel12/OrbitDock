@@ -1281,10 +1281,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
 
             if !updates.is_empty() {
                 params_vec.push(Box::new(session_id));
-                let sql = format!(
-                    "UPDATE sessions SET {} WHERE id = ?",
-                    updates.join(", ")
-                );
+                let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
                 let params_refs: Vec<&dyn rusqlite::ToSql> =
                     params_vec.iter().map(|p| p.as_ref()).collect();
                 conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;

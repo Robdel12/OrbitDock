@@ -32,6 +32,7 @@ struct WorkStreamEntry: View {
     case userTaskNotification(ParsedTaskNotification)
     case userSystemCaveat(ParsedSystemCaveat)
     case userCodeReview
+    case userSystemContext(ParsedSystemContext)
     case assistant
     case thinking
     case steer
@@ -52,7 +53,7 @@ struct WorkStreamEntry: View {
   private var renderMode: RenderMode {
     switch kind {
     case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-         .userSystemCaveat, .userCodeReview, .assistant, .steer:
+         .userSystemCaveat, .userCodeReview, .userSystemContext, .assistant, .steer:
       return .inline
     case .toolEdit:
       return .compactPreview
@@ -102,6 +103,9 @@ struct WorkStreamEntry: View {
       if message.content.hasPrefix("## Code Review Feedback") {
         return .userCodeReview
       }
+      if let ctx = ParsedSystemContext.parse(from: message.content) {
+        return .userSystemContext(ctx)
+      }
       return .userPrompt
     }
 
@@ -110,28 +114,31 @@ struct WorkStreamEntry: View {
 
   // MARK: - Glyph & Color
 
-  private var glyph: String {
+  /// SF Symbol name for the glyph.
+  private var glyphSymbol: String {
     switch kind {
-    case .userPrompt: return "\u{2192}"       // →
-    case .userBash: return "$"
-    case .userSlashCommand: return "/"
-    case .userTaskNotification: return "\u{26A1}" // ⚡
-    case .userSystemCaveat: return "\u{2139}"     // ℹ
-    case .userCodeReview: return "\u{2714}"        // ✔
-    case .assistant: return "\u{25C0}"            // ◀
-    case .thinking: return "\u{25D0}"             // ◐
-    case .steer: return "\u{21D2}"                // ⇒
-    case .toolBash: return "$"
-    case .toolRead: return "\u{25CE}"             // ◎
-    case .toolEdit: return "\u{270E}"             // ✎
-    case .toolGlob, .toolGrep: return "\u{2315}"  // ⌕
-    case .toolTask: return "\u{26A1}"             // ⚡
-    case .toolMcp, .toolStandard: return "\u{2699}" // ⚙
-    case .toolWebFetch, .toolWebSearch: return "\u{2197}" // ↗
-    case .toolSkill: return "\u{2726}"            // ✦
-    case .toolPlanMode: return "\u{2630}"         // ☰
-    case .toolTodoTask: return "\u{2611}"         // ☑
-    case .toolAskQuestion: return "?"
+    case .userPrompt:        return "arrow.right"
+    case .userBash:          return "terminal"
+    case .userSlashCommand:  return "slash.circle"
+    case .userTaskNotification: return "bolt.fill"
+    case .userSystemCaveat:  return "info.circle"
+    case .userCodeReview:    return "checkmark.message"
+    case .userSystemContext: return "doc.text"
+    case .assistant:         return "sparkle"
+    case .thinking:          return "brain.head.profile"
+    case .steer:             return "arrow.turn.down.right"
+    case .toolBash:          return "terminal"
+    case .toolRead:          return "doc.plaintext"
+    case .toolEdit:          return "pencil.line"
+    case .toolGlob, .toolGrep: return "magnifyingglass"
+    case .toolTask:          return "bolt.fill"
+    case .toolMcp:           return "puzzlepiece.extension"
+    case .toolWebFetch, .toolWebSearch: return "globe"
+    case .toolSkill:         return "wand.and.stars"
+    case .toolPlanMode:      return "map"
+    case .toolTodoTask:      return "checklist"
+    case .toolAskQuestion:   return "questionmark.bubble"
+    case .toolStandard:      return "gearshape"
     }
   }
 
@@ -143,6 +150,7 @@ struct WorkStreamEntry: View {
     case .userTaskNotification: return .toolTask
     case .userSystemCaveat: return .secondary
     case .userCodeReview: return .accent
+    case .userSystemContext: return Color.textTertiary
     case .assistant: return Color.white.opacity(0.85)
     case .thinking: return Color(red: 0.6, green: 0.55, blue: 0.8)
     case .steer: return .accent
@@ -216,6 +224,8 @@ struct WorkStreamEntry: View {
       return caveat.message
     case .userCodeReview:
       return "Code review feedback"
+    case .userSystemContext(let ctx):
+      return ctx.label
     case .assistant:
       return firstLine(of: message.content, maxLength: 100)
     case .thinking:
@@ -283,7 +293,7 @@ struct WorkStreamEntry: View {
   }
 
   /// True for user-authored entries that render right-aligned.
-  /// Steer stays left since it's injected guidance, not a user prompt.
+  /// Steer and system context stay left since they're injected, not user-authored.
   private var isUserEntry: Bool {
     switch kind {
     case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
@@ -297,81 +307,79 @@ struct WorkStreamEntry: View {
   // MARK: - Body
 
   var body: some View {
-    ZStack(alignment: .topTrailing) {
-      VStack(alignment: .leading, spacing: 0) {
-        switch renderMode {
-        case .compact:
-          compactRow
-            .contentShape(Rectangle())
-            .onTapGesture {
-              withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                isExpanded.toggle()
-              }
+    VStack(alignment: .leading, spacing: 0) {
+      switch renderMode {
+      case .compact:
+        compactRow
+          .contentShape(Rectangle())
+          .onTapGesture {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+              isExpanded.toggle()
             }
-
-          if isExpanded {
-            expandedContent
-              .padding(.leading, 72)
-              .padding(.trailing, Spacing.md)
-              .padding(.bottom, Spacing.sm)
-              .transition(.opacity.combined(with: .move(edge: .top)))
           }
 
-        case .inline:
-          if isUserEntry {
-            userGlyphHeaderRow
-
-            userInlineContent
-              .padding(.leading, Spacing.md)
-              .padding(.top, Spacing.sm)
-              .padding(.bottom, Spacing.md)
-          } else {
-            glyphHeaderRow
-
-            inlineContent
-              .padding(.trailing, Spacing.md)
-              .padding(.top, Spacing.sm)
-              .padding(.bottom, Spacing.md)
-          }
-
-        case .compactPreview:
-          compactRow
-            .contentShape(Rectangle())
-            .onTapGesture {
-              withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                isExpanded.toggle()
-              }
-            }
-
-          if !isExpanded {
-            editPreview
-              .padding(.leading, 72)
-              .padding(.trailing, Spacing.md)
-              .padding(.top, Spacing.xxs)
-              .padding(.bottom, Spacing.xs)
-          }
-
-          if isExpanded {
-            expandedContent
-              .padding(.leading, 72)
-              .padding(.trailing, Spacing.md)
-              .padding(.bottom, Spacing.sm)
-              .transition(.opacity.combined(with: .move(edge: .top)))
-          }
+        if isExpanded {
+          expandedContent
+            .padding(.leading, Spacing.xl)
+            .padding(.trailing, Spacing.md)
+            .padding(.bottom, Spacing.sm)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
-      }
 
-      // Floating hover actions
-      if isHovering && isUserKind {
-        hoverActions
-          .padding(.top, Spacing.xs)
-          .padding(.trailing, Spacing.md)
+      case .inline:
+        if isUserEntry {
+          userGlyphHeaderRow
+
+          userInlineContent
+            .padding(.leading, Spacing.md)
+            .padding(.bottom, Spacing.md)
+        } else {
+          glyphHeaderRow
+
+          inlineContent
+            .padding(.bottom, Spacing.md)
+        }
+
+      case .compactPreview:
+        compactRow
+          .contentShape(Rectangle())
+          .onTapGesture {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+              isExpanded.toggle()
+            }
+          }
+
+        if !isExpanded {
+          editPreview
+            .padding(.leading, Spacing.xl)
+            .padding(.trailing, Spacing.md)
+            .padding(.top, Spacing.xxs)
+            .padding(.bottom, Spacing.xs)
+        }
+
+        if isExpanded {
+          expandedContent
+            .padding(.leading, Spacing.xl)
+            .padding(.trailing, Spacing.md)
+            .padding(.bottom, Spacing.sm)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
       }
     }
     .frame(maxWidth: .infinity)
     .contentShape(Rectangle())
     .onHover { isHovering = $0 }
     .animation(.easeInOut(duration: 0.15), value: isHovering)
+  }
+
+  // MARK: - Glyph View (SF Symbol or text fallback)
+
+  private var glyphView: some View {
+    Image(systemName: glyphSymbol)
+      .font(.system(size: 11, weight: .medium))
+      .foregroundStyle(glyphColor)
+      .frame(width: 20, alignment: .center)
+      .opacity(message.isInProgress ? pulsingOpacity : 1.0)
   }
 
   // MARK: - Glyph Header Row (for inline mode)
@@ -385,11 +393,7 @@ struct WorkStreamEntry: View {
         .frame(width: 52, alignment: .leading)
 
       // Glyph column (20px)
-      Text(glyph)
-        .font(.system(size: 13, design: .monospaced))
-        .foregroundStyle(glyphColor)
-        .frame(width: 20, alignment: .center)
-        .opacity(message.isInProgress ? pulsingOpacity : 1.0)
+      glyphView
 
       Spacer()
     }
@@ -404,12 +408,15 @@ struct WorkStreamEntry: View {
     HStack(spacing: 0) {
       Spacer()
 
+      // Hover actions — inline before the glyph so they don't overlap
+      if isHovering && isUserKind {
+        hoverActions
+          .padding(.trailing, Spacing.sm)
+          .transition(.opacity)
+      }
+
       // Glyph column (20px)
-      Text(glyph)
-        .font(.system(size: 13, design: .monospaced))
-        .foregroundStyle(glyphColor)
-        .frame(width: 20, alignment: .center)
-        .opacity(message.isInProgress ? pulsingOpacity : 1.0)
+      glyphView
 
       // Timestamp column (52px)
       Text(formatTime(message.timestamp))
@@ -426,8 +433,12 @@ struct WorkStreamEntry: View {
 
   @ViewBuilder
   private var userInlineContent: some View {
-    HStack {
-      Spacer(minLength: 0)
+    HStack(spacing: 0) {
+      // Left gutter — prevents user messages from spanning full width.
+      // Takes ~28% of space, pushing content right-aligned.
+      Color.clear
+        .frame(minWidth: 80)
+        .layoutPriority(-1)
 
       Group {
         switch kind {
@@ -457,7 +468,6 @@ struct WorkStreamEntry: View {
           EmptyView()
         }
       }
-      .frame(maxWidth: 600)
     }
     .padding(.trailing, Spacing.sm)
   }
@@ -470,14 +480,15 @@ struct WorkStreamEntry: View {
         }
         if !message.content.isEmpty {
           Text(stripXMLTags(message.content))
-            .font(.system(size: TypeScale.title))
-            .foregroundStyle(Color.white.opacity(0.92))
-            .lineSpacing(4)
+            .font(.system(size: TypeScale.reading))
+            .foregroundStyle(Color.textPrimary)
+            .lineSpacing(5)
             .multilineTextAlignment(.trailing)
             .textSelection(.enabled)
         }
       }
-      .padding(.trailing, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+      .padding(.horizontal, Spacing.md)
 
       Rectangle()
         .fill(Color.accent.opacity(OpacityTier.strong))
@@ -496,11 +507,7 @@ struct WorkStreamEntry: View {
         .frame(width: 52, alignment: .leading)
 
       // Glyph column (20px)
-      Text(glyph)
-        .font(.system(size: 13, design: .monospaced))
-        .foregroundStyle(glyphColor)
-        .frame(width: 20, alignment: .center)
-        .opacity(message.isInProgress ? pulsingOpacity : 1.0)
+      glyphView
 
       // Summary (flex)
       Text(summaryText)
@@ -598,19 +605,19 @@ struct WorkStreamEntry: View {
 
     case .userBash(let bash):
       UserBashCard(bash: bash, timestamp: message.timestamp)
-        .padding(.leading, 72)
+        .padding(.leading, Spacing.xl)
 
     case .userSlashCommand(let cmd):
       UserSlashCommandCard(command: cmd, timestamp: message.timestamp)
-        .padding(.leading, 72)
+        .padding(.leading, Spacing.xl)
 
     case .userTaskNotification(let notif):
       TaskNotificationCard(notification: notif, timestamp: message.timestamp)
-        .padding(.leading, 72)
+        .padding(.leading, Spacing.xl)
 
     case .userSystemCaveat(let caveat):
       SystemCaveatView(caveat: caveat)
-        .padding(.leading, 72)
+        .padding(.leading, Spacing.xl)
 
     case .userCodeReview:
       CodeReviewFeedbackCard(
@@ -618,7 +625,12 @@ struct WorkStreamEntry: View {
         timestamp: message.timestamp,
         onNavigateToFile: onNavigateToReviewFile
       )
-      .padding(.leading, 72)
+      .padding(.leading, Spacing.xl)
+
+    case .userSystemContext(let ctx):
+      SystemContextCard(context: ctx)
+        .padding(.leading, Spacing.xl)
+        .padding(.trailing, Spacing.xl)
 
     case .assistant:
       assistantInline
@@ -643,19 +655,20 @@ struct WorkStreamEntry: View {
         }
         if !message.content.isEmpty {
           Text(stripXMLTags(message.content))
-            .font(.system(size: TypeScale.title))
-            .foregroundStyle(Color.white.opacity(0.92))
-            .lineSpacing(4)
+            .font(.system(size: TypeScale.reading))
+            .foregroundStyle(Color.textPrimary)
+            .lineSpacing(5)
             .textSelection(.enabled)
         }
       }
-      .padding(.leading, Spacing.sm)
+      .padding(.vertical, Spacing.sm)
+      .padding(.horizontal, Spacing.md)
     }
-    .padding(.leading, 72)
+    .padding(.leading, Spacing.xl)
   }
 
   private var assistantInline: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       if message.hasThinking {
         thinkingDisclosure
       }
@@ -675,16 +688,19 @@ struct WorkStreamEntry: View {
         .buttonStyle(.plain)
       }
     }
-    .padding(.leading, 72)
+    .padding(.leading, Spacing.xl)
+    .padding(.trailing, Spacing.xl)
   }
 
   private var steerInline: some View {
     Text(message.content)
       .font(.system(size: TypeScale.subhead))
       .foregroundStyle(.secondary)
+      .lineSpacing(3)
       .italic()
       .textSelection(.enabled)
-      .padding(.leading, 72)
+      .padding(.leading, Spacing.xl)
+      .padding(.trailing, Spacing.xl)
   }
 
   // MARK: - Edit Preview (mini diff for compactPreview mode)

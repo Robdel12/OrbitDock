@@ -434,6 +434,50 @@ pub struct McpStartupFailure {
     pub error: String,
 }
 
+// MARK: - Codex Account Auth Types
+
+/// High-level auth mode for Codex account access.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexAuthMode {
+    ApiKey,
+    Chatgpt,
+}
+
+/// Current Codex account details.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CodexAccount {
+    ApiKey,
+    Chatgpt {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        email: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        plan_type: Option<String>,
+    },
+}
+
+/// Result of attempting to cancel a pending ChatGPT login flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexLoginCancelStatus {
+    Canceled,
+    NotFound,
+    InvalidId,
+}
+
+/// Snapshot of Codex auth/account state for UI consumption.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexAccountStatus {
+    pub auth_mode: Option<CodexAuthMode>,
+    pub requires_openai_auth: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<CodexAccount>,
+    pub login_in_progress: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_login_id: Option<String>,
+}
+
 // MARK: - Review Comment Types
 
 /// Tag for a review comment

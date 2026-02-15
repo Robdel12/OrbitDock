@@ -22,6 +22,167 @@ private func extractTag(_ tag: String, from content: String) -> String {
   return String(content[startRange.upperBound ..< endRange.lowerBound])
 }
 
+// MARK: - System Context (AGENTS.md, skills, developer instructions)
+
+struct ParsedSystemContext {
+  enum ContextKind {
+    case agentsMd(directory: String)
+    case skill(name: String, path: String)
+    case legacyInstructions
+    case systemReminder
+  }
+
+  let kind: ContextKind
+  let body: String  // The instruction content
+
+  var label: String {
+    switch kind {
+    case .agentsMd(let dir):
+      let short = (dir as NSString).lastPathComponent
+      return "AGENTS.md \u{00B7} \(short)"
+    case .skill(let name, _):
+      return "Skill \u{00B7} \(name)"
+    case .legacyInstructions:
+      return "Instructions"
+    case .systemReminder:
+      return "System"
+    }
+  }
+
+  var icon: String {
+    switch kind {
+    case .agentsMd: return "doc.text"
+    case .skill: return "wand.and.stars"
+    case .legacyInstructions: return "gearshape"
+    case .systemReminder: return "info.circle"
+    }
+  }
+
+  /// Parse a user message for system-injected context
+  static func parse(from content: String) -> ParsedSystemContext? {
+    // AGENTS.md: starts with "# AGENTS.md instructions for {directory}"
+    if content.hasPrefix("# AGENTS.md instructions for ") {
+      let firstLine = content.components(separatedBy: "\n").first ?? ""
+      let directory = String(firstLine.dropFirst("# AGENTS.md instructions for ".count))
+      let body = extractTag("INSTRUCTIONS", from: content)
+      return ParsedSystemContext(
+        kind: .agentsMd(directory: directory),
+        body: body.isEmpty ? content : body
+      )
+    }
+
+    // Skill instructions: starts with "<skill>"
+    if content.hasPrefix("<skill") {
+      let name = extractTag("name", from: content)
+      let path = extractTag("path", from: content)
+      // Body is everything after the closing </path> tag or the skill content
+      let body = content
+        .replacingOccurrences(of: "<skill>", with: "")
+        .replacingOccurrences(of: "</skill>", with: "")
+        .replacingOccurrences(of: "<name>\(name)</name>", with: "")
+        .replacingOccurrences(of: "<path>\(path)</path>", with: "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return ParsedSystemContext(
+        kind: .skill(name: name.isEmpty ? "unknown" : name, path: path),
+        body: body
+      )
+    }
+
+    // Legacy user_instructions tag
+    if content.hasPrefix("<user_instructions>") {
+      let body = extractTag("user_instructions", from: content)
+      return ParsedSystemContext(
+        kind: .legacyInstructions,
+        body: body.isEmpty ? content : body
+      )
+    }
+
+    // System reminder (sometimes injected as user message)
+    if content.hasPrefix("<system-reminder>") {
+      let body = extractTag("system-reminder", from: content)
+      return ParsedSystemContext(
+        kind: .systemReminder,
+        body: body.isEmpty ? content : body
+      )
+    }
+
+    return nil
+  }
+}
+
+// MARK: - System Context Card View
+
+struct SystemContextCard: View {
+  let context: ParsedSystemContext
+
+  @State private var isExpanded = false
+  @State private var isHovering = false
+
+  private var lineCount: Int {
+    context.body.components(separatedBy: "\n").count
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Header — always visible
+      Button {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+          isExpanded.toggle()
+        }
+      } label: {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: context.icon)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+
+          Text(context.label)
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+
+          if !isExpanded {
+            Text("\u{00B7}")
+              .foregroundStyle(Color.textQuaternary)
+            Text("\(lineCount) lines")
+              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.textQuaternary)
+          }
+
+          Spacer()
+
+          Image(systemName: "chevron.right")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .fill(Color.backgroundTertiary.opacity(isHovering ? 0.8 : 0.5))
+        )
+      }
+      .buttonStyle(.plain)
+      .onHover { isHovering = $0 }
+
+      // Expanded content
+      if isExpanded {
+        ScrollView {
+          ThinkingMarkdownView(content: context.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 300)
+        .padding(Spacing.md)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .fill(Color.backgroundTertiary.opacity(0.3))
+        )
+        .padding(.top, Spacing.xs)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+      }
+    }
+  }
+}
+
 // MARK: - System Caveat (should be hidden or shown subtly)
 
 struct ParsedSystemCaveat {

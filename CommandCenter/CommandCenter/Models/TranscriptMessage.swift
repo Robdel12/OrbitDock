@@ -149,8 +149,8 @@ struct TranscriptMessage: Identifiable, Hashable {
   /// Extract command from Bash tool
   var bashCommand: String? {
     guard toolName?.lowercased() == "bash", let input = toolInput else { return nil }
-    let command = (input["command"] as? String) ?? (input["cmd"] as? String)
-    return command?.strippingShellWrapperPrefix()
+    return String.shellCommandDisplay(from: input["command"])
+      ?? String.shellCommandDisplay(from: input["cmd"])
   }
 
   /// Extract edit details

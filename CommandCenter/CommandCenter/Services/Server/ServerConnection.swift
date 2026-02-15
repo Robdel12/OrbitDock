@@ -51,22 +51,33 @@ final class ServerConnection: ObservableObject {
   var onApprovalsList: ((String?, [ServerApprovalHistoryItem]) -> Void)?
   var onApprovalDeleted: ((Int64) -> Void)?
   var onModelsList: (([ServerCodexModelOption]) -> Void)?
+  var onCodexAccountStatus: ((ServerCodexAccountStatus) -> Void)?
+  var onCodexLoginChatgptStarted: ((String, String) -> Void)?
+  var onCodexLoginChatgptCompleted: ((String, Bool, String?) -> Void)?
+  var onCodexLoginChatgptCanceled: ((String, ServerCodexLoginCancelStatus) -> Void)?
+  var onCodexAccountUpdated: ((ServerCodexAccountStatus) -> Void)?
   var onSkillsList: ((String, [ServerSkillsListEntry], [ServerSkillErrorInfo]) -> Void)?
   var onRemoteSkillsList: ((String, [ServerRemoteSkillSummary]) -> Void)?
   var onRemoteSkillDownloaded: ((String, String, String, String) -> Void)?
   var onSkillsUpdateAvailable: ((String) -> Void)?
-  var onMcpToolsList: ((String, [String: ServerMcpTool], [String: [ServerMcpResource]], [String: [ServerMcpResourceTemplate]], [String: ServerMcpAuthStatus]) -> Void)?
+  var onMcpToolsList: ((
+    String,
+    [String: ServerMcpTool],
+    [String: [ServerMcpResource]],
+    [String: [ServerMcpResourceTemplate]],
+    [String: ServerMcpAuthStatus]
+  ) -> Void)?
   var onMcpStartupUpdate: ((String, String, ServerMcpStartupStatus) -> Void)?
   var onMcpStartupComplete: ((String, [String], [ServerMcpStartupFailure], [String]) -> Void)?
   var onContextCompacted: ((String) -> Void)?
   var onUndoStarted: ((String, String?) -> Void)?
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
   var onThreadRolledBack: ((String, UInt32) -> Void)?
-  var onSessionForked: ((String, String, String?) -> Void)?  // sourceSessionId, newSessionId, forkedFromThreadId
-  var onTurnDiffSnapshot: ((String, String, String) -> Void)?  // sessionId, turnId, diff
+  var onSessionForked: ((String, String, String?) -> Void)? // sourceSessionId, newSessionId, forkedFromThreadId
+  var onTurnDiffSnapshot: ((String, String, String) -> Void)? // sessionId, turnId, diff
   var onReviewCommentCreated: ((String, ServerReviewComment) -> Void)?
   var onReviewCommentUpdated: ((String, ServerReviewComment) -> Void)?
-  var onReviewCommentDeleted: ((String, String) -> Void)?  // sessionId, commentId
+  var onReviewCommentDeleted: ((String, String) -> Void)? // sessionId, commentId
   var onReviewCommentsList: ((String, [ServerReviewComment]) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
@@ -229,8 +240,8 @@ final class ServerConnection: ObservableObject {
 
       // Extract revision from replay events (server injects it at the top level)
       if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-        let rev = json["revision"] as? Int,
-        let sid = json["session_id"] as? String
+         let rev = json["revision"] as? Int,
+         let sid = json["session_id"] as? String
       {
         onRevision?(sid, UInt64(rev))
       }
@@ -282,6 +293,21 @@ final class ServerConnection: ObservableObject {
 
       case let .modelsList(models):
         onModelsList?(models)
+
+      case let .codexAccountStatus(status):
+        onCodexAccountStatus?(status)
+
+      case let .codexLoginChatgptStarted(loginId, authUrl):
+        onCodexLoginChatgptStarted?(loginId, authUrl)
+
+      case let .codexLoginChatgptCompleted(loginId, success, error):
+        onCodexLoginChatgptCompleted?(loginId, success, error)
+
+      case let .codexLoginChatgptCanceled(loginId, status):
+        onCodexLoginChatgptCanceled?(loginId, status)
+
+      case let .codexAccountUpdated(status):
+        onCodexAccountUpdated?(status)
 
       case let .skillsList(sessionId, skills, errors):
         onSkillsList?(sessionId, skills, errors)
@@ -399,8 +425,24 @@ final class ServerConnection: ObservableObject {
   }
 
   /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
-  func sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [], images: [ServerImageInput] = [], mentions: [ServerMentionInput] = []) {
-    send(.sendMessage(sessionId: sessionId, content: content, model: model, effort: effort, skills: skills, images: images, mentions: mentions))
+  func sendMessage(
+    sessionId: String,
+    content: String,
+    model: String? = nil,
+    effort: String? = nil,
+    skills: [ServerSkillInput] = [],
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) {
+    send(.sendMessage(
+      sessionId: sessionId,
+      content: content,
+      model: model,
+      effort: effort,
+      skills: skills,
+      images: images,
+      mentions: mentions
+    ))
   }
 
   /// Approve or reject a tool with a specific decision
@@ -453,6 +495,26 @@ final class ServerConnection: ObservableObject {
     send(.listModels)
   }
 
+  /// Read Codex account/auth state.
+  func readCodexAccount(refreshToken: Bool = false) {
+    send(.codexAccountRead(refreshToken: refreshToken))
+  }
+
+  /// Start the ChatGPT browser login flow for Codex.
+  func startCodexChatgptLogin() {
+    send(.codexLoginChatgptStart)
+  }
+
+  /// Cancel an in-progress ChatGPT browser login flow.
+  func cancelCodexChatgptLogin(loginId: String) {
+    send(.codexLoginChatgptCancel(loginId: loginId))
+  }
+
+  /// Log out the current Codex account.
+  func logoutCodexAccount() {
+    send(.codexAccountLogout)
+  }
+
   /// List skills available for a session
   func listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false) {
     send(.listSkills(sessionId: sessionId, cwds: cwds, forceReload: forceReload))
@@ -499,12 +561,33 @@ final class ServerConnection: ObservableObject {
   }
 
   /// Create a review comment
-  func createReviewComment(sessionId: String, turnId: String?, filePath: String, lineStart: UInt32, lineEnd: UInt32?, body: String, tag: ServerReviewCommentTag?) {
-    send(.createReviewComment(sessionId: sessionId, turnId: turnId, filePath: filePath, lineStart: lineStart, lineEnd: lineEnd, body: body, tag: tag))
+  func createReviewComment(
+    sessionId: String,
+    turnId: String?,
+    filePath: String,
+    lineStart: UInt32,
+    lineEnd: UInt32?,
+    body: String,
+    tag: ServerReviewCommentTag?
+  ) {
+    send(.createReviewComment(
+      sessionId: sessionId,
+      turnId: turnId,
+      filePath: filePath,
+      lineStart: lineStart,
+      lineEnd: lineEnd,
+      body: body,
+      tag: tag
+    ))
   }
 
   /// Update a review comment
-  func updateReviewComment(commentId: String, body: String?, tag: ServerReviewCommentTag?, status: ServerReviewCommentStatus?) {
+  func updateReviewComment(
+    commentId: String,
+    body: String?,
+    tag: ServerReviewCommentTag?,
+    status: ServerReviewCommentStatus?
+  ) {
     send(.updateReviewComment(commentId: commentId, body: body, tag: tag, status: status))
   }
 

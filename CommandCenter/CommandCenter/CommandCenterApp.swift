@@ -5,9 +5,9 @@
 //  Created by Robert DeLuca on 1/30/26.
 //
 
+import AppKit
 import SwiftUI
 import UserNotifications
-import AppKit
 
 @main
 struct OrbitDockApp: App {
@@ -35,6 +35,8 @@ struct OrbitDockApp: App {
     // Settings window (⌘,)
     Settings {
       SettingsView()
+        .environment(serverAppState)
+        .environment(attentionService)
         .preferredColorScheme(.dark)
     }
 

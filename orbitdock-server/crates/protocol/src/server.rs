@@ -69,6 +69,27 @@ pub enum ServerMessage {
     ModelsList {
         models: Vec<CodexModelOption>,
     },
+    // Codex account/auth status
+    CodexAccountStatus {
+        status: CodexAccountStatus,
+    },
+    CodexLoginChatgptStarted {
+        login_id: String,
+        auth_url: String,
+    },
+    CodexLoginChatgptCompleted {
+        login_id: String,
+        success: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    CodexLoginChatgptCanceled {
+        login_id: String,
+        status: CodexLoginCancelStatus,
+    },
+    CodexAccountUpdated {
+        status: CodexAccountStatus,
+    },
 
     // Skills
     SkillsList {
@@ -288,6 +309,93 @@ mod tests {
                 assert_eq!(failed[0].server, "server-b");
                 assert_eq!(failed[0].error, "timeout");
                 assert_eq!(cancelled, vec!["server-c"]);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_codex_account_status() {
+        let msg = ServerMessage::CodexAccountStatus {
+            status: CodexAccountStatus {
+                auth_mode: Some(CodexAuthMode::Chatgpt),
+                requires_openai_auth: true,
+                account: Some(CodexAccount::Chatgpt {
+                    email: Some("user@example.com".to_string()),
+                    plan_type: Some("plus".to_string()),
+                }),
+                login_in_progress: false,
+                active_login_id: None,
+            },
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::CodexAccountStatus { status } => {
+                assert_eq!(status.auth_mode, Some(CodexAuthMode::Chatgpt));
+                assert!(status.requires_openai_auth);
+                assert!(!status.login_in_progress);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_codex_login_chatgpt_started() {
+        let msg = ServerMessage::CodexLoginChatgptStarted {
+            login_id: "f4d72d8c-f4d0-4bf9-8c2f-66d6d6d6d6d6".to_string(),
+            auth_url: "https://chatgpt.com/auth".to_string(),
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::CodexLoginChatgptStarted { login_id, auth_url } => {
+                assert_eq!(login_id, "f4d72d8c-f4d0-4bf9-8c2f-66d6d6d6d6d6");
+                assert_eq!(auth_url, "https://chatgpt.com/auth");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_codex_login_chatgpt_completed() {
+        let msg = ServerMessage::CodexLoginChatgptCompleted {
+            login_id: "f4d72d8c-f4d0-4bf9-8c2f-66d6d6d6d6d6".to_string(),
+            success: false,
+            error: Some("Login timed out".to_string()),
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::CodexLoginChatgptCompleted {
+                login_id,
+                success,
+                error,
+            } => {
+                assert_eq!(login_id, "f4d72d8c-f4d0-4bf9-8c2f-66d6d6d6d6d6");
+                assert!(!success);
+                assert_eq!(error.as_deref(), Some("Login timed out"));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_codex_login_chatgpt_canceled() {
+        let msg = ServerMessage::CodexLoginChatgptCanceled {
+            login_id: "f4d72d8c-f4d0-4bf9-8c2f-66d6d6d6d6d6".to_string(),
+            status: CodexLoginCancelStatus::Canceled,
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::CodexLoginChatgptCanceled { login_id, status } => {
+                assert_eq!(login_id, "f4d72d8c-f4d0-4bf9-8c2f-66d6d6d6d6d6");
+                assert_eq!(status, CodexLoginCancelStatus::Canceled);
             }
             other => panic!("unexpected variant: {:?}", other),
         }

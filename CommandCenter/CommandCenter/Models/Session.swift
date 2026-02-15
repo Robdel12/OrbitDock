@@ -366,6 +366,39 @@ extension String {
 
     return command.isEmpty ? trimmed : command
   }
+
+  /// Build a display-friendly shell command from either a raw string or an argv-style array.
+  static func shellCommandDisplay(from value: Any?) -> String? {
+    guard let value else { return nil }
+
+    if let command = value as? String {
+      let cleaned = command.strippingShellWrapperPrefix()
+      return cleaned.isEmpty ? nil : cleaned
+    }
+
+    if let commandParts = value as? [String] {
+      return shellCommandDisplay(fromParts: commandParts)
+    }
+
+    if let commandParts = value as? [Any] {
+      let parts = commandParts.compactMap { $0 as? String }
+      guard parts.count == commandParts.count else { return nil }
+      return shellCommandDisplay(fromParts: parts)
+    }
+
+    return nil
+  }
+
+  private static func shellCommandDisplay(fromParts parts: [String]) -> String? {
+    guard !parts.isEmpty else { return nil }
+
+    if let wrapped = ShellWrapperParser.extractWrappedCommand(from: parts) {
+      return wrapped.isEmpty ? nil : wrapped
+    }
+
+    let joined = parts.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    return joined.isEmpty ? nil : joined
+  }
 }
 
 private enum ShellWrapperParser {
@@ -392,6 +425,13 @@ private enum ShellWrapperParser {
     }
 
     return commandTokensForPosixShell(from: tokens, shellIndex: shellIndex)
+  }
+
+  static func extractWrappedCommand(from parts: [String]) -> String? {
+    let tokens = parts.map { Token(value: $0) }
+    guard let commandTokens = extractWrappedCommandTokens(from: tokens) else { return nil }
+    let command = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    return command.isEmpty ? nil : command
   }
 
   static func tokenize(_ command: String) -> [Token] {

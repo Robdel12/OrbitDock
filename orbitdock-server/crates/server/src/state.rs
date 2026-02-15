@@ -2,8 +2,10 @@
 
 use dashmap::DashMap;
 use orbitdock_protocol::SessionSummary;
+use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
+use crate::codex_auth::CodexAuthService;
 use crate::codex_session::CodexAction;
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
@@ -25,23 +27,32 @@ pub struct SessionRegistry {
 
     /// Persistence channel
     persist_tx: mpsc::Sender<PersistCommand>,
+
+    /// Global Codex account auth coordinator (not session-specific)
+    codex_auth: Arc<CodexAuthService>,
 }
 
 impl SessionRegistry {
     pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
         let (list_tx, _) = broadcast::channel(64);
+        let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
         Self {
             sessions: DashMap::new(),
             codex_actions: DashMap::new(),
             codex_threads: DashMap::new(),
             list_tx,
             persist_tx,
+            codex_auth,
         }
     }
 
     /// Get persistence sender
     pub fn persist(&self) -> &mpsc::Sender<PersistCommand> {
         &self.persist_tx
+    }
+
+    pub fn codex_auth(&self) -> Arc<CodexAuthService> {
+        self.codex_auth.clone()
     }
 
     /// Store a Codex action sender

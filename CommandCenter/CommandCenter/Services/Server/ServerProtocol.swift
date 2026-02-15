@@ -433,6 +433,79 @@ struct ServerCodexModelOption: Codable, Identifiable {
   }
 }
 
+// MARK: - Codex Account Auth
+
+enum ServerCodexAuthMode: String, Codable {
+  case apiKey = "api_key"
+  case chatgpt
+}
+
+enum ServerCodexAccount: Codable {
+  case apiKey
+  case chatgpt(email: String?, planType: String?)
+
+  enum CodingKeys: String, CodingKey {
+    case type
+    case email
+    case planType = "plan_type"
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let type = try container.decode(String.self, forKey: .type)
+    switch type {
+      case "api_key":
+        self = .apiKey
+      case "chatgpt":
+        self = try .chatgpt(
+          email: container.decodeIfPresent(String.self, forKey: .email),
+          planType: container.decodeIfPresent(String.self, forKey: .planType)
+        )
+      default:
+        throw DecodingError.dataCorrupted(
+          DecodingError.Context(
+            codingPath: container.codingPath,
+            debugDescription: "Unknown codex account type: \(type)"
+          )
+        )
+    }
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+      case .apiKey:
+        try container.encode("api_key", forKey: .type)
+      case let .chatgpt(email, planType):
+        try container.encode("chatgpt", forKey: .type)
+        try container.encodeIfPresent(email, forKey: .email)
+        try container.encodeIfPresent(planType, forKey: .planType)
+    }
+  }
+}
+
+enum ServerCodexLoginCancelStatus: String, Codable {
+  case canceled
+  case notFound = "not_found"
+  case invalidId = "invalid_id"
+}
+
+struct ServerCodexAccountStatus: Codable {
+  let authMode: ServerCodexAuthMode?
+  let requiresOpenaiAuth: Bool
+  let account: ServerCodexAccount?
+  let loginInProgress: Bool
+  let activeLoginId: String?
+
+  enum CodingKeys: String, CodingKey {
+    case authMode = "auth_mode"
+    case requiresOpenaiAuth = "requires_openai_auth"
+    case account
+    case loginInProgress = "login_in_progress"
+    case activeLoginId = "active_login_id"
+  }
+}
+
 // MARK: - Skills
 
 struct ServerSkillInput: Codable {
@@ -471,7 +544,9 @@ struct ServerSkillMetadata: Codable, Identifiable {
   let scope: ServerSkillScope
   let enabled: Bool
 
-  var id: String { path }
+  var id: String {
+    path
+  }
 
   enum CodingKeys: String, CodingKey {
     case name, description, path, scope, enabled
@@ -508,8 +583,8 @@ struct ServerMcpTool: Codable {
 
   enum CodingKeys: String, CodingKey {
     case name, title, description, annotations
-    case inputSchema = "inputSchema"
-    case outputSchema = "outputSchema"
+    case inputSchema
+    case outputSchema
   }
 }
 
@@ -524,7 +599,7 @@ struct ServerMcpResource: Codable {
 
   enum CodingKeys: String, CodingKey {
     case name, uri, description, title, size, annotations
-    case mimeType = "mimeType"
+    case mimeType
   }
 }
 
@@ -538,8 +613,8 @@ struct ServerMcpResourceTemplate: Codable {
 
   enum CodingKeys: String, CodingKey {
     case name, title, description, annotations
-    case uriTemplate = "uriTemplate"
-    case mimeType = "mimeType"
+    case uriTemplate
+    case mimeType
   }
 }
 
@@ -574,7 +649,10 @@ enum ServerMcpStartupStatus: Codable {
       case "cancelled": self = .cancelled
       default:
         throw DecodingError.dataCorrupted(
-          DecodingError.Context(codingPath: container.codingPath, debugDescription: "Unknown MCP startup state: \(state)")
+          DecodingError.Context(
+            codingPath: container.codingPath,
+            debugDescription: "Unknown MCP startup state: \(state)"
+          )
         )
     }
   }
@@ -613,7 +691,7 @@ struct AnyCodable: Codable {
     if let dict = try? container.decode([String: AnyCodable].self) {
       value = dict.mapValues { $0.value }
     } else if let array = try? container.decode([AnyCodable].self) {
-      value = array.map { $0.value }
+      value = array.map(\.value)
     } else if let string = try? container.decode(String.self) {
       value = string
     } else if let int = try? container.decode(Int.self) {
@@ -669,11 +747,22 @@ enum ServerToClientMessage: Codable {
   case approvalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem])
   case approvalDeleted(approvalId: Int64)
   case modelsList(models: [ServerCodexModelOption])
+  case codexAccountStatus(status: ServerCodexAccountStatus)
+  case codexLoginChatgptStarted(loginId: String, authUrl: String)
+  case codexLoginChatgptCompleted(loginId: String, success: Bool, error: String?)
+  case codexLoginChatgptCanceled(loginId: String, status: ServerCodexLoginCancelStatus)
+  case codexAccountUpdated(status: ServerCodexAccountStatus)
   case skillsList(sessionId: String, skills: [ServerSkillsListEntry], errors: [ServerSkillErrorInfo])
   case remoteSkillsList(sessionId: String, skills: [ServerRemoteSkillSummary])
   case remoteSkillDownloaded(sessionId: String, skillId: String, name: String, path: String)
   case skillsUpdateAvailable(sessionId: String)
-  case mcpToolsList(sessionId: String, tools: [String: ServerMcpTool], resources: [String: [ServerMcpResource]], resourceTemplates: [String: [ServerMcpResourceTemplate]], authStatuses: [String: ServerMcpAuthStatus])
+  case mcpToolsList(
+    sessionId: String,
+    tools: [String: ServerMcpTool],
+    resources: [String: [ServerMcpResource]],
+    resourceTemplates: [String: [ServerMcpResourceTemplate]],
+    authStatuses: [String: ServerMcpAuthStatus]
+  )
   case mcpStartupUpdate(sessionId: String, server: String, status: ServerMcpStartupStatus)
   case mcpStartupComplete(sessionId: String, ready: [String], failed: [ServerMcpStartupFailure], cancelled: [String])
   case contextCompacted(sessionId: String)
@@ -700,9 +789,12 @@ enum ServerToClientMessage: Codable {
     case usage
     case reason
     case code
+    case error
     case approvals
     case approvalId = "approval_id"
     case models
+    case loginId = "login_id"
+    case authUrl = "auth_url"
     case skills
     case errors
     case id
@@ -790,6 +882,30 @@ enum ServerToClientMessage: Codable {
         let models = try container.decode([ServerCodexModelOption].self, forKey: .models)
         self = .modelsList(models: models)
 
+      case "codex_account_status":
+        let status = try container.decode(ServerCodexAccountStatus.self, forKey: .status)
+        self = .codexAccountStatus(status: status)
+
+      case "codex_login_chatgpt_started":
+        let loginId = try container.decode(String.self, forKey: .loginId)
+        let authUrl = try container.decode(String.self, forKey: .authUrl)
+        self = .codexLoginChatgptStarted(loginId: loginId, authUrl: authUrl)
+
+      case "codex_login_chatgpt_completed":
+        let loginId = try container.decode(String.self, forKey: .loginId)
+        let success = try container.decode(Bool.self, forKey: .success)
+        let error = try container.decodeIfPresent(String.self, forKey: .error)
+        self = .codexLoginChatgptCompleted(loginId: loginId, success: success, error: error)
+
+      case "codex_login_chatgpt_canceled":
+        let loginId = try container.decode(String.self, forKey: .loginId)
+        let status = try container.decode(ServerCodexLoginCancelStatus.self, forKey: .status)
+        self = .codexLoginChatgptCanceled(loginId: loginId, status: status)
+
+      case "codex_account_updated":
+        let status = try container.decode(ServerCodexAccountStatus.self, forKey: .status)
+        self = .codexAccountUpdated(status: status)
+
       case "skills_list":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let skills = try container.decode([ServerSkillsListEntry].self, forKey: .skills)
@@ -816,9 +932,18 @@ enum ServerToClientMessage: Codable {
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let tools = try container.decode([String: ServerMcpTool].self, forKey: .tools)
         let resources = try container.decode([String: [ServerMcpResource]].self, forKey: .resources)
-        let resourceTemplates = try container.decode([String: [ServerMcpResourceTemplate]].self, forKey: .resourceTemplates)
+        let resourceTemplates = try container.decode(
+          [String: [ServerMcpResourceTemplate]].self,
+          forKey: .resourceTemplates
+        )
         let authStatuses = try container.decode([String: ServerMcpAuthStatus].self, forKey: .authStatuses)
-        self = .mcpToolsList(sessionId: sessionId, tools: tools, resources: resources, resourceTemplates: resourceTemplates, authStatuses: authStatuses)
+        self = .mcpToolsList(
+          sessionId: sessionId,
+          tools: tools,
+          resources: resources,
+          resourceTemplates: resourceTemplates,
+          authStatuses: authStatuses
+        )
 
       case "mcp_startup_update":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -857,7 +982,11 @@ enum ServerToClientMessage: Codable {
         let sourceSessionId = try container.decode(String.self, forKey: .sourceSessionId)
         let newSessionId = try container.decode(String.self, forKey: .newSessionId)
         let forkedFromThreadId = try container.decodeIfPresent(String.self, forKey: .forkedFromThreadId)
-        self = .sessionForked(sourceSessionId: sourceSessionId, newSessionId: newSessionId, forkedFromThreadId: forkedFromThreadId)
+        self = .sessionForked(
+          sourceSessionId: sourceSessionId,
+          newSessionId: newSessionId,
+          forkedFromThreadId: forkedFromThreadId
+        )
 
       case "turn_diff_snapshot":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -960,6 +1089,30 @@ enum ServerToClientMessage: Codable {
       case let .modelsList(models):
         try container.encode("models_list", forKey: .type)
         try container.encode(models, forKey: .models)
+
+      case let .codexAccountStatus(status):
+        try container.encode("codex_account_status", forKey: .type)
+        try container.encode(status, forKey: .status)
+
+      case let .codexLoginChatgptStarted(loginId, authUrl):
+        try container.encode("codex_login_chatgpt_started", forKey: .type)
+        try container.encode(loginId, forKey: .loginId)
+        try container.encode(authUrl, forKey: .authUrl)
+
+      case let .codexLoginChatgptCompleted(loginId, success, error):
+        try container.encode("codex_login_chatgpt_completed", forKey: .type)
+        try container.encode(loginId, forKey: .loginId)
+        try container.encode(success, forKey: .success)
+        try container.encodeIfPresent(error, forKey: .error)
+
+      case let .codexLoginChatgptCanceled(loginId, status):
+        try container.encode("codex_login_chatgpt_canceled", forKey: .type)
+        try container.encode(loginId, forKey: .loginId)
+        try container.encode(status, forKey: .status)
+
+      case let .codexAccountUpdated(status):
+        try container.encode("codex_account_updated", forKey: .type)
+        try container.encode(status, forKey: .status)
 
       case let .skillsList(sessionId, skills, errors):
         try container.encode("skills_list", forKey: .type)
@@ -1078,7 +1231,15 @@ enum ClientToServerMessage: Codable {
     approvalPolicy: String?,
     sandboxMode: String?
   )
-  case sendMessage(sessionId: String, content: String, model: String? = nil, effort: String? = nil, skills: [ServerSkillInput] = [], images: [ServerImageInput] = [], mentions: [ServerMentionInput] = [])
+  case sendMessage(
+    sessionId: String,
+    content: String,
+    model: String? = nil,
+    effort: String? = nil,
+    skills: [ServerSkillInput] = [],
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  )
   case approveTool(sessionId: String, requestId: String, decision: String)
   case answerQuestion(sessionId: String, requestId: String, answer: String)
   case interruptSession(sessionId: String)
@@ -1089,6 +1250,10 @@ enum ClientToServerMessage: Codable {
   case listApprovals(sessionId: String?, limit: Int?)
   case deleteApproval(approvalId: Int64)
   case listModels
+  case codexAccountRead(refreshToken: Bool = false)
+  case codexLoginChatgptStart
+  case codexLoginChatgptCancel(loginId: String)
+  case codexAccountLogout
   case listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false)
   case listRemoteSkills(sessionId: String)
   case downloadRemoteSkill(sessionId: String, hazelnutId: String)
@@ -1106,8 +1271,21 @@ enum ClientToServerMessage: Codable {
     sandboxMode: String? = nil,
     cwd: String? = nil
   )
-  case createReviewComment(sessionId: String, turnId: String?, filePath: String, lineStart: UInt32, lineEnd: UInt32?, body: String, tag: ServerReviewCommentTag?)
-  case updateReviewComment(commentId: String, body: String?, tag: ServerReviewCommentTag?, status: ServerReviewCommentStatus?)
+  case createReviewComment(
+    sessionId: String,
+    turnId: String?,
+    filePath: String,
+    lineStart: UInt32,
+    lineEnd: UInt32?,
+    body: String,
+    tag: ServerReviewCommentTag?
+  )
+  case updateReviewComment(
+    commentId: String,
+    body: String?,
+    tag: ServerReviewCommentTag?,
+    status: ServerReviewCommentStatus?
+  )
   case deleteReviewComment(commentId: String)
   case listReviewComments(sessionId: String, turnId: String? = nil)
 
@@ -1128,6 +1306,8 @@ enum ClientToServerMessage: Codable {
     case effort
     case limit
     case approvalId = "approval_id"
+    case refreshToken = "refresh_token"
+    case loginId = "login_id"
     case skills
     case images
     case mentions
@@ -1233,6 +1413,22 @@ enum ClientToServerMessage: Codable {
 
       case .listModels:
         try container.encode("list_models", forKey: .type)
+
+      case let .codexAccountRead(refreshToken):
+        try container.encode("codex_account_read", forKey: .type)
+        if refreshToken {
+          try container.encode(refreshToken, forKey: .refreshToken)
+        }
+
+      case .codexLoginChatgptStart:
+        try container.encode("codex_login_chatgpt_start", forKey: .type)
+
+      case let .codexLoginChatgptCancel(loginId):
+        try container.encode("codex_login_chatgpt_cancel", forKey: .type)
+        try container.encode(loginId, forKey: .loginId)
+
+      case .codexAccountLogout:
+        try container.encode("codex_account_logout", forKey: .type)
 
       case let .listSkills(sessionId, cwds, forceReload):
         try container.encode("list_skills", forKey: .type)
@@ -1386,6 +1582,18 @@ enum ClientToServerMessage: Codable {
         self = try .deleteApproval(approvalId: container.decode(Int64.self, forKey: .approvalId))
       case "list_models":
         self = .listModels
+      case "codex_account_read":
+        self = try .codexAccountRead(
+          refreshToken: container.decodeIfPresent(Bool.self, forKey: .refreshToken) ?? false
+        )
+      case "codex_login_chatgpt_start":
+        self = .codexLoginChatgptStart
+      case "codex_login_chatgpt_cancel":
+        self = try .codexLoginChatgptCancel(
+          loginId: container.decode(String.self, forKey: .loginId)
+        )
+      case "codex_account_logout":
+        self = .codexAccountLogout
       case "list_skills":
         self = try .listSkills(
           sessionId: container.decode(String.self, forKey: .sessionId),

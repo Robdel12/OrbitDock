@@ -22,6 +22,11 @@ struct ShellCommandDisplayTests {
     #expect(command.strippingShellWrapperPrefix() == "dir")
   }
 
+  @Test func extractsCommandFromArgvInput() {
+    let commandParts = ["/bin/zsh", "-lc", "git commit -m \"ship it\""]
+    #expect(String.shellCommandDisplay(from: commandParts) == "git commit -m \"ship it\"")
+  }
+
   @Test func keepsRegularCommandsUnchanged() {
     #expect("git status".strippingShellWrapperPrefix() == "git status")
     #expect("bash scripts/build.sh".strippingShellWrapperPrefix() == "bash scripts/build.sh")

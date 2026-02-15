@@ -106,7 +106,7 @@ struct NewCodexSessionSheet: View {
         }
 
         // Error message
-      if let error = errorMessage {
+        if let error = errorMessage {
           HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
               .foregroundStyle(.orange)
@@ -118,7 +118,7 @@ struct NewCodexSessionSheet: View {
           .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
         }
 
-      Spacer()
+        Spacer()
 
         if requiresLogin {
           HStack(spacing: 8) {
@@ -179,7 +179,6 @@ struct NewCodexSessionSheet: View {
     }
   }
 
-  @ViewBuilder
   private var codexAuthSection: some View {
     VStack(alignment: .leading, spacing: 12) {
       HStack(spacing: 8) {
@@ -231,7 +230,7 @@ struct NewCodexSessionSheet: View {
               .font(.system(size: 12, weight: .semibold))
           }
           .buttonStyle(.bordered)
-        } else {
+        } else if serverState.codexAccount == nil {
           Button {
             serverState.startCodexChatgptLogin()
           } label: {

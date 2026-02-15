@@ -1074,6 +1074,90 @@ async fn handle_client_message(
             }
         },
 
+        ClientMessage::CodexAccountRead { refresh_token } => {
+            let auth = state.codex_auth();
+            match auth.read_account(refresh_token).await {
+                Ok(status) => {
+                    send_json(client_tx, ServerMessage::CodexAccountStatus { status }).await;
+                }
+                Err(err) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "codex_auth_error".into(),
+                            message: err,
+                            session_id: None,
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+
+        ClientMessage::CodexLoginChatgptStart => {
+            let auth = state.codex_auth();
+            match auth.start_chatgpt_login().await {
+                Ok((login_id, auth_url)) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::CodexLoginChatgptStarted { login_id, auth_url },
+                    )
+                    .await;
+                    if let Ok(status) = auth.read_account(false).await {
+                        state.broadcast_to_list(ServerMessage::CodexAccountStatus { status });
+                    }
+                }
+                Err(err) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "codex_auth_login_start_failed".into(),
+                            message: err,
+                            session_id: None,
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+
+        ClientMessage::CodexLoginChatgptCancel { login_id } => {
+            let auth = state.codex_auth();
+            let status = auth.cancel_chatgpt_login(login_id.clone()).await;
+            send_json(
+                client_tx,
+                ServerMessage::CodexLoginChatgptCanceled { login_id, status },
+            )
+            .await;
+            if let Ok(status) = auth.read_account(false).await {
+                state.broadcast_to_list(ServerMessage::CodexAccountStatus { status });
+            }
+        }
+
+        ClientMessage::CodexAccountLogout => {
+            let auth = state.codex_auth();
+            match auth.logout().await {
+                Ok(status) => {
+                    let updated = ServerMessage::CodexAccountUpdated {
+                        status: status.clone(),
+                    };
+                    send_json(client_tx, updated.clone()).await;
+                    state.broadcast_to_list(updated);
+                }
+                Err(err) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "codex_auth_logout_failed".into(),
+                            message: err,
+                            session_id: None,
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+
         ClientMessage::ListSkills {
             session_id,
             cwds,
@@ -1442,7 +1526,11 @@ async fn handle_client_message(
                 restored.messages,
                 restored.current_diff,
                 restored.current_plan,
-                restored.turn_diffs.into_iter().map(|(turn_id, diff)| orbitdock_protocol::TurnDiff { turn_id, diff }).collect(),
+                restored
+                    .turn_diffs
+                    .into_iter()
+                    .map(|(turn_id, diff)| orbitdock_protocol::TurnDiff { turn_id, diff })
+                    .collect(),
                 restored.git_branch,
                 restored.git_sha,
                 restored.current_cwd,

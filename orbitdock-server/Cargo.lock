@@ -961,6 +961,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "codex-login"
+version = "0.0.0"
+source = "git+https://github.com/openai/codex?rev=4ee0397#4ee039744ef5e1aa16657cb8be06cdc4dc6cdcb1"
+dependencies = [
+ "base64",
+ "chrono",
+ "codex-app-server-protocol",
+ "codex-core",
+ "rand 0.9.2",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tiny_http",
+ "tokio",
+ "url",
+ "urlencoding",
+ "webbrowser",
+]
+
+[[package]]
 name = "codex-otel"
 version = "0.0.0"
 source = "git+https://github.com/openai/codex?rev=4ee0397#4ee039744ef5e1aa16657cb8be06cdc4dc6cdcb1"
@@ -3890,6 +3912,8 @@ dependencies = [
  "axum",
  "bytes",
  "codex-arg0",
+ "codex-core",
+ "codex-login",
  "dashmap",
  "futures",
  "notify 7.0.0",

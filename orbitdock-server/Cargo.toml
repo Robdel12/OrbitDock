@@ -17,6 +17,7 @@ authors = ["Robert DeLuca"]
 codex-core = { git = "https://github.com/openai/codex", rev = "4ee0397" }
 codex-protocol = { git = "https://github.com/openai/codex", rev = "4ee0397" }
 codex-arg0 = { git = "https://github.com/openai/codex", rev = "4ee0397" }
+codex-login = { git = "https://github.com/openai/codex", rev = "4ee0397" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
