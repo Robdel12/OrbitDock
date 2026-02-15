@@ -748,46 +748,35 @@ The review canvas extends what already works — it does not start from scratch:
 
 ## Phase 5: Approval Oversight v2
 
-**Objective**: Make approvals fast, contextual, and safe at high volume.
+**Objective**: Make approvals keyboard-first with diff previews and risk awareness. The approval card already works — this phase makes it fast, contextual, and safe when approvals come frequently.
+
+### What already exists
+- `CodexApprovalView` — inline card above input bar with Approve/Deny/Session/Always/Abort buttons
+- `CodexApprovalHistoryView` — session/global history with decision labels and delete
+- `ServerApprovalRequest.diff` field — populated from the Rust server but **never rendered**
+- `AttentionService` + attention strip — cross-session pending approval counts
+- Tool badge with `ToolCardStyle.icon(for:)` — already shown on approval card
+- `DiffModel` parser + `DiffHunkView` rendering — full syntax-highlighted diff infrastructure from review canvas
 
 ### Scope
-- [ ] Add approval queue section in capability rail with filters (`pending`, `resolved`, `tool`, `session`).
-- [ ] Improve inline action cards for approvals with clear decision labels/scopes (`once`, `session`, `always`, `abort`).
-- [ ] Add risk cues to approval cards (command preview, affected files, tool type).
-- [ ] Render the approval diff preview for Edit/Write approvals — `ServerApprovalRequest.diff` field exists in the data model but is currently unused. Use the existing syntax-highlighted diff rendering from `UnifiedDiffView`.
-- [ ] Link approvals to related turn + changed files where possible.
-- [ ] Keyboard shortcuts for rapid approval triage (approve/deny/skip without mouse).
+- [ ] **Diff preview on patch approvals**: When `ServerApprovalRequest.diff` is non-nil (Edit/Write tools), render it inline in the approval card using `DiffModel.parse()` + `DiffHunkView`. Collapsible, expanded by default for small diffs (<30 lines), collapsed for large ones.
+- [ ] **Risk cues**: Color-code the approval card header by risk level. `Shell`/`Bash` with destructive patterns (rm, git push --force, DROP, etc.) get `statusPermission` (coral) accent. Edit/Write get a neutral accent. Unknown tools get a caution accent. Show affected file count for patch approvals.
+- [ ] **Keyboard-first triage**: When an approval is pending, bind `y` (approve once), `Y` (approve for session), `!` (always allow), `n` (deny), `N` (deny & stop/abort). Keys only active when approval card is visible. Show key hints on the buttons.
+- [ ] **Approval card redesign**: Rebuild `CodexApprovalView` using the design token system (`Spacing`, `TypeScale`, `Radius`, `OpacityTier`) and the proven card patterns from the review canvas. Current card uses hardcoded `.padding(16)` / `.clipShape(RoundedRectangle(cornerRadius: 12))` etc.
+- [ ] **Approval history in rail**: Move `CodexApprovalHistoryView` into a collapsible section in the capability rail (alongside Plan, Comments, etc.) instead of the current inline toggle below the input bar. Filter by pending/resolved/tool type.
 
 ### Primary surfaces
-- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalView.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalHistoryView.swift`
-- `CommandCenter/CommandCenter/Views/SessionDetailView.swift`
+- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalView.swift` (redesign)
+- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalHistoryView.swift` (move to rail)
+- `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift` (keyboard bindings, remove inline history toggle)
+- `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift` (add approval history section)
 
 ### Definition of done
-- [ ] User can process multiple approvals rapidly without context loss.
-- [ ] Each approval has clear risk/scope semantics.
-- [ ] Approval decisions remain auditable in history.
-- [ ] Keyboard-only triage is possible for the full approval workflow.
-
-## Phase 6: Multi-Agent Project Lanes
-
-**Objective**: Support 2-3 concurrent agents on one project cleanly.
-
-### Scope
-- [ ] Add optional project lanes grouping active sessions by initiative.
-- [ ] Add shared urgency strip for cross-agent blocking events (extends attention strip from Phase 1).
-- [ ] Add quick switch stack to bounce across active workstreams.
-- [ ] Review canvas supports comparing diffs from different agents.
-
-### Primary surfaces
-- `CommandCenter/CommandCenter/Views/DashboardView.swift`
-- `CommandCenter/CommandCenter/Views/AgentListPanel.swift`
-- `CommandCenter/CommandCenter/Views/QuickSwitcher.swift`
-
-### Definition of done
-- [ ] User can coordinate 2-3 agents on one project without losing track.
-- [ ] Highest-priority blocking event is obvious at all times.
-- [ ] Solo-agent workflows remain simple and not overloaded.
+- [ ] Patch approvals show syntax-highlighted diff preview inline.
+- [ ] Dangerous commands are visually distinct from routine approvals.
+- [ ] User can approve/deny entirely via keyboard without touching the mouse.
+- [ ] Key hints visible on approval buttons so keybindings are discoverable.
+- [ ] Approval history accessible from the capability rail with filters.
 
 ## Technical Mapping (Current Codebase)
 
@@ -946,5 +935,4 @@ Quantitative (post-instrumentation):
 - [x] Phase 3a: Live Review Canvas + Magit Cursor (unified buffer, cursor navigation, two-level collapse, Emacs keybindings, layout system, syntax-highlighted diffs with word-level inline changes).
 - [x] Phase 3b: Line Annotations + Review Checklist (inline comments, tags, turn-scoped comments, design tokens, review checklist in rail).
 - [x] Phase 4: Comment-to-Steer Bridge (selective sends, transcript traceability, review round tracking, rich feedback cards).
-- [ ] Phase 5: Approval Oversight v2 (fast contextual approvals with risk cues).
-- [ ] Phase 6: Multi-Agent Project Lanes (project grouping, cross-agent attention, quick switching).
+- [ ] Phase 5: Approval Oversight v2 (diff previews, risk cues, keyboard-first triage, design token alignment).
