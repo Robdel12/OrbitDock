@@ -684,62 +684,67 @@ The review canvas extends what already works — it does not start from scratch:
 - [x] Layout transitions are animated and feel fluid, not jarring (spring response 0.35, damping 0.8).
 - [x] All files and diffs visible immediately — no empty "select a file" state.
 
-## Phase 3b: Line Annotations + Review Checklist
+## Phase 3b: Line Annotations + Review Checklist — COMPLETE
 
 **Objective**: Add the annotation layer on top of the review canvas — inline line comments, review checklist, and the feedback infrastructure that Phase 4 will connect to steering.
 
+**Status**: ✅ Complete. All scope items implemented across commits `637eece` and `bf71703`.
+
 ### Scope
-- [ ] Inline line comment UI: click on a diff line (or select a range) to open a comment composer. Uses `ReviewComment` model from Phase 0.
-- [ ] Comment tags/severity: `clarity`, `scope`, `risk`, `nit` — selectable when composing a comment.
-- [ ] Comment markers: purple accent markers on annotated lines in the diff view (per surface-to-color mapping).
-- [ ] Review checklist section in capability rail showing open comments with filter (unresolved/all/by-file).
-- [ ] Comment navigation: click a comment in the checklist to jump to the annotated line in the review canvas.
-- [ ] Keyboard: shortcut to add comment on current line, Tab to cycle through unresolved comments.
-- [ ] Comment resolution: mark comments as resolved manually (Phase 4 adds auto-resolution from agent responses).
+- [x] Inline line comment UI: `CommentComposerView.swift` — `c` key to compose, C-space for range mark, mouse drag on gutter for range selection.
+- [x] Comment tags/severity: `clarity`, `scope`, `risk`, `nit` — selectable when composing a comment.
+- [x] Comment markers: `InlineCommentThread.swift` + `ResolvedCommentMarker.swift` with purple accent markers on annotated lines.
+- [x] Review checklist section in capability rail (`ReviewChecklistSection.swift`) showing open comments with filter (unresolved/all) and selection toggles.
+- [x] Comment navigation: `]`/`[` keys to jump between unresolved comments in the review canvas; click comment in checklist to navigate.
+- [x] Keyboard: `c` to add comment, `]`/`[` to cycle, `r` to resolve, `x` to toggle selection, `Shift+X` to clear selection.
+- [x] Comment resolution: `r` key to toggle resolve manually. Auto-resolution on send in Phase 4.
+- [x] Turn-scoped comments: comments attach to specific edit turns via `turnId`.
+- [x] Design tokens: `Spacing`, `TypeScale`, `Radius`, `OpacityTier` + diff color palette (`diffAddedBg`, `diffRemovedBg`, etc.) added to Theme.swift.
 
-### Primary surfaces
-- `CommandCenter/CommandCenter/Views/Review/ReviewCanvas.swift`
-- `CommandCenter/CommandCenter/Views/Review/DiffHunkView.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift` (comments checklist section)
-- `CommandCenter/CommandCenter/Services/ReviewStore.swift`
-
-### Likely new files
-- `CommandCenter/CommandCenter/Views/Review/LineAnnotationView.swift`
-- `CommandCenter/CommandCenter/Views/Review/CommentComposer.swift`
-- `CommandCenter/CommandCenter/Views/Review/ReviewChecklist.swift`
+### New files created
+- `Views/Review/CommentComposerView.swift` — Inline comment composer with tag picker
+- `Views/Review/InlineCommentThread.swift` — Renders open comments below annotated diff lines with selection toggle
+- `Views/Review/ResolvedCommentMarker.swift` — Grouped resolved comment markers with expand
+- `Views/Review/ReviewChecklistSection.swift` — Capability rail section with filter, selection, and send button
+- `Views/Review/CodeReviewFeedbackCard.swift` — Rich card for sent review feedback in conversation
 
 ### Definition of done
-- [ ] User can annotate line by line on active diffs with comment tags.
-- [ ] Comments are persistent in session state (SQLite) and filterable (unresolved/all).
-- [ ] Comment checklist in capability rail shows open comments with jump-to-line.
-- [ ] Keyboard navigation covers comment placement and cycling through unresolved comments.
-- [ ] Comment markers are visually distinct (purple accent) and don't interfere with diff readability.
+- [x] User can annotate line by line on active diffs with comment tags.
+- [x] Comments are persistent in session state (SQLite via server WebSocket CRUD) and filterable (unresolved/all).
+- [x] Comment checklist in capability rail shows open comments with jump-to-line.
+- [x] Keyboard navigation covers comment placement and cycling through unresolved comments.
+- [x] Comment markers are visually distinct (purple accent) and don't interfere with diff readability.
 
-## Phase 4: Comment-to-Steer Bridge
+## Phase 4: Comment-to-Steer Bridge — COMPLETE
 
 **Objective**: Close the review loop — turn annotation feedback into actionable agent follow-up in one move.
 
-### Scope
-- [ ] Add `Send Review Notes` context to action dock steer context indicator.
-- [ ] Add "Send selected comments as steer" action from review checklist.
-- [ ] Add "Send all unresolved comments" bulk action.
-- [ ] Serialize comments into deterministic steer payload format (file, line, tag, body).
-- [ ] Add transcript markers linking steer payload to source comment IDs.
-- [ ] After agent responds, review canvas highlights which files changed since comments were written — "this file was modified" indicator on commented files. User resolves comments manually after verifying the fix. (Auto-detection of which specific comments were addressed is not reliable and should not be attempted.)
-- [ ] Follow-up review round: user can re-review, resolve addressed comments, add new ones, and send another round.
+**Status**: ✅ Complete. Core review-annotate-steer-verify loop fully working across commits `bf71703` and `5b72726`.
 
-### Primary surfaces
-- `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
-- `CommandCenter/CommandCenter/Views/Review/ReviewCanvas.swift`
-- `CommandCenter/CommandCenter/Views/ConversationView.swift`
-- `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift`
+### Scope
+- [x] Add `Send Review Notes` context to action dock steer context indicator. `InputMode.reviewNotes` with `SteerContextIndicator` visual.
+- [x] Add "Send selected comments as steer" action from review checklist. `x` key toggles selection on individual comments, `Shift+X` clears selection. Send bar and checklist reflect selection count.
+- [x] Add "Send all unresolved comments" bulk action. `Shift+S` sends all open if none selected, or sends only selected.
+- [x] Serialize comments into deterministic steer payload format (file, line, tag, body + actual diff content). `formatReviewMessage()` produces structured markdown with code blocks.
+- [x] Add transcript markers linking steer payload to source comment IDs. `<!-- review-comment-ids: id1,id2,... -->` embedded as HTML comment footer in the review message.
+- [x] After agent responds, review canvas highlights which files changed since comments were written — review banner shows "X of Y reviewed files updated". `ReviewRound` struct tracks `turnDiffCountAtSend` to detect post-review changes.
+- [x] Follow-up review round: user can re-review, resolve addressed comments, add new ones, and send another round. Comments auto-resolve on send; new comments can be added immediately.
+- [x] `CodeReviewFeedbackCard` renders sent review feedback as a rich card in conversation with file sections, syntax-highlighted code blocks, tag badges, and jump-to-diff navigation.
+
+### New files created
+- `Views/Review/CodeReviewFeedbackCard.swift` — Rich conversation card for sent review feedback
+
+### Key decisions
+- **Selection is opt-in**: By default `Shift+S` sends all open comments. Selection via `x` key enables partial sends without adding mandatory UI ceremony.
+- **HTML comment for IDs**: Comment IDs are embedded as `<!-- review-comment-ids: ... -->` — invisible to the model but parseable from stored transcript messages for traceability.
+- **Shared selection state**: `selectedCommentIds` is owned by `SessionDetailView` and passed as bindings to both `ReviewCanvas` and `CodexTurnSidebar` so selection syncs between the review canvas and the sidebar checklist.
 
 ### Definition of done
-- [ ] User can choose all/some comments and send as steer in one action.
-- [ ] Agent responses can be traced back to comment IDs/lines.
-- [ ] Follow-up review shows which comments were addressed.
-- [ ] The "annotate -> apply -> verify" loop completes in under 3 interactions.
-- [ ] Review notes steer context is visually distinct from regular steering.
+- [x] User can choose all/some comments and send as steer in one action.
+- [x] Agent responses can be traced back to comment IDs/lines.
+- [x] Follow-up review shows which comments were addressed.
+- [x] The "annotate -> apply -> verify" loop completes in under 3 interactions.
+- [x] Review notes steer context is visually distinct from regular steering.
 
 ## Phase 5: Approval Oversight v2
 
@@ -939,7 +944,7 @@ Quantitative (post-instrumentation):
 - [x] Phase 1: Capability Rail + Action Dock Clarity (shared primitives, fluid sections, attention strip, steer context, server broadcast fix).
 - [ ] Phase 2: Turn Timeline with Oversight (density control, turn grouping, raw inspectability).
 - [x] Phase 3a: Live Review Canvas + Magit Cursor (unified buffer, cursor navigation, two-level collapse, Emacs keybindings, layout system, syntax-highlighted diffs with word-level inline changes).
-- [ ] Phase 3b: Line Annotations + Review Checklist (inline comments, tags, review checklist in rail).
-- [ ] Phase 4: Comment-to-Steer Bridge (review feedback as structured agent steering).
+- [x] Phase 3b: Line Annotations + Review Checklist (inline comments, tags, turn-scoped comments, design tokens, review checklist in rail).
+- [x] Phase 4: Comment-to-Steer Bridge (selective sends, transcript traceability, review round tracking, rich feedback cards).
 - [ ] Phase 5: Approval Oversight v2 (fast contextual approvals with risk cues).
 - [ ] Phase 6: Multi-Agent Project Lanes (project grouping, cross-agent attention, quick switching).
