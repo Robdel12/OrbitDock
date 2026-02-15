@@ -18,11 +18,13 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "server-app-st
 @MainActor
 final class ServerAppState {
   private static let codexModelsCacheKey = "orbitdock.server.codex_models_cache.v1"
+  private static let sessionsCacheKey = "orbitdock.server.sessions_cache.v1"
 
   // MARK: - Observable State (global, not per-session)
 
   /// Sessions managed by the server (converted to Session model for view compatibility)
   private(set) var sessions: [Session] = []
+  private(set) var hasReceivedInitialSessionsList = false
 
   /// Cross-session approval history (global view)
   private(set) var globalApprovalHistory: [ServerApprovalHistoryItem] = []
@@ -67,7 +69,17 @@ final class ServerAppState {
   /// Temporary: autonomy level from the most recent createSession call
   private var pendingCreationAutonomy: AutonomyLevel?
 
+  private struct SessionsCachePayload: Codable {
+    let cachedAt: Date
+    let summaries: [ServerSessionSummary]
+  }
+
   init() {
+    if let cached = loadSessionsCache() {
+      sessions = cached.summaries.map { $0.toSession() }
+      logger.info("Loaded cached sessions list: \(cached.summaries.count) sessions")
+    }
+
     if let data = UserDefaults.standard.data(forKey: Self.codexModelsCacheKey),
        let models = try? JSONDecoder().decode([ServerCodexModelOption].self, from: data)
     {
@@ -93,6 +105,14 @@ final class ServerAppState {
 
   var codexActiveLoginId: String? {
     codexAccountStatus?.activeLoginId
+  }
+
+  var isLoadingInitialSessions: Bool {
+    !hasReceivedInitialSessionsList && sessions.isEmpty
+  }
+
+  var isRefreshingCachedSessions: Bool {
+    !hasReceivedInitialSessionsList && !sessions.isEmpty
   }
 
   // MARK: - Setup
@@ -425,6 +445,26 @@ final class ServerAppState {
     }
   }
 
+  private func loadSessionsCache() -> SessionsCachePayload? {
+    guard let data = UserDefaults.standard.data(forKey: Self.sessionsCacheKey) else {
+      return nil
+    }
+
+    guard let cached = try? JSONDecoder().decode(SessionsCachePayload.self, from: data) else {
+      UserDefaults.standard.removeObject(forKey: Self.sessionsCacheKey)
+      return nil
+    }
+
+    return cached
+  }
+
+  private func persistSessionsCache(_ summaries: [ServerSessionSummary]) {
+    let payload = SessionsCachePayload(cachedAt: Date(), summaries: summaries)
+    if let data = try? JSONEncoder().encode(payload) {
+      UserDefaults.standard.set(data, forKey: Self.sessionsCacheKey)
+    }
+  }
+
   /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
   func sendMessage(
     sessionId: String,
@@ -605,6 +645,8 @@ final class ServerAppState {
 
   private func handleSessionsList(_ summaries: [ServerSessionSummary]) {
     logger.info("Received sessions list: \(summaries.count) sessions")
+    hasReceivedInitialSessionsList = true
+    persistSessionsCache(summaries)
     sessions = summaries.map { $0.toSession() }
     for summary in summaries where summary.provider == .codex {
       setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)

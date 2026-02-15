@@ -9,6 +9,8 @@ import SwiftUI
 
 struct DashboardView: View {
   let sessions: [Session]
+  let isInitialLoading: Bool
+  let isRefreshingCachedSessions: Bool
   let onSelectSession: (String) -> Void
   let onOpenQuickSwitcher: () -> Void
   let onOpenPanel: () -> Void
@@ -21,6 +23,10 @@ struct DashboardView: View {
     sessions
       .filter(\.isActive)
       .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
+  }
+
+  private var showingLoadingSkeleton: Bool {
+    isInitialLoading && sessions.isEmpty
   }
 
   var body: some View {
@@ -42,18 +48,22 @@ struct DashboardView: View {
     ScrollViewReader { proxy in
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
-          CommandBar(sessions: sessions)
+          if showingLoadingSkeleton {
+            loadingSkeletonContent
+          } else {
+            CommandBar(sessions: sessions)
 
-          ActiveSessionsSection(
-            sessions: sessions,
-            onSelectSession: onSelectSession,
-            selectedIndex: selectedIndex
-          )
+            ActiveSessionsSection(
+              sessions: sessions,
+              onSelectSession: onSelectSession,
+              selectedIndex: selectedIndex
+            )
 
-          SessionHistorySection(
-            sessions: sessions,
-            onSelectSession: onSelectSession
-          )
+            SessionHistorySection(
+              sessions: sessions,
+              onSelectSession: onSelectSession
+            )
+          }
         }
         .padding(24)
       }
@@ -108,8 +118,18 @@ struct DashboardView: View {
 
       Spacer()
 
-      if !sessions.isEmpty {
+      if showingLoadingSkeleton || isRefreshingCachedSessions || !sessions.isEmpty {
         HStack(spacing: 12) {
+          if showingLoadingSkeleton || isRefreshingCachedSessions {
+            HStack(spacing: 6) {
+              ProgressView()
+                .controlSize(.small)
+              Text("Syncing")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            }
+          }
+
           let workingCount = sessions.filter { SessionDisplayStatus.from($0) == .working }.count
           let attentionCount = sessions.filter { SessionDisplayStatus.from($0) == .attention }.count
 
@@ -181,6 +201,114 @@ struct DashboardView: View {
     .background(Color.backgroundSecondary)
   }
 
+  private var loadingSkeletonContent: some View {
+    VStack(alignment: .leading, spacing: 20) {
+      skeletonCommandBarCard
+      skeletonActiveSection
+      skeletonHistorySection
+    }
+    .allowsHitTesting(false)
+    .accessibilityHidden(true)
+  }
+
+  private var skeletonCommandBarCard: some View {
+    VStack(alignment: .leading, spacing: 14) {
+      HStack {
+        skeletonLine(width: 180, height: 14)
+        Spacer()
+        skeletonLine(width: 56, height: 14)
+      }
+
+      HStack(spacing: 16) {
+        ForEach(0 ..< 4, id: \.self) { _ in
+          VStack(alignment: .leading, spacing: 8) {
+            skeletonLine(width: 44, height: 10)
+            skeletonLine(width: 64, height: 12)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      }
+    }
+    .padding(16)
+    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private var skeletonActiveSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        Circle()
+          .fill(Color.surfaceHover)
+          .frame(width: 10, height: 10)
+        skeletonLine(width: 140, height: 13)
+        Spacer()
+        skeletonLine(width: 28, height: 13)
+        skeletonLine(width: 28, height: 13)
+        skeletonLine(width: 28, height: 13)
+      }
+      .padding(.vertical, 10)
+      .padding(.horizontal, 14)
+      .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+      VStack(spacing: 6) {
+        ForEach(0 ..< 3, id: \.self) { _ in
+          HStack(spacing: 10) {
+            Circle()
+              .fill(Color.surfaceHover)
+              .frame(width: 8, height: 8)
+              .frame(width: 14)
+
+            VStack(alignment: .leading, spacing: 6) {
+              skeletonLine(height: 13)
+              skeletonLine(width: 160, height: 10)
+            }
+
+            Spacer(minLength: 12)
+
+            skeletonLine(width: 78, height: 20)
+          }
+          .padding(12)
+          .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+      }
+    }
+  }
+
+  private var skeletonHistorySection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        skeletonLine(width: 150, height: 13)
+        Spacer()
+        skeletonLine(width: 36, height: 13)
+      }
+      .padding(.vertical, 10)
+      .padding(.horizontal, 14)
+      .background(Color.backgroundTertiary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+      VStack(spacing: 8) {
+        ForEach(0 ..< 2, id: \.self) { _ in
+          HStack(spacing: 10) {
+            skeletonLine(width: 18, height: 18)
+            VStack(alignment: .leading, spacing: 6) {
+              skeletonLine(height: 12)
+              skeletonLine(width: 180, height: 10)
+            }
+            Spacer()
+            skeletonLine(width: 48, height: 10)
+          }
+          .padding(.horizontal, 12)
+          .padding(.vertical, 10)
+          .background(Color.backgroundSecondary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+      }
+    }
+  }
+
+  private func skeletonLine(width: CGFloat? = nil, height: CGFloat = 12) -> some View {
+    RoundedRectangle(cornerRadius: 4, style: .continuous)
+      .fill(Color.surfaceHover.opacity(0.9))
+      .frame(width: width, height: height)
+  }
+
   private func moveSelection(by delta: Int) {
     guard !activeSessions.isEmpty else { return }
     let newIndex = selectedIndex + delta
@@ -203,6 +331,8 @@ struct DashboardView: View {
 #Preview {
   DashboardView(
     sessions: [],
+    isInitialLoading: false,
+    isRefreshingCachedSessions: false,
     onSelectSession: { _ in },
     onOpenQuickSwitcher: {},
     onOpenPanel: {}

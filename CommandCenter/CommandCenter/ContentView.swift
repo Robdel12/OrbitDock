@@ -185,6 +185,8 @@ struct ContentView: View {
         // Dashboard view when no session selected
         DashboardView(
           sessions: sessions,
+          isInitialLoading: serverState.isLoadingInitialSessions,
+          isRefreshingCachedSessions: serverState.isRefreshingCachedSessions,
           onSelectSession: { id in
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
               selectedSessionId = id
