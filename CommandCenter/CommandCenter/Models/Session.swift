@@ -317,7 +317,7 @@ struct Session: Identifiable, Hashable, Sendable {
 
   /// Whether token usage data is available
   var hasTokenUsage: Bool {
-    codexInputTokens != nil || codexOutputTokens != nil
+    (codexInputTokens ?? 0) > 0 || (codexOutputTokens ?? 0) > 0 || (codexCachedTokens ?? 0) > 0
   }
 
   /// Formatted token count string

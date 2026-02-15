@@ -82,6 +82,7 @@ impl SessionRegistry {
                     custom_name: snap.custom_name.clone(),
                     status: snap.status,
                     work_status: snap.work_status,
+                    token_usage: snap.token_usage.clone(),
                     has_pending_approval: false,
                     codex_integration_mode: snap.codex_integration_mode,
                     approval_policy: snap.approval_policy.clone(),

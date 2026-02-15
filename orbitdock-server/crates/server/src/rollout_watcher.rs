@@ -12,7 +12,7 @@ use anyhow::Context;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use orbitdock_protocol::{
     CodexIntegrationMode, Message, MessageType, Provider, ServerMessage, SessionStatus,
-    StateChanges, WorkStatus,
+    StateChanges, TokenUsage, WorkStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -821,11 +821,29 @@ impl WatcherRuntime {
                     .and_then(|v| v.get("total_tokens"))
                     .and_then(as_i64);
 
+                let token_usage = payload
+                    .get("info")
+                    .and_then(|v| v.get("total_token_usage"))
+                    .and_then(Value::as_object)
+                    .map(|total| TokenUsage {
+                        input_tokens: total.get("input_tokens").and_then(as_u64).unwrap_or(0),
+                        output_tokens: total.get("output_tokens").and_then(as_u64).unwrap_or(0),
+                        cached_tokens: total
+                            .get("cached_input_tokens")
+                            .and_then(as_u64)
+                            .unwrap_or(0),
+                        context_window: payload
+                            .get("info")
+                            .and_then(|v| v.get("model_context_window"))
+                            .and_then(as_u64)
+                            .unwrap_or(0),
+                    });
+
                 if let Some(total_tokens) = total_tokens {
                     let _ = self
                         .persist_tx
                         .send(PersistCommand::RolloutSessionUpdate {
-                            id: session_id,
+                            id: session_id.clone(),
                             project_path: None,
                             model: None,
                             status: None,
@@ -840,6 +858,24 @@ impl WatcherRuntime {
                             custom_name: None,
                         })
                         .await;
+                }
+
+                if let Some(usage) = token_usage {
+                    if let Some(actor) = self.app_state.get_session(&session_id) {
+                        actor
+                            .send(SessionCommand::ProcessEvent {
+                                event: crate::transition::Input::TokensUpdated(usage),
+                            })
+                            .await;
+                    } else {
+                        let _ = self
+                            .persist_tx
+                            .send(PersistCommand::TokensUpdate {
+                                session_id: session_id.clone(),
+                                usage,
+                            })
+                            .await;
+                    }
                 }
             }
             "thread_name_updated" => {
@@ -2491,6 +2527,14 @@ fn as_i64(value: &Value) -> Option<i64> {
         .or_else(|| value.as_u64().map(|v| v as i64))
         .or_else(|| value.as_f64().map(|v| v as i64))
         .or_else(|| value.as_str().and_then(|v| v.parse::<i64>().ok()))
+}
+
+fn as_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().map(|v| v.max(0) as u64))
+        .or_else(|| value.as_f64().map(|v| v.max(0.0) as u64))
+        .or_else(|| value.as_str().and_then(|v| v.parse::<u64>().ok()))
 }
 
 fn current_time_rfc3339() -> String {

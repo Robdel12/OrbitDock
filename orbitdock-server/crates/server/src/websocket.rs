@@ -25,7 +25,7 @@ use orbitdock_protocol::{
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{
     delete_approval, list_approvals, list_review_comments, load_messages_from_transcript_path,
-    load_session_by_id, PersistCommand,
+    load_session_by_id, load_token_usage_from_transcript_path, PersistCommand,
 };
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
@@ -2770,6 +2770,21 @@ async fn sync_transcript_messages(actor: &SessionActorHandle) {
         Ok(msgs) => msgs,
         Err(_) => return,
     };
+
+    if let Ok(Some(usage)) = load_token_usage_from_transcript_path(&transcript_path).await {
+        let current_usage = &snap.token_usage;
+        if usage.input_tokens != current_usage.input_tokens
+            || usage.output_tokens != current_usage.output_tokens
+            || usage.cached_tokens != current_usage.cached_tokens
+            || usage.context_window != current_usage.context_window
+        {
+            actor
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::transition::Input::TokensUpdated(usage),
+                })
+                .await;
+        }
+    }
 
     if all_messages.len() <= existing_count {
         return;

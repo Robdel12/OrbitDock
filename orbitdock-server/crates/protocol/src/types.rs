@@ -157,6 +157,8 @@ pub struct SessionSummary {
     pub custom_name: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
+    #[serde(default)]
+    pub token_usage: TokenUsage,
     pub has_pending_approval: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,

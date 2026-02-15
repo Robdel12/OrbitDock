@@ -180,6 +180,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let customName: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
+  let tokenUsage: ServerTokenUsage?
   let hasPendingApproval: Bool
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let approvalPolicy: String?
@@ -200,6 +201,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case customName = "custom_name"
     case status
     case workStatus = "work_status"
+    case tokenUsage = "token_usage"
     case hasPendingApproval = "has_pending_approval"
     case codexIntegrationMode = "codex_integration_mode"
     case approvalPolicy = "approval_policy"

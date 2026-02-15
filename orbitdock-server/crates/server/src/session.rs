@@ -258,6 +258,7 @@ impl SessionHandle {
             custom_name: self.custom_name.clone(),
             status: self.status,
             work_status: self.work_status,
+            token_usage: self.token_usage.clone(),
             has_pending_approval: false, // TODO
             codex_integration_mode: self.codex_integration_mode,
             approval_policy: self.approval_policy.clone(),

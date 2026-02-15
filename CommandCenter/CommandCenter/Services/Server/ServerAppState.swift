@@ -751,6 +751,7 @@ final class ServerAppState {
     }
     if let usage = changes.tokenUsage {
       obs.tokenUsage = usage
+      sess.totalTokens = Int(usage.inputTokens + usage.outputTokens)
       sess.codexInputTokens = Int(usage.inputTokens)
       sess.codexOutputTokens = Int(usage.outputTokens)
       sess.codexCachedTokens = Int(usage.cachedTokens)
@@ -1022,6 +1023,7 @@ final class ServerAppState {
     session(sessionId).tokenUsage = usage
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+      sessions[idx].totalTokens = Int(usage.inputTokens + usage.outputTokens)
       sessions[idx].codexInputTokens = Int(usage.inputTokens)
       sessions[idx].codexOutputTokens = Int(usage.outputTokens)
       sessions[idx].codexCachedTokens = Int(usage.cachedTokens)

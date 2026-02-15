@@ -12,9 +12,12 @@ struct CommandBar: View {
   let sessions: [Session]
   @State private var showDetails = false
 
-  /// All stats (computed once)
-  private var allStats: [(sessionId: String, stats: TranscriptUsageStats)] {
-    MessageStore.shared.readAllSessionStats()
+  /// Legacy fallback stats from pre-server pipelines.
+  /// Used only when a session has no server-native token usage yet.
+  private var legacyStatsBySessionID: [String: TranscriptUsageStats] {
+    Dictionary(
+      uniqueKeysWithValues: MessageStore.shared.readAllSessionStats().map { ($0.sessionId, $0.stats) }
+    )
   }
 
   /// Calculate today's stats
@@ -24,12 +27,12 @@ struct CommandBar: View {
       guard let start = $0.startedAt else { return false }
       return calendar.isDateInToday(start)
     }
-    return DetailedStats.from(sessions: todaySessions, allStats: allStats)
+    return DetailedStats.from(sessions: todaySessions, legacyStatsBySessionID: legacyStatsBySessionID)
   }
 
   /// All-time aggregate stats
   private var trackedStats: DetailedStats {
-    DetailedStats.from(sessions: sessions, allStats: allStats)
+    DetailedStats.from(sessions: sessions, legacyStatsBySessionID: legacyStatsBySessionID)
   }
 
   /// Model distribution for the mini chart
@@ -332,32 +335,38 @@ private struct DetailedStats {
 
   static func from(
     sessions: [Session],
-    allStats: [(sessionId: String, stats: TranscriptUsageStats)]
+    legacyStatsBySessionID: [String: TranscriptUsageStats]
   ) -> DetailedStats {
-    let sessionIds = Set(sessions.map(\.id))
-    let sessionModels = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0.model) })
-    let filtered = allStats.filter { sessionIds.isEmpty || sessionIds.contains($0.sessionId) }
-
     var inputTokens = 0
     var outputTokens = 0
     var cacheReadTokens = 0
     var cacheCreationTokens = 0
+    var cost = 0.0
     var costByModel: [String: Double] = [:]
 
-    for item in filtered {
-      inputTokens += item.stats.inputTokens
-      outputTokens += item.stats.outputTokens
-      cacheReadTokens += item.stats.cacheReadTokens
-      cacheCreationTokens += item.stats.cacheCreationTokens
+    for session in sessions {
+      let stats = usageStats(for: session, legacyStatsBySessionID: legacyStatsBySessionID)
 
-      // Use session.model (from DB) as primary, fall back to stats.model (from transcript)
-      let rawModel = sessionModels[item.sessionId] ?? item.stats.model
+      inputTokens += stats.inputTokens
+      outputTokens += stats.outputTokens
+      cacheReadTokens += stats.cacheReadTokens
+      cacheCreationTokens += stats.cacheCreationTokens
+
+      let rawModel = session.model ?? stats.model
+      let sessionCost = ModelPricingService.shared.calculateCost(
+        model: rawModel,
+        inputTokens: stats.inputTokens,
+        outputTokens: stats.outputTokens,
+        cacheReadTokens: stats.cacheReadTokens,
+        cacheCreationTokens: stats.cacheCreationTokens
+      )
+      cost += sessionCost
+
       if let model = normalizeModelName(rawModel) {
-        costByModel[model, default: 0] += item.stats.estimatedCostUSD
+        costByModel[model, default: 0] += sessionCost
       }
     }
 
-    let cost = filtered.reduce(0) { $0 + $1.stats.estimatedCostUSD }
     let tokens = inputTokens + outputTokens
 
     // Sort by cost descending, map to tuples with colors
@@ -375,6 +384,39 @@ private struct DetailedStats {
       cacheCreationTokens: cacheCreationTokens,
       costByModel: sortedCosts
     )
+  }
+
+  private static func usageStats(
+    for session: Session,
+    legacyStatsBySessionID: [String: TranscriptUsageStats]
+  ) -> TranscriptUsageStats {
+    var stats = TranscriptUsageStats()
+    stats.model = session.model
+
+    let input = session.codexInputTokens ?? 0
+    let output = session.codexOutputTokens ?? 0
+    let cached = session.codexCachedTokens ?? 0
+    let context = session.codexContextWindow ?? 0
+    let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
+
+    if hasServerUsage {
+      stats.inputTokens = input
+      stats.outputTokens = output
+      stats.cacheReadTokens = cached
+      stats.contextUsed = context
+      return stats
+    }
+
+    if let legacy = legacyStatsBySessionID[session.id] {
+      return legacy
+    }
+
+    // Legacy fallback for rows that only stored total token count.
+    if session.totalTokens > 0 {
+      stats.outputTokens = session.totalTokens
+    }
+
+    return stats
   }
 
   private static func normalizeModelName(_ model: String?) -> String? {

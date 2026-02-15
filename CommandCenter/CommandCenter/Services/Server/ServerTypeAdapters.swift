@@ -29,10 +29,15 @@ extension ServerSessionSummary {
       status: status == .active ? .active : .ended,
       workStatus: workStatus.toSessionWorkStatus(),
       startedAt: parseServerTimestamp(startedAt),
+      totalTokens: tokenUsage.map { Int($0.inputTokens + $0.outputTokens) } ?? 0,
       lastActivityAt: parseServerTimestamp(lastActivityAt),
       attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
       provider: provider == .codex ? .codex : .claude,
-      codexIntegrationMode: integrationMode
+      codexIntegrationMode: integrationMode,
+      codexInputTokens: tokenUsage.map { Int($0.inputTokens) },
+      codexOutputTokens: tokenUsage.map { Int($0.outputTokens) },
+      codexCachedTokens: tokenUsage.map { Int($0.cachedTokens) },
+      codexContextWindow: tokenUsage.map { Int($0.contextWindow) }
     )
     session.gitSha = gitSha
     session.currentCwd = currentCwd
@@ -61,6 +66,7 @@ extension ServerSessionState {
       status: status == .active ? .active : .ended,
       workStatus: workStatus.toSessionWorkStatus(),
       startedAt: parseServerTimestamp(startedAt),
+      totalTokens: Int(tokenUsage.inputTokens + tokenUsage.outputTokens),
       lastActivityAt: parseServerTimestamp(lastActivityAt),
       attentionReason: workStatus.toAttentionReason(hasPendingApproval: pendingApproval != nil),
       pendingToolName: pendingApproval?.toolNameForDisplay,

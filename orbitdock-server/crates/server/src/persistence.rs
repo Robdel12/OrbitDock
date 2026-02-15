@@ -1754,6 +1754,109 @@ fn load_messages_from_transcript(
     Ok(messages)
 }
 
+fn value_to_u64(value: Option<&Value>) -> u64 {
+    match value {
+        Some(Value::Number(n)) => n
+            .as_u64()
+            .or_else(|| n.as_i64().map(|v| v.max(0) as u64))
+            .unwrap_or(0),
+        Some(Value::String(s)) => s.parse::<u64>().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+fn load_token_usage_from_transcript(
+    transcript_path: &str,
+) -> Result<Option<TokenUsage>, anyhow::Error> {
+    let file = match File::open(transcript_path) {
+        Ok(file) => file,
+        Err(_) => return Ok(None),
+    };
+    let reader = BufReader::new(file);
+
+    let mut claude_usage = TokenUsage::default();
+    let mut saw_claude_usage = false;
+    let mut codex_usage: Option<TokenUsage> = None;
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        let entry_type = value
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+
+        // Claude transcript entries: aggregate per-message usage over the entire transcript.
+        if entry_type == "assistant" {
+            if let Some(usage) = value
+                .get("message")
+                .and_then(|m| m.get("usage"))
+                .and_then(Value::as_object)
+            {
+                saw_claude_usage = true;
+                claude_usage.input_tokens += value_to_u64(usage.get("input_tokens"));
+                claude_usage.output_tokens += value_to_u64(usage.get("output_tokens"));
+                claude_usage.cached_tokens += value_to_u64(usage.get("cache_read_input_tokens"));
+                claude_usage.cached_tokens +=
+                    value_to_u64(usage.get("cache_creation_input_tokens"));
+            }
+            continue;
+        }
+
+        // Codex rollout entries: token_count carries cumulative totals.
+        if entry_type == "event_msg" {
+            let payload = match value.get("payload").and_then(Value::as_object) {
+                Some(payload) => payload,
+                None => continue,
+            };
+            if payload.get("type").and_then(Value::as_str) != Some("token_count") {
+                continue;
+            }
+
+            let info = match payload.get("info").and_then(Value::as_object) {
+                Some(info) => info,
+                None => continue,
+            };
+
+            let usage_obj = info
+                .get("total_token_usage")
+                .or_else(|| info.get("last_token_usage"))
+                .and_then(Value::as_object);
+
+            if let Some(usage) = usage_obj {
+                codex_usage = Some(TokenUsage {
+                    input_tokens: value_to_u64(usage.get("input_tokens")),
+                    output_tokens: value_to_u64(usage.get("output_tokens")),
+                    cached_tokens: value_to_u64(usage.get("cached_input_tokens")),
+                    context_window: value_to_u64(info.get("model_context_window")),
+                });
+            }
+        }
+    }
+
+    if let Some(usage) = codex_usage {
+        return Ok(Some(usage));
+    }
+
+    if saw_claude_usage {
+        return Ok(Some(claude_usage));
+    }
+
+    Ok(None)
+}
+
 pub async fn load_messages_from_transcript_path(
     transcript_path: &str,
     session_id: &str,
@@ -1764,6 +1867,14 @@ pub async fn load_messages_from_transcript_path(
         load_messages_from_transcript(&transcript_path_owned, &session_id_owned)
     })
     .await?
+}
+
+pub async fn load_token_usage_from_transcript_path(
+    transcript_path: &str,
+) -> Result<Option<TokenUsage>, anyhow::Error> {
+    let transcript_path_owned = transcript_path.to_string();
+    tokio::task::spawn_blocking(move || load_token_usage_from_transcript(&transcript_path_owned))
+        .await?
 }
 
 /// Load recent sessions from the database for server restart recovery.
@@ -3091,5 +3202,56 @@ mod tests {
             .messages
             .iter()
             .any(|m| m.content.contains("Assistant replies")));
+    }
+
+    #[tokio::test]
+    async fn transcript_usage_parses_claude_message_usage() {
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-usage-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let transcript_path = tmp_dir.join("claude-usage.jsonl");
+
+        std::fs::write(
+            &transcript_path,
+            r#"{"type":"assistant","timestamp":"2026-02-10T01:00:00Z","message":{"role":"assistant","usage":{"input_tokens":100,"output_tokens":40,"cache_read_input_tokens":10,"cache_creation_input_tokens":5},"content":[{"type":"text","text":"first"}]}}
+{"type":"assistant","timestamp":"2026-02-10T01:00:02Z","message":{"role":"assistant","usage":{"input_tokens":50,"output_tokens":20,"cache_read_input_tokens":4,"cache_creation_input_tokens":1},"content":[{"type":"text","text":"second"}]}}
+"#,
+        )
+        .expect("write transcript");
+
+        let usage =
+            load_token_usage_from_transcript_path(transcript_path.to_string_lossy().as_ref())
+                .await
+                .expect("parse usage")
+                .expect("usage present");
+
+        assert_eq!(usage.input_tokens, 150);
+        assert_eq!(usage.output_tokens, 60);
+        assert_eq!(usage.cached_tokens, 20);
+        assert_eq!(usage.context_window, 0);
+    }
+
+    #[tokio::test]
+    async fn transcript_usage_parses_codex_token_count_total_usage() {
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-usage-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let transcript_path = tmp_dir.join("codex-usage.jsonl");
+
+        std::fs::write(
+            &transcript_path,
+            r#"{"type":"event_msg","timestamp":"2026-02-10T01:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":321,"output_tokens":123,"cached_input_tokens":55},"last_token_usage":{"input_tokens":9,"output_tokens":4,"cached_input_tokens":1},"model_context_window":200000}}}
+"#,
+        )
+        .expect("write transcript");
+
+        let usage =
+            load_token_usage_from_transcript_path(transcript_path.to_string_lossy().as_ref())
+                .await
+                .expect("parse usage")
+                .expect("usage present");
+
+        assert_eq!(usage.input_tokens, 321);
+        assert_eq!(usage.output_tokens, 123);
+        assert_eq!(usage.cached_tokens, 55);
+        assert_eq!(usage.context_window, 200_000);
     }
 }
