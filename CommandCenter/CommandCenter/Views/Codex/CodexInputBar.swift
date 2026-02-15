@@ -696,6 +696,7 @@ struct InstrumentPanel: View {
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
     }
     .frame(height: 32)
+    .padding(.bottom, Spacing.sm)
     .background(Color.backgroundTertiary.opacity(0.5))
   }
 

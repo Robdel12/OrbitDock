@@ -25,7 +25,7 @@ final class SessionObservable {
   var tokenUsage: ServerTokenUsage? = nil
   var diff: String? = nil
   var plan: String? = nil
-  var autonomy: AutonomyLevel = .suggest
+  var autonomy: AutonomyLevel = .autonomous
   var skills: [ServerSkillMetadata] = []
 
   // Turn tracking

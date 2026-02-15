@@ -330,6 +330,23 @@ extension Color {
   static let composerSteer = toolWrite
   /// Review mode border — purple nebula
   static let composerReview = statusQuestion
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Autonomy Levels — Risk Spectrum
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// Locked — teal-cyan (most restrictive, safe)
+  static let autonomyLocked = Color(red: 0.2, green: 0.75, blue: 0.78)
+  /// Guarded — accent cyan
+  static let autonomyGuarded = accent
+  /// Autonomous — calm green (Codex default)
+  static let autonomyAutonomous = Color(red: 0.35, green: 0.82, blue: 0.55)
+  /// Open — amber (caution, no sandbox)
+  static let autonomyOpen = Color(red: 0.95, green: 0.75, blue: 0.3)
+  /// Full Auto — orange (everything auto-approves)
+  static let autonomyFullAuto = Color(red: 1.0, green: 0.6, blue: 0.3)
+  /// Unrestricted — coral-red (max danger)
+  static let autonomyUnrestricted = Color(red: 1.0, green: 0.45, blue: 0.4)
 }
 
 // MARK: - Theme View Modifier
@@ -588,9 +605,10 @@ struct PermissionBanner: View {
 
     switch toolName {
       case "Bash":
-        if let command = (input["command"] as? String) ?? (input["cmd"] as? String) {
-          let cleaned = command.strippingShellWrapperPrefix()
-          let truncated = cleaned.count > 60 ? String(cleaned.prefix(57)) + "..." : cleaned
+        if let command = String.shellCommandDisplay(from: input["command"])
+          ?? String.shellCommandDisplay(from: input["cmd"])
+        {
+          let truncated = command.count > 60 ? String(command.prefix(57)) + "..." : command
           return ("terminal.fill", truncated)
         }
       case "Edit":

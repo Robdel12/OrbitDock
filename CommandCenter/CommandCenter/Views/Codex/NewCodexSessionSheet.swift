@@ -14,12 +14,20 @@ struct NewCodexSessionSheet: View {
 
   @State private var selectedPath: String = ""
   @State private var selectedModel: String = ""
-  @State private var selectedAutonomy: AutonomyLevel = .suggest
+  @State private var selectedAutonomy: AutonomyLevel = .autonomous
   @State private var isCreating = false
   @State private var errorMessage: String?
 
   private var modelOptions: [ServerCodexModelOption] {
     serverState.codexModels
+  }
+
+  private var requiresLogin: Bool {
+    serverState.codexRequiresOpenAIAuth && serverState.codexAccount == nil
+  }
+
+  private var canCreateSession: Bool {
+    !selectedPath.isEmpty && !selectedModel.isEmpty && !isCreating && !requiresLogin
   }
 
   private var defaultModelSelection: String {
@@ -53,6 +61,8 @@ struct NewCodexSessionSheet: View {
 
       // Content
       VStack(alignment: .leading, spacing: 20) {
+        codexAuthSection
+
         // Directory picker
         VStack(alignment: .leading, spacing: 8) {
           Text("Project Directory")
@@ -92,28 +102,11 @@ struct NewCodexSessionSheet: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(.secondary)
 
-          Picker("Autonomy", selection: $selectedAutonomy) {
-            ForEach(AutonomyLevel.allCases) { level in
-              Label(level.displayName, systemImage: level.icon)
-                .tag(level)
-            }
-          }
-          .pickerStyle(.segmented)
-          .labelsHidden()
-
-          HStack(spacing: 6) {
-            Image(systemName: selectedAutonomy.icon)
-              .font(.caption)
-              .foregroundStyle(selectedAutonomy == .fullAccess ? Color.statusPermission : .secondary)
-
-            Text(selectedAutonomy.description)
-              .font(.caption)
-              .foregroundStyle(selectedAutonomy == .fullAccess ? Color.statusPermission : .secondary)
-          }
+          InlineAutonomyPicker(selection: $selectedAutonomy)
         }
 
         // Error message
-        if let error = errorMessage {
+      if let error = errorMessage {
           HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
               .foregroundStyle(.orange)
@@ -125,7 +118,18 @@ struct NewCodexSessionSheet: View {
           .background(Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
         }
 
-        Spacer()
+      Spacer()
+
+        if requiresLogin {
+          HStack(spacing: 8) {
+            Image(systemName: "lock.shield")
+              .foregroundStyle(Color.statusPermission)
+            Text("Sign in with ChatGPT to create Codex sessions.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .padding(.top, 4)
+        }
       }
       .padding()
 
@@ -154,15 +158,16 @@ struct NewCodexSessionSheet: View {
         }
         .buttonStyle(.borderedProminent)
         .tint(Color.accent)
-        .disabled(selectedPath.isEmpty || selectedModel.isEmpty || isCreating)
+        .disabled(!canCreateSession)
         .keyboardShortcut(.return, modifiers: .command)
       }
       .padding()
     }
-    .frame(width: 450, height: 400)
+    .frame(width: 450, height: 680)
     .background(Color.backgroundSecondary)
     .onAppear {
       serverState.refreshCodexModels()
+      serverState.refreshCodexAccount()
       if selectedModel.isEmpty {
         selectedModel = defaultModelSelection
       }
@@ -171,6 +176,140 @@ struct NewCodexSessionSheet: View {
       if selectedModel.isEmpty || !modelOptions.contains(where: { $0.model == selectedModel }) {
         selectedModel = defaultModelSelection
       }
+    }
+  }
+
+  @ViewBuilder
+  private var codexAuthSection: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(spacing: 8) {
+        Image(systemName: "person.crop.circle.badge.checkmark")
+          .font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(Color.accent)
+        Text("Codex Account")
+          .font(.system(size: 13, weight: .semibold))
+        Spacer()
+        authStateBadge
+      }
+
+      switch serverState.codexAccount {
+        case .apiKey?:
+          Text("Using API key auth. ChatGPT subscription limits won’t be shown.")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+
+        case let .chatgpt(email, planType)?:
+          VStack(alignment: .leading, spacing: 6) {
+            if let email {
+              Text(email)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+            } else {
+              Text("Signed in with ChatGPT")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.primary)
+            }
+            if let planType {
+              Text(planType.uppercased())
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color.accent)
+            }
+          }
+
+        case .none:
+          Text("Connect your ChatGPT account to unlock direct Codex sessions in OrbitDock.")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+      }
+
+      HStack(spacing: 10) {
+        if serverState.codexLoginInProgress {
+          Button {
+            serverState.cancelCodexChatgptLogin()
+          } label: {
+            Label("Cancel Sign-In", systemImage: "xmark.circle")
+              .font(.system(size: 12, weight: .semibold))
+          }
+          .buttonStyle(.bordered)
+        } else {
+          Button {
+            serverState.startCodexChatgptLogin()
+          } label: {
+            Label("Sign in with ChatGPT", systemImage: "sparkles")
+              .font(.system(size: 12, weight: .semibold))
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(Color.accent)
+        }
+
+        if serverState.codexAccount != nil {
+          Button {
+            serverState.logoutCodexAccount()
+          } label: {
+            Text("Sign Out")
+              .font(.system(size: 12, weight: .semibold))
+          }
+          .buttonStyle(.bordered)
+        }
+
+        Spacer()
+
+        if serverState.codexLoginInProgress {
+          HStack(spacing: 6) {
+            ProgressView()
+              .controlSize(.small)
+            Text("Waiting for browser completion…")
+              .font(.system(size: 11))
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+
+      if let authError = serverState.codexAuthError, !authError.isEmpty {
+        HStack(spacing: 8) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 11))
+            .foregroundStyle(Color.statusPermission)
+          Text(authError)
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .padding(14)
+    .background(
+      RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .fill(Color.backgroundTertiary)
+        .overlay(
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(Color.accent.opacity(0.25), lineWidth: 1)
+        )
+    )
+  }
+
+  @ViewBuilder
+  private var authStateBadge: some View {
+    if serverState.codexLoginInProgress {
+      Text("SIGNING IN")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.statusWorking.opacity(0.2), in: Capsule())
+        .foregroundStyle(Color.statusWorking)
+    } else if serverState.codexAccount == nil {
+      Text("NOT CONNECTED")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.statusPermission.opacity(0.16), in: Capsule())
+        .foregroundStyle(Color.statusPermission)
+    } else {
+      Text("CONNECTED")
+        .font(.system(size: 10, weight: .bold, design: .rounded))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.statusSuccess.opacity(0.2), in: Capsule())
+        .foregroundStyle(Color.statusSuccess)
     }
   }
 
