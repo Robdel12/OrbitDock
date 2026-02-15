@@ -212,7 +212,7 @@ struct CodexInputBar: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      HStack(spacing: 12) {
+      HStack(spacing: Spacing.md) {
         if !isSessionWorking {
           // Config toggle
           Button {
@@ -221,7 +221,7 @@ struct CodexInputBar: View {
             }
           } label: {
             Image(systemName: "slider.horizontal.3")
-              .font(.system(size: 14))
+              .font(.system(size: TypeScale.title))
               .foregroundStyle(hasOverrides ? Color.accent : .secondary)
           }
           .buttonStyle(.plain)
@@ -233,7 +233,7 @@ struct CodexInputBar: View {
             onOpenSkills?()
           } label: {
             Image(systemName: "bolt.fill")
-              .font(.system(size: 14))
+              .font(.system(size: TypeScale.title))
               .foregroundStyle(!selectedSkills.isEmpty || hasInlineSkills ? Color.accent : .secondary)
           }
           .buttonStyle(.plain)
@@ -242,7 +242,7 @@ struct CodexInputBar: View {
           // Attach images
           Button { pickImages() } label: {
             Image(systemName: "paperclip")
-              .font(.system(size: 14))
+              .font(.system(size: TypeScale.title))
               .foregroundStyle(!attachedImages.isEmpty ? Color.accent : .secondary)
           }
           .buttonStyle(.plain)
@@ -313,8 +313,8 @@ struct CodexInputBar: View {
         .disabled(!canSend)
         .keyboardShortcut(.return, modifiers: .command)
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
 
       // Error message
       if let error = errorMessage {
@@ -332,8 +332,8 @@ struct CodexInputBar: View {
           .font(.caption)
           .foregroundStyle(Color.accent)
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.bottom, Spacing.sm)
       }
     }
     .background(Color.backgroundSecondary)

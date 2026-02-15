@@ -14,6 +14,10 @@ struct FileListNavigator: View {
   @Binding var selectedFileId: String?
   @Binding var selectedTurnDiffId: String?
   var commentCounts: [String: Int] = [:]  // filePath → count
+  var addressedFiles: Set<String> = []     // Files modified after review
+  var reviewPendingFiles: Set<String> = [] // Files reviewed but not yet modified
+  var showResolvedComments: Binding<Bool>? = nil
+  var hasResolvedComments: Bool = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -75,22 +79,22 @@ struct FileListNavigator: View {
     Button(action: action) {
       HStack(spacing: 4) {
         Image(systemName: icon)
-          .font(.system(size: 9, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
         Text(label)
-          .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
+          .font(.system(size: TypeScale.caption, weight: isSelected ? .semibold : .medium))
       }
       .foregroundStyle(isSelected ? (isLive ? Color.accent : .primary) : .secondary)
       .padding(.horizontal, 8)
       .padding(.vertical, 5)
       .background(
         isSelected
-          ? (isLive ? Color.accent.opacity(0.15) : Color.surfaceSelected)
+          ? (isLive ? Color.accent.opacity(OpacityTier.light) : Color.surfaceSelected)
           : Color.backgroundTertiary.opacity(0.5),
-        in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 5, style: .continuous)
-          .strokeBorder(isSelected ? Color.accent.opacity(0.2) : Color.clear, lineWidth: 1)
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .strokeBorder(isSelected ? Color.accent.opacity(OpacityTier.medium) : Color.clear, lineWidth: 1)
       )
     }
     .buttonStyle(.plain)
@@ -104,8 +108,25 @@ struct FileListNavigator: View {
 
     return HStack(spacing: 8) {
       Text("\(files.count) file\(files.count == 1 ? "" : "s")")
-        .font(.system(size: 10, weight: .medium))
+        .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(.secondary)
+
+      if hasResolvedComments, let binding = showResolvedComments {
+        Button {
+          withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+            binding.wrappedValue.toggle()
+          }
+        } label: {
+          HStack(spacing: 3) {
+            Image(systemName: binding.wrappedValue ? "eye.fill" : "eye.slash")
+              .font(.system(size: 8, weight: .medium))
+            Text("History")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+          }
+          .foregroundStyle(binding.wrappedValue ? Color.statusQuestion : Color.white.opacity(0.25))
+        }
+        .buttonStyle(.plain)
+      }
 
       Spacer()
 
@@ -113,26 +134,26 @@ struct FileListNavigator: View {
       HStack(spacing: 1) {
         if totalAdds > 0 {
           RoundedRectangle(cornerRadius: 1)
-            .fill(Color(red: 0.3, green: 0.78, blue: 0.4))
+            .fill(Color.diffAddedEdge)
             .frame(width: barWidth(count: totalAdds, total: totalAdds + totalDels, maxWidth: 40), height: 6)
         }
         if totalDels > 0 {
           RoundedRectangle(cornerRadius: 1)
-            .fill(Color(red: 0.85, green: 0.35, blue: 0.35))
+            .fill(Color.diffRemovedEdge)
             .frame(width: barWidth(count: totalDels, total: totalAdds + totalDels, maxWidth: 40), height: 6)
         }
       }
 
       HStack(spacing: 4) {
         Text("+\(totalAdds)")
-          .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5))
+          .foregroundStyle(Color.diffAddedAccent)
         Text("\u{2212}\(totalDels)")
-          .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5))
+          .foregroundStyle(Color.diffRemovedAccent)
       }
-      .font(.system(size: 10, weight: .semibold, design: .monospaced))
+      .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
     }
-    .padding(.horizontal, 10)
-    .padding(.vertical, 7)
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
   }
 
   private func barWidth(count: Int, total: Int, maxWidth: CGFloat) -> CGFloat {
@@ -150,7 +171,9 @@ struct FileListNavigator: View {
             FileListRow(
               fileDiff: file,
               isSelected: selectedFileId == file.id,
-              commentCount: commentCounts[file.newPath] ?? 0
+              commentCount: commentCounts[file.newPath] ?? 0,
+              isAddressed: addressedFiles.contains(file.newPath),
+              isReviewPending: reviewPendingFiles.contains(file.newPath)
             )
             .id(file.id)
             .onTapGesture {
@@ -179,7 +202,7 @@ struct FileListNavigator: View {
         .foregroundStyle(.tertiary)
 
       Text("No files changed")
-        .font(.system(size: 11))
+        .font(.system(size: TypeScale.body))
         .foregroundStyle(.tertiary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)

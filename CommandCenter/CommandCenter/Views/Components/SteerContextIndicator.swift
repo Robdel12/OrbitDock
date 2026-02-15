@@ -20,7 +20,7 @@ struct SteerContextIndicator: View {
           .frame(width: 6, height: 6)
 
         Text(mode.label)
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(mode.color)
       }
 
@@ -30,13 +30,13 @@ struct SteerContextIndicator: View {
       if mode == .reviewNotes, let onOverride {
         Button(action: onOverride) {
           Text("Cancel")
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
       }
     }
-    .padding(.horizontal, 16)
+    .padding(.horizontal, Spacing.lg)
     .frame(height: 24)
     .background(Color.backgroundTertiary)
   }

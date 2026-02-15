@@ -19,23 +19,26 @@ struct DiffHunkView<AfterLineContent: View>: View {
   var isHunkCollapsed: Bool = false
   var commentedLines: Set<Int> = []    // newLineNum values with comments
   var selectionLines: Set<Int> = []    // Line indices in mark-to-cursor range
+  var composerLineRange: ClosedRange<Int>? = nil  // Line indices with active composer
+  var onLineComment: ((Int, ClosedRange<Int>) -> Void)? = nil  // (clickedLineIdx, smartRange)
+  var onLineDragChanged: ((Int, Int) -> Void)? = nil            // (anchorLineIdx, currentLineIdx)
+  var onLineDragEnded: ((Int, Int) -> Void)? = nil              // (startLineIdx, endLineIdx)
   @ViewBuilder var afterLine: (Int, DiffLine) -> AfterLineContent
 
-  // Diff background colors — muted, translucent washes
-  private let addedBg = Color(red: 0.12, green: 0.26, blue: 0.15).opacity(0.55)
-  private let removedBg = Color(red: 0.30, green: 0.12, blue: 0.12).opacity(0.55)
-
-  // Accent colors for prefixes, inline highlights, and edge bars
-  private let addedAccent = Color(red: 0.4, green: 0.95, blue: 0.5)
-  private let removedAccent = Color(red: 1.0, green: 0.5, blue: 0.5)
-
-  // Left-edge bar colors (saturated, opaque)
-  private let addedEdge = Color(red: 0.3, green: 0.78, blue: 0.4)
-  private let removedEdge = Color(red: 0.85, green: 0.35, blue: 0.35)
+  // Diff colors from design tokens
+  private let addedBg = Color.diffAddedBg
+  private let removedBg = Color.diffRemovedBg
+  private let addedAccent = Color.diffAddedAccent
+  private let removedAccent = Color.diffRemovedAccent
+  private let addedEdge = Color.diffAddedEdge
+  private let removedEdge = Color.diffRemovedEdge
 
   // Gutter background — very subtle to define the zone
   private let gutterBg = Color.white.opacity(0.015)
   private let gutterBorder = Color.white.opacity(0.06)
+
+  @State private var hoveredLineIndex: Int? = nil
+  @State private var dragAnchor: Int? = nil
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -43,7 +46,7 @@ struct DiffHunkView<AfterLineContent: View>: View {
         .id("file-\(fileIndex)-hunk-\(hunkIndex)")
         .overlay {
           if isCursorOnHeader {
-            Color.accent.opacity(0.08)
+            Color.accent.opacity(OpacityTier.subtle)
               .allowsHitTesting(false)
           }
         }
@@ -54,7 +57,7 @@ struct DiffHunkView<AfterLineContent: View>: View {
             .id("file-\(fileIndex)-hunk-\(hunkIndex)-line-\(index)")
             .overlay {
               if cursorLineIndex == index {
-                Color.accent.opacity(0.15)
+                Color.accent.opacity(OpacityTier.light)
                   .allowsHitTesting(false)
               }
             }
@@ -87,35 +90,35 @@ struct DiffHunkView<AfterLineContent: View>: View {
         // Collapse chevron
         Image(systemName: isHunkCollapsed ? "chevron.right" : "chevron.down")
           .font(.system(size: 7, weight: .bold))
-          .foregroundStyle(Color.accent.opacity(0.4))
+          .foregroundStyle(Color.accent.opacity(OpacityTier.strong))
 
         // Left rule
         Rectangle()
-          .fill(Color.accent.opacity(0.2))
+          .fill(Color.accent.opacity(OpacityTier.medium))
           .frame(height: 1)
           .frame(maxWidth: 24)
 
         Text(hunk.header)
-          .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-          .foregroundStyle(Color.accent.opacity(0.7))
+          .font(.system(size: TypeScale.body, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.accent.opacity(OpacityTier.vivid))
 
         if isHunkCollapsed {
           Text("\(hunk.lines.count) lines")
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(Color.accent.opacity(0.4))
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.accent.opacity(OpacityTier.strong))
         }
 
         // Right rule extends
         Rectangle()
-          .fill(Color.accent.opacity(0.2))
+          .fill(Color.accent.opacity(OpacityTier.medium))
           .frame(height: 1)
           .frame(maxWidth: .infinity)
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 6)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.md / 2)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.accent.opacity(0.04))
+    .background(Color.accent.opacity(OpacityTier.tint))
   }
 
   // MARK: - Diff Line Row
@@ -125,12 +128,16 @@ struct DiffHunkView<AfterLineContent: View>: View {
     let isChanged = line.type == .added || line.type == .removed
     let hasComment = line.newLineNum.map { commentedLines.contains($0) } ?? false
     let isInSelection = selectionLines.contains(index)
+    let isInComposerRange = composerLineRange?.contains(index) ?? false
+    let isCommentable = line.newLineNum != nil
+    let isHovered = hoveredLineIndex == index
+    let showAddButton = isHovered && isCommentable && dragAnchor == nil
 
     return HStack(spacing: 0) {
-      // Left edge accent bar — 3px; purple for commented lines, else add/remove color
+      // Left edge accent bar; purple for commented/composer lines, else add/remove color
       Rectangle()
-        .fill(hasComment ? Color.statusQuestion : edgeBarColor(for: line.type))
-        .frame(width: 3)
+        .fill(hasComment || isInComposerRange ? Color.statusQuestion : edgeBarColor(for: line.type))
+        .frame(width: EdgeBar.width)
 
       // Line number gutter
       HStack(spacing: 0) {
@@ -138,12 +145,23 @@ struct DiffHunkView<AfterLineContent: View>: View {
         Text(line.oldLineNum.map { String($0) } ?? "")
           .frame(width: 32, alignment: .trailing)
 
-        // Comment dot between line numbers
+        // Comment indicator — always takes space, content changes on hover
         ZStack {
           if hasComment {
             Circle()
               .fill(Color.statusQuestion)
               .frame(width: 4, height: 4)
+          } else if showAddButton {
+            Button {
+              let range = connectedBlockRange(for: index)
+              onLineComment?(index, range)
+            } label: {
+              Image(systemName: "plus")
+                .font(.system(size: 7, weight: .heavy))
+                .foregroundStyle(Color.statusQuestion)
+            }
+            .buttonStyle(.plain)
+            .transition(.opacity)
           }
         }
         .frame(width: 8)
@@ -152,8 +170,8 @@ struct DiffHunkView<AfterLineContent: View>: View {
         Text(line.newLineNum.map { String($0) } ?? "")
           .frame(width: 32, alignment: .trailing)
       }
-      .font(.system(size: 10.5, design: .monospaced))
-      .foregroundStyle(.primary.opacity(isChanged ? 0.4 : 0.25))
+      .font(.system(size: TypeScale.body, design: .monospaced))
+      .foregroundStyle(.primary.opacity(isChanged ? OpacityTier.strong : 0.25))
       .background(gutterBg)
 
       // Gutter/content separator
@@ -163,22 +181,70 @@ struct DiffHunkView<AfterLineContent: View>: View {
 
       // Prefix indicator
       Text(line.prefix)
-        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+        .font(.system(size: TypeScale.body, weight: .semibold, design: .monospaced))
         .foregroundStyle(prefixColor(for: line.type))
         .frame(width: 20, alignment: .center)
 
       // Syntax-highlighted code with inline change highlights
       inlineHighlightedContent(line: line, ranges: inlineRanges)
-        .padding(.trailing, 12)
+        .padding(.trailing, Spacing.md)
+
+      Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(backgroundColor(for: line.type))
+    .contentShape(Rectangle())
+    .onHover { hovering in
+      hoveredLineIndex = hovering ? index : nil
+    }
+    .gesture(
+      DragGesture(minimumDistance: 6)
+        .onChanged { value in
+          guard isCommentable else { return }
+          if dragAnchor == nil { dragAnchor = index }
+          let lineHeight: CGFloat = 20
+          let dragLineOffset = Int(round(value.translation.height / lineHeight))
+          let targetLine = max(0, min(index + dragLineOffset, hunk.lines.count - 1))
+          onLineDragChanged?(dragAnchor ?? index, targetLine)
+        }
+        .onEnded { value in
+          guard isCommentable, let anchor = dragAnchor else { return }
+          let lineHeight: CGFloat = 20
+          let dragLineOffset = Int(round(value.translation.height / lineHeight))
+          let targetLine = max(0, min(index + dragLineOffset, hunk.lines.count - 1))
+          onLineDragEnded?(min(anchor, targetLine), max(anchor, targetLine))
+          dragAnchor = nil
+        }
+    )
     .overlay {
-      if isInSelection {
-        Color.statusQuestion.opacity(0.18)
+      if isInSelection || isInComposerRange {
+        Color.statusQuestion.opacity(isInComposerRange ? 0.10 : 0.18)
           .allowsHitTesting(false)
       }
     }
+  }
+
+  // MARK: - Smart Connected Block
+
+  /// Find the contiguous change block (removed+added) around the given line index.
+  /// If the line is a context line, returns just that single line.
+  private func connectedBlockRange(for index: Int) -> ClosedRange<Int> {
+    let line = hunk.lines[index]
+    guard line.type != .context else { return index...index }
+
+    // Walk backward to find start of change block
+    var start = index
+    while start > 0 && hunk.lines[start - 1].type != .context {
+      start -= 1
+    }
+
+    // Walk forward to find end of change block
+    var end = index
+    while end < hunk.lines.count - 1 && hunk.lines[end + 1].type != .context {
+      end += 1
+    }
+
+    return start...end
   }
 
   // MARK: - Inline Highlights
@@ -190,24 +256,24 @@ struct DiffHunkView<AfterLineContent: View>: View {
 
     if ranges.isEmpty {
       Text(highlighted)
-        .font(.system(size: 12, design: .monospaced))
+        .font(.system(size: TypeScale.code, design: .monospaced))
         .opacity(line.type == .context ? 0.55 : 1.0)
         .textSelection(.enabled)
     } else {
       // Apply inline change highlights on top of syntax highlighting
       Text(applyInlineHighlights(highlighted, ranges: ranges, lineType: line.type))
-        .font(.system(size: 12, design: .monospaced))
+        .font(.system(size: TypeScale.code, design: .monospaced))
         .textSelection(.enabled)
     }
   }
 
   private func applyInlineHighlights(_ base: AttributedString, ranges: [Range<String.Index>], lineType: DiffLineType) -> AttributedString {
     var attributed = base
-    let accentColor = lineType == .added ? addedAccent : removedAccent
+    let highlightColor = lineType == .added ? Color.diffAddedHighlight : Color.diffRemovedHighlight
 
     for range in ranges {
       if let attrRange = Range(range, in: attributed) {
-        attributed[attrRange].backgroundColor = accentColor.opacity(0.35)
+        attributed[attrRange].backgroundColor = highlightColor
       }
     }
     return attributed

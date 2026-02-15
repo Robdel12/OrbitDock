@@ -91,7 +91,7 @@ struct ActiveSessionRow: View {
         VStack(alignment: .leading, spacing: 3) {
           HStack(spacing: 6) {
             Text(session.displayName)
-              .font(.system(size: 13, weight: .semibold))
+              .font(.system(size: TypeScale.subhead, weight: .semibold))
               .foregroundStyle(.primary)
               .lineLimit(1)
 
@@ -102,9 +102,9 @@ struct ActiveSessionRow: View {
 
           HStack(spacing: 6) {
             Image(systemName: activityIcon)
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
             Text(activityText)
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.body, weight: .medium))
               .lineLimit(1)
           }
           .foregroundStyle(needsAttention ? displayStatus.color : .secondary)
@@ -122,8 +122,8 @@ struct ActiveSessionRow: View {
         // Provider + Model badge
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
       }
-      .padding(.vertical, 10)
-      .padding(.horizontal, 14)
+      .padding(.vertical, Spacing.md)
+      .padding(.horizontal, Spacing.md)
       .background(rowBackground)
       .overlay(rowBorder)
     }
@@ -163,14 +163,14 @@ struct ActiveSessionRow: View {
     } label: {
       HStack(spacing: 4) {
         Image(systemName: displayStatus == .question ? "eye" : "arrow.right.circle")
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
         Text(displayStatus == .question ? "View" : "Review")
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
       }
       .foregroundStyle(displayStatus.color)
-      .padding(.horizontal, 10)
+      .padding(.horizontal, Spacing.md)
       .padding(.vertical, 5)
-      .background(displayStatus.color.opacity(0.15), in: Capsule())
+      .background(displayStatus.color.opacity(OpacityTier.light), in: Capsule())
     }
     .buttonStyle(.plain)
   }
@@ -178,26 +178,26 @@ struct ActiveSessionRow: View {
   // MARK: - Stats Section
 
   private var statsSection: some View {
-    HStack(spacing: 10) {
+    HStack(spacing: Spacing.md) {
       // Duration
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: "clock")
-          .font(.system(size: 10))
+          .font(.system(size: TypeScale.caption))
         Text(session.formattedDuration)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .font(.system(size: TypeScale.body, weight: .medium, design: .monospaced))
       }
       .foregroundStyle(.tertiary)
 
       // Branch (if present)
       if let branch = session.branch, !branch.isEmpty {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
           Image(systemName: "arrow.triangle.branch")
-            .font(.system(size: 10))
+            .font(.system(size: TypeScale.caption))
           Text(branch)
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
             .lineLimit(1)
         }
-        .foregroundStyle(Color.gitBranch.opacity(0.8))
+        .foregroundStyle(Color.gitBranch.opacity(OpacityTier.vivid))
       }
     }
   }
@@ -206,16 +206,16 @@ struct ActiveSessionRow: View {
 
   private var rowBackground: some View {
     ZStack(alignment: .leading) {
-      RoundedRectangle(cornerRadius: 10, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .fill(isSelected ? Color.accent
-          .opacity(0.15) : (isHovering ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.6)))
+          .opacity(OpacityTier.light) : (isHovering ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.6)))
 
       // Left accent bar when selected
       RoundedRectangle(cornerRadius: 2, style: .continuous)
         .fill(Color.accent)
-        .frame(width: 3)
-        .padding(.leading, 4)
-        .padding(.vertical, 6)
+        .frame(width: EdgeBar.width)
+        .padding(.leading, Spacing.xs)
+        .padding(.vertical, Spacing.sm)
         .opacity(isSelected ? 1 : 0)
         .scaleEffect(x: 1, y: isSelected ? 1 : 0.5, anchor: .center)
     }
@@ -223,11 +223,11 @@ struct ActiveSessionRow: View {
   }
 
   private var rowBorder: some View {
-    RoundedRectangle(cornerRadius: 10, style: .continuous)
+    RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
       .stroke(
         needsAttention
-          ? displayStatus.color.opacity(isHovering ? 0.5 : 0.35)
-          : displayStatus.color.opacity(isHovering ? 0.2 : 0.1),
+          ? displayStatus.color.opacity(isHovering ? OpacityTier.strong : OpacityTier.medium)
+          : displayStatus.color.opacity(isHovering ? OpacityTier.medium : OpacityTier.subtle),
         lineWidth: needsAttention ? 1.5 : 1
       )
   }

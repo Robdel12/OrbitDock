@@ -2,8 +2,9 @@
 //  InlineCommentThread.swift
 //  OrbitDock
 //
-//  Renders review comments inline below the annotated diff line.
-//  Matches the DiffHunkView gutter grid: [3px purple bar][72px gutter][1px sep][body]
+//  Renders open review comments inline below the annotated diff line.
+//  Pixel-aligned with DiffHunkView gutter grid:
+//  [3px edge][72px gutter][1px sep][20px prefix zone][comment content]
 //
 
 import SwiftUI
@@ -12,6 +13,7 @@ struct InlineCommentThread: View {
   let comments: [ServerReviewComment]
   let onResolve: (ServerReviewComment) -> Void
 
+  private let gutterBg = Color.white.opacity(0.015)
   private let gutterBorder = Color.white.opacity(0.06)
 
   var body: some View {
@@ -23,44 +25,50 @@ struct InlineCommentThread: View {
   }
 
   private func commentCard(_ comment: ServerReviewComment) -> some View {
-    let isResolved = comment.status == .resolved
-
-    return HStack(alignment: .top, spacing: 0) {
+    HStack(alignment: .top, spacing: 0) {
       // Purple edge bar
       Rectangle()
         .fill(Color.statusQuestion)
-        .frame(width: 3)
+        .frame(width: EdgeBar.width)
 
-      // Gutter zone with bubble icon
+      // Gutter zone with bubble icon — matches diff line number width
       HStack {
         Spacer()
         Image(systemName: "text.bubble.fill")
-          .font(.system(size: 9))
-          .foregroundStyle(Color.statusQuestion.opacity(isResolved ? 0.3 : 0.6))
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.statusQuestion.opacity(0.6))
         Spacer()
       }
       .frame(width: 72)
+      .background(gutterBg)
 
       // Separator
       Rectangle()
         .fill(gutterBorder)
         .frame(width: 1)
 
-      // Comment body
+      // Left quote bar — occupies the 20px prefix zone
+      Rectangle()
+        .fill(Color.statusQuestion.opacity(0.5))
+        .frame(width: 2)
+        .padding(.leading, 9)
+        .padding(.trailing, 9)
+
+      // Comment body — now aligns with code content
       VStack(alignment: .leading, spacing: 4) {
         // Header: tag + timestamp + resolve toggle
         HStack(spacing: 6) {
           if let tag = comment.tag {
             Text(tag.rawValue)
-              .font(.system(size: 9, weight: .semibold))
+              .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(Color.statusQuestion)
               .padding(.horizontal, 6)
               .padding(.vertical, 2)
-              .background(Color.statusQuestion.opacity(0.12), in: Capsule())
+              .background(Color.statusQuestion.opacity(OpacityTier.light), in: Capsule())
           }
 
           Text(relativeTime(comment.createdAt))
-            .font(.system(size: 9, design: .monospaced))
+            .font(.system(size: TypeScale.micro, design: .monospaced))
             .foregroundStyle(.tertiary)
 
           Spacer()
@@ -68,34 +76,34 @@ struct InlineCommentThread: View {
           Button {
             onResolve(comment)
           } label: {
-            Image(systemName: isResolved ? "checkmark.circle.fill" : "checkmark.circle")
-              .font(.system(size: 12))
-              .foregroundStyle(isResolved ? Color.statusReady : Color.white.opacity(0.3))
+            Image(systemName: "checkmark.circle")
+              .font(.system(size: TypeScale.code))
+              .foregroundStyle(Color.white.opacity(0.3))
           }
           .buttonStyle(.plain)
-          .help(isResolved ? "Unresolve" : "Resolve")
+          .help("Resolve")
         }
 
         // Body text
         Text(comment.body)
-          .font(.system(size: 12, design: .monospaced))
+          .font(.system(size: TypeScale.code, design: .monospaced))
           .foregroundStyle(.primary)
           .fixedSize(horizontal: false, vertical: true)
 
         if let lineEnd = comment.lineEnd, lineEnd != comment.lineStart {
           Text("Lines \(comment.lineStart)–\(lineEnd)")
-            .font(.system(size: 9, design: .monospaced))
+            .font(.system(size: TypeScale.micro, design: .monospaced))
             .foregroundStyle(.quaternary)
         }
       }
-      .padding(8)
+      .padding(.vertical, 6)
+      .padding(.trailing, 12)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.statusQuestion.opacity(0.04))
-    .opacity(isResolved ? 0.5 : 1.0)
+    .background(Color.statusQuestion.opacity(OpacityTier.tint))
     .overlay(alignment: .top) {
       Rectangle()
-        .fill(Color.statusQuestion.opacity(0.15))
+        .fill(Color.statusQuestion.opacity(OpacityTier.light))
         .frame(height: 1)
     }
   }
@@ -104,7 +112,6 @@ struct InlineCommentThread: View {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     guard let date = formatter.date(from: isoString) else {
-      // Try without fractional seconds
       formatter.formatOptions = [.withInternetDateTime]
       guard let date = formatter.date(from: isoString) else { return isoString }
       return formatRelative(date)

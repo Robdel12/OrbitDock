@@ -290,20 +290,20 @@ struct SessionDetailView: View {
   // MARK: - Action Bar
 
   private var actionBar: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: Spacing.lg) {
       // Focus/Resume
       Button {
         openInITerm()
       } label: {
-        HStack(spacing: 6) {
+        HStack(spacing: Spacing.sm) {
           Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.code, weight: .medium))
           Text(session.isActive ? "Focus" : "Resume")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.code, weight: .medium))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
         .foregroundStyle(.primary)
       }
       .buttonStyle(.plain)
@@ -311,12 +311,12 @@ struct SessionDetailView: View {
       .help(session.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
 
       // Secondary actions
-      HStack(spacing: 2) {
+      HStack(spacing: Spacing.xxs) {
         Button {
           copyResumeCommand()
         } label: {
           Image(systemName: copiedResume ? "checkmark" : "doc.on.doc")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.code, weight: .medium))
             .frame(width: 32, height: 32)
             .foregroundStyle(copiedResume ? Color.statusSuccess : .secondary)
         }
@@ -327,31 +327,31 @@ struct SessionDetailView: View {
           NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
         } label: {
           Image(systemName: "folder")
-            .font(.system(size: 12, weight: .medium))
+            .font(.system(size: TypeScale.code, weight: .medium))
             .frame(width: 32, height: 32)
             .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
         .help("Open in Finder")
       }
-      .padding(2)
-      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .padding(Spacing.xxs)
+      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
 
       // Context stats
-      HStack(spacing: 12) {
+      HStack(spacing: Spacing.md) {
         ContextGaugeCompact(stats: usageStats)
 
         if usageStats.estimatedCostUSD > 0 {
           Text(usageStats.formattedCost)
-            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-            .foregroundStyle(.primary.opacity(0.8))
+            .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary.opacity(OpacityTier.vivid))
         }
       }
 
       Spacer()
 
       // Right: Chat scroll + timestamp
-      HStack(spacing: 16) {
+      HStack(spacing: Spacing.lg) {
         // New messages button (only when paused with unread)
         if !isPinned, unreadCount > 0 {
           Button {
@@ -361,13 +361,13 @@ struct SessionDetailView: View {
           } label: {
             HStack(spacing: 5) {
               Image(systemName: "arrow.down")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: TypeScale.caption, weight: .bold))
               Text("\(unreadCount) new")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: TypeScale.code, weight: .semibold))
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .background(Color.accent, in: Capsule())
           }
           .buttonStyle(.plain)
@@ -384,15 +384,15 @@ struct SessionDetailView: View {
         } label: {
           HStack(spacing: 5) {
             Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.body, weight: .medium))
             Text(isPinned ? "Following" : "Paused")
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.code, weight: .medium))
           }
           .foregroundStyle(isPinned ? .secondary : .primary)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm)
           .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
               .fill(isPinned ? Color.clear : Color.backgroundTertiary)
           )
         }
@@ -401,15 +401,15 @@ struct SessionDetailView: View {
         // Last activity timestamp
         if let lastActivity = session.lastActivityAt {
           Text(lastActivity, style: .relative)
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: TypeScale.body, design: .monospaced))
             .foregroundStyle(.tertiary)
         }
       }
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
     }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md)
     .background(Color.backgroundSecondary)
   }
 
@@ -423,15 +423,15 @@ struct SessionDetailView: View {
           Button {
             serverState.resumeSession(session.id)
           } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: Spacing.sm) {
               Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: TypeScale.code, weight: .medium))
               Text("Resume")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: TypeScale.code, weight: .medium))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(Color.accent.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
             .foregroundStyle(Color.accent)
           }
           .buttonStyle(.plain)
@@ -440,12 +440,12 @@ struct SessionDetailView: View {
 
           if let lastActivity = session.lastActivityAt {
             Text(lastActivity, style: .relative)
-              .font(.system(size: 11, design: .monospaced))
+              .font(.system(size: TypeScale.body, design: .monospaced))
               .foregroundStyle(.tertiary)
           }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
         .background(Color.backgroundSecondary)
       } else {
         // Input bar when waiting for input
@@ -462,7 +462,7 @@ struct SessionDetailView: View {
         }
 
         // Status bar
-        HStack(spacing: 16) {
+        HStack(spacing: Spacing.lg) {
           // Interrupt button when working
           if session.workStatus == .working {
             CodexInterruptButton(sessionId: session.id)
@@ -476,16 +476,16 @@ struct SessionDetailView: View {
             Button {
               serverState.compactContext(sessionId: session.id)
             } label: {
-              HStack(spacing: 4) {
+              HStack(spacing: Spacing.xs) {
                 Image(systemName: "arrow.triangle.2.circlepath")
-                  .font(.system(size: 11, weight: .medium))
+                  .font(.system(size: TypeScale.body, weight: .medium))
                 Text("Compact")
-                  .font(.system(size: 11, weight: .medium))
+                  .font(.system(size: TypeScale.body, weight: .medium))
               }
               .foregroundStyle(.secondary)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 6)
-              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .padding(.horizontal, Spacing.md)
+              .padding(.vertical, Spacing.sm)
+              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
             }
             .buttonStyle(.plain)
             .help("Summarize conversation to free context window")
@@ -498,21 +498,21 @@ struct SessionDetailView: View {
           Button {
             serverState.undoLastTurn(sessionId: session.id)
           } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               if serverState.session(session.id).undoInProgress {
                 ProgressView()
                   .controlSize(.mini)
               } else {
                 Image(systemName: "arrow.uturn.backward")
-                  .font(.system(size: 11, weight: .medium))
+                  .font(.system(size: TypeScale.body, weight: .medium))
               }
               Text("Undo")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.body, weight: .medium))
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           }
           .buttonStyle(.plain)
           .disabled(serverState.session(session.id).undoInProgress)
@@ -522,21 +522,21 @@ struct SessionDetailView: View {
           Button {
             serverState.forkSession(sessionId: session.id)
           } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               if serverState.session(session.id).forkInProgress {
                 ProgressView()
                   .controlSize(.mini)
               } else {
                 Image(systemName: "arrow.triangle.branch")
-                  .font(.system(size: 11, weight: .medium))
+                  .font(.system(size: TypeScale.body, weight: .medium))
               }
               Text("Fork")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.body, weight: .medium))
             }
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           }
           .buttonStyle(.plain)
           .disabled(serverState.session(session.id).forkInProgress)
@@ -547,26 +547,26 @@ struct SessionDetailView: View {
               showApprovalHistory.toggle()
             }
           } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: Spacing.xs) {
               Image(systemName: "checklist")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.body, weight: .medium))
               Text("Approvals")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.body, weight: .medium))
               if approvalHistoryCount > 0 {
                 Text("\(approvalHistoryCount)")
-                  .font(.system(size: 10, weight: .bold))
+                  .font(.system(size: TypeScale.caption, weight: .bold))
                   .padding(.horizontal, 5)
                   .padding(.vertical, 1)
-                  .background(Color.accent.opacity(0.18), in: Capsule())
+                  .background(Color.accent.opacity(OpacityTier.medium), in: Capsule())
                   .foregroundStyle(Color.accent)
               }
             }
             .foregroundStyle(showApprovalHistory ? Color.accent : .secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.sm)
             .background(
-              showApprovalHistory ? Color.accent.opacity(0.15) : Color.surfaceHover,
-              in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+              showApprovalHistory ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+              in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             )
           }
           .buttonStyle(.plain)
@@ -574,7 +574,7 @@ struct SessionDetailView: View {
           Spacer()
 
           // Chat scroll controls + timestamp
-          HStack(spacing: 16) {
+          HStack(spacing: Spacing.lg) {
             // New messages button
             if !isPinned, unreadCount > 0 {
               Button {
@@ -584,13 +584,13 @@ struct SessionDetailView: View {
               } label: {
                 HStack(spacing: 5) {
                   Image(systemName: "arrow.down")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: TypeScale.caption, weight: .bold))
                   Text("\(unreadCount) new")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: TypeScale.code, weight: .semibold))
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.sm)
                 .background(Color.accent, in: Capsule())
               }
               .buttonStyle(.plain)
@@ -606,15 +606,15 @@ struct SessionDetailView: View {
             } label: {
               HStack(spacing: 5) {
                 Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
-                  .font(.system(size: 11, weight: .medium))
+                  .font(.system(size: TypeScale.body, weight: .medium))
                 Text(isPinned ? "Following" : "Paused")
-                  .font(.system(size: 12, weight: .medium))
+                  .font(.system(size: TypeScale.code, weight: .medium))
               }
               .foregroundStyle(isPinned ? .secondary : .primary)
-              .padding(.horizontal, 12)
-              .padding(.vertical, 8)
+              .padding(.horizontal, Spacing.md)
+              .padding(.vertical, Spacing.sm)
               .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                   .fill(isPinned ? Color.clear : Color.backgroundTertiary)
               )
             }
@@ -623,13 +623,13 @@ struct SessionDetailView: View {
             // Last activity timestamp
             if let lastActivity = session.lastActivityAt {
               Text(lastActivity, style: .relative)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: TypeScale.body, design: .monospaced))
                 .foregroundStyle(.tertiary)
             }
           }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
         .background(Color.backgroundSecondary)
       }
     }
@@ -648,6 +648,29 @@ struct SessionDetailView: View {
       pendingToolInput: session.pendingToolInput,
       provider: session.provider,
       model: session.model,
+      onNavigateToReviewFile: { filePath, lineNumber in
+        // Navigate to the file in the review canvas and jump to the line
+        reviewFileId = filePath
+        // Create a synthetic comment to navigate to the specific line
+        navigateToComment = ServerReviewComment(
+          id: "nav-\(filePath)-\(lineNumber)",
+          sessionId: session.id,
+          turnId: nil,
+          filePath: filePath,
+          lineStart: UInt32(lineNumber),
+          lineEnd: nil,
+          body: "",
+          tag: nil,
+          status: .resolved,
+          createdAt: "",
+          updatedAt: nil
+        )
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          if layoutConfig == .conversationOnly {
+            layoutConfig = .split
+          }
+        }
+      },
       isPinned: $isPinned,
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger
@@ -677,18 +700,18 @@ struct SessionDetailView: View {
         showDiffBanner = false
       }
     } label: {
-      HStack(spacing: 6) {
+      HStack(spacing: Spacing.sm) {
         Image(systemName: "doc.badge.plus")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.body, weight: .medium))
         Text("\(fileCount) file\(fileCount == 1 ? "" : "s") changed — Review Diffs")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.body, weight: .medium))
         Image(systemName: "arrow.right")
-          .font(.system(size: 9, weight: .bold))
+          .font(.system(size: TypeScale.micro, weight: .bold))
       }
       .foregroundStyle(Color.accent)
-      .padding(.horizontal, 14)
-      .padding(.vertical, 6)
-      .background(Color.accent.opacity(0.1), in: Capsule())
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, Spacing.sm)
+      .background(Color.accent.opacity(OpacityTier.subtle), in: Capsule())
     }
     .buttonStyle(.plain)
     .frame(maxWidth: .infinity)

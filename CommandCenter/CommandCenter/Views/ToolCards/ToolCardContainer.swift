@@ -36,11 +36,11 @@ struct ToolCardContainer<Header: View, Content: View>: View {
       HStack(spacing: 0) {
         Rectangle()
           .fill(color)
-          .frame(width: 4)
+          .frame(width: EdgeBar.width)
 
         header
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm)
 
         Spacer(minLength: 0)
       }
@@ -70,14 +70,14 @@ struct ToolCardContainer<Header: View, Content: View>: View {
           .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
-    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .background(
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .fill(Color.backgroundTertiary.opacity(0.3))
     )
     .overlay(
-      RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .strokeBorder(color.opacity(isHovering ? 0.4 : 0.2), lineWidth: 1)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(color.opacity(isHovering ? OpacityTier.strong : OpacityTier.medium), lineWidth: 1)
     )
   }
 }

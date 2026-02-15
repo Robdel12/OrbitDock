@@ -11,6 +11,8 @@ import SwiftUI
 struct CommentComposerView: View {
   @Binding var commentBody: String
   @Binding var tag: ServerReviewCommentTag?
+  var fileName: String? = nil
+  var lineLabel: String? = nil
   let onSubmit: () -> Void
   let onCancel: () -> Void
 
@@ -23,7 +25,7 @@ struct CommentComposerView: View {
       // Purple edge bar
       Rectangle()
         .fill(Color.statusQuestion)
-        .frame(width: 3)
+        .frame(width: EdgeBar.width)
 
       // Empty gutter zone
       Color.clear
@@ -36,28 +38,52 @@ struct CommentComposerView: View {
 
       // Composer content
       VStack(alignment: .leading, spacing: 8) {
-        // Tag picker
-        HStack(spacing: 6) {
-          ForEach(ServerReviewCommentTag.allCases, id: \.self) { t in
-            tagCapsule(t, isSelected: tag == t)
+        // Line metadata + tag picker
+        HStack(spacing: 8) {
+          if let lineLabel {
+            HStack(spacing: 4) {
+              Image(systemName: "text.line.first.and.arrowtriangle.forward")
+                .font(.system(size: 8, weight: .medium))
+              Text(lineLabel)
+                .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
+            }
+            .foregroundStyle(Color.statusQuestion.opacity(0.9))
+
+            if let fileName {
+              Text("in")
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(.quaternary)
+              Text(fileName)
+                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+                .foregroundStyle(.tertiary)
+            }
+          }
+
+          Spacer()
+
+          // Tag picker
+          HStack(spacing: 6) {
+            ForEach(ServerReviewCommentTag.allCases, id: \.self) { t in
+              tagCapsule(t, isSelected: tag == t)
+            }
           }
         }
 
         // Text editor
         TextEditor(text: $commentBody)
-          .font(.system(size: 12, design: .monospaced))
+          .font(.system(size: TypeScale.code, design: .monospaced))
           .scrollContentBackground(.hidden)
           .focused($isTextFocused)
-          .frame(minHeight: 48, maxHeight: 120)
+          .frame(minHeight: 48, maxHeight: 96)
           .padding(6)
           .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
               .fill(Color.backgroundPrimary.opacity(0.6))
           )
           .overlay(alignment: .topLeading) {
             if commentBody.isEmpty {
               Text("Add a comment...")
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: TypeScale.code, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 14)
@@ -71,7 +97,7 @@ struct CommentComposerView: View {
 
           Button(action: onCancel) {
             Text("Cancel")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(.secondary)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
@@ -82,7 +108,7 @@ struct CommentComposerView: View {
             onSubmit()
           } label: {
             Text("Comment")
-              .font(.system(size: 11, weight: .semibold))
+              .font(.system(size: TypeScale.body, weight: .semibold))
               .foregroundStyle(.white)
               .padding(.horizontal, 14)
               .padding(.vertical, 6)
@@ -90,14 +116,14 @@ struct CommentComposerView: View {
                 commentBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                   ? Color.statusQuestion.opacity(0.4)
                   : Color.statusQuestion,
-                in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
               )
           }
           .buttonStyle(.plain)
           .disabled(commentBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
       }
-      .padding(10)
+      .padding(Spacing.sm)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.backgroundTertiary)
@@ -126,14 +152,14 @@ struct CommentComposerView: View {
       tag = isSelected ? nil : t
     } label: {
       Text(t.rawValue)
-        .font(.system(size: 10, weight: .medium))
+        .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(isSelected ? .white : Color.statusQuestion)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(
           isSelected
             ? Color.statusQuestion
-            : Color.statusQuestion.opacity(0.12),
+            : Color.statusQuestion.opacity(OpacityTier.light),
           in: Capsule()
         )
         .overlay(

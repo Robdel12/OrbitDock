@@ -11,6 +11,51 @@
 
 import SwiftUI
 
+// MARK: - Design Tokens
+
+/// 4pt-base spacing scale — replaces ad-hoc pixel values across the app.
+enum Spacing {
+  static let xxs: CGFloat = 2
+  static let xs: CGFloat = 4
+  static let sm: CGFloat = 8
+  static let md: CGFloat = 12
+  static let lg: CGFloat = 16
+  static let xl: CGFloat = 24
+}
+
+/// Canonical font sizes — collapses 10.5/11/12 clutter to a clear hierarchy.
+enum TypeScale {
+  static let micro: CGFloat = 9
+  static let caption: CGFloat = 10
+  static let body: CGFloat = 11
+  static let code: CGFloat = 12
+  static let subhead: CGFloat = 13
+  static let title: CGFloat = 14
+}
+
+/// Corner radius tiers — replaces ad-hoc 4/5/6/8/10/12 mix.
+enum Radius {
+  static let sm: CGFloat = 4
+  static let md: CGFloat = 6
+  static let lg: CGFloat = 8
+  static let xl: CGFloat = 12
+}
+
+/// Opacity tiers — collapses 17+ unique values to 6 semantic levels.
+enum OpacityTier {
+  static let tint: Double = 0.04
+  static let subtle: Double = 0.08
+  static let light: Double = 0.12
+  static let medium: Double = 0.20
+  static let strong: Double = 0.40
+  static let vivid: Double = 0.70
+}
+
+/// Standard left-edge accent bar width (was 2px/3px/4px mix).
+enum EdgeBar {
+  static let width: CGFloat = 3
+}
+
 // MARK: - Design System
 
 extension Color {
@@ -31,6 +76,26 @@ extension Color {
 
   /// Alias for backwards compatibility
   static let accentPrimary = accent
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Diff Colors — Inline Review
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// Line background washes (softer than previous 0.55)
+  static let diffAddedBg = Color(red: 0.12, green: 0.26, blue: 0.15).opacity(0.45)
+  static let diffRemovedBg = Color(red: 0.30, green: 0.12, blue: 0.12).opacity(0.45)
+
+  /// Prefix / text accent colors
+  static let diffAddedAccent = Color(red: 0.4, green: 0.95, blue: 0.5)
+  static let diffRemovedAccent = Color(red: 1.0, green: 0.5, blue: 0.5)
+
+  /// Left edge bar colors (saturated, opaque)
+  static let diffAddedEdge = Color(red: 0.3, green: 0.78, blue: 0.4)
+  static let diffRemovedEdge = Color(red: 0.85, green: 0.35, blue: 0.35)
+
+  /// Word-level inline highlights (softer: 0.25 down from 0.35)
+  static let diffAddedHighlight = Color(red: 0.4, green: 0.95, blue: 0.5).opacity(0.25)
+  static let diffRemovedHighlight = Color(red: 1.0, green: 0.5, blue: 0.5).opacity(0.25)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Backgrounds - Deep Space with Nebula Undertones

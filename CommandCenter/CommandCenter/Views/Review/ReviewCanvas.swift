@@ -72,6 +72,17 @@ private struct ComposerLineRange: Equatable {
   let lineEnd: UInt32?
 }
 
+// MARK: - Review Round Tracking
+
+/// Records the state when a batch of review comments was sent to the model.
+/// Used to detect which files the model modified in response to review feedback.
+private struct ReviewRound {
+  let sentAt: Date
+  let turnDiffCountAtSend: Int     // obs.turnDiffs.count when review was sent
+  let reviewedFilePaths: Set<String>
+  let commentCount: Int
+}
+
 // MARK: - ReviewCanvas
 
 struct ReviewCanvas: View {
@@ -99,6 +110,15 @@ struct ReviewCanvas: View {
   @State private var composerTarget: ComposerLineRange?
   @State private var composerBody: String = ""
   @State private var composerTag: ServerReviewCommentTag? = nil
+
+  // Mouse drag state for gutter range selection
+  @State private var mouseDragAnchor: (fileIdx: Int, hunkIdx: Int, lineIdx: Int)?
+  @State private var mouseDragCurrent: (fileIdx: Int, hunkIdx: Int, lineIdx: Int)?
+
+  // Review round tracking — detects which files the model modified after feedback
+  @State private var lastReviewRound: ReviewRound?
+  @State private var showReviewBanner: Bool = true
+  @State private var showResolvedComments: Bool = false
 
   private var obs: SessionObservable {
     serverState.session(sessionId)
@@ -239,13 +259,104 @@ struct ReviewCanvas: View {
         turnDiffs: obs.turnDiffs,
         selectedFileId: fileListBinding(model),
         selectedTurnDiffId: $selectedTurnDiffId,
-        commentCounts: buildCommentCounts()
+        commentCounts: buildCommentCounts(),
+        addressedFiles: addressedFilePaths,
+        reviewPendingFiles: reviewedFilePaths.subtracting(addressedFilePaths),
+        showResolvedComments: $showResolvedComments,
+        hasResolvedComments: hasResolvedComments
       )
 
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      unifiedDiffView(model)
+      VStack(spacing: 0) {
+        fullLayoutToolbar(model)
+        unifiedDiffView(model)
+      }
+    }
+  }
+
+  // MARK: - Full Layout Toolbar
+
+  private func fullLayoutToolbar(_ model: DiffModel) -> some View {
+    let totalAdds = model.files.reduce(0) { $0 + $1.stats.additions }
+    let totalDels = model.files.reduce(0) { $0 + $1.stats.deletions }
+
+    return HStack(spacing: 8) {
+      // Current file indicator
+      if let file = currentFile(model) {
+        let fileName = file.newPath.components(separatedBy: "/").last ?? file.newPath
+        Text(fileName)
+          .font(.system(size: TypeScale.body, weight: .semibold, design: .monospaced))
+          .foregroundStyle(.primary.opacity(0.8))
+          .lineLimit(1)
+      }
+
+      Spacer()
+
+      // History toggle
+      if hasResolvedComments {
+        Button {
+          withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+            showResolvedComments.toggle()
+          }
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: showResolvedComments ? "eye.fill" : "eye.slash")
+              .font(.system(size: TypeScale.micro, weight: .medium))
+            Text("History")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+          }
+          .foregroundStyle(showResolvedComments ? Color.statusQuestion : Color.white.opacity(0.3))
+          .padding(.horizontal, 8)
+          .padding(.vertical, 4)
+          .background(
+            showResolvedComments ? Color.statusQuestion.opacity(0.1) : Color.clear,
+            in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          )
+        }
+        .buttonStyle(.plain)
+      }
+
+      // Follow indicator
+      if isSessionActive {
+        Button {
+          isFollowing.toggle()
+          if isFollowing {
+            let targets = computeVisibleTargets(model)
+            if let lastFile = targets.lastIndex(where: { $0.isFileHeader }) {
+              cursorIndex = lastFile
+            }
+          }
+        } label: {
+          HStack(spacing: 4) {
+            Circle()
+              .fill(isFollowing ? Color.accent : Color.white.opacity(0.2))
+              .frame(width: 5, height: 5)
+            Text(isFollowing ? "Following" : "Paused")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(isFollowing ? Color.accent : Color.white.opacity(0.3))
+          }
+        }
+        .buttonStyle(.plain)
+      }
+
+      // Stats
+      HStack(spacing: 4) {
+        Text("+\(totalAdds)")
+          .foregroundStyle(Color.diffAddedAccent.opacity(0.8))
+        Text("\u{2212}\(totalDels)")
+          .foregroundStyle(Color.diffRemovedAccent.opacity(0.8))
+      }
+      .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, 6)
+    .background(Color.backgroundSecondary)
+    .overlay(alignment: .bottom) {
+      Rectangle()
+        .fill(Color.panelBorder)
+        .frame(height: 1)
     }
   }
 
@@ -268,6 +379,9 @@ struct ReviewCanvas: View {
     return ScrollViewReader { proxy in
       ScrollView(.vertical, showsIndicators: true) {
         VStack(alignment: .leading, spacing: 0) {
+          // Review round status banner
+          reviewBanner
+
           ForEach(Array(model.files.enumerated()), id: \.element.id) { fileIdx, file in
             fileSectionHeader(
               file: file,
@@ -286,6 +400,7 @@ struct ReviewCanvas: View {
 
             if !collapsedFiles.contains(file.id) {
               let language = ToolCardStyle.detectLanguage(from: file.newPath)
+              let groupedResolved = groupedResolvedComments(forFile: file.newPath)
 
               ForEach(Array(file.hunks.enumerated()), id: \.element.id) { hunkIdx, hunk in
                 if hunkIdx > 0 {
@@ -317,19 +432,46 @@ struct ReviewCanvas: View {
                   isCursorOnHeader: isCursorOnHunkHeader(fileIdx: fileIdx, hunkIdx: hunkIdx, target: target),
                   isHunkCollapsed: isHunkCollapsed,
                   commentedLines: commentedNewLineNums(forFile: file.newPath),
-                  selectionLines: selectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)
+                  selectionLines: mouseSelectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)
+                    .union(selectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)),
+                  composerLineRange: composerLineRangeForHunk(fileIdx: fileIdx, hunkIdx: hunkIdx),
+                  onLineComment: { clickedIdx, smartRange in
+                    handleLineComment(fileIdx: fileIdx, hunkIdx: hunkIdx, clickedIdx: clickedIdx, smartRange: smartRange, model: model)
+                  },
+                  onLineDragChanged: { anchor, current in
+                    handleLineDragChanged(fileIdx: fileIdx, hunkIdx: hunkIdx, anchor: anchor, current: current)
+                  },
+                  onLineDragEnded: { startIdx, endIdx in
+                    handleLineDragEnded(fileIdx: fileIdx, hunkIdx: hunkIdx, startIdx: startIdx, endIdx: endIdx, model: model)
+                  }
                 ) { lineIdx, line in
-                  // Inline comments
+                  // Inline comments: open → full thread, resolved → grouped marker
                   if let newLine = line.newLineNum {
-                    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
-                    if !lineComments.isEmpty {
+                    // Open comments: per-line interactive threads
+                    let openComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
+                      .filter { $0.status == .open }
+
+                    if !openComments.isEmpty {
                       InlineCommentThread(
-                        comments: lineComments,
+                        comments: openComments,
                         onResolve: { comment in
                           resolveComment(comment)
                         }
                       )
                       .id("comments-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
+                    }
+
+                    // Resolved comments: grouped by proximity — adjacent comments merge
+                    // into a single marker at the last line of the group
+                    if let resolvedGroup = groupedResolved[newLine] {
+                      ResolvedCommentMarker(
+                        comments: resolvedGroup,
+                        onReopen: { comment in
+                          resolveComment(comment)
+                        },
+                        startExpanded: showResolvedComments
+                      )
+                      .id("resolved-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
                     }
                   }
 
@@ -338,9 +480,16 @@ struct ReviewCanvas: View {
                      ct.fileIndex == fileIdx,
                      ct.hunkIndex == hunkIdx,
                      ct.lineEndIdx == lineIdx {
+                    let fileName = ct.filePath.components(separatedBy: "/").last ?? ct.filePath
+                    let lineLabel = ct.lineEnd.map { end in
+                      end != ct.lineStart ? "Lines \(ct.lineStart)–\(end)" : "Line \(ct.lineStart)"
+                    } ?? "Line \(ct.lineStart)"
+
                     CommentComposerView(
                       commentBody: $composerBody,
                       tag: $composerTag,
+                      fileName: fileName,
+                      lineLabel: lineLabel,
                       onSubmit: { submitComment() },
                       onCancel: { composerTarget = nil; composerBody = ""; composerTag = nil }
                     )
@@ -413,22 +562,22 @@ struct ReviewCanvas: View {
   }
 
   private var sendReviewBar: some View {
-    let count = obs.reviewComments.filter { $0.status == .open }.count
+    let count = obs.reviewComments.filter { $0.status == .open && commentMatchesTurnView($0) }.count
 
     return Button(action: sendReview) {
       HStack(spacing: 8) {
         Image(systemName: "paperplane.fill")
-          .font(.system(size: 11, weight: .medium))
+          .font(.system(size: TypeScale.body, weight: .medium))
 
         Text("Send \(count) comment\(count == 1 ? "" : "s") to model")
-          .font(.system(size: 12, weight: .semibold))
+          .font(.system(size: TypeScale.code, weight: .semibold))
 
         Text("S")
-          .font(.system(size: 10, weight: .bold, design: .monospaced))
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
           .foregroundStyle(.white.opacity(0.5))
           .padding(.horizontal, 5)
           .padding(.vertical, 2)
-          .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 3))
+          .background(.white.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm))
       }
       .foregroundStyle(.white)
       .padding(.horizontal, 16)
@@ -451,21 +600,21 @@ struct ReviewCanvas: View {
       // Cursor indicator — accent left bar
       Rectangle()
         .fill(isCursor ? Color.accent : Color.clear)
-        .frame(width: 3)
+        .frame(width: EdgeBar.width)
 
       // Collapse chevron
       Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-        .font(.system(size: 9, weight: .semibold))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
         .foregroundStyle(isCursor ? Color.accent : Color.white.opacity(0.25))
         .frame(width: 24)
 
       // Change type icon
       ZStack {
         Circle()
-          .fill(changeTypeColor(file.changeType).opacity(0.15))
+          .fill(changeTypeColor(file.changeType).opacity(OpacityTier.light))
           .frame(width: 22, height: 22)
         Image(systemName: fileIcon(file.changeType))
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(changeTypeColor(file.changeType))
       }
       .padding(.trailing, 8)
@@ -479,35 +628,52 @@ struct ReviewCanvas: View {
         if file.stats.additions > 0 {
           HStack(spacing: 2) {
             Text("+")
-              .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5).opacity(0.7))
+              .foregroundStyle(Color.diffAddedAccent.opacity(0.7))
             Text("\(file.stats.additions)")
-              .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5))
+              .foregroundStyle(Color.diffAddedAccent)
           }
         }
         if file.stats.deletions > 0 {
           HStack(spacing: 2) {
             Text("\u{2212}")
-              .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5).opacity(0.7))
+              .foregroundStyle(Color.diffRemovedAccent.opacity(0.7))
             Text("\(file.stats.deletions)")
-              .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5))
+              .foregroundStyle(Color.diffRemovedAccent)
           }
         }
       }
-      .font(.system(size: 10, weight: .bold, design: .monospaced))
+      .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+
+      // Review status badge
+      if let addressed = isFileAddressed(file.newPath) {
+        HStack(spacing: 3) {
+          Image(systemName: addressed ? "checkmark" : "clock")
+            .font(.system(size: 8, weight: .bold))
+          Text(addressed ? "Updated" : "In review")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+        }
+        .foregroundStyle(addressed ? Color.accent : Color.statusQuestion)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(
+          (addressed ? Color.accent : Color.statusQuestion).opacity(OpacityTier.light),
+          in: Capsule()
+        )
+      }
 
       Spacer(minLength: 16)
 
       // Collapsed hunk count hint
       if isCollapsed {
         Text("\(file.hunks.count) hunk\(file.hunks.count == 1 ? "" : "s")")
-          .font(.system(size: 9, weight: .medium))
+          .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(.tertiary)
           .padding(.trailing, 8)
       }
     }
     .padding(.vertical, 8)
     .padding(.trailing, 8)
-    .background(isCursor ? Color.accent.opacity(0.12) : Color.backgroundSecondary)
+    .background(isCursor ? Color.accent.opacity(OpacityTier.light) : Color.backgroundSecondary)
     .contentShape(Rectangle())
   }
 
@@ -519,11 +685,11 @@ struct ReviewCanvas: View {
     return HStack(spacing: 0) {
       if !dirPath.isEmpty {
         Text(dirPath)
-          .font(.system(size: 11, weight: .regular, design: .monospaced))
+          .font(.system(size: TypeScale.body, weight: .regular, design: .monospaced))
           .foregroundStyle(.tertiary)
       }
       Text(fileName)
-        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+        .font(.system(size: TypeScale.body, weight: .semibold, design: .monospaced))
         .foregroundStyle(.primary)
     }
     .lineLimit(1)
@@ -735,27 +901,75 @@ struct ReviewCanvas: View {
   // MARK: - Comment Helpers
 
   /// Get all comments whose range ends at this line (so thread appears after the last selected line).
+  /// Scoped to the active turn view — when viewing a specific turn, only shows that turn's comments.
   private func commentsForLine(filePath: String, lineNum: Int) -> [ServerReviewComment] {
     obs.reviewComments.filter { comment in
       comment.filePath == filePath &&
-      Int(comment.lineEnd ?? comment.lineStart) == lineNum
+      Int(comment.lineEnd ?? comment.lineStart) == lineNum &&
+      commentMatchesTurnView(comment)
     }
   }
 
-  /// Build a map of filePath → comment count for the file list.
+  /// Group resolved comments by proximity — adjacent lineEnd values merge into a single marker.
+  /// Returns a map of newLineNum → [comments] where the key is the last line in each contiguous group.
+  private func groupedResolvedComments(forFile filePath: String) -> [Int: [ServerReviewComment]] {
+    let resolved = obs.reviewComments.filter { comment in
+      comment.filePath == filePath &&
+      comment.status == .resolved &&
+      commentMatchesTurnView(comment)
+    }
+
+    guard !resolved.isEmpty else { return [:] }
+
+    // Group by lineEnd
+    var byLineEnd: [Int: [ServerReviewComment]] = [:]
+    for comment in resolved {
+      let lineEnd = Int(comment.lineEnd ?? comment.lineStart)
+      byLineEnd[lineEnd, default: []].append(comment)
+    }
+
+    // Sort and merge adjacent groups
+    let sortedLines = byLineEnd.keys.sorted()
+    var merged: [Int: [ServerReviewComment]] = [:]
+    var currentGroup: [ServerReviewComment] = []
+    var currentEnd: Int = -10
+
+    for lineNum in sortedLines {
+      if lineNum <= currentEnd + 1 {
+        // Adjacent — merge into current group
+        currentGroup.append(contentsOf: byLineEnd[lineNum]!)
+        currentEnd = lineNum
+      } else {
+        // Gap — flush previous group
+        if !currentGroup.isEmpty {
+          merged[currentEnd] = currentGroup
+        }
+        currentGroup = byLineEnd[lineNum]!
+        currentEnd = lineNum
+      }
+    }
+    if !currentGroup.isEmpty {
+      merged[currentEnd] = currentGroup
+    }
+
+    return merged
+  }
+
+  /// Build a map of filePath → open comment count for the file list.
   private func buildCommentCounts() -> [String: Int] {
     var counts: [String: Int] = [:]
-    for comment in obs.reviewComments {
+    for comment in obs.reviewComments where comment.status == .open && commentMatchesTurnView(comment) {
       counts[comment.filePath, default: 0] += 1
     }
     return counts
   }
 
   /// Set of new-side line numbers that have comments for a given file.
-  /// Marks ALL lines in the range (not just lineStart) for purple indicator.
+  /// In normal mode, only marks open comments. In history mode, marks all.
   private func commentedNewLineNums(forFile filePath: String) -> Set<Int> {
     var result = Set<Int>()
-    for comment in obs.reviewComments where comment.filePath == filePath {
+    for comment in obs.reviewComments where comment.filePath == filePath && commentMatchesTurnView(comment) {
+      if !showResolvedComments && comment.status != .open { continue }
       let start = Int(comment.lineStart)
       let end = Int(comment.lineEnd ?? comment.lineStart)
       for line in start...end {
@@ -763,6 +977,14 @@ struct ReviewCanvas: View {
       }
     }
     return result
+  }
+
+  /// Whether a comment matches the currently active turn view.
+  /// "All Changes" view shows all comments; per-turn view shows only that turn's comments
+  /// (plus comments with no turn, which are global).
+  private func commentMatchesTurnView(_ comment: ServerReviewComment) -> Bool {
+    guard let activeTurn = selectedTurnDiffId else { return true } // "All Changes" shows everything
+    return comment.turnId == nil || comment.turnId == activeTurn
   }
 
   /// Set of line indices within a hunk that fall in the mark-to-cursor selection range.
@@ -804,6 +1026,110 @@ struct ReviewCanvas: View {
       let hunkLineCount = model.files[fileIdx].hunks[hunkIdx].lines.count
       return Set(0..<hunkLineCount)
     }
+  }
+
+  // MARK: - Mouse Interactions
+
+  /// Handle click on the + comment button — uses smart connected block range.
+  private func handleLineComment(fileIdx: Int, hunkIdx: Int, clickedIdx: Int, smartRange: ClosedRange<Int>, model: DiffModel) {
+    let file = model.files[fileIdx]
+    let hunk = file.hunks[hunkIdx]
+
+    // Clear any keyboard mark
+    commentMark = nil
+
+    // Use the smart range to find start/end new-side line numbers
+    let startIdx = smartRange.lowerBound
+    let endIdx = smartRange.upperBound
+
+    // Find first new-side line number in range (skip removed-only lines)
+    var startNewLine: Int?
+    for i in startIdx...endIdx {
+      if let n = hunk.lines[i].newLineNum { startNewLine = n; break }
+    }
+
+    // Find last new-side line number in range
+    var endNewLine: Int?
+    for i in stride(from: endIdx, through: startIdx, by: -1) {
+      if let n = hunk.lines[i].newLineNum { endNewLine = n; break }
+    }
+
+    guard let sn = startNewLine else { return }
+
+    composerTarget = ComposerLineRange(
+      filePath: file.newPath,
+      fileIndex: fileIdx,
+      hunkIndex: hunkIdx,
+      lineStartIdx: startIdx,
+      lineEndIdx: endIdx,
+      lineStart: UInt32(sn),
+      lineEnd: endNewLine.map { UInt32($0) }
+    )
+    composerBody = ""
+    composerTag = nil
+  }
+
+  /// Handle drag update — show selection highlight.
+  private func handleLineDragChanged(fileIdx: Int, hunkIdx: Int, anchor: Int, current: Int) {
+    commentMark = nil
+    mouseDragAnchor = (fileIdx, hunkIdx, anchor)
+    mouseDragCurrent = (fileIdx, hunkIdx, current)
+  }
+
+  /// Handle drag end — open composer for the dragged range.
+  private func handleLineDragEnded(fileIdx: Int, hunkIdx: Int, startIdx: Int, endIdx: Int, model: DiffModel) {
+    let file = model.files[fileIdx]
+    let hunk = file.hunks[hunkIdx]
+
+    // Find new-side line numbers for the range
+    var startNewLine: Int?
+    for i in startIdx...endIdx {
+      if let n = hunk.lines[i].newLineNum { startNewLine = n; break }
+    }
+    var endNewLine: Int?
+    for i in stride(from: endIdx, through: startIdx, by: -1) {
+      if let n = hunk.lines[i].newLineNum { endNewLine = n; break }
+    }
+
+    guard let sn = startNewLine else {
+      mouseDragAnchor = nil
+      mouseDragCurrent = nil
+      return
+    }
+
+    composerTarget = ComposerLineRange(
+      filePath: file.newPath,
+      fileIndex: fileIdx,
+      hunkIndex: hunkIdx,
+      lineStartIdx: startIdx,
+      lineEndIdx: endIdx,
+      lineStart: UInt32(sn),
+      lineEnd: endNewLine.map { UInt32($0) }
+    )
+    composerBody = ""
+    composerTag = nil
+
+    mouseDragAnchor = nil
+    mouseDragCurrent = nil
+  }
+
+  /// Line index range within a hunk that has an active composer open.
+  private func composerLineRangeForHunk(fileIdx: Int, hunkIdx: Int) -> ClosedRange<Int>? {
+    guard let ct = composerTarget,
+          ct.fileIndex == fileIdx,
+          ct.hunkIndex == hunkIdx else { return nil }
+    return ct.lineStartIdx...ct.lineEndIdx
+  }
+
+  /// Line indices within a hunk that fall in the mouse drag selection.
+  private func mouseSelectionLineIndices(fileIdx: Int, hunkIdx: Int) -> Set<Int> {
+    guard let anchor = mouseDragAnchor, let current = mouseDragCurrent else { return [] }
+    guard anchor.fileIdx == fileIdx, anchor.hunkIdx == hunkIdx,
+          current.fileIdx == fileIdx, current.hunkIdx == hunkIdx else { return [] }
+
+    let start = min(anchor.lineIdx, current.lineIdx)
+    let end = max(anchor.lineIdx, current.lineIdx)
+    return Set(start...end)
   }
 
   /// Check if a cursor target (diffLine) has a non-nil newLineNum.
@@ -880,14 +1206,20 @@ struct ReviewCanvas: View {
   }
 
   /// Submit the current comment to the server.
+  /// Associates the comment with the correct turn diff — either the one being viewed,
+  /// or auto-inferred from the file when on "All Changes" view.
   private func submitComment() {
     guard let ct = composerTarget else { return }
     let trimmed = composerBody.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return }
 
+    // Smart turn association: if viewing "All Changes", find the latest turn that
+    // modified this file so the comment shows up on the correct edit turn.
+    let turnId = selectedTurnDiffId ?? inferTurnId(forFile: ct.filePath)
+
     serverState.createReviewComment(
       sessionId: sessionId,
-      turnId: nil,
+      turnId: turnId,
       filePath: ct.filePath,
       lineStart: ct.lineStart,
       lineEnd: ct.lineEnd,
@@ -977,9 +1309,10 @@ struct ReviewCanvas: View {
   }
 
   /// Build a map of filePath → Set<newLineNum> for unresolved comments.
+  /// Respects the active turn view scope.
   private func buildUnresolvedCommentLineMap(model: DiffModel) -> [String: Set<Int>] {
     var map: [String: Set<Int>] = [:]
-    for comment in obs.reviewComments where comment.status == .open {
+    for comment in obs.reviewComments where comment.status == .open && commentMatchesTurnView(comment) {
       map[comment.filePath, default: []].insert(Int(comment.lineStart))
     }
     return map
@@ -1117,13 +1450,26 @@ struct ReviewCanvas: View {
   }
 
   /// Send all open review comments as structured feedback to the model, then resolve them.
+  /// Records a review round to track which files the model modifies in response.
   private func sendReview() {
+    let openComments = obs.reviewComments.filter { $0.status == .open }
+    guard !openComments.isEmpty else { return }
     guard let message = formatReviewMessage() else { return }
+
+    // Record review round before sending
+    let reviewedFiles = Set(openComments.map(\.filePath))
+    lastReviewRound = ReviewRound(
+      sentAt: Date(),
+      turnDiffCountAtSend: obs.turnDiffs.count,
+      reviewedFilePaths: reviewedFiles,
+      commentCount: openComments.count
+    )
+    showReviewBanner = true
 
     serverState.sendMessage(sessionId: sessionId, content: message)
 
     // Mark all open comments as resolved after sending
-    for comment in obs.reviewComments where comment.status == .open {
+    for comment in openComments {
       serverState.updateReviewComment(
         commentId: comment.id,
         body: nil,
@@ -1134,7 +1480,148 @@ struct ReviewCanvas: View {
   }
 
   private var hasOpenComments: Bool {
-    obs.reviewComments.contains { $0.status == .open }
+    obs.reviewComments.contains { $0.status == .open && commentMatchesTurnView($0) }
+  }
+
+  private var hasResolvedComments: Bool {
+    obs.reviewComments.contains { $0.status == .resolved && commentMatchesTurnView($0) }
+  }
+
+  // MARK: - Review Banner
+
+  @ViewBuilder
+  private var reviewBanner: some View {
+    if let round = lastReviewRound, showReviewBanner {
+      let addressed = addressedFilePaths
+      let hasChanges = hasPostReviewChanges
+      let accentColor = hasChanges ? Color.accent : Color.statusQuestion
+
+      HStack(spacing: 0) {
+        // Left accent bar
+        Rectangle()
+          .fill(accentColor)
+          .frame(width: 3)
+
+        HStack(spacing: Spacing.sm) {
+          // Status icon
+          if hasChanges {
+            Image(systemName: addressed.count == round.reviewedFilePaths.count
+              ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(accentColor)
+          } else {
+            Image(systemName: "paperplane.fill")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(accentColor)
+          }
+
+          // Status text
+          if hasChanges {
+            let total = round.reviewedFilePaths.count
+            Text("\(addressed.count) of \(total) reviewed file\(total == 1 ? "" : "s") updated")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(.primary.opacity(OpacityTier.vivid))
+          } else {
+            Text("Review sent")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(.primary.opacity(OpacityTier.vivid))
+
+            Text("\(round.commentCount) comment\(round.commentCount == 1 ? "" : "s") on \(round.reviewedFilePaths.count) file\(round.reviewedFilePaths.count == 1 ? "" : "s")")
+              .font(.system(size: TypeScale.caption, design: .monospaced))
+              .foregroundStyle(.tertiary)
+          }
+
+          Spacer()
+
+          // Dismiss button
+          Button {
+            withAnimation(.easeOut(duration: 0.15)) {
+              showReviewBanner = false
+            }
+          } label: {
+            Image(systemName: "xmark")
+              .font(.system(size: 8, weight: .bold))
+              .foregroundStyle(.quaternary)
+              .padding(Spacing.xs)
+          }
+          .buttonStyle(.plain)
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+      }
+      .background(accentColor.opacity(OpacityTier.tint))
+      .overlay(alignment: .bottom) {
+        Rectangle()
+          .fill(accentColor.opacity(OpacityTier.light))
+          .frame(height: 1)
+      }
+      .transition(.asymmetric(
+        insertion: .move(edge: .top).combined(with: .opacity),
+        removal: .opacity
+      ))
+    }
+  }
+
+  // MARK: - Review Round Status
+
+  /// Check if a file was reviewed and subsequently modified by the model.
+  /// Returns: nil (not reviewed), false (reviewed but not yet modified), true (reviewed and addressed).
+  private func isFileAddressed(_ filePath: String) -> Bool? {
+    guard let round = lastReviewRound else { return nil }
+    guard round.reviewedFilePaths.contains(filePath) else { return nil }
+
+    // Check turn diffs that arrived AFTER the review was sent
+    let postReviewDiffs = Array(obs.turnDiffs.dropFirst(round.turnDiffCountAtSend))
+    if postReviewDiffs.isEmpty { return false } // Model hasn't produced changes yet
+
+    for td in postReviewDiffs {
+      if diffMentionsFile(td.diff, filePath: filePath) { return true }
+    }
+    return false
+  }
+
+  /// Set of file paths that were part of the last review round.
+  private var reviewedFilePaths: Set<String> {
+    lastReviewRound?.reviewedFilePaths ?? []
+  }
+
+  /// Set of file paths the model modified after the last review.
+  private var addressedFilePaths: Set<String> {
+    guard let round = lastReviewRound else { return [] }
+    let postReviewDiffs = Array(obs.turnDiffs.dropFirst(round.turnDiffCountAtSend))
+    guard !postReviewDiffs.isEmpty else { return [] }
+
+    var addressed = Set<String>()
+    for td in postReviewDiffs {
+      for path in round.reviewedFilePaths {
+        if diffMentionsFile(td.diff, filePath: path) {
+          addressed.insert(path)
+        }
+      }
+    }
+    return addressed
+  }
+
+  /// Whether the model has produced any new turn diffs since the last review.
+  private var hasPostReviewChanges: Bool {
+    guard let round = lastReviewRound else { return false }
+    return obs.turnDiffs.count > round.turnDiffCountAtSend
+  }
+
+  /// Quick check if a unified diff string contains changes for a specific file.
+  private func diffMentionsFile(_ diff: String, filePath: String) -> Bool {
+    diff.contains("+++ b/\(filePath)") || diff.contains("--- a/\(filePath)")
+  }
+
+  /// Infer which turn a comment belongs to by finding the latest turn that touched the file.
+  /// Used when commenting on "All Changes" — maps the comment to the right edit turn.
+  private func inferTurnId(forFile filePath: String) -> String? {
+    for turnDiff in obs.turnDiffs.reversed() {
+      if diffMentionsFile(turnDiff.diff, filePath: filePath) {
+        return turnDiff.turnId
+      }
+    }
+    return nil
   }
 
   // MARK: - Compact File Strip
@@ -1146,7 +1633,7 @@ struct ReviewCanvas: View {
       // Source selector row
       if !obs.turnDiffs.isEmpty {
         ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 3) {
+          HStack(spacing: Spacing.xs) {
             compactSourceButton(
               label: "All Changes",
               icon: "square.stack.3d.up",
@@ -1177,7 +1664,7 @@ struct ReviewCanvas: View {
       // File chips row
       HStack(spacing: 0) {
         ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 3) {
+          HStack(spacing: Spacing.xs) {
             ForEach(Array(model.files.enumerated()), id: \.element.id) { idx, file in
               fileChip(file, isSelected: idx == cursorFileIdx)
                 .onTapGesture {
@@ -1198,6 +1685,28 @@ struct ReviewCanvas: View {
             .frame(height: 16)
             .foregroundStyle(Color.panelBorder)
 
+          // Show/hide resolved comments toggle
+          if hasResolvedComments {
+            Button {
+              withAnimation(.spring(response: 0.2, dampingFraction: 0.85)) {
+                showResolvedComments.toggle()
+              }
+            } label: {
+              HStack(spacing: Spacing.xs) {
+                Image(systemName: showResolvedComments ? "eye.fill" : "eye.slash")
+                  .font(.system(size: 8, weight: .medium))
+                Text(showResolvedComments ? "History" : "History")
+                  .font(.system(size: TypeScale.micro, weight: .medium))
+              }
+              .foregroundStyle(showResolvedComments ? Color.statusQuestion : Color.white.opacity(0.3))
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+              .frame(height: 12)
+              .foregroundStyle(Color.panelBorder)
+          }
+
           if isSessionActive {
             Button {
               isFollowing.toggle()
@@ -1208,12 +1717,12 @@ struct ReviewCanvas: View {
                 }
               }
             } label: {
-              HStack(spacing: 3) {
+              HStack(spacing: Spacing.xs) {
                 Circle()
                   .fill(isFollowing ? Color.accent : Color.white.opacity(0.2))
                   .frame(width: 5, height: 5)
                 Text(isFollowing ? "Following" : "Paused")
-                  .font(.system(size: 9, weight: .medium))
+                  .font(.system(size: TypeScale.micro, weight: .medium))
                   .foregroundStyle(isFollowing ? Color.accent : Color.white.opacity(0.3))
               }
             }
@@ -1223,17 +1732,17 @@ struct ReviewCanvas: View {
           let totalAdds = model.files.reduce(0) { $0 + $1.stats.additions }
           let totalDels = model.files.reduce(0) { $0 + $1.stats.deletions }
 
-          HStack(spacing: 3) {
+          HStack(spacing: Spacing.xs) {
             Text("+\(totalAdds)")
-              .foregroundStyle(Color(red: 0.4, green: 0.95, blue: 0.5).opacity(0.8))
+              .foregroundStyle(Color.diffAddedAccent.opacity(0.8))
             Text("\u{2212}\(totalDels)")
-              .foregroundStyle(Color(red: 1.0, green: 0.5, blue: 0.5).opacity(0.8))
+              .foregroundStyle(Color.diffRemovedAccent.opacity(0.8))
           }
-          .font(.system(size: 9, weight: .semibold, design: .monospaced))
+          .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
         }
         .padding(.trailing, 8)
       }
-      .padding(.vertical, 5)
+      .padding(.vertical, Spacing.sm)
     }
     .background(Color.backgroundSecondary)
   }
@@ -1241,14 +1750,22 @@ struct ReviewCanvas: View {
   private func fileChip(_ file: FileDiff, isSelected: Bool) -> some View {
     let fileName = file.newPath.components(separatedBy: "/").last ?? file.newPath
     let changeColor = chipColor(file.changeType)
+    let reviewStatus = isFileAddressed(file.newPath)
 
     return HStack(spacing: 4) {
-      RoundedRectangle(cornerRadius: 1)
-        .fill(changeColor)
-        .frame(width: 2, height: 14)
+      // Review status dot — tiny indicator overlaid on the change bar
+      if let addressed = reviewStatus {
+        Circle()
+          .fill(addressed ? Color.accent : Color.statusQuestion)
+          .frame(width: 5, height: 5)
+      } else {
+        RoundedRectangle(cornerRadius: 1)
+          .fill(changeColor)
+          .frame(width: 2, height: 14)
+      }
 
       Text(fileName)
-        .font(.system(size: 10, weight: isSelected ? .semibold : .medium, design: .monospaced))
+        .font(.system(size: TypeScale.caption, weight: isSelected ? .semibold : .medium, design: .monospaced))
         .foregroundStyle(isSelected ? .primary : .secondary)
         .lineLimit(1)
 
@@ -1256,7 +1773,7 @@ struct ReviewCanvas: View {
         HStack(spacing: 0) {
           if file.stats.additions > 0 {
             RoundedRectangle(cornerRadius: 0.5)
-              .fill(Color(red: 0.3, green: 0.78, blue: 0.4))
+              .fill(Color.diffAddedEdge)
               .frame(
                 width: microBarWidth(count: file.stats.additions, total: file.stats.additions + file.stats.deletions),
                 height: 3
@@ -1264,7 +1781,7 @@ struct ReviewCanvas: View {
           }
           if file.stats.deletions > 0 {
             RoundedRectangle(cornerRadius: 0.5)
-              .fill(Color(red: 0.85, green: 0.35, blue: 0.35))
+              .fill(Color.diffRemovedEdge)
               .frame(
                 width: microBarWidth(count: file.stats.deletions, total: file.stats.additions + file.stats.deletions),
                 height: 3
@@ -1273,15 +1790,15 @@ struct ReviewCanvas: View {
         }
       }
     }
-    .padding(.horizontal, 6)
-    .padding(.vertical, 4)
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, Spacing.xs)
     .background(
-      RoundedRectangle(cornerRadius: 4, style: .continuous)
-        .fill(isSelected ? Color.accent.opacity(0.12) : Color.backgroundTertiary.opacity(0.5))
+      RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        .fill(isSelected ? Color.accent.opacity(OpacityTier.light) : Color.backgroundTertiary.opacity(0.5))
     )
     .overlay(
-      RoundedRectangle(cornerRadius: 4, style: .continuous)
-        .strokeBorder(isSelected ? Color.accent.opacity(0.3) : Color.clear, lineWidth: 1)
+      RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        .strokeBorder(isSelected ? Color.accent.opacity(OpacityTier.medium) : Color.clear, lineWidth: 1)
     )
   }
 
@@ -1292,8 +1809,8 @@ struct ReviewCanvas: View {
 
   private func chipColor(_ type: FileChangeType) -> Color {
     switch type {
-    case .added: Color(red: 0.3, green: 0.78, blue: 0.4)
-    case .deleted: Color(red: 0.85, green: 0.35, blue: 0.35)
+    case .added: Color.diffAddedAccent
+    case .deleted: Color.diffRemovedAccent
     case .renamed, .modified: Color.accent
     }
   }
@@ -1304,18 +1821,18 @@ struct ReviewCanvas: View {
         Image(systemName: icon)
           .font(.system(size: 8, weight: .medium))
         Text(label)
-          .font(.system(size: 9, weight: isSelected ? .semibold : .medium))
+          .font(.system(size: TypeScale.micro, weight: isSelected ? .semibold : .medium))
       }
       .foregroundStyle(isSelected ? Color.accent : .secondary)
-      .padding(.horizontal, 6)
+      .padding(.horizontal, Spacing.sm)
       .padding(.vertical, 3)
       .background(
-        isSelected ? Color.accent.opacity(0.15) : Color.backgroundTertiary.opacity(0.5),
-        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+        isSelected ? Color.accent.opacity(OpacityTier.light) : Color.backgroundTertiary.opacity(0.5),
+        in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
       )
       .overlay(
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-          .strokeBorder(isSelected ? Color.accent.opacity(0.2) : Color.clear, lineWidth: 1)
+        RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          .strokeBorder(isSelected ? Color.accent.opacity(OpacityTier.medium) : Color.clear, lineWidth: 1)
       )
     }
     .buttonStyle(.plain)
@@ -1362,8 +1879,8 @@ struct ReviewCanvas: View {
 
   private func changeTypeColor(_ type: FileChangeType) -> Color {
     switch type {
-    case .added: Color(red: 0.4, green: 0.95, blue: 0.5)
-    case .deleted: Color(red: 1.0, green: 0.5, blue: 0.5)
+    case .added: Color.diffAddedAccent
+    case .deleted: Color.diffRemovedAccent
     case .renamed, .modified: Color.accent
     }
   }

@@ -16,6 +16,7 @@ struct ConversationView: View {
   var pendingToolInput: String?
   var provider: Provider = .claude
   var model: String?
+  var onNavigateToReviewFile: ((String, Int) -> Void)? = nil  // (filePath, lineNumber) deep link from review card
 
   @Environment(ServerAppState.self) private var serverState
 
@@ -190,7 +191,8 @@ struct ConversationView: View {
                     if let sid = sessionId, let nth = nthUserMessage {
                       serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
                     }
-                  } : nil
+                  } : nil,
+                  onNavigateToReviewFile: onNavigateToReviewFile
                 )
                 .id(message.id)
               }
@@ -373,6 +375,7 @@ struct ThreadMessage: View {
   var onRollback: (() -> Void)? = nil
   var nthUserMessage: Int? = nil
   var onFork: (() -> Void)? = nil
+  var onNavigateToReviewFile: ((String, Int) -> Void)? = nil
   @State private var isContentExpanded = false
   @State private var isThinkingExpanded = false
 
@@ -417,6 +420,11 @@ struct ThreadMessage: View {
     ParsedTaskNotification.parse(from: message.content)
   }
 
+  /// Check if content is a code review feedback message
+  private var isCodeReviewFeedback: Bool {
+    message.content.hasPrefix("## Code Review Feedback")
+  }
+
   private var userMessage: some View {
     VStack(alignment: .trailing, spacing: 6) {
       HStack(alignment: .top, spacing: 0) {
@@ -431,6 +439,12 @@ struct ThreadMessage: View {
           TaskNotificationCard(notification: notification, timestamp: message.timestamp)
         } else if let caveat = parsedSystemCaveat {
           SystemCaveatView(caveat: caveat)
+        } else if isCodeReviewFeedback {
+          CodeReviewFeedbackCard(
+            content: message.content,
+            timestamp: message.timestamp,
+            onNavigateToFile: onNavigateToReviewFile
+          )
         } else {
           standardUserMessage
         }

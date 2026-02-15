@@ -40,20 +40,20 @@ struct HeaderView: View {
         HStack(spacing: 4) {
           Button(action: onTogglePanel) {
             Image(systemName: "sidebar.left")
-              .font(.system(size: 12, weight: .medium))
+              .font(.system(size: TypeScale.code, weight: .medium))
               .foregroundStyle(.secondary)
               .frame(width: 28, height: 28)
-              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           }
           .buttonStyle(.plain)
           .help("Toggle projects panel (⌘1)")
 
           Button(action: onGoToDashboard) {
             Image(systemName: "square.grid.2x2")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(.secondary)
               .frame(width: 28, height: 28)
-              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           }
           .buttonStyle(.plain)
           .help("Go to dashboard (⌘0)")
@@ -78,69 +78,71 @@ struct HeaderView: View {
 
         // Session title (primary focus)
         Button(action: onOpenSwitcher) {
-          HStack(spacing: 6) {
+          HStack(spacing: Spacing.md / 2) {
             Text(agentName)
-              .font(.system(size: 14, weight: .semibold))
+              .font(.system(size: TypeScale.title, weight: .semibold))
               .foregroundStyle(.primary)
               .lineLimit(1)
 
             Image(systemName: "chevron.down")
-              .font(.system(size: 9, weight: .semibold))
+              .font(.system(size: TypeScale.micro, weight: .semibold))
               .foregroundStyle(.tertiary)
           }
-          .padding(.vertical, 4)
-          .padding(.horizontal, 8)
+          .padding(.vertical, Spacing.xs)
+          .padding(.horizontal, Spacing.sm)
           .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
               .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
           )
         }
         .buttonStyle(.plain)
         .onHover { isHoveringProject = $0 }
 
-        // Provider + Model badge
-        UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
+        // Metadata cluster — model + capabilities + layout toggle grouped as one unit
+        HStack(spacing: Spacing.xs) {
+          UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
 
-        // Capability badges (Codex sessions only)
-        ForEach(SessionCapability.capabilities(for: session)) { cap in
-          CapabilityBadge(label: cap.label, icon: cap.icon, color: cap.color)
-        }
+          ForEach(SessionCapability.capabilities(for: session)) { cap in
+            CapabilityBadge(label: cap.label, icon: cap.icon, color: cap.color)
+          }
 
-        // Status pill (only when active)
-        if session.isActive {
-          StatusPillCompact(workStatus: session.workStatus, currentTool: currentTool)
-        }
+          if session.isActive {
+            StatusPillCompact(workStatus: session.workStatus, currentTool: currentTool)
+          }
 
-        // Layout toggle (Codex direct sessions only)
-        if let layoutBinding = layoutConfig {
-          layoutToggle(layoutBinding)
+          if let layoutBinding = layoutConfig {
+            layoutToggle(layoutBinding)
+          }
         }
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, Spacing.xs)
+        .background(Color.backgroundTertiary.opacity(0.3), in: Capsule())
 
         Spacer()
 
-        // Duration only (usage stats in bottom bar)
+        // Duration — receded to tertiary
         Text(session.formattedDuration)
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(.secondary)
+          .font(.system(size: TypeScale.body, weight: .medium, design: .monospaced))
+          .foregroundStyle(.tertiary)
 
         // Quick actions
         HStack(spacing: 4) {
           Button(action: onOpenSwitcher) {
             Image(systemName: "magnifyingglass")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(.tertiary)
               .frame(width: 28, height: 28)
-              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           }
           .buttonStyle(.plain)
           .help("Search sessions (⌘K)")
 
           Button(action: onFocusTerminal) {
             Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(.secondary)
               .frame(width: 28, height: 28)
-              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
           }
           .buttonStyle(.plain)
           .help(session.isActive ? "Focus terminal" : "Resume in terminal")
@@ -153,12 +155,12 @@ struct HeaderView: View {
               }
             } label: {
               Image(systemName: "sidebar.right")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.body, weight: .medium))
                 .foregroundStyle(sidebarBinding.wrappedValue ? AnyShapeStyle(Color.accent) : AnyShapeStyle(.tertiary))
                 .frame(width: 28, height: 28)
                 .background(
-                  sidebarBinding.wrappedValue ? Color.accent.opacity(0.15) : Color.surfaceHover,
-                  in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                  sidebarBinding.wrappedValue ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+                  in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                 )
             }
             .buttonStyle(.plain)
@@ -169,46 +171,41 @@ struct HeaderView: View {
           if session.isDirectCodex, session.isActive, let onEnd = onEndSession {
             Button(action: onEnd) {
               Image(systemName: "stop.circle")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: TypeScale.body, weight: .medium))
                 .foregroundStyle(Color.statusPermission)
                 .frame(width: 28, height: 28)
-                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
             }
             .buttonStyle(.plain)
             .help("End session")
           }
         }
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 10)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
 
       // Context row - Breadcrumb with project context
-      HStack(spacing: 8) {
+      HStack(spacing: Spacing.lg) {
         // Git branch
         if let branch = session.branch, !branch.isEmpty {
           HStack(spacing: 5) {
             Image(systemName: "arrow.triangle.branch")
-              .font(.system(size: 10, weight: .semibold))
+              .font(.system(size: TypeScale.caption, weight: .semibold))
             Text(branch)
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.body, weight: .medium))
           }
           .foregroundStyle(Color.gitBranch)
         }
-
-        // Separator
-        Text("•")
-          .font(.system(size: 8))
-          .foregroundStyle(.quaternary)
 
         // Project/Path
         Button {
           openInEditor(session.projectPath)
         } label: {
-          HStack(spacing: 4) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: "folder")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
             Text(shortenPath(session.projectPath))
-              .font(.system(size: 10, design: .monospaced))
+              .font(.system(size: TypeScale.caption, design: .monospaced))
           }
           .foregroundStyle(isHoveringPath ? .primary : .tertiary)
         }
@@ -238,8 +235,8 @@ struct HeaderView: View {
 
         Spacer()
       }
-      .padding(.horizontal, 16)
-      .padding(.bottom, 10)
+      .padding(.horizontal, Spacing.lg)
+      .padding(.bottom, Spacing.sm)
     }
     .background(Color.backgroundSecondary)
   }
@@ -262,16 +259,16 @@ struct HeaderView: View {
             .foregroundStyle(isSelected ? Color.accent : .secondary)
             .frame(width: 26, height: 22)
             .background(
-              isSelected ? Color.accent.opacity(0.15) : Color.clear,
-              in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+              isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
             )
         }
         .buttonStyle(.plain)
         .help(config.label)
       }
     }
-    .padding(2)
-    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    .padding(Spacing.xxs)
+    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
   }
 
   // MARK: - Helpers
@@ -362,7 +359,7 @@ struct StatusPillCompact: View {
 
   var body: some View {
     if workStatus != .unknown {
-      HStack(spacing: 4) {
+      HStack(spacing: Spacing.xs) {
         if workStatus == .working {
           ProgressView()
             .controlSize(.mini)
@@ -371,13 +368,13 @@ struct StatusPillCompact: View {
             .font(.system(size: 8, weight: .bold))
         }
         Text(label)
-          .font(.system(size: 10, weight: .semibold))
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .lineLimit(1)
       }
       .foregroundStyle(color)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(color.opacity(0.12), in: Capsule())
+      .padding(.horizontal, Spacing.sm)
+      .padding(.vertical, Spacing.xs)
+      .background(color.opacity(OpacityTier.light), in: Capsule())
     }
   }
 }
