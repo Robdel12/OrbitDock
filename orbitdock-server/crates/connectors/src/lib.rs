@@ -134,6 +134,13 @@ pub enum ConnectorEvent {
     /// Thread context was rolled back by N turns
     ThreadRolledBack { num_turns: u32 },
 
+    /// Environment changed (cwd, git branch, git sha)
+    EnvironmentChanged {
+        cwd: Option<String>,
+        git_branch: Option<String>,
+        git_sha: Option<String>,
+    },
+
     /// Error occurred
     Error(String),
 }

@@ -166,6 +166,12 @@ pub struct SessionSummary {
     pub sandbox_mode: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_cwd: Option<String>,
 }
 
 /// A diff snapshot from a completed turn
@@ -212,6 +218,12 @@ pub struct SessionState {
     pub turn_count: u64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub turn_diffs: Vec<TurnDiff>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_cwd: Option<String>,
 }
 
 /// Changes to apply to a session state (delta updates)
@@ -243,6 +255,12 @@ pub struct StateChanges {
     pub current_turn_id: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_sha: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_cwd: Option<Option<String>>,
 }
 
 /// Changes to apply to a message (delta updates)

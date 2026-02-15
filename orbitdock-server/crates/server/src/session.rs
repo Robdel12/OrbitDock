@@ -35,6 +35,9 @@ pub struct SessionSnapshot {
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     pub revision: u64,
+    pub git_branch: Option<String>,
+    pub git_sha: Option<String>,
+    pub current_cwd: Option<String>,
 }
 
 const EVENT_LOG_CAPACITY: usize = 1000;
@@ -65,6 +68,9 @@ pub struct SessionHandle {
     started_at: Option<String>,
     last_activity_at: Option<String>,
     forked_from_session_id: Option<String>,
+    git_branch: Option<String>,
+    git_sha: Option<String>,
+    current_cwd: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Track approval type by request_id so we can dispatch correctly
     pending_approval_types: HashMap<String, ApprovalType>,
@@ -101,6 +107,9 @@ impl SessionHandle {
             started_at: Some(now.clone()),
             last_activity_at: Some(now.clone()),
             revision: 0,
+            git_branch: None,
+            git_sha: None,
+            current_cwd: None,
         };
         Self {
             id,
@@ -126,6 +135,9 @@ impl SessionHandle {
             started_at: Some(now.clone()),
             last_activity_at: Some(now),
             forked_from_session_id: None,
+            git_branch: None,
+            git_sha: None,
+            current_cwd: None,
             broadcast_tx,
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
@@ -156,6 +168,9 @@ impl SessionHandle {
         current_diff: Option<String>,
         current_plan: Option<String>,
         turn_diffs: Vec<TurnDiff>,
+        git_branch: Option<String>,
+        git_sha: Option<String>,
+        current_cwd: Option<String>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -176,6 +191,9 @@ impl SessionHandle {
             started_at: started_at.clone(),
             last_activity_at: last_activity_at.clone(),
             revision: 0,
+            git_branch: git_branch.clone(),
+            git_sha: git_sha.clone(),
+            current_cwd: current_cwd.clone(),
         };
         Self {
             id,
@@ -201,6 +219,9 @@ impl SessionHandle {
             started_at,
             last_activity_at,
             forked_from_session_id: None,
+            git_branch,
+            git_sha,
+            current_cwd,
             broadcast_tx,
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
@@ -243,6 +264,9 @@ impl SessionHandle {
             sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
+            git_branch: self.git_branch.clone(),
+            git_sha: self.git_sha.clone(),
+            current_cwd: self.current_cwd.clone(),
         }
     }
 
@@ -273,6 +297,9 @@ impl SessionHandle {
             current_turn_id: self.current_turn_id.clone(),
             turn_count: self.turn_count,
             turn_diffs: self.turn_diffs.clone(),
+            git_branch: self.git_branch.clone(),
+            git_sha: self.git_sha.clone(),
+            current_cwd: self.current_cwd.clone(),
         }
     }
 
@@ -474,6 +501,15 @@ impl SessionHandle {
         if let Some(turn_count) = changes.turn_count {
             self.turn_count = turn_count;
         }
+        if let Some(ref git_branch) = changes.git_branch {
+            self.git_branch = git_branch.clone();
+        }
+        if let Some(ref git_sha) = changes.git_sha {
+            self.git_sha = git_sha.clone();
+        }
+        if let Some(ref current_cwd) = changes.current_cwd {
+            self.current_cwd = current_cwd.clone();
+        }
     }
 
     /// Create a snapshot of current session metadata
@@ -496,6 +532,9 @@ impl SessionHandle {
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             revision: self.revision,
+            git_branch: self.git_branch.clone(),
+            git_sha: self.git_sha.clone(),
+            current_cwd: self.current_cwd.clone(),
         }
     }
 
@@ -581,6 +620,9 @@ impl SessionHandle {
             current_turn_id: self.current_turn_id.clone(),
             turn_count: self.turn_count,
             turn_diffs: self.turn_diffs.clone(),
+            git_branch: self.git_branch.clone(),
+            git_sha: self.git_sha.clone(),
+            current_cwd: self.current_cwd.clone(),
         }
     }
 
@@ -596,6 +638,9 @@ impl SessionHandle {
         self.current_turn_id = state.current_turn_id;
         self.turn_count = state.turn_count;
         self.turn_diffs = state.turn_diffs;
+        self.git_branch = state.git_branch;
+        self.git_sha = state.git_sha;
+        self.current_cwd = state.current_cwd;
 
         // Sync pending approval tracking from phase
         if let WorkPhase::AwaitingApproval {

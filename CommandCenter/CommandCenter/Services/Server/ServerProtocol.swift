@@ -186,6 +186,9 @@ struct ServerSessionSummary: Codable, Identifiable {
   let sandboxMode: String?
   let startedAt: String?
   let lastActivityAt: String?
+  let gitBranch: String?
+  let gitSha: String?
+  let currentCwd: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -203,6 +206,9 @@ struct ServerSessionSummary: Codable, Identifiable {
     case sandboxMode = "sandbox_mode"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
+    case gitBranch = "git_branch"
+    case gitSha = "git_sha"
+    case currentCwd = "current_cwd"
   }
 }
 
@@ -287,6 +293,9 @@ struct ServerSessionState: Codable, Identifiable {
   let currentTurnId: String?
   let turnCount: UInt64
   let turnDiffs: [ServerTurnDiff]
+  let gitBranch: String?
+  let gitSha: String?
+  let currentCwd: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -313,6 +322,9 @@ struct ServerSessionState: Codable, Identifiable {
     case currentTurnId = "current_turn_id"
     case turnCount = "turn_count"
     case turnDiffs = "turn_diffs"
+    case gitBranch = "git_branch"
+    case gitSha = "git_sha"
+    case currentCwd = "current_cwd"
   }
 
   init(from decoder: Decoder) throws {
@@ -341,6 +353,9 @@ struct ServerSessionState: Codable, Identifiable {
     currentTurnId = try container.decodeIfPresent(String.self, forKey: .currentTurnId)
     turnCount = try container.decodeIfPresent(UInt64.self, forKey: .turnCount) ?? 0
     turnDiffs = try container.decodeIfPresent([ServerTurnDiff].self, forKey: .turnDiffs) ?? []
+    gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
+    gitSha = try container.decodeIfPresent(String.self, forKey: .gitSha)
+    currentCwd = try container.decodeIfPresent(String.self, forKey: .currentCwd)
   }
 }
 
@@ -360,6 +375,9 @@ struct ServerStateChanges: Codable {
   let lastActivityAt: String?
   let currentTurnId: String??
   let turnCount: UInt64?
+  let gitBranch: String??
+  let gitSha: String??
+  let currentCwd: String??
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -375,6 +393,9 @@ struct ServerStateChanges: Codable {
     case lastActivityAt = "last_activity_at"
     case currentTurnId = "current_turn_id"
     case turnCount = "turn_count"
+    case gitBranch = "git_branch"
+    case gitSha = "git_sha"
+    case currentCwd = "current_cwd"
   }
 }
 

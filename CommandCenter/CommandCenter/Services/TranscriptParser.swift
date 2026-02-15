@@ -661,7 +661,8 @@ enum TranscriptParser {
         // Handle both Claude Code ("command") and Codex ("cmd") parameter names
         let command = (input["command"] as? String) ?? (input["cmd"] as? String)
         if let command {
-          let truncated = command.count > 60 ? String(command.prefix(60)) + "..." : command
+          let cleaned = command.strippingShellWrapperPrefix()
+          let truncated = cleaned.count > 60 ? String(cleaned.prefix(60)) + "..." : cleaned
           return truncated.replacingOccurrences(of: "\n", with: " ")
         }
       case "glob":

@@ -2,16 +2,20 @@
 //  CodexInputBar.swift
 //  OrbitDock
 //
-//  Message input UI for direct Codex sessions.
-//  Allows users to send prompts directly from OrbitDock.
+//  Unified instrument panel for direct Codex sessions.
+//  Three layers: token strip → composer → instrument strip.
 //
 
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct CodexInputBar: View {
-  let sessionId: String
+struct InstrumentPanel: View {
+  let session: Session
   @Binding var selectedSkills: Set<String>
+  @Binding var isPinned: Bool
+  @Binding var unreadCount: Int
+  @Binding var scrollToBottomTrigger: Int
+  @Binding var showApprovalHistory: Bool
   var onOpenSkills: (() -> Void)? = nil
 
   @Environment(ServerAppState.self) private var serverState
@@ -19,7 +23,6 @@ struct CodexInputBar: View {
   @State private var message = ""
   @State private var isSending = false
   @State private var errorMessage: String?
-  @State private var showConfig = false
   @State private var selectedModel: String = ""
   @State private var selectedEffort: EffortLevel = .default
   @State private var completionActive = false
@@ -38,18 +41,28 @@ struct CodexInputBar: View {
   // Input mode
   @State private var manualReviewMode = false
 
+  private var sessionId: String { session.id }
+
   private var inputMode: InputMode {
     if manualReviewMode { return .reviewNotes }
     if isSessionWorking { return .steer }
     return .prompt
   }
 
+  private var composerBorderColor: Color {
+    switch inputMode {
+    case .steer: .composerSteer
+    case .reviewNotes: .composerReview
+    default: .composerPrompt
+    }
+  }
+
   private var isSessionWorking: Bool {
-    serverState.sessions.first(where: { $0.id == sessionId })?.workStatus == .working
+    session.workStatus == .working
   }
 
   private var isSessionActive: Bool {
-    serverState.sessions.first(where: { $0.id == sessionId })?.isActive ?? false
+    session.isActive
   }
 
   private var hasOverrides: Bool {
@@ -82,7 +95,7 @@ struct CodexInputBar: View {
   }
 
   private var defaultModelSelection: String {
-    if let current = serverState.sessions.first(where: { $0.id == sessionId })?.model,
+    if let current = session.model,
        modelOptions.contains(where: { $0.model == current })
     {
       return current
@@ -94,7 +107,7 @@ struct CodexInputBar: View {
   }
 
   private var projectPath: String? {
-    serverState.sessions.first(where: { $0.id == sessionId })?.projectPath
+    session.projectPath
   }
 
   private var filteredFiles: [ProjectFileIndex.ProjectFile] {
@@ -110,77 +123,61 @@ struct CodexInputBar: View {
     !attachedImages.isEmpty || !attachedMentions.isEmpty
   }
 
+  // MARK: - Body
+
   var body: some View {
     VStack(spacing: 0) {
-      Divider()
-
-      // Input mode indicator
-      if isSessionActive {
-        SteerContextIndicator(mode: inputMode) {
-          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            manualReviewMode.toggle()
-          }
-        }
+      // ━━━ Token Progress Strip (2px full-width) ━━━
+      if session.hasTokenUsage {
+        tokenStrip
       }
 
-      // Collapsible config row (hidden when steering)
-      if showConfig, !isSessionWorking {
-        HStack(spacing: 20) {
-          // Model picker
-          HStack(spacing: 6) {
-            Text("Model")
-              .font(.caption)
-              .foregroundStyle(.tertiary)
-            Picker("Model", selection: $selectedModel) {
-              ForEach(modelOptions.filter { !$0.model.isEmpty }, id: \.id) { model in
-                Text(model.displayName).tag(model.model)
-              }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .controlSize(.small)
-            .fixedSize()
-          }
+      // ━━━ Approval / Question UI ━━━
+      if session.canApprove {
+        CodexApprovalView(session: session)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.sm)
+      } else if session.canAnswer {
+        CodexQuestionView(session: session)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.sm)
+      }
 
-          // Effort picker
-          HStack(spacing: 6) {
-            Text("Effort")
-              .font(.caption)
-              .foregroundStyle(.tertiary)
-            Picker("Effort", selection: $selectedEffort) {
-              ForEach(EffortLevel.allCases) { level in
-                Text(level.displayName).tag(level)
-              }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .fixedSize()
-          }
+      if showApprovalHistory {
+        CodexApprovalHistoryView(sessionId: sessionId)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.bottom, Spacing.sm)
+      }
 
+      // ━━━ Review notes indicator (only for review mode) ━━━
+      if isSessionActive, inputMode == .reviewNotes {
+        HStack(spacing: 8) {
+          HStack(spacing: 6) {
+            Circle()
+              .fill(Color.composerReview)
+              .frame(width: 6, height: 6)
+            Text("Review Notes")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(Color.composerReview)
+          }
           Spacer()
-
-          // Reset button when overrides are active
-          if hasOverrides {
-            Button {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                selectedEffort = .default
-              }
-            } label: {
-              Text("Reset")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+          Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              manualReviewMode.toggle()
             }
-            .buttonStyle(.plain)
+          } label: {
+            Text("Cancel")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(.secondary)
           }
+          .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(Color.backgroundPrimary.opacity(0.4))
-        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .padding(.horizontal, Spacing.lg)
+        .frame(height: 24)
+        .background(Color.backgroundTertiary)
       }
 
-      // Inline $ skill completion (hidden when steering)
+      // ━━━ Skill completion ━━━
       if shouldShowCompletion, !isSessionWorking {
         SkillCompletionList(
           skills: filteredSkills,
@@ -188,12 +185,12 @@ struct CodexInputBar: View {
           query: completionQuery,
           onSelect: acceptSkillCompletion
         )
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.xs)
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      // @ mention completion
+      // ━━━ Mention completion ━━━
       if shouldShowMentionCompletion, !isSessionWorking {
         MentionCompletionList(
           files: filteredFiles,
@@ -201,139 +198,33 @@ struct CodexInputBar: View {
           query: mentionQuery,
           onSelect: acceptMentionCompletion
         )
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.xs)
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      // Attachment bar
+      // ━━━ Attachment bar ━━━
       if hasAttachments {
         AttachmentBar(images: $attachedImages, mentions: $attachedMentions)
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      HStack(spacing: Spacing.md) {
-        if !isSessionWorking {
-          // Config toggle
-          Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              showConfig.toggle()
-            }
-          } label: {
-            Image(systemName: "slider.horizontal.3")
-              .font(.system(size: TypeScale.title))
-              .foregroundStyle(hasOverrides ? Color.accent : .secondary)
-          }
-          .buttonStyle(.plain)
-          .help("Per-turn config overrides")
-
-          // Skills - opens sidebar skills tab
-          Button {
-            serverState.listSkills(sessionId: sessionId)
-            onOpenSkills?()
-          } label: {
-            Image(systemName: "bolt.fill")
-              .font(.system(size: TypeScale.title))
-              .foregroundStyle(!selectedSkills.isEmpty || hasInlineSkills ? Color.accent : .secondary)
-          }
-          .buttonStyle(.plain)
-          .help("Attach skills")
-
-          // Attach images
-          Button { pickImages() } label: {
-            Image(systemName: "paperclip")
-              .font(.system(size: TypeScale.title))
-              .foregroundStyle(!attachedImages.isEmpty ? Color.accent : .secondary)
-          }
-          .buttonStyle(.plain)
-          .help("Attach images")
-        }
-
-        // Text field
-        TextField(isSessionWorking ? "Steer the current turn..." : "Send a message...", text: $message, axis: .vertical)
-          .textFieldStyle(.plain)
-          .lineLimit(1 ... 5)
-          .focused($isFocused)
-          .disabled(isSending)
-          .onChange(of: message) { _, newValue in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              updateSkillCompletion(newValue)
-              updateMentionCompletion(newValue)
-            }
-          }
-          .onKeyPress(phases: .down) { keyPress in
-            // Check for paste (Cmd+V) with image on clipboard
-            if keyPress.modifiers.contains(.command), keyPress.key == KeyEquivalent("v") {
-              if pasteImageFromClipboard() {
-                return .handled
-              }
-            }
-            return handleCompletionKeyPress(keyPress)
-          }
-          .onSubmit {
-            let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            if hasContent || hasAttachments {
-              sendMessage()
-            }
-          }
-
-        if !isSessionWorking {
-          // Override indicator (when collapsed and overrides active)
-          if !showConfig, hasOverrides {
-            overrideBadge
-          }
-
-          // Skills badge
-          if !selectedSkills.isEmpty {
-            Text("\(selectedSkills.count) skill\(selectedSkills.count == 1 ? "" : "s")")
-              .font(.caption2)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
-              .background(Color.accent.opacity(0.15))
-              .foregroundStyle(Color.accent)
-              .clipShape(Capsule())
-          }
-        }
-
-        // Send button
-        Button(action: sendMessage) {
-          Group {
-            if isSending {
-              ProgressView()
-                .controlSize(.small)
-            } else {
-              Image(systemName: isSessionWorking ? "arrow.uturn.right.circle.fill" : "arrow.up.circle.fill")
-                .font(.title2)
-            }
-          }
-          .frame(width: 24, height: 24)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(canSend ? Color.accent : Color.secondary)
-        .disabled(!canSend)
-        .keyboardShortcut(.return, modifiers: .command)
+      // ━━━ Composer area ━━━
+      if isSessionActive {
+        composerRow
+      } else {
+        // Ended session — resume button
+        resumeRow
       }
-      .padding(.horizontal, Spacing.lg)
-      .padding(.vertical, Spacing.md)
 
-      // Error message
+      // ━━━ Error message ━━━
       if let error = errorMessage {
-        HStack {
-          Image(systemName: "exclamationmark.triangle.fill")
-            .foregroundStyle(.orange)
-          Text(error)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Spacer()
-          Button("Dismiss") {
-            errorMessage = nil
-          }
-          .buttonStyle(.plain)
-          .font(.caption)
-          .foregroundStyle(Color.accent)
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.bottom, Spacing.sm)
+        errorRow(error)
+      }
+
+      // ━━━ Instrument strip (bottom) ━━━
+      if isSessionActive {
+        instrumentStrip
       }
     }
     .background(Color.backgroundSecondary)
@@ -354,6 +245,560 @@ struct CodexInputBar: View {
         selectedModel = defaultModelSelection
       }
     }
+  }
+
+  // MARK: - Token Progress Strip
+
+  private var tokenStrip: some View {
+    let pct = tokenContextPercentage
+    let color: Color = pct > 0.9 ? .statusError : pct > 0.7 ? .statusReply : .accent
+
+    return GeometryReader { geo in
+      ZStack(alignment: .leading) {
+        Rectangle().fill(color.opacity(OpacityTier.subtle))
+        Rectangle()
+          .fill(
+            LinearGradient(
+              colors: [color.opacity(0.7), color],
+              startPoint: .leading,
+              endPoint: .trailing
+            )
+          )
+          .frame(width: geo.size.width * pct)
+          .shadow(color: color.opacity(0.6), radius: 4, y: 0)
+      }
+    }
+    .frame(height: 3)
+    .help(tokenTooltipText)
+  }
+
+  private var tokenContextPercentage: Double {
+    guard let window = session.codexContextWindow, window > 0,
+          let input = session.codexInputTokens
+    else { return 0 }
+    return min(1.0, Double(input) / Double(window))
+  }
+
+  private var tokenTooltipText: String {
+    var parts: [String] = []
+    if let input = session.codexInputTokens {
+      parts.append("Input: \(formatTokenCount(input))")
+    }
+    if let output = session.codexOutputTokens {
+      parts.append("Output: \(formatTokenCount(output))")
+    }
+    if let cached = session.codexCachedTokens, cached > 0,
+       let input = session.codexInputTokens, input > 0
+    {
+      let percent = Int(Double(cached) / Double(input) * 100)
+      parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
+    }
+    if let window = session.codexContextWindow {
+      parts.append("Context: \(formatTokenCount(window))")
+    }
+    return parts.isEmpty ? "Token usage" : parts.joined(separator: "\n")
+  }
+
+  private func formatTokenCount(_ count: Int) -> String {
+    if count >= 1_000_000 {
+      return String(format: "%.1fM", Double(count) / 1_000_000)
+    } else if count >= 1_000 {
+      return String(format: "%.1fk", Double(count) / 1_000)
+    }
+    return "\(count)"
+  }
+
+  // MARK: - Composer Row
+
+  private var composerRow: some View {
+    HStack(spacing: Spacing.md) {
+      // Action buttons (left of input, hidden when steering)
+      if !isSessionWorking {
+        HStack(spacing: Spacing.xs) {
+          Menu {
+            Section("Model") {
+              ForEach(modelOptions.filter { !$0.model.isEmpty }, id: \.id) { model in
+                Button {
+                  selectedModel = model.model
+                } label: {
+                  HStack {
+                    Text(model.displayName)
+                    if selectedModel == model.model {
+                      Image(systemName: "checkmark")
+                    }
+                  }
+                }
+              }
+            }
+            Section("Effort") {
+              ForEach(EffortLevel.allCases) { level in
+                Button {
+                  withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    selectedEffort = level
+                  }
+                } label: {
+                  HStack {
+                    Text(level.displayName)
+                    if selectedEffort == level {
+                      Image(systemName: "checkmark")
+                    }
+                  }
+                }
+              }
+            }
+            if hasOverrides {
+              Divider()
+              Button("Reset") {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                  selectedEffort = .default
+                }
+              }
+            }
+          } label: {
+            Image(systemName: "slider.horizontal.3")
+              .font(.system(size: 13, weight: .semibold))
+              .foregroundStyle(hasOverrides ? Color.accent : .secondary)
+              .frame(width: 28, height: 28)
+              .background(
+                hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              )
+          }
+          .menuStyle(.borderlessButton)
+          .fixedSize()
+          .help("Model & effort settings")
+
+          composerActionButton(
+            icon: "bolt.fill",
+            isActive: !selectedSkills.isEmpty || hasInlineSkills,
+            help: "Attach skills"
+          ) {
+            serverState.listSkills(sessionId: sessionId)
+            onOpenSkills?()
+          }
+
+          composerActionButton(
+            icon: "paperclip",
+            isActive: !attachedImages.isEmpty,
+            help: "Attach images"
+          ) {
+            pickImages()
+          }
+        }
+      }
+
+      // Text field inside bordered container with mode tint
+      HStack(spacing: Spacing.sm) {
+        // Mode badge embedded in the composer
+        if isSessionWorking {
+          Text("STEER")
+            .font(.system(size: 9, weight: .black, design: .monospaced))
+            .foregroundStyle(Color.composerSteer)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(Color.composerSteer.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+        }
+
+        TextField(isSessionWorking ? "Steer the current turn..." : "Send a message...", text: $message, axis: .vertical)
+          .textFieldStyle(.plain)
+          .lineLimit(1 ... 5)
+          .focused($isFocused)
+          .disabled(isSending)
+          .onChange(of: message) { _, newValue in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              updateSkillCompletion(newValue)
+              updateMentionCompletion(newValue)
+            }
+          }
+          .onKeyPress(phases: .down) { keyPress in
+            // Shift+Return inserts a newline instead of sending
+            if keyPress.key == .return, keyPress.modifiers.contains(.shift) {
+              message += "\n"
+              return .handled
+            }
+            if keyPress.modifiers.contains(.command), keyPress.key == KeyEquivalent("v") {
+              if pasteImageFromClipboard() {
+                return .handled
+              }
+            }
+            return handleCompletionKeyPress(keyPress)
+          }
+          .onSubmit {
+            let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if hasContent || hasAttachments {
+              sendMessage()
+            }
+          }
+
+        // Override badges (inside border)
+        if !isSessionWorking {
+          if hasOverrides {
+            overrideBadge
+          }
+          if !selectedSkills.isEmpty {
+            Text("\(selectedSkills.count) skill\(selectedSkills.count == 1 ? "" : "s")")
+              .font(.system(size: TypeScale.micro, weight: .bold))
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(Color.accent.opacity(0.15))
+              .foregroundStyle(Color.accent)
+              .clipShape(Capsule())
+          }
+        }
+      }
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, 10)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+          .fill(composerBorderColor.opacity(0.04))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+          .strokeBorder(composerBorderColor.opacity(0.35), lineWidth: 1.5)
+      )
+
+      // Send button — larger, with glow when active
+      Button(action: sendMessage) {
+        Group {
+          if isSending {
+            ProgressView()
+              .controlSize(.small)
+          } else {
+            Image(systemName: isSessionWorking ? "arrow.uturn.right" : "arrow.up")
+              .font(.system(size: TypeScale.subhead, weight: .bold))
+              .foregroundStyle(.white)
+          }
+        }
+        .frame(width: 30, height: 30)
+        .background(
+          Circle().fill(canSend ? composerBorderColor : Color.surfaceHover)
+        )
+        .shadow(color: canSend ? composerBorderColor.opacity(0.4) : .clear, radius: 6, y: 0)
+      }
+      .buttonStyle(.plain)
+      .disabled(!canSend)
+      .keyboardShortcut(.return, modifiers: .command)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.sm)
+  }
+
+  // MARK: - Composer Action Button
+
+  private func composerActionButton(
+    icon: String,
+    isActive: Bool,
+    help: String,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: icon)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(isActive ? Color.accent : .secondary)
+        .frame(width: 28, height: 28)
+        .background(
+          isActive ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+          in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        )
+    }
+    .buttonStyle(.plain)
+    .help(help)
+  }
+
+  // MARK: - Instrument Strip
+
+  private var instrumentStrip: some View {
+    HStack(spacing: 0) {
+      // ━━━ Left segment: Interrupt + Actions ━━━
+      HStack(spacing: Spacing.sm) {
+        // Interrupt button (prominent when working)
+        if session.workStatus == .working {
+          CodexInterruptButton(sessionId: sessionId)
+        }
+
+        // Action buttons — individual, not cramped
+        stripButton(icon: "arrow.uturn.backward", help: "Undo last turn", disabled: serverState.session(sessionId).undoInProgress) {
+          serverState.undoLastTurn(sessionId: sessionId)
+        }
+
+        stripButton(icon: "arrow.triangle.branch", help: "Fork conversation", disabled: serverState.session(sessionId).forkInProgress) {
+          serverState.forkSession(sessionId: sessionId)
+        }
+
+        if session.hasTokenUsage {
+          stripButton(icon: "arrow.triangle.2.circlepath", help: "Compact context") {
+            serverState.compactContext(sessionId: sessionId)
+          }
+        }
+      }
+      .padding(.horizontal, Spacing.md)
+
+      // Segment divider
+      Color.panelBorder.frame(width: 1, height: 16)
+
+      // ━━━ Center segment: Autonomy + Approvals ━━━
+      HStack(spacing: Spacing.sm) {
+        AutonomyPill(sessionId: sessionId)
+
+        if approvalHistoryCount > 0 {
+          Button {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+              showApprovalHistory.toggle()
+            }
+          } label: {
+            HStack(spacing: 4) {
+              Image(systemName: "checkmark.shield.fill")
+                .font(.system(size: TypeScale.body, weight: .medium))
+              Text("\(approvalHistoryCount)")
+                .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
+            }
+            .foregroundStyle(showApprovalHistory ? Color.accent : .secondary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(
+              showApprovalHistory ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+          }
+          .buttonStyle(.plain)
+          .help("Approval history")
+        }
+      }
+      .padding(.horizontal, Spacing.md)
+
+      // Segment divider
+      Color.panelBorder.frame(width: 1, height: 16)
+
+      // ━━━ Token summary + model (inline) ━━━
+      if session.hasTokenUsage {
+        HStack(spacing: 6) {
+          let pct = Int(tokenContextPercentage * 100)
+          let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
+          Text("\(pct)%")
+            .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
+            .foregroundStyle(color)
+          if let input = session.codexInputTokens {
+            Text(formatTokenCount(input))
+              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+              .foregroundStyle(.tertiary)
+          }
+        }
+        .padding(.horizontal, Spacing.md)
+        .help(tokenTooltipText)
+
+        if !selectedModel.isEmpty {
+          Text(shortModelName(selectedModel))
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, Spacing.sm)
+        }
+
+        Color.panelBorder.frame(width: 1, height: 16)
+      }
+
+      // ━━━ Branch info ━━━
+      if let branch = session.branch, !branch.isEmpty {
+        HStack(spacing: Spacing.xs) {
+          Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+          Text(branch)
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .lineLimit(1)
+        }
+        .foregroundStyle(Color.gitBranch.opacity(0.75))
+        .padding(.horizontal, Spacing.sm)
+        .help(branch)
+
+        Color.panelBorder.frame(width: 1, height: 16)
+      }
+
+      // ━━━ CWD (when different from project root) ━━━
+      if let cwd = session.currentCwd,
+         !cwd.isEmpty,
+         cwd != session.projectPath
+      {
+        let displayCwd = cwd.hasPrefix(session.projectPath + "/")
+          ? "./" + cwd.dropFirst(session.projectPath.count + 1)
+          : cwd
+
+        HStack(spacing: Spacing.xs) {
+          Image(systemName: "folder")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+          Text(displayCwd)
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .lineLimit(1)
+        }
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, Spacing.sm)
+        .help(cwd)
+
+        Color.panelBorder.frame(width: 1, height: 16)
+      }
+
+      Spacer()
+
+      // ━━━ Right segment: Follow state + Time ━━━
+      HStack(spacing: Spacing.sm) {
+        // Unread badge
+        if !isPinned, unreadCount > 0 {
+          Button {
+            isPinned = true
+            unreadCount = 0
+            scrollToBottomTrigger += 1
+          } label: {
+            HStack(spacing: 3) {
+              Image(systemName: "arrow.down")
+                .font(.system(size: TypeScale.caption, weight: .bold))
+              Text("\(unreadCount)")
+                .font(.system(size: TypeScale.body, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, 3)
+            .background(Color.accent, in: Capsule())
+          }
+          .buttonStyle(.plain)
+        }
+
+        // Follow toggle
+        Button {
+          isPinned.toggle()
+          if isPinned {
+            unreadCount = 0
+            scrollToBottomTrigger += 1
+          }
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+            Text(isPinned ? "Following" : "Paused")
+              .font(.system(size: TypeScale.body, weight: .medium))
+          }
+          .foregroundStyle(isPinned ? AnyShapeStyle(.quaternary) : AnyShapeStyle(Color.statusReply))
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(
+            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
+            in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          )
+        }
+        .buttonStyle(.plain)
+
+        // Relative time
+        if let lastActivity = session.lastActivityAt {
+          Text(lastActivity, style: .relative)
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(.quaternary)
+        }
+      }
+      .padding(.horizontal, Spacing.md)
+      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
+      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+    }
+    .frame(height: 32)
+    .background(Color.backgroundTertiary.opacity(0.5))
+  }
+
+  // MARK: - Strip Button
+
+  @State private var stripHover: String?
+
+  private func stripButton(
+    icon: String,
+    help: String,
+    disabled: Bool = false,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: icon)
+        .font(.system(size: TypeScale.code, weight: .medium))
+        .foregroundStyle(disabled ? AnyShapeStyle(.quaternary) : stripHover == icon ? AnyShapeStyle(Color.accent) : AnyShapeStyle(.secondary))
+        .frame(width: 26, height: 26)
+        .background(
+          stripHover == icon ? Color.surfaceHover : Color.clear,
+          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+        )
+    }
+    .buttonStyle(.plain)
+    .disabled(disabled)
+    .help(help)
+    .onHover { hovering in
+      stripHover = hovering ? icon : (stripHover == icon ? nil : stripHover)
+    }
+  }
+
+  // MARK: - Resume Row (ended session)
+
+  private var resumeRow: some View {
+    HStack {
+      Button {
+        serverState.resumeSession(sessionId)
+      } label: {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "arrow.counterclockwise")
+            .font(.system(size: TypeScale.code, weight: .medium))
+          Text("Resume")
+            .font(.system(size: TypeScale.code, weight: .medium))
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(Color.accent.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .foregroundStyle(Color.accent)
+      }
+      .buttonStyle(.plain)
+
+      Spacer()
+
+      if let lastActivity = session.lastActivityAt {
+        Text(lastActivity, style: .relative)
+          .font(.system(size: TypeScale.body, design: .monospaced))
+          .foregroundStyle(.tertiary)
+      }
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md)
+  }
+
+  // MARK: - Error Row
+
+  private func errorRow(_ error: String) -> some View {
+    HStack {
+      Image(systemName: "exclamationmark.triangle.fill")
+        .foregroundStyle(.orange)
+      Text(error)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Spacer()
+      Button("Dismiss") {
+        errorMessage = nil
+      }
+      .buttonStyle(.plain)
+      .font(.caption)
+      .foregroundStyle(Color.accent)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.bottom, Spacing.sm)
+  }
+
+  // MARK: - Helpers
+
+  private func shortModelName(_ model: String) -> String {
+    // Strip common prefixes to get a compact display name
+    let name = model
+      .replacingOccurrences(of: "openai/", with: "")
+      .replacingOccurrences(of: "anthropic/", with: "")
+    // If it's already short (like "o3"), return as-is
+    if name.count <= 8 { return name }
+    // Take first component before a dash if very long
+    let parts = name.split(separator: "-", maxSplits: 2)
+    if parts.count >= 2 {
+      return String(parts[0]) + "-" + String(parts[1])
+    }
+    return name
+  }
+
+  private var approvalHistoryCount: Int {
+    serverState.session(sessionId).approvalHistory.count
   }
 
   @ViewBuilder
@@ -398,16 +843,13 @@ struct CodexInputBar: View {
 
     let effort = selectedEffort == .default ? nil : selectedEffort.rawValue
 
-    // Expand @filename mentions to absolute paths for the model
     var expandedContent = trimmed
     for mention in attachedMentions {
       expandedContent = expandedContent.replacingOccurrences(of: "@\(mention.name)", with: mention.path)
     }
 
-    // Extract inline $skill-name references from message
     let inlineSkillNames = extractInlineSkillNames(from: expandedContent)
 
-    // Combine popover-selected skills with inline $ skills (deduplicated)
     var skillPaths = selectedSkills
     for name in inlineSkillNames {
       if let skill = availableSkills.first(where: { $0.name == name }) {
@@ -419,10 +861,8 @@ struct CodexInputBar: View {
       return ServerSkillInput(name: skill.name, path: skill.path)
     }
 
-    // Build image inputs (mentions are already in the message text as paths)
     let imageInputs = attachedImages.map { $0.serverInput }
 
-    // Send with attachments (expanded content has absolute paths)
     serverState.sendMessage(
       sessionId: sessionId,
       content: expandedContent,
@@ -448,7 +888,6 @@ struct CodexInputBar: View {
 
     let afterDollar = text[text.index(after: dollarIdx)...]
 
-    // Dismiss if there's whitespace after the last $
     if afterDollar.contains(where: { $0.isWhitespace }) {
       completionActive = false
       return
@@ -456,13 +895,11 @@ struct CodexInputBar: View {
 
     let query = String(afterDollar)
 
-    // Don't re-trigger when the query exactly matches a skill name (already accepted)
     if availableSkills.contains(where: { $0.name == query }) {
       completionActive = false
       return
     }
 
-    // Ensure skills are loaded
     if availableSkills.isEmpty {
       serverState.listSkills(sessionId: sessionId)
     }
@@ -473,7 +910,6 @@ struct CodexInputBar: View {
   }
 
   private func acceptSkillCompletion(_ skill: ServerSkillMetadata) {
-    // Replace $query with $full-skill-name (keep token visible in text)
     if let dollarIdx = message.lastIndex(of: "$") {
       let prefix = String(message[..<dollarIdx])
       message = prefix + "$" + skill.name + " "
@@ -490,7 +926,6 @@ struct CodexInputBar: View {
 
     for word in text.components(separatedBy: .whitespacesAndNewlines) {
       guard word.hasPrefix("$") else { continue }
-      // Strip trailing punctuation (e.g., "$skill-name?" or "$skill-name,")
       let raw = String(word.dropFirst())
       let name = raw.trimmingCharacters(in: .punctuationCharacters)
       if skillNameSet.contains(name) {
@@ -509,7 +944,6 @@ struct CodexInputBar: View {
       return
     }
 
-    // Only trigger if @ is at start or preceded by whitespace
     if atIdx != text.startIndex {
       let before = text[text.index(before: atIdx)]
       if !before.isWhitespace {
@@ -520,7 +954,6 @@ struct CodexInputBar: View {
 
     let afterAt = text[text.index(after: atIdx)...]
 
-    // Dismiss if there's whitespace after the last @
     if afterAt.contains(where: { $0.isWhitespace }) {
       mentionActive = false
       return
@@ -528,7 +961,6 @@ struct CodexInputBar: View {
 
     let query = String(afterAt)
 
-    // Don't re-trigger when the query matches an attached mention's name or path (already accepted)
     if attachedMentions.contains(where: { $0.name == query || $0.path.hasSuffix(query) }) {
       mentionActive = false
       return
@@ -538,14 +970,12 @@ struct CodexInputBar: View {
     mentionIndex = 0
     mentionActive = true
 
-    // Ensure file index is loaded
     if let path = projectPath {
       Task { await fileIndex.loadIfNeeded(path) }
     }
   }
 
   private func acceptMentionCompletion(_ file: ProjectFileIndex.ProjectFile) {
-    // Replace @query with @filename (friendly display in input box)
     if let atIdx = message.lastIndex(of: "@") {
       let prefix = String(message[..<atIdx])
       message = prefix + "@" + file.name + " "
@@ -555,7 +985,6 @@ struct CodexInputBar: View {
     mentionIndex = 0
     isFocused = true
 
-    // Store with absolute path — expanded at send time
     guard !attachedMentions.contains(where: { $0.id == file.id }) else { return }
     let absolutePath = if let base = projectPath {
       (base as NSString).appendingPathComponent(file.relativePath)
@@ -580,14 +1009,12 @@ struct CodexInputBar: View {
       return .handled
     }
 
-    // Mention completion takes priority when active
     if shouldShowMentionCompletion {
       return handleMentionKeyPress(keyPress)
     }
 
     guard shouldShowCompletion else { return .ignored }
 
-    // Arrow keys
     if keyPress.key == .upArrow {
       completionIndex = max(0, completionIndex - 1)
       return .handled
@@ -596,7 +1023,6 @@ struct CodexInputBar: View {
       return .handled
     }
 
-    // Emacs bindings: C-n (next) / C-p (previous)
     if keyPress.modifiers.contains(.control) {
       if keyPress.key == KeyEquivalent("n") {
         completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
@@ -607,7 +1033,6 @@ struct CodexInputBar: View {
       }
     }
 
-    // Accept completion
     if keyPress.key == .return || keyPress.key == .tab {
       acceptSkillCompletion(filteredSkills[completionIndex])
       return .handled
@@ -673,7 +1098,6 @@ struct CodexInputBar: View {
   private func pasteImageFromClipboard() -> Bool {
     let pasteboard = NSPasteboard.general
 
-    // Check for image data on clipboard
     guard let imageType = pasteboard.availableType(from: [.tiff, .png]) else {
       return false
     }
@@ -684,7 +1108,6 @@ struct CodexInputBar: View {
       return false
     }
 
-    // Convert to PNG for base64 encoding
     guard let tiffData = nsImage.tiffRepresentation,
           let bitmapRep = NSBitmapImageRep(data: tiffData),
           let pngData = bitmapRep.representation(using: .png, properties: [:])
@@ -708,7 +1131,6 @@ struct CodexInputBar: View {
     var handled = false
 
     for provider in providers {
-      // File URLs (images)
       if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
           guard let urlData = data as? Data,
@@ -727,9 +1149,7 @@ struct CodexInputBar: View {
           }
         }
         handled = true
-      }
-      // Raw image data
-      else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+      } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
         provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, _ in
           guard let imageData = data as? Data,
                 let nsImage = NSImage(data: imageData),
@@ -758,7 +1178,7 @@ struct CodexInputBar: View {
   }
 
   private func createThumbnail(from image: NSImage) -> NSImage {
-    let size = NSSize(width: 80, height: 80) // 2x for retina
+    let size = NSSize(width: 80, height: 80)
     let thumbnail = NSImage(size: size)
     thumbnail.lockFocus()
     NSGraphicsContext.current?.imageInterpolation = .high
@@ -780,27 +1200,31 @@ struct CodexInterruptButton: View {
   @Environment(ServerAppState.self) private var serverState
 
   @State private var isInterrupting = false
+  @State private var isHovering = false
 
   var body: some View {
     Button(action: interrupt) {
-      HStack(spacing: 4) {
+      HStack(spacing: 5) {
         if isInterrupting {
           ProgressView()
             .controlSize(.mini)
         } else {
           Image(systemName: "stop.fill")
+            .font(.system(size: TypeScale.body, weight: .bold))
         }
         Text("Stop")
+          .font(.system(size: TypeScale.body, weight: .semibold))
       }
-      .font(.caption)
-      .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(Color.statusError.opacity(0.2))
       .foregroundStyle(Color.statusError)
-      .clipShape(Capsule())
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, 5)
+      .background(Color.statusError.opacity(isHovering ? OpacityTier.medium : OpacityTier.light), in: Capsule())
+      .shadow(color: Color.statusError.opacity(isHovering ? 0.3 : 0), radius: 6, y: 0)
     }
     .buttonStyle(.plain)
     .disabled(isInterrupting)
+    .onHover { isHovering = $0 }
+    .animation(.easeOut(duration: 0.15), value: isHovering)
   }
 
   private func interrupt() {
@@ -880,7 +1304,24 @@ private struct SkillCompletionList: View {
 
 #Preview {
   @Previewable @State var skills: Set<String> = []
-  CodexInputBar(sessionId: "test-session", selectedSkills: $skills)
-    .environment(ServerAppState())
-    .frame(width: 400)
+  @Previewable @State var pinned = true
+  @Previewable @State var unread = 0
+  @Previewable @State var scroll = 0
+  @Previewable @State var approvals = false
+  InstrumentPanel(
+    session: Session(
+      id: "test-session",
+      projectPath: "/Users/test/project",
+      model: "o3",
+      status: .active,
+      workStatus: .working
+    ),
+    selectedSkills: $skills,
+    isPinned: $pinned,
+    unreadCount: $unread,
+    scrollToBottomTrigger: $scroll,
+    showApprovalHistory: $approvals
+  )
+  .environment(ServerAppState())
+  .frame(width: 600)
 }

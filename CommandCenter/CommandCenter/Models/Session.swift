@@ -17,7 +17,7 @@ struct Session: Identifiable, Hashable, Sendable {
   let id: String
   let projectPath: String
   let projectName: String?
-  let branch: String?
+  var branch: String?
   let model: String?
   var summary: String? // AI-generated conversation title
   var customName: String? // User-defined custom name (overrides summary)
@@ -57,6 +57,9 @@ struct Session: Identifiable, Hashable, Sendable {
   var codexContextWindow: Int? // Model context window size
 
   // MARK: - Codex Turn State (transient, updated during turns)
+
+  var gitSha: String? // Git commit SHA
+  var currentCwd: String? // Agent's current working directory
 
   var currentDiff: String? // Aggregated diff for current turn
   var currentPlan: [PlanStep]? // Agent's plan for current turn
@@ -343,5 +346,303 @@ extension String {
 
     // Clean up any extra whitespace
     return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  /// Strips shell wrapper prefixes used by tooling so UI can show the actual command.
+  /// e.g., "/bin/zsh -lc git status" -> "git status"
+  func strippingShellWrapperPrefix() -> String {
+    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return trimmed }
+
+    let tokens = ShellWrapperParser.tokenize(trimmed)
+    guard !tokens.isEmpty else { return trimmed }
+    guard let commandTokens = ShellWrapperParser.extractWrappedCommandTokens(from: tokens) else {
+      return trimmed
+    }
+
+    let command = commandTokens
+      .joined(separator: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    return command.isEmpty ? trimmed : command
+  }
+}
+
+private enum ShellWrapperParser {
+  struct Token {
+    let value: String
+  }
+
+  private static let shellExecutables: Set<String> = [
+    "sh", "bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh",
+    "nu", "xonsh", "pwsh", "pwsh.exe", "powershell", "powershell.exe",
+    "cmd", "cmd.exe",
+  ]
+
+  static func extractWrappedCommandTokens(from tokens: [Token]) -> [String]? {
+    guard let shellIndex = shellTokenIndex(in: tokens) else { return nil }
+    let shell = executableName(from: tokens[shellIndex].value)
+
+    if isCommandPromptExecutable(shell) {
+      return commandTokensForCommandPrompt(from: tokens, shellIndex: shellIndex)
+    }
+
+    if isPowerShellExecutable(shell) {
+      return commandTokensForPowerShell(from: tokens, shellIndex: shellIndex)
+    }
+
+    return commandTokensForPosixShell(from: tokens, shellIndex: shellIndex)
+  }
+
+  static func tokenize(_ command: String) -> [Token] {
+    var tokens: [Token] = []
+    var index = command.startIndex
+
+    func advance(_ i: inout String.Index) {
+      i = command.index(after: i)
+    }
+
+    while index < command.endIndex {
+      while index < command.endIndex, command[index].isWhitespace {
+        advance(&index)
+      }
+      guard index < command.endIndex else { break }
+
+      var value = ""
+      var consumed = false
+      var inSingleQuotes = false
+      var inDoubleQuotes = false
+
+      while index < command.endIndex {
+        let ch = command[index]
+
+        if inSingleQuotes {
+          consumed = true
+          if ch == "'" {
+            inSingleQuotes = false
+            advance(&index)
+            continue
+          }
+          value.append(ch)
+          advance(&index)
+          continue
+        }
+
+        if inDoubleQuotes {
+          consumed = true
+          if ch == "\"" {
+            inDoubleQuotes = false
+            advance(&index)
+            continue
+          }
+
+          if ch == "\\" {
+            let next = command.index(after: index)
+            if next < command.endIndex {
+              value.append(command[next])
+              index = command.index(after: next)
+            } else {
+              index = next
+            }
+            continue
+          }
+
+          value.append(ch)
+          advance(&index)
+          continue
+        }
+
+        if ch.isWhitespace {
+          break
+        }
+
+        consumed = true
+        if ch == "'" {
+          inSingleQuotes = true
+          advance(&index)
+          continue
+        }
+        if ch == "\"" {
+          inDoubleQuotes = true
+          advance(&index)
+          continue
+        }
+        if ch == "\\" {
+          let next = command.index(after: index)
+          if next < command.endIndex {
+            value.append(command[next])
+            index = command.index(after: next)
+          } else {
+            index = next
+          }
+          continue
+        }
+
+        value.append(ch)
+        advance(&index)
+      }
+
+      if consumed {
+        tokens.append(Token(value: value))
+      }
+    }
+
+    return tokens
+  }
+
+  private static func shellTokenIndex(in tokens: [Token]) -> Int? {
+    guard !tokens.isEmpty else { return nil }
+    var index = 0
+
+    if executableName(from: tokens[0].value) == "env" {
+      index = 1
+      while index < tokens.count {
+        let token = tokens[index].value
+        let lowercased = token.lowercased()
+
+        if lowercased == "--" {
+          index += 1
+          break
+        }
+
+        if lowercased.hasPrefix("-") || isEnvironmentAssignment(token) {
+          index += 1
+          continue
+        }
+
+        break
+      }
+    }
+
+    guard index < tokens.count else { return nil }
+    return isShellExecutable(tokens[index].value) ? index : nil
+  }
+
+  private static func commandTokensForPosixShell(from tokens: [Token], shellIndex: Int) -> [String]? {
+    var index = shellIndex + 1
+    while index < tokens.count {
+      let option = tokens[index].value.lowercased()
+
+      if option == "-c" || option == "--command" {
+        return tokensAfter(index + 1, in: tokens)
+      }
+
+      if isCompactCommandSwitch(option) {
+        return tokensAfter(index + 1, in: tokens)
+      }
+
+      if !option.hasPrefix("-") {
+        return nil
+      }
+
+      index += 1
+    }
+
+    return nil
+  }
+
+  private static func commandTokensForPowerShell(from tokens: [Token], shellIndex: Int) -> [String]? {
+    var index = shellIndex + 1
+    while index < tokens.count {
+      let option = tokens[index].value.lowercased()
+      if option == "-command" || option == "--command" || option == "-c" || option == "-encodedcommand" || option == "-ec" {
+        return tokensAfter(index + 1, in: tokens)
+      }
+
+      if !option.hasPrefix("-") {
+        return nil
+      }
+
+      index += 1
+    }
+
+    return nil
+  }
+
+  private static func commandTokensForCommandPrompt(from tokens: [Token], shellIndex: Int) -> [String]? {
+    var index = shellIndex + 1
+    while index < tokens.count {
+      let option = tokens[index].value.lowercased()
+
+      if option == "/c" || option == "/k" {
+        return tokensAfter(index + 1, in: tokens)
+      }
+
+      if option.hasPrefix("/c"), option.count > 2 {
+        let remainder = String(tokens[index].value.dropFirst(2))
+        var commandTokens: [String] = []
+        if !remainder.isEmpty {
+          commandTokens.append(remainder)
+        }
+        if index + 1 < tokens.count {
+          commandTokens.append(contentsOf: tokens[(index + 1)...].map(\.value))
+        }
+        return commandTokens.isEmpty ? nil : commandTokens
+      }
+
+      if option.hasPrefix("/k"), option.count > 2 {
+        let remainder = String(tokens[index].value.dropFirst(2))
+        var commandTokens: [String] = []
+        if !remainder.isEmpty {
+          commandTokens.append(remainder)
+        }
+        if index + 1 < tokens.count {
+          commandTokens.append(contentsOf: tokens[(index + 1)...].map(\.value))
+        }
+        return commandTokens.isEmpty ? nil : commandTokens
+      }
+
+      if !option.hasPrefix("/") {
+        return nil
+      }
+
+      index += 1
+    }
+
+    return nil
+  }
+
+  private static func tokensAfter(_ index: Int, in tokens: [Token]) -> [String]? {
+    guard index < tokens.count else { return nil }
+    return tokens[index...].map(\.value)
+  }
+
+  private static func isCompactCommandSwitch(_ option: String) -> Bool {
+    guard option.hasPrefix("-"), option.count > 2 else { return false }
+    let flags = option.dropFirst()
+    guard flags.contains("c") else { return false }
+    return flags.allSatisfy { $0 == "c" || $0 == "i" || $0 == "l" }
+  }
+
+  private static func isPowerShellExecutable(_ shell: String) -> Bool {
+    shell == "pwsh" || shell == "pwsh.exe" || shell == "powershell" || shell == "powershell.exe"
+  }
+
+  private static func isCommandPromptExecutable(_ shell: String) -> Bool {
+    shell == "cmd" || shell == "cmd.exe"
+  }
+
+  private static func isShellExecutable(_ token: String) -> Bool {
+    shellExecutables.contains(executableName(from: token))
+  }
+
+  private static func executableName(from token: String) -> String {
+    token
+      .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+      .last
+      .map { String($0).lowercased() } ?? token.lowercased()
+  }
+
+  private static func isEnvironmentAssignment(_ token: String) -> Bool {
+    guard let separatorIndex = token.firstIndex(of: "="), separatorIndex != token.startIndex else {
+      return false
+    }
+
+    let name = token[..<separatorIndex]
+    guard let first = name.first, first == "_" || first.isLetter else {
+      return false
+    }
+
+    return name.dropFirst().allSatisfy { $0 == "_" || $0.isLetter || $0.isNumber }
   }
 }

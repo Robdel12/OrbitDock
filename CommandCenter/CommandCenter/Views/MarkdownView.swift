@@ -133,14 +133,14 @@ extension MarkdownUI.Theme {
     // Body text - comfortable reading size with good weight
     .text {
       ForegroundColor(.primary.opacity(0.92))
-      FontSize(15.5)
+      FontSize(14.5)
     }
-    // Inline code - slightly smaller, warm color
+    // Inline code - slightly smaller, warm color with visible bg
     .code {
       FontFamilyVariant(.monospaced)
       FontSize(13)
-      ForegroundColor(Color(red: 0.95, green: 0.65, blue: 0.45))
-      BackgroundColor(Color.white.opacity(0.07))
+      ForegroundColor(Color(red: 0.95, green: 0.68, blue: 0.45))
+      BackgroundColor(Color.white.opacity(0.09))
     }
     .strong {
       FontWeight(.semibold)
@@ -186,12 +186,12 @@ extension MarkdownUI.Theme {
     // Paragraphs - generous spacing for readability
     .paragraph { configuration in
       configuration.label
-        .markdownMargin(top: 0, bottom: 14)
+        .markdownMargin(top: 0, bottom: 12)
     }
     // Lists - comfortable spacing
     .listItem { configuration in
       configuration.label
-        .markdownMargin(top: 4, bottom: 4)
+        .markdownMargin(top: 3, bottom: 3)
     }
     .taskListMarker { configuration in
       TaskListCheckbox(isCompleted: configuration.isCompleted)

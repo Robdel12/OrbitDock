@@ -67,7 +67,7 @@ struct ParsedBashContent {
 
     guard hasBashInput || hasBashStdout || hasBashStderr else { return nil }
 
-    let input = extractTag("bash-input", from: content)
+    let input = extractTag("bash-input", from: content).strippingShellWrapperPrefix()
     let stdout = extractTag("bash-stdout", from: content)
     let stderr = extractTag("bash-stderr", from: content)
 

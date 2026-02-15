@@ -18,10 +18,11 @@ extension ServerSessionSummary {
       nil
     }
 
-    return Session(
+    var session = Session(
       id: id,
       projectPath: projectPath,
       projectName: projectName,
+      branch: gitBranch,
       model: model,
       customName: customName,
       transcriptPath: transcriptPath,
@@ -33,6 +34,9 @@ extension ServerSessionSummary {
       provider: provider == .codex ? .codex : .claude,
       codexIntegrationMode: integrationMode
     )
+    session.gitSha = gitSha
+    session.currentCwd = currentCwd
+    return session
   }
 }
 
@@ -50,6 +54,7 @@ extension ServerSessionState {
       id: id,
       projectPath: projectPath,
       projectName: projectName,
+      branch: gitBranch,
       model: model,
       customName: customName,
       transcriptPath: transcriptPath,
@@ -70,6 +75,8 @@ extension ServerSessionState {
       codexContextWindow: Int(tokenUsage.contextWindow)
     )
     session.currentDiff = currentDiff
+    session.gitSha = gitSha
+    session.currentCwd = currentCwd
     return session
   }
 }

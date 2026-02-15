@@ -203,10 +203,14 @@ struct CodexApprovalView: View {
   }
 
   private func commandString(from input: [String: Any]) -> String? {
-    if let command = input["command"] as? String { return command }
-    if let command = input["cmd"] as? String { return command }
-    if let commandParts = input["command"] as? [String] { return commandParts.joined(separator: " ") }
-    if let commandParts = input["cmd"] as? [String] { return commandParts.joined(separator: " ") }
+    if let command = input["command"] as? String { return command.strippingShellWrapperPrefix() }
+    if let command = input["cmd"] as? String { return command.strippingShellWrapperPrefix() }
+    if let commandParts = input["command"] as? [String] {
+      return commandParts.joined(separator: " ").strippingShellWrapperPrefix()
+    }
+    if let commandParts = input["cmd"] as? [String] {
+      return commandParts.joined(separator: " ").strippingShellWrapperPrefix()
+    }
     return nil
   }
 

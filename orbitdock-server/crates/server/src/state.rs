@@ -77,6 +77,9 @@ impl SessionRegistry {
                     sandbox_mode: snap.sandbox_mode.clone(),
                     started_at: snap.started_at.clone(),
                     last_activity_at: snap.last_activity_at.clone(),
+                    git_branch: snap.git_branch.clone(),
+                    git_sha: snap.git_sha.clone(),
+                    current_cwd: snap.current_cwd.clone(),
                 }
             })
             .collect()

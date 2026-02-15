@@ -66,6 +66,9 @@ pub struct TransitionState {
     pub current_turn_id: Option<String>,
     pub turn_count: u64,
     pub turn_diffs: Vec<TurnDiff>,
+    pub git_branch: Option<String>,
+    pub git_sha: Option<String>,
+    pub current_cwd: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +145,11 @@ pub enum Input {
     },
     ThreadRolledBack {
         num_turns: u32,
+    },
+    EnvironmentChanged {
+        cwd: Option<String>,
+        git_branch: Option<String>,
+        git_sha: Option<String>,
     },
     Error(String),
 }
@@ -227,6 +235,15 @@ impl From<ConnectorEvent> for Input {
                 Input::UndoCompleted { success, message }
             }
             ConnectorEvent::ThreadRolledBack { num_turns } => Input::ThreadRolledBack { num_turns },
+            ConnectorEvent::EnvironmentChanged {
+                cwd,
+                git_branch,
+                git_sha,
+            } => Input::EnvironmentChanged {
+                cwd,
+                git_branch,
+                git_sha,
+            },
             ConnectorEvent::Error(msg) => Input::Error(msg),
         }
     }
@@ -293,6 +310,12 @@ pub enum PersistOp {
         file_path: Option<String>,
         cwd: Option<String>,
         proposed_amendment: Option<Vec<String>>,
+    },
+    EnvironmentUpdate {
+        session_id: String,
+        cwd: Option<String>,
+        git_branch: Option<String>,
+        git_sha: Option<String>,
     },
 }
 
@@ -381,6 +404,17 @@ impl PersistOp {
                 file_path,
                 cwd,
                 proposed_amendment,
+            },
+            PersistOp::EnvironmentUpdate {
+                session_id,
+                cwd,
+                git_branch,
+                git_sha,
+            } => PersistCommand::EnvironmentUpdate {
+                session_id,
+                cwd,
+                git_branch,
+                git_sha,
             },
         }
     }
@@ -776,6 +810,50 @@ pub fn transition(
             })));
         }
 
+        // -- Environment --------------------------------------------------------
+        Input::EnvironmentChanged {
+            cwd,
+            git_branch,
+            git_sha,
+        } => {
+            let mut changed = false;
+            if cwd.is_some() && cwd != state.current_cwd {
+                state.current_cwd = cwd.clone();
+                changed = true;
+            }
+            if git_branch.is_some() && git_branch != state.git_branch {
+                state.git_branch = git_branch.clone();
+                changed = true;
+            }
+            if git_sha.is_some() && git_sha != state.git_sha {
+                state.git_sha = git_sha.clone();
+                changed = true;
+            }
+
+            if changed {
+                state.last_activity_at = Some(now.to_string());
+
+                effects.push(Effect::Persist(Box::new(
+                    PersistOp::EnvironmentUpdate {
+                        session_id: sid.clone(),
+                        cwd: state.current_cwd.clone(),
+                        git_branch: state.git_branch.clone(),
+                        git_sha: state.git_sha.clone(),
+                    },
+                )));
+                effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+                    session_id: sid,
+                    changes: StateChanges {
+                        current_cwd: Some(state.current_cwd.clone()),
+                        git_branch: Some(state.git_branch.clone()),
+                        git_sha: Some(state.git_sha.clone()),
+                        last_activity_at: Some(now.to_string()),
+                        ..Default::default()
+                    },
+                })));
+            }
+        }
+
         // -- Pass-through (broadcast only, no state change) -------------------
         Input::ContextCompacted => {
             effects.push(Effect::Emit(Box::new(ServerMessage::ContextCompacted {
@@ -879,6 +957,9 @@ mod tests {
             current_turn_id: None,
             turn_count: 0,
             turn_diffs: Vec::new(),
+            git_branch: None,
+            git_sha: None,
+            current_cwd: None,
         }
     }
 

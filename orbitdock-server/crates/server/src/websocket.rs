@@ -1443,6 +1443,9 @@ async fn handle_client_message(
                 restored.current_diff,
                 restored.current_plan,
                 restored.turn_diffs.into_iter().map(|(turn_id, diff)| orbitdock_protocol::TurnDiff { turn_id, diff }).collect(),
+                restored.git_branch,
+                restored.git_sha,
+                restored.current_cwd,
             );
 
             // Subscribe the requesting client

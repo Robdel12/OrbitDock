@@ -254,6 +254,14 @@ pub enum PersistCommand {
 
     /// Delete a review comment
     ReviewCommentDelete { id: String },
+
+    /// Update environment info (cwd, git branch, git sha)
+    EnvironmentUpdate {
+        session_id: String,
+        cwd: Option<String>,
+        git_branch: Option<String>,
+        git_sha: Option<String>,
+    },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -1248,6 +1256,40 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         PersistCommand::ReviewCommentDelete { id } => {
             conn.execute("DELETE FROM review_comments WHERE id = ?1", params![id])?;
         }
+
+        PersistCommand::EnvironmentUpdate {
+            session_id,
+            cwd,
+            git_branch,
+            git_sha,
+        } => {
+            let mut updates = Vec::new();
+            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(c) = cwd {
+                updates.push("current_cwd = ?");
+                params_vec.push(Box::new(c));
+            }
+            if let Some(b) = git_branch {
+                updates.push("git_branch = ?");
+                params_vec.push(Box::new(b));
+            }
+            if let Some(s) = git_sha {
+                updates.push("git_sha = ?");
+                params_vec.push(Box::new(s));
+            }
+
+            if !updates.is_empty() {
+                params_vec.push(Box::new(session_id));
+                let sql = format!(
+                    "UPDATE sessions SET {} WHERE id = ?",
+                    updates.join(", ")
+                );
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params_vec.iter().map(|p| p.as_ref()).collect();
+                conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            }
+        }
     }
 
     Ok(())
@@ -1377,6 +1419,9 @@ pub struct RestoredSession {
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
     pub turn_diffs: Vec<(String, String)>, // (turn_id, diff)
+    pub git_branch: Option<String>,
+    pub git_sha: Option<String>,
+    pub current_cwd: Option<String>,
 }
 
 fn resolve_custom_name_from_first_prompt(
@@ -1862,6 +1907,15 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 })
                 .unwrap_or_default();
 
+            // Query environment fields (columns may not exist on old schemas)
+            let (git_branch, git_sha, current_cwd): (Option<String>, Option<String>, Option<String>) = conn
+                .query_row(
+                    "SELECT git_branch, git_sha, current_cwd FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap_or((None, None, None));
+
             sessions.push(RestoredSession {
                 id,
                 provider,
@@ -1887,6 +1941,9 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 current_diff,
                 current_plan,
                 turn_diffs,
+                git_branch,
+                git_sha,
+                current_cwd,
             });
         }
 
@@ -1990,6 +2047,15 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             })
             .unwrap_or_default();
 
+        // Query environment fields (columns may not exist on old schemas)
+        let (git_branch, git_sha, current_cwd): (Option<String>, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT git_branch, git_sha, current_cwd FROM sessions WHERE id = ?1",
+                params![&id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap_or((None, None, None));
+
         Ok(Some(RestoredSession {
             id,
             provider: "codex".to_string(),
@@ -2015,6 +2081,9 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             current_diff,
             current_plan,
             turn_diffs,
+            git_branch,
+            git_sha,
+            current_cwd,
         }))
     }).await??;
 

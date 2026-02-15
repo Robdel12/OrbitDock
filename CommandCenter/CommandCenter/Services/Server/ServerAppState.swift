@@ -687,6 +687,15 @@ final class ServerAppState {
     if let count = changes.turnCount {
       obs.turnCount = count
     }
+    if let branchOuter = changes.gitBranch {
+      sess.branch = branchOuter
+    }
+    if let shaOuter = changes.gitSha {
+      sess.gitSha = shaOuter
+    }
+    if let cwdOuter = changes.currentCwd {
+      sess.currentCwd = cwdOuter
+    }
     if let lastActivity = changes.lastActivityAt {
       let stripped = lastActivity.hasSuffix("Z") ? String(lastActivity.dropLast()) : lastActivity
       if let secs = TimeInterval(stripped) {

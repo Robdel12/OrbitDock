@@ -132,28 +132,21 @@ struct SessionDetailView: View {
       }
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: showTurnSidebar)
 
-      // Codex direct: Approval or question UI when needed
+      // Action bar (unified instrument panel for Codex, simpler bar for Claude)
       if session.isDirectCodex {
-        if session.canApprove {
-          CodexApprovalView(session: session)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        } else if session.canAnswer {
-          CodexQuestionView(session: session)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-
-        if showApprovalHistory {
-          CodexApprovalHistoryView(sessionId: session.id)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-        }
-      }
-
-      // Action bar (or input bar for direct Codex)
-      if session.isDirectCodex {
-        codexActionBar
+        InstrumentPanel(
+          session: session,
+          selectedSkills: $selectedSkills,
+          isPinned: $isPinned,
+          unreadCount: $unreadCount,
+          scrollToBottomTrigger: $scrollToBottomTrigger,
+          showApprovalHistory: $showApprovalHistory,
+          onOpenSkills: {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+              showTurnSidebar = true
+            }
+          }
+        )
       } else {
         actionBar
       }
@@ -413,227 +406,6 @@ struct SessionDetailView: View {
     .background(Color.backgroundSecondary)
   }
 
-  // MARK: - Codex Direct Action Bar
-
-  private var codexActionBar: some View {
-    VStack(spacing: 0) {
-      if !session.isActive {
-        // Resume button when session is ended
-        HStack {
-          Button {
-            serverState.resumeSession(session.id)
-          } label: {
-            HStack(spacing: Spacing.sm) {
-              Image(systemName: "arrow.counterclockwise")
-                .font(.system(size: TypeScale.code, weight: .medium))
-              Text("Resume")
-                .font(.system(size: TypeScale.code, weight: .medium))
-            }
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.accent.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-            .foregroundStyle(Color.accent)
-          }
-          .buttonStyle(.plain)
-
-          Spacer()
-
-          if let lastActivity = session.lastActivityAt {
-            Text(lastActivity, style: .relative)
-              .font(.system(size: TypeScale.body, design: .monospaced))
-              .foregroundStyle(.tertiary)
-          }
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
-        .background(Color.backgroundSecondary)
-      } else {
-        // Input bar when waiting for input
-        if session.workStatus == .waiting || session.workStatus == .unknown || session.workStatus == .working {
-          CodexInputBar(
-            sessionId: session.id,
-            selectedSkills: $selectedSkills,
-            onOpenSkills: {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                showTurnSidebar = true
-              }
-            }
-          )
-        }
-
-        // Status bar
-        HStack(spacing: Spacing.lg) {
-          // Interrupt button when working
-          if session.workStatus == .working {
-            CodexInterruptButton(sessionId: session.id)
-          }
-
-          // Token usage for this session
-          if session.hasTokenUsage {
-            CodexTokenBadge(session: session)
-
-            // Compact context button (next to token badge)
-            Button {
-              serverState.compactContext(sessionId: session.id)
-            } label: {
-              HStack(spacing: Spacing.xs) {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                  .font(.system(size: TypeScale.body, weight: .medium))
-                Text("Compact")
-                  .font(.system(size: TypeScale.body, weight: .medium))
-              }
-              .foregroundStyle(.secondary)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, Spacing.sm)
-              .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .help("Summarize conversation to free context window")
-          }
-
-          // Autonomy level pill
-          AutonomyPill(sessionId: session.id)
-
-          // Undo last turn button
-          Button {
-            serverState.undoLastTurn(sessionId: session.id)
-          } label: {
-            HStack(spacing: Spacing.xs) {
-              if serverState.session(session.id).undoInProgress {
-                ProgressView()
-                  .controlSize(.mini)
-              } else {
-                Image(systemName: "arrow.uturn.backward")
-                  .font(.system(size: TypeScale.body, weight: .medium))
-              }
-              Text("Undo")
-                .font(.system(size: TypeScale.body, weight: .medium))
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-          }
-          .buttonStyle(.plain)
-          .disabled(serverState.session(session.id).undoInProgress)
-          .help("Undo last turn (reverts filesystem changes)")
-
-          // Fork conversation button
-          Button {
-            serverState.forkSession(sessionId: session.id)
-          } label: {
-            HStack(spacing: Spacing.xs) {
-              if serverState.session(session.id).forkInProgress {
-                ProgressView()
-                  .controlSize(.mini)
-              } else {
-                Image(systemName: "arrow.triangle.branch")
-                  .font(.system(size: TypeScale.body, weight: .medium))
-              }
-              Text("Fork")
-                .font(.system(size: TypeScale.body, weight: .medium))
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-          }
-          .buttonStyle(.plain)
-          .disabled(serverState.session(session.id).forkInProgress)
-          .help("Fork conversation (creates a new session with full history)")
-
-          Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-              showApprovalHistory.toggle()
-            }
-          } label: {
-            HStack(spacing: Spacing.xs) {
-              Image(systemName: "checklist")
-                .font(.system(size: TypeScale.body, weight: .medium))
-              Text("Approvals")
-                .font(.system(size: TypeScale.body, weight: .medium))
-              if approvalHistoryCount > 0 {
-                Text("\(approvalHistoryCount)")
-                  .font(.system(size: TypeScale.caption, weight: .bold))
-                  .padding(.horizontal, 5)
-                  .padding(.vertical, 1)
-                  .background(Color.accent.opacity(OpacityTier.medium), in: Capsule())
-                  .foregroundStyle(Color.accent)
-              }
-            }
-            .foregroundStyle(showApprovalHistory ? Color.accent : .secondary)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(
-              showApprovalHistory ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
-              in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            )
-          }
-          .buttonStyle(.plain)
-
-          Spacer()
-
-          // Chat scroll controls + timestamp
-          HStack(spacing: Spacing.lg) {
-            // New messages button
-            if !isPinned, unreadCount > 0 {
-              Button {
-                isPinned = true
-                unreadCount = 0
-                scrollToBottomTrigger += 1
-              } label: {
-                HStack(spacing: 5) {
-                  Image(systemName: "arrow.down")
-                    .font(.system(size: TypeScale.caption, weight: .bold))
-                  Text("\(unreadCount) new")
-                    .font(.system(size: TypeScale.code, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, Spacing.md)
-                .padding(.vertical, Spacing.sm)
-                .background(Color.accent, in: Capsule())
-              }
-              .buttonStyle(.plain)
-            }
-
-            // Scroll toggle
-            Button {
-              isPinned.toggle()
-              if isPinned {
-                unreadCount = 0
-                scrollToBottomTrigger += 1
-              }
-            } label: {
-              HStack(spacing: 5) {
-                Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
-                  .font(.system(size: TypeScale.body, weight: .medium))
-                Text(isPinned ? "Following" : "Paused")
-                  .font(.system(size: TypeScale.code, weight: .medium))
-              }
-              .foregroundStyle(isPinned ? .secondary : .primary)
-              .padding(.horizontal, Spacing.md)
-              .padding(.vertical, Spacing.sm)
-              .background(
-                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                  .fill(isPinned ? Color.clear : Color.backgroundTertiary)
-              )
-            }
-            .buttonStyle(.plain)
-
-            // Last activity timestamp
-            if let lastActivity = session.lastActivityAt {
-              Text(lastActivity, style: .relative)
-                .font(.system(size: TypeScale.body, design: .monospaced))
-                .foregroundStyle(.tertiary)
-            }
-          }
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.sm)
-        .background(Color.backgroundSecondary)
-      }
-    }
-  }
 
   // MARK: - Conversation Content
 
@@ -750,9 +522,6 @@ struct SessionDetailView: View {
     return hasPlan || hasDiff || hasMcp || hasSkills
   }
 
-  private var approvalHistoryCount: Int {
-    serverState.session(session.id).approvalHistory.count
-  }
 
   private var currentTool: String? {
     session.lastTool

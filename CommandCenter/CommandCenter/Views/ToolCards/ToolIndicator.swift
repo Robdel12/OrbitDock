@@ -10,8 +10,14 @@ import SwiftUI
 struct ToolIndicator: View {
   let message: TranscriptMessage
   var transcriptPath: String?
-  @State private var isExpanded = false
+  @State private var isExpanded: Bool
   @State private var isHovering = false
+
+  init(message: TranscriptMessage, transcriptPath: String? = nil, initiallyExpanded: Bool = false) {
+    self.message = message
+    self.transcriptPath = transcriptPath
+    _isExpanded = State(initialValue: initiallyExpanded)
+  }
 
   private var toolType: ToolType {
     guard let name = message.toolName else { return .standard }

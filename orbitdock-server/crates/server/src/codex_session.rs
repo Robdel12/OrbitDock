@@ -38,6 +38,24 @@ impl CodexSession {
         })
     }
 
+    /// Resume an existing Codex session from its rollout file (preserves conversation history)
+    pub async fn resume(
+        session_id: String,
+        cwd: &str,
+        thread_id: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+    ) -> Result<Self, orbitdock_connectors::ConnectorError> {
+        let connector =
+            CodexConnector::resume(cwd, thread_id, model, approval_policy, sandbox_mode).await?;
+
+        Ok(Self {
+            session_id,
+            connector,
+        })
+    }
+
     /// Get the codex-core thread ID (used to link with rollout files)
     pub fn thread_id(&self) -> &str {
         self.connector.thread_id()

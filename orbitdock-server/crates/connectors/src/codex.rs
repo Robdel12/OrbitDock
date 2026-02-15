@@ -44,6 +44,11 @@ struct StreamingMessage {
     from_content_delta: bool,
 }
 
+/// Tracks the current working directory so we only emit changes
+struct CwdTracker {
+    current: Option<String>,
+}
+
 /// Minimum interval between streaming content broadcasts (ms)
 const STREAM_THROTTLE_MS: u128 = 50;
 
@@ -92,6 +97,62 @@ impl CodexConnector {
             .start_thread(config)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to start thread: {}", e)))?;
+
+        Self::from_thread(new_thread, thread_manager, codex_home)
+    }
+
+    /// Resume a Codex session from an existing rollout file (preserves conversation history)
+    pub async fn resume(
+        cwd: &str,
+        thread_id: &str,
+        model: Option<&str>,
+        approval_policy: Option<&str>,
+        sandbox_mode: Option<&str>,
+    ) -> Result<Self, ConnectorError> {
+        info!(
+            "Resuming codex-core connector for {} with thread {}",
+            cwd, thread_id
+        );
+
+        let codex_home = find_codex_home().map_err(|e| {
+            ConnectorError::ProviderError(format!("Failed to find codex home: {}", e))
+        })?;
+
+        // Find the rollout file for this thread
+        let rollout_path = codex_core::find_thread_path_by_id_str(&codex_home, thread_id)
+            .await
+            .map_err(|e| {
+                ConnectorError::ProviderError(format!("Failed to find rollout for thread: {}", e))
+            })?
+            .ok_or_else(|| {
+                ConnectorError::ProviderError(format!(
+                    "No rollout file found for thread {}",
+                    thread_id
+                ))
+            })?;
+
+        info!("Found rollout at {:?}", rollout_path);
+
+        let auth_manager = Arc::new(AuthManager::new(
+            codex_home.clone(),
+            true,
+            AuthCredentialsStoreMode::Auto,
+        ));
+
+        let thread_manager = Arc::new(ThreadManager::new(
+            codex_home.clone(),
+            auth_manager.clone(),
+            SessionSource::Mcp,
+        ));
+
+        let config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
+
+        let new_thread = thread_manager
+            .resume_thread_from_rollout(config, rollout_path, auth_manager)
+            .await
+            .map_err(|e| {
+                ConnectorError::ProviderError(format!("Failed to resume thread: {}", e))
+            })?;
 
         Self::from_thread(new_thread, thread_manager, codex_home)
     }
@@ -150,6 +211,7 @@ impl CodexConnector {
         let output_buffers = Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new()));
         let streaming_message = Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None));
         let msg_counter = Arc::new(AtomicU64::new(0));
+        let cwd_tracker = Arc::new(tokio::sync::Mutex::new(CwdTracker { current: None }));
 
         // Spawn async event loop
         let tx = event_tx.clone();
@@ -157,8 +219,9 @@ impl CodexConnector {
         let buffers = output_buffers.clone();
         let streaming = streaming_message.clone();
         let counter = msg_counter.clone();
+        let tracker = cwd_tracker.clone();
         tokio::spawn(async move {
-            Self::event_loop(t, tx, buffers, streaming, counter).await;
+            Self::event_loop(t, tx, buffers, streaming, counter, tracker).await;
         });
 
         Ok(Self {
@@ -224,6 +287,7 @@ impl CodexConnector {
         output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
         streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: Arc<AtomicU64>,
+        cwd_tracker: Arc<tokio::sync::Mutex<CwdTracker>>,
     ) {
         loop {
             match thread.next_event().await {
@@ -233,6 +297,7 @@ impl CodexConnector {
                         &output_buffers,
                         &streaming_message,
                         &msg_counter,
+                        &cwd_tracker,
                     )
                     .await;
                     for ev in events {
@@ -259,6 +324,7 @@ impl CodexConnector {
         output_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
         streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: &AtomicU64,
+        cwd_tracker: &Arc<tokio::sync::Mutex<CwdTracker>>,
     ) -> Vec<ConnectorEvent> {
         match event.msg {
             EventMsg::UserMessage(e) => {
@@ -290,6 +356,30 @@ impl CodexConnector {
             EventMsg::TurnAborted(e) => {
                 vec![ConnectorEvent::TurnAborted {
                     reason: format!("{:?}", e.reason),
+                }]
+            }
+
+            EventMsg::SessionConfigured(e) => {
+                let cwd_str = e.cwd.to_string_lossy().to_string();
+
+                // Set initial cwd in tracker
+                {
+                    let mut tracker = cwd_tracker.lock().await;
+                    tracker.current = Some(cwd_str.clone());
+                }
+
+                // Look up git info from the cwd
+                let git_info =
+                    codex_core::git_info::collect_git_info(&e.cwd).await;
+                let (branch, sha) = match git_info {
+                    Some(info) => (info.branch, info.commit_hash),
+                    None => (None, None),
+                };
+
+                vec![ConnectorEvent::EnvironmentChanged {
+                    cwd: Some(cwd_str),
+                    git_branch: branch,
+                    git_sha: sha,
                 }]
             }
 
@@ -347,6 +437,27 @@ impl CodexConnector {
                     buffers.insert(e.call_id.clone(), String::new());
                 }
 
+                // Track cwd changes — also re-collect git info (branch may differ)
+                let new_cwd = e.cwd.to_string_lossy().to_string();
+                let mut events = Vec::new();
+                {
+                    let mut tracker = cwd_tracker.lock().await;
+                    if tracker.current.as_deref() != Some(&new_cwd) {
+                        tracker.current = Some(new_cwd.clone());
+                        let git_info =
+                            codex_core::git_info::collect_git_info(&e.cwd).await;
+                        let (branch, sha) = match git_info {
+                            Some(info) => (info.branch, info.commit_hash),
+                            None => (None, None),
+                        };
+                        events.push(ConnectorEvent::EnvironmentChanged {
+                            cwd: Some(new_cwd),
+                            git_branch: branch,
+                            git_sha: sha,
+                        });
+                    }
+                }
+
                 let message = orbitdock_protocol::Message {
                     id: e.call_id.clone(),
                     session_id: String::new(),
@@ -361,7 +472,8 @@ impl CodexConnector {
                     timestamp: iso_now(),
                     duration_ms: None,
                 };
-                vec![ConnectorEvent::MessageCreated(message)]
+                events.push(ConnectorEvent::MessageCreated(message));
+                events
             }
 
             EventMsg::ExecCommandOutputDelta(e) => {

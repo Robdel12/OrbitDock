@@ -133,6 +133,9 @@ async fn async_main() -> anyhow::Result<()> {
                     current_diff,
                     current_plan,
                     turn_diffs: restored_turn_diffs,
+                    git_branch,
+                    git_sha,
+                    current_cwd,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -174,6 +177,9 @@ async fn async_main() -> anyhow::Result<()> {
                     current_diff,
                     current_plan,
                     restored_turn_diffs.into_iter().map(|(turn_id, diff)| TurnDiff { turn_id, diff }).collect(),
+                    git_branch,
+                    git_sha,
+                    current_cwd,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_passive =
@@ -211,16 +217,55 @@ async fn async_main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                // Active Codex direct session: try to reconnect with a CodexConnector
-                match CodexSession::new(
-                    id.clone(),
-                    &project_path,
-                    model.as_deref(),
-                    approval_policy.as_deref(),
-                    sandbox_mode.as_deref(),
-                )
-                .await
-                {
+                // Active Codex direct session: try to resume with conversation history
+                let codex_result = if let Some(thread_id) = codex_thread_id.as_deref() {
+                    info!(
+                        component = "restore",
+                        event = "restore.session.resuming",
+                        session_id = %id,
+                        thread_id = %thread_id,
+                        "Resuming Codex session from rollout"
+                    );
+                    match CodexSession::resume(
+                        id.clone(),
+                        &project_path,
+                        thread_id,
+                        model.as_deref(),
+                        approval_policy.as_deref(),
+                        sandbox_mode.as_deref(),
+                    )
+                    .await
+                    {
+                        Ok(codex) => Ok(codex),
+                        Err(e) => {
+                            warn!(
+                                component = "restore",
+                                event = "restore.session.resume_failed",
+                                session_id = %id,
+                                error = %e,
+                                "Resume failed, falling back to new thread"
+                            );
+                            CodexSession::new(
+                                id.clone(),
+                                &project_path,
+                                model.as_deref(),
+                                approval_policy.as_deref(),
+                                sandbox_mode.as_deref(),
+                            )
+                            .await
+                        }
+                    }
+                } else {
+                    CodexSession::new(
+                        id.clone(),
+                        &project_path,
+                        model.as_deref(),
+                        approval_policy.as_deref(),
+                        sandbox_mode.as_deref(),
+                    )
+                    .await
+                };
+                match codex_result {
                     Ok(codex) => {
                         let persist = state.persist().clone();
 

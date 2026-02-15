@@ -31,6 +31,8 @@ enum TypeScale {
   static let code: CGFloat = 12
   static let subhead: CGFloat = 13
   static let title: CGFloat = 14
+  /// Content meant to be read (user prompts, steer text) vs. UI labels
+  static let reading: CGFloat = 14
 }
 
 /// Corner radius tiers — replaces ad-hoc 4/5/6/8/10/12 mix.
@@ -65,8 +67,8 @@ extension Color {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Primary brand color - Cyan orbit ring from icon (the hero color)
-  static let accent = Color(red: 0.25, green: 0.85, blue: 0.95)
+  /// Primary brand color - Ice-blue orbit ring (cooler, less neon)
+  static let accent = Color(red: 0.35, green: 0.78, blue: 0.95)
 
   /// Slightly brighter for glow effects
   static let accentGlow = Color(red: 0.35, green: 0.9, blue: 1.0)
@@ -81,9 +83,9 @@ extension Color {
   // MARK: Diff Colors — Inline Review
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Line background washes (softer than previous 0.55)
-  static let diffAddedBg = Color(red: 0.12, green: 0.26, blue: 0.15).opacity(0.45)
-  static let diffRemovedBg = Color(red: 0.30, green: 0.12, blue: 0.12).opacity(0.45)
+  /// Line background washes (softer for instrument feel)
+  static let diffAddedBg = Color(red: 0.12, green: 0.26, blue: 0.15).opacity(0.30)
+  static let diffRemovedBg = Color(red: 0.30, green: 0.12, blue: 0.12).opacity(0.30)
 
   /// Prefix / text accent colors
   static let diffAddedAccent = Color(red: 0.4, green: 0.95, blue: 0.5)
@@ -102,14 +104,14 @@ extension Color {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Main content area - void black with deep blue-violet undertone
-  static let backgroundPrimary = Color(red: 0.035, green: 0.04, blue: 0.065)
+  /// Main content area - neutral void black
+  static let backgroundPrimary = Color(red: 0.045, green: 0.045, blue: 0.055)
 
-  /// Elevated surfaces (sidebars, headers) - nebula purple atmosphere
-  static let backgroundSecondary = Color(red: 0.055, green: 0.058, blue: 0.095)
+  /// Elevated surfaces (sidebars, headers) - neutral dark
+  static let backgroundSecondary = Color(red: 0.065, green: 0.065, blue: 0.08)
 
-  /// Cards, code blocks - cosmic dust with purple tint
-  static let backgroundTertiary = Color(red: 0.075, green: 0.078, blue: 0.12)
+  /// Cards, code blocks - neutral with slight depth
+  static let backgroundTertiary = Color(red: 0.085, green: 0.085, blue: 0.105)
 
   /// Slide-in panels - deep space with blue cast
   static let panelBackground = Color(red: 0.045, green: 0.05, blue: 0.085)
@@ -139,9 +141,9 @@ extension Color {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   static let textPrimary = Color.white.opacity(0.92)
-  static let textSecondary = Color.white.opacity(0.55)
-  static let textTertiary = Color.white.opacity(0.35)
-  static let textQuaternary = Color.white.opacity(0.20)
+  static let textSecondary = Color.white.opacity(0.60)
+  static let textTertiary = Color.white.opacity(0.42)
+  static let textQuaternary = Color.white.opacity(0.30)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Provider Colors - Multi-Provider Support
@@ -317,6 +319,17 @@ extension Color {
 
   /// Docked/Ready state - use accent for brand cohesion
   static let statusDocked = accent
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Composer Border — Input Mode Colors
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// Prompt mode border — cyan orbit
+  static let composerPrompt = accent
+  /// Steer mode border — amber/orange thruster
+  static let composerSteer = toolWrite
+  /// Review mode border — purple nebula
+  static let composerReview = statusQuestion
 }
 
 // MARK: - Theme View Modifier
@@ -575,8 +588,9 @@ struct PermissionBanner: View {
 
     switch toolName {
       case "Bash":
-        if let command = input["command"] as? String {
-          let truncated = command.count > 60 ? String(command.prefix(57)) + "..." : command
+        if let command = (input["command"] as? String) ?? (input["cmd"] as? String) {
+          let cleaned = command.strippingShellWrapperPrefix()
+          let truncated = cleaned.count > 60 ? String(cleaned.prefix(57)) + "..." : cleaned
           return ("terminal.fill", truncated)
         }
       case "Edit":
