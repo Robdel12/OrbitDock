@@ -312,52 +312,7 @@ struct InstrumentPanel: View {
   // MARK: - Composer Row
 
   private var composerRow: some View {
-    HStack(spacing: Spacing.md) {
-      // Action buttons (left of input, hidden when steering)
-      if !isSessionWorking {
-        HStack(spacing: Spacing.xs) {
-          Button {
-            showModelEffortPopover.toggle()
-          } label: {
-            Image(systemName: "slider.horizontal.3")
-              .font(.system(size: 13, weight: .semibold))
-              .foregroundStyle(hasOverrides ? Color.accent : .secondary)
-              .frame(width: 28, height: 28)
-              .background(
-                hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
-                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              )
-          }
-          .buttonStyle(.plain)
-          .fixedSize()
-          .help("Model & effort settings")
-          .popover(isPresented: $showModelEffortPopover, arrowEdge: .bottom) {
-            ModelEffortPopover(
-              selectedModel: $selectedModel,
-              selectedEffort: $selectedEffort,
-              models: modelOptions
-            )
-          }
-
-          composerActionButton(
-            icon: "bolt.fill",
-            isActive: !selectedSkills.isEmpty || hasInlineSkills,
-            help: "Attach skills"
-          ) {
-            serverState.listSkills(sessionId: sessionId)
-            onOpenSkills?()
-          }
-
-          composerActionButton(
-            icon: "paperclip",
-            isActive: !attachedImages.isEmpty,
-            help: "Attach images"
-          ) {
-            pickImages()
-          }
-        }
-      }
-
+    HStack(spacing: Spacing.sm) {
       // Text field inside bordered container with mode tint
       HStack(spacing: Spacing.sm) {
         // Mode badge embedded in the composer
@@ -456,6 +411,47 @@ struct InstrumentPanel: View {
 
   // MARK: - Composer Action Button
 
+  private var modelEffortControlButton: some View {
+    Button {
+      showModelEffortPopover.toggle()
+    } label: {
+      HStack(spacing: 6) {
+        Image(systemName: "slider.horizontal.3")
+          .font(.system(size: 13, weight: .semibold))
+
+        Text("Model")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+
+        Text(selectedEffort.displayName.uppercased())
+          .font(.system(size: 8, weight: .bold, design: .monospaced))
+          .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
+          .padding(.horizontal, 5)
+          .padding(.vertical, 1)
+          .background(
+            (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
+            in: Capsule()
+          )
+      }
+      .foregroundStyle(hasOverrides ? Color.accent : Color.textSecondary)
+      .padding(.horizontal, Spacing.sm)
+      .frame(height: 28)
+      .background(
+        hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+      )
+    }
+    .buttonStyle(.plain)
+    .fixedSize()
+    .help("Model and reasoning effort")
+    .popover(isPresented: $showModelEffortPopover, arrowEdge: .bottom) {
+      ModelEffortPopover(
+        selectedModel: $selectedModel,
+        selectedEffort: $selectedEffort,
+        models: modelOptions
+      )
+    }
+  }
+
   private func composerActionButton(
     icon: String,
     isActive: Bool,
@@ -482,6 +478,29 @@ struct InstrumentPanel: View {
     HStack(spacing: 0) {
       // ━━━ Left segment: Interrupt + Actions ━━━
       HStack(spacing: Spacing.sm) {
+        if !isSessionWorking {
+          modelEffortControlButton
+
+          composerActionButton(
+            icon: "bolt.fill",
+            isActive: !selectedSkills.isEmpty || hasInlineSkills,
+            help: "Attach skills"
+          ) {
+            serverState.listSkills(sessionId: sessionId)
+            onOpenSkills?()
+          }
+
+          composerActionButton(
+            icon: "paperclip",
+            isActive: !attachedImages.isEmpty,
+            help: "Attach images"
+          ) {
+            pickImages()
+          }
+
+          Color.panelBorder.frame(width: 1, height: 16)
+        }
+
         // Interrupt button (prominent when working)
         if session.workStatus == .working {
           CodexInterruptButton(sessionId: sessionId)
@@ -558,10 +577,24 @@ struct InstrumentPanel: View {
         .help(tokenTooltipText)
 
         if !selectedModel.isEmpty {
-          Text(shortModelName(selectedModel))
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-            .padding(.horizontal, Spacing.sm)
+          HStack(spacing: 6) {
+            Text(shortModelName(selectedModel))
+              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(1)
+
+            Text(selectedEffort.displayName.uppercased())
+              .font(.system(size: 8, weight: .bold, design: .monospaced))
+              .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(
+                (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
+                in: Capsule()
+              )
+          }
+          .padding(.horizontal, Spacing.sm)
+          .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
         }
 
         Color.panelBorder.frame(width: 1, height: 16)
