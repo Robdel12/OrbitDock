@@ -10,7 +10,9 @@ import SwiftUI
 
 struct ReviewChecklistSection: View {
   let comments: [ServerReviewComment]
+  let selectedIds: Set<String>
   let onNavigate: (ServerReviewComment) -> Void
+  let onToggleSelection: (ServerReviewComment) -> Void
   var onSendReview: (() -> Void)? = nil
 
   @State private var showAll = false
@@ -49,14 +51,37 @@ struct ReviewChecklistSection: View {
         .padding(.vertical, 16)
       } else {
         ForEach(filtered) { comment in
-          commentRow(comment)
-            .contentShape(Rectangle())
-            .onTapGesture { onNavigate(comment) }
+          HStack(spacing: 0) {
+            // Selection toggle for open comments
+            if comment.status == .open {
+              Button {
+                onToggleSelection(comment)
+              } label: {
+                Image(systemName: selectedIds.contains(comment.id)
+                  ? "checkmark.circle.fill" : "circle")
+                  .font(.system(size: 11))
+                  .foregroundStyle(selectedIds.contains(comment.id)
+                    ? Color.accent : Color.white.opacity(0.3))
+              }
+              .buttonStyle(.plain)
+              .padding(.leading, 8)
+            }
+
+            commentRow(comment)
+              .contentShape(Rectangle())
+              .onTapGesture { onNavigate(comment) }
+          }
         }
       }
 
       // Send Review button
       if openCount > 0, let onSendReview {
+        let selectedCount = selectedIds.count
+        let hasSelection = selectedCount > 0
+        let sendLabel = hasSelection
+          ? "Send \(selectedCount) Selected"
+          : "Send Review (\(openCount))"
+
         Divider()
           .foregroundStyle(Color.panelBorder.opacity(0.5))
 
@@ -64,7 +89,7 @@ struct ReviewChecklistSection: View {
           HStack(spacing: 6) {
             Image(systemName: "paperplane.fill")
               .font(.system(size: 10, weight: .medium))
-            Text("Send Review (\(openCount))")
+            Text(sendLabel)
               .font(.system(size: 11, weight: .semibold))
             Text("S")
               .font(.system(size: 9, weight: .bold, design: .monospaced))

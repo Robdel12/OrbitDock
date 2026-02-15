@@ -14,6 +14,7 @@ struct CodexTurnSidebar: View {
   let onClose: () -> Void
   @Binding var railPreset: RailPreset
   @Binding var selectedSkills: Set<String>
+  @Binding var selectedCommentIds: Set<String>
   var onOpenReview: (() -> Void)? = nil
   var onNavigateToSession: ((String) -> Void)? = nil
   var onNavigateToComment: ((ServerReviewComment) -> Void)? = nil
@@ -129,8 +130,16 @@ struct CodexTurnSidebar: View {
               ) {
                 ReviewChecklistSection(
                   comments: reviewComments,
+                  selectedIds: selectedCommentIds,
                   onNavigate: { comment in
                     onNavigateToComment?(comment)
+                  },
+                  onToggleSelection: { comment in
+                    if selectedCommentIds.contains(comment.id) {
+                      selectedCommentIds.remove(comment.id)
+                    } else {
+                      selectedCommentIds.insert(comment.id)
+                    }
                   },
                   onSendReview: onSendReview
                 )
@@ -589,11 +598,13 @@ private struct SpinningModifier: ViewModifier {
 #Preview("With Content") {
   @Previewable @State var preset: RailPreset = .planFocused
   @Previewable @State var skills: Set<String> = []
+  @Previewable @State var selectedComments: Set<String> = []
   CodexTurnSidebar(
     sessionId: "test",
     onClose: {},
     railPreset: $preset,
-    selectedSkills: $skills
+    selectedSkills: $skills,
+    selectedCommentIds: $selectedComments
   )
   .environment(ServerAppState())
   .environment(AttentionService())
@@ -604,11 +615,13 @@ private struct SpinningModifier: ViewModifier {
 #Preview("Empty") {
   @Previewable @State var preset: RailPreset = .planFocused
   @Previewable @State var skills: Set<String> = []
+  @Previewable @State var selectedComments: Set<String> = []
   CodexTurnSidebar(
     sessionId: "empty",
     onClose: {},
     railPreset: $preset,
-    selectedSkills: $skills
+    selectedSkills: $skills,
+    selectedCommentIds: $selectedComments
   )
   .environment(ServerAppState())
   .environment(AttentionService())

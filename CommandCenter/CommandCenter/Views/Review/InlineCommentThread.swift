@@ -11,7 +11,9 @@ import SwiftUI
 
 struct InlineCommentThread: View {
   let comments: [ServerReviewComment]
+  let selectedIds: Set<String>
   let onResolve: (ServerReviewComment) -> Void
+  let onToggleSelection: (ServerReviewComment) -> Void
 
   private let gutterBg = Color.white.opacity(0.015)
   private let gutterBorder = Color.white.opacity(0.06)
@@ -25,20 +27,27 @@ struct InlineCommentThread: View {
   }
 
   private func commentCard(_ comment: ServerReviewComment) -> some View {
-    HStack(alignment: .top, spacing: 0) {
-      // Purple edge bar
+    let isSelected = selectedIds.contains(comment.id)
+
+    return HStack(alignment: .top, spacing: 0) {
+      // Purple edge bar — brighter when selected
       Rectangle()
-        .fill(Color.statusQuestion)
+        .fill(isSelected ? Color.accent : Color.statusQuestion)
         .frame(width: EdgeBar.width)
 
-      // Gutter zone with bubble icon — matches diff line number width
-      HStack {
-        Spacer()
-        Image(systemName: "text.bubble.fill")
-          .font(.system(size: TypeScale.micro))
-          .foregroundStyle(Color.statusQuestion.opacity(0.6))
-        Spacer()
+      // Gutter zone with selection toggle — matches diff line number width
+      Button {
+        onToggleSelection(comment)
+      } label: {
+        HStack {
+          Spacer()
+          Image(systemName: isSelected ? "checkmark.circle.fill" : "text.bubble.fill")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(isSelected ? Color.accent : Color.statusQuestion.opacity(0.6))
+          Spacer()
+        }
       }
+      .buttonStyle(.plain)
       .frame(width: 72)
       .background(gutterBg)
 

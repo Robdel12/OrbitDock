@@ -34,6 +34,7 @@ struct SessionDetailView: View {
   @State private var showDiffBanner = false
   @State private var reviewFileId: String?
   @State private var navigateToComment: ServerReviewComment?
+  @State private var selectedCommentIds: Set<String> = []
 
   var body: some View {
     VStack(spacing: 0) {
@@ -83,6 +84,7 @@ struct SessionDetailView: View {
                 layoutConfig = .conversationOnly
               }
             },
+            selectedCommentIds: $selectedCommentIds,
             navigateToComment: $navigateToComment
           )
           .frame(maxWidth: .infinity)
@@ -102,6 +104,7 @@ struct SessionDetailView: View {
             },
             railPreset: $railPreset,
             selectedSkills: $selectedSkills,
+            selectedCommentIds: $selectedCommentIds,
             onOpenReview: {
               withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 layoutConfig = .split
@@ -577,12 +580,22 @@ struct SessionDetailView: View {
 
   // MARK: - Send Review
 
-  /// Format all open review comments and send as a structured message to the model.
-  /// Includes actual diff content so the model sees exactly what's being commented on.
+  /// Format review comments and send as a structured message to the model.
+  /// Uses selected comments if any, otherwise all open. Includes diff content
+  /// and embeds comment IDs for transcript traceability.
   private func sendReviewToModel() {
     let obs = serverState.session(session.id)
     let openComments = obs.reviewComments.filter { $0.status == .open }
     guard !openComments.isEmpty else { return }
+
+    // Use selected comments if any, otherwise all open
+    let commentsToSend: [ServerReviewComment]
+    if !selectedCommentIds.isEmpty {
+      commentsToSend = openComments.filter { selectedCommentIds.contains($0.id) }
+      guard !commentsToSend.isEmpty else { return }
+    } else {
+      commentsToSend = openComments
+    }
 
     // Build diff model for code extraction
     let diffModel: DiffModel? = {
@@ -598,7 +611,7 @@ struct SessionDetailView: View {
     // Group by file path, preserving order of first appearance
     var fileOrder: [String] = []
     var grouped: [String: [ServerReviewComment]] = [:]
-    for comment in openComments {
+    for comment in commentsToSend {
       if grouped[comment.filePath] == nil {
         fileOrder.append(comment.filePath)
       }
@@ -655,12 +668,16 @@ struct SessionDetailView: View {
       lines.append("")
     }
 
+    // Embed comment IDs for transcript traceability
+    let ids = commentsToSend.map(\.id).joined(separator: ",")
+    lines.append("<!-- review-comment-ids: \(ids) -->")
+
     let message = lines.joined(separator: "\n")
 
     serverState.sendMessage(sessionId: session.id, content: message)
 
-    // Resolve all sent comments
-    for comment in openComments {
+    // Resolve sent comments
+    for comment in commentsToSend {
       serverState.updateReviewComment(
         commentId: comment.id,
         body: nil,
@@ -668,6 +685,9 @@ struct SessionDetailView: View {
         status: .resolved
       )
     }
+
+    // Clear selection after send
+    selectedCommentIds.removeAll()
   }
 }
 

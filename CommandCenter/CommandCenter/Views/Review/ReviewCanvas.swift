@@ -20,7 +20,9 @@
 //    C-g / Escape — clear mark / cancel composer (Emacs abort)
 //    ] / [        — jump to next/prev unresolved comment
 //    r            — toggle resolve on comment at cursor
-//    S            — send all open comments to model as structured review feedback
+//    x            — toggle selection on comment at cursor (for partial sends)
+//    X            — clear all selections (Shift+X)
+//    S            — send comments to model (selected only if any, else all open)
 //
 
 import SwiftUI
@@ -92,6 +94,7 @@ struct ReviewCanvas: View {
   var compact: Bool = false
   var navigateToFileId: Binding<String?>? = nil
   var onDismiss: (() -> Void)? = nil
+  @Binding var selectedCommentIds: Set<String>
   var navigateToComment: Binding<ServerReviewComment?>? = nil
 
   @Environment(ServerAppState.self) private var serverState
@@ -454,8 +457,16 @@ struct ReviewCanvas: View {
                     if !openComments.isEmpty {
                       InlineCommentThread(
                         comments: openComments,
+                        selectedIds: selectedCommentIds,
                         onResolve: { comment in
                           resolveComment(comment)
+                        },
+                        onToggleSelection: { comment in
+                          if selectedCommentIds.contains(comment.id) {
+                            selectedCommentIds.remove(comment.id)
+                          } else {
+                            selectedCommentIds.insert(comment.id)
+                          }
                         }
                       )
                       .id("comments-\(fileIdx)-\(hunkIdx)-\(lineIdx)")
@@ -562,33 +573,60 @@ struct ReviewCanvas: View {
   }
 
   private var sendReviewBar: some View {
-    let count = obs.reviewComments.filter { $0.status == .open && commentMatchesTurnView($0) }.count
+    let openCount = obs.reviewComments.filter { $0.status == .open && commentMatchesTurnView($0) }.count
+    let selectedCount = selectedCommentIds.count
+    let hasSelection = selectedCount > 0
+    let sendCount = hasSelection ? selectedCount : openCount
+    let label = hasSelection
+      ? "Send \(sendCount) selected"
+      : "Send \(sendCount) comment\(sendCount == 1 ? "" : "s") to model"
 
-    return Button(action: sendReview) {
-      HStack(spacing: 8) {
-        Image(systemName: "paperplane.fill")
-          .font(.system(size: TypeScale.body, weight: .medium))
-
-        Text("Send \(count) comment\(count == 1 ? "" : "s") to model")
-          .font(.system(size: TypeScale.code, weight: .semibold))
-
-        Text("S")
-          .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
-          .foregroundStyle(.white.opacity(0.5))
-          .padding(.horizontal, 5)
-          .padding(.vertical, 2)
-          .background(.white.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm))
+    return HStack(spacing: 8) {
+      // Clear selection button (only when selection active)
+      if hasSelection {
+        Button {
+          selectedCommentIds.removeAll()
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: "xmark")
+              .font(.system(size: TypeScale.micro, weight: .bold))
+            Text("\(selectedCount) selected")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+          }
+          .foregroundStyle(.white.opacity(0.7))
+          .padding(.horizontal, 10)
+          .padding(.vertical, 8)
+          .background(.white.opacity(OpacityTier.light), in: Capsule())
+        }
+        .buttonStyle(.plain)
       }
-      .foregroundStyle(.white)
-      .padding(.horizontal, 16)
-      .padding(.vertical, 8)
-      .background(Color.statusQuestion, in: Capsule())
-      .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+
+      Button(action: sendReview) {
+        HStack(spacing: 8) {
+          Image(systemName: "paperplane.fill")
+            .font(.system(size: TypeScale.body, weight: .medium))
+
+          Text(label)
+            .font(.system(size: TypeScale.code, weight: .semibold))
+
+          Text("S")
+            .font(.system(size: TypeScale.caption, weight: .bold, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.5))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(.white.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color.statusQuestion, in: Capsule())
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+      }
+      .buttonStyle(.plain)
     }
-    .buttonStyle(.plain)
     .padding(.bottom, 16)
     .transition(.move(edge: .bottom).combined(with: .opacity))
-    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: count)
+    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: sendCount)
   }
 
   // MARK: - File Section Header
@@ -750,9 +788,15 @@ struct ReviewCanvas: View {
       return .handled
     }
 
-    // Shift+S — send review (all open comments) to model
+    // Shift+S — send review comments to model (selected if any, else all open)
     if keyPress.key == "S", keyPress.modifiers == .shift {
       sendReview()
+      return .handled
+    }
+
+    // Shift+X — clear all comment selections
+    if keyPress.key == "X", keyPress.modifiers == .shift {
+      selectedCommentIds.removeAll()
       return .handled
     }
 
@@ -785,6 +829,11 @@ struct ReviewCanvas: View {
     // r — toggle resolve on comment at cursor
     case "r":
       resolveCommentAtCursor(model: model)
+      return .handled
+
+    // x — toggle selection on comment at cursor
+    case "x":
+      toggleSelectionAtCursor(model: model)
       return .handled
 
     // q — dismiss review pane
@@ -1261,6 +1310,26 @@ struct ReviewCanvas: View {
     }
   }
 
+  /// Toggle selection on the open comment at cursor for partial sends.
+  private func toggleSelectionAtCursor(model: DiffModel) {
+    guard let target = currentTarget(model),
+          case .diffLine(let f, _, _) = target else { return }
+
+    let file = model.files[f]
+    guard case .diffLine(_, let h, let l) = target else { return }
+    let line = file.hunks[h].lines[l]
+    guard let newLine = line.newLineNum else { return }
+
+    let lineComments = commentsForLine(filePath: file.newPath, lineNum: newLine)
+    for comment in lineComments where comment.status == .open {
+      if selectedCommentIds.contains(comment.id) {
+        selectedCommentIds.remove(comment.id)
+      } else {
+        selectedCommentIds.insert(comment.id)
+      }
+    }
+  }
+
   /// Jump cursor to the next/prev diff line that has an unresolved comment.
   private func jumpToNextComment(forward: Bool, in model: DiffModel) {
     let targets = computeVisibleTargets(model)
@@ -1366,16 +1435,15 @@ struct ReviewCanvas: View {
 
   /// Format all open comments into a structured review message the model can act on.
   /// Includes actual diff content so the model sees exactly what's being commented on.
-  private func formatReviewMessage() -> String? {
-    let openComments = obs.reviewComments.filter { $0.status == .open }
-    guard !openComments.isEmpty else { return nil }
+  private func formatReviewMessage(comments commentsToSend: [ServerReviewComment]) -> String? {
+    guard !commentsToSend.isEmpty else { return nil }
 
     let model = diffModel
 
     // Group by file path, preserving order of first appearance
     var fileOrder: [String] = []
     var grouped: [String: [ServerReviewComment]] = [:]
-    for comment in openComments {
+    for comment in commentsToSend {
       if grouped[comment.filePath] == nil {
         fileOrder.append(comment.filePath)
       }
@@ -1419,7 +1487,11 @@ struct ReviewCanvas: View {
       lines.append("")
     }
 
-    // No trailing instruction — the code + comments speak for themselves
+    // Embed comment IDs as HTML comment for transcript traceability
+    // Invisible to the model but parseable from stored messages
+    let ids = commentsToSend.map(\.id).joined(separator: ",")
+    lines.append("<!-- review-comment-ids: \(ids) -->")
+
     return lines.joined(separator: "\n")
   }
 
@@ -1449,27 +1521,38 @@ struct ReviewCanvas: View {
     return extracted.isEmpty ? nil : extracted.joined(separator: "\n")
   }
 
-  /// Send all open review comments as structured feedback to the model, then resolve them.
+  /// Send review comments as structured feedback to the model, then resolve them.
+  /// If comments are selected (via `x`), sends only those. Otherwise sends all open.
   /// Records a review round to track which files the model modifies in response.
   private func sendReview() {
     let openComments = obs.reviewComments.filter { $0.status == .open }
     guard !openComments.isEmpty else { return }
-    guard let message = formatReviewMessage() else { return }
+
+    // Use selected comments if any, otherwise all open
+    let commentsToSend: [ServerReviewComment]
+    if !selectedCommentIds.isEmpty {
+      commentsToSend = openComments.filter { selectedCommentIds.contains($0.id) }
+      guard !commentsToSend.isEmpty else { return }
+    } else {
+      commentsToSend = openComments
+    }
+
+    guard let message = formatReviewMessage(comments: commentsToSend) else { return }
 
     // Record review round before sending
-    let reviewedFiles = Set(openComments.map(\.filePath))
+    let reviewedFiles = Set(commentsToSend.map(\.filePath))
     lastReviewRound = ReviewRound(
       sentAt: Date(),
       turnDiffCountAtSend: obs.turnDiffs.count,
       reviewedFilePaths: reviewedFiles,
-      commentCount: openComments.count
+      commentCount: commentsToSend.count
     )
     showReviewBanner = true
 
     serverState.sendMessage(sessionId: sessionId, content: message)
 
-    // Mark all open comments as resolved after sending
-    for comment in openComments {
+    // Mark sent comments as resolved
+    for comment in commentsToSend {
       serverState.updateReviewComment(
         commentId: comment.id,
         body: nil,
@@ -1477,6 +1560,9 @@ struct ReviewCanvas: View {
         status: .resolved
       )
     }
+
+    // Clear selection after send
+    selectedCommentIds.removeAll()
   }
 
   private var hasOpenComments: Bool {
