@@ -12,6 +12,23 @@ OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. 
 - **Swift Argument Parser** - CLI subcommands
 - **DispatchSource** - File system monitoring for live updates
 
+## Build, Test, and Lint Commands
+
+```bash
+# From repo root
+make build      # Build app (xcodebuild wrapper)
+make test-unit  # Run unit tests only (CommandCenterTests)
+make test-ui    # Run UI tests only (CommandCenterUITests)
+make test-all   # Run both unit + UI tests
+make rust-build # Build orbitdock-server
+make rust-check # cargo check --workspace (orbitdock-server)
+make rust-test  # cargo test --workspace (orbitdock-server)
+make fmt        # Format Swift + Rust (swiftformat + cargo fmt)
+make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
+```
+
+`make test-unit` intentionally excludes UI tests so local unit-test runs do not trigger the UI automation flow.
+
 ## Key Patterns
 
 ### State Management
@@ -338,10 +355,13 @@ tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
 ## Testing Changes
 
 1. Make changes to Swift code
-2. Build in Xcode (Cmd+R)
-3. For Claude: Start a new Claude Code session to trigger hooks
-4. For Codex: Start a Codex session (or modify an existing rollout file)
-5. Verify data appears in OrbitDock
+2. Build with `make build` (or Xcode Cmd+R when needed)
+3. Run `make test-unit` for normal local verification
+4. Run `make test-ui` when UI coverage is required
+5. Run `make lint` before handing off changes
+6. For Claude: Start a new Claude Code session to trigger hooks
+7. For Codex: Start a Codex session (or modify an existing rollout file)
+8. Verify data appears in OrbitDock
 
 ### Testing CLI changes
 ```bash

@@ -10,7 +10,16 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - `docs/` holds additional documentation; `orbitdock.png` is a repository asset.
 
 ## Build & Development Commands
-- SwiftUI app: open `CommandCenter/CommandCenter.xcodeproj` in Xcode and build/run (Cmd+R).
+- SwiftUI app build (standard): `make build` (wraps `xcodebuild -project CommandCenter/CommandCenter.xcodeproj -scheme CommandCenter -destination 'platform=macOS' build`).
+- Unit tests (standard, no UI tests): `make test-unit`.
+- UI tests (standard): `make test-ui`.
+- All app tests: `make test-all`.
+- Rust server build: `make rust-build`.
+- Rust workspace check: `make rust-check`.
+- Rust workspace tests: `make rust-test`.
+- Format all code: `make fmt` (or `make swift-fmt` / `make rust-fmt`).
+- Lint all code: `make lint` (or `make swift-lint` / `make rust-lint`).
+- SwiftUI app in Xcode: open `CommandCenter/CommandCenter.xcodeproj` and build/run (Cmd+R).
 - CLI standalone: `cd CommandCenter/OrbitDockCore && swift build`
 - Test CLI: `echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start`
 
@@ -19,7 +28,7 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Prefer descriptive, domain-based naming (e.g., `SessionRowView`, `TranscriptParser`, `StatusTrackerCommand`).
 
 ## Testing Guidelines
-- Swift tests are under `CommandCenter/CommandCenterTests/`; run via Xcode (Cmd+U).
+- Swift tests are under `CommandCenter/CommandCenterTests/`; prefer `make test-unit` for non-UI tests and `make test-ui` for UI automation.
 - CLI can be tested by piping JSON to stdin and checking database state.
 
 ## Commit & Pull Request Guidelines

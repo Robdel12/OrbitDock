@@ -62,10 +62,16 @@ See [FEATURES.md](FEATURES.md) for the full feature list.
 ```bash
 git clone https://github.com/your-username/orbitdock.git
 cd orbitdock
+make build
+```
+
+Open the app in Xcode when you want to run it locally:
+
+```bash
 open CommandCenter/CommandCenter.xcodeproj
 ```
 
-Build and run with ⌘R. The CLI is automatically embedded in the app bundle.
+Run with ⌘R in Xcode. The CLI is automatically embedded in the app bundle.
 
 **Note:** Codex CLI support is automatic—no hook setup needed. OrbitDock watches `~/.codex/sessions/` using native FSEvents.
 
@@ -177,6 +183,25 @@ OrbitDock is intentionally small and fast: local SQLite, lightweight watchers, a
 ```
 
 ## Development
+
+### Common Commands
+
+```bash
+# App build + tests
+make build
+make test-unit   # Unit tests only (excludes UI tests)
+make test-ui     # UI tests only
+make test-all    # All app tests
+
+# Rust server
+make rust-build
+make rust-check
+make rust-test
+
+# Formatting + linting
+make fmt
+make lint
+```
 
 ### Building the CLI standalone
 
