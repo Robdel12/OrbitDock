@@ -347,6 +347,23 @@ extension Color {
   static let autonomyFullAuto = Color(red: 1.0, green: 0.6, blue: 0.3)
   /// Unrestricted — coral-red (max danger)
   static let autonomyUnrestricted = Color(red: 1.0, green: 0.45, blue: 0.4)
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Effort Levels — Speed Spectrum (cool→warm)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// None — muted gray (no reasoning)
+  static let effortNone = Color(red: 0.45, green: 0.42, blue: 0.55)
+  /// Minimal — cool teal
+  static let effortMinimal = Color(red: 0.2, green: 0.75, blue: 0.78)
+  /// Low — accent cyan
+  static let effortLow = accent
+  /// Medium — calm green (default)
+  static let effortMedium = Color(red: 0.35, green: 0.82, blue: 0.55)
+  /// High — amber
+  static let effortHigh = Color(red: 0.95, green: 0.75, blue: 0.3)
+  /// XHigh — coral-orange (deepest reasoning)
+  static let effortXHigh = Color(red: 1.0, green: 0.55, blue: 0.35)
 }
 
 // MARK: - Theme View Modifier

@@ -25,6 +25,7 @@ struct InstrumentPanel: View {
   @State private var errorMessage: String?
   @State private var selectedModel: String = ""
   @State private var selectedEffort: EffortLevel = .default
+  @State private var showModelEffortPopover = false
   @State private var completionActive = false
   @State private var completionQuery = ""
   @State private var completionIndex = 0
@@ -66,7 +67,7 @@ struct InstrumentPanel: View {
   }
 
   private var hasOverrides: Bool {
-    selectedEffort != .default
+    selectedEffort != .default || selectedModel != defaultModelSelection
   }
 
   private var availableSkills: [ServerSkillMetadata] {
@@ -315,45 +316,8 @@ struct InstrumentPanel: View {
       // Action buttons (left of input, hidden when steering)
       if !isSessionWorking {
         HStack(spacing: Spacing.xs) {
-          Menu {
-            Section("Model") {
-              ForEach(modelOptions.filter { !$0.model.isEmpty }, id: \.id) { model in
-                Button {
-                  selectedModel = model.model
-                } label: {
-                  HStack {
-                    Text(model.displayName)
-                    if selectedModel == model.model {
-                      Image(systemName: "checkmark")
-                    }
-                  }
-                }
-              }
-            }
-            Section("Effort") {
-              ForEach(EffortLevel.allCases) { level in
-                Button {
-                  withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    selectedEffort = level
-                  }
-                } label: {
-                  HStack {
-                    Text(level.displayName)
-                    if selectedEffort == level {
-                      Image(systemName: "checkmark")
-                    }
-                  }
-                }
-              }
-            }
-            if hasOverrides {
-              Divider()
-              Button("Reset") {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                  selectedEffort = .default
-                }
-              }
-            }
+          Button {
+            showModelEffortPopover.toggle()
           } label: {
             Image(systemName: "slider.horizontal.3")
               .font(.system(size: 13, weight: .semibold))
@@ -364,9 +328,16 @@ struct InstrumentPanel: View {
                 in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
               )
           }
-          .menuStyle(.borderlessButton)
+          .buttonStyle(.plain)
           .fixedSize()
           .help("Model & effort settings")
+          .popover(isPresented: $showModelEffortPopover, arrowEdge: .bottom) {
+            ModelEffortPopover(
+              selectedModel: $selectedModel,
+              selectedEffort: $selectedEffort,
+              models: modelOptions
+            )
+          }
 
           composerActionButton(
             icon: "bolt.fill",
@@ -805,6 +776,7 @@ struct InstrumentPanel: View {
   @ViewBuilder
   private var overrideBadge: some View {
     let parts = [
+      selectedModel != defaultModelSelection ? shortModelName(selectedModel) : nil,
       selectedEffort != .default ? selectedEffort.displayName : nil,
     ].compactMap { $0 }
 
@@ -842,7 +814,7 @@ struct InstrumentPanel: View {
       return
     }
 
-    let effort = selectedEffort == .default ? nil : selectedEffort.rawValue
+    let effort = selectedEffort.serialized
 
     var expandedContent = trimmed
     for mention in attachedMentions {

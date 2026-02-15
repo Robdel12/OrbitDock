@@ -1128,9 +1128,12 @@ impl CodexConnector {
         // Submit per-turn overrides before the user message when present
         if model.is_some() || effort.is_some() {
             let effort_value = effort.map(|e| match e {
+                "none" => codex_protocol::openai_models::ReasoningEffort::None,
+                "minimal" => codex_protocol::openai_models::ReasoningEffort::Minimal,
                 "low" => codex_protocol::openai_models::ReasoningEffort::Low,
                 "medium" => codex_protocol::openai_models::ReasoningEffort::Medium,
                 "high" => codex_protocol::openai_models::ReasoningEffort::High,
+                "xhigh" => codex_protocol::openai_models::ReasoningEffort::XHigh,
                 _ => codex_protocol::openai_models::ReasoningEffort::Medium,
             });
             let override_op = Op::OverrideTurnContext {
