@@ -74,23 +74,24 @@ enum SessionCapability: Identifiable {
 
   /// Derive capabilities from a Session
   static func capabilities(for session: Session) -> [SessionCapability] {
-    guard session.provider == .codex else { return [] }
-
-    var caps: [SessionCapability] = []
-
-    if session.isDirectCodex {
-      caps.append(.direct)
+    // Show capability badges for any direct session (Codex or Claude)
+    if session.isDirect {
+      var caps: [SessionCapability] = [.direct]
       if session.isActive, session.workStatus == .working {
         caps.append(.canSteer)
       }
       if session.canApprove {
         caps.append(.canApprove)
       }
-    } else {
-      caps.append(.passive)
+      return caps
     }
 
-    return caps
+    // Codex passive sessions get a passive badge
+    if session.provider == .codex {
+      return [.passive]
+    }
+
+    return []
   }
 }
 

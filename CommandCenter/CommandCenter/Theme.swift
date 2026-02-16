@@ -137,14 +137,25 @@ extension Color {
   static let rowHighlight = Color(red: 0.15, green: 0.2, blue: 0.35).opacity(0.4)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Text Hierarchy
+  // MARK: Text Hierarchy — Guaranteed Readable on Dark Backgrounds
 
+  //
+  // NEVER use SwiftUI's `.foregroundStyle(.tertiary)` or `.quaternary` —
+  // they resolve to ~30%/~20% opacity which is invisible on our dark theme.
+  // Always use these explicit Color values instead.
+  //
+  // Usage guide:
+  //   .textPrimary   → headings, session names, key data values
+  //   .textSecondary  → labels, supporting text, active descriptions
+  //   .textTertiary   → meta info, timestamps, counts, monospaced data
+  //   .textQuaternary → lowest priority but still readable (hints, divider text)
+  //
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   static let textPrimary = Color.white.opacity(0.92)
-  static let textSecondary = Color.white.opacity(0.60)
-  static let textTertiary = Color.white.opacity(0.42)
-  static let textQuaternary = Color.white.opacity(0.30)
+  static let textSecondary = Color.white.opacity(0.65)
+  static let textTertiary = Color.white.opacity(0.50)
+  static let textQuaternary = Color.white.opacity(0.38)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Provider Colors - Multi-Provider Support

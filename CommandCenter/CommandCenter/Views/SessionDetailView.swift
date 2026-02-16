@@ -46,10 +46,10 @@ struct SessionDetailView: View {
         onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
         onGoToDashboard: onGoToDashboard,
-        onEndSession: session.isDirectCodex ? { endCodexSession() } : nil,
-        showTurnSidebar: session.isDirectCodex ? $showTurnSidebar : nil,
+        onEndSession: session.isDirect ? { endDirectSession() } : nil,
+        showTurnSidebar: session.isDirect ? $showTurnSidebar : nil,
         hasSidebarContent: hasSidebarContent,
-        layoutConfig: session.isDirectCodex ? $layoutConfig : nil
+        layoutConfig: session.isDirect ? $layoutConfig : nil
       )
 
       Divider()
@@ -91,7 +91,7 @@ struct SessionDetailView: View {
         }
 
         // Turn sidebar - plan + diff + servers + skills (Codex direct only)
-        if session.isDirectCodex, showTurnSidebar {
+        if session.isDirect, showTurnSidebar {
           Divider()
             .foregroundStyle(Color.panelBorder)
 
@@ -136,7 +136,7 @@ struct SessionDetailView: View {
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: showTurnSidebar)
 
       // Action bar (unified instrument panel for Codex, simpler bar for Claude)
-      if session.isDirectCodex {
+      if session.isDirect {
         InstrumentPanel(
           session: session,
           selectedSkills: $selectedSkills,
@@ -158,7 +158,7 @@ struct SessionDetailView: View {
     .onAppear {
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(session.id)
-        if session.isDirectCodex {
+        if session.isDirect {
           serverState.loadApprovalHistory(sessionId: session.id)
           serverState.loadGlobalApprovalHistory()
           serverState.listMcpTools(sessionId: session.id)
@@ -179,7 +179,7 @@ struct SessionDetailView: View {
       }
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(newId)
-        if session.isDirectCodex {
+        if session.isDirect {
           serverState.loadApprovalHistory(sessionId: newId)
           serverState.loadGlobalApprovalHistory()
           serverState.listMcpTools(sessionId: newId)
@@ -240,7 +240,7 @@ struct SessionDetailView: View {
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
-      guard session.isDirectCodex else { return .ignored }
+      guard session.isDirect else { return .ignored }
 
       // Cmd+D: Toggle conversation ↔ split
       if keyPress.modifiers == .command, keyPress.key == KeyEquivalent("d") {
@@ -265,7 +265,7 @@ struct SessionDetailView: View {
     }
     // Diff-available banner trigger
     .onChange(of: serverState.session(session.id).diff) { oldDiff, newDiff in
-      guard session.isDirectCodex else { return }
+      guard session.isDirect else { return }
       if oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
           showDiffBanner = true
@@ -449,7 +449,7 @@ struct SessionDetailView: View {
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger
     )
-    .environment(\.openFileInReview, session.isDirectCodex ? { filePath in
+    .environment(\.openFileInReview, session.isDirect ? { filePath in
       // Extract the relative file path (strip project path prefix if present)
       let relative = filePath.hasPrefix(session.projectPath)
         ? String(filePath.dropFirst(session.projectPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -515,7 +515,7 @@ struct SessionDetailView: View {
 
   /// Whether any sidebar tab has content (for header badge indicator)
   private var hasSidebarContent: Bool {
-    guard session.isDirectCodex else { return false }
+    guard session.isDirect else { return false }
     let obs = serverState.session(session.id)
     let hasPlan = obs.getPlanSteps() != nil
     let hasDiff = obs.diff != nil
@@ -575,7 +575,7 @@ struct SessionDetailView: View {
     TerminalService.shared.focusSession(session)
   }
 
-  private func endCodexSession() {
+  private func endDirectSession() {
     serverState.endSession(session.id)
   }
 

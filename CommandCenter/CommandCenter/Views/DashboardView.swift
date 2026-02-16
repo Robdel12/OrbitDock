@@ -2,7 +2,7 @@
 //  DashboardView.swift
 //  OrbitDock
 //
-//  Home view for active and ended sessions.
+//  Home view — project-first flat layout with attention interrupts.
 //
 
 import SwiftUI
@@ -17,12 +17,19 @@ struct DashboardView: View {
 
   @State private var selectedIndex = 0
   @State private var showNewCodexSheet = false
+  @State private var showNewClaudeSheet = false
+  @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
+  @State private var activeSort: ActiveSessionSort = .status
+  @State private var activeProviderFilter: ActiveSessionProviderFilter = .all
   @FocusState private var isDashboardFocused: Bool
 
   private var activeSessions: [Session] {
-    sessions
-      .filter(\.isActive)
-      .sorted { ($0.startedAt ?? .distantPast) > ($1.startedAt ?? .distantPast) }
+    ProjectStreamSection.keyboardNavigableSessions(
+      from: sessions,
+      filter: activeWorkbenchFilter,
+      sort: activeSort,
+      providerFilter: activeProviderFilter
+    )
   }
 
   private var showingLoadingSkeleton: Bool {
@@ -31,7 +38,15 @@ struct DashboardView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      dashboardHeader
+      CommandStrip(
+        sessions: sessions,
+        isInitialLoading: isInitialLoading,
+        isRefreshingCachedSessions: isRefreshingCachedSessions,
+        onOpenPanel: onOpenPanel,
+        onOpenQuickSwitcher: onOpenQuickSwitcher,
+        onNewClaude: { showNewClaudeSheet = true },
+        onNewCodex: { showNewCodexSheet = true }
+      )
 
       Divider()
         .foregroundStyle(Color.panelBorder)
@@ -42,27 +57,45 @@ struct DashboardView: View {
     .sheet(isPresented: $showNewCodexSheet) {
       NewCodexSessionSheet()
     }
+    .sheet(isPresented: $showNewClaudeSheet) {
+      NewClaudeSessionSheet()
+    }
   }
 
   private var sessionsContent: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 0) {
           if showingLoadingSkeleton {
             loadingSkeletonContent
           } else {
+            // Zone 1: Ambient stats — recessed metadata strip
             CommandBar(sessions: sessions)
 
-            ActiveSessionsSection(
+            // Zone 2: Attention interrupts — the real priority
+            AttentionBanner(
+              sessions: sessions,
+              onSelectSession: onSelectSession
+            )
+            .padding(.top, 14)
+
+            // Zone 3: Active agents — primary content
+            ProjectStreamSection(
               sessions: sessions,
               onSelectSession: onSelectSession,
-              selectedIndex: selectedIndex
+              selectedIndex: selectedIndex,
+              filter: $activeWorkbenchFilter,
+              sort: $activeSort,
+              providerFilter: $activeProviderFilter
             )
+            .padding(.top, 20)
 
+            // Zone 4: History
             SessionHistorySection(
               sessions: sessions,
               onSelectSession: onSelectSession
             )
+            .padding(.top, 24)
           }
         }
         .padding(24)
@@ -98,176 +131,73 @@ struct DashboardView: View {
     ))
   }
 
-  private var dashboardHeader: some View {
-    HStack(spacing: 12) {
-      Button {
-        onOpenPanel()
-      } label: {
-        Image(systemName: "sidebar.left")
-          .font(.system(size: 12, weight: .medium))
-          .foregroundStyle(.secondary)
-          .frame(width: 28, height: 28)
-          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-      }
-      .buttonStyle(.plain)
-      .help("Toggle panel (⌘1)")
-
-      Text("OrbitDock")
-        .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(.primary)
-
-      Spacer()
-
-      if showingLoadingSkeleton || isRefreshingCachedSessions || !sessions.isEmpty {
-        HStack(spacing: 12) {
-          if showingLoadingSkeleton || isRefreshingCachedSessions {
-            HStack(spacing: 6) {
-              ProgressView()
-                .controlSize(.small)
-              Text("Syncing")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-            }
-          }
-
-          let workingCount = sessions.filter { SessionDisplayStatus.from($0) == .working }.count
-          let attentionCount = sessions.filter { SessionDisplayStatus.from($0) == .attention }.count
-
-          if workingCount > 0 {
-            HStack(spacing: 4) {
-              Circle()
-                .fill(Color.statusWorking)
-                .frame(width: 6, height: 6)
-              Text("\(workingCount)")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-              Text("Working")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-            }
-          }
-
-          if attentionCount > 0 {
-            HStack(spacing: 4) {
-              Circle()
-                .fill(Color.statusAttention)
-                .frame(width: 6, height: 6)
-              Text("\(attentionCount)")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-              Text("Attention")
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
-            }
-          }
-        }
-      }
-
-      Button {
-        showNewCodexSheet = true
-      } label: {
-        HStack(spacing: 6) {
-          Image(systemName: "plus")
-            .font(.system(size: 11, weight: .bold))
-          Text("Codex")
-            .font(.system(size: 11, weight: .medium))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .foregroundStyle(Color.accent)
-      }
-      .buttonStyle(.plain)
-      .help("Create new Codex session")
-
-      Button {
-        onOpenQuickSwitcher()
-      } label: {
-        HStack(spacing: 6) {
-          Image(systemName: "magnifyingglass")
-            .font(.system(size: 11, weight: .medium))
-          Text("Search")
-            .font(.system(size: 11, weight: .medium))
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .foregroundStyle(.secondary)
-      }
-      .buttonStyle(.plain)
-    }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
-    .background(Color.backgroundSecondary)
-  }
+  // MARK: - Loading Skeleton
 
   private var loadingSkeletonContent: some View {
-    VStack(alignment: .leading, spacing: 20) {
+    VStack(alignment: .leading, spacing: 0) {
       skeletonCommandBarCard
-      skeletonActiveSection
+      skeletonProjectStream
+        .padding(.top, 20)
       skeletonHistorySection
+        .padding(.top, 24)
     }
     .allowsHitTesting(false)
     .accessibilityHidden(true)
   }
 
   private var skeletonCommandBarCard: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      HStack {
-        skeletonLine(width: 180, height: 14)
-        Spacer()
-        skeletonLine(width: 56, height: 14)
-      }
-
-      HStack(spacing: 16) {
-        ForEach(0 ..< 4, id: \.self) { _ in
-          VStack(alignment: .leading, spacing: 8) {
-            skeletonLine(width: 44, height: 10)
-            skeletonLine(width: 64, height: 12)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-        }
-      }
+    HStack(spacing: 16) {
+      skeletonLine(width: 180, height: 12)
+      Spacer()
+      skeletonLine(width: 120, height: 28)
+      skeletonLine(width: 120, height: 28)
     }
-    .padding(16)
-    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .padding(.horizontal, 2)
+    .padding(.vertical, 6)
   }
 
-  private var skeletonActiveSection: some View {
+  private var skeletonProjectStream: some View {
     VStack(alignment: .leading, spacing: 12) {
+      // Section header skeleton
       HStack(spacing: 8) {
         Circle()
           .fill(Color.surfaceHover)
           .frame(width: 10, height: 10)
-        skeletonLine(width: 140, height: 13)
+        skeletonLine(width: 120, height: 13)
         Spacer()
-        skeletonLine(width: 28, height: 13)
         skeletonLine(width: 28, height: 13)
         skeletonLine(width: 28, height: 13)
       }
       .padding(.vertical, 10)
-      .padding(.horizontal, 14)
-      .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .padding(.horizontal, 2)
 
-      VStack(spacing: 6) {
+      // Project header skeleton
+      HStack(spacing: 8) {
+        skeletonLine(width: 3, height: 14)
+        skeletonLine(width: 100, height: 12)
+        skeletonLine(width: 50, height: 10)
+        Spacer()
+      }
+      .padding(.horizontal, 10)
+
+      // Flat session row skeletons
+      VStack(spacing: 2) {
         ForEach(0 ..< 3, id: \.self) { _ in
           HStack(spacing: 10) {
             Circle()
               .fill(Color.surfaceHover)
               .frame(width: 8, height: 8)
-              .frame(width: 14)
 
-            VStack(alignment: .leading, spacing: 6) {
-              skeletonLine(height: 13)
-              skeletonLine(width: 160, height: 10)
-            }
+            skeletonLine(height: 12)
 
             Spacer(minLength: 12)
 
-            skeletonLine(width: 78, height: 20)
+            skeletonLine(width: 50, height: 10)
+            skeletonLine(width: 60, height: 16)
+            skeletonLine(width: 40, height: 10)
           }
-          .padding(12)
-          .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+          .padding(.vertical, 7)
+          .padding(.horizontal, 10)
         }
       }
     }
@@ -308,6 +238,8 @@ struct DashboardView: View {
       .fill(Color.surfaceHover.opacity(0.9))
       .frame(width: width, height: height)
   }
+
+  // MARK: - Navigation
 
   private func moveSelection(by delta: Int) {
     guard !activeSessions.isEmpty else { return }

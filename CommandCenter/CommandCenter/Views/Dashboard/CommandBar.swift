@@ -35,89 +35,66 @@ struct CommandBar: View {
     DetailedStats.from(sessions: sessions, legacyStatsBySessionID: legacyStatsBySessionID)
   }
 
-  /// Model distribution for the mini chart
-  private var modelDistribution: ModelDistribution {
-    var counts: [String: (count: Int, color: Color)] = [:]
-
-    for session in sessions {
-      // Skip sessions with unknown/missing models
-      guard let (name, color) = normalizeModel(session.model) else {
-        continue
-      }
-      if let existing = counts[name] {
-        counts[name] = (existing.count + 1, color)
-      } else {
-        counts[name] = (1, color)
-      }
-    }
-
-    let entries = counts.map { (name: $0.key, count: $0.value.count, color: $0.value.color) }
-    return ModelDistribution(modelCounts: entries)
-  }
-
-  /// Normalize model string to display name (returns nil to skip unknown models)
-  private func normalizeModel(_ model: String?) -> (name: String, color: Color)? {
-    guard let model = model?.lowercased(), !model.isEmpty else {
-      return nil // Skip sessions with no model data
-    }
-    // Claude models
-    if model.contains("opus") { return ("Opus", .modelOpus) }
-    if model.contains("sonnet") { return ("Sonnet", .modelSonnet) }
-    if model.contains("haiku") { return ("Haiku", .modelHaiku) }
-    // OpenAI/Codex - normalize: "gpt-5.2-codex" -> "GPT-5.2"
-    if model.hasPrefix("gpt-") {
-      let version = model.dropFirst(4).split(separator: "-").first ?? ""
-      return ("GPT-\(version)", .providerCodex)
-    }
-    // Skip generic "openai" - not a real model name
-    if model == "openai" { return nil }
-    return nil // Skip unknown models
-  }
-
   var body: some View {
     VStack(spacing: 0) {
-      // Main bar
+      // Always-visible compact stats + usage bar
       HStack(spacing: 0) {
-        // Left side: Stats panels stacked with toggle below
-        VStack(alignment: .leading, spacing: 10) {
-          HStack(spacing: 0) {
-            // Today's Activity
-            StatsSummaryPanel(
-              title: "TODAY",
-              icon: "sun.max.fill",
-              iconColor: .statusWaiting,
-              stats: todayStats
-            )
+        // Left: Today headline cost + supporting stats
+        HStack(spacing: 5) {
+          Text("TODAY")
+            .font(.system(size: 8, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.textQuaternary)
+            .tracking(0.8)
 
-            verticalDivider
+          Text(formatCostCompact(todayStats.cost))
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.textPrimary)
 
-            // All-Time Totals
-            StatsSummaryPanel(
-              title: "TRACKED",
-              icon: "tray.full.fill",
-              iconColor: .accent.opacity(0.7),
-              stats: trackedStats,
-              modelDistribution: modelDistribution
-            )
-          }
-
-          // Details toggle button (below stats)
-          DetailsToggleButton(isExpanded: $showDetails)
+          compactStat(value: "\(todayStats.sessionCount)", label: "sessions")
+          compactStat(value: formatCompactTokens(todayStats.tokens), label: "tokens")
         }
 
-        Spacer(minLength: 20)
+        thinDivider
 
-        // Usage Gauges (right side)
+        // Center: All-time
+        HStack(spacing: 5) {
+          Text("ALL")
+            .font(.system(size: 8, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.textQuaternary)
+            .tracking(0.8)
+
+          Text(formatCostCompact(trackedStats.cost))
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.textPrimary)
+
+          compactStat(value: "\(trackedStats.sessionCount)", label: "sessions")
+          compactStat(value: formatCompactTokens(trackedStats.tokens), label: "tokens")
+        }
+
+        Spacer(minLength: 16)
+
+        // Right: Usage gauges (always visible)
         UsageGaugesPanel()
+
+        // Details toggle
+        Button {
+          withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            showDetails.toggle()
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(showDetails ? Color.accent : Color.white.opacity(0.42))
+            .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .help("Toggle detailed breakdown")
       }
-      .padding(.vertical, 14)
-      .padding(.horizontal, 20)
+      .padding(.horizontal, 2)
+      .padding(.vertical, 6)
 
       // Expandable detail panels
       if showDetails {
-        Divider()
-          .background(Color.surfaceBorder.opacity(0.3))
-
         HStack(alignment: .top, spacing: 16) {
           StatsDetailPanel(
             stats: todayStats,
@@ -135,27 +112,48 @@ struct CommandBar: View {
           )
           .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .background(
+          RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.backgroundTertiary.opacity(0.4))
+        )
       }
     }
-    .background(
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .fill(Color.backgroundTertiary.opacity(0.6))
-        .overlay(
-          RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .stroke(Color.surfaceBorder.opacity(0.3), lineWidth: 1)
-        )
-    )
     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showDetails)
   }
 
-  private var verticalDivider: some View {
+  private func compactStat(value: String, label: String) -> some View {
+    HStack(spacing: 3) {
+      Text(value)
+        .font(.system(size: 12, weight: .bold, design: .rounded))
+        .foregroundStyle(.primary.opacity(0.85))
+      Text(label)
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+    }
+  }
+
+  private func formatCostCompact(_ cost: Double) -> String {
+    if cost >= 1_000 { return String(format: "$%.1fK", cost / 1_000) }
+    if cost >= 100 { return String(format: "$%.0f", cost) }
+    if cost >= 10 { return String(format: "$%.1f", cost) }
+    return String(format: "$%.2f", cost)
+  }
+
+  private func formatCompactTokens(_ value: Int) -> String {
+    if value <= 0 { return "0" }
+    if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+    if value >= 1_000 { return String(format: "%.1fk", Double(value) / 1_000) }
+    return "\(value)"
+  }
+
+  private var thinDivider: some View {
     Rectangle()
-      .fill(Color.surfaceBorder.opacity(0.3))
+      .fill(Color.surfaceBorder.opacity(0.25))
       .frame(width: 1)
       .padding(.vertical, 4)
-      .padding(.horizontal, 16)
+      .padding(.horizontal, 12)
   }
 }
 
@@ -207,14 +205,18 @@ private struct ProviderGaugeMini: View {
       } else {
         Text("—")
           .font(.system(size: 11))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
     }
-    .padding(.horizontal, 14)
-    .padding(.vertical, 10)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
-        .fill(provider.accentColor.opacity(0.08))
+        .fill(provider.accentColor.opacity(0.06))
+        .overlay(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(provider.accentColor.opacity(0.10), lineWidth: 1)
+        )
     )
   }
 }
@@ -254,7 +256,7 @@ private struct MiniGauge: View {
       HStack(spacing: 6) {
         Text(window.label)
           .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Color.textSecondary)
 
         Text("\(Int(window.utilization))%")
           .font(.system(size: 14, weight: .bold, design: .rounded))
@@ -444,135 +446,6 @@ private struct DetailedStats {
   }
 }
 
-private struct ModelDistribution {
-  /// Model counts by display name
-  let modelCounts: [(name: String, count: Int, color: Color)]
-
-  var total: Int {
-    modelCounts.reduce(0) { $0 + $1.count }
-  }
-
-  /// All model entries for display (sorted by count)
-  var entries: [(name: String, count: Int, color: Color)] {
-    modelCounts.sorted { $0.count > $1.count }
-  }
-}
-
-// MARK: - Stats Summary Panel (compact view in main bar)
-
-private struct StatsSummaryPanel: View {
-  let title: String
-  let icon: String
-  let iconColor: Color
-  let stats: DetailedStats
-  var modelDistribution: ModelDistribution?
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
-      // Section label
-      HStack(spacing: 6) {
-        Image(systemName: icon)
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(iconColor)
-
-        Text(title)
-          .font(.system(size: 9, weight: .bold, design: .rounded))
-          .foregroundStyle(.tertiary)
-          .tracking(0.5)
-      }
-
-      HStack(spacing: 20) {
-        // Sessions
-        StatBlock(
-          value: "\(stats.sessionCount)",
-          label: "sessions",
-          icon: "cpu"
-        )
-
-        // Cost
-        StatBlock(
-          value: formatCost(stats.cost),
-          label: title == "TODAY" ? "spent" : "total",
-          icon: "dollarsign.circle.fill",
-          color: title == "TRACKED" ? .statusSuccess : .primary
-        )
-
-        // Tokens
-        StatBlock(
-          value: formatTokens(stats.tokens),
-          label: "tokens",
-          icon: "textformat.abc"
-        )
-
-        // Model distribution (only for TRACKED)
-        if let distribution = modelDistribution, distribution.total > 0 {
-          ModelDistributionChart(distribution: distribution)
-        }
-      }
-    }
-  }
-
-  private func formatCost(_ cost: Double) -> String {
-    if cost >= 1_000 {
-      return String(format: "$%.1fK", cost / 1_000)
-    } else if cost >= 100 {
-      return String(format: "$%.0f", cost)
-    } else if cost >= 10 {
-      return String(format: "$%.1f", cost)
-    }
-    return String(format: "$%.2f", cost)
-  }
-
-  private func formatTokens(_ tokens: Int) -> String {
-    if tokens >= 1_000_000_000 {
-      return String(format: "%.1fB", Double(tokens) / 1_000_000_000)
-    } else if tokens >= 1_000_000 {
-      return String(format: "%.1fM", Double(tokens) / 1_000_000)
-    } else if tokens >= 1_000 {
-      return String(format: "%.0fK", Double(tokens) / 1_000)
-    }
-    return "\(tokens)"
-  }
-}
-
-// MARK: - Details Toggle Button
-
-private struct DetailsToggleButton: View {
-  @Binding var isExpanded: Bool
-  @State private var isHovered = false
-
-  var body: some View {
-    Button {
-      isExpanded.toggle()
-    } label: {
-      HStack(spacing: 5) {
-        Image(systemName: "chart.bar.doc.horizontal")
-          .font(.system(size: 10, weight: .semibold))
-
-        Text(isExpanded ? "Less" : "Details")
-          .font(.system(size: 10, weight: .semibold))
-
-        Image(systemName: "chevron.down")
-          .font(.system(size: 8, weight: .bold))
-          .rotationEffect(.degrees(isExpanded ? 180 : 0))
-      }
-      .foregroundStyle(isHovered || isExpanded ? .primary : .secondary)
-      .padding(.horizontal, 10)
-      .padding(.vertical, 6)
-      .background(
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-          .fill(isHovered || isExpanded ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05))
-      )
-    }
-    .buttonStyle(.plain)
-    .onHover { hovering in
-      withAnimation(.easeInOut(duration: 0.15)) {
-        isHovered = hovering
-      }
-    }
-  }
-}
-
 // MARK: - Stats Detail Panel (expandable breakdown)
 
 private struct StatsDetailPanel: View {
@@ -595,12 +468,12 @@ private struct StatsDetailPanel: View {
 
         Text(title.uppercased())
           .font(.system(size: 8, weight: .bold, design: .rounded))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .tracking(0.5)
 
         Text("breakdown")
           .font(.system(size: 8, weight: .medium))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
       }
 
       HStack(alignment: .top, spacing: 12) {
@@ -715,7 +588,7 @@ private struct DetailCard<Content: View>: View {
       // Header
       Label(title, systemImage: icon)
         .font(.system(size: 9, weight: .bold, design: .rounded))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.textSecondary)
         .textCase(.uppercase)
         .tracking(0.3)
 
@@ -742,7 +615,7 @@ private struct TokenStat: View {
 
       Text(label)
         .font(.system(size: 9, weight: .medium))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
     }
   }
 
@@ -754,101 +627,6 @@ private struct TokenStat: View {
     }
     return "\(tokens)"
   }
-}
-
-// MARK: - Stat Block
-
-private struct StatBlock: View {
-  let value: String
-  let label: String
-  let icon: String
-  var color: Color = .primary
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      // Value
-      Text(value)
-        .font(.system(size: 18, weight: .bold, design: .rounded))
-        .foregroundStyle(color.opacity(0.9))
-
-      // Label with icon
-      HStack(spacing: 4) {
-        Image(systemName: icon)
-          .font(.system(size: 8, weight: .medium))
-        Text(label)
-          .font(.system(size: 9, weight: .medium))
-      }
-      .foregroundStyle(.tertiary)
-    }
-  }
-}
-
-// MARK: - Model Distribution Chart
-
-private struct ModelDistributionChart: View {
-  let distribution: ModelDistribution
-
-  /// Split entries into rows for grid layout
-  private var gridRows: [[ModelEntry]] {
-    let entries = distribution.entries.map { ModelEntry(name: $0.name, count: $0.count, color: $0.color) }
-    // 2 columns
-    var rows: [[ModelEntry]] = []
-    for i in stride(from: 0, to: entries.count, by: 2) {
-      let end = min(i + 2, entries.count)
-      rows.append(Array(entries[i ..< end]))
-    }
-    return rows
-  }
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      // Section label
-      Text("MODELS")
-        .font(.system(size: 8, weight: .bold, design: .rounded))
-        .foregroundStyle(.quaternary)
-        .tracking(0.5)
-
-      // Grid layout - 2 columns
-      VStack(alignment: .leading, spacing: 3) {
-        ForEach(gridRows.indices, id: \.self) { rowIndex in
-          HStack(spacing: 12) {
-            ForEach(gridRows[rowIndex], id: \.name) { entry in
-              modelChip(entry: entry)
-            }
-          }
-        }
-      }
-    }
-  }
-
-  private func modelChip(entry: ModelEntry) -> some View {
-    HStack(spacing: 4) {
-      Image(systemName: iconForModel(entry.name))
-        .font(.system(size: 7, weight: .bold))
-        .foregroundStyle(entry.color.opacity(0.8))
-
-      Text(entry.name)
-        .font(.system(size: 9, weight: .medium))
-        .foregroundStyle(entry.color)
-
-      Text("\(entry.count)")
-        .font(.system(size: 9, weight: .bold, design: .monospaced))
-        .foregroundStyle(.secondary)
-    }
-  }
-
-  private func iconForModel(_ name: String) -> String {
-    if name.hasPrefix("GPT") {
-      return "chevron.left.forwardslash.chevron.right"
-    }
-    return "staroflife.fill" // Claude models
-  }
-}
-
-private struct ModelEntry {
-  let name: String
-  let count: Int
-  let color: Color
 }
 
 // MARK: - Preview

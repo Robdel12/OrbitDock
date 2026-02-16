@@ -167,7 +167,7 @@ struct HeaderView: View {
           .help("Toggle sidebar (⌥⌘R)")
         }
 
-        if session.isDirectCodex, session.isActive, let onEnd = onEndSession {
+        if session.isDirect, session.isActive, let onEnd = onEndSession {
           navButton(icon: "stop.circle", action: onEnd, help: "End session", style: .danger)
         }
       }

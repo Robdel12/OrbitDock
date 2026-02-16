@@ -126,20 +126,20 @@ struct SessionHistorySection: View {
     HStack(spacing: 10) {
       Image(systemName: "chevron.right")
         .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
         .rotationEffect(.degrees(isExpanded ? 90 : 0))
 
       Image(systemName: "clock.arrow.circlepath")
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.textSecondary)
 
       Text("Session History")
         .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(Color.textSecondary)
 
       Text("\(endedSessions.count)")
         .font(.system(size: 11, weight: .medium, design: .rounded))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
 
       Spacer()
 
@@ -173,7 +173,7 @@ struct SessionHistorySection: View {
     Button(action: action) {
       Image(systemName: icon)
         .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(isActive ? Color.accent : Color.white.opacity(0.35))
+        .foregroundStyle(isActive ? Color.accent : Color.textQuaternary)
         .frame(width: 24, height: 20)
         .background(
           isActive ? Color.accent.opacity(0.15) : Color.clear,
@@ -208,7 +208,7 @@ struct SessionHistorySection: View {
             Text("Show all \(endedSessions.count) sessions")
               .font(.system(size: 11, weight: .medium))
           }
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .padding(.vertical, 10)
           .frame(maxWidth: .infinity)
         }
@@ -266,12 +266,12 @@ struct DateGroupSection: View {
       HStack(spacing: 8) {
         Text(group.title.uppercased())
           .font(.system(size: 10, weight: .bold, design: .rounded))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .tracking(0.5)
 
         Text("\(group.sessions.count)")
           .font(.system(size: 10, weight: .semibold, design: .rounded))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
 
         Rectangle()
           .fill(Color.surfaceBorder.opacity(0.3))
@@ -291,7 +291,7 @@ struct DateGroupSection: View {
         if !showAll, group.sessions.count > maxCollapsed {
           Text("+ \(group.sessions.count - maxCollapsed) more")
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .padding(.vertical, 4)
             .padding(.horizontal, 12)
         }
@@ -334,7 +334,7 @@ struct HistorySessionRow: View {
           HStack(spacing: 6) {
             Text(session.displayName)
               .font(.system(size: 12, weight: .medium))
-              .foregroundStyle(.secondary)
+              .foregroundStyle(Color.textSecondary)
               .lineLimit(1)
 
             if serverState.session(session.id).forkedFrom != nil {
@@ -350,7 +350,7 @@ struct HistorySessionRow: View {
               Text(session.projectName ?? "Unknown")
                 .font(.system(size: 10, weight: .medium))
             }
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
 
             // Branch (if present)
             if let branch = session.branch, !branch.isEmpty {
@@ -370,12 +370,12 @@ struct HistorySessionRow: View {
         // Time ago
         Text(timeAgo)
           .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
 
         // Duration
         Text(session.formattedDuration)
           .font(.system(size: 10, weight: .medium, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
 
         // Model badge
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
@@ -452,20 +452,20 @@ struct ProjectHistoryGroup: View {
         HStack(spacing: 8) {
           Image(systemName: "chevron.right")
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
 
           Image(systemName: "folder.fill")
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
 
           Text(group.projectName)
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.textSecondary)
 
           Text("\(group.sessions.count)")
             .font(.system(size: 10, weight: .medium, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
 
           Spacer()
         }
@@ -493,7 +493,7 @@ struct ProjectHistoryGroup: View {
             } label: {
               Text("Show \(group.sessions.count - maxCollapsed) more")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity)
             }
@@ -536,7 +536,7 @@ struct CompactHistoryRow: View {
 
         Text(session.displayName)
           .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
 
         if serverState.session(session.id).forkedFrom != nil {
@@ -547,11 +547,11 @@ struct CompactHistoryRow: View {
 
         Text(timeAgo)
           .font(.system(size: 9, weight: .medium))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
 
         Text(session.formattedDuration)
           .font(.system(size: 10, weight: .medium, design: .monospaced))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
 
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
       }
