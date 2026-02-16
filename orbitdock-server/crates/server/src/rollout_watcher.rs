@@ -597,11 +597,8 @@ impl WatcherRuntime {
             state.model_provider = model_provider;
         }
 
-        if self.should_backfill_name_from_history(&session_id).await {
-            if let Some(name) = derive_prompt_name_from_rollout_file(Path::new(path)) {
-                self.set_custom_name(&session_id, Some(name)).await;
-            }
-        }
+        // Don't backfill custom_name from first prompt in rollout history.
+        // The UI uses first_prompt directly as a fallback display.
 
         self.schedule_session_timeout(&session_id);
     }
@@ -1018,52 +1015,43 @@ impl WatcherRuntime {
     }
 
     async fn handle_user_message(&mut self, session_id: &str, message: Option<String>) {
+        // Store the first prompt for display — don't stuff it into custom_name.
+        // custom_name should only be set by explicit rename or thread_name_updated events.
         let first_prompt = message.as_deref().and_then(name_from_first_prompt);
-
-        if let Some(prompt) = first_prompt.as_ref() {
-            let current_name = self
-                .app_state
-                .get_session(session_id)
-                .and_then(|actor| actor.snapshot().custom_name.clone());
-
-            if current_name.is_none() {
-                self.set_custom_name(session_id, Some(prompt.clone())).await;
-            }
-        }
-
-        // Broadcast first_prompt delta so UI has immediate fallback label
-        if let Some(raw_prompt) = message.as_ref() {
-            if let Some(actor) = self.app_state.get_session(session_id) {
-                let fp_changes = orbitdock_protocol::StateChanges {
-                    first_prompt: Some(Some(raw_prompt.clone())),
-                    ..Default::default()
-                };
-                let _ = actor
-                    .send(crate::session_command::SessionCommand::ApplyDelta {
-                        changes: fp_changes,
-                        persist_op: None,
-                    })
-                    .await;
-
-                // Spawn AI naming task (fire-and-forget)
-                if self.app_state.naming_guard().try_claim(session_id) {
-                    crate::ai_naming::spawn_naming_task(
-                        session_id.to_string(),
-                        raw_prompt.clone(),
-                        actor,
-                        self.persist_tx.clone(),
-                    );
-                }
-            }
-        }
 
         let _ = self
             .persist_tx
             .send(PersistCommand::RolloutPromptIncrement {
                 id: session_id.to_string(),
-                first_prompt,
+                first_prompt: first_prompt.clone(),
             })
             .await;
+
+        // Broadcast first_prompt delta and trigger AI naming
+        if let Some(ref prompt) = first_prompt {
+            if let Some(actor) = self.app_state.get_session(session_id) {
+                let changes = StateChanges {
+                    first_prompt: Some(Some(prompt.clone())),
+                    ..Default::default()
+                };
+                let _ = actor
+                    .send(SessionCommand::ApplyDelta {
+                        changes,
+                        persist_op: None,
+                    })
+                    .await;
+
+                if self.app_state.naming_guard().try_claim(session_id) {
+                    crate::ai_naming::spawn_naming_task(
+                        session_id.to_string(),
+                        prompt.clone(),
+                        actor,
+                        self.persist_tx.clone(),
+                        self.app_state.list_tx(),
+                    );
+                }
+            }
+        }
 
         self.update_work_state(
             session_id,
@@ -1338,15 +1326,6 @@ impl WatcherRuntime {
             .unwrap_or(false)
     }
 
-    async fn should_backfill_name_from_history(&self, session_id: &str) -> bool {
-        let current_name = self
-            .app_state
-            .get_session(session_id)
-            .and_then(|actor| actor.snapshot().custom_name.clone());
-
-        current_name.is_none()
-    }
-
     fn schedule_session_timeout(&mut self, session_id: &str) {
         if let Some(handle) = self.session_timeouts.remove(session_id) {
             handle.abort();
@@ -1592,43 +1571,6 @@ fn read_file_chunk(path: &Path, offset: u64) -> anyhow::Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn derive_prompt_name_from_rollout_file(path: &Path) -> Option<String> {
-    let file = File::open(path).ok()?;
-    let reader = BufReader::new(file);
-
-    for line in reader.lines().take(4096).flatten() {
-        let json: Value = serde_json::from_str(&line).ok()?;
-        let line_type = json.get("type").and_then(|v| v.as_str())?;
-        let payload = json.get("payload")?;
-
-        match line_type {
-            "event_msg" => {
-                if payload.get("type").and_then(|v| v.as_str()) == Some("user_message") {
-                    if let Some(message) = payload.get("message").and_then(|v| v.as_str()) {
-                        if let Some(name) = name_from_first_prompt(message) {
-                            return Some(name);
-                        }
-                    }
-                }
-            }
-            "response_item" => {
-                if payload.get("type").and_then(|v| v.as_str()) == Some("message")
-                    && payload.get("role").and_then(|v| v.as_str()) == Some("user")
-                {
-                    if let Some(message) = extract_response_item_message_text(payload) {
-                        if let Some(name) = name_from_first_prompt(&message) {
-                            return Some(name);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    None
-}
-
 fn is_jsonl_path(path: &Path) -> bool {
     path.extension().and_then(|s| s.to_str()) == Some("jsonl")
 }
@@ -1801,47 +1743,6 @@ mod tests {
         assert!(text.contains("and propose a fix"));
     }
 
-    #[test]
-    fn derives_prompt_name_from_rollout_history() {
-        let path = std::env::temp_dir().join(format!(
-            "orbitdock-rollout-test-{}.jsonl",
-            std::process::id()
-        ));
-        let contents = r#"{"type":"session_meta","payload":{"id":"abc","cwd":"/tmp/repo"}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Investigate flaky session naming behavior please"}]}}
-"#;
-        std::fs::write(&path, contents).expect("write test file");
-
-        let derived = derive_prompt_name_from_rollout_file(&path);
-        std::fs::remove_file(&path).ok();
-
-        assert_eq!(
-            derived.as_deref(),
-            Some("Investigate flaky session naming behavior please")
-        );
-    }
-
-    #[test]
-    fn skips_bootstrap_payloads_when_deriving_prompt_name() {
-        let path = std::env::temp_dir().join(format!(
-            "orbitdock-rollout-bootstrap-test-{}.jsonl",
-            std::process::id()
-        ));
-        let contents = r#"{"type":"session_meta","payload":{"id":"abc","cwd":"/tmp/repo"}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>...</environment_context>"}]}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Investigate flaky session naming behavior please"}]}}
-"#;
-        std::fs::write(&path, contents).expect("write test file");
-
-        let derived = derive_prompt_name_from_rollout_file(&path);
-        std::fs::remove_file(&path).ok();
-
-        assert_eq!(
-            derived.as_deref(),
-            Some("Investigate flaky session naming behavior please")
-        );
-    }
-
     #[tokio::test]
     async fn startup_seeded_passive_session_backfills_name_from_rollout_prompt() {
         let session_id = format!("passive-name-backfill-{}", std::process::id());
@@ -1873,20 +1774,52 @@ mod tests {
             session_timeouts: HashMap::new(),
         };
 
+        // Pre-populate file_states so handle_session_meta + handle_response_item can find the path
+        runtime.file_states.insert(
+            rollout_path.to_string_lossy().to_string(),
+            FileState {
+                offset: 0,
+                tail: String::new(),
+                session_id: None,
+                project_path: None,
+                model_provider: None,
+                ignore_existing: false,
+                pending_tool_calls: HashMap::new(),
+                next_message_seq: 0,
+                saw_user_event: false,
+                saw_agent_event: false,
+            },
+        );
+
         runtime
             .ensure_session_meta(rollout_path.to_string_lossy().as_ref())
             .await
             .expect("seed session meta");
+
+        // Process the user prompt line too
+        let response_item_line = format!(
+            "{{\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"Investigate flaky session naming behavior please\"}}]}}}}"
+        );
+        runtime
+            .handle_line(&response_item_line, rollout_path.to_string_lossy().as_ref())
+            .await;
+
+        // Yield to let the actor process the ApplyDelta command
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
 
         let snapshot = {
             let actor = app_state.get_session(&session_id).expect("session exists");
             actor.snapshot()
         };
 
+        // first_prompt is set from rollout history; custom_name is not backfilled
         assert_eq!(
-            snapshot.custom_name.as_deref(),
+            snapshot.first_prompt.as_deref(),
             Some("Investigate flaky session naming behavior please")
         );
+        assert!(snapshot.custom_name.is_none());
 
         let _ = std::fs::remove_file(&rollout_path);
         let _ = std::fs::remove_file(tmp_dir.join("state.json"));

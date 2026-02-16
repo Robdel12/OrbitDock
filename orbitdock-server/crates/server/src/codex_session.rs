@@ -447,6 +447,9 @@ pub async fn handle_session_command(
         SessionCommand::SetCodexIntegrationMode { mode } => {
             handle.set_codex_integration_mode(mode);
         }
+        SessionCommand::SetClaudeIntegrationMode { mode } => {
+            handle.set_claude_integration_mode(mode);
+        }
         SessionCommand::SetForkedFrom { source_id } => {
             handle.set_forked_from(source_id);
         }

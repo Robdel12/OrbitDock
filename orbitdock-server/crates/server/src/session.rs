@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::{
-    ApprovalType, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
-    SessionSummary, StateChanges, TokenUsage, TurnDiff, WorkStatus,
+    ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState,
+    SessionStatus, SessionSummary, StateChanges, TokenUsage, TurnDiff, WorkStatus,
 };
 use tokio::sync::broadcast;
 
@@ -30,6 +30,7 @@ pub struct SessionSnapshot {
     pub first_prompt: Option<String>,
     pub model: Option<String>,
     pub codex_integration_mode: Option<CodexIntegrationMode>,
+    pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
     pub message_count: usize,
@@ -55,10 +56,10 @@ pub struct SessionHandle {
     model: Option<String>,
     custom_name: Option<String>,
     summary: Option<String>,
-    first_prompt: Option<String>,
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
     codex_integration_mode: Option<CodexIntegrationMode>,
+    claude_integration_mode: Option<ClaudeIntegrationMode>,
     status: SessionStatus,
     work_status: WorkStatus,
     last_tool: Option<String>,
@@ -75,7 +76,10 @@ pub struct SessionHandle {
     git_branch: Option<String>,
     git_sha: Option<String>,
     current_cwd: Option<String>,
+    first_prompt: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
+    /// Optional sender for list-level broadcasts (dashboard sidebar updates)
+    list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
     /// Track approval type by request_id so we can dispatch correctly
     pending_approval_types: HashMap<String, ApprovalType>,
     /// Store proposed amendment by request_id for "always allow" decisions
@@ -106,6 +110,7 @@ impl SessionHandle {
             first_prompt: None,
             model: None,
             codex_integration_mode: None,
+            claude_integration_mode: None,
             approval_policy: None,
             sandbox_mode: None,
             message_count: 0,
@@ -126,10 +131,10 @@ impl SessionHandle {
             model: None,
             custom_name: None,
             summary: None,
-            first_prompt: None,
             approval_policy: None,
             sandbox_mode: None,
             codex_integration_mode: None,
+            claude_integration_mode: None,
             status: SessionStatus::Active,
             work_status: WorkStatus::Waiting,
             last_tool: None,
@@ -146,7 +151,9 @@ impl SessionHandle {
             git_branch: None,
             git_sha: None,
             current_cwd: None,
+            first_prompt: None,
             broadcast_tx,
+            list_tx: None,
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
             revision: 0,
@@ -166,7 +173,6 @@ impl SessionHandle {
         model: Option<String>,
         custom_name: Option<String>,
         summary: Option<String>,
-        first_prompt: Option<String>,
         status: SessionStatus,
         work_status: WorkStatus,
         approval_policy: Option<String>,
@@ -181,6 +187,7 @@ impl SessionHandle {
         git_branch: Option<String>,
         git_sha: Option<String>,
         current_cwd: Option<String>,
+        first_prompt: Option<String>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -193,9 +200,9 @@ impl SessionHandle {
             transcript_path: transcript_path.clone(),
             custom_name: custom_name.clone(),
             summary: summary.clone(),
-            first_prompt: first_prompt.clone(),
             model: model.clone(),
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
+            claude_integration_mode: None,
             approval_policy: approval_policy.clone(),
             sandbox_mode: sandbox_mode.clone(),
             message_count: messages.len(),
@@ -206,6 +213,7 @@ impl SessionHandle {
             git_branch: git_branch.clone(),
             git_sha: git_sha.clone(),
             current_cwd: current_cwd.clone(),
+            first_prompt: first_prompt.clone(),
         };
         Self {
             id,
@@ -216,10 +224,10 @@ impl SessionHandle {
             model,
             custom_name,
             summary,
-            first_prompt,
             approval_policy,
             sandbox_mode,
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
+            claude_integration_mode: None,
             status,
             work_status,
             last_tool: None,
@@ -236,13 +244,20 @@ impl SessionHandle {
             git_branch,
             git_sha,
             current_cwd,
+            first_prompt,
             broadcast_tx,
+            list_tx: None,
             pending_approval_types: HashMap::new(),
             pending_amendments: HashMap::new(),
             revision: 0,
             event_log: VecDeque::new(),
             snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
         }
+    }
+
+    /// Set the list broadcast sender (for dashboard sidebar updates)
+    pub fn set_list_tx(&mut self, tx: broadcast::Sender<orbitdock_protocol::ServerMessage>) {
+        self.list_tx = Some(tx);
     }
 
     /// Get session ID
@@ -271,12 +286,12 @@ impl SessionHandle {
             model: self.model.clone(),
             custom_name: self.custom_name.clone(),
             summary: self.summary.clone(),
-            first_prompt: self.first_prompt.clone(),
             status: self.status,
             work_status: self.work_status,
             token_usage: self.token_usage.clone(),
             has_pending_approval: false, // TODO
             codex_integration_mode: self.codex_integration_mode,
+            claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
@@ -284,6 +299,7 @@ impl SessionHandle {
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
+            first_prompt: self.first_prompt.clone(),
         }
     }
 
@@ -298,7 +314,6 @@ impl SessionHandle {
             model: self.model.clone(),
             custom_name: self.custom_name.clone(),
             summary: self.summary.clone(),
-            first_prompt: self.first_prompt.clone(),
             status: self.status,
             work_status: self.work_status,
             messages: self.messages.clone(),
@@ -307,6 +322,7 @@ impl SessionHandle {
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
             codex_integration_mode: self.codex_integration_mode,
+            claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             started_at: self.started_at.clone(),
@@ -319,6 +335,7 @@ impl SessionHandle {
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
+            first_prompt: self.first_prompt.clone(),
         }
     }
 
@@ -355,9 +372,18 @@ impl SessionHandle {
         self.codex_integration_mode = mode;
     }
 
+    /// Set claude integration mode
+    pub fn set_claude_integration_mode(&mut self, mode: Option<ClaudeIntegrationMode>) {
+        self.claude_integration_mode = mode;
+    }
+
     /// Set project name
     pub fn set_project_name(&mut self, project_name: Option<String>) {
         self.project_name = project_name;
+    }
+
+    pub fn set_git_branch(&mut self, branch: Option<String>) {
+        self.git_branch = branch;
     }
 
     /// Set transcript path
@@ -508,9 +534,6 @@ impl SessionHandle {
         if let Some(ref summary) = changes.summary {
             self.summary = summary.clone();
         }
-        if let Some(ref first_prompt) = changes.first_prompt {
-            self.first_prompt = first_prompt.clone();
-        }
         if let Some(ref approval_policy) = changes.approval_policy {
             self.approval_policy = approval_policy.clone();
         }
@@ -519,6 +542,9 @@ impl SessionHandle {
         }
         if let Some(ref codex_integration_mode) = changes.codex_integration_mode {
             self.codex_integration_mode = *codex_integration_mode;
+        }
+        if let Some(ref claude_integration_mode) = changes.claude_integration_mode {
+            self.claude_integration_mode = *claude_integration_mode;
         }
         if let Some(ref last_activity_at) = changes.last_activity_at {
             self.last_activity_at = Some(last_activity_at.clone());
@@ -547,6 +573,9 @@ impl SessionHandle {
         if let Some(ref current_cwd) = changes.current_cwd {
             self.current_cwd = current_cwd.clone();
         }
+        if let Some(ref first_prompt) = changes.first_prompt {
+            self.first_prompt = first_prompt.clone();
+        }
     }
 
     /// Create a snapshot of current session metadata
@@ -561,9 +590,9 @@ impl SessionHandle {
             transcript_path: self.transcript_path.clone(),
             custom_name: self.custom_name.clone(),
             summary: self.summary.clone(),
-            first_prompt: self.first_prompt.clone(),
             model: self.model.clone(),
             codex_integration_mode: self.codex_integration_mode,
+            claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
             message_count: self.messages.len(),
@@ -574,6 +603,7 @@ impl SessionHandle {
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
+            first_prompt: self.first_prompt.clone(),
         }
     }
 
@@ -601,7 +631,12 @@ impl SessionHandle {
         }
 
         // Non-blocking fan-out to all receivers
-        let _ = self.broadcast_tx.send(msg);
+        let _ = self.broadcast_tx.send(msg.clone());
+
+        // Also broadcast to list subscribers (dashboard sidebar)
+        if let Some(ref list_tx) = self.list_tx {
+            let _ = list_tx.send(msg);
+        }
 
         // Update lock-free snapshot
         self.refresh_snapshot();

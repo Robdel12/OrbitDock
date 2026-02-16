@@ -4,8 +4,10 @@
 //! Each connector handles communication with its respective provider
 //! and translates events to the common OrbitDock protocol.
 
+pub mod claude;
 pub mod codex;
 
+pub use claude::ClaudeConnector;
 pub use codex::{discover_models, CodexConnector, SteerOutcome};
 use orbitdock_protocol::{
     McpAuthStatus, McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool,

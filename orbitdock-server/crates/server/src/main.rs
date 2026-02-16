@@ -4,8 +4,10 @@
 //! Provides real-time session management via WebSocket.
 
 mod ai_naming;
+mod claude_session;
 mod codex_auth;
 mod codex_session;
+mod git;
 mod logging;
 mod migration_runner;
 mod persistence;
@@ -92,6 +94,38 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }
 
+    // Check for Claude CLI binary
+    {
+        let claude_found = std::env::var("CLAUDE_BIN")
+            .ok()
+            .filter(|p| std::path::Path::new(p).exists())
+            .is_some()
+            || std::env::var("HOME")
+                .ok()
+                .map(|h| format!("{}/.claude/local/claude", h))
+                .filter(|p| std::path::Path::new(p).exists())
+                .is_some()
+            || std::process::Command::new("which")
+                .arg("claude")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+        if claude_found {
+            info!(
+                component = "server",
+                event = "server.claude.available",
+                "Claude CLI binary available"
+            );
+        } else {
+            warn!(
+                component = "server",
+                event = "server.claude.missing",
+                "Claude CLI binary not found — Claude direct sessions will not be available"
+            );
+        }
+    }
+
     // Create persistence channel and spawn writer
     let (persist_tx, persist_rx) = create_persistence_channel();
     let persistence_writer = PersistenceWriter::new(persist_rx);
@@ -122,8 +156,8 @@ async fn async_main() -> anyhow::Result<()> {
                     model,
                     custom_name,
                     summary,
-                    first_prompt,
                     codex_integration_mode,
+                    claude_integration_mode,
                     codex_thread_id,
                     started_at,
                     last_activity_at,
@@ -141,6 +175,7 @@ async fn async_main() -> anyhow::Result<()> {
                     git_branch,
                     git_sha,
                     current_cwd,
+                    first_prompt,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -157,7 +192,6 @@ async fn async_main() -> anyhow::Result<()> {
                     model.clone(),
                     custom_name,
                     summary,
-                    first_prompt.clone(),
                     match status.as_str() {
                         "ended" => SessionStatus::Ended,
                         _ => SessionStatus::Active,
@@ -190,10 +224,14 @@ async fn async_main() -> anyhow::Result<()> {
                     git_branch,
                     git_sha,
                     current_cwd,
+                    first_prompt,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
+                let is_claude = matches!(provider, Provider::Claude);
                 let is_passive =
                     is_codex && matches!(codex_integration_mode.as_deref(), Some("passive"));
+                let is_claude_direct =
+                    is_claude && matches!(claude_integration_mode.as_deref(), Some("direct"));
                 let is_active = status == "active";
                 handle.set_codex_integration_mode(if is_passive {
                     Some(CodexIntegrationMode::Passive)
@@ -202,10 +240,20 @@ async fn async_main() -> anyhow::Result<()> {
                 } else {
                     None
                 });
+                if is_claude_direct {
+                    handle.set_claude_integration_mode(Some(
+                        orbitdock_protocol::ClaudeIntegrationMode::Direct,
+                    ));
+                }
                 if let Some(source_id) = forked_from_session_id {
                     handle.set_forked_from(source_id);
                 }
-                if !is_active || !is_codex || is_passive {
+
+                // Determine if this session should get a live connector
+                let needs_codex_connector = is_active && is_codex && !is_passive;
+                let needs_claude_connector = is_active && is_claude_direct;
+
+                if !needs_codex_connector && !needs_claude_connector {
                     // Passive session: spawn a passive actor
                     state.add_session(handle);
                     if is_codex && !is_passive {
@@ -224,6 +272,59 @@ async fn async_main() -> anyhow::Result<()> {
                         messages = msg_count,
                         "Restored passive session"
                     );
+                    continue;
+                }
+
+                // Active Claude direct session: spawn bridge and resume
+                if needs_claude_connector {
+                    let claude_sdk_session_id = codex_thread_id.as_deref(); // reuses thread_id column
+
+                    info!(
+                        component = "restore",
+                        event = "restore.session.claude_resuming",
+                        session_id = %id,
+                        claude_sdk_session_id = ?claude_sdk_session_id,
+                        messages = msg_count,
+                        "Resuming Claude direct session"
+                    );
+
+                    match crate::claude_session::ClaudeSession::new(
+                        id.clone(),
+                        &project_path,
+                        model.as_deref(),
+                        claude_sdk_session_id,
+                    )
+                    .await
+                    {
+                        Ok(claude_session) => {
+                            let persist = state.persist().clone();
+                            handle.set_list_tx(state.list_tx());
+                            let (actor_handle, action_tx) =
+                                claude_session.start_event_loop(handle, persist.clone(), state.list_tx());
+                            state.add_session_actor(actor_handle);
+                            state.set_claude_action_tx(&id, action_tx);
+
+                            info!(
+                                component = "restore",
+                                event = "restore.session.claude_connected",
+                                session_id = %id,
+                                claude_sdk_session_id = ?claude_sdk_session_id,
+                                messages = msg_count,
+                                "Restored Claude session with live connector"
+                            );
+                        }
+                        Err(e) => {
+                            state.add_session(handle);
+                            info!(
+                                component = "restore",
+                                event = "restore.session.claude_connector_unavailable",
+                                session_id = %id,
+                                messages = msg_count,
+                                error = %e,
+                                "Restored Claude session (connector unavailable)"
+                            );
+                        }
+                    }
                     continue;
                 }
 
@@ -304,6 +405,7 @@ async fn async_main() -> anyhow::Result<()> {
                             .await;
 
                         // start_event_loop takes owned handle, returns (SessionActorHandle, action_tx)
+                        handle.set_list_tx(state.list_tx());
                         let (actor_handle, action_tx) = codex.start_event_loop(handle, persist);
                         state.add_session_actor(actor_handle);
                         state.set_codex_action_tx(&id, action_tx);
@@ -354,7 +456,7 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }
 
-    // Backfill AI names for active sessions that have first_prompt but no summary
+    // Backfill AI names for active sessions with first_prompt but no summary
     {
         let summaries = state.get_session_summaries();
         for s in &summaries {
@@ -367,6 +469,7 @@ async fn async_main() -> anyhow::Result<()> {
                             s.first_prompt.clone().unwrap(),
                             actor,
                             persist_tx.clone(),
+                            state.list_tx(),
                         );
                     }
                 }

@@ -1,8 +1,8 @@
 //! Commands sent to a session actor from websocket/rollout_watcher callers.
 
 use orbitdock_protocol::{
-    ApprovalType, CodexIntegrationMode, Message, ServerMessage, SessionState, SessionStatus,
-    SessionSummary, StateChanges, WorkStatus,
+    ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message, ServerMessage,
+    SessionState, SessionStatus, SessionSummary, StateChanges, WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -86,6 +86,9 @@ pub enum SessionCommand {
     },
     SetCodexIntegrationMode {
         mode: Option<CodexIntegrationMode>,
+    },
+    SetClaudeIntegrationMode {
+        mode: Option<ClaudeIntegrationMode>,
     },
     SetForkedFrom {
         source_id: String,

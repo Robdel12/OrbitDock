@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 
 use orbitdock_protocol::{ServerMessage, StateChanges};
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{info, warn};
 
 use crate::persistence::PersistCommand;
@@ -74,6 +74,7 @@ pub fn spawn_naming_task(
     first_prompt: String,
     actor: SessionActorHandle,
     persist_tx: mpsc::Sender<PersistCommand>,
+    list_tx: broadcast::Sender<ServerMessage>,
 ) {
     tokio::spawn(async move {
         if is_bootstrap_prompt(&first_prompt) {
@@ -117,17 +118,14 @@ pub fn spawn_naming_task(
                     })
                     .await;
 
-                // Also broadcast to list subscribers via session actor
-                let summary_msg = ServerMessage::SessionDelta {
+                // Also broadcast to list subscribers (dashboard sidebar)
+                let _ = list_tx.send(ServerMessage::SessionDelta {
                     session_id: session_id.clone(),
                     changes: StateChanges {
                         summary: Some(Some(name.clone())),
                         ..Default::default()
                     },
-                };
-                let _ = actor
-                    .send(SessionCommand::Broadcast { msg: summary_msg })
-                    .await;
+                });
 
                 // Persist to DB
                 let _ = persist_tx

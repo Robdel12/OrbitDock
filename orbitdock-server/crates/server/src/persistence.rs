@@ -20,8 +20,6 @@ use orbitdock_protocol::{
     WorkStatus,
 };
 
-use crate::session_naming::name_from_first_prompt;
-
 /// Commands that can be persisted
 #[derive(Debug, Clone)]
 pub enum PersistCommand {
@@ -31,6 +29,7 @@ pub enum PersistCommand {
         provider: Provider,
         project_path: String,
         project_name: Option<String>,
+        branch: Option<String>,
         model: Option<String>,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
@@ -117,6 +116,7 @@ pub enum PersistCommand {
         id: String,
         project_path: String,
         project_name: Option<String>,
+        branch: Option<String>,
         model: Option<String>,
         context_label: Option<String>,
         transcript_path: Option<String>,
@@ -415,6 +415,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             provider,
             project_path,
             project_name,
+            branch,
             model,
             approval_policy,
             sandbox_mode,
@@ -426,19 +427,24 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             };
 
             let now = chrono_now();
-            let integration_mode: Option<&str> = match provider {
+            let codex_integration_mode: Option<&str> = match provider {
                 Provider::Codex => Some("direct"),
                 Provider::Claude => None,
             };
+            let claude_integration_mode: Option<&str> = match provider {
+                Provider::Claude => Some("direct"),
+                Provider::Codex => None,
+            };
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, model, provider, status, work_status, codex_integration_mode, approval_policy, sandbox_mode, started_at, last_activity_at, forked_from_session_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, 'active', 'waiting', ?7, ?8, ?9, ?6, ?6, ?10)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, started_at, last_activity_at, forked_from_session_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?7, ?7, ?11)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
-                   model = COALESCE(?4, model),
-                   last_activity_at = ?6",
-                params![id, project_path, project_name, model, provider_str, now, integration_mode, approval_policy, sandbox_mode, forked_from_session_id],
+                   branch = COALESCE(?4, branch),
+                   model = COALESCE(?5, model),
+                   last_activity_at = ?7",
+                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode],
             )?;
         }
 
@@ -706,6 +712,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             id,
             project_path,
             project_name,
+            branch,
             model,
             context_label,
             transcript_path,
@@ -718,13 +725,14 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             let now = chrono_now();
             conn.execute(
                 "INSERT INTO sessions (
-                    id, project_path, project_name, model, context_label, transcript_path,
+                    id, project_path, project_name, branch, model, context_label, transcript_path,
                     provider, status, work_status, source, agent_type, permission_mode,
                     terminal_session_id, terminal_app, started_at, last_activity_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'claude', 'active', 'waiting', ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, ?11, ?12, ?13, ?13)
                  ON CONFLICT(id) DO UPDATE SET
                     project_path = excluded.project_path,
                     project_name = COALESCE(excluded.project_name, sessions.project_name),
+                    branch = COALESCE(excluded.branch, sessions.branch),
                     model = COALESCE(excluded.model, sessions.model),
                     context_label = COALESCE(excluded.context_label, sessions.context_label),
                     transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path),
@@ -741,6 +749,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     id,
                     project_path,
                     project_name,
+                    branch,
                     model,
                     context_label,
                     transcript_path,
@@ -1415,8 +1424,8 @@ pub struct RestoredSession {
     pub model: Option<String>,
     pub custom_name: Option<String>,
     pub summary: Option<String>,
-    pub first_prompt: Option<String>,
     pub codex_integration_mode: Option<String>,
+    pub claude_integration_mode: Option<String>,
     pub codex_thread_id: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
@@ -1434,32 +1443,18 @@ pub struct RestoredSession {
     pub git_branch: Option<String>,
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
+    pub first_prompt: Option<String>,
 }
 
+/// No longer backfills custom_name from first_prompt — the UI uses first_prompt
+/// directly as a fallback display. Returns custom_name as-is.
 fn resolve_custom_name_from_first_prompt(
-    conn: &Connection,
-    session_id: &str,
+    _conn: &Connection,
+    _session_id: &str,
     custom_name: Option<String>,
-    first_prompt: Option<&str>,
+    _first_prompt: Option<&str>,
 ) -> Result<Option<String>, rusqlite::Error> {
-    if custom_name.is_some() {
-        return Ok(custom_name);
-    }
-
-    let Some(prompt) = first_prompt else {
-        return Ok(None);
-    };
-
-    let Some(derived_name) = name_from_first_prompt(prompt) else {
-        return Ok(None);
-    };
-
-    conn.execute(
-        "UPDATE sessions SET custom_name = ?1 WHERE id = ?2 AND custom_name IS NULL",
-        params![derived_name, session_id],
-    )?;
-
-    Ok(Some(derived_name))
+    Ok(custom_name)
 }
 
 fn load_messages_from_db(
@@ -1769,6 +1764,55 @@ fn load_messages_from_transcript(
     Ok(messages)
 }
 
+/// Extract the AI-generated summary from a Claude JSONL transcript.
+/// Claude writes `{"type":"summary","summary":"..."}` entries at session end.
+/// Returns the last summary found (there may be multiple from branched conversations).
+fn extract_summary_from_transcript(transcript_path: &str) -> Option<String> {
+    let file = File::open(transcript_path).ok()?;
+    let reader = BufReader::new(file);
+    let mut last_summary: Option<String> = None;
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Quick check before full parse
+        if !trimmed.contains("\"type\":\"summary\"") {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if value.get("type").and_then(Value::as_str) == Some("summary") {
+            if let Some(summary) = value.get("summary").and_then(Value::as_str) {
+                if !summary.is_empty() {
+                    last_summary = Some(summary.to_string());
+                }
+            }
+        }
+    }
+
+    last_summary
+}
+
+/// Extract summary from a transcript, async wrapper.
+pub async fn extract_summary_from_transcript_path(transcript_path: &str) -> Option<String> {
+    let path = transcript_path.to_string();
+    tokio::task::spawn_blocking(move || extract_summary_from_transcript(&path))
+        .await
+        .ok()
+        .flatten()
+}
+
 fn value_to_u64(value: Option<&Value>) -> u64 {
     match value {
         Some(Value::Number(n)) => n
@@ -1988,7 +2032,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
         let mut sessions = Vec::new();
 
-        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
+        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, _summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
             let mut messages = load_messages_from_db(&conn, &id)?;
             if messages.is_empty() {
                 if let Some(path) = transcript_path.as_deref() {
@@ -2040,6 +2084,38 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or((None, None, None));
 
+            // Query claude_integration_mode (column may not exist on old schemas)
+            let claude_integration_mode: Option<String> = conn
+                .query_row(
+                    "SELECT claude_integration_mode FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
+            // Query summary (column may not exist on old schemas)
+            let mut summary: Option<String> = conn
+                .query_row(
+                    "SELECT summary FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
+            // If no summary in DB, try extracting from Claude transcript
+            if summary.is_none() && provider == "claude" {
+                if let Some(path) = transcript_path.as_deref() {
+                    if let Some(extracted) = extract_summary_from_transcript(path) {
+                        // Persist for next startup
+                        let _ = conn.execute(
+                            "UPDATE sessions SET summary = ? WHERE id = ?",
+                            params![extracted, id],
+                        );
+                        summary = Some(extracted);
+                    }
+                }
+            }
+
             sessions.push(RestoredSession {
                 id,
                 provider,
@@ -2051,8 +2127,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 model,
                 custom_name,
                 summary,
-                first_prompt,
                 codex_integration_mode,
+                claude_integration_mode,
                 codex_thread_id,
                 started_at,
                 last_activity_at,
@@ -2070,6 +2146,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 git_branch,
                 git_sha,
                 current_cwd,
+                first_prompt,
             });
         }
 
@@ -2195,8 +2272,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             model,
             custom_name,
             summary,
-            first_prompt,
             codex_integration_mode: Some("direct".to_string()),
+            claude_integration_mode: None,
             codex_thread_id: None,
             started_at,
             last_activity_at,
@@ -2214,6 +2291,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             git_branch,
             git_sha,
             current_cwd,
+            first_prompt,
         }))
     }).await??;
 
@@ -2592,6 +2670,7 @@ mod tests {
                     provider: Provider::Codex,
                     project_path: "/tmp/direct-active".into(),
                     project_name: Some("direct-active".into()),
+                    branch: Some("main".into()),
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
@@ -2613,6 +2692,7 @@ mod tests {
                     provider: Provider::Codex,
                     project_path: "/tmp/direct-ended".into(),
                     project_name: Some("direct-ended".into()),
+                    branch: Some("main".into()),
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
@@ -2848,6 +2928,7 @@ mod tests {
                     id: "claude-shell".into(),
                     project_path: "/tmp/claude-shell".into(),
                     project_name: Some("claude-shell".into()),
+                    branch: Some("main".into()),
                     model: Some("claude-opus-4-1".into()),
                     context_label: None,
                     transcript_path: Some("/tmp/claude-shell.jsonl".into()),
@@ -2862,6 +2943,7 @@ mod tests {
                     id: "claude-real".into(),
                     project_path: "/tmp/claude-real".into(),
                     project_name: Some("claude-real".into()),
+                    branch: Some("main".into()),
                     model: Some("claude-opus-4-1".into()),
                     context_label: None,
                     transcript_path: Some("/tmp/claude-real.jsonl".into()),
@@ -2921,6 +3003,7 @@ mod tests {
                     provider: Provider::Codex,
                     project_path: "/tmp/direct".into(),
                     project_name: Some("direct".into()),
+                    branch: Some("main".into()),
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
@@ -3049,7 +3132,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn startup_backfills_custom_name_from_first_prompt_for_claude_and_codex() {
+    async fn startup_restores_first_prompt_for_claude_and_codex() {
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
@@ -3065,6 +3148,7 @@ mod tests {
                     id: "claude-1".into(),
                     project_path: "/tmp/claude".into(),
                     project_name: Some("claude".into()),
+                    branch: Some("main".into()),
                     model: Some("claude-opus-4-1".into()),
                     context_label: None,
                     transcript_path: Some("/tmp/claude-1.jsonl".into()),
@@ -3083,6 +3167,7 @@ mod tests {
                     provider: Provider::Codex,
                     project_path: "/tmp/codex".into(),
                     project_name: Some("codex".into()),
+                    branch: Some("main".into()),
                     model: Some("gpt-5-codex".into()),
                     approval_policy: None,
                     sandbox_mode: None,
@@ -3102,7 +3187,7 @@ mod tests {
             .find(|s| s.id == "claude-1")
             .expect("claude session restored");
         assert_eq!(
-            session.custom_name.as_deref(),
+            session.first_prompt.as_deref(),
             Some("Investigate flaky CI and propose fixes")
         );
 
@@ -3111,7 +3196,7 @@ mod tests {
             .find(|s| s.id == "codex-1")
             .expect("codex session restored");
         assert_eq!(
-            codex_session.custom_name.as_deref(),
+            codex_session.first_prompt.as_deref(),
             Some("Refactor flaky test setup")
         );
     }
@@ -3142,6 +3227,7 @@ mod tests {
                     id: "claude-hydrate".into(),
                     project_path: "/tmp/claude-hydrate".into(),
                     project_name: Some("claude-hydrate".into()),
+                    branch: Some("main".into()),
                     model: Some("claude-opus-4-1".into()),
                     context_label: None,
                     transcript_path: Some(transcript_path.to_string_lossy().to_string()),

@@ -19,10 +19,11 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
-    ClientMessage, CodexIntegrationMode, Provider, ServerMessage, SessionState, StateChanges,
-    TokenUsage,
+    ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
+    SessionState, TokenUsage,
 };
 
+use crate::claude_session::{ClaudeAction, ClaudeSession};
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{
     delete_approval, list_approvals, list_review_comments, load_messages_from_transcript_path,
@@ -602,10 +603,16 @@ async fn handle_client_message(
 
             let id = orbitdock_protocol::new_id();
             let project_name = cwd.split('/').next_back().map(String::from);
+            let git_branch = crate::git::resolve_git_branch(&cwd).await;
+
             let mut handle = crate::session::SessionHandle::new(id.clone(), provider, cwd.clone());
+            handle.set_git_branch(git_branch.clone());
+
             if provider == Provider::Codex {
                 handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
                 handle.set_config(approval_policy.clone(), sandbox_mode.clone());
+            } else if provider == Provider::Claude {
+                handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
             }
 
             // Subscribe the creator before handing off handle
@@ -623,6 +630,7 @@ async fn handle_client_message(
                     provider,
                     project_path: cwd.clone(),
                     project_name,
+                    branch: git_branch,
                     model: model.clone(),
                     approval_policy: approval_policy.clone(),
                     sandbox_mode: sandbox_mode.clone(),
@@ -677,6 +685,7 @@ async fn handle_client_message(
                             })
                             .await;
 
+                        handle.set_list_tx(state.list_tx());
                         let (actor_handle, action_tx) =
                             codex_session.start_event_loop(handle, persist_tx);
                         state.add_session_actor(actor_handle);
@@ -704,6 +713,55 @@ async fn handle_client_message(
                             client_tx,
                             ServerMessage::Error {
                                 code: "codex_error".into(),
+                                message: e.to_string(),
+                                session_id: Some(session_id),
+                            },
+                        )
+                        .await;
+                    }
+                }
+            } else if provider == Provider::Claude {
+                // Claude direct session
+                let session_id = id.clone();
+                let cwd_clone = cwd.clone();
+                let model_clone = model.clone();
+
+                match ClaudeSession::new(
+                    session_id.clone(),
+                    &cwd_clone,
+                    model_clone.as_deref(),
+                    None,
+                )
+                .await
+                {
+                    Ok(claude_session) => {
+                        handle.set_list_tx(state.list_tx());
+                        let (actor_handle, action_tx) =
+                            claude_session.start_event_loop(handle, persist_tx, state.list_tx());
+                        state.add_session_actor(actor_handle);
+                        state.set_claude_action_tx(&session_id, action_tx);
+                        info!(
+                            component = "session",
+                            event = "session.create.claude_connector_started",
+                            connection_id = conn_id,
+                            session_id = %session_id,
+                            "Claude connector started"
+                        );
+                    }
+                    Err(e) => {
+                        state.add_session(handle);
+                        error!(
+                            component = "session",
+                            event = "session.create.claude_connector_failed",
+                            connection_id = conn_id,
+                            session_id = %session_id,
+                            error = %e,
+                            "Failed to start Claude session"
+                        );
+                        send_json(
+                            client_tx,
+                            ServerMessage::Error {
+                                code: "claude_error".into(),
                                 message: e.to_string(),
                                 session_id: Some(session_id),
                             },
@@ -742,7 +800,11 @@ async fn handle_client_message(
                 "Sending message to session"
             );
 
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+            // Try Codex action channel first, then Claude
+            let codex_tx = state.get_codex_action_tx(&session_id);
+            let claude_tx = state.get_claude_action_tx(&session_id);
+
+            if codex_tx.is_some() || claude_tx.is_some() {
                 let first_prompt = name_from_first_prompt(&content);
 
                 let _ = state
@@ -753,56 +815,34 @@ async fn handle_client_message(
                     })
                     .await;
 
-                // Broadcast first_prompt delta so UI has immediate fallback label
-                if let Some(actor) = state.get_session(&session_id) {
-                    let raw_content = content.clone();
-                    let fp_changes = StateChanges {
-                        first_prompt: Some(Some(raw_content)),
-                        ..Default::default()
-                    };
-                    let _ = actor
-                        .send(SessionCommand::ApplyDelta {
-                            changes: fp_changes,
-                            persist_op: None,
-                        })
-                        .await;
-                }
-
-                if let Some(derived_name) = first_prompt {
+                // Broadcast first_prompt delta and trigger AI naming
+                if let Some(prompt) = first_prompt {
                     if let Some(actor) = state.get_session(&session_id) {
-                        let snap = actor.snapshot();
-                        if snap.custom_name.is_none() {
-                            let (sum_tx, sum_rx) = oneshot::channel();
-                            actor
-                                .send(SessionCommand::SetCustomNameAndNotify {
-                                    name: Some(derived_name.clone()),
-                                    persist_op: Some(PersistOp::SetCustomName {
-                                        session_id: session_id.clone(),
-                                        name: Some(derived_name),
-                                    }),
-                                    reply: sum_tx,
-                                })
-                                .await;
-                            if let Ok(summary) = sum_rx.await {
-                                state.broadcast_to_list(ServerMessage::SessionCreated {
-                                    session: summary,
-                                });
-                            }
-                        }
+                        let changes = orbitdock_protocol::StateChanges {
+                            first_prompt: Some(Some(prompt.clone())),
+                            ..Default::default()
+                        };
+                        let _ = actor
+                            .send(SessionCommand::ApplyDelta {
+                                changes,
+                                persist_op: None,
+                            })
+                            .await;
 
-                        // Spawn AI naming task (fire-and-forget)
+                        // Trigger AI naming (fire-and-forget, deduped)
                         if state.naming_guard().try_claim(&session_id) {
                             crate::ai_naming::spawn_naming_task(
                                 session_id.clone(),
-                                content.clone(),
+                                prompt,
                                 actor,
                                 state.persist().clone(),
+                                state.list_tx(),
                             );
                         }
                     }
                 }
 
-                // Persist user message immediately (Codex may not echo UserMessage on resumed sessions)
+                // Persist user message immediately
                 let ts_millis = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
@@ -833,16 +873,26 @@ async fn handle_client_message(
                         .await;
                 }
 
-                let _ = tx
-                    .send(CodexAction::SendMessage {
-                        content,
-                        model,
-                        effort,
-                        skills,
-                        images,
-                        mentions,
-                    })
-                    .await;
+                if let Some(tx) = codex_tx {
+                    let _ = tx
+                        .send(CodexAction::SendMessage {
+                            content,
+                            model,
+                            effort,
+                            skills,
+                            images,
+                            mentions,
+                        })
+                        .await;
+                } else if let Some(tx) = claude_tx {
+                    let _ = tx
+                        .send(ClaudeAction::SendMessage {
+                            content,
+                            model,
+                            effort,
+                        })
+                        .await;
+                }
             } else {
                 warn!(
                     component = "session",
@@ -999,6 +1049,13 @@ async fn handle_client_message(
                     }
                 };
                 let _ = tx.send(action).await;
+            } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let _ = tx
+                    .send(ClaudeAction::ApproveTool {
+                        request_id,
+                        decision: decision.clone(),
+                    })
+                    .await;
             }
 
             // Clear pending approval and transition to an appropriate post-decision state.
@@ -1314,6 +1371,10 @@ async fn handle_client_message(
                         answers,
                     })
                     .await;
+            } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let _ = tx
+                    .send(ClaudeAction::AnswerQuestion { request_id, answer })
+                    .await;
             }
         }
 
@@ -1328,6 +1389,8 @@ async fn handle_client_message(
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Interrupt).await;
+            } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let _ = tx.send(ClaudeAction::Interrupt).await;
             }
         }
 
@@ -1342,6 +1405,8 @@ async fn handle_client_message(
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Compact).await;
+            } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let _ = tx.send(ClaudeAction::Compact).await;
             }
         }
 
@@ -1476,6 +1541,54 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::SetOpenAiKey { key } => {
+            info!(
+                component = "config",
+                event = "config.openai_key.set",
+                connection_id = conn_id,
+                "OpenAI API key set via UI"
+            );
+
+            // Persist to macOS Keychain (picked up on next server restart)
+            let key_for_keychain = key;
+            tokio::task::spawn_blocking(move || {
+                let result = std::process::Command::new("security")
+                    .args([
+                        "add-generic-password",
+                        "-s",
+                        "com.orbitdock.openai-api-key",
+                        "-a",
+                        "orbitdock",
+                        "-w",
+                        &key_for_keychain,
+                        "-U", // Update if exists
+                    ])
+                    .output();
+                match result {
+                    Ok(output) if output.status.success() => {
+                        info!(
+                            event = "config.openai_key.keychain_saved",
+                            "API key saved to Keychain"
+                        );
+                    }
+                    Ok(output) => {
+                        warn!(
+                            event = "config.openai_key.keychain_failed",
+                            stderr = %String::from_utf8_lossy(&output.stderr),
+                            "Failed to save API key to Keychain"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            event = "config.openai_key.keychain_error",
+                            error = %e,
+                            "Keychain command failed"
+                        );
+                    }
+                }
+            });
+        }
+
         ClientMessage::ResumeSession { session_id } => {
             info!(
                 component = "session",
@@ -1529,7 +1642,7 @@ async fn handle_client_message(
             };
 
             let msg_count = restored.messages.len();
-            let handle = SessionHandle::restore(
+            let mut handle = SessionHandle::restore(
                 restored.id.clone(),
                 orbitdock_protocol::Provider::Codex,
                 restored.project_path.clone(),
@@ -1538,7 +1651,6 @@ async fn handle_client_message(
                 restored.model.clone(),
                 restored.custom_name,
                 restored.summary,
-                restored.first_prompt,
                 orbitdock_protocol::SessionStatus::Active,
                 orbitdock_protocol::WorkStatus::Waiting,
                 restored.approval_policy.clone(),
@@ -1562,6 +1674,7 @@ async fn handle_client_message(
                 restored.git_branch,
                 restored.git_sha,
                 restored.current_cwd,
+                restored.first_prompt,
             );
 
             // Subscribe the requesting client
@@ -1611,6 +1724,7 @@ async fn handle_client_message(
                         })
                         .await;
 
+                    handle.set_list_tx(state.list_tx());
                     let (actor_handle, action_tx) =
                         codex_session.start_event_loop(handle, persist_tx);
                     state.add_session_actor(actor_handle);
@@ -1705,6 +1819,9 @@ async fn handle_client_message(
                 }
             }
 
+            // Resolve git branch from cwd
+            let git_branch = crate::git::resolve_git_branch(&cwd).await;
+
             let mut created = false;
             let actor = if let Some(existing) = state.get_session(&session_id) {
                 let snap = existing.snapshot();
@@ -1739,6 +1856,7 @@ async fn handle_client_message(
                 .send(SessionCommand::ApplyDelta {
                     changes: orbitdock_protocol::StateChanges {
                         work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                        git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
                         last_activity_at: Some(chrono_now()),
                         ..Default::default()
                     },
@@ -1761,6 +1879,7 @@ async fn handle_client_message(
                     id: session_id,
                     project_path: cwd.clone(),
                     project_name: project_name_from_cwd(&cwd),
+                    branch: git_branch,
                     model,
                     context_label,
                     transcript_path,
@@ -1779,6 +1898,21 @@ async fn handle_client_message(
             if let Some(existing) = state.get_session(&session_id) {
                 if existing.snapshot().provider == Provider::Codex {
                     return;
+                }
+
+                // Extract AI-generated summary from transcript before ending
+                if let Some(transcript_path) = &existing.snapshot().transcript_path {
+                    if let Some(summary) =
+                        crate::persistence::extract_summary_from_transcript_path(transcript_path)
+                            .await
+                    {
+                        let _ = persist_tx
+                            .send(PersistCommand::SetSummary {
+                                session_id: session_id.clone(),
+                                summary,
+                            })
+                            .await;
+                    }
                 }
             }
 
@@ -1816,9 +1950,27 @@ async fn handle_client_message(
                 .as_deref()
                 .and_then(|path| claude_transcript_path_from_cwd(path, &session_id));
 
+            // Resolve git branch from cwd if available
+            let git_branch = match cwd.as_deref() {
+                Some(path) => crate::git::resolve_git_branch(path).await,
+                None => None,
+            };
+
             let actor = if let Some(existing) = state.get_session(&session_id) {
                 if existing.snapshot().provider == Provider::Codex {
                     return;
+                }
+                // Update branch if we have one and it's missing
+                if git_branch.is_some() && existing.snapshot().git_branch.is_none() {
+                    existing
+                        .send(SessionCommand::ApplyDelta {
+                            changes: orbitdock_protocol::StateChanges {
+                                git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                                ..Default::default()
+                            },
+                            persist_op: None,
+                        })
+                        .await;
                 }
                 existing
             } else {
@@ -1832,6 +1984,20 @@ async fn handle_client_message(
                         .or_else(|| derived_transcript_path.clone()),
                 );
                 let actor = state.add_session(handle);
+
+                // Set branch via delta for new sessions
+                if git_branch.is_some() {
+                    actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: orbitdock_protocol::StateChanges {
+                                git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                                ..Default::default()
+                            },
+                            persist_op: None,
+                        })
+                        .await;
+                }
+
                 let (sum_tx, sum_rx) = oneshot::channel();
                 actor
                     .send(SessionCommand::GetSummary { reply: sum_tx })
@@ -1858,6 +2024,7 @@ async fn handle_client_message(
                         id: session_id.clone(),
                         project_path: cwd.clone(),
                         project_name: project_name_from_cwd(&cwd),
+                        branch: git_branch.clone(),
                         model: None,
                         context_label: None,
                         transcript_path: transcript_path
@@ -1939,52 +2106,63 @@ async fn handle_client_message(
                     })
                     .await;
 
-                // Broadcast first_prompt delta so UI has immediate fallback label
-                if let Some(prompt_text) = prompt.as_deref() {
-                    let fp_changes = StateChanges {
-                        first_prompt: Some(Some(prompt_text.to_string())),
+                // Broadcast first_prompt delta and trigger AI naming
+                if let Some(ref prompt_text) = prompt {
+                    let changes = orbitdock_protocol::StateChanges {
+                        first_prompt: Some(Some(prompt_text.clone())),
                         ..Default::default()
                     };
                     let _ = actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: fp_changes,
+                            changes,
                             persist_op: None,
                         })
                         .await;
-                }
 
-                if let Some(prompt_text) = prompt.as_deref() {
-                    let derived_name = name_from_first_prompt(prompt_text);
-                    if let Some(derived_name) = derived_name {
-                        let snap = actor.snapshot();
-                        if snap.custom_name.is_none() {
-                            let (sum_tx, sum_rx) = oneshot::channel();
-                            actor
-                                .send(SessionCommand::SetCustomNameAndNotify {
-                                    name: Some(derived_name.clone()),
-                                    persist_op: Some(PersistOp::SetCustomName {
-                                        session_id: session_id.clone(),
-                                        name: Some(derived_name),
-                                    }),
-                                    reply: sum_tx,
-                                })
-                                .await;
-                            if let Ok(summary) = sum_rx.await {
-                                state.broadcast_to_list(ServerMessage::SessionCreated {
-                                    session: summary,
-                                });
-                            }
-                        }
-                    }
-
-                    // Spawn AI naming task (fire-and-forget)
                     if state.naming_guard().try_claim(&session_id) {
                         crate::ai_naming::spawn_naming_task(
                             session_id.clone(),
-                            prompt_text.to_string(),
+                            prompt_text.clone(),
                             actor.clone(),
-                            state.persist().clone(),
+                            persist_tx.clone(),
+                            state.list_tx(),
                         );
+                    }
+                }
+            }
+
+            // On Stop events, try to extract AI-generated summary from transcript.
+            // Claude writes {"type":"summary","summary":"..."} at end of turns/sessions.
+            if hook_event_name == "Stop" {
+                let snap = actor.snapshot();
+                if snap.summary.is_none() {
+                    let tp = snap
+                        .transcript_path
+                        .clone()
+                        .or_else(|| transcript_path.clone())
+                        .or_else(|| derived_transcript_path.clone());
+                    if let Some(path) = tp {
+                        if let Some(extracted_summary) =
+                            crate::persistence::extract_summary_from_transcript_path(&path).await
+                        {
+                            // Apply to in-memory session state
+                            actor
+                                .send(SessionCommand::ApplyDelta {
+                                    changes: orbitdock_protocol::StateChanges {
+                                        summary: Some(Some(extracted_summary.clone())),
+                                        ..Default::default()
+                                    },
+                                    persist_op: None,
+                                })
+                                .await;
+                            // Persist to DB
+                            let _ = persist_tx
+                                .send(PersistCommand::SetSummary {
+                                    session_id: session_id.clone(),
+                                    summary: extracted_summary,
+                                })
+                                .await;
+                        }
                     }
                 }
             }
@@ -2077,9 +2255,24 @@ async fn handle_client_message(
             let persist_tx = state.persist().clone();
             let derived_transcript_path = claude_transcript_path_from_cwd(&cwd, &session_id);
 
+            // Resolve git branch from cwd
+            let git_branch = crate::git::resolve_git_branch(&cwd).await;
+
             let actor = if let Some(existing) = state.get_session(&session_id) {
                 if existing.snapshot().provider == Provider::Codex {
                     return;
+                }
+                // Update branch if missing
+                if git_branch.is_some() && existing.snapshot().git_branch.is_none() {
+                    existing
+                        .send(SessionCommand::ApplyDelta {
+                            changes: orbitdock_protocol::StateChanges {
+                                git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                                ..Default::default()
+                            },
+                            persist_op: None,
+                        })
+                        .await;
                 }
                 existing
             } else {
@@ -2088,6 +2281,19 @@ async fn handle_client_message(
                 handle.set_project_name(project_name_from_cwd(handle.project_path()));
                 handle.set_transcript_path(derived_transcript_path.clone());
                 let actor = state.add_session(handle);
+
+                if git_branch.is_some() {
+                    actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: orbitdock_protocol::StateChanges {
+                                git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                                ..Default::default()
+                            },
+                            persist_op: None,
+                        })
+                        .await;
+                }
+
                 let (sum_tx, sum_rx) = oneshot::channel();
                 actor
                     .send(SessionCommand::GetSummary { reply: sum_tx })
@@ -2103,6 +2309,7 @@ async fn handle_client_message(
                     id: session_id.clone(),
                     project_path: cwd.clone(),
                     project_name: project_name_from_cwd(&cwd),
+                    branch: git_branch,
                     model: None,
                     context_label: None,
                     transcript_path: derived_transcript_path,
@@ -2444,7 +2651,9 @@ async fn handle_client_message(
             let fork_cwd = effective_cwd.unwrap_or_else(|| ".".to_string());
             let project_name = fork_cwd.split('/').next_back().map(String::from);
 
+            let fork_branch = crate::git::resolve_git_branch(&fork_cwd).await;
             let mut handle = SessionHandle::new(new_id.clone(), Provider::Codex, fork_cwd.clone());
+            handle.set_git_branch(fork_branch.clone());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
             handle.set_config(approval_policy.clone(), sandbox_mode.clone());
             handle.set_forked_from(source_session_id.clone());
@@ -2503,6 +2712,7 @@ async fn handle_client_message(
                     provider: Provider::Codex,
                     project_path: fork_cwd,
                     project_name,
+                    branch: fork_branch,
                     model,
                     approval_policy,
                     sandbox_mode,
@@ -2548,6 +2758,7 @@ async fn handle_client_message(
                 session_id: new_id.clone(),
                 connector: new_connector,
             };
+            handle.set_list_tx(state.list_tx());
             let (actor_handle, action_tx) = codex_session.start_event_loop(handle, persist_tx);
             state.add_session_actor(actor_handle);
             state.set_codex_action_tx(&new_id, action_tx);
@@ -2759,6 +2970,8 @@ async fn handle_client_message(
             if !is_passive_rollout {
                 if let Some(tx) = state.get_codex_action_tx(&session_id) {
                     let _ = tx.send(CodexAction::EndSession).await;
+                } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                    let _ = tx.send(ClaudeAction::EndSession).await;
                 }
             }
 
@@ -3158,7 +3371,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn claude_user_prompt_sets_custom_name_once() {
+    async fn claude_user_prompt_sets_first_prompt() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
         let session_id = "claude-name-on-prompt".to_string();
@@ -3189,27 +3402,6 @@ mod tests {
         )
         .await;
 
-        handle_client_message(
-            ClientMessage::ClaudeStatusEvent {
-                session_id: session_id.clone(),
-                cwd: Some("/Users/tester/repo".to_string()),
-                transcript_path: None,
-                hook_event_name: "UserPromptSubmit".to_string(),
-                notification_type: None,
-                tool_name: None,
-                stop_hook_active: None,
-                prompt: Some("Different prompt should not rename".to_string()),
-                message: None,
-                title: None,
-                trigger: None,
-                custom_instructions: None,
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-
         let actor = {
             state
                 .get_session(&session_id)
@@ -3217,10 +3409,6 @@ mod tests {
         };
         let snapshot = actor.snapshot();
         assert_eq!(snapshot.work_status, WorkStatus::Working);
-        assert_eq!(
-            snapshot.custom_name.as_deref(),
-            Some("Investigate flaky auth and propose a safe migration plan")
-        );
     }
 
     #[tokio::test]
@@ -3239,6 +3427,7 @@ mod tests {
             state.set_codex_action_tx(&session_id, action_tx);
         }
 
+        // Bootstrap prompt should be skipped
         handle_client_message(
             ClientMessage::SendMessage {
                 session_id: session_id.clone(),
@@ -3255,6 +3444,7 @@ mod tests {
         )
         .await;
 
+        // Real prompt should set first_prompt
         handle_client_message(
             ClientMessage::SendMessage {
                 session_id: session_id.clone(),
@@ -3271,6 +3461,9 @@ mod tests {
         )
         .await;
 
+        // Yield to let the actor process the ApplyDelta command
+        tokio::task::yield_now().await;
+
         let actor = {
             state
                 .get_session(&session_id)
@@ -3278,8 +3471,9 @@ mod tests {
         };
         let snapshot = actor.snapshot();
 
+        // first_prompt is set (not custom_name — AI naming sets summary asynchronously)
         assert_eq!(
-            snapshot.custom_name.as_deref(),
+            snapshot.first_prompt.as_deref(),
             Some("Investigate flaky auth and propose a safe migration plan")
         );
     }

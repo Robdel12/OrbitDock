@@ -19,6 +19,14 @@ pub enum CodexIntegrationMode {
     Passive,
 }
 
+/// Claude integration mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaudeIntegrationMode {
+    Direct,
+    Passive,
+}
+
 /// Session status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -167,6 +175,8 @@ pub struct SessionSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_integration_mode: Option<ClaudeIntegrationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<String>,
@@ -212,6 +222,8 @@ pub struct SessionState {
     pub current_plan: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -259,6 +271,8 @@ pub struct StateChanges {
     pub first_prompt: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<Option<CodexIntegrationMode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_integration_mode: Option<Option<ClaudeIntegrationMode>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

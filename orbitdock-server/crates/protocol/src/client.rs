@@ -138,6 +138,11 @@ pub enum ClientMessage {
         session_id: String,
     },
 
+    // Server config
+    SetOpenAiKey {
+        key: String,
+    },
+
     // Turn steering
     SteerTurn {
         session_id: String,

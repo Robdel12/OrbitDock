@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::ai_naming::NamingGuard;
+use crate::claude_session::ClaudeAction;
 use crate::codex_auth::CodexAuthService;
 use crate::codex_session::CodexAction;
 use crate::persistence::PersistCommand;
@@ -20,6 +21,8 @@ pub struct SessionRegistry {
 
     /// Action channels for Codex sessions
     codex_actions: DashMap<String, mpsc::Sender<CodexAction>>,
+    /// Action channels for Claude direct sessions
+    claude_actions: DashMap<String, mpsc::Sender<ClaudeAction>>,
     /// Map codex-core thread_id -> session_id for direct sessions
     codex_threads: DashMap<String, String>,
 
@@ -32,7 +35,7 @@ pub struct SessionRegistry {
     /// Global Codex account auth coordinator (not session-specific)
     codex_auth: Arc<CodexAuthService>,
 
-    /// AI naming dedup guard
+    /// Dedup guard for AI session naming
     naming_guard: Arc<NamingGuard>,
 }
 
@@ -43,17 +46,13 @@ impl SessionRegistry {
         Self {
             sessions: DashMap::new(),
             codex_actions: DashMap::new(),
+            claude_actions: DashMap::new(),
             codex_threads: DashMap::new(),
             list_tx,
             persist_tx,
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
         }
-    }
-
-    /// Get the naming guard for AI session naming dedup
-    pub fn naming_guard(&self) -> &NamingGuard {
-        &self.naming_guard
     }
 
     /// Get persistence sender
@@ -65,6 +64,11 @@ impl SessionRegistry {
         self.codex_auth.clone()
     }
 
+    /// Get naming guard for AI session naming dedup
+    pub fn naming_guard(&self) -> &Arc<NamingGuard> {
+        &self.naming_guard
+    }
+
     /// Store a Codex action sender
     pub fn set_codex_action_tx(&self, session_id: &str, tx: mpsc::Sender<CodexAction>) {
         self.codex_actions.insert(session_id.to_string(), tx);
@@ -73,6 +77,16 @@ impl SessionRegistry {
     /// Get a Codex action sender (cloned — DashMap refs can't outlive the lookup)
     pub fn get_codex_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<CodexAction>> {
         self.codex_actions.get(session_id).map(|r| r.clone())
+    }
+
+    /// Store a Claude action sender
+    pub fn set_claude_action_tx(&self, session_id: &str, tx: mpsc::Sender<ClaudeAction>) {
+        self.claude_actions.insert(session_id.to_string(), tx);
+    }
+
+    /// Get a Claude action sender (cloned)
+    pub fn get_claude_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<ClaudeAction>> {
+        self.claude_actions.get(session_id).map(|r| r.clone())
     }
 
     /// Get all session summaries (lock-free via snapshots)
@@ -91,12 +105,12 @@ impl SessionRegistry {
                     model: snap.model.clone(),
                     custom_name: snap.custom_name.clone(),
                     summary: snap.summary.clone(),
-                    first_prompt: snap.first_prompt.clone(),
                     status: snap.status,
                     work_status: snap.work_status,
                     token_usage: snap.token_usage.clone(),
                     has_pending_approval: false,
                     codex_integration_mode: snap.codex_integration_mode,
+                    claude_integration_mode: snap.claude_integration_mode,
                     approval_policy: snap.approval_policy.clone(),
                     sandbox_mode: snap.sandbox_mode.clone(),
                     started_at: snap.started_at.clone(),
@@ -104,6 +118,7 @@ impl SessionRegistry {
                     git_branch: snap.git_branch.clone(),
                     git_sha: snap.git_sha.clone(),
                     current_cwd: snap.current_cwd.clone(),
+                    first_prompt: snap.first_prompt.clone(),
                 }
             })
             .collect()
@@ -115,7 +130,8 @@ impl SessionRegistry {
     }
 
     /// Add a session by spawning an actor
-    pub fn add_session(&self, handle: SessionHandle) -> SessionActorHandle {
+    pub fn add_session(&self, mut handle: SessionHandle) -> SessionActorHandle {
+        handle.set_list_tx(self.list_tx.clone());
         let id = handle.id().to_string();
         let actor = SessionActorHandle::spawn(handle, self.persist_tx.clone());
         self.sessions.insert(id, actor.clone());
@@ -130,6 +146,7 @@ impl SessionRegistry {
     /// Remove a session
     pub fn remove_session(&self, id: &str) -> Option<SessionActorHandle> {
         self.codex_actions.remove(id);
+        self.claude_actions.remove(id);
         self.codex_threads.retain(|_, session_id| session_id != id);
         self.sessions.remove(id).map(|(_, v)| v)
     }
@@ -153,6 +170,11 @@ impl SessionRegistry {
     /// Broadcast a message to all list subscribers
     pub fn broadcast_to_list(&self, msg: orbitdock_protocol::ServerMessage) {
         let _ = self.list_tx.send(msg);
+    }
+
+    /// Get a clone of the list broadcast sender (for passing to background tasks)
+    pub fn list_tx(&self) -> broadcast::Sender<orbitdock_protocol::ServerMessage> {
+        self.list_tx.clone()
     }
 }
 

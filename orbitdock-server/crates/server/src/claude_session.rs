@@ -4,7 +4,8 @@
 //! Mirrors the CodexSession pattern: connector + event loop + action channel.
 
 use orbitdock_connectors::{ClaudeConnector, ConnectorEvent};
-use tokio::sync::mpsc;
+use orbitdock_protocol::ServerMessage;
+use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn};
 
 use crate::codex_session::handle_session_command;
@@ -123,6 +124,7 @@ impl ClaudeSession {
         mut self,
         handle: SessionHandle,
         persist_tx: mpsc::Sender<PersistCommand>,
+        list_tx: broadcast::Sender<ServerMessage>,
     ) -> (SessionActorHandle, mpsc::Sender<ClaudeAction>) {
         let (action_tx, mut action_rx) = mpsc::channel::<ClaudeAction>(100);
         let (command_tx, mut command_rx) = mpsc::channel::<SessionCommand>(256);
@@ -207,6 +209,7 @@ impl ClaudeSession {
                                     prompt,
                                     actor_for_naming.clone(),
                                     persist.clone(),
+                                    list_tx.clone(),
                                 );
                             }
                         }
