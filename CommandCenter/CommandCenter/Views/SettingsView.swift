@@ -134,6 +134,13 @@ struct SettingsSection<Content: View>: View {
 
 struct GeneralSettingsView: View {
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
+  @State private var openAiKey: String = ""
+  @State private var openAiKeySaved = false
+  @State private var openAiKeyStatus: OpenAiKeyStatus = .checking
+
+  private enum OpenAiKeyStatus {
+    case checking, configured, notConfigured
+  }
 
   private let editors: [(id: String, name: String, icon: String)] = [
     ("", "System Default (Finder)", "folder"),
@@ -172,8 +179,118 @@ struct GeneralSettingsView: View {
               .foregroundStyle(.tertiary)
           }
         }
+
+        SettingsSection(title: "AI NAMING", icon: "sparkles") {
+          VStack(alignment: .leading, spacing: 12) {
+            // Status row
+            HStack {
+              switch openAiKeyStatus {
+                case .checking:
+                  ProgressView()
+                    .controlSize(.small)
+                  Text("Checking...")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                case .configured:
+                  Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.statusSuccess)
+                  Text("API key configured")
+                    .font(.system(size: 13))
+                case .notConfigured:
+                  Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(Color.statusPermission)
+                  Text("No API key set")
+                    .font(.system(size: 13))
+              }
+              Spacer()
+            }
+
+            Divider()
+              .foregroundStyle(Color.panelBorder)
+
+            VStack(alignment: .leading, spacing: 8) {
+              Text("OpenAI API key for auto-naming sessions from first prompts.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+              HStack(spacing: 8) {
+                SecureField("sk-...", text: $openAiKey)
+                  .textFieldStyle(.roundedBorder)
+                  .font(.system(size: 12).monospaced())
+
+                Button {
+                  saveOpenAiKey()
+                } label: {
+                  HStack(spacing: 4) {
+                    Image(systemName: openAiKeySaved ? "checkmark" : "arrow.up.circle")
+                      .font(.system(size: 11, weight: .medium))
+                    Text(openAiKeySaved ? "Saved" : "Save")
+                      .font(.system(size: 12, weight: .medium))
+                  }
+                  .foregroundStyle(openAiKeySaved ? Color.statusSuccess : Color.backgroundPrimary)
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 7)
+                  .background(
+                    openAiKeySaved ? Color.statusSuccess.opacity(0.2) : Color.accent,
+                    in: RoundedRectangle(cornerRadius: 6)
+                  )
+                }
+                .buttonStyle(.plain)
+                .disabled(openAiKey.isEmpty)
+              }
+
+              if openAiKeySaved {
+                Text("Quit and reopen OrbitDock for new sessions to be named.")
+                  .font(.system(size: 11))
+                  .foregroundStyle(Color.textTertiary)
+              }
+            }
+          }
+        }
       }
       .padding(20)
+    }
+    .onAppear {
+      checkOpenAiKeyStatus()
+    }
+  }
+
+  private func saveOpenAiKey() {
+    ServerConnection.shared.setOpenAiKey(openAiKey)
+    openAiKeySaved = true
+    openAiKeyStatus = .configured
+    openAiKey = ""
+  }
+
+  private func checkOpenAiKeyStatus() {
+    openAiKeyStatus = .checking
+    DispatchQueue.global(qos: .userInitiated).async {
+      // Check env var
+      let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
+      if !envKey.isEmpty {
+        DispatchQueue.main.async { openAiKeyStatus = .configured }
+        return
+      }
+
+      // Check Keychain
+      let task = Process()
+      task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+      task.arguments = ["find-generic-password", "-s", "com.orbitdock.openai-api-key", "-w"]
+      let pipe = Pipe()
+      task.standardOutput = pipe
+      task.standardError = Pipe()
+
+      do {
+        try task.run()
+        task.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        DispatchQueue.main.async {
+          openAiKeyStatus = key.isEmpty ? .notConfigured : .configured
+        }
+      } catch {
+        DispatchQueue.main.async { openAiKeyStatus = .notConfigured }
+      }
     }
   }
 }
