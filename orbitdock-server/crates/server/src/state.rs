@@ -184,6 +184,31 @@ impl SessionRegistry {
         self.claude_threads.get(sdk_session_id).map(|r| r.clone())
     }
 
+    /// Find an active direct Claude session for a project that hasn't registered its SDK ID yet.
+    /// Used by `ClaudeSessionStart` to eagerly claim the SDK ID before the `init` event arrives.
+    pub fn find_unregistered_direct_claude_session(&self, project_path: &str) -> Option<String> {
+        use orbitdock_protocol::{ClaudeIntegrationMode, Provider, SessionStatus};
+
+        // Collect registered session IDs for quick lookup
+        let registered: std::collections::HashSet<String> = self
+            .claude_threads
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
+        self.sessions
+            .iter()
+            .find(|entry| {
+                let snap = entry.value().snapshot();
+                snap.provider == Provider::Claude
+                    && snap.claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
+                    && snap.status == SessionStatus::Active
+                    && snap.project_path == project_path
+                    && !registered.contains(&snap.id)
+            })
+            .map(|entry| entry.key().clone())
+    }
+
     /// Subscribe to list updates
     pub fn subscribe_list(&self) -> broadcast::Receiver<orbitdock_protocol::ServerMessage> {
         self.list_tx.subscribe()

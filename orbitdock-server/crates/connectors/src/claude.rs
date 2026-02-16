@@ -601,6 +601,7 @@ impl ClaudeConnector {
 
         match subtype {
             "init" => {
+                let mut events = vec![];
                 if let Some(sid) = raw.get("session_id").and_then(|v| v.as_str()) {
                     *session_id_slot.lock().await = Some(sid.to_string());
                     let model = raw.get("model").and_then(|v| v.as_str());
@@ -611,8 +612,11 @@ impl ClaudeConnector {
                         model = ?model,
                         "Claude session initialized via CLI"
                     );
+                    if let Some(m) = model {
+                        events.push(ConnectorEvent::ModelUpdated(m.to_string()));
+                    }
                 }
-                vec![]
+                events
             }
             "compact_boundary" => {
                 vec![ConnectorEvent::ContextCompacted]
@@ -634,6 +638,11 @@ impl ClaudeConnector {
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
+        // Track whether streaming was active before flushing — if so, the text
+        // content was already delivered via the streaming path and the final
+        // assistant message's "text" blocks are duplicates.
+        let had_streaming = streaming_msg_id.is_some();
+
         // Flush any pending streaming content
         flush_streaming(&mut events, streaming_content, streaming_msg_id);
 
@@ -652,6 +661,8 @@ impl ClaudeConnector {
             let id = format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], msg_counter.fetch_add(1, Ordering::Relaxed));
 
             match block_type {
+                // Skip text blocks if streaming already delivered the content
+                "text" if had_streaming => continue,
                 "text" => {
                     let text = block.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     events.push(ConnectorEvent::MessageCreated(

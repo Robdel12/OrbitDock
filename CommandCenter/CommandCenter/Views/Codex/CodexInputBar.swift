@@ -235,15 +235,18 @@ struct InstrumentPanel: View {
       handleDrop(providers)
     }
     .onAppear {
-      serverState.refreshCodexModels()
-      if selectedModel.isEmpty {
-        selectedModel = defaultModelSelection
+      if session.isDirectCodex {
+        serverState.refreshCodexModels()
+        if selectedModel.isEmpty {
+          selectedModel = defaultModelSelection
+        }
       }
       if let path = projectPath {
         Task { await fileIndex.loadIfNeeded(path) }
       }
     }
     .onChange(of: serverState.codexModels.count) { _, _ in
+      guard session.isDirectCodex else { return }
       if selectedModel.isEmpty || !modelOptions.contains(where: { $0.model == selectedModel }) {
         selectedModel = defaultModelSelection
       }
@@ -276,27 +279,27 @@ struct InstrumentPanel: View {
   }
 
   private var tokenContextPercentage: Double {
-    guard let window = session.codexContextWindow, window > 0,
-          let input = session.codexInputTokens
+    guard let window = session.contextWindow, window > 0,
+          let input = session.inputTokens
     else { return 0 }
     return min(1.0, Double(input) / Double(window))
   }
 
   private var tokenTooltipText: String {
     var parts: [String] = []
-    if let input = session.codexInputTokens {
+    if let input = session.inputTokens {
       parts.append("Input: \(formatTokenCount(input))")
     }
-    if let output = session.codexOutputTokens {
+    if let output = session.outputTokens {
       parts.append("Output: \(formatTokenCount(output))")
     }
-    if let cached = session.codexCachedTokens, cached > 0,
-       let input = session.codexInputTokens, input > 0
+    if let cached = session.cachedTokens, cached > 0,
+       let input = session.inputTokens, input > 0
     {
       let percent = Int(Double(cached) / Double(input) * 100)
       parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
     }
-    if let window = session.codexContextWindow {
+    if let window = session.contextWindow {
       parts.append("Context: \(formatTokenCount(window))")
     }
     return parts.isEmpty ? "Token usage" : parts.joined(separator: "\n")
@@ -362,7 +365,7 @@ struct InstrumentPanel: View {
           }
 
         // Override badges (inside border)
-        if !isSessionWorking {
+        if !isSessionWorking, session.isDirectCodex {
           if hasOverrides {
             overrideBadge
           }
@@ -484,7 +487,9 @@ struct InstrumentPanel: View {
       // ━━━ Left segment: Interrupt + Actions ━━━
       HStack(spacing: Spacing.sm) {
         if !isSessionWorking {
-          modelEffortControlButton
+          if session.isDirectCodex {
+            modelEffortControlButton
+          }
 
           composerActionButton(
             icon: "bolt.fill",
@@ -541,7 +546,9 @@ struct InstrumentPanel: View {
 
       // ━━━ Center segment: Autonomy + Approvals ━━━
       HStack(spacing: Spacing.sm) {
-        AutonomyPill(sessionId: sessionId)
+        if session.isDirectCodex {
+          AutonomyPill(sessionId: sessionId)
+        }
 
         if approvalHistoryCount > 0 {
           Button {
@@ -580,7 +587,7 @@ struct InstrumentPanel: View {
           Text("\(pct)%")
             .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
-          if let input = session.codexInputTokens {
+          if let input = session.inputTokens {
             Text(formatTokenCount(input))
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
               .foregroundStyle(.tertiary)
@@ -589,7 +596,7 @@ struct InstrumentPanel: View {
         .padding(.horizontal, Spacing.md)
         .help(tokenTooltipText)
 
-        if !selectedModel.isEmpty {
+        if session.isDirectCodex, !selectedModel.isEmpty {
           HStack(spacing: 6) {
             Text(shortModelName(selectedModel))
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
@@ -608,6 +615,12 @@ struct InstrumentPanel: View {
           }
           .padding(.horizontal, Spacing.sm)
           .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
+        } else if session.isDirectClaude, let model = session.model {
+          Text(shortModelName(model))
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+            .padding(.horizontal, Spacing.sm)
         }
 
         Color.panelBorder.frame(width: 1, height: 16)
@@ -844,7 +857,8 @@ struct InstrumentPanel: View {
   private var canSend: Bool {
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     if isSessionWorking { return !isSending && hasContent }
-    return !isSending && (hasContent || hasAttachments) && !selectedModel.isEmpty
+    let hasModel = session.isDirectCodex ? !selectedModel.isEmpty : session.model != nil
+    return !isSending && (hasContent || hasAttachments) && hasModel
   }
 
   private func sendMessage() {
@@ -859,9 +873,15 @@ struct InstrumentPanel: View {
       return
     }
 
-    guard !selectedModel.isEmpty else {
-      errorMessage = "No model available yet. Wait for model list to load."
-      return
+    let effectiveModel: String
+    if session.isDirectCodex {
+      guard !selectedModel.isEmpty else {
+        errorMessage = "No model available yet. Wait for model list to load."
+        return
+      }
+      effectiveModel = selectedModel
+    } else {
+      effectiveModel = session.model ?? ""
     }
 
     let effort = selectedEffort.serialized
@@ -889,7 +909,7 @@ struct InstrumentPanel: View {
     serverState.sendMessage(
       sessionId: sessionId,
       content: expandedContent,
-      model: selectedModel,
+      model: effectiveModel,
       effort: effort,
       skills: skillInputs,
       images: imageInputs

@@ -202,6 +202,7 @@ private struct ProviderGaugeMini: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
+    .frame(minWidth: 160)
     .background(
       RoundedRectangle(cornerRadius: 8, style: .continuous)
         .fill(provider.accentColor.opacity(0.06))
@@ -254,6 +255,7 @@ private struct MiniGauge: View {
           .font(.system(size: TypeScale.large, weight: .bold, design: .rounded))
           .foregroundStyle(usageColor)
       }
+      .lineLimit(1)
 
       // Progress bar with projection
       GeometryReader { geo in
@@ -289,6 +291,7 @@ private struct MiniGauge: View {
             .foregroundStyle(projectedColor.opacity(0.8))
         }
       }
+      .lineLimit(1)
     }
   }
 }
@@ -385,10 +388,10 @@ private struct DetailedStats {
     var stats = TranscriptUsageStats()
     stats.model = session.model
 
-    let input = session.codexInputTokens ?? 0
-    let output = session.codexOutputTokens ?? 0
-    let cached = session.codexCachedTokens ?? 0
-    let context = session.codexContextWindow ?? 0
+    let input = session.inputTokens ?? 0
+    let output = session.outputTokens ?? 0
+    let cached = session.cachedTokens ?? 0
+    let context = session.contextWindow ?? 0
     let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
 
     if hasServerUsage {

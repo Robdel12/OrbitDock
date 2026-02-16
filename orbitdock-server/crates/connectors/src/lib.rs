@@ -121,6 +121,9 @@ pub enum ConnectorEvent {
         cancelled: Vec<String>,
     },
 
+    /// Model name updated (e.g. from Claude init event)
+    ModelUpdated(String),
+
     /// Context was compacted (summarized)
     ContextCompacted,
 

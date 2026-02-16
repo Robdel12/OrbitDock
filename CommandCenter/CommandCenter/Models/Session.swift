@@ -26,7 +26,7 @@ struct Session: Identifiable, Hashable, Sendable {
   let projectPath: String
   let projectName: String?
   var branch: String?
-  let model: String?
+  var model: String?
   var summary: String? // AI-generated conversation title
   var customName: String? // User-defined custom name (overrides summary)
   var firstPrompt: String? // First user message (conversation-specific fallback)
@@ -59,14 +59,14 @@ struct Session: Identifiable, Hashable, Sendable {
   var codexThreadId: String? // Thread ID for direct Codex sessions
   var pendingApprovalId: String? // Request ID for approval correlation
 
-  // MARK: - Codex Token Usage
+  // MARK: - Token Usage
 
-  var codexInputTokens: Int? // Input tokens used in session
-  var codexOutputTokens: Int? // Output tokens generated
-  var codexCachedTokens: Int? // Cached input tokens (cost savings)
-  var codexContextWindow: Int? // Model context window size
+  var inputTokens: Int? // Input tokens used in session
+  var outputTokens: Int? // Output tokens generated
+  var cachedTokens: Int? // Cached input tokens (cost savings)
+  var contextWindow: Int? // Model context window size
 
-  // MARK: - Codex Turn State (transient, updated during turns)
+  // MARK: - Turn State (transient, updated during turns)
 
   var gitSha: String? // Git commit SHA
   var currentCwd: String? // Agent's current working directory
@@ -164,10 +164,10 @@ struct Session: Identifiable, Hashable, Sendable {
     claudeIntegrationMode: ClaudeIntegrationMode? = nil,
     codexThreadId: String? = nil,
     pendingApprovalId: String? = nil,
-    codexInputTokens: Int? = nil,
-    codexOutputTokens: Int? = nil,
-    codexCachedTokens: Int? = nil,
-    codexContextWindow: Int? = nil
+    inputTokens: Int? = nil,
+    outputTokens: Int? = nil,
+    cachedTokens: Int? = nil,
+    contextWindow: Int? = nil
   ) {
     self.id = id
     self.projectPath = projectPath
@@ -203,10 +203,10 @@ struct Session: Identifiable, Hashable, Sendable {
     self.claudeIntegrationMode = claudeIntegrationMode
     self.codexThreadId = codexThreadId
     self.pendingApprovalId = pendingApprovalId
-    self.codexInputTokens = codexInputTokens
-    self.codexOutputTokens = codexOutputTokens
-    self.codexCachedTokens = codexCachedTokens
-    self.codexContextWindow = codexContextWindow
+    self.inputTokens = inputTokens
+    self.outputTokens = outputTokens
+    self.cachedTokens = cachedTokens
+    self.contextWindow = contextWindow
   }
 
   var displayName: String {
@@ -324,28 +324,28 @@ struct Session: Identifiable, Hashable, Sendable {
     return tool
   }
 
-  // MARK: - Codex Token Usage Computed Properties
+  // MARK: - Token Usage Computed Properties
 
   /// Total tokens used (input + output)
-  var codexTotalTokens: Int {
-    (codexInputTokens ?? 0) + (codexOutputTokens ?? 0)
+  var totalTokensUsed: Int {
+    (inputTokens ?? 0) + (outputTokens ?? 0)
   }
 
   /// Percentage of context window used (0-100)
-  var codexContextUsagePercent: Double {
-    guard let contextWindow = codexContextWindow, contextWindow > 0 else { return 0 }
-    return Double(codexTotalTokens) / Double(contextWindow) * 100
+  var contextUsagePercent: Double {
+    guard let contextWindow, contextWindow > 0 else { return 0 }
+    return Double(totalTokensUsed) / Double(contextWindow) * 100
   }
 
   /// Whether token usage data is available
   var hasTokenUsage: Bool {
-    (codexInputTokens ?? 0) > 0 || (codexOutputTokens ?? 0) > 0 || (codexCachedTokens ?? 0) > 0
+    (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
   }
 
   /// Formatted token count string
   var formattedTokenUsage: String {
     guard hasTokenUsage else { return "--" }
-    let total = codexTotalTokens
+    let total = totalTokensUsed
     if total >= 1_000 {
       return String(format: "%.1fk", Double(total) / 1_000)
     }

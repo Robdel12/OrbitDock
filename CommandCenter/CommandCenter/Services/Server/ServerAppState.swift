@@ -825,10 +825,10 @@ final class ServerAppState {
     if let usage = changes.tokenUsage {
       obs.tokenUsage = usage
       sess.totalTokens = Int(usage.inputTokens + usage.outputTokens)
-      sess.codexInputTokens = Int(usage.inputTokens)
-      sess.codexOutputTokens = Int(usage.outputTokens)
-      sess.codexCachedTokens = Int(usage.cachedTokens)
-      sess.codexContextWindow = Int(usage.contextWindow)
+      sess.inputTokens = Int(usage.inputTokens)
+      sess.outputTokens = Int(usage.outputTokens)
+      sess.cachedTokens = Int(usage.cachedTokens)
+      sess.contextWindow = Int(usage.contextWindow)
     }
     if let diffOuter = changes.currentDiff {
       if let diff = diffOuter {
@@ -925,6 +925,9 @@ final class ServerAppState {
     }
     if let cwdOuter = changes.currentCwd {
       sess.currentCwd = cwdOuter
+    }
+    if let modelOuter = changes.model {
+      sess.model = modelOuter
     }
     if let lastActivity = changes.lastActivityAt {
       let stripped = lastActivity.hasSuffix("Z") ? String(lastActivity.dropLast()) : lastActivity
@@ -1125,10 +1128,10 @@ final class ServerAppState {
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].totalTokens = Int(usage.inputTokens + usage.outputTokens)
-      sessions[idx].codexInputTokens = Int(usage.inputTokens)
-      sessions[idx].codexOutputTokens = Int(usage.outputTokens)
-      sessions[idx].codexCachedTokens = Int(usage.cachedTokens)
-      sessions[idx].codexContextWindow = Int(usage.contextWindow)
+      sessions[idx].inputTokens = Int(usage.inputTokens)
+      sessions[idx].outputTokens = Int(usage.outputTokens)
+      sessions[idx].cachedTokens = Int(usage.cachedTokens)
+      sessions[idx].contextWindow = Int(usage.contextWindow)
     }
   }
 

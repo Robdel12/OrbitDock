@@ -531,11 +531,17 @@ struct SessionDetailView: View {
     var stats = TranscriptUsageStats()
     stats.model = session.model
 
-    if session.provider == .codex {
-      stats.inputTokens = session.codexInputTokens ?? 0
-      stats.outputTokens = session.codexOutputTokens ?? 0
-      stats.cacheReadTokens = session.codexCachedTokens ?? 0
-      stats.contextUsed = session.codexContextWindow ?? 0
+    let input = session.inputTokens ?? 0
+    let output = session.outputTokens ?? 0
+    let cached = session.cachedTokens ?? 0
+    let context = session.contextWindow ?? 0
+    let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
+
+    if hasServerUsage {
+      stats.inputTokens = input
+      stats.outputTokens = output
+      stats.cacheReadTokens = cached
+      stats.contextUsed = context
     } else {
       stats.outputTokens = max(session.totalTokens, 0)
     }

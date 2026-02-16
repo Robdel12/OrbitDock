@@ -41,10 +41,10 @@ extension ServerSessionSummary {
       provider: provider == .codex ? .codex : .claude,
       codexIntegrationMode: codexMode,
       claudeIntegrationMode: claudeMode,
-      codexInputTokens: tokenUsage.map { Int($0.inputTokens) },
-      codexOutputTokens: tokenUsage.map { Int($0.outputTokens) },
-      codexCachedTokens: tokenUsage.map { Int($0.cachedTokens) },
-      codexContextWindow: tokenUsage.map { Int($0.contextWindow) }
+      inputTokens: tokenUsage.map { Int($0.inputTokens) },
+      outputTokens: tokenUsage.map { Int($0.outputTokens) },
+      cachedTokens: tokenUsage.map { Int($0.cachedTokens) },
+      contextWindow: tokenUsage.map { Int($0.contextWindow) }
     )
     session.summary = summary
     session.firstPrompt = firstPrompt
@@ -92,10 +92,10 @@ extension ServerSessionState {
       codexIntegrationMode: codexMode,
       claudeIntegrationMode: claudeMode,
       pendingApprovalId: pendingApproval?.id,
-      codexInputTokens: Int(tokenUsage.inputTokens),
-      codexOutputTokens: Int(tokenUsage.outputTokens),
-      codexCachedTokens: Int(tokenUsage.cachedTokens),
-      codexContextWindow: Int(tokenUsage.contextWindow)
+      inputTokens: Int(tokenUsage.inputTokens),
+      outputTokens: Int(tokenUsage.outputTokens),
+      cachedTokens: Int(tokenUsage.cachedTokens),
+      contextWindow: Int(tokenUsage.contextWindow)
     )
     session.summary = summary
     session.firstPrompt = firstPrompt

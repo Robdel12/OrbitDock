@@ -135,6 +135,7 @@ pub enum Input {
         failed: Vec<McpStartupFailure>,
         cancelled: Vec<String>,
     },
+    ModelUpdated(String),
     ContextCompacted,
     UndoStarted {
         message: Option<String>,
@@ -229,6 +230,7 @@ impl From<ConnectorEvent> for Input {
                 failed,
                 cancelled,
             },
+            ConnectorEvent::ModelUpdated(model) => Input::ModelUpdated(model),
             ConnectorEvent::ContextCompacted => Input::ContextCompacted,
             ConnectorEvent::UndoStarted { message } => Input::UndoStarted { message },
             ConnectorEvent::UndoCompleted { success, message } => {
@@ -316,6 +318,13 @@ pub enum PersistOp {
         cwd: Option<String>,
         git_branch: Option<String>,
         git_sha: Option<String>,
+    },
+    ToolCountIncrement {
+        session_id: String,
+    },
+    ModelUpdate {
+        session_id: String,
+        model: String,
     },
 }
 
@@ -416,6 +425,12 @@ impl PersistOp {
                 git_branch,
                 git_sha,
             },
+            PersistOp::ToolCountIncrement { session_id } => {
+                PersistCommand::ToolCountIncrement { session_id }
+            }
+            PersistOp::ModelUpdate { session_id, model } => {
+                PersistCommand::ModelUpdate { session_id, model }
+            }
         }
     }
 }
@@ -570,6 +585,14 @@ pub fn transition(
                     session_id: sid.clone(),
                     message: message.clone(),
                 })));
+
+                // Increment tool_count for tool messages
+                if message.message_type == MessageType::Tool {
+                    effects.push(Effect::Persist(Box::new(PersistOp::ToolCountIncrement {
+                        session_id: sid.clone(),
+                    })));
+                }
+
                 effects.push(Effect::Emit(Box::new(ServerMessage::MessageAppended {
                     session_id: sid,
                     message,
@@ -850,6 +873,21 @@ pub fn transition(
                     },
                 })));
             }
+        }
+
+        // -- Model ---------------------------------------------------------------
+        Input::ModelUpdated(model) => {
+            effects.push(Effect::Persist(Box::new(PersistOp::ModelUpdate {
+                session_id: sid.clone(),
+                model: model.clone(),
+            })));
+            effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+                session_id: sid,
+                changes: StateChanges {
+                    model: Some(Some(model)),
+                    ..Default::default()
+                },
+            })));
         }
 
         // -- Pass-through (broadcast only, no state change) -------------------

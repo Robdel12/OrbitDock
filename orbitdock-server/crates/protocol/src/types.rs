@@ -318,6 +318,8 @@ pub struct StateChanges {
     pub git_sha: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_cwd: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<Option<String>>,
 }
 
 /// Changes to apply to a message (delta updates)

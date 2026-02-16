@@ -447,6 +447,7 @@ struct ServerStateChanges: Codable {
   let currentCwd: String??
   let firstPrompt: String??
   let lastMessage: String??
+  let model: String??
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -469,6 +470,7 @@ struct ServerStateChanges: Codable {
     case currentCwd = "current_cwd"
     case firstPrompt = "first_prompt"
     case lastMessage = "last_message"
+    case model
   }
 }
 

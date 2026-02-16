@@ -379,7 +379,7 @@ struct CodexTokenBadge: View {
   var body: some View {
     HStack(spacing: 8) {
       // Context fill percentage
-      if let window = session.codexContextWindow, window > 0 {
+      if let window = session.contextWindow, window > 0 {
         Text("\(contextPercent)%")
           .font(.system(size: 11, weight: .semibold, design: .monospaced))
           .foregroundStyle(contextColor)
@@ -389,7 +389,7 @@ struct CodexTokenBadge: View {
           .foregroundStyle(.tertiary)
       } else {
         // Fallback if no window info yet
-        Text(formatTokenCount(session.codexInputTokens ?? 0))
+        Text(formatTokenCount(session.inputTokens ?? 0))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
         Text("tokens")
@@ -416,8 +416,8 @@ struct CodexTokenBadge: View {
 
   /// Context fill: input tokens / context window
   private var contextPercent: Int {
-    guard let window = session.codexContextWindow, window > 0,
-          let input = session.codexInputTokens
+    guard let window = session.contextWindow, window > 0,
+          let input = session.inputTokens
     else { return 0 }
     return min(100, Int(Double(input) / Double(window) * 100))
   }
@@ -430,8 +430,8 @@ struct CodexTokenBadge: View {
 
   /// Cache savings as percentage of input tokens
   private var cacheSavingsPercent: Int {
-    guard let cached = session.codexCachedTokens,
-          let input = session.codexInputTokens,
+    guard let cached = session.cachedTokens,
+          let input = session.inputTokens,
           input > 0
     else { return 0 }
     return Int(Double(cached) / Double(input) * 100)
@@ -440,19 +440,19 @@ struct CodexTokenBadge: View {
   private var tokenTooltip: String {
     var parts: [String] = []
 
-    if let input = session.codexInputTokens {
+    if let input = session.inputTokens {
       parts.append("Input: \(formatTokenCount(input))")
     }
-    if let output = session.codexOutputTokens {
+    if let output = session.outputTokens {
       parts.append("Output: \(formatTokenCount(output))")
     }
-    if let cached = session.codexCachedTokens, cached > 0,
-       let input = session.codexInputTokens, input > 0
+    if let cached = session.cachedTokens, cached > 0,
+       let input = session.inputTokens, input > 0
     {
       let percent = Int(Double(cached) / Double(input) * 100)
       parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
     }
-    if let window = session.codexContextWindow {
+    if let window = session.contextWindow {
       parts.append("Context window: \(formatTokenCount(window))")
     }
 

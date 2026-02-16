@@ -170,6 +170,12 @@ pub enum PersistCommand {
     /// Increment tool counter for Claude hook session
     ClaudeToolIncrement { id: String },
 
+    /// Increment tool counter for any direct session (transition-driven)
+    ToolCountIncrement { session_id: String },
+
+    /// Update model name for a session
+    ModelUpdate { session_id: String, model: String },
+
     /// Create/refresh subagent row
     ClaudeSubagentStart {
         id: String,
@@ -612,10 +618,10 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         PersistCommand::TokensUpdate { session_id, usage } => {
             conn.execute(
                 "UPDATE sessions SET
-                   codex_input_tokens = ?1,
-                   codex_output_tokens = ?2,
-                   codex_cached_tokens = ?3,
-                   codex_context_window = ?4,
+                   input_tokens = ?1,
+                   output_tokens = ?2,
+                   cached_tokens = ?3,
+                   context_window = ?4,
                    last_activity_at = ?5
                  WHERE id = ?6",
                 params![
@@ -957,6 +963,23 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                      last_activity_at = ?1
                  WHERE id = ?2",
                 params![chrono_now(), id],
+            )?;
+        }
+
+        PersistCommand::ToolCountIncrement { session_id } => {
+            conn.execute(
+                "UPDATE sessions
+                 SET tool_count = COALESCE(tool_count, 0) + 1,
+                     last_activity_at = ?1
+                 WHERE id = ?2",
+                params![chrono_now(), session_id],
+            )?;
+        }
+
+        PersistCommand::ModelUpdate { session_id, model } => {
+            conn.execute(
+                "UPDATE sessions SET model = ?1 WHERE id = ?2",
+                params![model, session_id],
             )?;
         }
 
@@ -1493,10 +1516,10 @@ pub struct RestoredSession {
     pub last_activity_at: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
-    pub codex_input_tokens: i64,
-    pub codex_output_tokens: i64,
-    pub codex_cached_tokens: i64,
-    pub codex_context_window: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cached_tokens: i64,
+    pub context_window: i64,
     pub messages: Vec<Message>,
     pub forked_from_session_id: Option<String>,
     pub current_diff: Option<String>,
@@ -2057,8 +2080,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         // Restore recent sessions into runtime for active + history UI continuity.
         let mut stmt = conn.prepare(
             "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
-                    COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
-                    COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
+                    COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
+                    COALESCE(cached_tokens, 0), COALESCE(context_window, 0)
              FROM sessions
              ORDER BY
                datetime(last_activity_at) DESC,
@@ -2098,7 +2121,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
         let mut sessions = Vec::new();
 
-        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, _summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
+        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, _summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, input_tokens, output_tokens, cached_tokens, context_window) in session_rows {
             let mut messages = load_messages_from_db(&conn, &id)?;
             if messages.is_empty() {
                 if let Some(path) = transcript_path.as_deref() {
@@ -2228,10 +2251,10 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 last_activity_at,
                 approval_policy,
                 sandbox_mode,
-                codex_input_tokens,
-                codex_output_tokens,
-                codex_cached_tokens,
-                codex_context_window,
+                input_tokens,
+                output_tokens,
+                cached_tokens,
+                context_window,
                 messages,
                 forked_from_session_id,
                 current_diff,
@@ -2271,8 +2294,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 
         let mut stmt = conn.prepare(
             "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode,
-                    COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
-                    COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
+                    COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
+                    COALESCE(cached_tokens, 0), COALESCE(context_window, 0)
              FROM sessions
              WHERE id = ?1 AND provider = 'codex'
                AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
@@ -2320,7 +2343,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             })
             .optional()?;
 
-        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
+        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, input_tokens, output_tokens, cached_tokens, context_window)) = row else {
             return Ok(None);
         };
 
@@ -2385,10 +2408,10 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             last_activity_at,
             approval_policy,
             sandbox_mode,
-            codex_input_tokens,
-            codex_output_tokens,
-            codex_cached_tokens,
-            codex_context_window,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            context_window,
             messages,
             forked_from_session_id: None,
             current_diff,
