@@ -30,7 +30,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "send_message",
         description:
-          "Send a user message to a controllable OrbitDock session. Currently supports direct Codex sessions.",
+          "Send a user message to a controllable OrbitDock session. Currently supports direct Codex and Claude sessions.",
         inputSchema: {
           type: "object",
           properties: {
@@ -94,7 +94,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "interrupt_turn",
-        description: "Interrupt/stop the current turn in a controllable OrbitDock session (direct Codex)",
+        description: "Interrupt/stop the current turn in a controllable OrbitDock session (direct Codex or Claude)",
         inputSchema: {
           type: "object",
           properties: {
@@ -108,7 +108,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "approve",
-        description: "Approve/reject a pending tool execution in a controllable OrbitDock session (direct Codex)",
+        description: "Approve/reject a pending tool execution in a controllable OrbitDock session (direct Codex or Claude)",
         inputSchema: {
           type: "object",
           properties: {
@@ -165,7 +165,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "fork_session",
         description:
-          "Fork a Codex session, creating a new session with conversation history. Optionally fork from a specific user message.",
+          "Fork a session, creating a new session with conversation history. Optionally fork from a specific user message.",
         inputSchema: {
           type: "object",
           properties: {
@@ -434,7 +434,7 @@ async function handleGetSession({ session_id }) {
     `Provider: ${session.provider}`,
     `Project: ${session.project_path}`,
     `Status: ${session.work_status}${session.attention_reason && session.attention_reason !== "none" ? ` (${session.attention_reason})` : ""}`,
-    `Direct Codex: ${session.is_direct_codex ? "yes" : "no"}`,
+    `Direct: ${session.is_direct ? "yes" : "no"}`,
     `Controllable: ${isControllableSession(session) ? "yes" : "no"}`,
   ];
   if (session.pending_approval_id) {
@@ -500,15 +500,15 @@ function ensureOrbitDock() {
 }
 
 function isControllableSession(session) {
-  return session.provider === "codex" && session.is_direct_codex;
+  return session.is_direct || (session.provider === "codex" && session.is_direct_codex) || (session.provider === "claude" && session.is_direct_claude);
 }
 
 async function requireControllableSession(sessionId) {
   let session = await orbitdock.getSession(sessionId);
   if (!isControllableSession(session)) {
     throw new Error(
-      `Session ${sessionId} is provider=${session.provider}, direct_codex=${session.is_direct_codex}. ` +
-        "Only direct Codex sessions are currently controllable via MCP actions."
+      `Session ${sessionId} is provider=${session.provider}, direct=${session.is_direct}. ` +
+        "Only direct Codex or Claude sessions are controllable via MCP actions."
     );
   }
   return session;
