@@ -464,11 +464,9 @@ struct ProjectStreamSection: View {
       )
     }
     .sorted { lhs, rhs in
-      switch sort {
-        case .tokens: lhs.totalTokens > rhs.totalTokens
-        case .cost: lhs.totalCost > rhs.totalCost
-        default: lhs.latestActivityAt > rhs.latestActivityAt
-      }
+      // Project groups are always alphabetical — they're spatial anchors.
+      // Only sessions within groups reorder based on the active sort/filter.
+      lhs.projectName.localizedCaseInsensitiveCompare(rhs.projectName) == .orderedAscending
     }
   }
 
