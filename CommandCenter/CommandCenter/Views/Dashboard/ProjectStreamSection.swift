@@ -416,11 +416,15 @@ struct ProjectStreamSection: View {
   static func makeProjectGroups(from sessions: [Session], sort: ActiveSessionSort = .status) -> [ProjectGroup] {
     // Merge subdirectory paths into their parent project.
     // e.g., sessions in /foo/bar and /foo/bar/sub both group under /foo/bar.
+    // But don't merge into overly generic parent paths like ~/Developer.
     let allPaths = Set(sessions.map(\.projectPath))
     let canonicalPath: (String) -> String = { path in
       // If this path is a subdirectory of another session's path, merge up
+      // Only merge into candidates that look like actual project dirs (4+ components)
+      // e.g., /Users/name/Developer/project — not /Users/name/Developer
       for candidate in allPaths where candidate != path {
-        if path.hasPrefix(candidate + "/") {
+        let candidateComponents = candidate.components(separatedBy: "/").filter { !$0.isEmpty }
+        if path.hasPrefix(candidate + "/") && candidateComponents.count >= 4 {
           return candidate
         }
       }
@@ -558,83 +562,7 @@ extension View {
   }
 }
 
-// MARK: - Filter Types
-
-enum ActiveSessionWorkbenchFilter: String, CaseIterable, Identifiable {
-  case all, direct, attention, running, ready
-
-  var id: String {
-    rawValue
-  }
-
-  var title: String {
-    switch self {
-      case .all: "All Sessions"
-      case .direct: "Direct Sessions"
-      case .attention: "Needs Attention"
-      case .running: "Currently Running"
-      case .ready: "Ready for Input"
-    }
-  }
-}
-
-enum ActiveSessionSort: String, CaseIterable, Identifiable {
-  case status, recent, tokens, cost
-
-  var id: String {
-    rawValue
-  }
-
-  var label: String {
-    switch self {
-      case .status: "Status"
-      case .recent: "Recent"
-      case .tokens: "Tokens"
-      case .cost: "Cost"
-    }
-  }
-
-  var icon: String {
-    switch self {
-      case .status: "arrow.up.arrow.down"
-      case .recent: "clock"
-      case .tokens: "number"
-      case .cost: "dollarsign"
-    }
-  }
-}
-
-enum ActiveSessionProviderFilter: String, CaseIterable, Identifiable {
-  case all, claude, codex
-
-  var id: String {
-    rawValue
-  }
-
-  var label: String {
-    switch self {
-      case .all: "All"
-      case .claude: "Claude"
-      case .codex: "Codex"
-    }
-  }
-
-  var icon: String {
-    switch self {
-      case .all: "square.grid.2x2"
-      case .claude: "sparkle"
-      case .codex: "terminal"
-    }
-  }
-
-  var color: Color {
-    switch self {
-      case .all: Color.textSecondary
-      case .claude: Color.accent
-      case .codex: Color.statusWorking
-    }
-  }
-}
+// Filter types defined in ActiveSessionsSection.swift
 
 // MARK: - Preview
 
