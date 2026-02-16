@@ -12,8 +12,14 @@ import Foundation
 
 extension ServerSessionSummary {
   func toSession() -> Session {
-    let integrationMode: CodexIntegrationMode? = if provider == .codex {
+    let codexMode: CodexIntegrationMode? = if provider == .codex {
       codexIntegrationMode?.toSessionMode() ?? .direct
+    } else {
+      nil
+    }
+
+    let claudeMode: ClaudeIntegrationMode? = if provider == .claude {
+      claudeIntegrationMode?.toSessionMode()
     } else {
       nil
     }
@@ -33,7 +39,8 @@ extension ServerSessionSummary {
       lastActivityAt: parseServerTimestamp(lastActivityAt),
       attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
       provider: provider == .codex ? .codex : .claude,
-      codexIntegrationMode: integrationMode,
+      codexIntegrationMode: codexMode,
+      claudeIntegrationMode: claudeMode,
       codexInputTokens: tokenUsage.map { Int($0.inputTokens) },
       codexOutputTokens: tokenUsage.map { Int($0.outputTokens) },
       codexCachedTokens: tokenUsage.map { Int($0.cachedTokens) },
@@ -51,8 +58,14 @@ extension ServerSessionSummary {
 
 extension ServerSessionState {
   func toSession() -> Session {
-    let integrationMode: CodexIntegrationMode? = if provider == .codex {
+    let codexMode: CodexIntegrationMode? = if provider == .codex {
       codexIntegrationMode?.toSessionMode() ?? .direct
+    } else {
+      nil
+    }
+
+    let claudeMode: ClaudeIntegrationMode? = if provider == .claude {
+      claudeIntegrationMode?.toSessionMode()
     } else {
       nil
     }
@@ -75,7 +88,8 @@ extension ServerSessionState {
       pendingToolInput: pendingApproval?.toolInputForDisplay,
       pendingQuestion: pendingApproval?.question,
       provider: provider == .codex ? .codex : .claude,
-      codexIntegrationMode: integrationMode,
+      codexIntegrationMode: codexMode,
+      claudeIntegrationMode: claudeMode,
       pendingApprovalId: pendingApproval?.id,
       codexInputTokens: Int(tokenUsage.inputTokens),
       codexOutputTokens: Int(tokenUsage.outputTokens),
@@ -93,6 +107,15 @@ extension ServerSessionState {
 
 extension ServerCodexIntegrationMode {
   func toSessionMode() -> CodexIntegrationMode {
+    switch self {
+      case .direct: .direct
+      case .passive: .passive
+    }
+  }
+}
+
+extension ServerClaudeIntegrationMode {
+  func toSessionMode() -> ClaudeIntegrationMode {
     switch self {
       case .direct: .direct
       case .passive: .passive

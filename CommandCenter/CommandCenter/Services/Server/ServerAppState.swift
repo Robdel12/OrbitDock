@@ -69,6 +69,9 @@ final class ServerAppState {
   /// Temporary: autonomy level from the most recent createSession call
   private var pendingCreationAutonomy: AutonomyLevel?
 
+  /// When true, navigate to the next session that gets created
+  private var pendingNavigationOnCreate = false
+
   private struct SessionsCachePayload: Codable {
     let cachedAt: Date
     let summaries: [ServerSessionSummary]
@@ -395,6 +398,7 @@ final class ServerAppState {
     logger.info("Creating Codex session in \(cwd)")
     let autonomy = AutonomyLevel.from(approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
     pendingCreationAutonomy = autonomy
+    pendingNavigationOnCreate = true
     ServerConnection.shared.createSession(
       provider: .codex,
       cwd: cwd,
@@ -407,6 +411,7 @@ final class ServerAppState {
   /// Create a new Claude direct session
   func createClaudeSession(cwd: String, model: String? = nil) {
     logger.info("Creating Claude session in \(cwd)")
+    pendingNavigationOnCreate = true
     ServerConnection.shared.createSession(
       provider: .claude,
       cwd: cwd,
@@ -748,7 +753,7 @@ final class ServerAppState {
 
     obs.tokenUsage = state.tokenUsage
 
-    if state.provider == .codex {
+    if state.provider == .codex || state.claudeIntegrationMode == .direct {
       setConfigCache(sessionId: state.id, approvalPolicy: state.approvalPolicy, sandboxMode: state.sandboxMode)
       obs.autonomy = AutonomyLevel.from(
         approvalPolicy: state.approvalPolicy,
@@ -835,8 +840,8 @@ final class ServerAppState {
       }
     }
     if let summaryOuter = changes.summary {
-      if let summary = summaryOuter {
-        sess.summary = summary
+      if let summaryText = summaryOuter {
+        sess.summary = summaryText
       } else {
         sess.summary = nil
       }
@@ -853,6 +858,13 @@ final class ServerAppState {
         sess.codexIntegrationMode = mode.toSessionMode()
       } else {
         sess.codexIntegrationMode = nil
+      }
+    }
+    if let modeOuter = changes.claudeIntegrationMode {
+      if let mode = modeOuter {
+        sess.claudeIntegrationMode = mode.toSessionMode()
+      } else {
+        sess.claudeIntegrationMode = nil
       }
     }
     if let approvalOuter = changes.approvalPolicy {
@@ -1121,6 +1133,16 @@ final class ServerAppState {
     }
 
     subscribeToSession(summary.id)
+
+    // Navigate to the newly created session
+    if pendingNavigationOnCreate {
+      pendingNavigationOnCreate = false
+      NotificationCenter.default.post(
+        name: .selectSession,
+        object: nil,
+        userInfo: ["sessionId": summary.id]
+      )
+    }
   }
 
   private func handleSessionEnded(_ sessionId: String, _ reason: String) {

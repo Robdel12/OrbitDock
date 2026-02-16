@@ -419,6 +419,8 @@ final class MCPBridge {
         "work_status": session.workStatus.rawValue,
         "attention_reason": session.attentionReason.rawValue,
         "is_direct_codex": session.isDirectCodex,
+        "is_direct_claude": session.isDirectClaude,
+        "is_direct": session.isDirect,
       ]
       if let pendingApprovalId = session.pendingApprovalId {
         data["pending_approval_id"] = pendingApprovalId
@@ -447,6 +449,8 @@ final class MCPBridge {
       "work_status": session.workStatus.rawValue,
       "attention_reason": session.attentionReason.rawValue,
       "is_direct_codex": session.isDirectCodex,
+      "is_direct_claude": session.isDirectClaude,
+      "is_direct": session.isDirect,
     ]
     if let pendingApprovalId = session.pendingApprovalId {
       sessionData["pending_approval_id"] = pendingApprovalId

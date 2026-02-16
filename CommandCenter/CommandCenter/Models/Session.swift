@@ -13,6 +13,14 @@ enum CodexIntegrationMode: String, Hashable, Sendable {
   case direct // App-server JSON-RPC (full bidirectional control)
 }
 
+// MARK: - Claude Integration Mode
+
+/// Distinguishes passive (hooks-based) from direct (server-managed) Claude sessions
+enum ClaudeIntegrationMode: String, Hashable, Sendable {
+  case passive // Hooks-based monitoring (current behavior)
+  case direct // Server-managed bidirectional control
+}
+
 struct Session: Identifiable, Hashable, Sendable {
   let id: String
   let projectPath: String
@@ -43,9 +51,10 @@ struct Session: Identifiable, Hashable, Sendable {
   var pendingQuestion: String? // Question text from AskUserQuestion
   var provider: Provider // AI provider (claude, codex)
 
-  // MARK: - Codex Direct Integration
+  // MARK: - Direct Integration
 
   var codexIntegrationMode: CodexIntegrationMode? // nil for non-Codex sessions
+  var claudeIntegrationMode: ClaudeIntegrationMode? // nil for non-Claude direct sessions
   var codexThreadId: String? // Thread ID for direct Codex sessions
   var pendingApprovalId: String? // Request ID for approval correlation
 
@@ -151,6 +160,7 @@ struct Session: Identifiable, Hashable, Sendable {
     pendingQuestion: String? = nil,
     provider: Provider = .claude,
     codexIntegrationMode: CodexIntegrationMode? = nil,
+    claudeIntegrationMode: ClaudeIntegrationMode? = nil,
     codexThreadId: String? = nil,
     pendingApprovalId: String? = nil,
     codexInputTokens: Int? = nil,
@@ -189,6 +199,7 @@ struct Session: Identifiable, Hashable, Sendable {
     self.pendingQuestion = pendingQuestion
     self.provider = provider
     self.codexIntegrationMode = codexIntegrationMode
+    self.claudeIntegrationMode = claudeIntegrationMode
     self.codexThreadId = codexThreadId
     self.pendingApprovalId = pendingApprovalId
     self.codexInputTokens = codexInputTokens
@@ -221,23 +232,27 @@ struct Session: Identifiable, Hashable, Sendable {
     isActive && attentionReason == .awaitingReply
   }
 
-  // MARK: - Codex Direct Integration
-
-  /// Returns true if this is a direct session (Codex direct or Claude)
-  var isDirect: Bool {
-    (provider == .codex && codexIntegrationMode == .direct)
-      || provider == .claude
-  }
+  // MARK: - Direct Integration
 
   /// Returns true if this is a direct Codex session (not passive file watching)
   var isDirectCodex: Bool {
     provider == .codex && codexIntegrationMode == .direct
   }
 
-  /// Returns true if user can send input to this session (direct Codex only)
+  /// Returns true if this is a direct Claude session (server-managed)
+  var isDirectClaude: Bool {
+    provider == .claude && claudeIntegrationMode == .direct
+  }
+
+  /// Returns true if this is any direct (server-controlled) session
+  var isDirect: Bool {
+    isDirectCodex || isDirectClaude
+  }
+
+  /// Returns true if user can send input to this session (any direct session)
   var canSendInput: Bool {
     guard isActive else { return false }
-    return isDirectCodex
+    return isDirect
   }
 
   /// Returns true if user can approve/reject a pending tool (direct Codex only)

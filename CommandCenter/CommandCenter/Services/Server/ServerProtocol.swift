@@ -20,6 +20,11 @@ enum ServerCodexIntegrationMode: String, Codable {
   case passive
 }
 
+enum ServerClaudeIntegrationMode: String, Codable {
+  case direct
+  case passive
+}
+
 // MARK: - Session Status
 
 enum ServerSessionStatus: String, Codable {
@@ -179,12 +184,12 @@ struct ServerSessionSummary: Codable, Identifiable {
   let model: String?
   let customName: String?
   let summary: String?
-  let firstPrompt: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let tokenUsage: ServerTokenUsage?
   let hasPendingApproval: Bool
   let codexIntegrationMode: ServerCodexIntegrationMode?
+  let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let approvalPolicy: String?
   let sandboxMode: String?
   let startedAt: String?
@@ -192,6 +197,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let gitBranch: String?
   let gitSha: String?
   let currentCwd: String?
+  let firstPrompt: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -202,12 +208,12 @@ struct ServerSessionSummary: Codable, Identifiable {
     case model
     case customName = "custom_name"
     case summary
-    case firstPrompt = "first_prompt"
     case status
     case workStatus = "work_status"
     case tokenUsage = "token_usage"
     case hasPendingApproval = "has_pending_approval"
     case codexIntegrationMode = "codex_integration_mode"
+    case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case startedAt = "started_at"
@@ -215,6 +221,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case gitBranch = "git_branch"
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
+    case firstPrompt = "first_prompt"
   }
 }
 
@@ -283,7 +290,6 @@ struct ServerSessionState: Codable, Identifiable {
   let model: String?
   let customName: String?
   let summary: String?
-  let firstPrompt: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let messages: [ServerMessage]
@@ -292,6 +298,7 @@ struct ServerSessionState: Codable, Identifiable {
   let currentDiff: String?
   let currentPlan: String?
   let codexIntegrationMode: ServerCodexIntegrationMode?
+  let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let approvalPolicy: String?
   let sandboxMode: String?
   let startedAt: String?
@@ -304,6 +311,7 @@ struct ServerSessionState: Codable, Identifiable {
   let gitBranch: String?
   let gitSha: String?
   let currentCwd: String?
+  let firstPrompt: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -314,7 +322,6 @@ struct ServerSessionState: Codable, Identifiable {
     case model
     case customName = "custom_name"
     case summary
-    case firstPrompt = "first_prompt"
     case status
     case workStatus = "work_status"
     case messages
@@ -323,6 +330,7 @@ struct ServerSessionState: Codable, Identifiable {
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
     case codexIntegrationMode = "codex_integration_mode"
+    case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case startedAt = "started_at"
@@ -335,6 +343,7 @@ struct ServerSessionState: Codable, Identifiable {
     case gitBranch = "git_branch"
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
+    case firstPrompt = "first_prompt"
   }
 
   init(from decoder: Decoder) throws {
@@ -347,7 +356,6 @@ struct ServerSessionState: Codable, Identifiable {
     model = try container.decodeIfPresent(String.self, forKey: .model)
     customName = try container.decodeIfPresent(String.self, forKey: .customName)
     summary = try container.decodeIfPresent(String.self, forKey: .summary)
-    firstPrompt = try container.decodeIfPresent(String.self, forKey: .firstPrompt)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
     messages = try container.decode([ServerMessage].self, forKey: .messages)
@@ -356,6 +364,10 @@ struct ServerSessionState: Codable, Identifiable {
     currentDiff = try container.decodeIfPresent(String.self, forKey: .currentDiff)
     currentPlan = try container.decodeIfPresent(String.self, forKey: .currentPlan)
     codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
+    claudeIntegrationMode = try container.decodeIfPresent(
+      ServerClaudeIntegrationMode.self,
+      forKey: .claudeIntegrationMode
+    )
     approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
     sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
     startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
@@ -368,6 +380,7 @@ struct ServerSessionState: Codable, Identifiable {
     gitBranch = try container.decodeIfPresent(String.self, forKey: .gitBranch)
     gitSha = try container.decodeIfPresent(String.self, forKey: .gitSha)
     currentCwd = try container.decodeIfPresent(String.self, forKey: .currentCwd)
+    firstPrompt = try container.decodeIfPresent(String.self, forKey: .firstPrompt)
   }
 }
 
@@ -382,8 +395,8 @@ struct ServerStateChanges: Codable {
   let currentPlan: String??
   let customName: String??
   let summary: String??
-  let firstPrompt: String??
   let codexIntegrationMode: ServerCodexIntegrationMode??
+  let claudeIntegrationMode: ServerClaudeIntegrationMode??
   let approvalPolicy: String??
   let sandboxMode: String??
   let lastActivityAt: String?
@@ -392,6 +405,7 @@ struct ServerStateChanges: Codable {
   let gitBranch: String??
   let gitSha: String??
   let currentCwd: String??
+  let firstPrompt: String??
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -402,8 +416,8 @@ struct ServerStateChanges: Codable {
     case currentPlan = "current_plan"
     case customName = "custom_name"
     case summary
-    case firstPrompt = "first_prompt"
     case codexIntegrationMode = "codex_integration_mode"
+    case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
     case lastActivityAt = "last_activity_at"
@@ -412,6 +426,7 @@ struct ServerStateChanges: Codable {
     case gitBranch = "git_branch"
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
+    case firstPrompt = "first_prompt"
   }
 }
 
@@ -1304,6 +1319,7 @@ enum ClientToServerMessage: Codable {
   )
   case deleteReviewComment(commentId: String)
   case listReviewComments(sessionId: String, turnId: String? = nil)
+  case setOpenAiKey(key: String)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -1341,6 +1357,7 @@ enum ClientToServerMessage: Codable {
     case tag
     case commentId = "comment_id"
     case status
+    case key
   }
 
   func encode(to encoder: Encoder) throws {
@@ -1525,6 +1542,10 @@ enum ClientToServerMessage: Codable {
         try container.encode("list_review_comments", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encodeIfPresent(turnId, forKey: .turnId)
+
+      case let .setOpenAiKey(key):
+        try container.encode("set_open_ai_key", forKey: .type)
+        try container.encode(key, forKey: .key)
     }
   }
 
@@ -1673,6 +1694,10 @@ enum ClientToServerMessage: Codable {
         self = try .listReviewComments(
           sessionId: container.decode(String.self, forKey: .sessionId),
           turnId: container.decodeIfPresent(String.self, forKey: .turnId)
+        )
+      case "set_open_ai_key":
+        self = try .setOpenAiKey(
+          key: container.decode(String.self, forKey: .key)
         )
       default:
         throw DecodingError.dataCorrupted(

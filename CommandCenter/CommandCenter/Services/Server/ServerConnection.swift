@@ -475,6 +475,11 @@ final class ServerConnection: ObservableObject {
     send(.renameSession(sessionId: sessionId, name: name))
   }
 
+  /// Set the OpenAI API key for AI session naming
+  func setOpenAiKey(_ key: String) {
+    send(.setOpenAiKey(key: key))
+  }
+
   /// Resume an ended session
   func resumeSession(_ sessionId: String) {
     send(.resumeSession(sessionId: sessionId))
