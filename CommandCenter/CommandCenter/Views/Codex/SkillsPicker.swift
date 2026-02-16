@@ -97,19 +97,19 @@ struct SkillsPicker: View {
 
   private func iconForScope(_ scope: ServerSkillScope) -> String {
     switch scope {
-      case .repo: return "folder"
-      case .user: return "person"
-      case .system: return "gearshape"
-      case .admin: return "lock"
+      case .repo: "folder"
+      case .user: "person"
+      case .system: "gearshape"
+      case .admin: "lock"
     }
   }
 
   private func labelForScope(_ scope: ServerSkillScope) -> String {
     switch scope {
-      case .repo: return "Project"
-      case .user: return "User"
-      case .system: return "System"
-      case .admin: return "Admin"
+      case .repo: "Project"
+      case .user: "User"
+      case .system: "System"
+      case .admin: "Admin"
     }
   }
 }

@@ -11,8 +11,8 @@ import SwiftUI
 struct CommentComposerView: View {
   @Binding var commentBody: String
   @Binding var tag: ServerReviewCommentTag?
-  var fileName: String? = nil
-  var lineLabel: String? = nil
+  var fileName: String?
+  var lineLabel: String?
   let onSubmit: () -> Void
   let onCancel: () -> Void
 

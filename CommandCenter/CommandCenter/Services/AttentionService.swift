@@ -30,7 +30,9 @@ struct AttentionEvent: Identifiable {
 final class AttentionService {
   private(set) var events: [AttentionEvent] = []
 
-  var totalCount: Int { events.count }
+  var totalCount: Int {
+    events.count
+  }
 
   func events(for sessionId: String) -> [AttentionEvent] {
     events.filter { $0.sessionId == sessionId }

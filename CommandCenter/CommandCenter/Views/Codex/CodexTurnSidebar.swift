@@ -15,10 +15,10 @@ struct CodexTurnSidebar: View {
   @Binding var railPreset: RailPreset
   @Binding var selectedSkills: Set<String>
   @Binding var selectedCommentIds: Set<String>
-  var onOpenReview: (() -> Void)? = nil
-  var onNavigateToSession: ((String) -> Void)? = nil
-  var onNavigateToComment: ((ServerReviewComment) -> Void)? = nil
-  var onSendReview: (() -> Void)? = nil
+  var onOpenReview: (() -> Void)?
+  var onNavigateToSession: ((String) -> Void)?
+  var onNavigateToComment: ((ServerReviewComment) -> Void)?
+  var onSendReview: (() -> Void)?
 
   @Environment(ServerAppState.self) private var serverState
   @Environment(AttentionService.self) private var attentionService
@@ -39,7 +39,7 @@ struct CodexTurnSidebar: View {
   }
 
   private var skills: [ServerSkillMetadata] {
-    serverState.session(sessionId).skills.filter { $0.enabled }
+    serverState.session(sessionId).skills.filter(\.enabled)
   }
 
   private var hasPlan: Bool {
@@ -424,10 +424,10 @@ struct CodexTurnSidebar: View {
 
   private func compactChangeColor(_ type: FileChangeType) -> Color {
     switch type {
-    case .added: Color(red: 0.4, green: 0.95, blue: 0.5)
-    case .deleted: Color(red: 1.0, green: 0.5, blue: 0.5)
-    case .renamed: Color.accent
-    case .modified: Color.accent
+      case .added: Color(red: 0.4, green: 0.95, blue: 0.5)
+      case .deleted: Color(red: 1.0, green: 0.5, blue: 0.5)
+      case .renamed: Color.accent
+      case .modified: Color.accent
     }
   }
 

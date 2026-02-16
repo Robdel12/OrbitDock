@@ -39,6 +39,8 @@ extension ServerSessionSummary {
       codexCachedTokens: tokenUsage.map { Int($0.cachedTokens) },
       codexContextWindow: tokenUsage.map { Int($0.contextWindow) }
     )
+    session.summary = summary
+    session.firstPrompt = firstPrompt
     session.gitSha = gitSha
     session.currentCwd = currentCwd
     return session
@@ -80,6 +82,8 @@ extension ServerSessionState {
       codexCachedTokens: Int(tokenUsage.cachedTokens),
       codexContextWindow: Int(tokenUsage.contextWindow)
     )
+    session.summary = summary
+    session.firstPrompt = firstPrompt
     session.currentDiff = currentDiff
     session.gitSha = gitSha
     session.currentCwd = currentCwd

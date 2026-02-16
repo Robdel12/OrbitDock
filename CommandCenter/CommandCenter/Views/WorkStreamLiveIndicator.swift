@@ -50,79 +50,79 @@ struct WorkStreamLiveIndicator: View {
   @ViewBuilder
   private var statusIndicator: some View {
     switch workStatus {
-    case .working:
-      Circle()
-        .fill(Color.statusWorking)
-        .frame(width: 6, height: 6)
-        .opacity(isPulsing ? 0.4 : 1.0)
-        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isPulsing)
+      case .working:
+        Circle()
+          .fill(Color.statusWorking)
+          .frame(width: 6, height: 6)
+          .opacity(isPulsing ? 0.4 : 1.0)
+          .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isPulsing)
 
-    case .waiting:
-      Circle()
-        .fill(Color.statusReply)
-        .frame(width: 6, height: 6)
+      case .waiting:
+        Circle()
+          .fill(Color.statusReply)
+          .frame(width: 6, height: 6)
 
-    case .permission:
-      Image(systemName: "exclamationmark.triangle.fill")
-        .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(Color.statusPermission)
+      case .permission:
+        Image(systemName: "exclamationmark.triangle.fill")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(Color.statusPermission)
 
-    case .unknown:
-      EmptyView()
+      case .unknown:
+        EmptyView()
     }
   }
 
   @ViewBuilder
   private var statusContent: some View {
     switch workStatus {
-    case .working:
-      HStack(spacing: Spacing.xs) {
-        Text("Working")
-          .font(.system(size: TypeScale.body, weight: .medium))
-          .foregroundStyle(Color.statusWorking)
-        if let tool = currentTool {
+      case .working:
+        HStack(spacing: Spacing.xs) {
+          Text("Working")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.statusWorking)
+          if let tool = currentTool {
+            Text("\u{00B7}")
+              .foregroundStyle(.quaternary)
+            Text(tool)
+              .font(.system(size: TypeScale.body, design: .monospaced))
+              .foregroundStyle(.tertiary)
+          }
+        }
+
+      case .waiting:
+        HStack(spacing: Spacing.xs) {
+          Text("Your turn")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.statusReply)
           Text("\u{00B7}")
             .foregroundStyle(.quaternary)
-          Text(tool)
-            .font(.system(size: TypeScale.body, design: .monospaced))
+          Text(provider == .codex ? "Send a message below" : "Respond in terminal")
+            .font(.system(size: TypeScale.body))
             .foregroundStyle(.tertiary)
         }
-      }
 
-    case .waiting:
-      HStack(spacing: Spacing.xs) {
-        Text("Your turn")
-          .font(.system(size: TypeScale.body, weight: .medium))
-          .foregroundStyle(Color.statusReply)
-        Text("\u{00B7}")
-          .foregroundStyle(.quaternary)
-        Text(provider == .codex ? "Send a message below" : "Respond in terminal")
-          .font(.system(size: TypeScale.body))
-          .foregroundStyle(.tertiary)
-      }
-
-    case .permission:
-      HStack(spacing: Spacing.xs) {
-        Text("Permission")
-          .font(.system(size: TypeScale.body, weight: .medium))
-          .foregroundStyle(Color.statusPermission)
-        if let toolName = pendingToolName {
-          Text("\u{00B7}")
-            .foregroundStyle(.quaternary)
-          Text(toolName)
-            .font(.system(size: TypeScale.body, weight: .bold))
-            .foregroundStyle(.primary)
+      case .permission:
+        HStack(spacing: Spacing.xs) {
+          Text("Permission")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.statusPermission)
+          if let toolName = pendingToolName {
+            Text("\u{00B7}")
+              .foregroundStyle(.quaternary)
+            Text(toolName)
+              .font(.system(size: TypeScale.body, weight: .bold))
+              .foregroundStyle(.primary)
+          }
+          if let detail = permissionDetailText {
+            Text(detail)
+              .font(.system(size: TypeScale.body, design: .monospaced))
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+          }
         }
-        if let detail = permissionDetailText {
-          Text(detail)
-            .font(.system(size: TypeScale.body, design: .monospaced))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-      }
 
-    case .unknown:
-      EmptyView()
+      case .unknown:
+        EmptyView()
     }
   }
 
@@ -134,18 +134,18 @@ struct WorkStreamLiveIndicator: View {
 
     let toolName = pendingToolName ?? ""
     switch toolName {
-    case "Bash":
-      if let cmd = String.shellCommandDisplay(from: input["command"])
-        ?? String.shellCommandDisplay(from: input["cmd"])
-      {
-        return cmd.count > 50 ? String(cmd.prefix(47)) + "\u{2026}" : cmd
-      }
-    case "Edit", "Write", "Read":
-      if let path = input["file_path"] as? String {
-        return (path as NSString).lastPathComponent
-      }
-    default:
-      break
+      case "Bash":
+        if let cmd = String.shellCommandDisplay(from: input["command"])
+          ?? String.shellCommandDisplay(from: input["cmd"])
+        {
+          return cmd.count > 50 ? String(cmd.prefix(47)) + "\u{2026}" : cmd
+        }
+      case "Edit", "Write", "Read":
+        if let path = input["file_path"] as? String {
+          return (path as NSString).lastPathComponent
+        }
+      default:
+        break
     }
     return nil
   }

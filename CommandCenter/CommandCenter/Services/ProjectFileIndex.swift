@@ -11,8 +11,8 @@ import Foundation
 @Observable
 class ProjectFileIndex {
   struct ProjectFile: Identifiable, Hashable {
-    let id: String           // relative path (unique within project)
-    let name: String         // filename (e.g. "main.rs")
+    let id: String // relative path (unique within project)
+    let name: String // filename (e.g. "main.rs")
     let relativePath: String // from project root (e.g. "src/main.rs")
   }
 

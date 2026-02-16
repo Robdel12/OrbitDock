@@ -11,8 +11,8 @@ struct FileListRow: View {
   let fileDiff: FileDiff
   let isSelected: Bool
   var commentCount: Int = 0
-  var isAddressed: Bool = false       // Model modified this file after review
-  var isReviewPending: Bool = false   // File was reviewed, waiting for response
+  var isAddressed: Bool = false // Model modified this file after review
+  var isReviewPending: Bool = false // File was reviewed, waiting for response
 
   @State private var isHovered = false
 
@@ -114,10 +114,10 @@ struct FileListRow: View {
 
   private var changeTypeColor: Color {
     switch fileDiff.changeType {
-    case .added: Color.diffAddedAccent
-    case .deleted: Color.diffRemovedAccent
-    case .renamed: Color.accent
-    case .modified: Color.accent
+      case .added: Color.diffAddedAccent
+      case .deleted: Color.diffRemovedAccent
+      case .renamed: Color.accent
+      case .modified: Color.accent
     }
   }
 }

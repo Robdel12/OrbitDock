@@ -26,6 +26,8 @@ pub struct SessionSnapshot {
     pub project_name: Option<String>,
     pub transcript_path: Option<String>,
     pub custom_name: Option<String>,
+    pub summary: Option<String>,
+    pub first_prompt: Option<String>,
     pub model: Option<String>,
     pub codex_integration_mode: Option<CodexIntegrationMode>,
     pub approval_policy: Option<String>,
@@ -52,6 +54,8 @@ pub struct SessionHandle {
     project_name: Option<String>,
     model: Option<String>,
     custom_name: Option<String>,
+    summary: Option<String>,
+    first_prompt: Option<String>,
     approval_policy: Option<String>,
     sandbox_mode: Option<String>,
     codex_integration_mode: Option<CodexIntegrationMode>,
@@ -98,6 +102,8 @@ impl SessionHandle {
             project_name: None,
             transcript_path: None,
             custom_name: None,
+            summary: None,
+            first_prompt: None,
             model: None,
             codex_integration_mode: None,
             approval_policy: None,
@@ -119,6 +125,8 @@ impl SessionHandle {
             project_name: None,
             model: None,
             custom_name: None,
+            summary: None,
+            first_prompt: None,
             approval_policy: None,
             sandbox_mode: None,
             codex_integration_mode: None,
@@ -157,6 +165,8 @@ impl SessionHandle {
         project_name: Option<String>,
         model: Option<String>,
         custom_name: Option<String>,
+        summary: Option<String>,
+        first_prompt: Option<String>,
         status: SessionStatus,
         work_status: WorkStatus,
         approval_policy: Option<String>,
@@ -182,6 +192,8 @@ impl SessionHandle {
             project_name: project_name.clone(),
             transcript_path: transcript_path.clone(),
             custom_name: custom_name.clone(),
+            summary: summary.clone(),
+            first_prompt: first_prompt.clone(),
             model: model.clone(),
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
             approval_policy: approval_policy.clone(),
@@ -203,6 +215,8 @@ impl SessionHandle {
             project_name,
             model,
             custom_name,
+            summary,
+            first_prompt,
             approval_policy,
             sandbox_mode,
             codex_integration_mode: Some(CodexIntegrationMode::Direct),
@@ -256,6 +270,8 @@ impl SessionHandle {
             project_name: self.project_name.clone(),
             model: self.model.clone(),
             custom_name: self.custom_name.clone(),
+            summary: self.summary.clone(),
+            first_prompt: self.first_prompt.clone(),
             status: self.status,
             work_status: self.work_status,
             token_usage: self.token_usage.clone(),
@@ -281,6 +297,8 @@ impl SessionHandle {
             project_name: self.project_name.clone(),
             model: self.model.clone(),
             custom_name: self.custom_name.clone(),
+            summary: self.summary.clone(),
+            first_prompt: self.first_prompt.clone(),
             status: self.status,
             work_status: self.work_status,
             messages: self.messages.clone(),
@@ -318,6 +336,18 @@ impl SessionHandle {
     /// Get custom name
     pub fn custom_name(&self) -> Option<&str> {
         self.custom_name.as_deref()
+    }
+
+    /// Set first prompt
+    #[allow(dead_code)]
+    pub fn set_first_prompt(&mut self, prompt: Option<String>) {
+        self.first_prompt = prompt;
+    }
+
+    /// Get first prompt
+    #[allow(dead_code)]
+    pub fn first_prompt(&self) -> Option<&str> {
+        self.first_prompt.as_deref()
     }
 
     /// Set codex integration mode
@@ -475,6 +505,12 @@ impl SessionHandle {
         if let Some(ref custom_name) = changes.custom_name {
             self.custom_name = custom_name.clone();
         }
+        if let Some(ref summary) = changes.summary {
+            self.summary = summary.clone();
+        }
+        if let Some(ref first_prompt) = changes.first_prompt {
+            self.first_prompt = first_prompt.clone();
+        }
         if let Some(ref approval_policy) = changes.approval_policy {
             self.approval_policy = approval_policy.clone();
         }
@@ -524,6 +560,8 @@ impl SessionHandle {
             project_name: self.project_name.clone(),
             transcript_path: self.transcript_path.clone(),
             custom_name: self.custom_name.clone(),
+            summary: self.summary.clone(),
+            first_prompt: self.first_prompt.clone(),
             model: self.model.clone(),
             codex_integration_mode: self.codex_integration_mode,
             approval_policy: self.approval_policy.clone(),

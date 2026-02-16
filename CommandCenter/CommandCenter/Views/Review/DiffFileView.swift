@@ -208,19 +208,19 @@ struct DiffFileView: View {
 
   private var fileIcon: String {
     switch fileDiff.changeType {
-    case .added: "plus"
-    case .deleted: "minus"
-    case .renamed: "arrow.right"
-    case .modified: "pencil"
+      case .added: "plus"
+      case .deleted: "minus"
+      case .renamed: "arrow.right"
+      case .modified: "pencil"
     }
   }
 
   private var changeTypeColor: Color {
     switch fileDiff.changeType {
-    case .added: Color(red: 0.4, green: 0.95, blue: 0.5)
-    case .deleted: Color(red: 1.0, green: 0.5, blue: 0.5)
-    case .renamed: Color.accent
-    case .modified: Color.accent
+      case .added: Color(red: 0.4, green: 0.95, blue: 0.5)
+      case .deleted: Color(red: 1.0, green: 0.5, blue: 0.5)
+      case .renamed: Color.accent
+      case .modified: Color.accent
     }
   }
 
@@ -252,43 +252,43 @@ struct DiffFileView: View {
     ]
 
     switch preferredEditor {
-    case "code", "cursor":
-      if let appName = appNames[preferredEditor] {
+      case "code", "cursor":
+        if let appName = appNames[preferredEditor] {
+          let process = Process()
+          process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+          process.arguments = ["-a", appName, "--args", "--goto", "\(fullPath):\(lineArg)"]
+          try? process.run()
+        }
+
+      case "zed":
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", appName, "--args", "--goto", "\(fullPath):\(lineArg)"]
+        process.arguments = ["-a", "Zed", "--args", "\(fullPath):\(lineArg)"]
         try? process.run()
-      }
 
-    case "zed":
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-      process.arguments = ["-a", "Zed", "--args", "\(fullPath):\(lineArg)"]
-      try? process.run()
+      case "subl":
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", "Sublime Text", "--args", "\(fullPath):\(lineArg)"]
+        try? process.run()
 
-    case "subl":
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-      process.arguments = ["-a", "Sublime Text", "--args", "\(fullPath):\(lineArg)"]
-      try? process.run()
+      case "emacs":
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["emacsclient", "+\(lineArg)", fullPath]
+        try? process.run()
 
-    case "emacs":
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-      process.arguments = ["emacsclient", "+\(lineArg)", fullPath]
-      try? process.run()
+      case "vim", "nvim":
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [preferredEditor, "+\(lineArg)", fullPath]
+        try? process.run()
 
-    case "vim", "nvim":
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-      process.arguments = [preferredEditor, "+\(lineArg)", fullPath]
-      try? process.run()
-
-    default:
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-      process.arguments = [preferredEditor, fullPath]
-      try? process.run()
+      default:
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [preferredEditor, fullPath]
+        try? process.run()
     }
   }
 }

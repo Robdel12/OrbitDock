@@ -5,6 +5,7 @@ use orbitdock_protocol::SessionSummary;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 
+use crate::ai_naming::NamingGuard;
 use crate::codex_auth::CodexAuthService;
 use crate::codex_session::CodexAction;
 use crate::persistence::PersistCommand;
@@ -30,6 +31,9 @@ pub struct SessionRegistry {
 
     /// Global Codex account auth coordinator (not session-specific)
     codex_auth: Arc<CodexAuthService>,
+
+    /// AI naming dedup guard
+    naming_guard: Arc<NamingGuard>,
 }
 
 impl SessionRegistry {
@@ -43,7 +47,13 @@ impl SessionRegistry {
             list_tx,
             persist_tx,
             codex_auth,
+            naming_guard: Arc::new(NamingGuard::new()),
         }
+    }
+
+    /// Get the naming guard for AI session naming dedup
+    pub fn naming_guard(&self) -> &NamingGuard {
+        &self.naming_guard
     }
 
     /// Get persistence sender
@@ -80,6 +90,8 @@ impl SessionRegistry {
                     project_name: snap.project_name.clone(),
                     model: snap.model.clone(),
                     custom_name: snap.custom_name.clone(),
+                    summary: snap.summary.clone(),
+                    first_prompt: snap.first_prompt.clone(),
                     status: snap.status,
                     work_status: snap.work_status,
                     token_usage: snap.token_usage.clone(),

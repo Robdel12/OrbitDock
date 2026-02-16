@@ -223,6 +223,12 @@ struct Session: Identifiable, Hashable, Sendable {
 
   // MARK: - Codex Direct Integration
 
+  /// Returns true if this is a direct session (Codex direct or Claude)
+  var isDirect: Bool {
+    (provider == .codex && codexIntegrationMode == .direct)
+      || provider == .claude
+  }
+
   /// Returns true if this is a direct Codex session (not passive file watching)
   var isDirectCodex: Bool {
     provider == .codex && codexIntegrationMode == .direct
@@ -585,7 +591,9 @@ private enum ShellWrapperParser {
     var index = shellIndex + 1
     while index < tokens.count {
       let option = tokens[index].value.lowercased()
-      if option == "-command" || option == "--command" || option == "-c" || option == "-encodedcommand" || option == "-ec" {
+      if option == "-command" || option == "--command" || option == "-c" || option == "-encodedcommand" || option ==
+        "-ec"
+      {
         return tokensAfter(index + 1, in: tokens)
       }
 

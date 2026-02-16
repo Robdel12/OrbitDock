@@ -300,7 +300,14 @@ final class MCPBridge {
       }
     }
 
-    state.sendMessage(sessionId: sessionId, content: message, model: model, effort: effort, images: images, mentions: mentions)
+    state.sendMessage(
+      sessionId: sessionId,
+      content: message,
+      model: model,
+      effort: effort,
+      images: images,
+      mentions: mentions
+    )
     return HTTPResponse(status: 200, body: ["status": "sent", "session_id": sessionId])
   }
 

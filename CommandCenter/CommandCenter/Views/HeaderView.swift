@@ -15,9 +15,9 @@ struct HeaderView: View {
   let onFocusTerminal: () -> Void
   let onGoToDashboard: () -> Void
   var onEndSession: (() -> Void)?
-  var showTurnSidebar: Binding<Bool>? = nil
+  var showTurnSidebar: Binding<Bool>?
   var hasSidebarContent: Bool = false
-  var layoutConfig: Binding<LayoutConfiguration>? = nil
+  var layoutConfig: Binding<LayoutConfiguration>?
 
   @State private var isHoveringPath = false
   @State private var isHoveringProject = false
@@ -192,7 +192,8 @@ struct HeaderView: View {
     Button(action: action) {
       Image(systemName: icon)
         .font(.system(size: TypeScale.body, weight: .medium))
-        .foregroundStyle(style == .danger ? AnyShapeStyle(Color.statusPermission) : style == .tertiary ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+        .foregroundStyle(style == .danger ? AnyShapeStyle(Color.statusPermission) : style == .tertiary ?
+          AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
         .frame(width: 26, height: 26)
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
@@ -227,7 +228,10 @@ struct HeaderView: View {
       }
     }
     .padding(Spacing.xxs)
-    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .background(
+      Color.backgroundTertiary.opacity(0.5),
+      in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+    )
   }
 
   // MARK: - Helpers

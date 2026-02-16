@@ -128,7 +128,6 @@ struct AgentRowCompact: View {
   }
 }
 
-
 // MARK: - Preview
 
 #Preview {

@@ -10,7 +10,7 @@ import SwiftUI
 struct AttentionStripView: View {
   let events: [AttentionEvent]
   let currentSessionId: String?
-  var onNavigateToSession: ((String) -> Void)? = nil
+  var onNavigateToSession: ((String) -> Void)?
 
   /// Events excluding the currently viewed session
   private var crossSessionEvents: [AttentionEvent] {

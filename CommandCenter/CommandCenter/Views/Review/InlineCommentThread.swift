@@ -131,8 +131,8 @@ struct InlineCommentThread: View {
   private func formatRelative(_ date: Date) -> String {
     let elapsed = -date.timeIntervalSinceNow
     if elapsed < 60 { return "just now" }
-    if elapsed < 3600 { return "\(Int(elapsed / 60))m ago" }
-    if elapsed < 86400 { return "\(Int(elapsed / 3600))h ago" }
-    return "\(Int(elapsed / 86400))d ago"
+    if elapsed < 3_600 { return "\(Int(elapsed / 60))m ago" }
+    if elapsed < 86_400 { return "\(Int(elapsed / 3_600))h ago" }
+    return "\(Int(elapsed / 86_400))d ago"
   }
 }

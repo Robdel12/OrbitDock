@@ -18,40 +18,46 @@ final class SessionObservable {
   private(set) var messagesRevision: Int = 0
 
   // Approval
-  var pendingApproval: ServerApprovalRequest? = nil
+  var pendingApproval: ServerApprovalRequest?
   var approvalHistory: [ServerApprovalHistoryItem] = []
 
   // Session metadata
-  var tokenUsage: ServerTokenUsage? = nil
-  var diff: String? = nil
-  var plan: String? = nil
+  var tokenUsage: ServerTokenUsage?
+  var diff: String?
+  var plan: String?
   var autonomy: AutonomyLevel = .autonomous
   var skills: [ServerSkillMetadata] = []
 
   // Turn tracking
-  var currentTurnId: String? = nil
+  var currentTurnId: String?
   var turnCount: UInt64 = 0
   var turnDiffs: [ServerTurnDiff] = []
 
-  // Review comments
+  /// Review comments
   var reviewComments: [ServerReviewComment] = []
 
   // Operation flags
   var undoInProgress: Bool = false
   var forkInProgress: Bool = false
-  var forkedFrom: String? = nil
+  var forkedFrom: String?
 
   // MCP state
   var mcpTools: [String: ServerMcpTool] = [:]
   var mcpResources: [String: [ServerMcpResource]] = [:]
   var mcpAuthStatuses: [String: ServerMcpAuthStatus] = [:]
-  var mcpStartupState: McpStartupState? = nil
+  var mcpStartupState: McpStartupState?
 
-  init(id: String) { self.id = id }
+  init(id: String) {
+    self.id = id
+  }
 
-  func bumpMessagesRevision() { messagesRevision += 1 }
+  func bumpMessagesRevision() {
+    messagesRevision += 1
+  }
 
-  var hasMcpData: Bool { !mcpTools.isEmpty || mcpStartupState != nil }
+  var hasMcpData: Bool {
+    !mcpTools.isEmpty || mcpStartupState != nil
+  }
 
   /// Parse plan JSON string into PlanStep array for UI
   func getPlanSteps() -> [Session.PlanStep]? {

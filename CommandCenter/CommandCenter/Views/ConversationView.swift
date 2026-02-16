@@ -16,7 +16,7 @@ struct ConversationView: View {
   var pendingToolInput: String?
   var provider: Provider = .claude
   var model: String?
-  var onNavigateToReviewFile: ((String, Int) -> Void)? = nil  // (filePath, lineNumber) deep link from review card
+  var onNavigateToReviewFile: ((String, Int) -> Void)? // (filePath, lineNumber) deep link from review card
 
   @Environment(ServerAppState.self) private var serverState
 

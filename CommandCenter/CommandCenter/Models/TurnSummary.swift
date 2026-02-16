@@ -18,7 +18,7 @@ enum TurnStatus {
 // MARK: - Turn Summary
 
 struct TurnSummary: Identifiable {
-  let id: String           // "turn-1" or synthetic "turn-synth-N"
+  let id: String // "turn-1" or synthetic "turn-synth-N"
   let turnNumber: Int
   let startTimestamp: Date?
   let endTimestamp: Date?
@@ -26,7 +26,7 @@ struct TurnSummary: Identifiable {
   let toolsUsed: [String]
   let changedFiles: [String]
   let status: TurnStatus
-  let diff: String?        // from TurnDiff snapshot
+  let diff: String? // from TurnDiff snapshot
 }
 
 // MARK: - Turn Builder
@@ -72,18 +72,23 @@ enum TurnBuilder {
       // Extract tool names from tool messages
       let tools = msgs
         .filter { $0.type == .tool }
-        .compactMap { $0.toolName }
+        .compactMap(\.toolName)
       let uniqueTools = Array(Set(tools))
 
       // Extract changed files from tool inputs
       let files = msgs
         .filter { $0.type == .tool }
-        .compactMap { $0.filePath }
+        .compactMap(\.filePath)
       let uniqueFiles = Array(Set(files))
 
       // Determine status
       let isLast = index == groups.count - 1
-      let hasError = msgs.contains { $0.type == .toolResult && ($0.toolOutput?.contains("error") == true || $0.toolOutput?.contains("Error") == true) }
+      let hasError = msgs
+        .contains {
+          $0
+            .type == .toolResult &&
+            ($0.toolOutput?.contains("error") == true || $0.toolOutput?.contains("Error") == true)
+        }
       let isActive = isLast && (currentTurnId != nil || msgs.contains { $0.isInProgress })
       let status: TurnStatus = isActive ? .active : (hasError ? .failed : .completed)
 

@@ -48,6 +48,7 @@ bytes = "1"
 notify = "7"
 arc-swap = "1"
 dashmap = "6"
+reqwest = { version = "0.12", features = ["json"] }
 
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }

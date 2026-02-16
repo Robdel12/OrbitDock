@@ -19,7 +19,9 @@ enum EffortLevel: String, CaseIterable, Identifiable {
   case high
   case xhigh
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {
@@ -81,7 +83,9 @@ enum EffortLevel: String, CaseIterable, Identifiable {
     }
   }
 
-  var isDefault: Bool { self == .medium }
+  var isDefault: Bool {
+    self == .medium
+  }
 
   /// The serialized effort string (excluding .default which sends nil)
   var serialized: String? {

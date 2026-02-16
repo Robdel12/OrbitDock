@@ -115,7 +115,6 @@ struct CompactStatusBadge: View {
   }
 }
 
-
 // MARK: - Work Status Badge (Standalone - legacy support)
 
 struct WorkStatusBadge: View {

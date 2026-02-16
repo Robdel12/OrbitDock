@@ -45,20 +45,20 @@ struct WorkStreamEntry: View {
   // MARK: - Render Mode
 
   private enum RenderMode {
-    case compact        // tools — one-liner, click to expand
-    case inline         // user/assistant/steer — always show content
+    case compact // tools — one-liner, click to expand
+    case inline // user/assistant/steer — always show content
     case compactPreview // edit/write — compact + mini diff below
   }
 
   private var renderMode: RenderMode {
     switch kind {
-    case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-         .userSystemCaveat, .userCodeReview, .userSystemContext, .assistant, .steer:
-      return .inline
-    case .toolEdit:
-      return .compactPreview
-    default:
-      return .compact
+      case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
+           .userSystemCaveat, .userCodeReview, .userSystemContext, .assistant, .steer:
+        .inline
+      case .toolEdit:
+        .compactPreview
+      default:
+        .compact
     }
   }
 
@@ -71,19 +71,19 @@ struct WorkStreamEntry: View {
       let lowercased = name.lowercased()
       if name.hasPrefix("mcp__") { return .toolMcp }
       switch lowercased {
-      case "bash": return .toolBash
-      case "read": return .toolRead
-      case "edit", "write", "notebookedit": return .toolEdit
-      case "glob": return .toolGlob
-      case "grep": return .toolGrep
-      case "task": return .toolTask
-      case "webfetch": return .toolWebFetch
-      case "websearch": return .toolWebSearch
-      case "skill": return .toolSkill
-      case "enterplanmode", "exitplanmode": return .toolPlanMode
-      case "taskcreate", "taskupdate", "tasklist", "taskget": return .toolTodoTask
-      case "askuserquestion": return .toolAskQuestion
-      default: return .toolStandard
+        case "bash": return .toolBash
+        case "read": return .toolRead
+        case "edit", "write", "notebookedit": return .toolEdit
+        case "glob": return .toolGlob
+        case "grep": return .toolGrep
+        case "task": return .toolTask
+        case "webfetch": return .toolWebFetch
+        case "websearch": return .toolWebSearch
+        case "skill": return .toolSkill
+        case "enterplanmode", "exitplanmode": return .toolPlanMode
+        case "taskcreate", "taskupdate", "tasklist", "taskget": return .toolTodoTask
+        case "askuserquestion": return .toolAskQuestion
+        default: return .toolStandard
       }
     }
 
@@ -117,55 +117,55 @@ struct WorkStreamEntry: View {
   /// SF Symbol name for the glyph.
   private var glyphSymbol: String {
     switch kind {
-    case .userPrompt:        return "arrow.right"
-    case .userBash:          return "terminal"
-    case .userSlashCommand:  return "slash.circle"
-    case .userTaskNotification: return "bolt.fill"
-    case .userSystemCaveat:  return "info.circle"
-    case .userCodeReview:    return "checkmark.message"
-    case .userSystemContext: return "doc.text"
-    case .assistant:         return "sparkle"
-    case .thinking:          return "brain.head.profile"
-    case .steer:             return "arrow.turn.down.right"
-    case .toolBash:          return "terminal"
-    case .toolRead:          return "doc.plaintext"
-    case .toolEdit:          return "pencil.line"
-    case .toolGlob, .toolGrep: return "magnifyingglass"
-    case .toolTask:          return "bolt.fill"
-    case .toolMcp:           return "puzzlepiece.extension"
-    case .toolWebFetch, .toolWebSearch: return "globe"
-    case .toolSkill:         return "wand.and.stars"
-    case .toolPlanMode:      return "map"
-    case .toolTodoTask:      return "checklist"
-    case .toolAskQuestion:   return "questionmark.bubble"
-    case .toolStandard:      return "gearshape"
+      case .userPrompt: "arrow.right"
+      case .userBash: "terminal"
+      case .userSlashCommand: "slash.circle"
+      case .userTaskNotification: "bolt.fill"
+      case .userSystemCaveat: "info.circle"
+      case .userCodeReview: "checkmark.message"
+      case .userSystemContext: "doc.text"
+      case .assistant: "sparkle"
+      case .thinking: "brain.head.profile"
+      case .steer: "arrow.turn.down.right"
+      case .toolBash: "terminal"
+      case .toolRead: "doc.plaintext"
+      case .toolEdit: "pencil.line"
+      case .toolGlob, .toolGrep: "magnifyingglass"
+      case .toolTask: "bolt.fill"
+      case .toolMcp: "puzzlepiece.extension"
+      case .toolWebFetch, .toolWebSearch: "globe"
+      case .toolSkill: "wand.and.stars"
+      case .toolPlanMode: "map"
+      case .toolTodoTask: "checklist"
+      case .toolAskQuestion: "questionmark.bubble"
+      case .toolStandard: "gearshape"
     }
   }
 
   private var glyphColor: Color {
     switch kind {
-    case .userPrompt: return .accent.opacity(0.7)
-    case .userBash: return .toolBash
-    case .userSlashCommand: return .toolSkill
-    case .userTaskNotification: return .toolTask
-    case .userSystemCaveat: return .secondary
-    case .userCodeReview: return .accent
-    case .userSystemContext: return Color.textTertiary
-    case .assistant: return Color.white.opacity(0.85)
-    case .thinking: return Color(red: 0.6, green: 0.55, blue: 0.8)
-    case .steer: return .accent
-    case .toolBash: return .toolBash
-    case .toolRead: return .toolRead
-    case .toolEdit: return .toolWrite
-    case .toolGlob, .toolGrep: return .toolSearch
-    case .toolTask: return .toolTask
-    case .toolMcp: return .toolMcp
-    case .toolWebFetch, .toolWebSearch: return .toolWeb
-    case .toolSkill: return .toolSkill
-    case .toolPlanMode: return .toolPlan
-    case .toolTodoTask: return .toolTodo
-    case .toolAskQuestion: return .toolQuestion
-    case .toolStandard: return .secondary
+      case .userPrompt: .accent.opacity(0.7)
+      case .userBash: .toolBash
+      case .userSlashCommand: .toolSkill
+      case .userTaskNotification: .toolTask
+      case .userSystemCaveat: .secondary
+      case .userCodeReview: .accent
+      case .userSystemContext: Color.textTertiary
+      case .assistant: Color.white.opacity(0.85)
+      case .thinking: Color(red: 0.6, green: 0.55, blue: 0.8)
+      case .steer: .accent
+      case .toolBash: .toolBash
+      case .toolRead: .toolRead
+      case .toolEdit: .toolWrite
+      case .toolGlob, .toolGrep: .toolSearch
+      case .toolTask: .toolTask
+      case .toolMcp: .toolMcp
+      case .toolWebFetch, .toolWebSearch: .toolWeb
+      case .toolSkill: .toolSkill
+      case .toolPlanMode: .toolPlan
+      case .toolTodoTask: .toolTodo
+      case .toolAskQuestion: .toolQuestion
+      case .toolStandard: .secondary
     }
   }
 
@@ -173,65 +173,68 @@ struct WorkStreamEntry: View {
 
   private var summaryText: String {
     switch kind {
-    case .toolBash:
-      return message.bashCommand ?? "bash"
-    case .toolRead:
-      return message.filePath.map { ToolCardStyle.shortenPath($0) } ?? "read"
-    case .toolEdit:
-      return message.filePath.map { ToolCardStyle.shortenPath($0) } ?? message.toolName ?? "edit"
-    case .toolGlob:
-      return message.globPattern ?? "glob"
-    case .toolGrep:
-      return message.grepPattern ?? "grep"
-    case .toolTask:
-      return message.taskDescription ?? message.taskPrompt ?? "task"
-    case .toolMcp:
-      return message.toolName?.replacingOccurrences(of: "mcp__", with: "").replacingOccurrences(of: "__", with: " · ") ?? "mcp"
-    case .toolWebFetch, .toolWebSearch:
-      if let input = message.toolInput, let query = input["query"] as? String {
-        return query
-      }
-      if let input = message.toolInput, let url = input["url"] as? String {
-        return URL(string: url)?.host ?? url
-      }
-      return message.toolName ?? "web"
-    case .toolSkill:
-      if let input = message.toolInput, let skill = input["skill"] as? String {
-        return skill
-      }
-      return "skill"
-    case .toolPlanMode:
-      return message.toolName == "EnterPlanMode" ? "Enter plan mode" : "Exit plan mode"
-    case .toolTodoTask:
-      if let input = message.toolInput, let subject = input["subject"] as? String {
-        return subject
-      }
-      return message.toolName ?? "todo"
-    case .toolAskQuestion:
-      return "Asking question"
-    case .toolStandard:
-      return message.toolName ?? "tool"
-    // Inline kinds still need summaryText for compactRow fallback (thinking)
-    case .userPrompt:
-      return firstLine(of: stripXMLTags(message.content), maxLength: 120)
-    case .userBash(let bash):
-      return bash.input
-    case .userSlashCommand(let cmd):
-      return cmd.hasArgs ? "\(cmd.name) \(cmd.args)" : cmd.name
-    case .userTaskNotification(let notif):
-      return notif.cleanDescription
-    case .userSystemCaveat(let caveat):
-      return caveat.message
-    case .userCodeReview:
-      return "Code review feedback"
-    case .userSystemContext(let ctx):
-      return ctx.label
-    case .assistant:
-      return firstLine(of: message.content, maxLength: 100)
-    case .thinking:
-      return "Thinking\u{2026}"
-    case .steer:
-      return firstLine(of: message.content, maxLength: 100)
+      case .toolBash:
+        return message.bashCommand ?? "bash"
+      case .toolRead:
+        return message.filePath.map { ToolCardStyle.shortenPath($0) } ?? "read"
+      case .toolEdit:
+        return message.filePath.map { ToolCardStyle.shortenPath($0) } ?? message.toolName ?? "edit"
+      case .toolGlob:
+        return message.globPattern ?? "glob"
+      case .toolGrep:
+        return message.grepPattern ?? "grep"
+      case .toolTask:
+        return message.taskDescription ?? message.taskPrompt ?? "task"
+      case .toolMcp:
+        return message.toolName?.replacingOccurrences(of: "mcp__", with: "").replacingOccurrences(
+          of: "__",
+          with: " · "
+        ) ?? "mcp"
+      case .toolWebFetch, .toolWebSearch:
+        if let input = message.toolInput, let query = input["query"] as? String {
+          return query
+        }
+        if let input = message.toolInput, let url = input["url"] as? String {
+          return URL(string: url)?.host ?? url
+        }
+        return message.toolName ?? "web"
+      case .toolSkill:
+        if let input = message.toolInput, let skill = input["skill"] as? String {
+          return skill
+        }
+        return "skill"
+      case .toolPlanMode:
+        return message.toolName == "EnterPlanMode" ? "Enter plan mode" : "Exit plan mode"
+      case .toolTodoTask:
+        if let input = message.toolInput, let subject = input["subject"] as? String {
+          return subject
+        }
+        return message.toolName ?? "todo"
+      case .toolAskQuestion:
+        return "Asking question"
+      case .toolStandard:
+        return message.toolName ?? "tool"
+      // Inline kinds still need summaryText for compactRow fallback (thinking)
+      case .userPrompt:
+        return firstLine(of: stripXMLTags(message.content), maxLength: 120)
+      case let .userBash(bash):
+        return bash.input
+      case let .userSlashCommand(cmd):
+        return cmd.hasArgs ? "\(cmd.name) \(cmd.args)" : cmd.name
+      case let .userTaskNotification(notif):
+        return notif.cleanDescription
+      case let .userSystemCaveat(caveat):
+        return caveat.message
+      case .userCodeReview:
+        return "Code review feedback"
+      case let .userSystemContext(ctx):
+        return ctx.label
+      case .assistant:
+        return firstLine(of: message.content, maxLength: 100)
+      case .thinking:
+        return "Thinking\u{2026}"
+      case .steer:
+        return firstLine(of: message.content, maxLength: 100)
     }
   }
 
@@ -239,26 +242,26 @@ struct WorkStreamEntry: View {
 
   private var rightMeta: String? {
     switch kind {
-    case .toolBash:
-      if let dur = message.formattedDuration {
-        let prefix = message.bashHasError ? "\u{2717}" : "\u{2713}"
-        return "\(prefix) \(dur)"
-      }
-      if message.isInProgress { return "\u{2026}" }
-      return nil
-    case .toolRead:
-      if let count = message.outputLineCount { return "\(count) lines" }
-      return nil
-    case .toolEdit:
-      return editStats
-    case .toolGlob:
-      if let count = message.globMatchCount { return "\(count) files" }
-      return nil
-    case .toolGrep:
-      if let count = message.grepMatchCount { return "\(count) matches" }
-      return nil
-    default:
-      return nil
+      case .toolBash:
+        if let dur = message.formattedDuration {
+          let prefix = message.bashHasError ? "\u{2717}" : "\u{2713}"
+          return "\(prefix) \(dur)"
+        }
+        if message.isInProgress { return "\u{2026}" }
+        return nil
+      case .toolRead:
+        if let count = message.outputLineCount { return "\(count) lines" }
+        return nil
+      case .toolEdit:
+        return editStats
+      case .toolGlob:
+        if let count = message.globMatchCount { return "\(count) files" }
+        return nil
+      case .toolGrep:
+        if let count = message.grepMatchCount { return "\(count) matches" }
+        return nil
+      default:
+        return nil
     }
   }
 
@@ -284,11 +287,11 @@ struct WorkStreamEntry: View {
 
   private var isUserKind: Bool {
     switch kind {
-    case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-         .userSystemCaveat, .userCodeReview, .steer:
-      return true
-    default:
-      return false
+      case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
+           .userSystemCaveat, .userCodeReview, .steer:
+        true
+      default:
+        false
     }
   }
 
@@ -296,11 +299,11 @@ struct WorkStreamEntry: View {
   /// Steer and system context stay left since they're injected, not user-authored.
   private var isUserEntry: Bool {
     switch kind {
-    case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-         .userSystemCaveat, .userCodeReview:
-      return true
-    default:
-      return false
+      case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
+           .userSystemCaveat, .userCodeReview:
+        true
+      default:
+        false
     }
   }
 
@@ -309,61 +312,61 @@ struct WorkStreamEntry: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       switch renderMode {
-      case .compact:
-        compactRow
-          .contentShape(Rectangle())
-          .onTapGesture {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-              isExpanded.toggle()
+        case .compact:
+          compactRow
+            .contentShape(Rectangle())
+            .onTapGesture {
+              withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+                isExpanded.toggle()
+              }
             }
+
+          if isExpanded {
+            expandedContent
+              .padding(.leading, Spacing.xl)
+              .padding(.trailing, Spacing.md)
+              .padding(.bottom, Spacing.sm)
+              .transition(.opacity.combined(with: .move(edge: .top)))
           }
 
-        if isExpanded {
-          expandedContent
-            .padding(.leading, Spacing.xl)
-            .padding(.trailing, Spacing.md)
-            .padding(.bottom, Spacing.sm)
-            .transition(.opacity.combined(with: .move(edge: .top)))
-        }
+        case .inline:
+          if isUserEntry {
+            userGlyphHeaderRow
 
-      case .inline:
-        if isUserEntry {
-          userGlyphHeaderRow
+            userInlineContent
+              .padding(.leading, Spacing.md)
+              .padding(.bottom, Spacing.md)
+          } else {
+            glyphHeaderRow
 
-          userInlineContent
-            .padding(.leading, Spacing.md)
-            .padding(.bottom, Spacing.md)
-        } else {
-          glyphHeaderRow
-
-          inlineContent
-            .padding(.bottom, Spacing.md)
-        }
-
-      case .compactPreview:
-        compactRow
-          .contentShape(Rectangle())
-          .onTapGesture {
-            withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-              isExpanded.toggle()
-            }
+            inlineContent
+              .padding(.bottom, Spacing.md)
           }
 
-        if !isExpanded {
-          editPreview
-            .padding(.leading, Spacing.xl)
-            .padding(.trailing, Spacing.md)
-            .padding(.top, Spacing.xxs)
-            .padding(.bottom, Spacing.xs)
-        }
+        case .compactPreview:
+          compactRow
+            .contentShape(Rectangle())
+            .onTapGesture {
+              withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+                isExpanded.toggle()
+              }
+            }
 
-        if isExpanded {
-          expandedContent
-            .padding(.leading, Spacing.xl)
-            .padding(.trailing, Spacing.md)
-            .padding(.bottom, Spacing.sm)
-            .transition(.opacity.combined(with: .move(edge: .top)))
-        }
+          if !isExpanded {
+            editPreview
+              .padding(.leading, Spacing.xl)
+              .padding(.trailing, Spacing.md)
+              .padding(.top, Spacing.xxs)
+              .padding(.bottom, Spacing.xs)
+          }
+
+          if isExpanded {
+            expandedContent
+              .padding(.leading, Spacing.xl)
+              .padding(.trailing, Spacing.md)
+              .padding(.bottom, Spacing.sm)
+              .transition(.opacity.combined(with: .move(edge: .top)))
+          }
       }
     }
     .frame(maxWidth: .infinity)
@@ -409,7 +412,7 @@ struct WorkStreamEntry: View {
       Spacer()
 
       // Hover actions — inline before the glyph so they don't overlap
-      if isHovering && isUserKind {
+      if isHovering, isUserKind {
         hoverActions
           .padding(.trailing, Spacing.sm)
           .transition(.opacity)
@@ -431,7 +434,6 @@ struct WorkStreamEntry: View {
 
   // MARK: - User Inline Content (right-aligned)
 
-  @ViewBuilder
   private var userInlineContent: some View {
     HStack(spacing: 0) {
       // Left gutter — prevents user messages from spanning full width.
@@ -442,30 +444,30 @@ struct WorkStreamEntry: View {
 
       Group {
         switch kind {
-        case .userPrompt:
-          userPromptInlineRight
+          case .userPrompt:
+            userPromptInlineRight
 
-        case .userBash(let bash):
-          UserBashCard(bash: bash, timestamp: message.timestamp)
+          case let .userBash(bash):
+            UserBashCard(bash: bash, timestamp: message.timestamp)
 
-        case .userSlashCommand(let cmd):
-          UserSlashCommandCard(command: cmd, timestamp: message.timestamp)
+          case let .userSlashCommand(cmd):
+            UserSlashCommandCard(command: cmd, timestamp: message.timestamp)
 
-        case .userTaskNotification(let notif):
-          TaskNotificationCard(notification: notif, timestamp: message.timestamp)
+          case let .userTaskNotification(notif):
+            TaskNotificationCard(notification: notif, timestamp: message.timestamp)
 
-        case .userSystemCaveat(let caveat):
-          SystemCaveatView(caveat: caveat)
+          case let .userSystemCaveat(caveat):
+            SystemCaveatView(caveat: caveat)
 
-        case .userCodeReview:
-          CodeReviewFeedbackCard(
-            content: message.content,
-            timestamp: message.timestamp,
-            onNavigateToFile: onNavigateToReviewFile
-          )
+          case .userCodeReview:
+            CodeReviewFeedbackCard(
+              content: message.content,
+              timestamp: message.timestamp,
+              onNavigateToFile: onNavigateToReviewFile
+            )
 
-        default:
-          EmptyView()
+          default:
+            EmptyView()
         }
       }
     }
@@ -511,7 +513,11 @@ struct WorkStreamEntry: View {
 
       // Summary (flex)
       Text(summaryText)
-        .font(.system(size: TypeScale.body, weight: isUserKind ? .medium : .regular, design: isTool ? .monospaced : .default))
+        .font(.system(
+          size: TypeScale.body,
+          weight: isUserKind ? .medium : .regular,
+          design: isTool ? .monospaced : .default
+        ))
         .foregroundStyle(isUserKind ? Color.white.opacity(0.95) : Color.white.opacity(0.70))
         .lineLimit(1)
         .truncationMode(.tail)
@@ -541,13 +547,13 @@ struct WorkStreamEntry: View {
 
   private var isTool: Bool {
     switch kind {
-    case .toolBash, .toolRead, .toolEdit, .toolGlob, .toolGrep,
-         .toolTask, .toolMcp, .toolWebFetch, .toolWebSearch,
-         .toolSkill, .toolPlanMode, .toolTodoTask, .toolAskQuestion,
-         .toolStandard:
-      return true
-    default:
-      return false
+      case .toolBash, .toolRead, .toolEdit, .toolGlob, .toolGrep,
+           .toolTask, .toolMcp, .toolWebFetch, .toolWebSearch,
+           .toolSkill, .toolPlanMode, .toolTodoTask, .toolAskQuestion,
+           .toolStandard:
+        true
+      default:
+        false
     }
   }
 
@@ -591,7 +597,7 @@ struct WorkStreamEntry: View {
   }
 
   private var displayContent: String {
-    if isLongContent && !isContentExpanded {
+    if isLongContent, !isContentExpanded {
       return String(message.content.prefix(maxInlineLength))
     }
     return message.content
@@ -600,46 +606,46 @@ struct WorkStreamEntry: View {
   @ViewBuilder
   private var inlineContent: some View {
     switch kind {
-    case .userPrompt:
-      userPromptInline
+      case .userPrompt:
+        userPromptInline
 
-    case .userBash(let bash):
-      UserBashCard(bash: bash, timestamp: message.timestamp)
+      case let .userBash(bash):
+        UserBashCard(bash: bash, timestamp: message.timestamp)
+          .padding(.leading, Spacing.xl)
+
+      case let .userSlashCommand(cmd):
+        UserSlashCommandCard(command: cmd, timestamp: message.timestamp)
+          .padding(.leading, Spacing.xl)
+
+      case let .userTaskNotification(notif):
+        TaskNotificationCard(notification: notif, timestamp: message.timestamp)
+          .padding(.leading, Spacing.xl)
+
+      case let .userSystemCaveat(caveat):
+        SystemCaveatView(caveat: caveat)
+          .padding(.leading, Spacing.xl)
+
+      case .userCodeReview:
+        CodeReviewFeedbackCard(
+          content: message.content,
+          timestamp: message.timestamp,
+          onNavigateToFile: onNavigateToReviewFile
+        )
         .padding(.leading, Spacing.xl)
 
-    case .userSlashCommand(let cmd):
-      UserSlashCommandCard(command: cmd, timestamp: message.timestamp)
-        .padding(.leading, Spacing.xl)
+      case let .userSystemContext(ctx):
+        SystemContextCard(context: ctx)
+          .padding(.leading, Spacing.xl)
+          .padding(.trailing, Spacing.xl)
 
-    case .userTaskNotification(let notif):
-      TaskNotificationCard(notification: notif, timestamp: message.timestamp)
-        .padding(.leading, Spacing.xl)
+      case .assistant:
+        assistantInline
 
-    case .userSystemCaveat(let caveat):
-      SystemCaveatView(caveat: caveat)
-        .padding(.leading, Spacing.xl)
+      case .steer:
+        steerInline
 
-    case .userCodeReview:
-      CodeReviewFeedbackCard(
-        content: message.content,
-        timestamp: message.timestamp,
-        onNavigateToFile: onNavigateToReviewFile
-      )
-      .padding(.leading, Spacing.xl)
-
-    case .userSystemContext(let ctx):
-      SystemContextCard(context: ctx)
-        .padding(.leading, Spacing.xl)
-        .padding(.trailing, Spacing.xl)
-
-    case .assistant:
-      assistantInline
-
-    case .steer:
-      steerInline
-
-    default:
-      EmptyView()
+      default:
+        EmptyView()
     }
   }
 
@@ -724,9 +730,9 @@ struct WorkStreamEntry: View {
       let lines = diff.components(separatedBy: "\n")
       for line in lines {
         if results.count >= 3 { break }
-        if line.hasPrefix("+") && !line.hasPrefix("+++") {
+        if line.hasPrefix("+"), !line.hasPrefix("+++") {
           results.append(("+", String(line.dropFirst()), true))
-        } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+        } else if line.hasPrefix("-"), !line.hasPrefix("---") {
           results.append(("-", String(line.dropFirst()), false))
         }
       }
@@ -767,21 +773,21 @@ struct WorkStreamEntry: View {
   @ViewBuilder
   private var expandedContent: some View {
     switch kind {
-    case .toolBash, .toolRead, .toolEdit, .toolGlob, .toolGrep,
-         .toolTask, .toolMcp, .toolWebFetch, .toolWebSearch,
-         .toolSkill, .toolPlanMode, .toolTodoTask, .toolAskQuestion,
-         .toolStandard:
-      ToolIndicator(message: message, transcriptPath: transcriptPath, initiallyExpanded: true)
+      case .toolBash, .toolRead, .toolEdit, .toolGlob, .toolGrep,
+           .toolTask, .toolMcp, .toolWebFetch, .toolWebSearch,
+           .toolSkill, .toolPlanMode, .toolTodoTask, .toolAskQuestion,
+           .toolStandard:
+        ToolIndicator(message: message, transcriptPath: transcriptPath, initiallyExpanded: true)
 
-    case .thinking:
-      ScrollView {
-        ThinkingMarkdownView(content: message.content)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-      .frame(maxHeight: 300)
+      case .thinking:
+        ScrollView {
+          ThinkingMarkdownView(content: message.content)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 300)
 
-    default:
-      EmptyView()
+      default:
+        EmptyView()
     }
   }
 
@@ -859,7 +865,8 @@ struct WorkStreamEntry: View {
   }
 
   private func firstLine(of text: String, maxLength: Int) -> String {
-    let line = text.components(separatedBy: "\n").first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
+    let line = text.components(separatedBy: "\n")
+      .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? ""
     if line.count > maxLength {
       return String(line.prefix(maxLength - 1)) + "\u{2026}"
     }

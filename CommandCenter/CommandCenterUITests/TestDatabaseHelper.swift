@@ -50,7 +50,7 @@ enum TestDatabaseHelper {
     var url = Bundle(for: BundleLocator.self).bundleURL
 
     // Look for the migrations directory
-    for _ in 0..<10 {
+    for _ in 0 ..< 10 {
       let migrationsPath = url.appendingPathComponent("migrations")
       if FileManager.default.fileExists(atPath: migrationsPath.path) {
         return url
@@ -100,5 +100,5 @@ enum TestDatabaseHelper {
   }
 }
 
-// Helper class to locate the test bundle
+/// Helper class to locate the test bundle
 private class BundleLocator {}

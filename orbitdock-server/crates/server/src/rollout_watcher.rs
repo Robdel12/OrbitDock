@@ -1031,6 +1031,32 @@ impl WatcherRuntime {
             }
         }
 
+        // Broadcast first_prompt delta so UI has immediate fallback label
+        if let Some(raw_prompt) = message.as_ref() {
+            if let Some(actor) = self.app_state.get_session(session_id) {
+                let fp_changes = orbitdock_protocol::StateChanges {
+                    first_prompt: Some(Some(raw_prompt.clone())),
+                    ..Default::default()
+                };
+                let _ = actor
+                    .send(crate::session_command::SessionCommand::ApplyDelta {
+                        changes: fp_changes,
+                        persist_op: None,
+                    })
+                    .await;
+
+                // Spawn AI naming task (fire-and-forget)
+                if self.app_state.naming_guard().try_claim(session_id) {
+                    crate::ai_naming::spawn_naming_task(
+                        session_id.to_string(),
+                        raw_prompt.clone(),
+                        actor,
+                        self.persist_tx.clone(),
+                    );
+                }
+            }
+        }
+
         let _ = self
             .persist_tx
             .send(PersistCommand::RolloutPromptIncrement {

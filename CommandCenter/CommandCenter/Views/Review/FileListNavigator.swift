@@ -13,10 +13,10 @@ struct FileListNavigator: View {
   let turnDiffs: [ServerTurnDiff]
   @Binding var selectedFileId: String?
   @Binding var selectedTurnDiffId: String?
-  var commentCounts: [String: Int] = [:]  // filePath → count
-  var addressedFiles: Set<String> = []     // Files modified after review
+  var commentCounts: [String: Int] = [:] // filePath → count
+  var addressedFiles: Set<String> = [] // Files modified after review
   var reviewPendingFiles: Set<String> = [] // Files reviewed but not yet modified
-  var showResolvedComments: Binding<Bool>? = nil
+  var showResolvedComments: Binding<Bool>?
   var hasResolvedComments: Bool = false
 
   var body: some View {
@@ -75,7 +75,13 @@ struct FileListNavigator: View {
     .padding(.vertical, 8)
   }
 
-  private func sourceButton(label: String, icon: String, isSelected: Bool, isLive: Bool, action: @escaping () -> Void) -> some View {
+  private func sourceButton(
+    label: String,
+    icon: String,
+    isSelected: Bool,
+    isLive: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
     Button(action: action) {
       HStack(spacing: 4) {
         Image(systemName: icon)

@@ -33,28 +33,28 @@ struct ParsedSystemContext {
   }
 
   let kind: ContextKind
-  let body: String  // The instruction content
+  let body: String // The instruction content
 
   var label: String {
     switch kind {
-    case .agentsMd(let dir):
-      let short = (dir as NSString).lastPathComponent
-      return "AGENTS.md \u{00B7} \(short)"
-    case .skill(let name, _):
-      return "Skill \u{00B7} \(name)"
-    case .legacyInstructions:
-      return "Instructions"
-    case .systemReminder:
-      return "System"
+      case let .agentsMd(dir):
+        let short = (dir as NSString).lastPathComponent
+        return "AGENTS.md \u{00B7} \(short)"
+      case let .skill(name, _):
+        return "Skill \u{00B7} \(name)"
+      case .legacyInstructions:
+        return "Instructions"
+      case .systemReminder:
+        return "System"
     }
   }
 
   var icon: String {
     switch kind {
-    case .agentsMd: return "doc.text"
-    case .skill: return "wand.and.stars"
-    case .legacyInstructions: return "gearshape"
-    case .systemReminder: return "info.circle"
+      case .agentsMd: "doc.text"
+      case .skill: "wand.and.stars"
+      case .legacyInstructions: "gearshape"
+      case .systemReminder: "info.circle"
     }
   }
 

@@ -18,7 +18,9 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
   case open
   case unrestricted
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {
@@ -64,7 +66,9 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
     }
   }
 
-  var isDefault: Bool { self == .autonomous }
+  var isDefault: Bool {
+    self == .autonomous
+  }
 
   var isSandboxed: Bool {
     switch self {

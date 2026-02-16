@@ -34,7 +34,7 @@ struct DiffLine {
 
 struct DiffHunk: Identifiable {
   let id: Int
-  let header: String    // @@ -1,5 +1,7 @@
+  let header: String // @@ -1,5 +1,7 @@
   let oldStart: Int
   let oldCount: Int
   let newStart: Int
@@ -45,7 +45,7 @@ struct DiffHunk: Identifiable {
 // MARK: - File Diff
 
 struct FileDiff: Identifiable {
-  let id: String        // file path
+  let id: String // file path
   let oldPath: String
   let newPath: String
   let changeType: FileChangeType
@@ -269,7 +269,9 @@ struct DiffModel {
   }
 
   /// Parse a hunk header like `@@ -1,5 +1,7 @@` into components.
-  private static func parseHunkHeader(_ header: String) -> (oldStart: Int, oldCount: Int, newStart: Int, newCount: Int) {
+  private static func parseHunkHeader(_ header: String)
+    -> (oldStart: Int, oldCount: Int, newStart: Int, newCount: Int)
+  {
     // Match @@ -oldStart,oldCount +newStart,newCount @@
     guard let regex = try? NSRegularExpression(pattern: #"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@"#),
           let match = regex.firstMatch(in: header, range: NSRange(header.startIndex..., in: header))
@@ -297,7 +299,10 @@ struct DiffModel {
 extension DiffModel {
   /// For adjacent removed+added line pairs, compute character-level changes.
   /// Returns ranges within each line that represent the actual changes.
-  static func inlineChanges(oldLine: String, newLine: String) -> (old: [Range<String.Index>], new: [Range<String.Index>]) {
+  static func inlineChanges(
+    oldLine: String,
+    newLine: String
+  ) -> (old: [Range<String.Index>], new: [Range<String.Index>]) {
     let lcs = longestCommonSubsequence(Array(oldLine), Array(newLine))
     let oldRanges = findChangedRanges(oldLine, lcs: lcs, isOld: true)
     let newRanges = findChangedRanges(newLine, lcs: lcs, isOld: false)
@@ -308,8 +313,8 @@ extension DiffModel {
     let m = a.count
     let n = b.count
     var dp = [[Int]](repeating: [Int](repeating: 0, count: n + 1), count: m + 1)
-    for i in 1...m {
-      for j in 1...n {
+    for i in 1 ... m {
+      for j in 1 ... n {
         if a[i - 1] == b[j - 1] {
           dp[i][j] = dp[i - 1][j - 1] + 1
         } else {
@@ -349,19 +354,19 @@ extension DiffModel {
     var idx = text.startIndex
     var rangeStart: String.Index?
 
-    for k in 0..<count {
+    for k in 0 ..< count {
       if !inLCS[k] {
         if rangeStart == nil { rangeStart = idx }
       } else {
         if let start = rangeStart {
-          ranges.append(start..<idx)
+          ranges.append(start ..< idx)
           rangeStart = nil
         }
       }
       idx = text.index(after: idx)
     }
     if let start = rangeStart {
-      ranges.append(start..<text.endIndex)
+      ranges.append(start ..< text.endIndex)
     }
 
     return ranges

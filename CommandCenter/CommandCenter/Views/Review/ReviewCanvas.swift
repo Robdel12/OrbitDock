@@ -37,17 +37,17 @@ private enum CursorTarget: Equatable, Hashable {
 
   var fileIndex: Int {
     switch self {
-    case .fileHeader(let f): f
-    case .hunkHeader(let f, _): f
-    case .diffLine(let f, _, _): f
+      case let .fileHeader(f): f
+      case let .hunkHeader(f, _): f
+      case let .diffLine(f, _, _): f
     }
   }
 
   var scrollId: String {
     switch self {
-    case .fileHeader(let f): "file-\(f)"
-    case .hunkHeader(let f, let h): "file-\(f)-hunk-\(h)"
-    case .diffLine(let f, let h, let l): "file-\(f)-hunk-\(h)-line-\(l)"
+      case let .fileHeader(f): "file-\(f)"
+      case let .hunkHeader(f, h): "file-\(f)-hunk-\(h)"
+      case let .diffLine(f, h, l): "file-\(f)-hunk-\(h)-line-\(l)"
     }
   }
 
@@ -68,9 +68,9 @@ private struct ComposerLineRange: Equatable {
   let filePath: String
   let fileIndex: Int
   let hunkIndex: Int
-  let lineStartIdx: Int    // Index in hunk.lines
+  let lineStartIdx: Int // Index in hunk.lines
   let lineEndIdx: Int
-  let lineStart: UInt32    // Actual new-side line number for server
+  let lineStart: UInt32 // Actual new-side line number for server
   let lineEnd: UInt32?
 }
 
@@ -80,7 +80,7 @@ private struct ComposerLineRange: Equatable {
 /// Used to detect which files the model modified in response to review feedback.
 private struct ReviewRound {
   let sentAt: Date
-  let turnDiffCountAtSend: Int     // obs.turnDiffs.count when review was sent
+  let turnDiffCountAtSend: Int // obs.turnDiffs.count when review was sent
   let reviewedFilePaths: Set<String>
   let commentCount: Int
 }
@@ -92,10 +92,10 @@ struct ReviewCanvas: View {
   let projectPath: String
   let isSessionActive: Bool
   var compact: Bool = false
-  var navigateToFileId: Binding<String?>? = nil
-  var onDismiss: (() -> Void)? = nil
+  var navigateToFileId: Binding<String?>?
+  var onDismiss: (() -> Void)?
   @Binding var selectedCommentIds: Set<String>
-  var navigateToComment: Binding<ServerReviewComment?>? = nil
+  var navigateToComment: Binding<ServerReviewComment?>?
 
   @Environment(ServerAppState.self) private var serverState
 
@@ -165,7 +165,7 @@ struct ReviewCanvas: View {
         targets.append(.hunkHeader(fileIndex: fileIdx, hunkIndex: hunkIdx))
         let hunkKey = "\(fileIdx)-\(hunkIdx)"
         guard !collapsedHunks.contains(hunkKey) else { continue }
-        for lineIdx in 0..<hunk.lines.count {
+        for lineIdx in 0 ..< hunk.lines.count {
           targets.append(.diffLine(fileIndex: fileIdx, hunkIndex: hunkIdx, lineIndex: lineIdx))
         }
       }
@@ -199,7 +199,7 @@ struct ReviewCanvas: View {
 
   /// Get the cursor line index within a specific hunk (nil if cursor not in this hunk).
   private func cursorLineForHunk(fileIdx: Int, hunkIdx: Int, target: CursorTarget?) -> Int? {
-    guard case .diffLine(let f, let h, let l) = target, f == fileIdx, h == hunkIdx else { return nil }
+    guard case let .diffLine(f, h, l) = target, f == fileIdx, h == hunkIdx else { return nil }
     return l
   }
 
@@ -231,7 +231,7 @@ struct ReviewCanvas: View {
       }
 
       // Auto-follow: new file appeared, jump to its header
-      if isFollowing && isSessionActive && newFileCount > previousFileCount {
+      if isFollowing, isSessionActive, newFileCount > previousFileCount {
         if let lastFileIdx = targets.lastIndex(where: { $0.isFileHeader }) {
           cursorIndex = lastFileIdx
         }
@@ -439,13 +439,25 @@ struct ReviewCanvas: View {
                     .union(selectionLineIndices(fileIdx: fileIdx, hunkIdx: hunkIdx)),
                   composerLineRange: composerLineRangeForHunk(fileIdx: fileIdx, hunkIdx: hunkIdx),
                   onLineComment: { clickedIdx, smartRange in
-                    handleLineComment(fileIdx: fileIdx, hunkIdx: hunkIdx, clickedIdx: clickedIdx, smartRange: smartRange, model: model)
+                    handleLineComment(
+                      fileIdx: fileIdx,
+                      hunkIdx: hunkIdx,
+                      clickedIdx: clickedIdx,
+                      smartRange: smartRange,
+                      model: model
+                    )
                   },
                   onLineDragChanged: { anchor, current in
                     handleLineDragChanged(fileIdx: fileIdx, hunkIdx: hunkIdx, anchor: anchor, current: current)
                   },
                   onLineDragEnded: { startIdx, endIdx in
-                    handleLineDragEnded(fileIdx: fileIdx, hunkIdx: hunkIdx, startIdx: startIdx, endIdx: endIdx, model: model)
+                    handleLineDragEnded(
+                      fileIdx: fileIdx,
+                      hunkIdx: hunkIdx,
+                      startIdx: startIdx,
+                      endIdx: endIdx,
+                      model: model
+                    )
                   }
                 ) { lineIdx, line in
                   // Inline comments: open → full thread, resolved → grouped marker
@@ -490,7 +502,8 @@ struct ReviewCanvas: View {
                   if let ct = composerTarget,
                      ct.fileIndex == fileIdx,
                      ct.hunkIndex == hunkIdx,
-                     ct.lineEndIdx == lineIdx {
+                     ct.lineEndIdx == lineIdx
+                  {
                     let fileName = ct.filePath.components(separatedBy: "/").last ?? ct.filePath
                     let lineLabel = ct.lineEnd.map { end in
                       end != ct.lineStart ? "Lines \(ct.lineStart)–\(end)" : "Line \(ct.lineStart)"
@@ -542,14 +555,14 @@ struct ReviewCanvas: View {
       guard let model = diffModel else { return .ignored }
       let target = currentTarget(model)
       switch target {
-      case .fileHeader(let f):
-        toggleCollapseAtCursor(model: model, fileIdx: f)
-      case .hunkHeader(let f, let h):
-        toggleHunkCollapse(model: model, fileIdx: f, hunkIdx: h)
-      case .diffLine(let f, let h, _):
-        toggleHunkCollapse(model: model, fileIdx: f, hunkIdx: h)
-      case nil:
-        break
+        case let .fileHeader(f):
+          toggleCollapseAtCursor(model: model, fileIdx: f)
+        case let .hunkHeader(f, h):
+          toggleHunkCollapse(model: model, fileIdx: f, hunkIdx: h)
+        case let .diffLine(f, h, _):
+          toggleHunkCollapse(model: model, fileIdx: f, hunkIdx: h)
+        case nil:
+          break
       }
       return .handled
     }
@@ -734,6 +747,7 @@ struct ReviewCanvas: View {
   }
 
   // MARK: - Keyboard Handling (magit-style)
+
   //
   // C-n / C-p    — move cursor one line (Emacs line nav)
   // C-f / C-b    — jump cursor to next/prev section (file + hunk headers)
@@ -804,56 +818,57 @@ struct ReviewCanvas: View {
     guard keyPress.modifiers.isEmpty else { return .ignored }
 
     switch keyPress.key {
-    // n / p — section navigation (file headers + hunk headers)
-    case "n":
-      jumpToNextHunk(forward: true, in: model)
-      return .handled
-    case "p":
-      jumpToNextHunk(forward: false, in: model)
-      return .handled
+      // n / p — section navigation (file headers + hunk headers)
+      case "n":
+        jumpToNextHunk(forward: true, in: model)
+        return .handled
 
-    // c — open comment composer
-    case "c":
-      return openComposer(model: model)
+      case "p":
+        jumpToNextHunk(forward: false, in: model)
+        return .handled
 
-    // ] — jump to next unresolved comment
-    case "]":
-      jumpToNextComment(forward: true, in: model)
-      return .handled
+      // c — open comment composer
+      case "c":
+        return openComposer(model: model)
 
-    // [ — jump to previous unresolved comment
-    case "[":
-      jumpToNextComment(forward: false, in: model)
-      return .handled
+      // ] — jump to next unresolved comment
+      case "]":
+        jumpToNextComment(forward: true, in: model)
+        return .handled
 
-    // r — toggle resolve on comment at cursor
-    case "r":
-      resolveCommentAtCursor(model: model)
-      return .handled
+      // [ — jump to previous unresolved comment
+      case "[":
+        jumpToNextComment(forward: false, in: model)
+        return .handled
 
-    // x — toggle selection on comment at cursor
-    case "x":
-      toggleSelectionAtCursor(model: model)
-      return .handled
+      // r — toggle resolve on comment at cursor
+      case "r":
+        resolveCommentAtCursor(model: model)
+        return .handled
 
-    // q — dismiss review pane
-    case "q":
-      onDismiss?()
-      return onDismiss != nil ? .handled : .ignored
+      // x — toggle selection on comment at cursor
+      case "x":
+        toggleSelectionAtCursor(model: model)
+        return .handled
 
-    // f — toggle follow mode
-    case "f":
-      isFollowing.toggle()
-      if isFollowing {
-        let targets = computeVisibleTargets(model)
-        if let lastFile = targets.lastIndex(where: { $0.isFileHeader }) {
-          cursorIndex = lastFile
+      // q — dismiss review pane
+      case "q":
+        onDismiss?()
+        return onDismiss != nil ? .handled : .ignored
+
+      // f — toggle follow mode
+      case "f":
+        isFollowing.toggle()
+        if isFollowing {
+          let targets = computeVisibleTargets(model)
+          if let lastFile = targets.lastIndex(where: { $0.isFileHeader }) {
+            cursorIndex = lastFile
+          }
         }
-      }
-      return .handled
+        return .handled
 
-    default:
-      return .ignored
+      default:
+        return .ignored
     }
   }
 
@@ -875,7 +890,7 @@ struct ReviewCanvas: View {
     let safeIdx = min(cursorIndex, targets.count - 1)
 
     if forward {
-      for i in (safeIdx + 1)..<targets.count {
+      for i in (safeIdx + 1) ..< targets.count {
         if targets[i].isHunkHeader || targets[i].isFileHeader {
           cursorIndex = i
           return
@@ -954,8 +969,8 @@ struct ReviewCanvas: View {
   private func commentsForLine(filePath: String, lineNum: Int) -> [ServerReviewComment] {
     obs.reviewComments.filter { comment in
       comment.filePath == filePath &&
-      Int(comment.lineEnd ?? comment.lineStart) == lineNum &&
-      commentMatchesTurnView(comment)
+        Int(comment.lineEnd ?? comment.lineStart) == lineNum &&
+        commentMatchesTurnView(comment)
     }
   }
 
@@ -964,8 +979,8 @@ struct ReviewCanvas: View {
   private func groupedResolvedComments(forFile filePath: String) -> [Int: [ServerReviewComment]] {
     let resolved = obs.reviewComments.filter { comment in
       comment.filePath == filePath &&
-      comment.status == .resolved &&
-      commentMatchesTurnView(comment)
+        comment.status == .resolved &&
+        commentMatchesTurnView(comment)
     }
 
     guard !resolved.isEmpty else { return [:] }
@@ -1018,10 +1033,10 @@ struct ReviewCanvas: View {
   private func commentedNewLineNums(forFile filePath: String) -> Set<Int> {
     var result = Set<Int>()
     for comment in obs.reviewComments where comment.filePath == filePath && commentMatchesTurnView(comment) {
-      if !showResolvedComments && comment.status != .open { continue }
+      if !showResolvedComments, comment.status != .open { continue }
       let start = Int(comment.lineStart)
       let end = Int(comment.lineEnd ?? comment.lineStart)
-      for line in start...end {
+      for line in start ... end {
         result.insert(line)
       }
     }
@@ -1040,9 +1055,9 @@ struct ReviewCanvas: View {
   private func selectionLineIndices(fileIdx: Int, hunkIdx: Int) -> Set<Int> {
     guard let mark = commentMark else { return [] }
     guard let model = diffModel else { return [] }
-    guard case .diffLine(let mf, let mh, let ml) = mark else { return [] }
+    guard case let .diffLine(mf, mh, ml) = mark else { return [] }
     guard let target = currentTarget(model) else { return [] }
-    guard case .diffLine(let cf, let ch, let cl) = target else { return [] }
+    guard case let .diffLine(cf, ch, cl) = target else { return [] }
 
     // Only highlight when both mark and cursor are in the same file
     guard mf == cf, mf == fileIdx else { return [] }
@@ -1059,28 +1074,34 @@ struct ReviewCanvas: View {
     if startHunk == endHunk {
       // Same hunk
       guard hunkIdx == startHunk else { return [] }
-      return Set(min(startLine, endLine)...max(startLine, endLine))
+      return Set(min(startLine, endLine) ... max(startLine, endLine))
     }
 
     // Cross-hunk selection
     if hunkIdx == startHunk {
       let hunkLineCount = model.files[fileIdx].hunks[hunkIdx].lines.count
       let sl = mh < ch ? ml : cl
-      return Set(sl..<hunkLineCount)
+      return Set(sl ..< hunkLineCount)
     } else if hunkIdx == endHunk {
       let el = mh < ch ? cl : ml
-      return Set(0...el)
+      return Set(0 ... el)
     } else {
       // Entire hunk is in selection
       let hunkLineCount = model.files[fileIdx].hunks[hunkIdx].lines.count
-      return Set(0..<hunkLineCount)
+      return Set(0 ..< hunkLineCount)
     }
   }
 
   // MARK: - Mouse Interactions
 
   /// Handle click on the + comment button — uses smart connected block range.
-  private func handleLineComment(fileIdx: Int, hunkIdx: Int, clickedIdx: Int, smartRange: ClosedRange<Int>, model: DiffModel) {
+  private func handleLineComment(
+    fileIdx: Int,
+    hunkIdx: Int,
+    clickedIdx: Int,
+    smartRange: ClosedRange<Int>,
+    model: DiffModel
+  ) {
     let file = model.files[fileIdx]
     let hunk = file.hunks[hunkIdx]
 
@@ -1093,7 +1114,7 @@ struct ReviewCanvas: View {
 
     // Find first new-side line number in range (skip removed-only lines)
     var startNewLine: Int?
-    for i in startIdx...endIdx {
+    for i in startIdx ... endIdx {
       if let n = hunk.lines[i].newLineNum { startNewLine = n; break }
     }
 
@@ -1132,7 +1153,7 @@ struct ReviewCanvas: View {
 
     // Find new-side line numbers for the range
     var startNewLine: Int?
-    for i in startIdx...endIdx {
+    for i in startIdx ... endIdx {
       if let n = hunk.lines[i].newLineNum { startNewLine = n; break }
     }
     var endNewLine: Int?
@@ -1167,7 +1188,7 @@ struct ReviewCanvas: View {
     guard let ct = composerTarget,
           ct.fileIndex == fileIdx,
           ct.hunkIndex == hunkIdx else { return nil }
-    return ct.lineStartIdx...ct.lineEndIdx
+    return ct.lineStartIdx ... ct.lineEndIdx
   }
 
   /// Line indices within a hunk that fall in the mouse drag selection.
@@ -1178,12 +1199,12 @@ struct ReviewCanvas: View {
 
     let start = min(anchor.lineIdx, current.lineIdx)
     let end = max(anchor.lineIdx, current.lineIdx)
-    return Set(start...end)
+    return Set(start ... end)
   }
 
   /// Check if a cursor target (diffLine) has a non-nil newLineNum.
   private func diffLineHasNewLineNum(_ target: CursorTarget, model: DiffModel) -> Bool {
-    guard case .diffLine(let f, let h, let l) = target else { return false }
+    guard case let .diffLine(f, h, l) = target else { return false }
     guard f < model.files.count else { return false }
     let file = model.files[f]
     guard h < file.hunks.count else { return false }
@@ -1198,9 +1219,10 @@ struct ReviewCanvas: View {
 
     if let mark = commentMark {
       // Range comment: mark to cursor
-      guard case .diffLine(let mf, let mh, let ml) = mark,
-            case .diffLine(let cf, let ch, let cl) = target,
-            mf == cf else {
+      guard case let .diffLine(mf, mh, ml) = mark,
+            case let .diffLine(cf, ch, cl) = target,
+            mf == cf
+      else {
         commentMark = nil
         return .handled
       }
@@ -1235,7 +1257,7 @@ struct ReviewCanvas: View {
     }
 
     // Single-line comment
-    guard case .diffLine(let f, let h, let l) = target else { return .ignored }
+    guard case let .diffLine(f, h, l) = target else { return .ignored }
     let file = model.files[f]
     let line = file.hunks[h].lines[l]
     guard let newLine = line.newLineNum else { return .ignored }
@@ -1295,10 +1317,10 @@ struct ReviewCanvas: View {
   /// Toggle resolve on the first open comment at the current cursor line.
   private func resolveCommentAtCursor(model: DiffModel) {
     guard let target = currentTarget(model),
-          case .diffLine(let f, _, _) = target else { return }
+          case let .diffLine(f, _, _) = target else { return }
 
     let file = model.files[f]
-    guard case .diffLine(_, let h, let l) = target else { return }
+    guard case let .diffLine(_, h, l) = target else { return }
     let line = file.hunks[h].lines[l]
     guard let newLine = line.newLineNum else { return }
 
@@ -1313,10 +1335,10 @@ struct ReviewCanvas: View {
   /// Toggle selection on the open comment at cursor for partial sends.
   private func toggleSelectionAtCursor(model: DiffModel) {
     guard let target = currentTarget(model),
-          case .diffLine(let f, _, _) = target else { return }
+          case let .diffLine(f, _, _) = target else { return }
 
     let file = model.files[f]
-    guard case .diffLine(_, let h, let l) = target else { return }
+    guard case let .diffLine(_, h, l) = target else { return }
     let line = file.hunks[h].lines[l]
     guard let newLine = line.newLineNum else { return }
 
@@ -1339,11 +1361,15 @@ struct ReviewCanvas: View {
     let unresolvedFiles = buildUnresolvedCommentLineMap(model: model)
 
     let range = forward
-      ? Array((safeIdx + 1)..<targets.count) + Array(0..<safeIdx)
-      : (Array(stride(from: safeIdx - 1, through: 0, by: -1)) + Array(stride(from: targets.count - 1, through: safeIdx + 1, by: -1)))
+      ? Array((safeIdx + 1) ..< targets.count) + Array(0 ..< safeIdx)
+      : (Array(stride(from: safeIdx - 1, through: 0, by: -1)) + Array(stride(
+        from: targets.count - 1,
+        through: safeIdx + 1,
+        by: -1
+      )))
 
     for i in range {
-      guard case .diffLine(let f, let h, let l) = targets[i] else { continue }
+      guard case let .diffLine(f, h, l) = targets[i] else { continue }
       let file = model.files[f]
       let line = file.hunks[h].lines[l]
       guard let newLine = line.newLineNum else { continue }
@@ -1458,11 +1484,10 @@ struct ReviewCanvas: View {
       lines.append("### \(filePath)")
 
       for comment in comments.sorted(by: { $0.lineStart < $1.lineStart }) {
-        let lineRef: String
-        if let end = comment.lineEnd, end != comment.lineStart {
-          lineRef = "Lines \(comment.lineStart)–\(end)"
+        let lineRef = if let end = comment.lineEnd, end != comment.lineStart {
+          "Lines \(comment.lineStart)–\(end)"
         } else {
-          lineRef = "Line \(comment.lineStart)"
+          "Line \(comment.lineStart)"
         }
 
         let tagStr = comment.tag.map { " [\($0.rawValue)]" } ?? ""
@@ -1507,12 +1532,12 @@ struct ReviewCanvas: View {
       for line in hunk.lines {
         guard let newNum = line.newLineNum else {
           // Removed lines adjacent to the range — include for context
-          if !extracted.isEmpty && line.type == .removed {
+          if !extracted.isEmpty, line.type == .removed {
             extracted.append("\(line.prefix)\(line.content)")
           }
           continue
         }
-        if newNum >= lineStart && newNum <= end {
+        if newNum >= lineStart, newNum <= end {
           extracted.append("\(line.prefix)\(line.content)")
         }
       }
@@ -1612,9 +1637,11 @@ struct ReviewCanvas: View {
               .font(.system(size: TypeScale.body, weight: .medium))
               .foregroundStyle(.primary.opacity(OpacityTier.vivid))
 
-            Text("\(round.commentCount) comment\(round.commentCount == 1 ? "" : "s") on \(round.reviewedFilePaths.count) file\(round.reviewedFilePaths.count == 1 ? "" : "s")")
-              .font(.system(size: TypeScale.caption, design: .monospaced))
-              .foregroundStyle(.tertiary)
+            Text(
+              "\(round.commentCount) comment\(round.commentCount == 1 ? "" : "s") on \(round.reviewedFilePaths.count) file\(round.reviewedFilePaths.count == 1 ? "" : "s")"
+            )
+            .font(.system(size: TypeScale.caption, design: .monospaced))
+            .foregroundStyle(.tertiary)
           }
 
           Spacer()
@@ -1895,13 +1922,18 @@ struct ReviewCanvas: View {
 
   private func chipColor(_ type: FileChangeType) -> Color {
     switch type {
-    case .added: Color.diffAddedAccent
-    case .deleted: Color.diffRemovedAccent
-    case .renamed, .modified: Color.accent
+      case .added: Color.diffAddedAccent
+      case .deleted: Color.diffRemovedAccent
+      case .renamed, .modified: Color.accent
     }
   }
 
-  private func compactSourceButton(label: String, icon: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+  private func compactSourceButton(
+    label: String,
+    icon: String,
+    isSelected: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
     Button(action: action) {
       HStack(spacing: 3) {
         Image(systemName: icon)
@@ -1965,18 +1997,18 @@ struct ReviewCanvas: View {
 
   private func changeTypeColor(_ type: FileChangeType) -> Color {
     switch type {
-    case .added: Color.diffAddedAccent
-    case .deleted: Color.diffRemovedAccent
-    case .renamed, .modified: Color.accent
+      case .added: Color.diffAddedAccent
+      case .deleted: Color.diffRemovedAccent
+      case .renamed, .modified: Color.accent
     }
   }
 
   private func fileIcon(_ type: FileChangeType) -> String {
     switch type {
-    case .added: "plus"
-    case .deleted: "minus"
-    case .renamed: "arrow.right"
-    case .modified: "pencil"
+      case .added: "plus"
+      case .deleted: "minus"
+      case .renamed: "arrow.right"
+      case .modified: "pencil"
     }
   }
 

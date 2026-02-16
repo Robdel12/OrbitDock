@@ -31,13 +31,13 @@ struct Activity: Identifiable {
 
   var icon: String {
     switch toolName?.lowercased() {
-    case "edit": "pencil"
-    case "write": "doc.badge.plus"
-    case "read": "doc.text"
-    case "bash": "terminal"
-    case "glob": "magnifyingglass"
-    case "grep": "text.magnifyingglass"
-    default: "circle.fill"
+      case "edit": "pencil"
+      case "write": "doc.badge.plus"
+      case "read": "doc.text"
+      case "bash": "terminal"
+      case "glob": "magnifyingglass"
+      case "grep": "text.magnifyingglass"
+      default: "circle.fill"
     }
   }
 }

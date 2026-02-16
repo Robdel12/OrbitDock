@@ -404,6 +404,18 @@ final class ServerAppState {
     )
   }
 
+  /// Create a new Claude direct session
+  func createClaudeSession(cwd: String, model: String? = nil) {
+    logger.info("Creating Claude session in \(cwd)")
+    ServerConnection.shared.createSession(
+      provider: .claude,
+      cwd: cwd,
+      model: model,
+      approvalPolicy: nil,
+      sandboxMode: nil
+    )
+  }
+
   /// Refresh model options from the server.
   func refreshCodexModels() {
     ServerConnection.shared.listModels()
@@ -820,6 +832,20 @@ final class ServerAppState {
         sess.customName = name
       } else {
         sess.customName = nil
+      }
+    }
+    if let summaryOuter = changes.summary {
+      if let summary = summaryOuter {
+        sess.summary = summary
+      } else {
+        sess.summary = nil
+      }
+    }
+    if let firstPromptOuter = changes.firstPrompt {
+      if let prompt = firstPromptOuter {
+        sess.firstPrompt = prompt
+      } else {
+        sess.firstPrompt = nil
       }
     }
     if let modeOuter = changes.codexIntegrationMode {

@@ -12,7 +12,7 @@ import SwiftUI
 struct CodeReviewFeedbackCard: View {
   let content: String
   let timestamp: Date
-  var onNavigateToFile: ((String, Int) -> Void)? = nil  // (filePath, lineNumber)
+  var onNavigateToFile: ((String, Int) -> Void)? // (filePath, lineNumber)
 
   private var sections: [ReviewFeedbackSection] {
     parseReviewFeedback(content)
@@ -23,7 +23,7 @@ struct CodeReviewFeedbackCard: View {
   }
 
   @State private var collapsedFiles: Set<String> = []
-  @State private var expandedFiles: Set<String> = []  // Files showing all comments (past initial cap)
+  @State private var expandedFiles: Set<String> = [] // Files showing all comments (past initial cap)
 
   private let initialCommentCap = 3
 
@@ -332,11 +332,11 @@ private struct TagBadgeView: View {
 
   private var color: Color {
     switch tag.lowercased() {
-    case "risk": Color.diffRemovedAccent
-    case "nit": Color.white.opacity(0.5)
-    case "scope": Color.accent
-    case "clarity": Color.statusQuestion
-    default: Color.statusQuestion
+      case "risk": Color.diffRemovedAccent
+      case "nit": Color.white.opacity(0.5)
+      case "scope": Color.accent
+      case "clarity": Color.statusQuestion
+      default: Color.statusQuestion
     }
   }
 
@@ -399,34 +399,33 @@ private struct DiffCodeLineView: View {
 
   private var edgeColor: Color {
     switch lineType {
-    case .added: Color.diffAddedEdge
-    case .removed: Color.diffRemovedEdge
-    case .context: .clear
+      case .added: Color.diffAddedEdge
+      case .removed: Color.diffRemovedEdge
+      case .context: .clear
     }
   }
 
   private var prefixColor: Color {
     switch lineType {
-    case .added: Color.diffAddedAccent
-    case .removed: Color.diffRemovedAccent
-    case .context: .clear
+      case .added: Color.diffAddedAccent
+      case .removed: Color.diffRemovedAccent
+      case .context: .clear
     }
   }
 
   private var bgColor: Color {
     switch lineType {
-    case .added: Color.diffAddedBg
-    case .removed: Color.diffRemovedBg
-    case .context: .clear
+      case .added: Color.diffAddedBg
+      case .removed: Color.diffRemovedBg
+      case .context: .clear
     }
   }
 
   private var highlightedContent: AttributedString {
-    let content: String
-    if codeLine.hasPrefix("+") || codeLine.hasPrefix("-") || codeLine.hasPrefix(" ") {
-      content = String(codeLine.dropFirst(1))
+    let content: String = if codeLine.hasPrefix("+") || codeLine.hasPrefix("-") || codeLine.hasPrefix(" ") {
+      String(codeLine.dropFirst(1))
     } else {
-      content = codeLine
+      codeLine
     }
     return SyntaxHighlighter.highlightLine(content, language: language)
   }
@@ -498,7 +497,7 @@ private func parseReviewFeedback(_ content: String) -> [ReviewFeedbackSection] {
 
     // Skip the top-level header
     if trimmed.hasPrefix("## Code Review Feedback") { continue }
-    if trimmed.isEmpty && currentComment == nil { continue }
+    if trimmed.isEmpty, currentComment == nil { continue }
 
     // File header: ### path/to/file.ext
     if trimmed.hasPrefix("### ") {
@@ -564,19 +563,20 @@ private func parseReviewFeedback(_ content: String) -> [ReviewFeedbackSection] {
 private func parseLineRef(_ line: String) -> (lineRef: String, tag: String?) {
   // Extract between ** **
   guard let firstStar = line.range(of: "**"),
-        let secondStar = line.range(of: "**", range: firstStar.upperBound..<line.endIndex)
+        let secondStar = line.range(of: "**", range: firstStar.upperBound ..< line.endIndex)
   else {
     return (lineRef: line, tag: nil)
   }
 
-  let lineRef = String(line[firstStar.upperBound..<secondStar.lowerBound])
+  let lineRef = String(line[firstStar.upperBound ..< secondStar.lowerBound])
 
   // Extract [tag] if present
   let rest = String(line[secondStar.upperBound...])
   var tag: String?
   if let openBracket = rest.range(of: "["),
-     let closeBracket = rest.range(of: "]", range: openBracket.upperBound..<rest.endIndex) {
-    tag = String(rest[openBracket.upperBound..<closeBracket.lowerBound])
+     let closeBracket = rest.range(of: "]", range: openBracket.upperBound ..< rest.endIndex)
+  {
+    tag = String(rest[openBracket.upperBound ..< closeBracket.lowerBound])
   }
 
   return (lineRef: lineRef, tag: tag)

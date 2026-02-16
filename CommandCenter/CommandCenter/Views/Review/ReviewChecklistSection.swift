@@ -13,7 +13,7 @@ struct ReviewChecklistSection: View {
   let selectedIds: Set<String>
   let onNavigate: (ServerReviewComment) -> Void
   let onToggleSelection: (ServerReviewComment) -> Void
-  var onSendReview: (() -> Void)? = nil
+  var onSendReview: (() -> Void)?
 
   @State private var showAll = false
 

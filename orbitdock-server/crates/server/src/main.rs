@@ -3,6 +3,7 @@
 //! Mission control for AI coding agents.
 //! Provides real-time session management via WebSocket.
 
+mod ai_naming;
 mod codex_auth;
 mod codex_session;
 mod logging;
@@ -120,6 +121,8 @@ async fn async_main() -> anyhow::Result<()> {
                     project_name,
                     model,
                     custom_name,
+                    summary,
+                    first_prompt,
                     codex_integration_mode,
                     codex_thread_id,
                     started_at,
@@ -153,6 +156,8 @@ async fn async_main() -> anyhow::Result<()> {
                     project_name,
                     model.clone(),
                     custom_name,
+                    summary,
+                    first_prompt.clone(),
                     match status.as_str() {
                         "ended" => SessionStatus::Ended,
                         _ => SessionStatus::Active,
@@ -346,6 +351,26 @@ async fn async_main() -> anyhow::Result<()> {
                 error = %e,
                 "Failed to load sessions for restoration"
             );
+        }
+    }
+
+    // Backfill AI names for active sessions that have first_prompt but no summary
+    {
+        let summaries = state.get_session_summaries();
+        for s in &summaries {
+            if s.status == SessionStatus::Active && s.summary.is_none() && s.first_prompt.is_some()
+            {
+                if let Some(actor) = state.get_session(&s.id) {
+                    if state.naming_guard().try_claim(&s.id) {
+                        ai_naming::spawn_naming_task(
+                            s.id.clone(),
+                            s.first_prompt.clone().unwrap(),
+                            actor,
+                            persist_tx.clone(),
+                        );
+                    }
+                }
+            }
         }
     }
 

@@ -11,7 +11,7 @@ struct CollapsibleSection<Content: View>: View {
   let title: String
   let icon: String
   @Binding var isExpanded: Bool
-  var badge: String? = nil
+  var badge: String?
   var badgeColor: Color = .accent
   @ViewBuilder let content: () -> Content
 

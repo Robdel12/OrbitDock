@@ -3,8 +3,8 @@
 //  OrbitDock
 //
 
-import SwiftUI
 import OSLog
+import SwiftUI
 
 struct SessionDetailView: View {
   @Environment(ServerAppState.self) private var serverState
@@ -207,35 +207,35 @@ struct SessionDetailView: View {
       guard keyPress.modifiers == [.command, .option] else { return .ignored }
 
       switch keyPress.key {
-      case KeyEquivalent("1"):
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-          railPreset = .planFocused
-          showTurnSidebar = true
-        }
-        return .handled
+        case KeyEquivalent("1"):
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            railPreset = .planFocused
+            showTurnSidebar = true
+          }
+          return .handled
 
-      case KeyEquivalent("2"):
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-          railPreset = .reviewFocused
-          showTurnSidebar = true
-        }
-        return .handled
+        case KeyEquivalent("2"):
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            railPreset = .reviewFocused
+            showTurnSidebar = true
+          }
+          return .handled
 
-      case KeyEquivalent("3"):
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-          railPreset = .triage
-          showTurnSidebar = true
-        }
-        return .handled
+        case KeyEquivalent("3"):
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+            railPreset = .triage
+            showTurnSidebar = true
+          }
+          return .handled
 
-      case KeyEquivalent("r"):
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-          showTurnSidebar.toggle()
-        }
-        return .handled
+        case KeyEquivalent("r"):
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            showTurnSidebar.toggle()
+          }
+          return .handled
 
-      default:
-        return .ignored
+        default:
+          return .ignored
       }
     }
     // Layout keyboard shortcuts
@@ -409,7 +409,6 @@ struct SessionDetailView: View {
     .background(Color.backgroundSecondary)
   }
 
-
   // MARK: - Conversation Content
 
   private var conversationContent: some View {
@@ -525,7 +524,6 @@ struct SessionDetailView: View {
     return hasPlan || hasDiff || hasMcp || hasSkills
   }
 
-
   private var currentTool: String? {
     session.lastTool
   }
@@ -570,7 +568,10 @@ struct SessionDetailView: View {
   }
 
   private func openInITerm() {
-    logger.info("focus terminal clicked session=\(session.id, privacy: .public) provider=\(String(describing: session.provider), privacy: .public)")
+    logger
+      .info(
+        "focus terminal clicked session=\(session.id, privacy: .public) provider=\(String(describing: session.provider), privacy: .public)"
+      )
     TerminalService.shared.focusSession(session)
   }
 
@@ -600,7 +601,9 @@ struct SessionDetailView: View {
     // Build diff model for code extraction
     let diffModel: DiffModel? = {
       var parts: [String] = []
-      for td in obs.turnDiffs { parts.append(td.diff) }
+      for td in obs.turnDiffs {
+        parts.append(td.diff)
+      }
       if let current = obs.diff, !current.isEmpty {
         if obs.turnDiffs.last?.diff != current { parts.append(current) }
       }
@@ -626,11 +629,10 @@ struct SessionDetailView: View {
       lines.append("### \(filePath)")
 
       for comment in comments.sorted(by: { $0.lineStart < $1.lineStart }) {
-        let lineRef: String
-        if let end = comment.lineEnd, end != comment.lineStart {
-          lineRef = "Lines \(comment.lineStart)–\(end)"
+        let lineRef = if let end = comment.lineEnd, end != comment.lineStart {
+          "Lines \(comment.lineStart)–\(end)"
         } else {
-          lineRef = "Line \(comment.lineStart)"
+          "Line \(comment.lineStart)"
         }
 
         let tagStr = comment.tag.map { " [\($0.rawValue)]" } ?? ""
@@ -645,12 +647,12 @@ struct SessionDetailView: View {
           for hunk in file.hunks {
             for line in hunk.lines {
               guard let newNum = line.newLineNum else {
-                if !extracted.isEmpty && line.type == .removed {
+                if !extracted.isEmpty, line.type == .removed {
                   extracted.append("\(line.prefix)\(line.content)")
                 }
                 continue
               }
-              if newNum >= start && newNum <= end {
+              if newNum >= start, newNum <= end {
                 extracted.append("\(line.prefix)\(line.content)")
               }
             }

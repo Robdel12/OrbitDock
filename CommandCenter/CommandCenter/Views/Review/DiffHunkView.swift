@@ -14,15 +14,15 @@ struct DiffHunkView<AfterLineContent: View>: View {
   let language: String
   let hunkIndex: Int
   var fileIndex: Int = 0
-  var cursorLineIndex: Int? = nil
+  var cursorLineIndex: Int?
   var isCursorOnHeader: Bool = false
   var isHunkCollapsed: Bool = false
-  var commentedLines: Set<Int> = []    // newLineNum values with comments
-  var selectionLines: Set<Int> = []    // Line indices in mark-to-cursor range
-  var composerLineRange: ClosedRange<Int>? = nil  // Line indices with active composer
-  var onLineComment: ((Int, ClosedRange<Int>) -> Void)? = nil  // (clickedLineIdx, smartRange)
-  var onLineDragChanged: ((Int, Int) -> Void)? = nil            // (anchorLineIdx, currentLineIdx)
-  var onLineDragEnded: ((Int, Int) -> Void)? = nil              // (startLineIdx, endLineIdx)
+  var commentedLines: Set<Int> = [] // newLineNum values with comments
+  var selectionLines: Set<Int> = [] // Line indices in mark-to-cursor range
+  var composerLineRange: ClosedRange<Int>? // Line indices with active composer
+  var onLineComment: ((Int, ClosedRange<Int>) -> Void)? // (clickedLineIdx, smartRange)
+  var onLineDragChanged: ((Int, Int) -> Void)? // (anchorLineIdx, currentLineIdx)
+  var onLineDragEnded: ((Int, Int) -> Void)? // (startLineIdx, endLineIdx)
   @ViewBuilder var afterLine: (Int, DiffLine) -> AfterLineContent
 
   // Diff colors from design tokens
@@ -230,21 +230,21 @@ struct DiffHunkView<AfterLineContent: View>: View {
   /// If the line is a context line, returns just that single line.
   private func connectedBlockRange(for index: Int) -> ClosedRange<Int> {
     let line = hunk.lines[index]
-    guard line.type != .context else { return index...index }
+    guard line.type != .context else { return index ... index }
 
     // Walk backward to find start of change block
     var start = index
-    while start > 0 && hunk.lines[start - 1].type != .context {
+    while start > 0, hunk.lines[start - 1].type != .context {
       start -= 1
     }
 
     // Walk forward to find end of change block
     var end = index
-    while end < hunk.lines.count - 1 && hunk.lines[end + 1].type != .context {
+    while end < hunk.lines.count - 1, hunk.lines[end + 1].type != .context {
       end += 1
     }
 
-    return start...end
+    return start ... end
   }
 
   // MARK: - Inline Highlights
@@ -267,7 +267,11 @@ struct DiffHunkView<AfterLineContent: View>: View {
     }
   }
 
-  private func applyInlineHighlights(_ base: AttributedString, ranges: [Range<String.Index>], lineType: DiffLineType) -> AttributedString {
+  private func applyInlineHighlights(
+    _ base: AttributedString,
+    ranges: [Range<String.Index>],
+    lineType: DiffLineType
+  ) -> AttributedString {
     var attributed = base
     let highlightColor = lineType == .added ? Color.diffAddedHighlight : Color.diffRemovedHighlight
 
@@ -308,25 +312,25 @@ struct DiffHunkView<AfterLineContent: View>: View {
 
   private func edgeBarColor(for type: DiffLineType) -> Color {
     switch type {
-    case .added: addedEdge
-    case .removed: removedEdge
-    case .context: .clear
+      case .added: addedEdge
+      case .removed: removedEdge
+      case .context: .clear
     }
   }
 
   private func prefixColor(for type: DiffLineType) -> Color {
     switch type {
-    case .added: addedAccent
-    case .removed: removedAccent
-    case .context: .clear
+      case .added: addedAccent
+      case .removed: removedAccent
+      case .context: .clear
     }
   }
 
   private func backgroundColor(for type: DiffLineType) -> Color {
     switch type {
-    case .added: addedBg
-    case .removed: removedBg
-    case .context: .clear
+      case .added: addedBg
+      case .removed: removedBg
+      case .context: .clear
     }
   }
 }

@@ -5,8 +5,8 @@
 //  Created by Robert DeLuca on 1/30/26.
 //
 
-import XCTest
 import Vizzly
+import XCTest
 
 final class CommandCenterUITests: XCTestCase {
   let app = XCUIApplication()

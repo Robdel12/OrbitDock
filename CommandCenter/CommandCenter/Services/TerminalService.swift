@@ -35,7 +35,10 @@ final class TerminalService {
     guard let terminalId = session.terminalSessionId, !terminalId.isEmpty,
           isITermSession(session.terminalApp)
     else {
-      logger.error("sendInput skipped unsupported terminal app session=\(session.id, privacy: .public) terminalApp=\(session.terminalApp ?? "nil", privacy: .public)")
+      logger
+        .error(
+          "sendInput skipped unsupported terminal app session=\(session.id, privacy: .public) terminalApp=\(session.terminalApp ?? "nil", privacy: .public)"
+        )
       completion?(false)
       return
     }
@@ -82,7 +85,10 @@ final class TerminalService {
         case let .success(output):
           completion?(output == "sent")
         case let .failure(error):
-          self.logger.error("sendInput AppleScript failed session=\(session.id, privacy: .public) terminalId=\(terminalId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+          self.logger
+            .error(
+              "sendInput AppleScript failed session=\(session.id, privacy: .public) terminalId=\(terminalId, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
           completion?(false)
       }
     }
@@ -91,7 +97,10 @@ final class TerminalService {
   // MARK: - Private Implementation
 
   private func focusActiveSession(_ session: Session) {
-    logger.info("focus requested session=\(session.id, privacy: .public) terminalApp=\(session.terminalApp ?? "nil", privacy: .public) terminalId=\(session.terminalSessionId ?? "nil", privacy: .public)")
+    logger
+      .info(
+        "focus requested session=\(session.id, privacy: .public) terminalApp=\(session.terminalApp ?? "nil", privacy: .public) terminalId=\(session.terminalSessionId ?? "nil", privacy: .public)"
+      )
 
     // First try by terminal session ID (most reliable)
     if let terminalId = session.terminalSessionId, !terminalId.isEmpty,
@@ -102,7 +111,8 @@ final class TerminalService {
           // Fallback to path-based matching
           self?.focusByPath(session.projectPath) { found in
             if !found {
-              self?.logger.error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_id_or_path")
+              self?.logger
+                .error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_id_or_path")
             }
           }
         }
@@ -111,7 +121,8 @@ final class TerminalService {
       // No terminal ID, try path-based matching
       focusByPath(session.projectPath) { found in
         if !found {
-          self.logger.error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_path_no_terminal_id")
+          self.logger
+            .error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_path_no_terminal_id")
         }
       }
     }
@@ -132,7 +143,9 @@ final class TerminalService {
                 set aTab to tab tabIdx of aWindow
                 repeat with aSession in sessions of aTab
                     try
-                        if (unique ID of aSession) is "\(escapedTerminalUUID)" or "\(escapedTerminalId)" contains (unique ID of aSession) then
+                        if (unique ID of aSession) is "\(escapedTerminalUUID)" or "\(
+                          escapedTerminalId
+                        )" contains (unique ID of aSession) then
                             -- Bring window to front first
                             set index of aWindow to 1
                             -- Select the tab
@@ -155,7 +168,10 @@ final class TerminalService {
         case let .success(output):
           completion(output?.hasPrefix("found") ?? false)
         case let .failure(error):
-          self.logger.error("focusBySessionId AppleScript failed terminalId=\(terminalId, privacy: .public) terminalUUID=\(terminalUUID, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+          self.logger
+            .error(
+              "focusBySessionId AppleScript failed terminalId=\(terminalId, privacy: .public) terminalUUID=\(terminalUUID, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
           completion(false)
       }
     }
@@ -197,7 +213,10 @@ final class TerminalService {
         case let .success(output):
           completion(output == "found")
         case let .failure(error):
-          self.logger.error("focusByPath AppleScript failed path=\(projectPath, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+          self.logger
+            .error(
+              "focusByPath AppleScript failed path=\(projectPath, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
           completion(false)
       }
     }
@@ -219,7 +238,10 @@ final class TerminalService {
 
     appleScript.execute(script) { result in
       if case let .failure(error) = result {
-        self.logger.error("openNewTerminal AppleScript failed session=\(session.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+        self.logger
+          .error(
+            "openNewTerminal AppleScript failed session=\(session.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+          )
       }
     }
   }

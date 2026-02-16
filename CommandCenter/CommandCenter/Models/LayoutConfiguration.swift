@@ -14,22 +14,27 @@ enum LayoutConfiguration: String, CaseIterable {
   case reviewOnly
   case split
 
-  var showsConversation: Bool { self != .reviewOnly }
-  var showsReview: Bool { self != .conversationOnly }
+  var showsConversation: Bool {
+    self != .reviewOnly
+  }
+
+  var showsReview: Bool {
+    self != .conversationOnly
+  }
 
   var label: String {
     switch self {
-    case .conversationOnly: "Conversation"
-    case .reviewOnly: "Review"
-    case .split: "Split"
+      case .conversationOnly: "Conversation"
+      case .reviewOnly: "Review"
+      case .split: "Split"
     }
   }
 
   var icon: String {
     switch self {
-    case .conversationOnly: "text.bubble"
-    case .reviewOnly: "doc.text.magnifyingglass"
-    case .split: "rectangle.split.2x1"
+      case .conversationOnly: "text.bubble"
+      case .reviewOnly: "doc.text.magnifyingglass"
+      case .split: "rectangle.split.2x1"
     }
   }
 }
@@ -43,17 +48,17 @@ enum RailPreset: String, CaseIterable {
 
   var label: String {
     switch self {
-    case .planFocused: "Plan"
-    case .reviewFocused: "Review"
-    case .triage: "Triage"
+      case .planFocused: "Plan"
+      case .reviewFocused: "Review"
+      case .triage: "Triage"
     }
   }
 
   var icon: String {
     switch self {
-    case .planFocused: "list.bullet.clipboard"
-    case .reviewFocused: "doc.badge.plus"
-    case .triage: "square.stack"
+      case .planFocused: "list.bullet.clipboard"
+      case .reviewFocused: "doc.badge.plus"
+      case .triage: "square.stack"
     }
   }
 
@@ -97,31 +102,31 @@ extension EnvironmentValues {
 // MARK: - Input Mode
 
 enum InputMode: Equatable {
-  case prompt       // Session idle, ready for new prompt
-  case steer        // Session working, steering active turn
-  case reviewNotes  // User manually switched to send review notes
+  case prompt // Session idle, ready for new prompt
+  case steer // Session working, steering active turn
+  case reviewNotes // User manually switched to send review notes
 
   var label: String {
     switch self {
-    case .prompt: "New Prompt"
-    case .steer: "Steering Active Turn"
-    case .reviewNotes: "Review Notes"
+      case .prompt: "New Prompt"
+      case .steer: "Steering Active Turn"
+      case .reviewNotes: "Review Notes"
     }
   }
 
   var color: Color {
     switch self {
-    case .prompt: .accent
-    case .steer: .accent
-    case .reviewNotes: .statusQuestion
+      case .prompt: .accent
+      case .steer: .accent
+      case .reviewNotes: .statusQuestion
     }
   }
 
   var icon: String {
     switch self {
-    case .prompt: "text.bubble"
-    case .steer: "arrow.uturn.right"
-    case .reviewNotes: "pencil.and.outline"
+      case .prompt: "text.bubble"
+      case .steer: "arrow.uturn.right"
+      case .reviewNotes: "pencil.and.outline"
     }
   }
 }

@@ -9,7 +9,7 @@ import SwiftUI
 
 struct SteerContextIndicator: View {
   let mode: InputMode
-  var onOverride: (() -> Void)? = nil
+  var onOverride: (() -> Void)?
 
   var body: some View {
     HStack(spacing: 8) {

@@ -420,34 +420,34 @@ struct ModelEffortPopover: View {
 
   private func mappedProvider(for raw: String) -> ProviderKey? {
     switch raw {
-    case "openai": .openai
-    case "anthropic": .anthropic
-    case "google", "gemini": .google
-    case "xai": .xai
-    case "meta": .meta
-    default: nil
+      case "openai": .openai
+      case "anthropic": .anthropic
+      case "google", "gemini": .google
+      case "xai": .xai
+      case "meta": .meta
+      default: nil
     }
   }
 
   private func providerSortOrder(for providerID: String) -> Int {
     switch providerID {
-    case "openai": 0
-    case "anthropic": 1
-    case "google": 2
-    case "xai": 3
-    case "meta": 4
-    default: 99
+      case "openai": 0
+      case "anthropic": 1
+      case "google": 2
+      case "xai": 3
+      case "meta": 4
+      default: 99
     }
   }
 
   private func providerTint(for providerID: String) -> Color {
     switch providerID {
-    case "openai": .providerCodex
-    case "anthropic": .providerClaude
-    case "google": .providerGemini
-    case "xai": .statusReply
-    case "meta": .toolTodo
-    default: .accentMuted
+      case "openai": .providerCodex
+      case "anthropic": .providerClaude
+      case "google": .providerGemini
+      case "xai": .statusReply
+      case "meta": .toolTodo
+      default: .accentMuted
     }
   }
 }

@@ -9,7 +9,7 @@ import SwiftUI
 
 struct CapabilityBadge: View {
   let label: String
-  var icon: String? = nil
+  var icon: String?
   var color: Color = .accent
 
   var body: some View {
@@ -38,37 +38,37 @@ enum SessionCapability: Identifiable {
 
   var id: String {
     switch self {
-    case .direct: "direct"
-    case .passive: "passive"
-    case .canSteer: "canSteer"
-    case .canApprove: "canApprove"
+      case .direct: "direct"
+      case .passive: "passive"
+      case .canSteer: "canSteer"
+      case .canApprove: "canApprove"
     }
   }
 
   var label: String {
     switch self {
-    case .direct: "Direct"
-    case .passive: "Passive"
-    case .canSteer: "Steer"
-    case .canApprove: "Approve"
+      case .direct: "Direct"
+      case .passive: "Passive"
+      case .canSteer: "Steer"
+      case .canApprove: "Approve"
     }
   }
 
   var icon: String? {
     switch self {
-    case .direct: "bolt.fill"
-    case .passive: "eye"
-    case .canSteer: "arrow.uturn.right"
-    case .canApprove: "lock.open.fill"
+      case .direct: "bolt.fill"
+      case .passive: "eye"
+      case .canSteer: "arrow.uturn.right"
+      case .canApprove: "lock.open.fill"
     }
   }
 
   var color: Color {
     switch self {
-    case .direct: .accent
-    case .passive: .secondary
-    case .canSteer: .accent
-    case .canApprove: .statusPermission
+      case .direct: .accent
+      case .passive: .secondary
+      case .canSteer: .accent
+      case .canApprove: .statusPermission
     }
   }
 

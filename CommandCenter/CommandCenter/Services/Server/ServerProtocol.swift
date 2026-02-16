@@ -178,6 +178,8 @@ struct ServerSessionSummary: Codable, Identifiable {
   let projectName: String?
   let model: String?
   let customName: String?
+  let summary: String?
+  let firstPrompt: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let tokenUsage: ServerTokenUsage?
@@ -199,6 +201,8 @@ struct ServerSessionSummary: Codable, Identifiable {
     case projectName = "project_name"
     case model
     case customName = "custom_name"
+    case summary
+    case firstPrompt = "first_prompt"
     case status
     case workStatus = "work_status"
     case tokenUsage = "token_usage"
@@ -278,6 +282,8 @@ struct ServerSessionState: Codable, Identifiable {
   let projectName: String?
   let model: String?
   let customName: String?
+  let summary: String?
+  let firstPrompt: String?
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let messages: [ServerMessage]
@@ -307,6 +313,8 @@ struct ServerSessionState: Codable, Identifiable {
     case projectName = "project_name"
     case model
     case customName = "custom_name"
+    case summary
+    case firstPrompt = "first_prompt"
     case status
     case workStatus = "work_status"
     case messages
@@ -338,6 +346,8 @@ struct ServerSessionState: Codable, Identifiable {
     projectName = try container.decodeIfPresent(String.self, forKey: .projectName)
     model = try container.decodeIfPresent(String.self, forKey: .model)
     customName = try container.decodeIfPresent(String.self, forKey: .customName)
+    summary = try container.decodeIfPresent(String.self, forKey: .summary)
+    firstPrompt = try container.decodeIfPresent(String.self, forKey: .firstPrompt)
     status = try container.decode(ServerSessionStatus.self, forKey: .status)
     workStatus = try container.decode(ServerWorkStatus.self, forKey: .workStatus)
     messages = try container.decode([ServerMessage].self, forKey: .messages)
@@ -371,6 +381,8 @@ struct ServerStateChanges: Codable {
   let currentDiff: String??
   let currentPlan: String??
   let customName: String??
+  let summary: String??
+  let firstPrompt: String??
   let codexIntegrationMode: ServerCodexIntegrationMode??
   let approvalPolicy: String??
   let sandboxMode: String??
@@ -389,6 +401,8 @@ struct ServerStateChanges: Codable {
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
     case customName = "custom_name"
+    case summary
+    case firstPrompt = "first_prompt"
     case codexIntegrationMode = "codex_integration_mode"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"

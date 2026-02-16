@@ -342,9 +342,13 @@ private struct ServerEntry: Identifiable {
   let authStatus: ServerMcpAuthStatus?
   let error: String?
 
-  var id: String { name }
+  var id: String {
+    name
+  }
 
-  var sortOrder: Int { status.rawValue }
+  var sortOrder: Int {
+    status.rawValue
+  }
 }
 
 // MARK: - Spinning Dot Animation

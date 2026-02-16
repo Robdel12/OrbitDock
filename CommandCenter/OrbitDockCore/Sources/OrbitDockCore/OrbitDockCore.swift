@@ -10,8 +10,8 @@
 @_exported import struct Foundation.Date
 @_exported import struct Foundation.URL
 
-// Database
+/// Database
 public typealias Database = CLIDatabase
 
-// Git
+/// Git
 public typealias Git = GitOperations

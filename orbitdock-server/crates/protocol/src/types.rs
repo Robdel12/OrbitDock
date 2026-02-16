@@ -155,6 +155,10 @@ pub struct SessionSummary {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_prompt: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     #[serde(default)]
@@ -195,6 +199,10 @@ pub struct SessionState {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_prompt: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     pub messages: Vec<Message>,
@@ -245,6 +253,10 @@ pub struct StateChanges {
     pub current_plan: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_name: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_prompt: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<Option<CodexIntegrationMode>>,
     #[serde(skip_serializing_if = "Option::is_none")]

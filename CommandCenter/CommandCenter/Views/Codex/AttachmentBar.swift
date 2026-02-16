@@ -19,9 +19,9 @@ struct AttachedImage: Identifiable, Equatable {
 }
 
 struct AttachedMention: Identifiable, Equatable {
-  let id: String    // relative path
-  let name: String  // filename
-  let path: String  // absolute path
+  let id: String // relative path
+  let name: String // filename
+  let path: String // absolute path
 }
 
 struct AttachmentBar: View {
@@ -47,7 +47,6 @@ struct AttachmentBar: View {
     .padding(.vertical, 6)
   }
 
-  @ViewBuilder
   private func imageChip(_ image: AttachedImage) -> some View {
     ZStack(alignment: .topTrailing) {
       Image(nsImage: image.thumbnail)
@@ -62,7 +61,6 @@ struct AttachmentBar: View {
     }
   }
 
-  @ViewBuilder
   private func mentionChip(_ mention: AttachedMention) -> some View {
     HStack(spacing: 4) {
       Image(systemName: fileIcon(for: mention.name))
@@ -89,7 +87,6 @@ struct AttachmentBar: View {
     .help(mention.path)
   }
 
-  @ViewBuilder
   private func removeButton(action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Image(systemName: "xmark.circle.fill")
@@ -104,15 +101,15 @@ struct AttachmentBar: View {
   private func fileIcon(for name: String) -> String {
     let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
     switch ext {
-    case "swift": return "swift"
-    case "rs": return "gearshape.2"
-    case "js", "ts", "jsx", "tsx": return "curlybraces"
-    case "py": return "chevron.left.forwardslash.chevron.right"
-    case "sh", "bash", "zsh": return "terminal"
-    case "json", "yaml", "yml", "toml": return "doc.text"
-    case "md", "txt": return "doc.plaintext"
-    case "html", "css": return "globe"
-    default: return "doc"
+      case "swift": return "swift"
+      case "rs": return "gearshape.2"
+      case "js", "ts", "jsx", "tsx": return "curlybraces"
+      case "py": return "chevron.left.forwardslash.chevron.right"
+      case "sh", "bash", "zsh": return "terminal"
+      case "json", "yaml", "yml", "toml": return "doc.text"
+      case "md", "txt": return "doc.plaintext"
+      case "html", "css": return "globe"
+      default: return "doc"
     }
   }
 }

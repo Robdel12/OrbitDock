@@ -16,7 +16,7 @@ struct InstrumentPanel: View {
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
   @Binding var showApprovalHistory: Bool
-  var onOpenSkills: (() -> Void)? = nil
+  var onOpenSkills: (() -> Void)?
 
   @Environment(ServerAppState.self) private var serverState
 
@@ -39,10 +39,12 @@ struct InstrumentPanel: View {
   @State private var mentionQuery = ""
   @State private var mentionIndex = 0
 
-  // Input mode
+  /// Input mode
   @State private var manualReviewMode = false
 
-  private var sessionId: String { session.id }
+  private var sessionId: String {
+    session.id
+  }
 
   private var inputMode: InputMode {
     if manualReviewMode { return .reviewNotes }
@@ -52,9 +54,9 @@ struct InstrumentPanel: View {
 
   private var composerBorderColor: Color {
     switch inputMode {
-    case .steer: .composerSteer
-    case .reviewNotes: .composerReview
-    default: .composerPrompt
+      case .steer: .composerSteer
+      case .reviewNotes: .composerReview
+      default: .composerPrompt
     }
   }
 
@@ -71,7 +73,7 @@ struct InstrumentPanel: View {
   }
 
   private var availableSkills: [ServerSkillMetadata] {
-    serverState.session(sessionId).skills.filter { $0.enabled }
+    serverState.session(sessionId).skills.filter(\.enabled)
   }
 
   private var filteredSkills: [ServerSkillMetadata] {
@@ -85,7 +87,7 @@ struct InstrumentPanel: View {
   }
 
   private var hasInlineSkills: Bool {
-    let names = Set(availableSkills.map { $0.name })
+    let names = Set(availableSkills.map(\.name))
     return message.components(separatedBy: .whitespacesAndNewlines).contains { word in
       word.hasPrefix("$") && names.contains(String(word.dropFirst()))
     }
@@ -322,7 +324,10 @@ struct InstrumentPanel: View {
             .foregroundStyle(Color.composerSteer)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(Color.composerSteer.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+            .background(
+              Color.composerSteer.opacity(OpacityTier.light),
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
         }
 
         TextField(isSessionWorking ? "Steer the current turn..." : "Send a message...", text: $message, axis: .vertical)
@@ -507,11 +512,19 @@ struct InstrumentPanel: View {
         }
 
         // Action buttons — individual, not cramped
-        stripButton(icon: "arrow.uturn.backward", help: "Undo last turn", disabled: serverState.session(sessionId).undoInProgress) {
+        stripButton(
+          icon: "arrow.uturn.backward",
+          help: "Undo last turn",
+          disabled: serverState.session(sessionId).undoInProgress
+        ) {
           serverState.undoLastTurn(sessionId: sessionId)
         }
 
-        stripButton(icon: "arrow.triangle.branch", help: "Fork conversation", disabled: serverState.session(sessionId).forkInProgress) {
+        stripButton(
+          icon: "arrow.triangle.branch",
+          help: "Fork conversation",
+          disabled: serverState.session(sessionId).forkInProgress
+        ) {
           serverState.forkSession(sessionId: sessionId)
         }
 
@@ -717,7 +730,8 @@ struct InstrumentPanel: View {
     Button(action: action) {
       Image(systemName: icon)
         .font(.system(size: TypeScale.code, weight: .medium))
-        .foregroundStyle(disabled ? AnyShapeStyle(.quaternary) : stripHover == icon ? AnyShapeStyle(Color.accent) : AnyShapeStyle(.secondary))
+        .foregroundStyle(disabled ? AnyShapeStyle(.quaternary) : stripHover == icon ? AnyShapeStyle(Color.accent) :
+          AnyShapeStyle(.secondary))
         .frame(width: 26, height: 26)
         .background(
           stripHover == icon ? Color.surfaceHover : Color.clear,
@@ -747,7 +761,10 @@ struct InstrumentPanel: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
-        .background(Color.accent.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .background(
+          Color.accent.opacity(OpacityTier.light),
+          in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        )
         .foregroundStyle(Color.accent)
       }
       .buttonStyle(.plain)
@@ -867,7 +884,7 @@ struct InstrumentPanel: View {
       return ServerSkillInput(name: skill.name, path: skill.path)
     }
 
-    let imageInputs = attachedImages.map { $0.serverInput }
+    let imageInputs = attachedImages.map(\.serverInput)
 
     serverState.sendMessage(
       sessionId: sessionId,
@@ -894,7 +911,7 @@ struct InstrumentPanel: View {
 
     let afterDollar = text[text.index(after: dollarIdx)...]
 
-    if afterDollar.contains(where: { $0.isWhitespace }) {
+    if afterDollar.contains(where: \.isWhitespace) {
       completionActive = false
       return
     }
@@ -927,7 +944,7 @@ struct InstrumentPanel: View {
   }
 
   private func extractInlineSkillNames(from text: String) -> [String] {
-    let skillNameSet = Set(availableSkills.map { $0.name })
+    let skillNameSet = Set(availableSkills.map(\.name))
     var names: [String] = []
 
     for word in text.components(separatedBy: .whitespacesAndNewlines) {
@@ -960,7 +977,7 @@ struct InstrumentPanel: View {
 
     let afterAt = text[text.index(after: atIdx)...]
 
-    if afterAt.contains(where: { $0.isWhitespace }) {
+    if afterAt.contains(where: \.isWhitespace) {
       mentionActive = false
       return
     }

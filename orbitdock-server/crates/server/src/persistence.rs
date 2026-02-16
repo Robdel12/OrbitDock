@@ -99,6 +99,9 @@ pub enum PersistCommand {
         custom_name: Option<String>,
     },
 
+    /// Set AI-generated summary for a session
+    SetSummary { session_id: String, summary: String },
+
     /// Persist session autonomy configuration
     SetSessionConfig {
         session_id: String,
@@ -667,6 +670,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             conn.execute(
                 "UPDATE sessions SET custom_name = ?, last_activity_at = ? WHERE id = ?",
                 params![custom_name, chrono_now(), session_id],
+            )?;
+        }
+
+        PersistCommand::SetSummary {
+            session_id,
+            summary,
+        } => {
+            conn.execute(
+                "UPDATE sessions SET summary = ?, last_activity_at = ? WHERE id = ?",
+                params![summary, chrono_now(), session_id],
             )?;
         }
 
@@ -1401,6 +1414,8 @@ pub struct RestoredSession {
     pub project_name: Option<String>,
     pub model: Option<String>,
     pub custom_name: Option<String>,
+    pub summary: Option<String>,
+    pub first_prompt: Option<String>,
     pub codex_integration_mode: Option<String>,
     pub codex_thread_id: Option<String>,
     pub started_at: Option<String>,
@@ -1931,7 +1946,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
         // Restore recent sessions into runtime for active + history UI continuity.
         let mut stmt = conn.prepare(
-            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
                     COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
@@ -1942,7 +1957,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         )?;
 
         #[allow(clippy::type_complexity)]
-        let session_rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
+        let session_rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -1965,6 +1980,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     row.get(17)?,
                     row.get(18)?,
                     row.get(19)?,
+                    row.get(20)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -1972,7 +1988,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
         let mut sessions = Vec::new();
 
-        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
+        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window) in session_rows {
             let mut messages = load_messages_from_db(&conn, &id)?;
             if messages.is_empty() {
                 if let Some(path) = transcript_path.as_deref() {
@@ -2034,6 +2050,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 project_name,
                 model,
                 custom_name,
+                summary,
+                first_prompt,
                 codex_integration_mode,
                 codex_thread_id,
                 started_at,
@@ -2079,7 +2097,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         )?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(codex_input_tokens, 0), COALESCE(codex_output_tokens, 0),
                     COALESCE(codex_cached_tokens, 0), COALESCE(codex_context_window, 0)
              FROM sessions
@@ -2090,6 +2108,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         type DirectSessionRow = (
             String,
             String,
+            Option<String>,
             Option<String>,
             Option<String>,
             Option<String>,
@@ -2123,11 +2142,12 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     row.get(12)?,
                     row.get(13)?,
                     row.get(14)?,
+                    row.get(15)?,
                 ))
             })
             .optional()?;
 
-        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
+        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, codex_input_tokens, codex_output_tokens, codex_cached_tokens, codex_context_window)) = row else {
             return Ok(None);
         };
 
@@ -2174,6 +2194,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             project_name,
             model,
             custom_name,
+            summary,
+            first_prompt,
             codex_integration_mode: Some("direct".to_string()),
             codex_thread_id: None,
             started_at,

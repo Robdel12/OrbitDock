@@ -19,7 +19,8 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
-    ClientMessage, CodexIntegrationMode, Provider, ServerMessage, SessionState, TokenUsage,
+    ClientMessage, CodexIntegrationMode, Provider, ServerMessage, SessionState, StateChanges,
+    TokenUsage,
 };
 
 use crate::codex_session::{CodexAction, CodexSession};
@@ -752,6 +753,21 @@ async fn handle_client_message(
                     })
                     .await;
 
+                // Broadcast first_prompt delta so UI has immediate fallback label
+                if let Some(actor) = state.get_session(&session_id) {
+                    let raw_content = content.clone();
+                    let fp_changes = StateChanges {
+                        first_prompt: Some(Some(raw_content)),
+                        ..Default::default()
+                    };
+                    let _ = actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: fp_changes,
+                            persist_op: None,
+                        })
+                        .await;
+                }
+
                 if let Some(derived_name) = first_prompt {
                     if let Some(actor) = state.get_session(&session_id) {
                         let snap = actor.snapshot();
@@ -772,6 +788,16 @@ async fn handle_client_message(
                                     session: summary,
                                 });
                             }
+                        }
+
+                        // Spawn AI naming task (fire-and-forget)
+                        if state.naming_guard().try_claim(&session_id) {
+                            crate::ai_naming::spawn_naming_task(
+                                session_id.clone(),
+                                content.clone(),
+                                actor,
+                                state.persist().clone(),
+                            );
                         }
                     }
                 }
@@ -1511,6 +1537,8 @@ async fn handle_client_message(
                 restored.project_name,
                 restored.model.clone(),
                 restored.custom_name,
+                restored.summary,
+                restored.first_prompt,
                 orbitdock_protocol::SessionStatus::Active,
                 orbitdock_protocol::WorkStatus::Waiting,
                 restored.approval_policy.clone(),
@@ -1911,6 +1939,20 @@ async fn handle_client_message(
                     })
                     .await;
 
+                // Broadcast first_prompt delta so UI has immediate fallback label
+                if let Some(prompt_text) = prompt.as_deref() {
+                    let fp_changes = StateChanges {
+                        first_prompt: Some(Some(prompt_text.to_string())),
+                        ..Default::default()
+                    };
+                    let _ = actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: fp_changes,
+                            persist_op: None,
+                        })
+                        .await;
+                }
+
                 if let Some(prompt_text) = prompt.as_deref() {
                     let derived_name = name_from_first_prompt(prompt_text);
                     if let Some(derived_name) = derived_name {
@@ -1933,6 +1975,16 @@ async fn handle_client_message(
                                 });
                             }
                         }
+                    }
+
+                    // Spawn AI naming task (fire-and-forget)
+                    if state.naming_guard().try_claim(&session_id) {
+                        crate::ai_naming::spawn_naming_task(
+                            session_id.clone(),
+                            prompt_text.to_string(),
+                            actor.clone(),
+                            state.persist().clone(),
+                        );
                     }
                 }
             }
