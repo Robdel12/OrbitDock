@@ -62,6 +62,7 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - Use custom colors from Theme.swift - deep space backgrounds with nebula undertones
 - `Color.backgroundPrimary` (void black), `Color.backgroundSecondary` (nebula purple), etc.
 - `Color.accent` is the cyan orbit ring - use for active states, links, working sessions
+- Text hierarchy: `Color.textPrimary` / `.textSecondary` / `.textTertiary` / `.textQuaternary` — see "Text Contrast" section below
 - Status colors (5 distinct states):
   - `.statusWorking` (cyan) - Claude actively processing
   - `.statusPermission` (coral) - Needs tool approval - URGENT
@@ -370,9 +371,25 @@ swift build
 echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start
 ```
 
+## Text Contrast — Design System
+
+**NEVER use SwiftUI's hierarchical `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)`** — they resolve to ~30%/~20% opacity which is invisible on our dark backgrounds.
+
+Always use the explicit themed `Color` values defined in `Theme.swift`:
+
+| Token | Opacity | Use for |
+|-------|---------|---------|
+| `Color.textPrimary` | 92% | Headings, session names, key data values |
+| `Color.textSecondary` | 65% | Labels, supporting text, active descriptions |
+| `Color.textTertiary` | 50% | Meta info, timestamps, counts, monospaced data |
+| `Color.textQuaternary` | 38% | Lowest priority but still readable (hints, separators) |
+
+For `.foregroundStyle(.primary)` and `.foregroundStyle(.secondary)`, SwiftUI's built-in values are acceptable because they have enough contrast. But `.tertiary` and `.quaternary` must always use the explicit Color values above.
+
 ## Don't
 
-- Don't use `.foregroundColor(.tertiary)` - use `.foregroundStyle(.tertiary)` instead
+- Don't use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead
+- Don't use `.foregroundColor()` at all — use `.foregroundStyle()` with themed Color values
 - Don't use `.scaleEffect()` on ProgressView - use `.controlSize(.small)` instead
 - Don't use timers for animations - use SwiftUI animation modifiers
 - Don't store single @State values for data that varies by session - use dictionaries

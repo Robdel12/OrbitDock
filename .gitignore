@@ -30,3 +30,4 @@ node_modules/
 # Test results
 *.xcresult
 *.trace/
+.logs/
