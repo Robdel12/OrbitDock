@@ -36,6 +36,10 @@ final class SessionObservable {
   /// Review comments
   var reviewComments: [ServerReviewComment] = []
 
+  // Subagents
+  var subagents: [ServerSubagentInfo] = []
+  var subagentTools: [String: [ServerSubagentTool]] = [:] // keyed by subagent ID
+
   // Operation flags
   var undoInProgress: Bool = false
   var forkInProgress: Bool = false

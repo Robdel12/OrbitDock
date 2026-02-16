@@ -12,14 +12,6 @@ struct CommandBar: View {
   let sessions: [Session]
   @State private var showDetails = false
 
-  /// Legacy fallback stats from pre-server pipelines.
-  /// Used only when a session has no server-native token usage yet.
-  private var legacyStatsBySessionID: [String: TranscriptUsageStats] {
-    Dictionary(
-      uniqueKeysWithValues: MessageStore.shared.readAllSessionStats().map { ($0.sessionId, $0.stats) }
-    )
-  }
-
   /// Calculate today's stats
   private var todayStats: DetailedStats {
     let calendar = Calendar.current
@@ -27,12 +19,12 @@ struct CommandBar: View {
       guard let start = $0.startedAt else { return false }
       return calendar.isDateInToday(start)
     }
-    return DetailedStats.from(sessions: todaySessions, legacyStatsBySessionID: legacyStatsBySessionID)
+    return DetailedStats.from(sessions: todaySessions)
   }
 
   /// All-time aggregate stats
   private var trackedStats: DetailedStats {
-    DetailedStats.from(sessions: sessions, legacyStatsBySessionID: legacyStatsBySessionID)
+    DetailedStats.from(sessions: sessions)
   }
 
   var body: some View {
@@ -42,12 +34,12 @@ struct CommandBar: View {
         // Left: Today headline cost + supporting stats
         HStack(spacing: 5) {
           Text("TODAY")
-            .font(.system(size: 8, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
-            .tracking(0.8)
+            .tracking(1.0)
 
           Text(formatCostCompact(todayStats.cost))
-            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .font(.system(size: 18, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textPrimary)
 
           compactStat(value: "\(todayStats.sessionCount)", label: "sessions")
@@ -59,12 +51,12 @@ struct CommandBar: View {
         // Center: All-time
         HStack(spacing: 5) {
           Text("ALL")
-            .font(.system(size: 8, weight: .bold, design: .rounded))
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textQuaternary)
-            .tracking(0.8)
+            .tracking(1.0)
 
           Text(formatCostCompact(trackedStats.cost))
-            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .font(.system(size: 18, weight: .bold, design: .rounded))
             .foregroundStyle(Color.textPrimary)
 
           compactStat(value: "\(trackedStats.sessionCount)", label: "sessions")
@@ -91,7 +83,7 @@ struct CommandBar: View {
         .help("Toggle detailed breakdown")
       }
       .padding(.horizontal, 2)
-      .padding(.vertical, 6)
+      .padding(.vertical, 10)
 
       // Expandable detail panels
       if showDetails {
@@ -126,10 +118,10 @@ struct CommandBar: View {
   private func compactStat(value: String, label: String) -> some View {
     HStack(spacing: 3) {
       Text(value)
-        .font(.system(size: 12, weight: .bold, design: .rounded))
+        .font(.system(size: TypeScale.subhead, weight: .bold, design: .rounded))
         .foregroundStyle(.primary.opacity(0.85))
       Text(label)
-        .font(.system(size: 9, weight: .medium))
+        .font(.system(size: TypeScale.caption, weight: .medium))
         .foregroundStyle(Color.textQuaternary)
     }
   }
@@ -189,7 +181,7 @@ private struct ProviderGaugeMini: View {
           .foregroundStyle(provider.accentColor)
 
         Text(provider.displayName)
-          .font(.system(size: 11, weight: .bold))
+          .font(.system(size: TypeScale.code, weight: .bold))
           .foregroundStyle(.primary)
       }
 
@@ -259,7 +251,7 @@ private struct MiniGauge: View {
           .foregroundStyle(Color.textSecondary)
 
         Text("\(Int(window.utilization))%")
-          .font(.system(size: 14, weight: .bold, design: .rounded))
+          .font(.system(size: TypeScale.large, weight: .bold, design: .rounded))
           .foregroundStyle(usageColor)
       }
 
@@ -336,8 +328,7 @@ private struct DetailedStats {
   }
 
   static func from(
-    sessions: [Session],
-    legacyStatsBySessionID: [String: TranscriptUsageStats]
+    sessions: [Session]
   ) -> DetailedStats {
     var inputTokens = 0
     var outputTokens = 0
@@ -347,7 +338,7 @@ private struct DetailedStats {
     var costByModel: [String: Double] = [:]
 
     for session in sessions {
-      let stats = usageStats(for: session, legacyStatsBySessionID: legacyStatsBySessionID)
+      let stats = usageStats(for: session)
 
       inputTokens += stats.inputTokens
       outputTokens += stats.outputTokens
@@ -389,8 +380,7 @@ private struct DetailedStats {
   }
 
   private static func usageStats(
-    for session: Session,
-    legacyStatsBySessionID: [String: TranscriptUsageStats]
+    for session: Session
   ) -> TranscriptUsageStats {
     var stats = TranscriptUsageStats()
     stats.model = session.model
@@ -407,10 +397,6 @@ private struct DetailedStats {
       stats.cacheReadTokens = cached
       stats.contextUsed = context
       return stats
-    }
-
-    if let legacy = legacyStatsBySessionID[session.id] {
-      return legacy
     }
 
     // Legacy fallback for rows that only stored total token count.

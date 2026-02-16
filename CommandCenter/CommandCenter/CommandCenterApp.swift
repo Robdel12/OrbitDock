@@ -113,8 +113,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
   }
 
   func applicationWillResignActive(_ notification: Notification) {
-    // Clean up expired cache entries when app goes to background
-    TranscriptParser.cleanupCache()
   }
 
   /// Handle notification when app is in foreground

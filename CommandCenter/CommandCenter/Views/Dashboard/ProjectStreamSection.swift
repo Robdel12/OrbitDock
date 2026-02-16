@@ -84,16 +84,20 @@ struct ProjectStreamSection: View {
   // MARK: - Section Header
 
   private var sectionHeader: some View {
-    VStack(alignment: .leading, spacing: 8) {
+    VStack(alignment: .leading, spacing: 12) {
       // Line 1: Title
       HStack(spacing: 8) {
         Text("Active Agents")
-          .font(.system(size: 16, weight: .bold))
+          .font(.system(size: TypeScale.headline, weight: .bold))
           .foregroundStyle(.primary)
+          .tracking(-0.3)
 
         Text("\(orderedSessions.count)")
-          .font(.system(size: 11, weight: .semibold, design: .rounded))
+          .font(.system(size: TypeScale.subhead, weight: .medium, design: .rounded))
           .foregroundStyle(Color.textTertiary)
+          .padding(.horizontal, 7)
+          .padding(.vertical, 2)
+          .background(Color.surfaceHover.opacity(0.6), in: Capsule())
       }
 
       // Line 2: Toolbar — sort + provider + state chips
@@ -166,7 +170,7 @@ struct ProjectStreamSection: View {
         }
       }
     }
-    .padding(.vertical, 10)
+    .padding(.vertical, 14)
     .padding(.horizontal, 2)
   }
 
@@ -282,12 +286,12 @@ struct ProjectStreamSection: View {
         .fill(Color.surfaceBorder.opacity(0.2))
         .frame(height: 1)
         .padding(.horizontal, 4)
-        .padding(.top, 6)
+        .padding(.top, 10)
 
       // Project header
       HStack(spacing: 8) {
         Text(group.projectName)
-          .font(.system(size: 13, weight: .bold))
+          .font(.system(size: TypeScale.large, weight: .bold))
           .foregroundStyle(.primary)
 
         // Shared branch — shown here when all sessions are on the same branch
@@ -299,7 +303,7 @@ struct ProjectStreamSection: View {
 
         Text("\(group.sessions.count) \(group.sessions.count == 1 ? "agent" : "agents")")
           .font(.system(size: 10, weight: .medium, design: .rounded))
-          .foregroundStyle(Color.textTertiary)
+          .foregroundStyle(Color.textQuaternary)
 
         Spacer()
 
@@ -310,7 +314,7 @@ struct ProjectStreamSection: View {
         }
       }
       .padding(.horizontal, 10)
-      .padding(.top, 10)
+      .padding(.top, 14)
       .padding(.bottom, 4)
 
       // Session rows
@@ -424,7 +428,7 @@ struct ProjectStreamSection: View {
       // e.g., /Users/name/Developer/project — not /Users/name/Developer
       for candidate in allPaths where candidate != path {
         let candidateComponents = candidate.components(separatedBy: "/").filter { !$0.isEmpty }
-        if path.hasPrefix(candidate + "/") && candidateComponents.count >= 4 {
+        if path.hasPrefix(candidate + "/"), candidateComponents.count >= 4 {
           return candidate
         }
       }

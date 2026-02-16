@@ -79,6 +79,7 @@ final class ServerConnection: ObservableObject {
   var onReviewCommentUpdated: ((String, ServerReviewComment) -> Void)?
   var onReviewCommentDeleted: ((String, String) -> Void)? // sessionId, commentId
   var onReviewCommentsList: ((String, [ServerReviewComment]) -> Void)?
+  var onSubagentToolsList: ((String, String, [ServerSubagentTool]) -> Void)? // sessionId, subagentId, tools
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
 
@@ -360,6 +361,9 @@ final class ServerConnection: ObservableObject {
       case let .reviewCommentsList(sessionId, comments):
         onReviewCommentsList?(sessionId, comments)
 
+      case let .subagentToolsList(sessionId, subagentId, tools):
+        onSubagentToolsList?(sessionId, subagentId, tools)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
         onError?(code, errorMessage, sessionId)
@@ -604,6 +608,11 @@ final class ServerConnection: ObservableObject {
   /// List review comments for a session
   func listReviewComments(sessionId: String, turnId: String? = nil) {
     send(.listReviewComments(sessionId: sessionId, turnId: turnId))
+  }
+
+  /// Request subagent tools for a specific subagent
+  func getSubagentTools(sessionId: String, subagentId: String) {
+    send(.getSubagentTools(sessionId: sessionId, subagentId: subagentId))
   }
 
   /// Fork a session (creates a new session with conversation history)

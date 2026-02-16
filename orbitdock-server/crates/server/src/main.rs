@@ -14,6 +14,7 @@ mod persistence;
 mod rollout_watcher;
 mod session;
 mod session_actor;
+mod subagent_parser;
 mod session_command;
 mod session_naming;
 mod state;
@@ -32,6 +33,8 @@ use orbitdock_protocol::{
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
+
+use tokio::sync::mpsc;
 
 use crate::codex_session::CodexSession;
 use crate::logging::init_logging;
@@ -159,6 +162,7 @@ async fn async_main() -> anyhow::Result<()> {
                     codex_integration_mode,
                     claude_integration_mode,
                     codex_thread_id,
+                    claude_sdk_session_id,
                     started_at,
                     last_activity_at,
                     approval_policy,
@@ -176,6 +180,8 @@ async fn async_main() -> anyhow::Result<()> {
                     git_sha,
                     current_cwd,
                     first_prompt,
+                    last_message,
+                    end_reason,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -225,6 +231,7 @@ async fn async_main() -> anyhow::Result<()> {
                     git_sha,
                     current_cwd,
                     first_prompt,
+                    last_message,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_claude = matches!(provider, Provider::Claude);
@@ -251,7 +258,13 @@ async fn async_main() -> anyhow::Result<()> {
 
                 // Determine if this session should get a live connector
                 let needs_codex_connector = is_active && is_codex && !is_passive;
-                let needs_claude_connector = is_active && is_claude_direct;
+                // Claude direct sessions: resume if still active or if ended by
+                // server shutdown (which kills the CLI subprocess). Don't revive
+                // sessions the user intentionally ended.
+                let ended_by_server = !is_active
+                    && matches!(end_reason.as_deref(), Some("server_shutdown"));
+                let needs_claude_connector =
+                    is_claude_direct && (is_active || ended_by_server);
 
                 if !needs_codex_connector && !needs_claude_connector {
                     // Passive session: spawn a passive actor
@@ -275,45 +288,101 @@ async fn async_main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                // Active Claude direct session: spawn bridge and resume
+                // Claude direct session: spawn bridge and resume (even if ended)
                 if needs_claude_connector {
-                    let claude_sdk_session_id = codex_thread_id.as_deref(); // reuses thread_id column
+                    // Prefer the dedicated column; fall back to codex_thread_id for legacy rows
+                    let effective_claude_sdk_id = claude_sdk_session_id
+                        .as_deref()
+                        .or(codex_thread_id.as_deref());
+
+                    let was_ended = status == "ended";
+                    if was_ended {
+                        // Reset to active — server shutdown killed the CLI, not the user
+                        handle.set_status(orbitdock_protocol::SessionStatus::Active);
+                        handle.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
+                    }
 
                     info!(
                         component = "restore",
                         event = "restore.session.claude_resuming",
                         session_id = %id,
-                        claude_sdk_session_id = ?claude_sdk_session_id,
+                        claude_sdk_session_id = ?effective_claude_sdk_id,
+                        was_ended = was_ended,
                         messages = msg_count,
                         "Resuming Claude direct session"
                     );
+
+                    // Pre-register the thread so hooks arriving during startup are suppressed
+                    if let Some(sdk_id) = effective_claude_sdk_id {
+                        state.register_claude_thread(&id, sdk_id);
+
+                        // Clean up any shadow session created by hooks using the SDK session ID
+                        if state.remove_session(sdk_id).is_some() {
+                            info!(
+                                component = "restore",
+                                event = "restore.session.shadow_removed",
+                                session_id = %id,
+                                shadow_id = %sdk_id,
+                                "Removed shadow session on restore"
+                            );
+                        }
+                        let _ = state
+                            .persist()
+                            .send(PersistCommand::CleanupClaudeShadowSession {
+                                claude_sdk_session_id: sdk_id.to_string(),
+                                reason: "managed_direct_session_restore".to_string(),
+                            })
+                            .await;
+                    }
 
                     match crate::claude_session::ClaudeSession::new(
                         id.clone(),
                         &project_path,
                         model.as_deref(),
-                        claude_sdk_session_id,
+                        effective_claude_sdk_id,
                     )
                     .await
                     {
                         Ok(claude_session) => {
                             let persist = state.persist().clone();
                             handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) =
-                                claude_session.start_event_loop(handle, persist.clone(), state.list_tx());
+                            let (actor_handle, action_tx) = claude_session.start_event_loop(
+                                handle,
+                                persist.clone(),
+                                state.list_tx(),
+                                state.clone(),
+                            );
                             state.add_session_actor(actor_handle);
                             state.set_claude_action_tx(&id, action_tx);
+
+                            // Persist the re-activation
+                            if was_ended {
+                                let _ = state
+                                    .persist()
+                                    .send(PersistCommand::SessionUpdate {
+                                        id: id.clone(),
+                                        status: Some(SessionStatus::Active),
+                                        work_status: Some(WorkStatus::Waiting),
+                                        last_activity_at: None,
+                                    })
+                                    .await;
+                            }
 
                             info!(
                                 component = "restore",
                                 event = "restore.session.claude_connected",
                                 session_id = %id,
-                                claude_sdk_session_id = ?claude_sdk_session_id,
+                                claude_sdk_session_id = ?effective_claude_sdk_id,
                                 messages = msg_count,
                                 "Restored Claude session with live connector"
                             );
                         }
                         Err(e) => {
+                            if was_ended {
+                                // Restore original ended state since we can't resume
+                                handle.set_status(orbitdock_protocol::SessionStatus::Ended);
+                                handle.set_work_status(orbitdock_protocol::WorkStatus::Ended);
+                            }
                             state.add_session(handle);
                             info!(
                                 component = "restore",
@@ -492,6 +561,10 @@ async fn async_main() -> anyhow::Result<()> {
         }
     });
 
+    // Keep a reference for the shutdown handler
+    let shutdown_state = state.clone();
+    let shutdown_persist = persist_tx.clone();
+
     // Build router
     let app = Router::new()
         .route("/ws", get(ws_handler))
@@ -515,9 +588,51 @@ async fn async_main() -> anyhow::Result<()> {
     );
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
+        .await?;
 
     Ok(())
+}
+
+/// Wait for shutdown signal and mark active direct sessions for resumption.
+async fn shutdown_signal(
+    state: Arc<SessionRegistry>,
+    persist_tx: mpsc::Sender<PersistCommand>,
+) {
+    let _ = tokio::signal::ctrl_c().await;
+    info!(
+        component = "server",
+        event = "server.shutdown",
+        "Shutdown signal received, preserving direct session state"
+    );
+
+    // Mark active Claude direct sessions so they resume on next startup
+    for summary in state.get_session_summaries() {
+        if summary.provider == Provider::Claude
+            && matches!(
+                summary.claude_integration_mode,
+                Some(orbitdock_protocol::ClaudeIntegrationMode::Direct)
+            )
+            && summary.status == orbitdock_protocol::SessionStatus::Active
+        {
+            let _ = persist_tx
+                .send(PersistCommand::SessionEnd {
+                    id: summary.id.clone(),
+                    reason: "server_shutdown".to_string(),
+                })
+                .await;
+            info!(
+                component = "server",
+                event = "server.shutdown.session_preserved",
+                session_id = %summary.id,
+                "Marked direct session for resume on restart"
+            );
+        }
+    }
+
+    // Give persistence writer a moment to flush
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 }
 
 async fn health_handler() -> impl IntoResponse {

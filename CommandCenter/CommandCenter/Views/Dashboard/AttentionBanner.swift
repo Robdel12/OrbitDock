@@ -111,7 +111,7 @@ private struct AttentionBannerItem: View {
           VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
               Text(session.projectName ?? "Unknown")
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: TypeScale.code, weight: .bold))
                 .foregroundStyle(.primary)
 
               if let branch = session.branch, !branch.isEmpty {
@@ -128,14 +128,14 @@ private struct AttentionBannerItem: View {
                 Text("·")
                   .foregroundStyle(Color.textQuaternary)
                 Text(name.strippingXMLTags())
-                  .font(.system(size: 10, weight: .medium))
+                  .font(.system(size: TypeScale.body, weight: .medium))
                   .foregroundStyle(.secondary)
                   .lineLimit(1)
               }
             }
 
             Text(contextText)
-              .font(.system(size: 11, weight: .medium))
+              .font(.system(size: TypeScale.code, weight: .semibold))
               .foregroundStyle(edgeColor.opacity(0.9))
               .lineLimit(1)
           }
@@ -152,9 +152,9 @@ private struct AttentionBannerItem: View {
           // Action button
           HStack(spacing: 4) {
             Image(systemName: displayStatus == .question ? "eye" : "arrow.right.circle")
-              .font(.system(size: 10, weight: .semibold))
+              .font(.system(size: 10, weight: .bold))
             Text(displayStatus == .question ? "View" : "Review")
-              .font(.system(size: 10, weight: .semibold))
+              .font(.system(size: TypeScale.body, weight: .bold))
           }
           .foregroundStyle(edgeColor)
           .padding(.horizontal, 10)

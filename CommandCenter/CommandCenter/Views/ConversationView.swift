@@ -7,7 +7,6 @@ import AppKit
 import SwiftUI
 
 struct ConversationView: View {
-  let transcriptPath: String?
   let sessionId: String?
   var isSessionActive: Bool = false
   var workStatus: Session.WorkStatus = .unknown
@@ -115,7 +114,7 @@ struct ConversationView: View {
                 message: message,
                 provider: provider,
                 model: model,
-                transcriptPath: transcriptPath,
+                sessionId: sessionId,
                 rollbackTurns: turnsAfter > 0 ? turnsAfter : nil,
                 nthUserMessage: nthUserMessage,
                 onRollback: turnsAfter > 0 ? {
@@ -770,7 +769,6 @@ private struct ForkOriginBanner: View {
   @Previewable @State var scrollTrigger = 0
 
   ConversationView(
-    transcriptPath: nil,
     sessionId: nil,
     isSessionActive: true,
     workStatus: .working,

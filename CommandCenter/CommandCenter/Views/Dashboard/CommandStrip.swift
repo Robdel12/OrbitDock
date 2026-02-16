@@ -45,7 +45,7 @@ struct CommandStrip: View {
       .help("Toggle panel (⌘1)")
 
       Text("OrbitDock")
-        .font(.system(size: 14, weight: .semibold))
+        .font(.system(size: TypeScale.large, weight: .bold))
         .foregroundStyle(.primary)
 
       // Sync indicator
@@ -100,7 +100,7 @@ struct CommandStrip: View {
           Image(systemName: "plus")
             .font(.system(size: 10, weight: .bold))
           Text("Claude")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.body, weight: .semibold))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -115,7 +115,7 @@ struct CommandStrip: View {
           Image(systemName: "plus")
             .font(.system(size: 10, weight: .bold))
           Text("Codex")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: TypeScale.body, weight: .semibold))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -149,7 +149,7 @@ struct CommandStrip: View {
         .font(.system(size: 8, weight: .bold))
         .foregroundStyle(color)
       Text("\(count)")
-        .font(.system(size: 11, weight: .semibold, design: .rounded))
+        .font(.system(size: TypeScale.code, weight: .bold, design: .rounded))
         .foregroundStyle(color.opacity(0.9))
     }
   }

@@ -67,16 +67,25 @@ struct FlatSessionRow: View {
     return "Untitled session"
   }
 
-  /// Context line — shows first prompt when there's a real name above,
-  /// or shows model + start time when the label IS the first prompt.
+  /// Context line — shows last message for current activity context,
+  /// falling back to first prompt when no last message is available.
   private var contextLine: String? {
+    // Prefer last message — shows what's happening now
+    if let lastMsg = session.lastMessage, !lastMsg.isEmpty {
+      let cleaned = cleanPrompt(lastMsg, maxLength: 80)
+      // Don't show if it's identical to the agent label (avoids redundancy)
+      if cleaned != agentLabel {
+        return cleaned
+      }
+    }
+
+    // Fall back to first prompt when there's a real name above
     if hasRealName {
-      // Show first prompt as context under the real name
       if let prompt = session.firstPrompt, !prompt.isEmpty {
         return cleanPrompt(prompt, maxLength: 80)
       }
-      return nil
     }
+
     return nil
   }
 
@@ -112,7 +121,10 @@ struct FlatSessionRow: View {
           // Line 1: name + branch + attention pill
           HStack(spacing: 5) {
             Text(agentLabel)
-              .font(.system(size: TypeScale.body, weight: hasRealName ? .semibold : .regular))
+              .font(.system(
+                size: hasRealName ? TypeScale.subhead : TypeScale.code,
+                weight: hasRealName ? .semibold : .regular
+              ))
               .foregroundStyle(hasRealName ? .primary : Color.textSecondary)
               .lineLimit(1)
 
@@ -139,7 +151,7 @@ struct FlatSessionRow: View {
           // Line 2: context snippet (if available)
           if let context = contextLine {
             Text(context)
-              .font(.system(size: TypeScale.micro, weight: .regular))
+              .font(.system(size: TypeScale.caption, weight: .regular))
               .foregroundStyle(Color.textQuaternary)
               .lineLimit(1)
           }
@@ -163,7 +175,7 @@ struct FlatSessionRow: View {
             .frame(width: 44, alignment: .trailing)
         }
       }
-      .padding(.vertical, 6)
+      .padding(.vertical, 7)
       .padding(.horizontal, 10)
       .background(rowBackground)
     }
@@ -193,7 +205,7 @@ struct FlatSessionRow: View {
       Image(systemName: icon)
         .font(.system(size: 8, weight: .bold))
       Text(text)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .font(.system(size: TypeScale.body, weight: .semibold))
     }
     .foregroundStyle(color)
     .padding(.horizontal, 6)

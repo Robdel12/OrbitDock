@@ -6,7 +6,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use orbitdock_protocol::{
     ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState,
-    SessionStatus, SessionSummary, StateChanges, TokenUsage, TurnDiff, WorkStatus,
+    SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage, TurnDiff, WorkStatus,
 };
 use tokio::sync::broadcast;
 
@@ -28,6 +28,7 @@ pub struct SessionSnapshot {
     pub custom_name: Option<String>,
     pub summary: Option<String>,
     pub first_prompt: Option<String>,
+    pub last_message: Option<String>,
     pub model: Option<String>,
     pub codex_integration_mode: Option<CodexIntegrationMode>,
     pub claude_integration_mode: Option<ClaudeIntegrationMode>,
@@ -77,6 +78,8 @@ pub struct SessionHandle {
     git_sha: Option<String>,
     current_cwd: Option<String>,
     first_prompt: Option<String>,
+    last_message: Option<String>,
+    subagents: Vec<SubagentInfo>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -108,6 +111,7 @@ impl SessionHandle {
             custom_name: None,
             summary: None,
             first_prompt: None,
+            last_message: None,
             model: None,
             codex_integration_mode: None,
             claude_integration_mode: None,
@@ -152,6 +156,8 @@ impl SessionHandle {
             git_sha: None,
             current_cwd: None,
             first_prompt: None,
+            last_message: None,
+            subagents: Vec::new(),
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -188,6 +194,7 @@ impl SessionHandle {
         git_sha: Option<String>,
         current_cwd: Option<String>,
         first_prompt: Option<String>,
+        last_message: Option<String>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -214,6 +221,7 @@ impl SessionHandle {
             git_sha: git_sha.clone(),
             current_cwd: current_cwd.clone(),
             first_prompt: first_prompt.clone(),
+            last_message: last_message.clone(),
         };
         Self {
             id,
@@ -245,6 +253,8 @@ impl SessionHandle {
             git_sha,
             current_cwd,
             first_prompt,
+            last_message,
+            subagents: Vec::new(),
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -300,6 +310,7 @@ impl SessionHandle {
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
             first_prompt: self.first_prompt.clone(),
+            last_message: self.last_message.clone(),
         }
     }
 
@@ -336,7 +347,21 @@ impl SessionHandle {
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
             first_prompt: self.first_prompt.clone(),
+            last_message: self.last_message.clone(),
+            subagents: self.subagents.clone(),
         }
+    }
+
+    /// Get subagents
+    #[allow(dead_code)]
+    pub fn subagents(&self) -> &[SubagentInfo] {
+        &self.subagents
+    }
+
+    /// Set subagents list
+    #[allow(dead_code)]
+    pub fn set_subagents(&mut self, subagents: Vec<SubagentInfo>) {
+        self.subagents = subagents;
     }
 
     /// Subscribe to session updates
@@ -359,6 +384,16 @@ impl SessionHandle {
     #[allow(dead_code)]
     pub fn set_first_prompt(&mut self, prompt: Option<String>) {
         self.first_prompt = prompt;
+    }
+
+    /// Set last message (for dashboard context lines)
+    pub fn set_last_message(&mut self, message: Option<String>) {
+        self.last_message = message;
+    }
+
+    /// Get messages
+    pub fn messages(&self) -> &[Message] {
+        &self.messages
     }
 
     /// Get first prompt
@@ -576,6 +611,9 @@ impl SessionHandle {
         if let Some(ref first_prompt) = changes.first_prompt {
             self.first_prompt = first_prompt.clone();
         }
+        if let Some(ref last_message) = changes.last_message {
+            self.last_message = last_message.clone();
+        }
     }
 
     /// Create a snapshot of current session metadata
@@ -604,6 +642,7 @@ impl SessionHandle {
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
             first_prompt: self.first_prompt.clone(),
+            last_message: self.last_message.clone(),
         }
     }
 

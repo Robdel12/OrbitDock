@@ -92,6 +92,18 @@ pub enum PersistCommand {
     /// End any non-direct session row that accidentally uses a direct thread id as session id
     CleanupThreadShadowSession { thread_id: String, reason: String },
 
+    /// Store Claude SDK session ID for a direct Claude session
+    SetClaudeSdkSessionId {
+        session_id: String,
+        claude_sdk_session_id: String,
+    },
+
+    /// End the hook-created shadow row for a managed Claude direct session
+    CleanupClaudeShadowSession {
+        claude_sdk_session_id: String,
+        reason: String,
+    },
+
     /// Set custom name for a session
     SetCustomName {
         session_id: String,
@@ -538,6 +550,18 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     if message.is_error { 1 } else { 0 },
                 ],
             )?;
+
+            // Update last_message on the session for dashboard context lines
+            if matches!(
+                message.message_type,
+                MessageType::User | MessageType::Assistant
+            ) {
+                let truncated: String = message.content.chars().take(200).collect();
+                let _ = conn.execute(
+                    "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
+                    params![truncated, session_id],
+                );
+            }
         }
 
         PersistCommand::MessageUpdate {
@@ -666,6 +690,37 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                  WHERE id = ?3
                    AND (codex_integration_mode IS NULL OR codex_integration_mode != 'direct')",
                 params![now, reason, thread_id],
+            )?;
+        }
+
+        PersistCommand::SetClaudeSdkSessionId {
+            session_id,
+            claude_sdk_session_id,
+        } => {
+            conn.execute(
+                "UPDATE sessions SET claude_sdk_session_id = ? WHERE id = ?",
+                params![claude_sdk_session_id, session_id],
+            )?;
+        }
+
+        PersistCommand::CleanupClaudeShadowSession {
+            claude_sdk_session_id,
+            reason,
+        } => {
+            let now = chrono_now();
+            conn.execute(
+                "UPDATE sessions
+                 SET status = 'ended',
+                     work_status = 'ended',
+                     ended_at = COALESCE(ended_at, ?1),
+                     end_reason = COALESCE(end_reason, ?2),
+                     attention_reason = 'none',
+                     pending_tool_name = NULL,
+                     pending_tool_input = NULL,
+                     pending_question = NULL
+                 WHERE id = ?3
+                   AND (claude_integration_mode IS NULL OR claude_integration_mode != 'direct')",
+                params![now, reason, claude_sdk_session_id],
             )?;
         }
 
@@ -873,14 +928,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         }
 
         PersistCommand::ClaudePromptIncrement { id, first_prompt } => {
-            if let Some(prompt) = first_prompt {
+            if let Some(ref prompt) = first_prompt {
+                let truncated: String = prompt.chars().take(200).collect();
                 conn.execute(
                     "UPDATE sessions
                      SET prompt_count = COALESCE(prompt_count, 0) + 1,
                          first_prompt = COALESCE(first_prompt, ?1),
+                         last_message = ?1,
                          last_activity_at = ?2
                      WHERE id = ?3",
-                    params![prompt, chrono_now(), id],
+                    params![truncated, chrono_now(), id],
                 )?;
             } else {
                 conn.execute(
@@ -1104,14 +1161,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 return Ok(());
             }
 
-            if let Some(prompt) = first_prompt {
+            if let Some(ref prompt) = first_prompt {
+                let truncated: String = prompt.chars().take(200).collect();
                 conn.execute(
                     "UPDATE sessions
                      SET prompt_count = prompt_count + 1,
                          first_prompt = COALESCE(first_prompt, ?1),
+                         last_message = ?1,
                          last_activity_at = ?2
                      WHERE id = ?3",
-                    params![prompt, chrono_now(), id],
+                    params![truncated, chrono_now(), id],
                 )?;
             } else {
                 conn.execute(
@@ -1125,14 +1184,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         }
 
         PersistCommand::CodexPromptIncrement { id, first_prompt } => {
-            if let Some(prompt) = first_prompt {
+            if let Some(ref prompt) = first_prompt {
+                let truncated: String = prompt.chars().take(200).collect();
                 conn.execute(
                     "UPDATE sessions
                      SET prompt_count = prompt_count + 1,
                          first_prompt = COALESCE(first_prompt, ?1),
+                         last_message = ?1,
                          last_activity_at = ?2
                      WHERE id = ?3",
-                    params![prompt, chrono_now(), id],
+                    params![truncated, chrono_now(), id],
                 )?;
             } else {
                 conn.execute(
@@ -1427,6 +1488,7 @@ pub struct RestoredSession {
     pub codex_integration_mode: Option<String>,
     pub claude_integration_mode: Option<String>,
     pub codex_thread_id: Option<String>,
+    pub claude_sdk_session_id: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     pub approval_policy: Option<String>,
@@ -1444,6 +1506,8 @@ pub struct RestoredSession {
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
     pub first_prompt: Option<String>,
+    pub last_message: Option<String>,
+    pub end_reason: Option<String>,
 }
 
 /// No longer backfills custom_name from first_prompt — the UI uses first_prompt
@@ -1972,6 +2036,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         // Cleanup Claude "shell" sessions that were started but never received any
         // prompt/tool/message activity. These rows are usually created by hook
         // start events and otherwise appear as ghost active sessions after restart.
+        // Exclude direct sessions — they manage state through the connector, not hooks.
         conn.execute(
             "UPDATE sessions
              SET status = 'ended',
@@ -1980,6 +2045,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                  end_reason = COALESCE(end_reason, 'startup_empty_shell')
              WHERE provider = 'claude'
                AND status = 'active'
+               AND (claude_integration_mode IS NULL OR claude_integration_mode != 'direct')
                AND COALESCE(prompt_count, 0) = 0
                AND COALESCE(tool_count, 0) = 0
                AND (first_prompt IS NULL OR trim(first_prompt) = '')
@@ -2093,6 +2159,33 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or(None);
 
+            // Query claude_sdk_session_id (column may not exist on old schemas)
+            let claude_sdk_session_id: Option<String> = conn
+                .query_row(
+                    "SELECT claude_sdk_session_id FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
+            // Query last_message (column may not exist on old schemas)
+            let last_message: Option<String> = conn
+                .query_row(
+                    "SELECT last_message FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
+            // Query end_reason
+            let end_reason: Option<String> = conn
+                .query_row(
+                    "SELECT end_reason FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
             // Query summary (column may not exist on old schemas)
             let mut summary: Option<String> = conn
                 .query_row(
@@ -2130,6 +2223,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 codex_integration_mode,
                 claude_integration_mode,
                 codex_thread_id,
+                claude_sdk_session_id,
                 started_at,
                 last_activity_at,
                 approval_policy,
@@ -2147,6 +2241,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 git_sha,
                 current_cwd,
                 first_prompt,
+                last_message,
+                end_reason,
             });
         }
 
@@ -2261,6 +2357,15 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             )
             .unwrap_or((None, None, None));
 
+        // Query last_message (column may not exist on old schemas)
+        let last_message: Option<String> = conn
+            .query_row(
+                "SELECT last_message FROM sessions WHERE id = ?1",
+                params![&id],
+                |row| row.get(0),
+            )
+            .unwrap_or(None);
+
         Ok(Some(RestoredSession {
             id,
             provider: "codex".to_string(),
@@ -2275,6 +2380,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             codex_integration_mode: Some("direct".to_string()),
             claude_integration_mode: None,
             codex_thread_id: None,
+            claude_sdk_session_id: None,
             started_at,
             last_activity_at,
             approval_policy,
@@ -2292,6 +2398,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             git_sha,
             current_cwd,
             first_prompt,
+            last_message,
+            end_reason: None,
         }))
     }).await??;
 
@@ -2538,6 +2646,102 @@ pub async fn list_review_comments(
     .await??;
 
     Ok(comments)
+}
+
+/// Load subagents for a session (for snapshot building)
+pub async fn load_subagents_for_session(
+    session_id: &str,
+) -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
+    let session_id = session_id.to_string();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+
+    let subagents = tokio::task::spawn_blocking(move || -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(Vec::new());
+        }
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'subagents'",
+            [],
+            |row| row.get(0),
+        )?;
+        if table_exists == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT id, agent_type, started_at, ended_at FROM subagents WHERE session_id = ?1 ORDER BY started_at",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            Ok(orbitdock_protocol::SubagentInfo {
+                id: row.get(0)?,
+                agent_type: row.get(1)?,
+                started_at: row.get(2)?,
+                ended_at: row.get(3)?,
+            })
+        })?;
+
+        let mut subagents = Vec::new();
+        for row in rows {
+            subagents.push(row?);
+        }
+        Ok(subagents)
+    })
+    .await??;
+
+    Ok(subagents)
+}
+
+/// Load the transcript path for a specific subagent
+pub async fn load_subagent_transcript_path(
+    subagent_id: &str,
+) -> Result<Option<String>, anyhow::Error> {
+    let subagent_id = subagent_id.to_string();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+
+    let path = tokio::task::spawn_blocking(move || -> Result<Option<String>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let table_exists: i64 = conn.query_row(
+            "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'subagents'",
+            [],
+            |row| row.get(0),
+        )?;
+        if table_exists == 0 {
+            return Ok(None);
+        }
+
+        let path: Option<String> = conn
+            .query_row(
+                "SELECT transcript_path FROM subagents WHERE id = ?1",
+                params![subagent_id],
+                |row| {
+                    let val: Option<String> = row.get(0)?;
+                    Ok(val)
+                },
+            )
+            .optional()?
+            .flatten();
+
+        Ok(path)
+    })
+    .await??;
+
+    Ok(path)
 }
 
 #[cfg(test)]

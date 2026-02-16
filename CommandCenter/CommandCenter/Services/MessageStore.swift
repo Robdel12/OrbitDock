@@ -42,19 +42,6 @@ final class MessageStore {
   private let imagesJson = SQLite.Expression<String?>("images_json") // JSON array of {data: base64, mimeType: string}
   private let thinking = SQLite.Expression<String?>("thinking") // Claude's thinking trace
 
-  // Stats table for aggregated message data (separate from main session_stats)
-  private let sessionStats = Table("message_session_stats")
-  private let statsSessionId = SQLite.Expression<String>("session_id")
-  private let totalInputTokens = SQLite.Expression<Int>("total_input_tokens")
-  private let totalOutputTokens = SQLite.Expression<Int>("total_output_tokens")
-  private let cacheReadTokens = SQLite.Expression<Int>("cache_read_tokens")
-  private let cacheCreationTokens = SQLite.Expression<Int>("cache_creation_tokens")
-  private let contextUsed = SQLite.Expression<Int>("context_used")
-  private let model = SQLite.Expression<String?>("model")
-  private let lastUserPrompt = SQLite.Expression<String?>("last_user_prompt")
-  private let lastTool = SQLite.Expression<String?>("last_tool")
-  private let messageCount = SQLite.Expression<Int>("message_count")
-  private let lastSyncTime = SQLite.Expression<Date>("last_sync_time")
 
   private static let writeTimestampFormatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
@@ -159,21 +146,6 @@ final class MessageStore {
     try db.run(messages.createIndex(sessionId, ifNotExists: true))
     try db.run(messages.createIndex([sessionId, timestamp], ifNotExists: true))
 
-    // Session stats table - use a new name to avoid conflicts with existing schema
-    try db.run(sessionStats.create(ifNotExists: true) { t in
-      t.column(statsSessionId, primaryKey: true)
-      t.column(totalInputTokens, defaultValue: 0)
-      t.column(totalOutputTokens, defaultValue: 0)
-      t.column(cacheReadTokens, defaultValue: 0)
-      t.column(cacheCreationTokens, defaultValue: 0)
-      t.column(contextUsed, defaultValue: 0)
-      t.column(model)
-      t.column(lastUserPrompt)
-      t.column(lastTool)
-      t.column(messageCount, defaultValue: 0)
-      t.column(lastSyncTime)
-    })
-
   }
 
   private func addColumnIfMissing(_ db: Connection, table: String, column: String, sql: String) {
@@ -226,91 +198,6 @@ final class MessageStore {
     let newLock = NSLock()
     syncLocks[sid] = newLock
     return newLock
-  }
-
-  /// Write messages and stats from a parse result (called after JSONL parse)
-  /// Thread-safe: only one sync per session at a time (blocks if concurrent)
-  func syncFromParseResult(_ result: TranscriptParseResult, sessionId sid: String) {
-    let lock = lockForSession(sid)
-
-    // Block until we can acquire the lock - ensures sync always completes
-    // This prevents race conditions where stale data is read after skipped syncs
-    lock.lock()
-    defer { lock.unlock() }
-
-    let start = CFAbsoluteTimeGetCurrent()
-
-    guard let db = writeDb else { return }
-
-    do {
-      try db.transaction {
-        // Clear existing messages for this session (full re-sync)
-        try db.run(messages.filter(sessionId == sid).delete())
-
-        // Batch insert all messages
-        for (index, msg) in result.messages.enumerated() {
-          let toolInputJson: String? = msg.toolInput.flatMap { input in
-            guard let data = try? JSONSerialization.data(withJSONObject: input) else { return nil }
-            return String(data: data, encoding: .utf8)
-          }
-
-          // Serialize all images as JSON array
-          let imagesJsonString: String? = msg.images.isEmpty ? nil : {
-            let imagesArray = msg.images.map { image in
-              [
-                "data": image.data.base64EncodedString(),
-                "mimeType": image.mimeType,
-              ]
-            }
-            guard let data = try? JSONSerialization.data(withJSONObject: imagesArray) else { return nil }
-            return String(data: data, encoding: .utf8)
-          }()
-
-          try db.run(messages.insert(
-            id <- msg.id,
-            sessionId <- sid,
-            type <- msg.type.rawValue,
-            content <- msg.content,
-            timestamp <- serializeTimestamp(msg.timestamp),
-            sequence <- index, // Preserve JSONL order
-            toolName <- msg.toolName,
-            toolInput <- toolInputJson,
-            toolOutput <- msg.toolOutput,
-            toolDuration <- msg.toolDuration,
-            isInProgress <- (msg.isInProgress ? 1 : 0),
-            inputTokens <- msg.inputTokens,
-            outputTokens <- msg.outputTokens,
-            imageData <- msg.imageData, // Legacy - keep for backwards compat
-            imageMimeType <- msg.imageMimeType,
-            imagesJson <- imagesJsonString,
-            thinking <- msg.thinking
-          ))
-        }
-
-        // Update session stats
-        try db.run(sessionStats.insert(
-          or: .replace,
-          statsSessionId <- sid,
-          totalInputTokens <- result.stats.inputTokens,
-          totalOutputTokens <- result.stats.outputTokens,
-          cacheReadTokens <- result.stats.cacheReadTokens,
-          cacheCreationTokens <- result.stats.cacheCreationTokens,
-          contextUsed <- result.stats.contextUsed,
-          model <- result.stats.model,
-          lastUserPrompt <- result.lastUserPrompt,
-          lastTool <- result.lastTool,
-          messageCount <- result.messages.count,
-          lastSyncTime <- Date()
-        ))
-      }
-
-      let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1_000
-      if elapsed > 100 { // Only log slow syncs
-        print("💾 MessageStore: synced \(result.messages.count) messages in \(String(format: "%.1f", elapsed))ms")
-      }
-    } catch {
-      print("❌ MessageStore: sync failed: \(error)")
-    }
   }
 
   // MARK: - Read Operations
@@ -391,115 +278,16 @@ final class MessageStore {
     }
   }
 
-  /// Read aggregated stats for a session (never blocks on writes)
-  func readStats(sessionId sid: String) -> TranscriptUsageStats? {
-    guard let db = readDb else { return nil }
-
-    do {
-      let query = sessionStats.filter(statsSessionId == sid)
-
-      if let row = try db.pluck(query) {
-        var stats = TranscriptUsageStats()
-        stats.inputTokens = row[totalInputTokens]
-        stats.outputTokens = row[totalOutputTokens]
-        stats.cacheReadTokens = row[cacheReadTokens]
-        stats.cacheCreationTokens = row[cacheCreationTokens]
-        stats.contextUsed = row[contextUsed]
-        stats.model = row[model]
-        return stats
-      }
-    } catch {
-      print("❌ MessageStore: stats read failed: \(error)")
-    }
-    return nil
-  }
-
-  /// Read session info (last prompt and tool, never blocks on writes)
-  func readSessionInfo(sessionId sid: String) -> (lastPrompt: String?, lastTool: String?) {
-    guard let db = readDb else { return (nil, nil) }
-
-    do {
-      let query = sessionStats.filter(statsSessionId == sid)
-
-      if let row = try db.pluck(query) {
-        return (row[lastUserPrompt], row[lastTool])
-      }
-    } catch {
-      print("❌ MessageStore: session info read failed: \(error)")
-    }
-    return (nil, nil)
-  }
-
-  /// Check if we have synced data for a session (never blocks on writes)
+  /// Check if we have message data for a session (never blocks on writes)
   func hasData(sessionId sid: String) -> Bool {
     guard let db = readDb else { return false }
 
     do {
-      let statsQuery = sessionStats.filter(statsSessionId == sid)
-      if try db.pluck(statsQuery) != nil {
-        return true
-      }
-
-      // Codex direct sessions may have messages without a stats row.
       let messageCount = try db.scalar(messages.filter(sessionId == sid).count)
       return messageCount > 0
     } catch {
       return false
     }
-  }
-
-  /// Read aggregate stats across all sessions (for dashboard)
-  func readAllSessionStats() -> [(sessionId: String, stats: TranscriptUsageStats)] {
-    guard let db = readDb else { return [] }
-
-    do {
-      var results: [(sessionId: String, stats: TranscriptUsageStats)] = []
-
-      for row in try db.prepare(sessionStats) {
-        var stats = TranscriptUsageStats()
-        stats.inputTokens = row[totalInputTokens]
-        stats.outputTokens = row[totalOutputTokens]
-        stats.cacheReadTokens = row[cacheReadTokens]
-        stats.cacheCreationTokens = row[cacheCreationTokens]
-        stats.contextUsed = row[contextUsed]
-        stats.model = row[model]
-        results.append((sessionId: row[statsSessionId], stats: stats))
-      }
-
-      return results
-    } catch {
-      print("❌ MessageStore: readAllSessionStats failed: \(error)")
-      return []
-    }
-  }
-
-  /// Get total estimated cost across all sessions
-  func totalCostAllSessions() -> Double {
-    let allStats = readAllSessionStats()
-    return allStats.reduce(0) { $0 + $1.stats.estimatedCostUSD }
-  }
-
-  /// Get total tokens across all sessions
-  func totalTokensAllSessions() -> Int {
-    let allStats = readAllSessionStats()
-    return allStats.reduce(0) { total, item in
-      total + item.stats.inputTokens + item.stats.outputTokens
-    }
-  }
-
-  /// Get the last sync time for a session (never blocks on writes)
-  func lastSyncTime(sessionId sid: String) -> Date? {
-    guard let db = readDb else { return nil }
-
-    do {
-      let query = sessionStats.filter(statsSessionId == sid)
-      if let row = try db.pluck(query) {
-        return row[lastSyncTime]
-      }
-    } catch {
-      print("❌ MessageStore: lastSyncTime read failed: \(error)")
-    }
-    return nil
   }
 
   // MARK: - Codex Direct Session Operations
@@ -644,7 +432,6 @@ final class MessageStore {
 
     do {
       try db.run(messages.filter(sessionId == sid).delete())
-      try db.run(sessionStats.filter(statsSessionId == sid).delete())
     } catch {
       print("❌ MessageStore: clear failed: \(error)")
     }

@@ -30,6 +30,7 @@ struct Session: Identifiable, Hashable, Sendable {
   var summary: String? // AI-generated conversation title
   var customName: String? // User-defined custom name (overrides summary)
   var firstPrompt: String? // First user message (conversation-specific fallback)
+  var lastMessage: String? // Most recent user or assistant message (for dashboard context)
   let transcriptPath: String?
   var status: SessionStatus
   var workStatus: WorkStatus

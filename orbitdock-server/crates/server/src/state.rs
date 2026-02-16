@@ -25,6 +25,8 @@ pub struct SessionRegistry {
     claude_actions: DashMap<String, mpsc::Sender<ClaudeAction>>,
     /// Map codex-core thread_id -> session_id for direct sessions
     codex_threads: DashMap<String, String>,
+    /// Map Claude SDK session_id -> OrbitDock session_id for direct sessions
+    claude_threads: DashMap<String, String>,
 
     /// Broadcast channel for session list updates
     list_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
@@ -48,6 +50,7 @@ impl SessionRegistry {
             codex_actions: DashMap::new(),
             claude_actions: DashMap::new(),
             codex_threads: DashMap::new(),
+            claude_threads: DashMap::new(),
             list_tx,
             persist_tx,
             codex_auth,
@@ -119,6 +122,7 @@ impl SessionRegistry {
                     git_sha: snap.git_sha.clone(),
                     current_cwd: snap.current_cwd.clone(),
                     first_prompt: snap.first_prompt.clone(),
+                    last_message: snap.last_message.clone(),
                 }
             })
             .collect()
@@ -148,6 +152,7 @@ impl SessionRegistry {
         self.codex_actions.remove(id);
         self.claude_actions.remove(id);
         self.codex_threads.retain(|_, session_id| session_id != id);
+        self.claude_threads.retain(|_, session_id| session_id != id);
         self.sessions.remove(id).map(|(_, v)| v)
     }
 
@@ -160,6 +165,23 @@ impl SessionRegistry {
     /// Check whether thread ID is managed by a direct server session
     pub fn is_managed_codex_thread(&self, thread_id: &str) -> bool {
         self.codex_threads.contains_key(thread_id)
+    }
+
+    /// Register Claude SDK session ID for a direct session
+    pub fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) {
+        self.claude_threads
+            .insert(sdk_session_id.to_string(), session_id.to_string());
+    }
+
+    /// Check whether a Claude SDK session ID is managed by a direct session
+    pub fn is_managed_claude_thread(&self, sdk_session_id: &str) -> bool {
+        self.claude_threads.contains_key(sdk_session_id)
+    }
+
+    /// Resolve a Claude SDK session ID to the owning OrbitDock session ID
+    #[allow(dead_code)]
+    pub fn resolve_claude_thread(&self, sdk_session_id: &str) -> Option<String> {
+        self.claude_threads.get(sdk_session_id).map(|r| r.clone())
     }
 
     /// Subscribe to list updates

@@ -258,6 +258,12 @@ pub enum ClientMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         is_interrupt: Option<bool>,
     },
+    // Subagent tools
+    GetSubagentTools {
+        session_id: String,
+        subagent_id: String,
+    },
+
     ClaudeSubagentEvent {
         session_id: String,
         hook_event_name: String,

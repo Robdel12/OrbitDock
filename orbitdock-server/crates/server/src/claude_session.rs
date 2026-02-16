@@ -3,6 +3,8 @@
 //! Wraps the ClaudeConnector (bridge subprocess) and handles event forwarding.
 //! Mirrors the CodexSession pattern: connector + event loop + action channel.
 
+use std::sync::Arc;
+
 use orbitdock_connectors::{ClaudeConnector, ConnectorEvent};
 use orbitdock_protocol::ServerMessage;
 use tokio::sync::{broadcast, mpsc};
@@ -13,6 +15,7 @@ use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::SessionCommand;
+use crate::state::SessionRegistry;
 use crate::transition::{self, Effect, Input};
 
 /// Actions that can be sent to a Claude session
@@ -125,6 +128,7 @@ impl ClaudeSession {
         handle: SessionHandle,
         persist_tx: mpsc::Sender<PersistCommand>,
         list_tx: broadcast::Sender<ServerMessage>,
+        state: Arc<SessionRegistry>,
     ) -> (SessionActorHandle, mpsc::Sender<ClaudeAction>) {
         let (action_tx, mut action_rx) = mpsc::channel::<ClaudeAction>(100);
         let (command_tx, mut command_rx) = mpsc::channel::<SessionCommand>(256);
@@ -161,11 +165,27 @@ impl ClaudeSession {
                                     "Persisting Claude SDK session ID"
                                 );
                                 let _ = persist
-                                    .send(PersistCommand::SetThreadId {
+                                    .send(PersistCommand::SetClaudeSdkSessionId {
                                         session_id: session_id.clone(),
-                                        thread_id: sdk_sid,
+                                        claude_sdk_session_id: sdk_sid.clone(),
                                     })
                                     .await;
+                                // Register so hook handlers can recognize this thread
+                                state.register_claude_thread(&session_id, &sdk_sid);
+                                // End the shadow row created by hooks using the SDK session ID
+                                let _ = persist
+                                    .send(PersistCommand::CleanupClaudeShadowSession {
+                                        claude_sdk_session_id: sdk_sid.clone(),
+                                        reason: "managed_direct_session".to_string(),
+                                    })
+                                    .await;
+                                // Remove the shadow session from runtime if it exists
+                                if state.remove_session(&sdk_sid).is_some() {
+                                    state.broadcast_to_list(ServerMessage::SessionEnded {
+                                        session_id: sdk_sid,
+                                        reason: "managed_direct_session".to_string(),
+                                    });
+                                }
                             }
                         }
 

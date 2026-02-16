@@ -13,7 +13,7 @@ struct WorkStreamEntry: View {
   let message: TranscriptMessage
   let provider: Provider
   let model: String?
-  let transcriptPath: String?
+  let sessionId: String?
   let rollbackTurns: Int?
   let nthUserMessage: Int?
   let onRollback: (() -> Void)?
@@ -777,7 +777,7 @@ struct WorkStreamEntry: View {
            .toolTask, .toolMcp, .toolWebFetch, .toolWebSearch,
            .toolSkill, .toolPlanMode, .toolTodoTask, .toolAskQuestion,
            .toolStandard:
-        ToolIndicator(message: message, transcriptPath: transcriptPath, initiallyExpanded: true)
+        ToolIndicator(message: message, sessionId: sessionId, initiallyExpanded: true)
 
       case .thinking:
         ScrollView {

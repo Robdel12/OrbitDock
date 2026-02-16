@@ -413,7 +413,6 @@ struct SessionDetailView: View {
 
   private var conversationContent: some View {
     ConversationView(
-      transcriptPath: session.transcriptPath,
       sessionId: session.id,
       isSessionActive: session.isActive,
       workStatus: session.workStatus,

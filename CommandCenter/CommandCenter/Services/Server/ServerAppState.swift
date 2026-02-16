@@ -334,6 +334,12 @@ final class ServerAppState {
       }
     }
 
+    conn.onSubagentToolsList = { [weak self] sessionId, subagentId, tools in
+      Task { @MainActor in
+        self?.session(sessionId).subagentTools[subagentId] = tools
+      }
+    }
+
     conn.onContextCompacted = { sessionId in
       Task { @MainActor in
         logger.info("Context compacted for \(sessionId)")
@@ -636,6 +642,11 @@ final class ServerAppState {
     ServerConnection.shared.deleteApproval(approvalId)
   }
 
+  /// Request subagent tools from the server
+  func getSubagentTools(sessionId: String, subagentId: String) {
+    ServerConnection.shared.getSubagentTools(sessionId: sessionId, subagentId: subagentId)
+  }
+
   /// List MCP tools for a session
   func listMcpTools(sessionId: String) {
     ServerConnection.shared.listMcpTools(sessionId: sessionId)
@@ -776,6 +787,9 @@ final class ServerAppState {
     obs.currentTurnId = state.currentTurnId
     obs.turnCount = state.turnCount
     obs.turnDiffs = state.turnDiffs
+
+    // Subagents
+    obs.subagents = state.subagents
   }
 
   private func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -851,6 +865,13 @@ final class ServerAppState {
         sess.firstPrompt = prompt
       } else {
         sess.firstPrompt = nil
+      }
+    }
+    if let lastMessageOuter = changes.lastMessage {
+      if let message = lastMessageOuter {
+        sess.lastMessage = message
+      } else {
+        sess.lastMessage = nil
       }
     }
     if let modeOuter = changes.codexIntegrationMode {

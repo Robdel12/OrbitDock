@@ -9,13 +9,13 @@ import SwiftUI
 
 struct ToolIndicator: View {
   let message: TranscriptMessage
-  var transcriptPath: String?
+  var sessionId: String?
   @State private var isExpanded: Bool
   @State private var isHovering = false
 
-  init(message: TranscriptMessage, transcriptPath: String? = nil, initiallyExpanded: Bool = false) {
+  init(message: TranscriptMessage, sessionId: String? = nil, initiallyExpanded: Bool = false) {
     self.message = message
-    self.transcriptPath = transcriptPath
+    self.sessionId = sessionId
     _isExpanded = State(initialValue: initiallyExpanded)
   }
 
@@ -81,7 +81,7 @@ struct ToolIndicator: View {
         case .grep:
           GrepCard(message: message, isExpanded: $isExpanded)
         case .task:
-          TaskCard(message: message, isExpanded: $isExpanded, transcriptPath: transcriptPath)
+          TaskCard(message: message, isExpanded: $isExpanded, sessionId: sessionId)
         case .mcp:
           MCPCard(message: message, isExpanded: $isExpanded)
         case .webFetch:

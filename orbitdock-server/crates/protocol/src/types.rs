@@ -167,6 +167,8 @@ pub struct SessionSummary {
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     #[serde(default)]
@@ -197,6 +199,27 @@ pub struct TurnDiff {
     pub diff: String,
 }
 
+/// Subagent metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentInfo {
+    pub id: String,
+    pub agent_type: String,
+    pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+}
+
+/// A tool call from a subagent transcript
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubagentTool {
+    pub id: String,
+    pub tool_name: String,
+    pub summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    pub is_in_progress: bool,
+}
+
 /// Full session state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionState {
@@ -213,6 +236,8 @@ pub struct SessionState {
     pub summary: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<String>,
     pub status: SessionStatus,
     pub work_status: WorkStatus,
     pub messages: Vec<Message>,
@@ -246,6 +271,8 @@ pub struct SessionState {
     pub git_sha: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subagents: Vec<SubagentInfo>,
 }
 
 /// Changes to apply to a session state (delta updates)
@@ -269,6 +296,8 @@ pub struct StateChanges {
     pub summary: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_prompt: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<Option<CodexIntegrationMode>>,
     #[serde(skip_serializing_if = "Option::is_none")]

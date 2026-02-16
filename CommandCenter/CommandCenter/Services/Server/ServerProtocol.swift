@@ -198,6 +198,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let gitSha: String?
   let currentCwd: String?
   let firstPrompt: String?
+  let lastMessage: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -222,6 +223,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
     case firstPrompt = "first_prompt"
+    case lastMessage = "last_message"
   }
 }
 
@@ -279,6 +281,38 @@ struct ServerReviewComment: Codable, Identifiable {
   }
 }
 
+// MARK: - Subagent Types
+
+struct ServerSubagentInfo: Codable, Identifiable {
+  let id: String
+  let agentType: String
+  let startedAt: String
+  let endedAt: String?
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case agentType = "agent_type"
+    case startedAt = "started_at"
+    case endedAt = "ended_at"
+  }
+}
+
+struct ServerSubagentTool: Codable, Identifiable {
+  let id: String
+  let toolName: String
+  let summary: String
+  let output: String?
+  let isInProgress: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case toolName = "tool_name"
+    case summary
+    case output
+    case isInProgress = "is_in_progress"
+  }
+}
+
 // MARK: - Session State
 
 struct ServerSessionState: Codable, Identifiable {
@@ -312,6 +346,8 @@ struct ServerSessionState: Codable, Identifiable {
   let gitSha: String?
   let currentCwd: String?
   let firstPrompt: String?
+  let lastMessage: String?
+  let subagents: [ServerSubagentInfo]
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -344,6 +380,8 @@ struct ServerSessionState: Codable, Identifiable {
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
     case firstPrompt = "first_prompt"
+    case lastMessage = "last_message"
+    case subagents
   }
 
   init(from decoder: Decoder) throws {
@@ -381,6 +419,8 @@ struct ServerSessionState: Codable, Identifiable {
     gitSha = try container.decodeIfPresent(String.self, forKey: .gitSha)
     currentCwd = try container.decodeIfPresent(String.self, forKey: .currentCwd)
     firstPrompt = try container.decodeIfPresent(String.self, forKey: .firstPrompt)
+    lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
+    subagents = try container.decodeIfPresent([ServerSubagentInfo].self, forKey: .subagents) ?? []
   }
 }
 
@@ -406,6 +446,7 @@ struct ServerStateChanges: Codable {
   let gitSha: String??
   let currentCwd: String??
   let firstPrompt: String??
+  let lastMessage: String??
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -427,6 +468,7 @@ struct ServerStateChanges: Codable {
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
     case firstPrompt = "first_prompt"
+    case lastMessage = "last_message"
   }
 }
 
@@ -806,6 +848,7 @@ enum ServerToClientMessage: Codable {
   case reviewCommentUpdated(sessionId: String, comment: ServerReviewComment)
   case reviewCommentDeleted(sessionId: String, commentId: String)
   case reviewCommentsList(sessionId: String, comments: [ServerReviewComment])
+  case subagentToolsList(sessionId: String, subagentId: String, tools: [ServerSubagentTool])
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -850,6 +893,7 @@ enum ServerToClientMessage: Codable {
     case comment
     case commentId = "comment_id"
     case comments
+    case subagentId = "subagent_id"
   }
 
   init(from decoder: Decoder) throws {
@@ -1044,6 +1088,12 @@ enum ServerToClientMessage: Codable {
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let comments = try container.decode([ServerReviewComment].self, forKey: .comments)
         self = .reviewCommentsList(sessionId: sessionId, comments: comments)
+
+      case "subagent_tools_list":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let subagentId = try container.decode(String.self, forKey: .subagentId)
+        let tools = try container.decode([ServerSubagentTool].self, forKey: .tools)
+        self = .subagentToolsList(sessionId: sessionId, subagentId: subagentId, tools: tools)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -1240,6 +1290,12 @@ enum ServerToClientMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(comments, forKey: .comments)
 
+      case let .subagentToolsList(sessionId, subagentId, tools):
+        try container.encode("subagent_tools_list", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(subagentId, forKey: .subagentId)
+        try container.encode(tools, forKey: .tools)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -1319,6 +1375,7 @@ enum ClientToServerMessage: Codable {
   )
   case deleteReviewComment(commentId: String)
   case listReviewComments(sessionId: String, turnId: String? = nil)
+  case getSubagentTools(sessionId: String, subagentId: String)
   case setOpenAiKey(key: String)
 
   enum CodingKeys: String, CodingKey {
@@ -1358,6 +1415,7 @@ enum ClientToServerMessage: Codable {
     case commentId = "comment_id"
     case status
     case key
+    case subagentId = "subagent_id"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -1543,6 +1601,11 @@ enum ClientToServerMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encodeIfPresent(turnId, forKey: .turnId)
 
+      case let .getSubagentTools(sessionId, subagentId):
+        try container.encode("get_subagent_tools", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(subagentId, forKey: .subagentId)
+
       case let .setOpenAiKey(key):
         try container.encode("set_open_ai_key", forKey: .type)
         try container.encode(key, forKey: .key)
@@ -1694,6 +1757,11 @@ enum ClientToServerMessage: Codable {
         self = try .listReviewComments(
           sessionId: container.decode(String.self, forKey: .sessionId),
           turnId: container.decodeIfPresent(String.self, forKey: .turnId)
+        )
+      case "get_subagent_tools":
+        self = try .getSubagentTools(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          subagentId: container.decode(String.self, forKey: .subagentId)
         )
       case "set_open_ai_key":
         self = try .setOpenAiKey(

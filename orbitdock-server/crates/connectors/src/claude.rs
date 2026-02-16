@@ -422,6 +422,7 @@ impl ClaudeConnector {
         let mut lines = reader.lines();
         let mut streaming_content = String::new();
         let mut streaming_msg_id: Option<String> = None;
+        let mut in_turn = false;
 
         loop {
             match lines.next_line().await {
@@ -452,6 +453,7 @@ impl ClaudeConnector {
                         &pending_controls,
                         &mut streaming_content,
                         &mut streaming_msg_id,
+                        &mut in_turn,
                     )
                     .await;
 
@@ -505,11 +507,19 @@ impl ClaudeConnector {
         pending_controls: &Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
+        in_turn: &mut bool,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
 
-        match msg_type {
+        // Emit TurnStarted on first assistant activity (stream_event or assistant message)
+        let mut turn_start_event = Vec::new();
+        if !*in_turn && matches!(msg_type, "assistant" | "stream_event") {
+            *in_turn = true;
+            turn_start_event.push(ConnectorEvent::TurnStarted);
+        }
+
+        let mut events = match msg_type {
             "system" => Self::handle_system_message(raw, session_id_slot).await,
 
             "assistant" => Self::handle_assistant_message(
@@ -530,7 +540,10 @@ impl ClaudeConnector {
                 streaming_msg_id,
             ),
 
-            "result" => Self::handle_result_message(raw, streaming_content, streaming_msg_id),
+            "result" => {
+                *in_turn = false;
+                Self::handle_result_message(raw, streaming_content, streaming_msg_id)
+            }
 
             "control_request" => Self::handle_cli_control_request(raw),
 
@@ -568,6 +581,14 @@ impl ClaudeConnector {
                 );
                 vec![]
             }
+        };
+
+        // Prepend TurnStarted so it fires before any message events
+        if !turn_start_event.is_empty() {
+            turn_start_event.append(&mut events);
+            turn_start_event
+        } else {
+            events
         }
     }
 
@@ -628,7 +649,7 @@ impl ClaudeConnector {
 
         for block in content_blocks {
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let id = format!("claude-msg-{}", msg_counter.fetch_add(1, Ordering::Relaxed));
+            let id = format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], msg_counter.fetch_add(1, Ordering::Relaxed));
 
             match block_type {
                 "text" => {
@@ -746,7 +767,7 @@ impl ClaudeConnector {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
-                let id = format!("claude-msg-{}", msg_counter.fetch_add(1, Ordering::Relaxed));
+                let id = format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], msg_counter.fetch_add(1, Ordering::Relaxed));
                 events.push(ConnectorEvent::MessageCreated(
                     orbitdock_protocol::Message {
                         id,
@@ -797,7 +818,7 @@ impl ClaudeConnector {
 
                     if streaming_msg_id.is_none() {
                         let msg_id =
-                            format!("claude-msg-{}", msg_counter.fetch_add(1, Ordering::Relaxed));
+                            format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], msg_counter.fetch_add(1, Ordering::Relaxed));
                         events.push(ConnectorEvent::MessageCreated(
                             orbitdock_protocol::Message {
                                 id: msg_id.clone(),

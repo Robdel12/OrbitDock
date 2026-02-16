@@ -2,7 +2,8 @@
 //  TaskCard.swift
 //  OrbitDock
 //
-//  Enhanced agent/subagent task card with nested tool calls and live refresh
+//  Enhanced agent/subagent task card with nested tool calls.
+//  Tools are loaded from the server via GetSubagentTools.
 //
 
 import SwiftUI
@@ -10,16 +11,15 @@ import SwiftUI
 struct TaskCard: View {
   let message: TranscriptMessage
   @Binding var isExpanded: Bool
-  var transcriptPath: String?
+  var sessionId: String?
+
+  @Environment(ServerAppState.self) private var serverState
 
   // Subagent state
-  @State private var subagentTools: [TranscriptMessage] = []
-  @State private var subagentPath: String? = nil
+  @State private var matchedSubagentId: String?
   @State private var hasLoadedSubagent = false
   @State private var showSubagentTools = false
-
-  /// File monitoring for live refresh
-  @State private var fileMonitor: DispatchSourceFileSystemObject? = nil
+  @State private var pollTask: Task<Void, Never>?
 
   private var description: String {
     message.taskDescription ?? ""
@@ -45,6 +45,11 @@ struct TaskCard: View {
     AgentTypeInfo.from(agentType)
   }
 
+  private var subagentTools: [ServerSubagentTool] {
+    guard let sid = sessionId, let subId = matchedSubagentId else { return [] }
+    return serverState.session(sid).subagentTools[subId] ?? []
+  }
+
   var body: some View {
     ToolCardContainer(
       color: agentInfo.color,
@@ -57,90 +62,77 @@ struct TaskCard: View {
     }
     .onChange(of: isExpanded) { _, expanded in
       if expanded, !hasLoadedSubagent {
-        loadSubagentTools()
+        matchAndLoadSubagent()
       }
     }
     .onChange(of: isComplete) { _, complete in
-      // Stop monitoring when task completes
       if complete {
-        stopFileMonitoring()
+        stopPolling()
       }
     }
     .onDisappear {
-      stopFileMonitoring()
+      stopPolling()
     }
   }
 
-  // MARK: - Load Subagent Tools
+  // MARK: - Match Subagent & Load Tools
 
-  private func loadSubagentTools() {
-    guard let path = transcriptPath, !prompt.isEmpty else {
+  private func matchAndLoadSubagent() {
+    guard let sid = sessionId else {
       hasLoadedSubagent = true
       return
     }
 
-    // Find and parse subagent transcript in background
-    DispatchQueue.global(qos: .userInitiated).async {
-      let foundPath = TranscriptParser.findSubagentTranscript(
-        sessionPath: path,
-        taskPrompt: prompt,
-        taskTimestamp: message.timestamp
-      )
+    let obs = serverState.session(sid)
+    let subagents = obs.subagents
 
-      if let subagentPath = foundPath {
-        let tools = TranscriptParser.parseSubagentTools(subagentPath: subagentPath)
-        DispatchQueue.main.async {
-          self.subagentPath = subagentPath
-          self.subagentTools = tools
-          self.hasLoadedSubagent = true
+    // Match by agent type and timestamp proximity (within 5 seconds)
+    let taskTime = message.timestamp.timeIntervalSince1970
+    let matched = subagents.first { sub in
+      // Parse subagent started_at (Unix seconds or ISO 8601 with Z suffix)
+      let startedStr = sub.startedAt
+      let stripped = startedStr.hasSuffix("Z") ? String(startedStr.dropLast()) : startedStr
+      guard let startedSecs = TimeInterval(stripped) else { return false }
+      return abs(startedSecs - taskTime) < 5.0
+    }
 
-          // Start monitoring if task is still in progress
-          if !self.isComplete {
-            self.startFileMonitoring()
-          }
-        }
-      } else {
-        DispatchQueue.main.async {
-          self.hasLoadedSubagent = true
+    if let matched {
+      matchedSubagentId = matched.id
+      hasLoadedSubagent = true
+      requestTools()
+
+      // Poll for live updates if task is still in progress
+      if !isComplete {
+        startPolling()
+      }
+    } else {
+      hasLoadedSubagent = true
+    }
+  }
+
+  private func requestTools() {
+    guard let sid = sessionId, let subId = matchedSubagentId else { return }
+    serverState.getSubagentTools(sessionId: sid, subagentId: subId)
+  }
+
+  // MARK: - Polling for Live Updates
+
+  private func startPolling() {
+    stopPolling()
+    pollTask = Task {
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(2))
+        guard !Task.isCancelled else { break }
+        await MainActor.run {
+          requestTools()
         }
       }
     }
   }
 
-  // MARK: - File Monitoring for Live Refresh
-
-  private func startFileMonitoring() {
-    guard let path = subagentPath else { return }
-
-    // Open file descriptor for monitoring
-    let fd = open(path, O_RDONLY)
-    guard fd >= 0 else { return }
-
-    let source = DispatchSource.makeFileSystemObjectSource(
-      fileDescriptor: fd,
-      eventMask: [.write, .extend],
-      queue: DispatchQueue.global(qos: .userInitiated)
-    )
-
-    source.setEventHandler { [path] in
-      // Re-parse subagent tools
-      let tools = TranscriptParser.parseSubagentTools(subagentPath: path)
-      DispatchQueue.main.async {
-        self.subagentTools = tools
-      }
-    }
-
-    source.setCancelHandler {
-      close(fd)
-    }
-
-    source.resume()
-    fileMonitor = source
-  }
-
-  private func stopFileMonitoring() {
-    fileMonitor?.cancel()
-    fileMonitor = nil
+  private func stopPolling() {
+    pollTask?.cancel()
+    pollTask = nil
   }
 
   // MARK: - Header
@@ -372,7 +364,7 @@ struct TaskCard: View {
 // MARK: - Subagent Tool Row
 
 private struct SubagentToolRow: View {
-  let tool: TranscriptMessage
+  let tool: ServerSubagentTool
   let color: Color
 
   private var toolColor: Color {
@@ -398,12 +390,12 @@ private struct SubagentToolRow: View {
         .frame(width: 14)
 
       // Tool name
-      Text(tool.toolName ?? "Tool")
+      Text(tool.toolName)
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(toolColor)
 
       // Summary
-      Text(tool.content)
+      Text(tool.summary)
         .font(.system(size: 10, design: .monospaced))
         .foregroundStyle(.secondary)
         .lineLimit(1)

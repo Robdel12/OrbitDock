@@ -176,6 +176,13 @@ pub enum ServerMessage {
         comments: Vec<ReviewComment>,
     },
 
+    // Subagent tools
+    SubagentToolsList {
+        session_id: String,
+        subagent_id: String,
+        tools: Vec<SubagentTool>,
+    },
+
     // Errors
     Error {
         code: String,

@@ -9,6 +9,9 @@
 Current state is local-only by design:
 
 - **Server binds localhost only**: `orbitdock-server/crates/server/src/main.rs:483` hardcodes `127.0.0.1:4000`
+- **Server has no signal handling**: SIGTERM kills it mid-write — sessions left inconsistent, DB writes lost
+- **Server paths are hardcoded**: database locked to `~/.orbitdock/orbitdock.db`, no CLI args at all
+- **No deployment story**: no systemd unit, no launchd plist, no Dockerfile — only runs as an embedded subprocess
 - **Client URL is hardcoded**: `CommandCenter/CommandCenter/Services/Server/ServerConnection.swift:37` points at `ws://127.0.0.1:4000/ws`
 - **App assumes one embedded server**: `CommandCenterApp.swift` starts `ServerManager.shared` on launch, waits for health check, then connects the singleton `ServerConnection.shared`
 - **Three coupled singletons**: `ServerManager.shared`, `ServerConnection.shared`, and `MCPBridge.shared` all assume a single local server
@@ -22,13 +25,14 @@ That is a solid local baseline. Now we want controlled remote access without tur
 - Network: **Tailscale tailnet only** (not public internet).
 - Transport security: `ws://` over Tailscale is fine — Tailscale encrypts the tunnel with WireGuard. No need for app-level TLS in MVP.
 - MVP topology: **single selected endpoint** in the app (local or one remote).
-- Security stance (MVP): tailnet identity + ACLs first, app-level auth token in Phase 4.
+- Security stance (MVP): tailnet identity + ACLs first, app-level auth token in Phase 5.
 - Future-ready direction: endpoint abstraction now, multi-server merged UI later.
 
 ## Scope
 
 ### In scope (MVP)
 
+- Harden server for standalone daemon deployment (signals, CLI args, service files).
 - Make server bind address configurable.
 - Add configurable server endpoints in macOS app.
 - Allow connecting to a remote Tailscale endpoint.
@@ -44,51 +48,128 @@ That is a solid local baseline. Now we want controlled remote access without tur
 - Public internet exposure.
 - Full authn/authz system redesign.
 - `wss://` / TLS termination (Tailscale handles encryption).
+- Docker / container images (defer until someone needs it).
+- Cross-compilation for ARM Linux (defer until Pi deployment is attempted).
 
 ---
 
-## Phase 1: Server-Side Configurability
+## Phase 1: Server Daemon Hardening
 
 ### Objective
 
-Make `orbitdock-server` bindable to non-localhost addresses so a remote client can reach it at all.
+Make `orbitdock-server` a well-behaved daemon that can run standalone on any machine — not just as an embedded subprocess managed by the macOS app.
 
 ### Changes
 
-1. **Configurable bind address**:
-   - Add `ORBITDOCK_BIND_ADDR` env var (default: `127.0.0.1:4000` — unchanged behavior).
-   - Parse and validate on startup, log the resolved address.
-   - When running on a Tailscale host, user sets `ORBITDOCK_BIND_ADDR=0.0.0.0:4000`.
+1. **Graceful shutdown on signals**:
+   - Handle SIGTERM and SIGINT via `tokio::signal`.
+   - On signal: log shutdown intent, close active WebSocket connections with a close frame, flush pending DB writes, mark in-progress sessions as interrupted, then exit cleanly.
+   - This is critical — without it, `systemctl stop` or `launchctl unload` corrupts state.
+
+2. **CLI arguments via `clap`**:
+   - `--bind <addr>` — bind address (default: `127.0.0.1:4000`). Also readable from `ORBITDOCK_BIND_ADDR` env var.
+   - `--data-dir <path>` — data directory (default: `~/.orbitdock`). Database, logs, and state files all live here.
+   - Keep all existing env vars working as fallbacks. CLI args take priority.
+
+3. **PID file**:
+   - Write PID to `<data-dir>/orbitdock-server.pid` on startup.
+   - Remove on clean shutdown.
+   - On startup, check for stale PID file and warn (don't block — the old process may have crashed).
+
+4. **Log rotation**:
+   - Switch from `rolling::never` to `rolling::daily` with max 7 files retained.
+   - Also add stderr output when not running as a daemon (detect via `--foreground` flag or TTY check), so systemd journal and manual runs get output too.
+
+5. **Service file templates**:
+   - `deploy/orbitdock-server.service` — systemd unit for Linux (Pi, servers).
+   - `deploy/com.orbitdock.server.plist` — launchd plist for macOS.
+   - Both reference configurable `--bind` and `--data-dir`.
+
+### Files touched
+
+- `orbitdock-server/crates/server/src/main.rs` — signal handling, CLI args, PID file
+- `orbitdock-server/crates/server/src/logging.rs` — log rotation, stderr fallback
+- `orbitdock-server/Cargo.toml` — add `clap` dependency
+- New: `deploy/orbitdock-server.service`
+- New: `deploy/com.orbitdock.server.plist`
+
+### Acceptance criteria
+
+- `kill <pid>` and `kill -TERM <pid>` trigger clean shutdown with log message.
+- `--bind 0.0.0.0:4000` works; default (no flag) is identical to current behavior.
+- `--data-dir /opt/orbitdock` puts DB + logs in that directory.
+- PID file is created on startup, removed on clean shutdown.
+- Logs rotate daily, old logs are cleaned up.
+- `stderr` gets log output when running in a terminal.
+- Service files are valid (`systemd-analyze verify`, `plutil -lint`).
+
+### How to validate
+
+```bash
+# Test signal handling
+cargo run -p orbitdock-server -- --bind 127.0.0.1:4000 &
+kill -TERM $!
+# Should see "shutting down gracefully" in logs, clean exit
+
+# Test custom data dir
+cargo run -p orbitdock-server -- --data-dir /tmp/orbitdock-test
+ls /tmp/orbitdock-test/
+# Should contain: orbitdock.db, logs/, orbitdock-server.pid
+
+# Test systemd unit (on a Linux box)
+sudo cp deploy/orbitdock-server.service /etc/systemd/system/
+sudo systemctl start orbitdock-server
+sudo systemctl status orbitdock-server  # should be active
+sudo systemctl stop orbitdock-server    # should stop cleanly
+```
+
+---
+
+## Phase 2: Server Connectivity + Handshake
+
+### Objective
+
+Make `orbitdock-server` reachable from remote clients and identifiable on connect.
+
+### Changes
+
+1. **Configurable bind address** (building on Phase 1's `--bind` flag):
+   - When running on a Tailscale host, user sets `--bind 0.0.0.0:4000`.
+   - Log the resolved bind address clearly on startup.
+   - Update `ServerManager.swift` to pass `--bind` when launching the embedded server (keeps local behavior unchanged).
 
 2. **Version handshake on WebSocket connect**:
-   - Server sends a `{"type": "hello", "version": "0.1.0", "server_id": "<uuid>"}` message on new WebSocket connections.
+   - Server sends a `{"type": "hello", "version": "0.1.0", "server_id": "<uuid>"}` message immediately on new WebSocket connections.
+   - `server_id` is a stable UUID generated on first run and persisted in `<data-dir>/server-id`.
    - Client can detect incompatible servers or wrong endpoints early instead of getting opaque parse errors.
 
 ### Files touched
 
-- `orbitdock-server/crates/server/src/main.rs` — bind address from env
+- `orbitdock-server/crates/server/src/main.rs` — bind address passthrough
 - `orbitdock-server/crates/server/src/websocket.rs` — hello message on connect
+- `CommandCenter/CommandCenter/Services/Server/ServerManager.swift` — pass `--bind` to embedded server
 
 ### Acceptance criteria
 
-- Server binds to env-configured address and accepts remote connections.
-- Default behavior (no env var) is identical to current localhost-only.
+- Server binds to configured address and accepts connections from other machines.
+- Default behavior (no flags) is identical to current localhost-only.
 - Client receives version info on connect.
+- `ServerManager` passes `--bind 127.0.0.1:4000` to the embedded binary (explicit, not implicit).
 
 ### How to validate
 
 ```bash
 # Terminal 1: start server on all interfaces
-ORBITDOCK_BIND_ADDR=0.0.0.0:4000 cargo run -p orbitdock-server
+cargo run -p orbitdock-server -- --bind 0.0.0.0:4000
 
 # Terminal 2: connect from another machine on the same network
 websocat ws://<tailscale-ip>:4000/ws
-# Should receive {"type":"hello","version":"0.1.0",...}
+# Should receive {"type":"hello","version":"0.1.0","server_id":"..."}
 ```
 
 ---
 
-## Phase 2: Endpoint Model + Client Connection Refactor
+## Phase 3: Endpoint Model + Client Connection Refactor
 
 ### Objective
 
@@ -121,7 +202,7 @@ Replace hardcoded localhost in the macOS app with a persisted endpoint config. M
 
 5. **Health check strategy**:
    - Local endpoints: existing HTTP probe to `/health` (unchanged).
-   - Remote endpoints: skip HTTP health check; use WebSocket connect with timeout as the readiness signal. Validate the `hello` message from Phase 1.
+   - Remote endpoints: skip HTTP health check; use WebSocket connect with timeout as the readiness signal. Validate the `hello` message from Phase 2.
 
 6. **Remote-friendly reconnection policy**:
    - Local endpoints: keep current 3-retry limit (server crash = real problem).
@@ -155,7 +236,7 @@ Replace hardcoded localhost in the macOS app with a persisted endpoint config. M
 
 ---
 
-## Phase 3: Settings UI + Connection Status
+## Phase 4: Settings UI + Connection Status
 
 ### Objective
 
@@ -199,7 +280,7 @@ Give the user a clear interface to manage endpoints and see connection health.
 
 ---
 
-## Phase 4: Security Hardening + Docs
+## Phase 5: Security Hardening + Docs
 
 ### Objective
 
@@ -209,7 +290,7 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 
 1. **Tailscale setup runbook** (`docs/tailscale-remote-setup.md`):
    - Prerequisites (Tailscale installed on both machines).
-   - Server host setup: install orbitdock-server, configure `ORBITDOCK_BIND_ADDR`, start as service.
+   - Server host setup: install orbitdock-server, configure `--bind`, start as service using the templates from Phase 1.
    - Tailnet ACL guidance (restrict to your devices/user).
    - Client setup: add remote endpoint in OrbitDock Settings.
    - Verification steps.
@@ -218,8 +299,8 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 2. **Optional bearer token auth**:
    - Endpoint model gets optional `authToken: String?` stored in Keychain.
    - Client sends token as query param on WebSocket upgrade (`?token=<token>`) or as `Authorization` header.
-   - Server validates token when `ORBITDOCK_AUTH_TOKEN` env var is set; rejects connections without valid token.
-   - When env var is unset, server accepts all connections (current behavior, local-only default).
+   - Server validates token when `ORBITDOCK_AUTH_TOKEN` env var is set (or `--auth-token` flag); rejects connections without valid token.
+   - When not configured, server accepts all connections (current behavior, local-only default).
 
 3. **Phone hotspot validation script**:
    - Simple script that verifies Tailscale connectivity and tests WebSocket handshake from the command line.
@@ -230,7 +311,7 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 - New: `docs/tailscale-remote-setup.md`
 - `Endpoint.swift` — optional auth token field + Keychain storage
 - `ServerConnection.swift` — attach token on connect
-- `orbitdock-server/crates/server/src/main.rs` — token validation middleware
+- `orbitdock-server/crates/server/src/main.rs` — `--auth-token` flag + validation middleware
 - `orbitdock-server/crates/server/src/websocket.rs` — reject unauthorized connections
 
 ### Acceptance criteria
@@ -254,15 +335,24 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 
 ### Automated
 
-- **Unit tests**:
+- **Unit tests (Rust)**:
+  - CLI arg parsing (bind address, data dir, auth token)
+  - Bind address validation
+  - Signal handler triggers clean shutdown
+  - Hello handshake message format
+  - Auth token validation (accept/reject)
+  - PID file lifecycle
+
+- **Unit tests (Swift)**:
   - Endpoint model: create, persist, load, update, delete
   - Active endpoint switching logic
   - `isLocalManaged` gates ServerManager startup
   - Reconnection policy selection (local vs remote)
   - Token attachment on WebSocket upgrade
-  - Server bind address parsing from env var
 
 - **Integration tests**:
+  - Server starts with custom `--data-dir` and creates expected files
+  - Server shuts down cleanly on SIGTERM
   - Connection lifecycle on endpoint swap (local -> remote -> local)
   - State cleanup between endpoint switches (no session bleed)
   - Hello handshake validation
@@ -270,15 +360,17 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 
 ### Manual (MVP sign-off)
 
-1. Start app on local endpoint. Verify current behavior is identical.
-2. Add remote endpoint pointing to Tailscale host server.
-3. Switch endpoint; verify connect and session list loads.
-4. Move client machine to phone hotspot (Tailscale active on both devices).
-5. Verify connection recovers after network transition.
-6. Kill remote server — verify app shows reconnecting, recovers on restart.
-7. Toggle back to local endpoint — verify embedded server starts and works.
-8. Test with auth token configured on both sides.
-9. Test with wrong/missing auth token — verify rejection with clear error.
+1. Start server standalone with `--bind 0.0.0.0:4000` — verify it accepts remote connections.
+2. `kill -TERM` the server — verify clean shutdown, no corrupt state.
+3. Start app on local endpoint — verify current behavior is identical.
+4. Add remote endpoint pointing to Tailscale host server.
+5. Switch endpoint; verify connect and session list loads.
+6. Move client machine to phone hotspot (Tailscale active on both devices).
+7. Verify connection recovers after network transition.
+8. Kill remote server — verify app shows reconnecting, recovers on restart.
+9. Toggle back to local endpoint — verify embedded server starts and works.
+10. Test with auth token configured on both sides.
+11. Test with wrong/missing auth token — verify rejection with clear error.
 
 ---
 
@@ -286,17 +378,22 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 
 | Risk | Mitigation |
 |------|------------|
+| Signal handling breaks embedded mode | ServerManager already kills child process; signals only affect standalone mode |
 | Singleton assumptions make endpoint switch flaky | Explicit coordinated teardown of all three singletons + integration tests |
 | Remote misconfiguration gives poor UX | Test button + clear error messages + setup docs |
 | Accidental public exposure | Tailscale-only docs, local-first default, no `wss://` complexity |
 | Transient network failures feel broken | Remote-specific retry policy with unlimited backoff + visible reconnection state |
 | MCP bridge confusion on remote endpoints | Gate MCPBridge behind `isLocalManaged` — only runs for local server |
 | Protocol mismatch between app and remote server | Version handshake on connect catches this immediately |
+| clap dependency conflicts with existing setup | Server has no CLI framework today — clean addition |
 
 ---
 
-## Definition of Done (MVP = Phases 1-4 complete)
+## Definition of Done (MVP = Phases 1-5 complete)
 
+- `orbitdock-server` shuts down gracefully on SIGTERM/SIGINT.
+- Server accepts `--bind` and `--data-dir` flags for flexible deployment.
+- Service file templates exist for systemd and launchd.
 - `orbitdock-server` is bindable to configurable addresses.
 - One macOS app can connect to either local OrbitDock server or one remote Tailscale server.
 - Switching endpoints is reliable and does not require app restart.
@@ -307,6 +404,12 @@ Make remote setup safe, repeatable, and documented for self-hosted users.
 
 ---
 
-## Future: Multi-Server Foundation (post-MVP)
+## Future (post-MVP)
 
-Once MVP is validated, the next step is supporting multiple simultaneous server connections. This means replacing the singleton pattern with endpoint-scoped runtime objects (`ServerConnection` + `ServerAppState` per endpoint) and adding a server picker in the UI. Detailed planning deferred until MVP is proven.
+### Multi-Server Foundation
+
+Supporting multiple simultaneous server connections. Replace the singleton pattern with endpoint-scoped runtime objects (`ServerConnection` + `ServerAppState` per endpoint) and add a server picker in the UI. Detailed planning deferred until MVP is proven.
+
+### Zero-Config Deployment CLI
+
+Once the server has `clap` and daemon behavior from Phase 1, add a `orbitdock-server setup` subcommand that bootstraps the full environment on a fresh machine. Check if Tailscale is installed (prompt to install if not), configure tailnet ACLs, generate an auth token, write and enable the appropriate service file (systemd or launchd), and verify connectivity — one command from bare machine to running endpoint. Eventually this could extend to Docker/container deployment too.

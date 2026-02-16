@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use orbitdock_connectors::{CodexConnector, ConnectorError, ConnectorEvent, SteerOutcome};
-use orbitdock_protocol::ServerMessage;
+use orbitdock_protocol::{MessageType, ServerMessage};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info};
 
@@ -188,6 +188,17 @@ impl CodexSession {
         let state = handle.extract_state();
         let (new_state, effects) = transition::transition(state, input, &now);
         handle.apply_state(new_state);
+
+        // Update last_message from the latest user/assistant message
+        if let Some(last) = handle
+            .messages()
+            .iter()
+            .rev()
+            .find(|m| matches!(m.message_type, MessageType::User | MessageType::Assistant))
+        {
+            let truncated: String = last.content.chars().take(200).collect();
+            handle.set_last_message(Some(truncated));
+        }
 
         for effect in effects {
             match effect {
@@ -518,6 +529,14 @@ pub async fn handle_session_command(
         }
         SessionCommand::AddMessageAndBroadcast { message } => {
             let session_id = handle.id().to_string();
+            // Update last_message for dashboard context lines
+            if matches!(
+                message.message_type,
+                MessageType::User | MessageType::Assistant
+            ) {
+                let truncated: String = message.content.chars().take(200).collect();
+                handle.set_last_message(Some(truncated));
+            }
             handle.add_message(message.clone());
             handle.broadcast(ServerMessage::MessageAppended {
                 session_id,

@@ -33,6 +33,10 @@ enum TypeScale {
   static let title: CGFloat = 14
   /// Content meant to be read (user prompts, steer text) vs. UI labels
   static let reading: CGFloat = 14
+  /// Section headers ("Active Agents") — dominant dashboard tier
+  static let headline: CGFloat = 20
+  /// Project names, emphasized subheads
+  static let large: CGFloat = 15
 }
 
 /// Corner radius tiers — replaces ad-hoc 4/5/6/8/10/12 mix.

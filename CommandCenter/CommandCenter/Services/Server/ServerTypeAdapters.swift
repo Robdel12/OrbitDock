@@ -48,6 +48,7 @@ extension ServerSessionSummary {
     )
     session.summary = summary
     session.firstPrompt = firstPrompt
+    session.lastMessage = lastMessage
     session.gitSha = gitSha
     session.currentCwd = currentCwd
     return session
@@ -98,6 +99,7 @@ extension ServerSessionState {
     )
     session.summary = summary
     session.firstPrompt = firstPrompt
+    session.lastMessage = lastMessage
     session.currentDiff = currentDiff
     session.gitSha = gitSha
     session.currentCwd = currentCwd

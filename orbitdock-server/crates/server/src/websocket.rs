@@ -525,9 +525,9 @@ async fn handle_client_message(
                             state: snapshot,
                             rx,
                         } => {
-                            let snapshot = *snapshot;
+                            let mut snapshot = *snapshot;
                             // If snapshot has no messages, try loading from transcript
-                            let snapshot = if snapshot.messages.is_empty() {
+                            snapshot = if snapshot.messages.is_empty() {
                                 if let Some(path) = snapshot.transcript_path.clone() {
                                     let (reply_tx, reply_rx) = oneshot::channel();
                                     actor
@@ -548,6 +548,16 @@ async fn handle_client_message(
                             } else {
                                 snapshot
                             };
+
+                            // Enrich snapshot with subagents from DB
+                            if snapshot.subagents.is_empty() {
+                                if let Ok(subagents) =
+                                    crate::persistence::load_subagents_for_session(&session_id)
+                                        .await
+                                {
+                                    snapshot.subagents = subagents;
+                                }
+                            }
 
                             spawn_broadcast_forwarder(
                                 rx,
@@ -737,7 +747,7 @@ async fn handle_client_message(
                     Ok(claude_session) => {
                         handle.set_list_tx(state.list_tx());
                         let (actor_handle, action_tx) =
-                            claude_session.start_event_loop(handle, persist_tx, state.list_tx());
+                            claude_session.start_event_loop(handle, persist_tx, state.list_tx(), state.clone());
                         state.add_session_actor(actor_handle);
                         state.set_claude_action_tx(&session_id, action_tx);
                         info!(
@@ -1675,6 +1685,7 @@ async fn handle_client_message(
                 restored.git_sha,
                 restored.current_cwd,
                 restored.first_prompt,
+                restored.last_message,
             );
 
             // Subscribe the requesting client
@@ -1790,6 +1801,11 @@ async fn handle_client_message(
                 return;
             }
 
+            // Skip if this session ID belongs to a managed Claude direct session
+            if state.is_managed_claude_thread(&session_id) {
+                return;
+            }
+
             let persist_tx = state.persist().clone();
             let now_secs = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -1893,6 +1909,11 @@ async fn handle_client_message(
         }
 
         ClientMessage::ClaudeSessionEnd { session_id, reason } => {
+            // Skip if this session ID belongs to a managed Claude direct session
+            if state.is_managed_claude_thread(&session_id) {
+                return;
+            }
+
             let persist_tx = state.persist().clone();
 
             if let Some(existing) = state.get_session(&session_id) {
@@ -1945,6 +1966,89 @@ async fn handle_client_message(
             trigger: _,
             custom_instructions: _,
         } => {
+            // If this hook is from a managed Claude direct session, route
+            // supplementary data (summary, compact_count, last_tool) to the
+            // owning session instead of creating/updating a passive session.
+            if state.is_managed_claude_thread(&session_id) {
+                if let Some(owning_id) = state.resolve_claude_thread(&session_id) {
+                    if let Some(actor) = state.get_session(&owning_id) {
+                        let persist_tx = state.persist().clone();
+
+                        // Route summary extraction on Stop
+                        if hook_event_name == "Stop" {
+                            let snap = actor.snapshot();
+                            if snap.summary.is_none() {
+                                let derived = cwd.as_deref().and_then(|p| {
+                                    claude_transcript_path_from_cwd(p, &session_id)
+                                });
+                                let tp = snap
+                                    .transcript_path
+                                    .clone()
+                                    .or_else(|| transcript_path.clone())
+                                    .or(derived);
+                                if let Some(path) = tp {
+                                    if let Some(summary) =
+                                        crate::persistence::extract_summary_from_transcript_path(
+                                            &path,
+                                        )
+                                        .await
+                                    {
+                                        actor
+                                            .send(SessionCommand::ApplyDelta {
+                                                changes: orbitdock_protocol::StateChanges {
+                                                    summary: Some(Some(summary.clone())),
+                                                    ..Default::default()
+                                                },
+                                                persist_op: None,
+                                            })
+                                            .await;
+                                        let _ = persist_tx
+                                            .send(PersistCommand::SetSummary {
+                                                session_id: owning_id.clone(),
+                                                summary,
+                                            })
+                                            .await;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Route compact_count increment on PreCompact
+                        if hook_event_name == "PreCompact" {
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeSessionUpdate {
+                                    id: owning_id.clone(),
+                                    work_status: None,
+                                    attention_reason: None,
+                                    last_tool: None,
+                                    last_tool_at: None,
+                                    pending_tool_name: None,
+                                    pending_tool_input: None,
+                                    pending_question: None,
+                                    source: None,
+                                    agent_type: None,
+                                    permission_mode: None,
+                                    active_subagent_id: None,
+                                    active_subagent_type: None,
+                                    first_prompt: None,
+                                    compact_count_increment: true,
+                                })
+                                .await;
+                        }
+
+                        // Route last_tool tracking
+                        if let Some(ref tool_name) = tool_name {
+                            actor
+                                .send(SessionCommand::SetLastTool {
+                                    tool: Some(tool_name.clone()),
+                                })
+                                .await;
+                        }
+                    }
+                }
+                return;
+            }
+
             let persist_tx = state.persist().clone();
             let derived_transcript_path = cwd
                 .as_deref()
@@ -2252,6 +2356,57 @@ async fn handle_client_message(
             error: _,
             is_interrupt: _,
         } => {
+            // If this hook is from a managed Claude direct session, route
+            // supplementary data (tool_count, last_tool) to the owning session.
+            if state.is_managed_claude_thread(&session_id) {
+                if let Some(owning_id) = state.resolve_claude_thread(&session_id) {
+                    let persist_tx = state.persist().clone();
+
+                    match hook_event_name.as_str() {
+                        "PreToolUse" => {
+                            // Route last_tool tracking
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeSessionUpdate {
+                                    id: owning_id.clone(),
+                                    work_status: None,
+                                    attention_reason: None,
+                                    last_tool: Some(Some(tool_name.clone())),
+                                    last_tool_at: Some(Some(chrono_now())),
+                                    pending_tool_name: None,
+                                    pending_tool_input: None,
+                                    pending_question: None,
+                                    source: None,
+                                    agent_type: None,
+                                    permission_mode: None,
+                                    active_subagent_id: None,
+                                    active_subagent_type: None,
+                                    first_prompt: None,
+                                    compact_count_increment: false,
+                                })
+                                .await;
+
+                            if let Some(actor) = state.get_session(&owning_id) {
+                                actor
+                                    .send(SessionCommand::SetLastTool {
+                                        tool: Some(tool_name.clone()),
+                                    })
+                                    .await;
+                            }
+                        }
+                        "PostToolUse" | "PostToolUseFailure" => {
+                            // Route tool_count increment
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeToolIncrement {
+                                    id: owning_id.clone(),
+                                })
+                                .await;
+                        }
+                        _ => {}
+                    }
+                }
+                return;
+            }
+
             let persist_tx = state.persist().clone();
             let derived_transcript_path = claude_transcript_path_from_cwd(&cwd, &session_id);
 
@@ -2458,6 +2613,68 @@ async fn handle_client_message(
             sync_transcript_messages(&actor).await;
         }
 
+        ClientMessage::GetSubagentTools {
+            session_id,
+            subagent_id,
+        } => {
+            debug!(
+                component = "websocket",
+                event = "ws.get_subagent_tools",
+                connection_id = conn_id,
+                session_id = %session_id,
+                subagent_id = %subagent_id,
+                "GetSubagentTools request"
+            );
+
+            let subagent_id_clone = subagent_id.clone();
+            let session_id_clone = session_id.clone();
+            let client_tx = client_tx.clone();
+
+            tokio::spawn(async move {
+                match crate::persistence::load_subagent_transcript_path(&subagent_id_clone).await {
+                    Ok(Some(path)) => {
+                        let tools = tokio::task::spawn_blocking(move || {
+                            crate::subagent_parser::parse_tools(std::path::Path::new(&path))
+                        })
+                        .await
+                        .unwrap_or_default();
+
+                        let _ = client_tx
+                            .send(OutboundMessage::Json(ServerMessage::SubagentToolsList {
+                                session_id: session_id_clone,
+                                subagent_id: subagent_id_clone,
+                                tools,
+                            }))
+                            .await;
+                    }
+                    Ok(None) => {
+                        let _ = client_tx
+                            .send(OutboundMessage::Json(ServerMessage::SubagentToolsList {
+                                session_id: session_id_clone,
+                                subagent_id: subagent_id_clone,
+                                tools: Vec::new(),
+                            }))
+                            .await;
+                    }
+                    Err(e) => {
+                        warn!(
+                            component = "websocket",
+                            event = "ws.get_subagent_tools.error",
+                            error = %e,
+                            "Failed to load subagent transcript path"
+                        );
+                        let _ = client_tx
+                            .send(OutboundMessage::Json(ServerMessage::SubagentToolsList {
+                                session_id: session_id_clone,
+                                subagent_id: subagent_id_clone,
+                                tools: Vec::new(),
+                            }))
+                            .await;
+                    }
+                }
+            });
+        }
+
         ClientMessage::ClaudeSubagentEvent {
             session_id,
             hook_event_name,
@@ -2465,6 +2682,76 @@ async fn handle_client_message(
             agent_type,
             agent_transcript_path,
         } => {
+            // If this hook is from a managed Claude direct session, route
+            // subagent tracking to the owning session.
+            if state.is_managed_claude_thread(&session_id) {
+                if let Some(owning_id) = state.resolve_claude_thread(&session_id) {
+                    let persist_tx = state.persist().clone();
+
+                    match hook_event_name.as_str() {
+                        "SubagentStart" => {
+                            let normalized_type =
+                                agent_type.clone().unwrap_or_else(|| "unknown".to_string());
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeSubagentStart {
+                                    id: agent_id.clone(),
+                                    session_id: owning_id.clone(),
+                                    agent_type: normalized_type.clone(),
+                                })
+                                .await;
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeSessionUpdate {
+                                    id: owning_id,
+                                    work_status: None,
+                                    attention_reason: None,
+                                    last_tool: None,
+                                    last_tool_at: None,
+                                    pending_tool_name: None,
+                                    pending_tool_input: None,
+                                    pending_question: None,
+                                    source: None,
+                                    agent_type: None,
+                                    permission_mode: None,
+                                    active_subagent_id: Some(Some(agent_id)),
+                                    active_subagent_type: Some(Some(normalized_type)),
+                                    first_prompt: None,
+                                    compact_count_increment: false,
+                                })
+                                .await;
+                        }
+                        "SubagentStop" => {
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeSubagentEnd {
+                                    id: agent_id,
+                                    transcript_path: agent_transcript_path,
+                                })
+                                .await;
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeSessionUpdate {
+                                    id: owning_id,
+                                    work_status: None,
+                                    attention_reason: None,
+                                    last_tool: None,
+                                    last_tool_at: None,
+                                    pending_tool_name: None,
+                                    pending_tool_input: None,
+                                    pending_question: None,
+                                    source: None,
+                                    agent_type: None,
+                                    permission_mode: None,
+                                    active_subagent_id: Some(None),
+                                    active_subagent_type: Some(None),
+                                    first_prompt: None,
+                                    compact_count_increment: false,
+                                })
+                                .await;
+                        }
+                        _ => {}
+                    }
+                }
+                return;
+            }
+
             let persist_tx = state.persist().clone();
             if let Some(existing) = state.get_session(&session_id) {
                 if existing.snapshot().provider == Provider::Codex {
