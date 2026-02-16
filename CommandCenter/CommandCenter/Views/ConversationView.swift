@@ -24,6 +24,7 @@ struct ConversationView: View {
   @State private var isLoading = true
   @State private var loadedSessionId: String?
   @State private var displayedCount: Int = 50
+  @State private var refreshTask: Task<Void, Never>?
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool
@@ -31,6 +32,12 @@ struct ConversationView: View {
   @Binding var scrollToBottomTrigger: Int
 
   private let pageSize = 50
+
+  // Pre-computed per-message metadata to avoid O(n²) in ForEach
+  private struct MessageMeta {
+    let turnsAfter: Int?
+    let nthUserMessage: Int?
+  }
 
   var displayedMessages: [TranscriptMessage] {
     let startIndex = max(0, messages.count - displayedCount)
@@ -74,8 +81,14 @@ struct ConversationView: View {
       loadMessagesIfNeeded()
     }
     // React to server message changes (appends, updates, undo, rollback) — only THIS session
+    // Debounce rapid revision bumps during streaming into a single UI update
     .onChange(of: serverState.session(sessionId ?? "").messagesRevision) { _, _ in
-      refreshFromServerStateIfNeeded()
+      refreshTask?.cancel()
+      refreshTask = Task { @MainActor in
+        try? await Task.sleep(for: .milliseconds(50))
+        guard !Task.isCancelled else { return }
+        refreshFromServerStateIfNeeded()
+      }
     }
   }
 
@@ -96,34 +109,27 @@ struct ConversationView: View {
               messageCountIndicator
             }
 
-            // Work stream entries
+            // Work stream entries — metadata pre-computed in single pass
             let msgs = displayedMessages
-            ForEach(Array(msgs.enumerated()), id: \.element.id) { index, message in
-              let turnsAfter: Int = {
-                guard message.isUser else { return 0 }
-                let userMsgsAfter = msgs[(index + 1)...].filter(\.isUser).count
-                if userMsgsAfter > 0 { return userMsgsAfter }
-                let hasResponseAfter = msgs[(index + 1)...].contains { !$0.isUser }
-                return hasResponseAfter ? 1 : 0
-              }()
-              let nthUserMessage: Int? = {
-                guard message.isUser else { return nil }
-                return msgs[...index].filter(\.isUser).count - 1
-              }()
+            let metadata = Self.computeMessageMetadata(msgs)
+            ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
+              let meta = metadata[message.id]
+              let turnsAfter = meta?.turnsAfter
+              let nthUser = meta?.nthUserMessage
               WorkStreamEntry(
                 message: message,
                 provider: provider,
                 model: model,
                 sessionId: sessionId,
-                rollbackTurns: turnsAfter > 0 ? turnsAfter : nil,
-                nthUserMessage: nthUserMessage,
-                onRollback: turnsAfter > 0 ? {
-                  if let sid = sessionId {
-                    serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turnsAfter))
+                rollbackTurns: turnsAfter,
+                nthUserMessage: nthUser,
+                onRollback: turnsAfter != nil ? {
+                  if let sid = sessionId, let turns = turnsAfter {
+                    serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
                   }
                 } : nil,
-                onFork: nthUserMessage != nil ? {
-                  if let sid = sessionId, let nth = nthUserMessage {
+                onFork: nthUser != nil ? {
+                  if let sid = sessionId, let nth = nthUser {
                     serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
                   }
                 } : nil,
@@ -160,7 +166,11 @@ struct ConversationView: View {
         .onChange(of: messages.count) { oldCount, newCount in
           if newCount > oldCount {
             if isPinned {
-              scrollToEnd(proxy: proxy, animated: true)
+              // Don't animate during rapid streaming — just jump to avoid jitter
+              proxy.scrollTo(
+                isSessionActive && workStatus == .working ? "activity" : "bottomAnchor",
+                anchor: .bottom
+              )
             } else {
               unreadCount += (newCount - oldCount)
             }
@@ -273,9 +283,81 @@ struct ConversationView: View {
   private func refreshFromServerStateIfNeeded() {
     guard let sid = sessionId else { return }
     let serverMessages = serverState.session(sid).messages
-    messages = serverMessages
-    displayedCount = max(displayedCount, serverMessages.count)
+
+    // Fast path: nothing changed
+    if messages.count == serverMessages.count,
+       messages.last?.id == serverMessages.last?.id,
+       messages.last == serverMessages.last
+    {
+      return
+    }
+
+    // Append path: server has more messages (common during streaming)
+    if serverMessages.count >= messages.count,
+       !messages.isEmpty,
+       // Verify existing messages share the same prefix (no structural change)
+       messages.first?.id == serverMessages.first?.id
+    {
+      // Update any changed existing messages (e.g., toolOutput filled in)
+      for i in messages.indices {
+        if i < serverMessages.count, messages[i] != serverMessages[i] {
+          messages[i] = serverMessages[i]
+        }
+      }
+
+      // Append genuinely new messages
+      if serverMessages.count > messages.count {
+        messages.append(contentsOf: serverMessages[messages.count...])
+      }
+    } else {
+      // Structural change (undo/rollback/initial load) — full replace
+      messages = serverMessages
+    }
+
+    displayedCount = max(displayedCount, messages.count)
     isLoading = false
+  }
+
+  /// Single-pass computation of per-message metadata (turnsAfter, nthUserMessage).
+  /// Replaces O(n²) inline closures that scanned the array per message in ForEach.
+  private static func computeMessageMetadata(_ msgs: [TranscriptMessage]) -> [String: MessageMeta] {
+    var result: [String: MessageMeta] = [:]
+    result.reserveCapacity(msgs.count)
+
+    // First pass: assign nthUserMessage indices
+    var userCount = 0
+    var userIndices: [Int] = [] // indices of user messages in msgs
+    for (i, msg) in msgs.enumerated() {
+      if msg.isUser {
+        result[msg.id] = MessageMeta(turnsAfter: 0, nthUserMessage: userCount)
+        userCount += 1
+        userIndices.append(i)
+      } else {
+        result[msg.id] = MessageMeta(turnsAfter: nil, nthUserMessage: nil)
+      }
+    }
+
+    // Second pass: compute turnsAfter for each user message
+    // turnsAfter = number of user messages after this one, or 1 if there's at least a response
+    for (rank, msgIndex) in userIndices.enumerated() {
+      let userMsgsAfter = userIndices.count - rank - 1
+      let turnsAfter: Int
+      if userMsgsAfter > 0 {
+        turnsAfter = userMsgsAfter
+      } else {
+        // Last user message — check if there's any response after it
+        let hasResponseAfter = msgs[(msgIndex + 1)...].contains { !$0.isUser }
+        turnsAfter = hasResponseAfter ? 1 : 0
+      }
+
+      let existing = result[msgs[msgIndex].id]
+      result[msgs[msgIndex].id] = MessageMeta(
+        turnsAfter: turnsAfter > 0 ? turnsAfter : nil,
+        nthUserMessage: existing?.nthUserMessage
+      )
+    }
+
+    return result
   }
 
 }
