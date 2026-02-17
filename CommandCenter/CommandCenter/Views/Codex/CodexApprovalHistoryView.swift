@@ -60,9 +60,7 @@ struct CodexApprovalHistoryView: View {
         .frame(maxHeight: 220)
       }
     }
-    .padding(12)
-    .background(Color.backgroundSecondary)
-    .clipShape(RoundedRectangle(cornerRadius: 10))
+    .padding(Spacing.md)
   }
 
   private func approvalRow(_ approval: ServerApprovalHistoryItem) -> some View {

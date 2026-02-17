@@ -20,6 +20,7 @@ struct WorkStreamEntry: View {
   let onFork: (() -> Void)?
   let onNavigateToReviewFile: ((String, Int) -> Void)?
   @State private var isExpanded = false
+  @State private var isEditCardCollapsed = false
   @State private var isHovering = false
   @State private var isContentExpanded = false
 
@@ -53,7 +54,8 @@ struct WorkStreamEntry: View {
   private var renderMode: RenderMode {
     switch kind {
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-           .userSystemCaveat, .userCodeReview, .userSystemContext, .assistant, .steer:
+           .userSystemCaveat, .userCodeReview, .userSystemContext, .assistant, .steer,
+           .thinking:
         .inline
       case .toolEdit:
         .compactPreview
@@ -260,9 +262,22 @@ struct WorkStreamEntry: View {
       case .toolGrep:
         if let count = message.grepMatchCount { return "\(count) matches" }
         return nil
+      case .assistant:
+        if let input = message.inputTokens, input > 0 {
+          return formatTokenCount(input)
+        }
+        return nil
       default:
         return nil
     }
+  }
+
+  private func formatTokenCount(_ tokens: Int) -> String {
+    if tokens >= 1_000 {
+      let k = Double(tokens) / 1_000.0
+      return k >= 100 ? "\(Int(k))k" : String(format: "%.1fk", k)
+    }
+    return "\(tokens)"
   }
 
   private var editStats: String? {
@@ -348,24 +363,23 @@ struct WorkStreamEntry: View {
             .contentShape(Rectangle())
             .onTapGesture {
               withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                isExpanded.toggle()
+                isEditCardCollapsed.toggle()
               }
             }
 
-          if !isExpanded {
+          if isEditCardCollapsed {
+            // Collapsed: show mini 3-line diff preview
             editPreview
               .padding(.leading, Spacing.xl)
               .padding(.trailing, Spacing.md)
               .padding(.top, Spacing.xxs)
               .padding(.bottom, Spacing.xs)
-          }
-
-          if isExpanded {
+          } else {
+            // Default: show full diff card
             expandedContent
               .padding(.leading, Spacing.xl)
               .padding(.trailing, Spacing.md)
               .padding(.bottom, Spacing.sm)
-              .transition(.opacity.combined(with: .move(edge: .top)))
           }
       }
     }
@@ -644,6 +658,9 @@ struct WorkStreamEntry: View {
       case .steer:
         steerInline
 
+      case .thinking:
+        thinkingInline
+
       default:
         EmptyView()
     }
@@ -707,6 +724,42 @@ struct WorkStreamEntry: View {
       .textSelection(.enabled)
       .padding(.leading, Spacing.xl)
       .padding(.trailing, Spacing.xl)
+  }
+
+  // MARK: - Thinking Inline
+
+  private let maxThinkingPreviewLength = 600
+
+  @State private var isThinkingContentExpanded = false
+
+  private var thinkingInline: some View {
+    let thinkingColor = Color(red: 0.65, green: 0.6, blue: 0.85)
+    let content = message.content
+    let isLong = content.count > maxThinkingPreviewLength
+    let displayText = isLong && !isThinkingContentExpanded
+      ? String(content.prefix(maxThinkingPreviewLength))
+      : content
+
+    return VStack(alignment: .leading, spacing: 0) {
+      ThinkingMarkdownView(content: displayText)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      if isLong {
+        Button {
+          withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+            isThinkingContentExpanded.toggle()
+          }
+        } label: {
+          Text(isThinkingContentExpanded ? "Show less" : "Show more\u{2026}")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(thinkingColor.opacity(0.7))
+        }
+        .buttonStyle(.plain)
+        .padding(.top, Spacing.xs)
+      }
+    }
+    .padding(.leading, Spacing.xl)
+    .padding(.trailing, Spacing.xl)
   }
 
   // MARK: - Edit Preview (mini diff for compactPreview mode)

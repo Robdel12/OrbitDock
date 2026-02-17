@@ -15,7 +15,6 @@ struct InstrumentPanel: View {
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
-  @Binding var showApprovalHistory: Bool
   var onOpenSkills: (() -> Void)?
 
   @Environment(ServerAppState.self) private var serverState
@@ -144,12 +143,6 @@ struct InstrumentPanel: View {
         CodexQuestionView(session: session)
           .padding(.horizontal, Spacing.lg)
           .padding(.vertical, Spacing.sm)
-      }
-
-      if showApprovalHistory {
-        CodexApprovalHistoryView(sessionId: sessionId)
-          .padding(.horizontal, Spacing.lg)
-          .padding(.bottom, Spacing.sm)
       }
 
       // ━━━ Review notes indicator (only for review mode) ━━━
@@ -548,34 +541,10 @@ struct InstrumentPanel: View {
       // Segment divider
       Color.panelBorder.frame(width: 1, height: 16)
 
-      // ━━━ Center segment: Autonomy + Approvals ━━━
+      // ━━━ Center segment: Autonomy ━━━
       HStack(spacing: Spacing.sm) {
         if session.isDirectCodex {
           AutonomyPill(sessionId: sessionId)
-        }
-
-        if approvalHistoryCount > 0 {
-          Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-              showApprovalHistory.toggle()
-            }
-          } label: {
-            HStack(spacing: 4) {
-              Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: TypeScale.body, weight: .medium))
-              Text("\(approvalHistoryCount)")
-                .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
-            }
-            .foregroundStyle(showApprovalHistory ? Color.accent : .secondary)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, Spacing.xs)
-            .background(
-              showApprovalHistory ? Color.accent.opacity(OpacityTier.light) : Color.clear,
-              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            )
-          }
-          .buttonStyle(.plain)
-          .help("Approval history")
         }
       }
       .padding(.horizontal, Spacing.md)
@@ -834,10 +803,6 @@ struct InstrumentPanel: View {
       return String(parts[0]) + "-" + String(parts[1])
     }
     return name
-  }
-
-  private var approvalHistoryCount: Int {
-    serverState.session(sessionId).approvalHistory.count
   }
 
   @ViewBuilder
@@ -1354,7 +1319,6 @@ private struct SkillCompletionList: View {
   @Previewable @State var pinned = true
   @Previewable @State var unread = 0
   @Previewable @State var scroll = 0
-  @Previewable @State var approvals = false
   InstrumentPanel(
     session: Session(
       id: "test-session",
@@ -1366,8 +1330,7 @@ private struct SkillCompletionList: View {
     selectedSkills: $skills,
     isPinned: $pinned,
     unreadCount: $unread,
-    scrollToBottomTrigger: $scroll,
-    showApprovalHistory: $approvals
+    scrollToBottomTrigger: $scroll
   )
   .environment(ServerAppState())
   .frame(width: 600)

@@ -65,6 +65,9 @@ struct HeaderView: View {
       }
       .buttonStyle(.plain)
       .onHover { isHoveringProject = $0 }
+      .contextMenu {
+        debugContextMenu
+      }
 
       // Model badge
       UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
@@ -232,6 +235,56 @@ struct HeaderView: View {
       Color.backgroundTertiary.opacity(0.5),
       in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
     )
+  }
+
+  // MARK: - Debug Context Menu
+
+  @ViewBuilder
+  private var debugContextMenu: some View {
+    Button("Copy Session ID") {
+      copyToClipboard(session.id)
+    }
+
+    if let threadId = session.codexThreadId {
+      Button("Copy Thread ID") {
+        copyToClipboard(threadId)
+      }
+    }
+
+    Button("Copy Project Path") {
+      copyToClipboard(session.projectPath)
+    }
+
+    Divider()
+
+    if let mode = session.codexIntegrationMode {
+      Text("Integration: \(String(describing: mode))")
+    }
+    if let mode = session.claudeIntegrationMode {
+      Text("Integration: \(String(describing: mode))")
+    }
+    Text("Provider: \(session.provider.rawValue)")
+
+    Divider()
+
+    Button("Open Server Log") {
+      NSWorkspace.shared.open(URL(fileURLWithPath: NSString("~/.orbitdock/logs/server.log").expandingTildeInPath))
+    }
+
+    if session.provider == .codex {
+      Button("Open Codex Log") {
+        NSWorkspace.shared.open(URL(fileURLWithPath: NSString("~/.orbitdock/logs/codex.log").expandingTildeInPath))
+      }
+    }
+
+    Button("Open Database") {
+      NSWorkspace.shared.open(URL(fileURLWithPath: NSString("~/.orbitdock/orbitdock.db").expandingTildeInPath))
+    }
+  }
+
+  private func copyToClipboard(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
   }
 
   // MARK: - Helpers

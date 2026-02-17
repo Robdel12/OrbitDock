@@ -112,8 +112,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
   }
 
-  func applicationWillResignActive(_ notification: Notification) {
-  }
+  func applicationWillResignActive(_ notification: Notification) {}
 
   /// Handle notification when app is in foreground
   func userNotificationCenter(

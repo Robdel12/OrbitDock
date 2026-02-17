@@ -19,6 +19,8 @@ struct ConversationView: View {
 
   @Environment(ServerAppState.self) private var serverState
 
+  @AppStorage("chatViewMode") private var chatViewMode: ChatViewMode = .focused
+
   @State private var messages: [TranscriptMessage] = []
   @State private var currentPrompt: String?
   @State private var isLoading = true
@@ -33,7 +35,7 @@ struct ConversationView: View {
 
   private let pageSize = 50
 
-  // Pre-computed per-message metadata to avoid O(n²) in ForEach
+  /// Pre-computed per-message metadata to avoid O(n²) in ForEach
   private struct MessageMeta {
     let turnsAfter: Int?
     let nthUserMessage: Int?
@@ -96,7 +98,7 @@ struct ConversationView: View {
 
   private var conversationThread: some View {
     ScrollViewReader { proxy in
-      ZStack(alignment: .bottom) {
+      ZStack(alignment: .topTrailing) {
         ScrollView {
           LazyVStack(alignment: .leading, spacing: 2) {
             // Load more indicator
@@ -109,33 +111,56 @@ struct ConversationView: View {
               messageCountIndicator
             }
 
-            // Work stream entries — metadata pre-computed in single pass
+            // Conditional rendering based on chat view mode
             let msgs = displayedMessages
-            let metadata = Self.computeMessageMetadata(msgs)
-            ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
-              let meta = metadata[message.id]
-              let turnsAfter = meta?.turnsAfter
-              let nthUser = meta?.nthUserMessage
-              WorkStreamEntry(
-                message: message,
-                provider: provider,
-                model: model,
-                sessionId: sessionId,
-                rollbackTurns: turnsAfter,
-                nthUserMessage: nthUser,
-                onRollback: turnsAfter != nil ? {
-                  if let sid = sessionId, let turns = turnsAfter {
-                    serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
-                  }
-                } : nil,
-                onFork: nthUser != nil ? {
-                  if let sid = sessionId, let nth = nthUser {
-                    serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
-                  }
-                } : nil,
-                onNavigateToReviewFile: onNavigateToReviewFile
-              )
-              .id(message.id)
+            switch chatViewMode {
+              case .verbose:
+                // Existing flat ForEach — full transaction log
+                let metadata = Self.computeMessageMetadata(msgs)
+                ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
+                  let meta = metadata[message.id]
+                  let turnsAfter = meta?.turnsAfter
+                  let nthUser = meta?.nthUserMessage
+                  WorkStreamEntry(
+                    message: message,
+                    provider: provider,
+                    model: model,
+                    sessionId: sessionId,
+                    rollbackTurns: turnsAfter,
+                    nthUserMessage: nthUser,
+                    onRollback: turnsAfter != nil ? {
+                      if let sid = sessionId, let turns = turnsAfter {
+                        serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
+                      }
+                    } : nil,
+                    onFork: nthUser != nil ? {
+                      if let sid = sessionId, let nth = nthUser {
+                        serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
+                      }
+                    } : nil,
+                    onNavigateToReviewFile: onNavigateToReviewFile
+                  )
+                  .id(message.id)
+                }
+
+              case .focused:
+                // Turn-grouped rendering with collapse logic
+                let serverDiffs = sessionId.flatMap { serverState.session($0).turnDiffs } ?? []
+                let turns = TurnBuilder.build(
+                  from: msgs,
+                  serverTurnDiffs: serverDiffs,
+                  currentTurnId: isSessionActive && workStatus == .working ? "active" : nil
+                )
+                ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
+                  TurnGroupView(
+                    turn: turn,
+                    turnIndex: index,
+                    provider: provider,
+                    model: model,
+                    sessionId: sessionId,
+                    onNavigateToReviewFile: onNavigateToReviewFile
+                  )
+                }
             }
 
             // Live status indicator
@@ -184,8 +209,49 @@ struct ConversationView: View {
         .onChange(of: scrollToBottomTrigger) {
           scrollToEnd(proxy: proxy, animated: true)
         }
+
+        // Floating mode toggle
+        chatViewModeToggle
+          .padding(.top, 8)
+          .padding(.trailing, 12)
       }
     }
+  }
+
+  // MARK: - Chat View Mode Toggle
+
+  private var chatViewModeToggle: some View {
+    HStack(spacing: 2) {
+      ForEach(ChatViewMode.allCases, id: \.self) { mode in
+        let isSelected = chatViewMode == mode
+
+        Button {
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            chatViewMode = mode
+          }
+        } label: {
+          Image(systemName: mode.icon)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(isSelected ? Color.accent : .secondary)
+            .frame(width: 26, height: 22)
+            .background(
+              isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(mode.label)
+      }
+    }
+    .padding(3)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundSecondary.opacity(0.9))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .strokeBorder(Color.surfaceBorder, lineWidth: 1)
+    )
   }
 
   private func scrollToEnd(proxy: ScrollViewProxy, animated: Bool) {

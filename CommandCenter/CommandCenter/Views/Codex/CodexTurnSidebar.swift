@@ -29,6 +29,8 @@ struct CodexTurnSidebar: View {
   @State private var expandServers = false
   @State private var expandSkills = false
   @State private var expandComments = false
+  @State private var expandApprovals = false
+  @State private var expandTokens = false
 
   private var plan: [Session.PlanStep]? {
     serverState.session(sessionId).getPlanSteps()
@@ -72,8 +74,21 @@ struct CodexTurnSidebar: View {
     reviewComments.filter { $0.status == .open }.count
   }
 
+  private var hasApprovals: Bool {
+    !serverState.session(sessionId).approvalHistory.isEmpty
+  }
+
+  private var approvalCount: Int {
+    serverState.session(sessionId).approvalHistory.count
+  }
+
+  private var hasTokens: Bool {
+    serverState.session(sessionId).turnDiffs.contains { $0.tokenUsage != nil }
+      || serverState.session(sessionId).tokenUsage?.inputTokens ?? 0 > 0
+  }
+
   private var hasAnyContent: Bool {
-    hasPlan || hasDiff || hasMcp || hasSkills || hasComments
+    hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasApprovals || hasTokens
   }
 
   var body: some View {
@@ -146,6 +161,19 @@ struct CodexTurnSidebar: View {
               }
             }
 
+            // Approvals section
+            if hasApprovals {
+              CollapsibleSection(
+                title: "Approvals",
+                icon: "checkmark.shield.fill",
+                isExpanded: $expandApprovals,
+                badge: "\(approvalCount)",
+                badgeColor: .statusPermission
+              ) {
+                CodexApprovalHistoryView(sessionId: sessionId)
+              }
+            }
+
             // Servers section
             if hasMcp {
               CollapsibleSection(
@@ -168,6 +196,17 @@ struct CodexTurnSidebar: View {
               ) {
                 SkillsTab(sessionId: sessionId, selectedSkills: $selectedSkills)
                   .onAppear { fetchSkillsIfNeeded() }
+              }
+            }
+
+            // Tokens section
+            if hasTokens {
+              CollapsibleSection(
+                title: "Tokens",
+                icon: "chart.bar",
+                isExpanded: $expandTokens
+              ) {
+                TokenTimelineView(sessionId: sessionId)
               }
             }
           }
@@ -249,6 +288,7 @@ struct CodexTurnSidebar: View {
       expandServers = preset.expandServers
       expandSkills = preset.expandSkills
       expandComments = preset.expandComments
+      expandApprovals = preset.expandApprovals
     }
   }
 
@@ -590,6 +630,146 @@ private struct SpinningModifier: ViewModifier {
           isSpinning = true
         }
       }
+  }
+}
+
+// MARK: - Token Timeline View
+
+/// Per-turn token breakdown for the sidebar.
+private struct TokenTimelineView: View {
+  let sessionId: String
+  @Environment(ServerAppState.self) private var serverState
+
+  private var obs: SessionObservable {
+    serverState.session(sessionId)
+  }
+
+  private var turnDiffs: [ServerTurnDiff] {
+    obs.turnDiffs
+  }
+
+  private var currentUsage: ServerTokenUsage? {
+    obs.tokenUsage
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Summary header
+      if let usage = currentUsage, usage.contextWindow > 0 {
+        let fill = usage.contextFillPercent
+        HStack {
+          Text("Context")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+          Spacer()
+          Text(String(format: "%.0f%%", fill))
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundStyle(fillColor(for: fill))
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+
+        // Fill bar
+        GeometryReader { geo in
+          ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 3)
+              .fill(Color.surfaceBorder.opacity(0.3))
+            RoundedRectangle(cornerRadius: 3)
+              .fill(fillColor(for: fill))
+              .frame(width: geo.size.width * min(fill / 100, 1.0))
+          }
+        }
+        .frame(height: 6)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+
+        HStack(spacing: 12) {
+          tokenStat("In", value: usage.inputTokens)
+          tokenStat("Out", value: usage.outputTokens)
+          if usage.cachedTokens > 0 {
+            tokenStat("Cache", value: usage.cachedTokens)
+          }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+      }
+
+      // Per-turn rows
+      let diffs = turnDiffs.filter { $0.tokenUsage != nil }
+      if !diffs.isEmpty {
+        Divider()
+          .foregroundStyle(Color.panelBorder.opacity(0.5))
+
+        ForEach(Array(diffs.enumerated()), id: \.element.turnId) { index, td in
+          if let usage = td.tokenUsage {
+            let fill = usage.contextFillPercent
+            let prevInput = index > 0 ? diffs[index - 1].tokenUsage?.inputTokens ?? 0 : 0
+            let delta = Int(usage.inputTokens) - Int(prevInput)
+
+            HStack(spacing: 8) {
+              Text("T\(index + 1)")
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.textTertiary)
+                .frame(width: 22, alignment: .trailing)
+
+              // Mini fill bar
+              GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                  RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.surfaceBorder.opacity(0.2))
+                  RoundedRectangle(cornerRadius: 2)
+                    .fill(fillColor(for: fill))
+                    .frame(width: geo.size.width * min(fill / 100, 1.0))
+                }
+              }
+              .frame(height: 4)
+
+              Text(String(format: "%.0f%%", fill))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(fillColor(for: fill))
+                .frame(width: 32, alignment: .trailing)
+
+              if delta > 0 {
+                Text("+\(formatK(delta))")
+                  .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                  .foregroundStyle(Color.textSecondary)
+              }
+
+              Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+          }
+        }
+      }
+    }
+    .padding(.vertical, 4)
+    .background(Color.backgroundPrimary)
+  }
+
+  private func fillColor(for percent: Double) -> Color {
+    if percent >= 90 { return Color(red: 1.0, green: 0.4, blue: 0.4) }
+    if percent >= 70 { return Color(red: 1.0, green: 0.7, blue: 0.3) }
+    return Color.accent
+  }
+
+  private func tokenStat(_ label: String, value: UInt64) -> some View {
+    VStack(spacing: 2) {
+      Text(formatK(Int(value)))
+        .font(.system(size: 11, weight: .bold, design: .monospaced))
+        .foregroundStyle(Color.textPrimary)
+      Text(label)
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(Color.textTertiary)
+    }
+  }
+
+  private func formatK(_ tokens: Int) -> String {
+    if tokens >= 1_000 {
+      let k = Double(tokens) / 1_000.0
+      return k >= 100 ? "\(Int(k))k" : String(format: "%.1fk", k)
+    }
+    return "\(tokens)"
   }
 }
 

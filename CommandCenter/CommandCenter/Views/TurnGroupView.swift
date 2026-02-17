@@ -1,0 +1,566 @@
+//
+//  TurnGroupView.swift
+//  OrbitDock
+//
+//  Turn-grouped rendering for focused chat mode.
+//  Groups messages by turn and collapses older tool calls.
+//
+
+import SwiftUI
+
+// MARK: - Turn Group View
+
+struct TurnGroupView: View {
+  let turn: TurnSummary
+  let turnIndex: Int
+  let provider: Provider
+  let model: String?
+  let sessionId: String?
+  let onNavigateToReviewFile: ((String, Int) -> Void)?
+
+  @Environment(ServerAppState.self) private var serverState
+  @State private var isMiddleCollapsed: Bool = true
+
+  /// How many trailing tool messages to show when collapsed
+  private let visibleToolTail = 2
+  /// Minimum tool count to trigger collapsing
+  private let collapseThreshold = 4
+
+  private var isActive: Bool {
+    turn.status == .active
+  }
+
+  // MARK: - Message Splitting
+
+  private struct SplitMessages {
+    let leading: [TranscriptMessage] // user prompt, thinking before first tool
+    let tools: [TranscriptMessage] // all tool messages (and interleaved non-tool)
+    let trailing: [TranscriptMessage] // assistant response after last tool
+    let toolCount: Int // actual tool messages (not interleaved non-tools)
+
+    var hasTools: Bool { !tools.isEmpty }
+  }
+
+  /// Single-pass split of turn messages into leading/tools/trailing.
+  /// Called once per body evaluation — all derived values come from the returned struct.
+  private func computeSplit() -> (
+    split: SplitMessages,
+    canCollapse: Bool,
+    hiddenCount: Int,
+    hiddenMessages: [TranscriptMessage]
+  ) {
+    var leading: [TranscriptMessage] = []
+    var tools: [TranscriptMessage] = []
+    var trailing: [TranscriptMessage] = []
+    var foundFirstTool = false
+    var lastToolIndex = -1
+    var toolMsgCount = 0
+
+    for (i, msg) in turn.messages.enumerated() {
+      if msg.isTool { lastToolIndex = i; toolMsgCount += 1 }
+    }
+
+    for (i, msg) in turn.messages.enumerated() {
+      if msg.isTool {
+        foundFirstTool = true
+        tools.append(msg)
+      } else if !foundFirstTool {
+        leading.append(msg)
+      } else if i > lastToolIndex {
+        trailing.append(msg)
+      } else {
+        tools.append(msg)
+      }
+    }
+
+    let split = SplitMessages(
+      leading: leading, tools: tools, trailing: trailing, toolCount: toolMsgCount
+    )
+    let canCollapse = toolMsgCount >= collapseThreshold
+    let hiddenCount = canCollapse ? max(0, tools.count - visibleToolTail) : 0
+    let hiddenMessages = canCollapse ? Array(tools.prefix(hiddenCount)) : []
+
+    return (split, canCollapse, hiddenCount, hiddenMessages)
+  }
+
+  // MARK: - Body
+
+  var body: some View {
+    let (split, canCollapse, hiddenCount, hidden) = computeSplit()
+    let metadata = computeTurnMetadata(turn.messages)
+
+    VStack(alignment: .leading, spacing: 0) {
+      // Turn separator (skip first turn)
+      if turnIndex > 0 {
+        TurnDivider()
+      }
+
+      // Leading messages (user prompt, etc.)
+      ForEach(split.leading, id: \.id) { message in
+        messageEntry(message: message, meta: metadata[message.id])
+      }
+
+      // Tool zone — contained in a visually distinct panel
+      if split.hasTools {
+        VStack(alignment: .leading, spacing: 0) {
+          // Collapsed state: compressed bar + visible tail
+          if canCollapse, isMiddleCollapsed {
+            CompressedToolBar(
+              hiddenMessages: hidden,
+              count: hiddenCount,
+              totalToolCount: split.toolCount
+            ) {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                isMiddleCollapsed = false
+              }
+            }
+
+            // Show only last N tool messages
+            ForEach(Array(split.tools.suffix(visibleToolTail)), id: \.id) { message in
+              messageEntry(message: message, meta: metadata[message.id])
+            }
+          } else {
+            // Show all tool messages
+            ForEach(split.tools, id: \.id) { message in
+              messageEntry(message: message, meta: metadata[message.id])
+            }
+
+            // Collapse affordance when expanded
+            if canCollapse {
+              CollapseAffordance(count: hiddenCount) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                  isMiddleCollapsed = true
+                }
+              }
+            }
+          }
+        }
+        .padding(.vertical, 6)
+        .padding(.leading, 8)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+            .fill(Color.backgroundSecondary.opacity(0.5))
+        )
+        .overlay(alignment: .leading) {
+          // Left accent edge — visible containment bar
+          UnevenRoundedRectangle(
+            topLeadingRadius: Radius.lg,
+            bottomLeadingRadius: Radius.lg,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 0
+          )
+          .fill(Color.accent.opacity(OpacityTier.medium))
+          .frame(width: 3)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+        .padding(.top, 6)
+        .padding(.bottom, 4)
+      }
+
+      // Trailing messages (assistant response)
+      ForEach(split.trailing, id: \.id) { message in
+        messageEntry(message: message, meta: metadata[message.id])
+      }
+
+      // Per-turn token footer (completed turns only)
+      if !isActive, let usage = turn.tokenUsage, usage.contextWindow > 0 {
+        TurnTokenFooter(usage: usage, delta: turn.tokenDelta)
+      }
+    }
+    .onChange(of: isActive) { wasActive, nowActive in
+      // Auto-collapse when turn completes
+      if wasActive, !nowActive, turn.messages.lazy.filter(\.isTool).count >= collapseThreshold {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          isMiddleCollapsed = true
+        }
+      }
+    }
+    .onAppear {
+      // Active turns start expanded, completed turns start collapsed
+      isMiddleCollapsed = !isActive
+    }
+  }
+
+  // MARK: - Message Entry
+
+  @ViewBuilder
+  private func messageEntry(message: TranscriptMessage, meta: TurnMeta?) -> some View {
+    let turnsAfter = meta?.turnsAfter
+    let nthUser = meta?.nthUserMessage
+
+    WorkStreamEntry(
+      message: message,
+      provider: provider,
+      model: model,
+      sessionId: sessionId,
+      rollbackTurns: turnsAfter,
+      nthUserMessage: nthUser,
+      onRollback: turnsAfter != nil ? {
+        if let sid = sessionId, let turns = turnsAfter {
+          serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
+        }
+      } : nil,
+      onFork: nthUser != nil ? {
+        if let sid = sessionId, let nth = nthUser {
+          serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
+        }
+      } : nil,
+      onNavigateToReviewFile: onNavigateToReviewFile
+    )
+    .id(message.id)
+  }
+
+  // MARK: - Turn Metadata
+
+  private struct TurnMeta {
+    let turnsAfter: Int?
+    let nthUserMessage: Int?
+  }
+
+  private func computeTurnMetadata(_ msgs: [TranscriptMessage]) -> [String: TurnMeta] {
+    var result: [String: TurnMeta] = [:]
+    result.reserveCapacity(msgs.count)
+
+    var userCount = 0
+    var userIndices: [Int] = []
+    for (i, msg) in msgs.enumerated() {
+      if msg.isUser {
+        result[msg.id] = TurnMeta(turnsAfter: 0, nthUserMessage: userCount)
+        userCount += 1
+        userIndices.append(i)
+      } else {
+        result[msg.id] = TurnMeta(turnsAfter: nil, nthUserMessage: nil)
+      }
+    }
+
+    for (rank, msgIndex) in userIndices.enumerated() {
+      let userMsgsAfter = userIndices.count - rank - 1
+      let turnsAfter: Int
+      if userMsgsAfter > 0 {
+        turnsAfter = userMsgsAfter
+      } else {
+        let hasResponseAfter = msgs[(msgIndex + 1)...].contains { !$0.isUser }
+        turnsAfter = hasResponseAfter ? 1 : 0
+      }
+
+      let existing = result[msgs[msgIndex].id]
+      result[msgs[msgIndex].id] = TurnMeta(
+        turnsAfter: turnsAfter > 0 ? turnsAfter : nil,
+        nthUserMessage: existing?.nthUserMessage
+      )
+    }
+
+    return result
+  }
+}
+
+// MARK: - Turn Divider
+
+/// Visual separator between turns — creates breathing room and hierarchy.
+private struct TurnDivider: View {
+  var body: some View {
+    VStack(spacing: 0) {
+      Spacer().frame(height: 12)
+      Rectangle()
+        .fill(Color.surfaceBorder.opacity(0.2))
+        .frame(height: 1)
+        .padding(.horizontal, Spacing.lg)
+      Spacer().frame(height: 14)
+    }
+  }
+}
+
+// MARK: - Tool Glyph Resolution
+
+/// Resolves a TranscriptMessage's tool name to its glyph icon and accent color.
+private struct ToolGlyph {
+  let icon: String
+  let color: Color
+
+  static func resolve(from message: TranscriptMessage) -> ToolGlyph {
+    guard let name = message.toolName else {
+      return ToolGlyph(icon: "gearshape", color: .secondary)
+    }
+    let lowercased = name.lowercased()
+    if name.hasPrefix("mcp__") {
+      return ToolGlyph(icon: "puzzlepiece.extension", color: .toolMcp)
+    }
+    switch lowercased {
+      case "bash": return ToolGlyph(icon: "terminal", color: .toolBash)
+      case "read": return ToolGlyph(icon: "doc.plaintext", color: .toolRead)
+      case "edit", "write", "notebookedit": return ToolGlyph(icon: "pencil.line", color: .toolWrite)
+      case "glob", "grep": return ToolGlyph(icon: "magnifyingglass", color: .toolSearch)
+      case "task": return ToolGlyph(icon: "bolt.fill", color: .toolTask)
+      case "webfetch", "websearch": return ToolGlyph(icon: "globe", color: .toolWeb)
+      case "skill": return ToolGlyph(icon: "wand.and.stars", color: .toolSkill)
+      case "enterplanmode", "exitplanmode": return ToolGlyph(icon: "map", color: .toolPlan)
+      case "taskcreate", "taskupdate", "tasklist", "taskget":
+        return ToolGlyph(icon: "checklist", color: .toolTodo)
+      case "askuserquestion": return ToolGlyph(icon: "questionmark.bubble", color: .toolQuestion)
+      default: return ToolGlyph(icon: "gearshape", color: .secondary)
+    }
+  }
+}
+
+// MARK: - Tool Breakdown Entry
+
+private struct ToolBreakdownEntry: Identifiable {
+  let id: String // tool name
+  let glyph: ToolGlyph
+  let count: Int
+}
+
+// MARK: - Compressed Tool Bar (Collapsed State)
+
+/// Full-width bar showing tool breakdown and overlapping glyphs.
+/// Uses horizontal space to communicate what happened during the collapsed section.
+private struct CompressedToolBar: View {
+  let hiddenMessages: [TranscriptMessage]
+  let count: Int
+  let totalToolCount: Int
+  let action: () -> Void
+
+  @State private var isHovering = false
+
+  /// Tool breakdown: grouped by name, sorted by frequency
+  private var breakdown: [ToolBreakdownEntry] {
+    var counts: [(name: String, glyph: ToolGlyph, count: Int)] = []
+    var countMap: [String: Int] = [:]
+    var glyphMap: [String: ToolGlyph] = [:]
+
+    for msg in hiddenMessages {
+      let name = msg.toolName ?? "tool"
+      countMap[name, default: 0] += 1
+      if glyphMap[name] == nil {
+        glyphMap[name] = ToolGlyph.resolve(from: msg)
+      }
+    }
+
+    for (name, count) in countMap.sorted(by: { $0.value > $1.value }) {
+      counts.append((name, glyphMap[name]!, count))
+    }
+
+    return counts.map { ToolBreakdownEntry(id: $0.name, glyph: $0.glyph, count: $0.count) }
+  }
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 0) {
+        // Left: action count badge
+        HStack(spacing: 6) {
+          Image(systemName: "chevron.right")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(isHovering ? Color.accent : Color.textSecondary)
+            .rotationEffect(.degrees(isHovering ? 90 : 0))
+
+          Text("\(count)")
+            .font(.system(size: 13, weight: .bold, design: .monospaced))
+            .foregroundStyle(isHovering ? Color.textPrimary : Color.textPrimary)
+
+          Text("actions")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+        .padding(.trailing, 16)
+
+        // Separator dot
+        Circle()
+          .fill(Color.surfaceBorder)
+          .frame(width: 3, height: 3)
+          .padding(.trailing, 16)
+
+        // Center: tool breakdown chips
+        toolBreakdownRow
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .fill(isHovering ? Color.backgroundTertiary : Color.backgroundTertiary.opacity(0.7))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .strokeBorder(
+            isHovering ? Color.accent.opacity(OpacityTier.light) : Color.surfaceBorder.opacity(0.4),
+            lineWidth: 0.5
+          )
+      )
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering in
+      withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+        isHovering = hovering
+      }
+    }
+    .padding(.horizontal, Spacing.xs)
+    .padding(.vertical, 3)
+  }
+
+  // MARK: - Tool Breakdown Row
+
+  private var toolBreakdownRow: some View {
+    HStack(spacing: 12) {
+      ForEach(breakdown.prefix(6)) { entry in
+        HStack(spacing: 5) {
+          Image(systemName: entry.glyph.icon)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(entry.glyph.color)
+
+          Text("\(entry.count)")
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.textSecondary)
+
+          Text(displayName(for: entry.id))
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+        }
+      }
+    }
+  }
+
+  /// Clean up tool names for display
+  private func displayName(for toolName: String) -> String {
+    let lowered = toolName.lowercased()
+    switch lowered {
+      case "bash": return "Bash"
+      case "read": return "Read"
+      case "edit": return "Edit"
+      case "write": return "Write"
+      case "glob": return "Glob"
+      case "grep": return "Grep"
+      case "task": return "Task"
+      case "webfetch": return "Fetch"
+      case "websearch": return "Search"
+      case "skill": return "Skill"
+      case "enterplanmode": return "Plan"
+      case "exitplanmode": return "Plan"
+      case "taskcreate", "taskupdate", "tasklist", "taskget": return "Todo"
+      case "askuserquestion": return "Question"
+      case "notebookedit": return "Notebook"
+      default:
+        if toolName.hasPrefix("mcp__") {
+          return toolName
+            .replacingOccurrences(of: "mcp__", with: "")
+            .components(separatedBy: "__").last ?? "MCP"
+        }
+        return toolName
+    }
+  }
+}
+
+// MARK: - Collapse Affordance (Expanded State)
+
+/// Minimal fold line shown when turn is expanded and can be re-collapsed.
+private struct CollapseAffordance: View {
+  let count: Int
+  let action: () -> Void
+
+  @State private var isHovering = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 6) {
+        // Left line
+        Rectangle()
+          .fill(Color.surfaceBorder.opacity(isHovering ? 0.4 : 0.2))
+          .frame(height: 0.5)
+          .frame(maxWidth: .infinity)
+
+        // Compress indicator
+        HStack(spacing: 5) {
+          Image(systemName: "arrow.up.and.line.horizontal.and.arrow.down")
+            .font(.system(size: 9, weight: .semibold))
+
+          Text("Collapse \(count)")
+            .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundStyle(isHovering ? Color.accent : Color.textQuaternary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+          Capsule()
+            .fill(isHovering ? Color.surfaceHover : Color.clear)
+        )
+
+        // Right line
+        Rectangle()
+          .fill(Color.surfaceBorder.opacity(isHovering ? 0.4 : 0.2))
+          .frame(height: 0.5)
+          .frame(maxWidth: .infinity)
+      }
+    }
+    .buttonStyle(.plain)
+    .onHover { hovering in
+      withAnimation(.easeOut(duration: 0.15)) {
+        isHovering = hovering
+      }
+    }
+    .padding(.horizontal, Spacing.sm)
+    .frame(height: 28)
+  }
+}
+
+// MARK: - Turn Token Footer
+
+/// Shows context fill and token delta for a completed turn.
+private struct TurnTokenFooter: View {
+  let usage: ServerTokenUsage
+  let delta: Int?
+
+  private var fillPercent: Double {
+    usage.contextFillPercent
+  }
+
+  private var fillColor: Color {
+    if fillPercent >= 90 { return Color(red: 1.0, green: 0.4, blue: 0.4) }
+    if fillPercent >= 70 { return Color(red: 1.0, green: 0.7, blue: 0.3) }
+    return Color.accent
+  }
+
+  var body: some View {
+    HStack(spacing: 8) {
+      // Mini context fill bar
+      GeometryReader { geo in
+        ZStack(alignment: .leading) {
+          RoundedRectangle(cornerRadius: 2)
+            .fill(Color.surfaceBorder.opacity(0.3))
+          RoundedRectangle(cornerRadius: 2)
+            .fill(fillColor)
+            .frame(width: geo.size.width * min(fillPercent / 100, 1.0))
+        }
+      }
+      .frame(width: 40, height: 4)
+
+      Text(String(format: "%.0f%%", fillPercent))
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(fillColor)
+
+      // Delta pill
+      if let delta, delta > 0 {
+        Text("+\(formatK(delta))")
+          .font(.system(size: 10, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textSecondary)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(
+            Capsule()
+              .fill(Color.backgroundTertiary)
+          )
+      }
+
+      Spacer()
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, 4)
+  }
+
+  private func formatK(_ tokens: Int) -> String {
+    if tokens >= 1_000 {
+      let k = Double(tokens) / 1_000.0
+      return k >= 100 ? "\(Int(k))k" : String(format: "%.1fk", k)
+    }
+    return "\(tokens)"
+  }
+}

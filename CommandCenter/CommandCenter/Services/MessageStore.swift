@@ -42,7 +42,6 @@ final class MessageStore {
   private let imagesJson = SQLite.Expression<String?>("images_json") // JSON array of {data: base64, mimeType: string}
   private let thinking = SQLite.Expression<String?>("thinking") // Claude's thinking trace
 
-
   private static let writeTimestampFormatter: ISO8601DateFormatter = {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

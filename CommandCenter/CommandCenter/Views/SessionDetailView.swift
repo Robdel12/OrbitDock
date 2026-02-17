@@ -23,8 +23,6 @@ struct SessionDetailView: View {
 
   // Turn sidebar state - starts closed, user must trigger it
   @State private var showTurnSidebar = false
-  @State private var showApprovalHistory = false
-
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
   @State private var railPreset: RailPreset = .planFocused
   @State private var selectedSkills: Set<String> = []
@@ -143,7 +141,6 @@ struct SessionDetailView: View {
           isPinned: $isPinned,
           unreadCount: $unreadCount,
           scrollToBottomTrigger: $scrollToBottomTrigger,
-          showApprovalHistory: $showApprovalHistory,
           onOpenSkills: {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
               showTurnSidebar = true

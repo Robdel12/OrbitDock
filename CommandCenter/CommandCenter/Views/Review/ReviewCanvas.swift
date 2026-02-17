@@ -85,6 +85,26 @@ private struct ReviewRound {
   let commentCount: Int
 }
 
+// MARK: - Diff Parse Cache
+
+/// Memoizes DiffModel.parse() to avoid re-parsing the same diff string on every body evaluation.
+/// Stored as @State so it persists across body re-evaluations.
+private final class DiffParseCache {
+  private var lastRaw: String?
+  private var lastModel: DiffModel?
+
+  func model(for raw: String?) -> DiffModel? {
+    if raw == lastRaw { return lastModel }
+    lastRaw = raw
+    if let r = raw, !r.isEmpty {
+      lastModel = DiffModel.parse(unifiedDiff: r)
+    } else {
+      lastModel = nil
+    }
+    return lastModel
+  }
+}
+
 // MARK: - ReviewCanvas
 
 struct ReviewCanvas: View {
@@ -123,6 +143,9 @@ struct ReviewCanvas: View {
   @State private var showReviewBanner: Bool = true
   @State private var showResolvedComments: Bool = false
 
+  // Diff parsing cache — avoids re-parsing on every body evaluation
+  @State private var diffParseCache = DiffParseCache()
+
   private var obs: SessionObservable {
     serverState.session(sessionId)
   }
@@ -149,8 +172,7 @@ struct ReviewCanvas: View {
   }
 
   private var diffModel: DiffModel? {
-    guard let raw = rawDiff, !raw.isEmpty else { return nil }
-    return DiffModel.parse(unifiedDiff: raw)
+    diffParseCache.model(for: rawDiff)
   }
 
   // MARK: - Cursor Helpers
@@ -381,7 +403,7 @@ struct ReviewCanvas: View {
 
     return ScrollViewReader { proxy in
       ScrollView(.vertical, showsIndicators: true) {
-        VStack(alignment: .leading, spacing: 0) {
+        LazyVStack(alignment: .leading, spacing: 0) {
           // Review round status banner
           reviewBanner
 

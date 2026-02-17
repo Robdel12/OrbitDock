@@ -13,10 +13,10 @@ import Foundation
 final class EventBus {
   static let shared = EventBus()
 
-  // Publishers for different event types
+  /// Publishers for different event types
   let sessionUpdated = PassthroughSubject<String?, Never>() // session ID or nil for all
 
-  // Debounce state
+  /// Debounce state
   private var pendingSessionUpdate: DispatchWorkItem?
 
   private init() {

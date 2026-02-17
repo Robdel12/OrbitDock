@@ -81,6 +81,10 @@ enum RailPreset: String, CaseIterable {
   var expandComments: Bool {
     self == .reviewFocused
   }
+
+  var expandApprovals: Bool {
+    self == .triage
+  }
 }
 
 // MARK: - Review Navigation (Environment)
@@ -96,6 +100,26 @@ extension EnvironmentValues {
   var openFileInReview: ((String) -> Void)? {
     get { self[ReviewNavigationKey.self] }
     set { self[ReviewNavigationKey.self] = newValue }
+  }
+}
+
+// MARK: - Chat View Mode
+
+enum ChatViewMode: String, CaseIterable {
+  case focused, verbose
+
+  var label: String {
+    switch self {
+      case .focused: "Focused"
+      case .verbose: "Verbose"
+    }
+  }
+
+  var icon: String {
+    switch self {
+      case .focused: "square.3.layers.3d.down.left"
+      case .verbose: "text.justify"
+    }
   }
 }
 
