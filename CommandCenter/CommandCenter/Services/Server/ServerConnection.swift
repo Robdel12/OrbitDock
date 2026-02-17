@@ -81,6 +81,9 @@ final class ServerConnection: ObservableObject {
   var onReviewCommentDeleted: ((String, String) -> Void)? // sessionId, commentId
   var onReviewCommentsList: ((String, [ServerReviewComment]) -> Void)?
   var onSubagentToolsList: ((String, String, [ServerSubagentTool]) -> Void)? // sessionId, subagentId, tools
+  var onShellStarted: ((String, String, String) -> Void)? // sessionId, requestId, command
+  var onShellOutput: ((String, String, String, String, Int32?, UInt64)
+    -> Void)? // sessionId, requestId, stdout, stderr, exitCode, durationMs
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
   var onDisconnected: (() -> Void)?
@@ -368,6 +371,12 @@ final class ServerConnection: ObservableObject {
       case let .subagentToolsList(sessionId, subagentId, tools):
         onSubagentToolsList?(sessionId, subagentId, tools)
 
+      case let .shellStarted(sessionId, requestId, command):
+        onShellStarted?(sessionId, requestId, command)
+
+      case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs):
+        onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
         onError?(code, errorMessage, sessionId)
@@ -617,6 +626,11 @@ final class ServerConnection: ObservableObject {
   /// Request subagent tools for a specific subagent
   func getSubagentTools(sessionId: String, subagentId: String) {
     send(.getSubagentTools(sessionId: sessionId, subagentId: subagentId))
+  }
+
+  /// Execute a shell command in a session's working directory
+  func executeShell(sessionId: String, command: String, cwd: String? = nil, timeout: UInt64 = 30) {
+    send(.executeShell(sessionId: sessionId, command: command, cwd: cwd, timeoutSecs: timeout))
   }
 
   /// Fork a session (creates a new session with conversation history)

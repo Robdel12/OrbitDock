@@ -189,6 +189,7 @@ extension ServerMessage {
       case .tool: .tool
       case .toolResult: .toolResult
       case .steer: .steer
+      case .shell: .shell
     }
 
     var parsedToolInput: [String: Any]?

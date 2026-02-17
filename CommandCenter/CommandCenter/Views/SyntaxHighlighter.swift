@@ -8,17 +8,30 @@
 import SwiftUI
 
 enum SyntaxHighlighter {
+  // Line-level highlight cache — avoids redundant regex work when scrolling/re-rendering.
+  // Key: "language:content", Value: attributed string. Cleared when exceeding capacity.
+  private static var lineCache: [String: AttributedString] = [:]
+  private static let maxCacheSize = 4_000
+
   /// Highlight a single line (for line-by-line rendering)
   static func highlightLine(_ line: String, language: String?) -> AttributedString {
+    guard let lang = language, !lang.isEmpty, !line.isEmpty else {
+      var result = AttributedString(line)
+      result.foregroundColor = Color.syntaxText
+      return result
+    }
+
+    // Check cache first
+    let cacheKey = "\(lang):\(line)"
+    if let cached = lineCache[cacheKey] { return cached }
+
     var result = AttributedString(line)
     result.foregroundColor = Color.syntaxText
 
-    guard let lang = language, !lang.isEmpty, !line.isEmpty else { return result }
-
     switch lang {
       case "markdown", "text", "plaintext":
-        // No highlighting for prose-oriented formats
-        return result
+        // No highlighting for prose-oriented formats — still cache the plain result
+        break
       case "swift":
         highlightSwiftLine(&result, line: line)
       case "javascript", "typescript":
@@ -44,6 +57,12 @@ enum SyntaxHighlighter {
       default:
         highlightGenericLine(&result, line: line)
     }
+
+    // Store in cache (simple eviction: clear all when full)
+    if lineCache.count >= maxCacheSize {
+      lineCache.removeAll(keepingCapacity: true)
+    }
+    lineCache[cacheKey] = result
 
     return result
   }

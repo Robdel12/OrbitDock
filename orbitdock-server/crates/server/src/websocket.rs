@@ -19,8 +19,8 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
-    SessionState, TokenUsage,
+    new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, MessageChanges,
+    MessageType, Provider, ServerMessage, SessionState, TokenUsage,
 };
 
 use crate::claude_session::{ClaudeAction, ClaudeSession};
@@ -494,16 +494,14 @@ async fn handle_client_message(
                 // Lazy connector creation: if the session needs a live connector
                 // but doesn't have one yet, create it now on first subscribe.
                 let needs_lazy_connector = {
-                    let is_active_codex_direct =
-                        snap.provider == Provider::Codex
-                            && snap.status == orbitdock_protocol::SessionStatus::Active
-                            && snap.codex_integration_mode == Some(CodexIntegrationMode::Direct)
-                            && !state.has_codex_connector(&session_id);
-                    let is_claude_direct_needing_connector =
-                        snap.provider == Provider::Claude
-                            && snap.claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
-                            && !state.has_claude_connector(&session_id)
-                            && snap.status == orbitdock_protocol::SessionStatus::Active;
+                    let is_active_codex_direct = snap.provider == Provider::Codex
+                        && snap.status == orbitdock_protocol::SessionStatus::Active
+                        && snap.codex_integration_mode == Some(CodexIntegrationMode::Direct)
+                        && !state.has_codex_connector(&session_id);
+                    let is_claude_direct_needing_connector = snap.provider == Provider::Claude
+                        && snap.claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
+                        && !state.has_claude_connector(&session_id)
+                        && snap.status == orbitdock_protocol::SessionStatus::Active;
                     is_active_codex_direct || is_claude_direct_needing_connector
                 };
 
@@ -519,7 +517,9 @@ async fn handle_client_message(
 
                     // Take the handle from the passive actor
                     let (take_tx, take_rx) = oneshot::channel();
-                    actor.send(SessionCommand::TakeHandle { reply: take_tx }).await;
+                    actor
+                        .send(SessionCommand::TakeHandle { reply: take_tx })
+                        .await;
 
                     if let Ok(mut handle) = take_rx.await {
                         handle.set_list_tx(state.list_tx());
@@ -541,31 +541,50 @@ async fn handle_client_message(
                             let connector_task = tokio::spawn(async move {
                                 if let Some(ref tid) = thread_id {
                                     match CodexSession::resume(
-                                        sid.clone(), &project, tid,
-                                        model.as_deref(), approval.as_deref(), sandbox.as_deref(),
-                                    ).await {
+                                        sid.clone(),
+                                        &project,
+                                        tid,
+                                        model.as_deref(),
+                                        approval.as_deref(),
+                                        sandbox.as_deref(),
+                                    )
+                                    .await
+                                    {
                                         Ok(codex) => Ok(codex),
-                                        Err(_) => CodexSession::new(
-                                            sid.clone(), &project,
-                                            model.as_deref(), approval.as_deref(), sandbox.as_deref(),
-                                        ).await,
+                                        Err(_) => {
+                                            CodexSession::new(
+                                                sid.clone(),
+                                                &project,
+                                                model.as_deref(),
+                                                approval.as_deref(),
+                                                sandbox.as_deref(),
+                                            )
+                                            .await
+                                        }
                                     }
                                 } else {
                                     CodexSession::new(
-                                        sid.clone(), &project,
-                                        model.as_deref(), approval.as_deref(), sandbox.as_deref(),
-                                    ).await
+                                        sid.clone(),
+                                        &project,
+                                        model.as_deref(),
+                                        approval.as_deref(),
+                                        sandbox.as_deref(),
+                                    )
+                                    .await
                                 }
                             });
                             match tokio::time::timeout(connector_timeout, connector_task).await {
                                 Ok(Ok(Ok(codex))) => {
                                     let new_thread_id = codex.thread_id().to_string();
-                                    let _ = persist_tx.send(PersistCommand::SetThreadId {
-                                        session_id: session_id.clone(),
-                                        thread_id: new_thread_id.clone(),
-                                    }).await;
+                                    let _ = persist_tx
+                                        .send(PersistCommand::SetThreadId {
+                                            session_id: session_id.clone(),
+                                            thread_id: new_thread_id.clone(),
+                                        })
+                                        .await;
                                     state.register_codex_thread(&session_id, &new_thread_id);
-                                    let (actor_handle, action_tx) = codex.start_event_loop(handle, persist_tx);
+                                    let (actor_handle, action_tx) =
+                                        codex.start_event_loop(handle, persist_tx);
                                     state.add_session_actor(actor_handle);
                                     state.set_codex_action_tx(&session_id, action_tx);
                                     info!(
@@ -618,17 +637,22 @@ async fn handle_client_message(
 
                             let connector_task = tokio::spawn(async move {
                                 ClaudeSession::new(
-                                    sid, &project, model.as_deref(), sdk_id.as_deref(),
-                                ).await
+                                    sid,
+                                    &project,
+                                    model.as_deref(),
+                                    sdk_id.as_deref(),
+                                )
+                                .await
                             });
                             match tokio::time::timeout(connector_timeout, connector_task).await {
                                 Ok(Ok(Ok(claude_session))) => {
-                                    let (actor_handle, action_tx) = claude_session.start_event_loop(
-                                        handle,
-                                        persist_tx,
-                                        state.list_tx(),
-                                        state.clone(),
-                                    );
+                                    let (actor_handle, action_tx) = claude_session
+                                        .start_event_loop(
+                                            handle,
+                                            persist_tx,
+                                            state.list_tx(),
+                                            state.clone(),
+                                        );
                                     state.add_session_actor(actor_handle);
                                     state.set_claude_action_tx(&session_id, action_tx);
                                     info!(
@@ -677,27 +701,49 @@ async fn handle_client_message(
                         // Subscribe — either from new active actor or re-registered passive
                         if let Some(new_actor) = state.get_session(&session_id) {
                             let (sub_tx, sub_rx) = oneshot::channel();
-                            new_actor.send(SessionCommand::Subscribe {
-                                since_revision: None,
-                                reply: sub_tx,
-                            }).await;
+                            new_actor
+                                .send(SessionCommand::Subscribe {
+                                    since_revision: None,
+                                    reply: sub_tx,
+                                })
+                                .await;
 
                             if let Ok(result) = sub_rx.await {
                                 match result {
-                                    SubscribeResult::Snapshot { state: snapshot, rx } => {
+                                    SubscribeResult::Snapshot {
+                                        state: snapshot,
+                                        rx,
+                                    } => {
                                         let mut snapshot = *snapshot;
                                         if snapshot.subagents.is_empty() {
-                                            if let Ok(subagents) = crate::persistence::load_subagents_for_session(&session_id).await {
+                                            if let Ok(subagents) =
+                                                crate::persistence::load_subagents_for_session(
+                                                    &session_id,
+                                                )
+                                                .await
+                                            {
                                                 snapshot.subagents = subagents;
                                             }
                                         }
-                                        spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
-                                        send_json(client_tx, ServerMessage::SessionSnapshot {
-                                            session: compact_snapshot_for_transport(snapshot),
-                                        }).await;
+                                        spawn_broadcast_forwarder(
+                                            rx,
+                                            client_tx.clone(),
+                                            Some(session_id.clone()),
+                                        );
+                                        send_json(
+                                            client_tx,
+                                            ServerMessage::SessionSnapshot {
+                                                session: compact_snapshot_for_transport(snapshot),
+                                            },
+                                        )
+                                        .await;
                                     }
                                     SubscribeResult::Replay { events, rx } => {
-                                        spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
+                                        spawn_broadcast_forwarder(
+                                            rx,
+                                            client_tx.clone(),
+                                            Some(session_id.clone()),
+                                        );
                                         for json in events {
                                             send_raw(client_tx, json).await;
                                         }
@@ -3716,6 +3762,156 @@ async fn handle_client_message(
                     reason: "user_requested".to_string(),
                 });
             }
+        }
+
+        ClientMessage::ExecuteShell {
+            session_id,
+            command,
+            cwd,
+            timeout_secs,
+        } => {
+            info!(
+                component = "shell",
+                event = "shell.execute.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                command = %command,
+                "Shell execution requested"
+            );
+
+            // Resolve cwd: explicit override > session current_cwd > session project_path
+            let resolved_cwd = if let Some(ref explicit) = cwd {
+                explicit.clone()
+            } else if let Some(actor) = state.get_session(&session_id) {
+                let snap = actor.snapshot();
+                snap.current_cwd
+                    .clone()
+                    .unwrap_or_else(|| snap.project_path.clone())
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".to_string(),
+                        message: format!("Session {session_id} not found"),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+                return;
+            };
+
+            let request_id = new_id();
+            let sid = session_id.clone();
+            let rid = request_id.clone();
+            let cmd_clone = command.clone();
+
+            let actor = match state.get_session(&sid) {
+                Some(a) => a,
+                None => return,
+            };
+
+            // Broadcast ShellStarted immediately
+            actor
+                .send(SessionCommand::Broadcast {
+                    msg: ServerMessage::ShellStarted {
+                        session_id: sid.clone(),
+                        request_id: rid.clone(),
+                        command: cmd_clone.clone(),
+                    },
+                })
+                .await;
+
+            // Append an in-progress shell message
+            let shell_msg = orbitdock_protocol::Message {
+                id: rid.clone(),
+                session_id: sid.clone(),
+                message_type: MessageType::Shell,
+                content: cmd_clone.clone(),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: false,
+                timestamp: iso_timestamp(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis(),
+                ),
+                duration_ms: None,
+            };
+
+            let _ = state
+                .persist()
+                .send(PersistCommand::MessageAppend {
+                    session_id: sid.clone(),
+                    message: shell_msg.clone(),
+                })
+                .await;
+
+            actor
+                .send(SessionCommand::AddMessageAndBroadcast { message: shell_msg })
+                .await;
+
+            // Spawn execution task
+            let state_ref = state.clone();
+            let persist_tx = state.persist().clone();
+            tokio::spawn(async move {
+                let result = crate::shell::execute(&cmd_clone, &resolved_cwd, timeout_secs).await;
+
+                let is_error = result.exit_code.map_or(true, |c| c != 0);
+                let combined_output = if result.stderr.is_empty() {
+                    result.stdout.clone()
+                } else if result.stdout.is_empty() {
+                    result.stderr.clone()
+                } else {
+                    format!("{}\n{}", result.stdout, result.stderr)
+                };
+
+                // Persist the message update
+                let _ = persist_tx
+                    .send(PersistCommand::MessageUpdate {
+                        session_id: sid.clone(),
+                        message_id: rid.clone(),
+                        content: None,
+                        tool_output: Some(combined_output.clone()),
+                        duration_ms: Some(result.duration_ms),
+                        is_error: Some(is_error),
+                    })
+                    .await;
+
+                // Broadcast the message update and shell output via session actor
+                if let Some(actor) = state_ref.get_session(&sid) {
+                    let changes = MessageChanges {
+                        content: None,
+                        tool_output: Some(combined_output),
+                        is_error: Some(is_error),
+                        duration_ms: Some(result.duration_ms),
+                    };
+
+                    actor
+                        .send(SessionCommand::Broadcast {
+                            msg: ServerMessage::MessageUpdated {
+                                session_id: sid.clone(),
+                                message_id: rid.clone(),
+                                changes,
+                            },
+                        })
+                        .await;
+
+                    actor
+                        .send(SessionCommand::Broadcast {
+                            msg: ServerMessage::ShellOutput {
+                                session_id: sid,
+                                request_id: rid,
+                                stdout: result.stdout,
+                                stderr: result.stderr,
+                                exit_code: result.exit_code,
+                                duration_ms: result.duration_ms,
+                            },
+                        })
+                        .await;
+                }
+            });
         }
     }
 }

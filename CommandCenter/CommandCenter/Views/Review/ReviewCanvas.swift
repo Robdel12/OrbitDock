@@ -143,7 +143,7 @@ struct ReviewCanvas: View {
   @State private var showReviewBanner: Bool = true
   @State private var showResolvedComments: Bool = false
 
-  // Diff parsing cache — avoids re-parsing on every body evaluation
+  /// Diff parsing cache — avoids re-parsing on every body evaluation
   @State private var diffParseCache = DiffParseCache()
 
   private var obs: SessionObservable {

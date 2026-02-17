@@ -6,6 +6,10 @@
 //  and word-level inline change highlights. Supports cursor highlighting
 //  for magit-style navigation.
 //
+//  Performance: Body returns flat views (no wrapping VStack) so that each
+//  line becomes a separate lazy item in the parent LazyVStack. Only visible
+//  lines incur syntax highlighting and view creation costs.
+//
 
 import SwiftUI
 
@@ -25,46 +29,46 @@ struct DiffHunkView<AfterLineContent: View>: View {
   var onLineDragEnded: ((Int, Int) -> Void)? // (startLineIdx, endLineIdx)
   @ViewBuilder var afterLine: (Int, DiffLine) -> AfterLineContent
 
-  // Diff colors from design tokens
-  private let addedBg = Color.diffAddedBg
-  private let removedBg = Color.diffRemovedBg
-  private let addedAccent = Color.diffAddedAccent
-  private let removedAccent = Color.diffRemovedAccent
-  private let addedEdge = Color.diffAddedEdge
-  private let removedEdge = Color.diffRemovedEdge
-
   // Gutter background — very subtle to define the zone
   private let gutterBg = Color.white.opacity(0.015)
   private let gutterBorder = Color.white.opacity(0.06)
 
-  @State private var hoveredLineIndex: Int? = nil
-  @State private var dragAnchor: Int? = nil
+  // MARK: - Body (flat — no VStack wrapper)
+
+  //
+  // Returns hunk header + individual line views without a wrapping container.
+  // In a parent LazyVStack, each view becomes a separate lazy item so only
+  // visible lines are created and highlighted.
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      hunkHeader
-        .id("file-\(fileIndex)-hunk-\(hunkIndex)")
-        .overlay {
-          if isCursorOnHeader {
-            Color.accent.opacity(OpacityTier.subtle)
-              .allowsHitTesting(false)
-          }
+    hunkHeader
+      .id("file-\(fileIndex)-hunk-\(hunkIndex)")
+      .overlay {
+        if isCursorOnHeader {
+          Color.accent.opacity(OpacityTier.subtle)
+            .allowsHitTesting(false)
         }
+      }
 
-      if !isHunkCollapsed {
-        ForEach(Array(hunk.lines.enumerated()), id: \.offset) { index, line in
-          diffLineRow(line, index: index)
-            .id("file-\(fileIndex)-hunk-\(hunkIndex)-line-\(index)")
-            .overlay {
-              if cursorLineIndex == index {
-                Color.accent.opacity(OpacityTier.light)
-                  .allowsHitTesting(false)
-              }
-            }
+    if !isHunkCollapsed {
+      ForEach(Array(hunk.lines.enumerated()), id: \.offset) { index, line in
+        DiffLineRow(
+          line: line,
+          index: index,
+          hunkLines: hunk.lines,
+          language: language,
+          isCursor: cursorLineIndex == index,
+          hasComment: line.newLineNum.map { commentedLines.contains($0) } ?? false,
+          isInSelection: selectionLines.contains(index),
+          isInComposerRange: composerLineRange?.contains(index) ?? false,
+          onLineComment: onLineComment,
+          onLineDragChanged: onLineDragChanged,
+          onLineDragEnded: onLineDragEnded
+        )
+        .id("file-\(fileIndex)-hunk-\(hunkIndex)-line-\(index)")
 
-          // Inline content injected by parent (comments, composer)
-          afterLine(index, line)
-        }
+        // Inline content injected by parent (comments, composer)
+        afterLine(index, line)
       }
     }
   }
@@ -120,32 +124,59 @@ struct DiffHunkView<AfterLineContent: View>: View {
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.accent.opacity(OpacityTier.tint))
   }
+}
 
-  // MARK: - Diff Line Row
+// MARK: - Diff Line Row
 
-  private func diffLineRow(_ line: DiffLine, index: Int) -> some View {
-    let inlineRanges = computeInlineRanges(for: line, at: index)
-    let isChanged = line.type == .added || line.type == .removed
-    let hasComment = line.newLineNum.map { commentedLines.contains($0) } ?? false
-    let isInSelection = selectionLines.contains(index)
-    let isInComposerRange = composerLineRange?.contains(index) ?? false
-    let isCommentable = line.newLineNum != nil
-    let isHovered = hoveredLineIndex == index
-    let showAddButton = isHovered && isCommentable && dragAnchor == nil
+//
+// Self-contained view for a single diff line. Owns its hover state so that
+// hovering one line doesn't cause sibling lines to re-render.
 
-    return HStack(spacing: 0) {
-      // Left edge accent bar; purple for commented/composer lines, else add/remove color
+private struct DiffLineRow: View {
+  let line: DiffLine
+  let index: Int
+  let hunkLines: [DiffLine]
+  let language: String
+  let isCursor: Bool
+  let hasComment: Bool
+  let isInSelection: Bool
+  let isInComposerRange: Bool
+  let onLineComment: ((Int, ClosedRange<Int>) -> Void)?
+  let onLineDragChanged: ((Int, Int) -> Void)?
+  let onLineDragEnded: ((Int, Int) -> Void)?
+
+  @State private var isHovered = false
+  @State private var dragAnchor: Int?
+
+  // Design tokens
+  private let gutterBg = Color.white.opacity(0.015)
+  private let gutterBorder = Color.white.opacity(0.06)
+
+  private var isChanged: Bool {
+    line.type == .added || line.type == .removed
+  }
+
+  private var isCommentable: Bool {
+    line.newLineNum != nil
+  }
+
+  private var showAddButton: Bool {
+    isHovered && isCommentable && dragAnchor == nil
+  }
+
+  var body: some View {
+    HStack(spacing: 0) {
+      // Left edge accent bar
       Rectangle()
-        .fill(hasComment || isInComposerRange ? Color.statusQuestion : edgeBarColor(for: line.type))
+        .fill(hasComment || isInComposerRange ? Color.statusQuestion : edgeBarColor)
         .frame(width: EdgeBar.width)
 
       // Line number gutter
       HStack(spacing: 0) {
-        // Old line number
         Text(line.oldLineNum.map { String($0) } ?? "")
           .frame(width: 32, alignment: .trailing)
 
-        // Comment indicator — always takes space, content changes on hover
+        // Comment indicator zone
         ZStack {
           if hasComment {
             Circle()
@@ -153,8 +184,7 @@ struct DiffHunkView<AfterLineContent: View>: View {
               .frame(width: 4, height: 4)
           } else if showAddButton {
             Button {
-              let range = connectedBlockRange(for: index)
-              onLineComment?(index, range)
+              onLineComment?(index, connectedBlockRange)
             } label: {
               Image(systemName: "plus")
                 .font(.system(size: 7, weight: .heavy))
@@ -166,7 +196,6 @@ struct DiffHunkView<AfterLineContent: View>: View {
         }
         .frame(width: 8)
 
-        // New line number
         Text(line.newLineNum.map { String($0) } ?? "")
           .frame(width: 32, alignment: .trailing)
       }
@@ -182,21 +211,19 @@ struct DiffHunkView<AfterLineContent: View>: View {
       // Prefix indicator
       Text(line.prefix)
         .font(.system(size: TypeScale.body, weight: .semibold, design: .monospaced))
-        .foregroundStyle(prefixColor(for: line.type))
+        .foregroundStyle(prefixColor)
         .frame(width: 20, alignment: .center)
 
       // Syntax-highlighted code with inline change highlights
-      inlineHighlightedContent(line: line, ranges: inlineRanges)
+      highlightedContent
         .padding(.trailing, Spacing.md)
 
       Spacer(minLength: 0)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(backgroundColor(for: line.type))
+    .background(backgroundColor)
     .contentShape(Rectangle())
-    .onHover { hovering in
-      hoveredLineIndex = hovering ? index : nil
-    }
+    .onHover { isHovered = $0 }
     .gesture(
       DragGesture(minimumDistance: 6)
         .onChanged { value in
@@ -204,18 +231,24 @@ struct DiffHunkView<AfterLineContent: View>: View {
           if dragAnchor == nil { dragAnchor = index }
           let lineHeight: CGFloat = 20
           let dragLineOffset = Int(round(value.translation.height / lineHeight))
-          let targetLine = max(0, min(index + dragLineOffset, hunk.lines.count - 1))
+          let targetLine = max(0, min(index + dragLineOffset, hunkLines.count - 1))
           onLineDragChanged?(dragAnchor ?? index, targetLine)
         }
         .onEnded { value in
           guard isCommentable, let anchor = dragAnchor else { return }
           let lineHeight: CGFloat = 20
           let dragLineOffset = Int(round(value.translation.height / lineHeight))
-          let targetLine = max(0, min(index + dragLineOffset, hunk.lines.count - 1))
+          let targetLine = max(0, min(index + dragLineOffset, hunkLines.count - 1))
           onLineDragEnded?(min(anchor, targetLine), max(anchor, targetLine))
           dragAnchor = nil
         }
     )
+    .overlay {
+      if isCursor {
+        Color.accent.opacity(OpacityTier.light)
+          .allowsHitTesting(false)
+      }
+    }
     .overlay {
       if isInSelection || isInComposerRange {
         Color.statusQuestion.opacity(isInComposerRange ? 0.10 : 0.18)
@@ -224,57 +257,34 @@ struct DiffHunkView<AfterLineContent: View>: View {
     }
   }
 
-  // MARK: - Smart Connected Block
-
-  /// Find the contiguous change block (removed+added) around the given line index.
-  /// If the line is a context line, returns just that single line.
-  private func connectedBlockRange(for index: Int) -> ClosedRange<Int> {
-    let line = hunk.lines[index]
-    guard line.type != .context else { return index ... index }
-
-    // Walk backward to find start of change block
-    var start = index
-    while start > 0, hunk.lines[start - 1].type != .context {
-      start -= 1
-    }
-
-    // Walk forward to find end of change block
-    var end = index
-    while end < hunk.lines.count - 1, hunk.lines[end + 1].type != .context {
-      end += 1
-    }
-
-    return start ... end
-  }
-
-  // MARK: - Inline Highlights
+  // MARK: - Highlighted Content
 
   @ViewBuilder
-  private func inlineHighlightedContent(line: DiffLine, ranges: [Range<String.Index>]) -> some View {
+  private var highlightedContent: some View {
     let content = line.content.isEmpty ? " " : line.content
     let highlighted = SyntaxHighlighter.highlightLine(content, language: language.isEmpty ? nil : language)
+    let inlineRanges = computeInlineRanges()
 
-    if ranges.isEmpty {
+    if inlineRanges.isEmpty {
       Text(highlighted)
         .font(.system(size: TypeScale.code, design: .monospaced))
         .opacity(line.type == .context ? 0.55 : 1.0)
         .textSelection(.enabled)
     } else {
-      // Apply inline change highlights on top of syntax highlighting
-      Text(applyInlineHighlights(highlighted, ranges: ranges, lineType: line.type))
+      Text(applyInlineHighlights(highlighted, ranges: inlineRanges))
         .font(.system(size: TypeScale.code, design: .monospaced))
         .textSelection(.enabled)
     }
   }
 
+  // MARK: - Inline Ranges
+
   private func applyInlineHighlights(
     _ base: AttributedString,
-    ranges: [Range<String.Index>],
-    lineType: DiffLineType
+    ranges: [Range<String.Index>]
   ) -> AttributedString {
     var attributed = base
-    let highlightColor = lineType == .added ? Color.diffAddedHighlight : Color.diffRemovedHighlight
-
+    let highlightColor = line.type == .added ? Color.diffAddedHighlight : Color.diffRemovedHighlight
     for range in ranges {
       if let attrRange = Range(range, in: attributed) {
         attributed[attrRange].backgroundColor = highlightColor
@@ -284,52 +294,61 @@ struct DiffHunkView<AfterLineContent: View>: View {
   }
 
   /// For adjacent removed+added pairs, compute character-level inline changes.
-  private func computeInlineRanges(for line: DiffLine, at index: Int) -> [Range<String.Index>] {
+  private func computeInlineRanges() -> [Range<String.Index>] {
     guard line.type == .removed || line.type == .added else { return [] }
-
-    let lines = hunk.lines
 
     if line.type == .removed {
       let nextIndex = index + 1
-      guard nextIndex < lines.count, lines[nextIndex].type == .added else { return [] }
-      if index > 0, lines[index - 1].type == .removed { return [] }
-      if nextIndex + 1 < lines.count, lines[nextIndex + 1].type == .added { return [] }
-
-      let result = DiffModel.inlineChanges(oldLine: line.content, newLine: lines[nextIndex].content)
-      return result.old
+      guard nextIndex < hunkLines.count, hunkLines[nextIndex].type == .added else { return [] }
+      if index > 0, hunkLines[index - 1].type == .removed { return [] }
+      if nextIndex + 1 < hunkLines.count, hunkLines[nextIndex + 1].type == .added { return [] }
+      return DiffModel.inlineChanges(oldLine: line.content, newLine: hunkLines[nextIndex].content).old
     } else {
       let prevIndex = index - 1
-      guard prevIndex >= 0, lines[prevIndex].type == .removed else { return [] }
-      if prevIndex > 0, lines[prevIndex - 1].type == .removed { return [] }
-      if index + 1 < lines.count, lines[index + 1].type == .added { return [] }
-
-      let result = DiffModel.inlineChanges(oldLine: lines[prevIndex].content, newLine: line.content)
-      return result.new
+      guard prevIndex >= 0, hunkLines[prevIndex].type == .removed else { return [] }
+      if prevIndex > 0, hunkLines[prevIndex - 1].type == .removed { return [] }
+      if index + 1 < hunkLines.count, hunkLines[index + 1].type == .added { return [] }
+      return DiffModel.inlineChanges(oldLine: hunkLines[prevIndex].content, newLine: line.content).new
     }
+  }
+
+  // MARK: - Smart Connected Block
+
+  private var connectedBlockRange: ClosedRange<Int> {
+    guard line.type != .context else { return index ... index }
+    var start = index
+    while start > 0, hunkLines[start - 1].type != .context {
+      start -= 1
+    }
+    var end = index
+    while end < hunkLines.count - 1, hunkLines[end + 1].type != .context {
+      end += 1
+    }
+    return start ... end
   }
 
   // MARK: - Colors
 
-  private func edgeBarColor(for type: DiffLineType) -> Color {
-    switch type {
-      case .added: addedEdge
-      case .removed: removedEdge
+  private var edgeBarColor: Color {
+    switch line.type {
+      case .added: Color.diffAddedEdge
+      case .removed: Color.diffRemovedEdge
       case .context: .clear
     }
   }
 
-  private func prefixColor(for type: DiffLineType) -> Color {
-    switch type {
-      case .added: addedAccent
-      case .removed: removedAccent
+  private var prefixColor: Color {
+    switch line.type {
+      case .added: Color.diffAddedAccent
+      case .removed: Color.diffRemovedAccent
       case .context: .clear
     }
   }
 
-  private func backgroundColor(for type: DiffLineType) -> Color {
-    switch type {
-      case .added: addedBg
-      case .removed: removedBg
+  private var backgroundColor: Color {
+    switch line.type {
+      case .added: Color.diffAddedBg
+      case .removed: Color.diffRemovedBg
       case .context: .clear
     }
   }

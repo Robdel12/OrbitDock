@@ -129,12 +129,14 @@ enum InputMode: Equatable {
   case prompt // Session idle, ready for new prompt
   case steer // Session working, steering active turn
   case reviewNotes // User manually switched to send review notes
+  case shell // User-initiated shell command mode
 
   var label: String {
     switch self {
       case .prompt: "New Prompt"
       case .steer: "Steering Active Turn"
       case .reviewNotes: "Review Notes"
+      case .shell: "Shell Command"
     }
   }
 
@@ -143,6 +145,7 @@ enum InputMode: Equatable {
       case .prompt: .accent
       case .steer: .accent
       case .reviewNotes: .statusQuestion
+      case .shell: .shellAccent
     }
   }
 
@@ -151,6 +154,7 @@ enum InputMode: Equatable {
       case .prompt: "text.bubble"
       case .steer: "arrow.uturn.right"
       case .reviewNotes: "pencil.and.outline"
+      case .shell: "terminal"
     }
   }
 }

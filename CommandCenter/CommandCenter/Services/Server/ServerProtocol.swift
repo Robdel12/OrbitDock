@@ -50,6 +50,7 @@ enum ServerMessageType: String, Codable {
   case tool
   case toolResult = "tool_result"
   case steer
+  case shell
 }
 
 // MARK: - Core Types
@@ -937,6 +938,15 @@ enum ServerToClientMessage: Codable {
   case reviewCommentDeleted(sessionId: String, commentId: String)
   case reviewCommentsList(sessionId: String, comments: [ServerReviewComment])
   case subagentToolsList(sessionId: String, subagentId: String, tools: [ServerSubagentTool])
+  case shellStarted(sessionId: String, requestId: String, command: String)
+  case shellOutput(
+    sessionId: String,
+    requestId: String,
+    stdout: String,
+    stderr: String,
+    exitCode: Int32?,
+    durationMs: UInt64
+  )
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -986,6 +996,12 @@ enum ServerToClientMessage: Codable {
     case commentId = "comment_id"
     case comments
     case subagentId = "subagent_id"
+    case requestId = "request_id"
+    case command
+    case stdout
+    case stderr
+    case exitCode = "exit_code"
+    case durationMs = "duration_ms"
   }
 
   init(from decoder: Decoder) throws {
@@ -1199,6 +1215,24 @@ enum ServerToClientMessage: Codable {
         let tools = try container.decode([ServerSubagentTool].self, forKey: .tools)
         self = .subagentToolsList(sessionId: sessionId, subagentId: subagentId, tools: tools)
 
+      case "shell_started":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let command = try container.decode(String.self, forKey: .command)
+        self = .shellStarted(sessionId: sessionId, requestId: requestId, command: command)
+
+      case "shell_output":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let stdout = try container.decode(String.self, forKey: .stdout)
+        let stderr = try container.decode(String.self, forKey: .stderr)
+        let exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
+        let durationMs = try container.decode(UInt64.self, forKey: .durationMs)
+        self = .shellOutput(
+          sessionId: sessionId, requestId: requestId,
+          stdout: stdout, stderr: stderr, exitCode: exitCode, durationMs: durationMs
+        )
+
       case "error":
         let code = try container.decode(String.self, forKey: .code)
         let message = try container.decode(String.self, forKey: .message)
@@ -1404,6 +1438,21 @@ enum ServerToClientMessage: Codable {
         try container.encode(subagentId, forKey: .subagentId)
         try container.encode(tools, forKey: .tools)
 
+      case let .shellStarted(sessionId, requestId, command):
+        try container.encode("shell_started", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(command, forKey: .command)
+
+      case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs):
+        try container.encode("shell_output", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(stdout, forKey: .stdout)
+        try container.encode(stderr, forKey: .stderr)
+        try container.encodeIfPresent(exitCode, forKey: .exitCode)
+        try container.encode(durationMs, forKey: .durationMs)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -1485,6 +1534,7 @@ enum ClientToServerMessage: Codable {
   case listReviewComments(sessionId: String, turnId: String? = nil)
   case getSubagentTools(sessionId: String, subagentId: String)
   case setOpenAiKey(key: String)
+  case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -1524,6 +1574,8 @@ enum ClientToServerMessage: Codable {
     case status
     case key
     case subagentId = "subagent_id"
+    case command
+    case timeoutSecs = "timeout_secs"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -1717,6 +1769,15 @@ enum ClientToServerMessage: Codable {
       case let .setOpenAiKey(key):
         try container.encode("set_open_ai_key", forKey: .type)
         try container.encode(key, forKey: .key)
+
+      case let .executeShell(sessionId, command, cwd, timeoutSecs):
+        try container.encode("execute_shell", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(command, forKey: .command)
+        try container.encodeIfPresent(cwd, forKey: .cwd)
+        if timeoutSecs != 30 {
+          try container.encode(timeoutSecs, forKey: .timeoutSecs)
+        }
     }
   }
 
@@ -1874,6 +1935,13 @@ enum ClientToServerMessage: Codable {
       case "set_open_ai_key":
         self = try .setOpenAiKey(
           key: container.decode(String.self, forKey: .key)
+        )
+      case "execute_shell":
+        self = try .executeShell(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          command: container.decode(String.self, forKey: .command),
+          cwd: container.decodeIfPresent(String.self, forKey: .cwd),
+          timeoutSecs: container.decodeIfPresent(UInt64.self, forKey: .timeoutSecs) ?? 30
         )
       default:
         throw DecodingError.dataCorrupted(

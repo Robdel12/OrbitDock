@@ -29,7 +29,7 @@ struct TranscriptMessage: Identifiable, Hashable {
   let toolName: String?
   let toolInput: [String: Any]?
   var toolOutput: String? // Result of tool execution (var for incremental updates)
-  let toolDuration: TimeInterval? // How long the tool took
+  var toolDuration: TimeInterval? // How long the tool took
   let inputTokens: Int?
   let outputTokens: Int?
   var isInProgress: Bool = false // Tool is currently running
@@ -53,6 +53,7 @@ struct TranscriptMessage: Identifiable, Hashable {
     case thinking // Claude's internal reasoning
     case system
     case steer // User guidance injected mid-turn
+    case shell // User-initiated shell command
   }
 
   var isUser: Bool {
@@ -73,6 +74,10 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   var isSteer: Bool {
     type == .steer
+  }
+
+  var isShell: Bool {
+    type == .shell
   }
 
   /// Hashable conformance - exclude toolInput since [String: Any] isn't Hashable

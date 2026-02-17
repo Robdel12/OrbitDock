@@ -38,7 +38,9 @@ struct TurnGroupView: View {
     let trailing: [TranscriptMessage] // assistant response after last tool
     let toolCount: Int // actual tool messages (not interleaved non-tools)
 
-    var hasTools: Bool { !tools.isEmpty }
+    var hasTools: Bool {
+      !tools.isEmpty
+    }
   }
 
   /// Single-pass split of turn messages into leading/tools/trailing.
@@ -205,7 +207,16 @@ struct TurnGroupView: View {
           serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
         }
       } : nil,
-      onNavigateToReviewFile: onNavigateToReviewFile
+      onNavigateToReviewFile: onNavigateToReviewFile,
+      onShellSendToAI: message.isShell ? { _ in
+        if let sid = sessionId {
+          serverState.session(sid).bufferShellContext(
+            command: message.content,
+            output: message.toolOutput ?? "",
+            exitCode: nil
+          )
+        }
+      } : nil
     )
     .id(message.id)
   }

@@ -40,12 +40,14 @@ struct InstrumentPanel: View {
 
   /// Input mode
   @State private var manualReviewMode = false
+  @State private var manualShellMode = false
 
   private var sessionId: String {
     session.id
   }
 
   private var inputMode: InputMode {
+    if manualShellMode { return .shell }
     if manualReviewMode { return .reviewNotes }
     if isSessionWorking { return .steer }
     return .prompt
@@ -55,6 +57,7 @@ struct InstrumentPanel: View {
     switch inputMode {
       case .steer: .composerSteer
       case .reviewNotes: .composerReview
+      case .shell: .composerShell
       default: .composerPrompt
     }
   }
@@ -125,6 +128,12 @@ struct InstrumentPanel: View {
     !attachedImages.isEmpty || !attachedMentions.isEmpty
   }
 
+  private var composerPlaceholder: String {
+    if inputMode == .shell { return "Run a shell command..." }
+    if isSessionWorking { return "Steer the current turn..." }
+    return "Send a message..."
+  }
+
   // MARK: - Body
 
   var body: some View {
@@ -160,6 +169,45 @@ struct InstrumentPanel: View {
           Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
               manualReviewMode.toggle()
+            }
+          } label: {
+            Text("Cancel")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(.secondary)
+          }
+          .buttonStyle(.plain)
+        }
+        .padding(.horizontal, Spacing.lg)
+        .frame(height: 24)
+        .background(Color.backgroundTertiary)
+      }
+
+      // ━━━ Shell mode indicator ━━━
+      if isSessionActive, inputMode == .shell {
+        HStack(spacing: 8) {
+          HStack(spacing: 6) {
+            Image(systemName: "terminal")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(Color.shellAccent)
+            Text("Shell Mode")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(Color.shellAccent)
+
+            // Pending shell context count
+            let pending = serverState.session(sessionId).pendingShellContext.count
+            if pending > 0 {
+              Text("\(pending) buffered")
+                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.shellAccent.opacity(0.7))
+            }
+          }
+          Spacer()
+          Text("\u{2318}\u{21E7}T")
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+          Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              manualShellMode = false
             }
           } label: {
             Text("Cancel")
@@ -328,9 +376,19 @@ struct InstrumentPanel: View {
               Color.composerSteer.opacity(OpacityTier.light),
               in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
             )
+        } else if inputMode == .shell {
+          Text("SHELL")
+            .font(.system(size: 9, weight: .black, design: .monospaced))
+            .foregroundStyle(Color.shellAccent)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+              Color.shellAccent.opacity(OpacityTier.light),
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
         }
 
-        TextField(isSessionWorking ? "Steer the current turn..." : "Send a message...", text: $message, axis: .vertical)
+        TextField(composerPlaceholder, text: $message, axis: .vertical)
           .textFieldStyle(.plain)
           .lineLimit(1 ... 5)
           .focused($isFocused)
@@ -345,6 +403,17 @@ struct InstrumentPanel: View {
             // Shift+Return inserts a newline instead of sending
             if keyPress.key == .return, keyPress.modifiers.contains(.shift) {
               message += "\n"
+              return .handled
+            }
+            // Cmd+Shift+T toggles shell mode
+            if keyPress.key == KeyEquivalent("t"),
+               keyPress.modifiers.contains(.command),
+               keyPress.modifiers.contains(.shift)
+            {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                manualShellMode.toggle()
+                if manualShellMode { manualReviewMode = false }
+              }
               return .handled
             }
             if keyPress.modifiers.contains(.command), keyPress.key == KeyEquivalent("v") {
@@ -460,16 +529,17 @@ struct InstrumentPanel: View {
   private func composerActionButton(
     icon: String,
     isActive: Bool,
+    activeColor: Color = .accent,
     help: String,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
       Image(systemName: icon)
         .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(isActive ? Color.accent : .secondary)
+        .foregroundStyle(isActive ? activeColor : .secondary)
         .frame(width: 28, height: 28)
         .background(
-          isActive ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+          isActive ? activeColor.opacity(OpacityTier.light) : Color.surfaceHover,
           in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         )
     }
@@ -503,6 +573,18 @@ struct InstrumentPanel: View {
             help: "Attach images"
           ) {
             pickImages()
+          }
+
+          composerActionButton(
+            icon: "terminal",
+            isActive: manualShellMode,
+            activeColor: .shellAccent,
+            help: "Shell mode (\u{2318}\u{21E7}T)"
+          ) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              manualShellMode.toggle()
+              if manualShellMode { manualReviewMode = false }
+            }
           }
 
           Color.panelBorder.frame(width: 1, height: 16)
@@ -825,6 +907,7 @@ struct InstrumentPanel: View {
 
   private var canSend: Bool {
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    if inputMode == .shell { return !isSending && hasContent }
     if isSessionWorking { return !isSending && hasContent }
     let hasModel = session.isDirectCodex ? !selectedModel.isEmpty : session.model != nil
     return !isSending && (hasContent || hasAttachments) && hasModel
@@ -834,6 +917,22 @@ struct InstrumentPanel: View {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !isSending else { return }
     guard !trimmed.isEmpty || hasAttachments else { return }
+
+    // Shell mode: route to executeShell
+    if inputMode == .shell {
+      serverState.executeShell(sessionId: sessionId, command: trimmed)
+      message = ""
+      manualShellMode = false
+      return
+    }
+
+    // ! prefix: execute as shell command
+    if trimmed.hasPrefix("!"), trimmed.count > 1 {
+      let shellCmd = String(trimmed.dropFirst())
+      serverState.executeShell(sessionId: sessionId, command: shellCmd)
+      message = ""
+      return
+    }
 
     if isSessionWorking {
       guard !trimmed.isEmpty else { return }
@@ -874,6 +973,12 @@ struct InstrumentPanel: View {
     }
 
     let imageInputs = attachedImages.map(\.serverInput)
+
+    // Prepend any pending shell context
+    let obs = serverState.session(sessionId)
+    if let shellContext = obs.consumeShellContext() {
+      expandedContent = "\(shellContext)\n\n\(expandedContent)"
+    }
 
     serverState.sendMessage(
       sessionId: sessionId,

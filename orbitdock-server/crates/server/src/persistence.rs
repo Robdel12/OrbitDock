@@ -181,7 +181,10 @@ pub enum PersistCommand {
     ModelUpdate { session_id: String, model: String },
 
     /// Update effort level for a session
-    EffortUpdate { session_id: String, effort: Option<String> },
+    EffortUpdate {
+        session_id: String,
+        effort: Option<String>,
+    },
 
     /// Create/refresh subagent row
     ClaudeSubagentStart {
@@ -537,6 +540,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 MessageType::Tool => "tool",
                 MessageType::ToolResult => "tool_result",
                 MessageType::Steer => "steer",
+                MessageType::Shell => "shell",
             };
 
             // Get next sequence number
@@ -1585,6 +1589,7 @@ fn load_messages_from_db(
                 "tool" => MessageType::Tool,
                 "tool_result" | "toolResult" => MessageType::ToolResult,
                 "steer" => MessageType::Steer,
+                "shell" => MessageType::Shell,
                 _ => MessageType::Assistant,
             };
 

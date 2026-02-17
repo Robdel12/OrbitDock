@@ -19,6 +19,7 @@ struct WorkStreamEntry: View {
   let onRollback: (() -> Void)?
   let onFork: (() -> Void)?
   let onNavigateToReviewFile: ((String, Int) -> Void)?
+  var onShellSendToAI: ((String) -> Void)?
   @State private var isExpanded = false
   @State private var isEditCardCollapsed = false
   @State private var isHovering = false
@@ -41,6 +42,7 @@ struct WorkStreamEntry: View {
     case toolTask, toolMcp, toolWebFetch, toolWebSearch
     case toolSkill, toolPlanMode, toolTodoTask, toolAskQuestion
     case toolStandard
+    case shell
   }
 
   // MARK: - Render Mode
@@ -55,7 +57,7 @@ struct WorkStreamEntry: View {
     switch kind {
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
            .userSystemCaveat, .userCodeReview, .userSystemContext, .assistant, .steer,
-           .thinking:
+           .thinking, .shell:
         .inline
       case .toolEdit:
         .compactPreview
@@ -67,6 +69,7 @@ struct WorkStreamEntry: View {
   private var kind: EntryKind {
     if message.isThinking { return .thinking }
     if message.isSteer { return .steer }
+    if message.isShell { return .shell }
 
     if message.isTool {
       guard let name = message.toolName else { return .toolStandard }
@@ -141,6 +144,7 @@ struct WorkStreamEntry: View {
       case .toolTodoTask: "checklist"
       case .toolAskQuestion: "questionmark.bubble"
       case .toolStandard: "gearshape"
+      case .shell: "terminal"
     }
   }
 
@@ -168,6 +172,7 @@ struct WorkStreamEntry: View {
       case .toolTodoTask: .toolTodo
       case .toolAskQuestion: .toolQuestion
       case .toolStandard: .secondary
+      case .shell: .shellAccent
     }
   }
 
@@ -237,6 +242,8 @@ struct WorkStreamEntry: View {
         return "Thinking\u{2026}"
       case .steer:
         return firstLine(of: message.content, maxLength: 100)
+      case .shell:
+        return message.content
     }
   }
 
@@ -261,6 +268,13 @@ struct WorkStreamEntry: View {
         return nil
       case .toolGrep:
         if let count = message.grepMatchCount { return "\(count) matches" }
+        return nil
+      case .shell:
+        if let dur = message.formattedDuration {
+          let prefix = message.bashHasError ? "\u{2717}" : "\u{2713}"
+          return "\(prefix) \(dur)"
+        }
+        if message.isInProgress { return "\u{2026}" }
         return nil
       case .assistant:
         if let input = message.inputTokens, input > 0 {
@@ -303,7 +317,7 @@ struct WorkStreamEntry: View {
   private var isUserKind: Bool {
     switch kind {
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-           .userSystemCaveat, .userCodeReview, .steer:
+           .userSystemCaveat, .userCodeReview, .steer, .shell:
         true
       default:
         false
@@ -315,7 +329,7 @@ struct WorkStreamEntry: View {
   private var isUserEntry: Bool {
     switch kind {
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-           .userSystemCaveat, .userCodeReview:
+           .userSystemCaveat, .userCodeReview, .shell:
         true
       default:
         false
@@ -479,6 +493,9 @@ struct WorkStreamEntry: View {
               timestamp: message.timestamp,
               onNavigateToFile: onNavigateToReviewFile
             )
+
+          case .shell:
+            shellInline
 
           default:
             EmptyView()
@@ -724,6 +741,22 @@ struct WorkStreamEntry: View {
       .textSelection(.enabled)
       .padding(.leading, Spacing.xl)
       .padding(.trailing, Spacing.xl)
+  }
+
+  // MARK: - Shell Inline
+
+  @State private var isShellExpanded = false
+  @State private var isShellHovering = false
+
+  private var shellInline: some View {
+    ShellCard(
+      message: message,
+      isExpanded: $isShellExpanded,
+      isHovering: $isShellHovering,
+      onSendToAI: onShellSendToAI
+    )
+    .padding(.leading, Spacing.xl)
+    .padding(.trailing, Spacing.xl)
   }
 
   // MARK: - Thinking Inline

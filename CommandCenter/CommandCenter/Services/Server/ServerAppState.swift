@@ -350,6 +350,25 @@ final class ServerAppState {
       }
     }
 
+    conn.onShellOutput = { [weak self] sessionId, requestId, stdout, stderr, exitCode, durationMs in
+      Task { @MainActor in
+        guard let self else { return }
+        let obs = self.session(sessionId)
+        let output = stderr.isEmpty ? stdout : (stdout.isEmpty ? stderr : "\(stdout)\n\(stderr)")
+        // Find the shell message to get the command
+        let command = obs.messages.first(where: { $0.id == requestId })?.content ?? ""
+        obs.bufferShellContext(command: command, output: output, exitCode: exitCode)
+
+        // Update the in-progress shell message with output
+        if let idx = obs.messages.firstIndex(where: { $0.id == requestId }) {
+          obs.messages[idx].toolOutput = output
+          obs.messages[idx].toolDuration = Double(durationMs) / 1_000.0
+          obs.messages[idx].isInProgress = false
+          obs.bumpMessagesRevision()
+        }
+      }
+    }
+
     conn.onContextCompacted = { sessionId in
       Task { @MainActor in
         logger.info("Context compacted for \(sessionId)")
@@ -580,6 +599,12 @@ final class ServerAppState {
     logger.info("Forking session \(sessionId) at turn \(nthUserMessage.map(String.init) ?? "full")")
     session(sessionId).forkInProgress = true
     ServerConnection.shared.forkSession(sourceSessionId: sessionId, nthUserMessage: nthUserMessage)
+  }
+
+  /// Execute a shell command in a session's working directory (does not trigger AI response)
+  func executeShell(sessionId: String, command: String, cwd: String? = nil) {
+    logger.info("Executing shell in \(sessionId): \(command)")
+    ServerConnection.shared.executeShell(sessionId: sessionId, command: command, cwd: cwd)
   }
 
   /// Interrupt a session

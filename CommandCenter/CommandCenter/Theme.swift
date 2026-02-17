@@ -347,6 +347,11 @@ extension Color {
   static let composerSteer = toolWrite
   /// Review mode border — purple nebula
   static let composerReview = statusQuestion
+  /// Shell mode border — terminal green
+  static let composerShell = shellAccent
+
+  /// Terminal green accent for user-initiated shell commands
+  static let shellAccent = Color(red: 0.3, green: 0.85, blue: 0.4)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Autonomy Levels — Risk Spectrum

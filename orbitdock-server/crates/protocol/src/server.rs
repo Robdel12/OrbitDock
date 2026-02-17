@@ -191,6 +191,21 @@ pub enum ServerMessage {
         tools: Vec<SubagentTool>,
     },
 
+    // Shell execution results
+    ShellStarted {
+        session_id: String,
+        request_id: String,
+        command: String,
+    },
+    ShellOutput {
+        session_id: String,
+        request_id: String,
+        stdout: String,
+        stderr: String,
+        exit_code: Option<i32>,
+        duration_ms: u64,
+    },
+
     // Errors
     Error {
         code: String,

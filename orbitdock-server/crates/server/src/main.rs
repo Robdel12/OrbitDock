@@ -16,6 +16,7 @@ mod session;
 mod session_actor;
 mod session_command;
 mod session_naming;
+mod shell;
 mod state;
 mod subagent_parser;
 mod transition;
@@ -462,4 +463,3 @@ fn binary_metadata(path: &str) -> (u64, i64) {
         .unwrap_or(0);
     (size, modified)
 }
-

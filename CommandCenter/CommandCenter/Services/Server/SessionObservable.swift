@@ -40,6 +40,9 @@ final class SessionObservable {
   var subagents: [ServerSubagentInfo] = []
   var subagentTools: [String: [ServerSubagentTool]] = [:] // keyed by subagent ID
 
+  /// Shell context buffer — auto-prepended to next sendMessage
+  var pendingShellContext: [ShellContextEntry] = []
+
   // Operation flags
   var undoInProgress: Bool = false
   var forkInProgress: Bool = false
@@ -78,11 +81,40 @@ final class SessionObservable {
     return steps.isEmpty ? nil : steps
   }
 
+  /// Consume pending shell context, wrapping it for AI consumption.
+  /// Returns the shell context string to prepend, or nil if none.
+  func consumeShellContext() -> String? {
+    guard !pendingShellContext.isEmpty else { return nil }
+    let entries = pendingShellContext
+    pendingShellContext.removeAll()
+
+    let contextBlocks = entries.map { entry in
+      var block = "$ \(entry.command)\n\(entry.output)"
+      if let code = entry.exitCode {
+        block += "\n(exit \(code))"
+      }
+      return block
+    }
+
+    return "<shell-context>\n\(contextBlocks.joined(separator: "\n\n"))\n</shell-context>"
+  }
+
+  /// Buffer shell output for injection into next prompt
+  func bufferShellContext(command: String, output: String, exitCode: Int32?) {
+    pendingShellContext.append(ShellContextEntry(
+      command: command,
+      output: output,
+      exitCode: exitCode,
+      timestamp: Date()
+    ))
+  }
+
   /// Clear transient state on session end. Keep messages/tokens/history for viewing.
   func clearTransientState() {
     pendingApproval = nil
     undoInProgress = false
     forkInProgress = false
+    pendingShellContext = []
     mcpTools = [:]
     mcpResources = [:]
     mcpAuthStatuses = [:]
@@ -92,4 +124,13 @@ final class SessionObservable {
     plan = nil
     currentTurnId = nil
   }
+}
+
+// MARK: - Shell Context
+
+struct ShellContextEntry {
+  let command: String
+  let output: String
+  let exitCode: Int32?
+  let timestamp: Date
 }

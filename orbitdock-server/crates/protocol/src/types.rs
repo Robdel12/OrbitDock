@@ -66,6 +66,7 @@ pub enum MessageType {
     Tool,
     ToolResult,
     Steer,
+    Shell,
 }
 
 /// A message in the conversation

@@ -273,6 +273,20 @@ pub enum ClientMessage {
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_transcript_path: Option<String>,
     },
+
+    // Shell execution (provider-independent, user-initiated)
+    ExecuteShell {
+        session_id: String,
+        command: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cwd: Option<String>,
+        #[serde(default = "default_shell_timeout")]
+        timeout_secs: u64,
+    },
+}
+
+fn default_shell_timeout() -> u64 {
+    30
 }
 
 #[cfg(test)]
