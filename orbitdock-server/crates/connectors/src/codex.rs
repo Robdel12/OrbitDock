@@ -45,8 +45,10 @@ struct StreamingMessage {
 }
 
 /// Tracks the current working directory so we only emit changes
-struct CwdTracker {
-    current: Option<String>,
+struct EnvironmentTracker {
+    cwd: Option<String>,
+    branch: Option<String>,
+    sha: Option<String>,
 }
 
 /// Minimum interval between streaming content broadcasts (ms)
@@ -211,7 +213,11 @@ impl CodexConnector {
         let output_buffers = Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new()));
         let streaming_message = Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None));
         let msg_counter = Arc::new(AtomicU64::new(0));
-        let cwd_tracker = Arc::new(tokio::sync::Mutex::new(CwdTracker { current: None }));
+        let env_tracker = Arc::new(tokio::sync::Mutex::new(EnvironmentTracker {
+            cwd: None,
+            branch: None,
+            sha: None,
+        }));
 
         // Spawn async event loop
         let tx = event_tx.clone();
@@ -219,7 +225,7 @@ impl CodexConnector {
         let buffers = output_buffers.clone();
         let streaming = streaming_message.clone();
         let counter = msg_counter.clone();
-        let tracker = cwd_tracker.clone();
+        let tracker = env_tracker.clone();
         tokio::spawn(async move {
             Self::event_loop(t, tx, buffers, streaming, counter, tracker).await;
         });
@@ -287,7 +293,7 @@ impl CodexConnector {
         output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
         streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: Arc<AtomicU64>,
-        cwd_tracker: Arc<tokio::sync::Mutex<CwdTracker>>,
+        env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
     ) {
         loop {
             match thread.next_event().await {
@@ -297,7 +303,7 @@ impl CodexConnector {
                         &output_buffers,
                         &streaming_message,
                         &msg_counter,
-                        &cwd_tracker,
+                        &env_tracker,
                     )
                     .await;
                     for ev in events {
@@ -324,7 +330,7 @@ impl CodexConnector {
         output_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
         streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: &AtomicU64,
-        cwd_tracker: &Arc<tokio::sync::Mutex<CwdTracker>>,
+        env_tracker: &Arc<tokio::sync::Mutex<EnvironmentTracker>>,
     ) -> Vec<ConnectorEvent> {
         match event.msg {
             EventMsg::UserMessage(e) => {
@@ -362,18 +368,20 @@ impl CodexConnector {
             EventMsg::SessionConfigured(e) => {
                 let cwd_str = e.cwd.to_string_lossy().to_string();
 
-                // Set initial cwd in tracker
-                {
-                    let mut tracker = cwd_tracker.lock().await;
-                    tracker.current = Some(cwd_str.clone());
-                }
-
                 // Look up git info from the cwd
                 let git_info = codex_core::git_info::collect_git_info(&e.cwd).await;
                 let (branch, sha) = match git_info {
                     Some(info) => (info.branch, info.commit_hash),
                     None => (None, None),
                 };
+
+                // Seed tracker with initial environment
+                {
+                    let mut tracker = env_tracker.lock().await;
+                    tracker.cwd = Some(cwd_str.clone());
+                    tracker.branch = branch.clone();
+                    tracker.sha = sha.clone();
+                }
 
                 vec![ConnectorEvent::EnvironmentChanged {
                     cwd: Some(cwd_str),
@@ -436,22 +444,28 @@ impl CodexConnector {
                     buffers.insert(e.call_id.clone(), String::new());
                 }
 
-                // Track cwd changes — also re-collect git info (branch may differ)
+                // Re-collect git info on every command — the agent may have
+                // changed branches without changing cwd (e.g. `git checkout`)
                 let new_cwd = e.cwd.to_string_lossy().to_string();
+                let git_info = codex_core::git_info::collect_git_info(&e.cwd).await;
+                let (new_branch, new_sha) = match git_info {
+                    Some(info) => (info.branch, info.commit_hash),
+                    None => (None, None),
+                };
                 let mut events = Vec::new();
                 {
-                    let mut tracker = cwd_tracker.lock().await;
-                    if tracker.current.as_deref() != Some(&new_cwd) {
-                        tracker.current = Some(new_cwd.clone());
-                        let git_info = codex_core::git_info::collect_git_info(&e.cwd).await;
-                        let (branch, sha) = match git_info {
-                            Some(info) => (info.branch, info.commit_hash),
-                            None => (None, None),
-                        };
+                    let mut tracker = env_tracker.lock().await;
+                    let cwd_changed = tracker.cwd.as_deref() != Some(&new_cwd);
+                    let branch_changed = tracker.branch != new_branch;
+                    let sha_changed = tracker.sha != new_sha;
+                    if cwd_changed || branch_changed || sha_changed {
+                        tracker.cwd = Some(new_cwd.clone());
+                        tracker.branch = new_branch.clone();
+                        tracker.sha = new_sha.clone();
                         events.push(ConnectorEvent::EnvironmentChanged {
                             cwd: Some(new_cwd),
-                            git_branch: branch,
-                            git_sha: sha,
+                            git_branch: new_branch,
+                            git_sha: new_sha,
                         });
                     }
                 }
