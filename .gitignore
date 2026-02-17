@@ -9,6 +9,7 @@
 
 # Build artifacts
 *.zip
+.cache/
 
 # Xcode
 *.xcworkspace/
