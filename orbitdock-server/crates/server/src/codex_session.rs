@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use orbitdock_connectors::{CodexConnector, ConnectorError, ConnectorEvent, SteerOutcome};
 use orbitdock_protocol::{MessageType, ServerMessage};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
@@ -557,6 +557,15 @@ pub async fn handle_session_command(
         }
         SessionCommand::Broadcast { msg } => {
             handle.broadcast(msg);
+        }
+        SessionCommand::TakeHandle { reply: _ } => {
+            // TakeHandle is only meaningful in passive_actor_loop — if it arrives
+            // here (active event loop), drop it. The oneshot will fail on the caller side.
+            warn!(
+                component = "session",
+                session_id = %handle.id(),
+                "TakeHandle received on active session actor — ignoring"
+            );
         }
         SessionCommand::LoadTranscriptAndSync {
             path,

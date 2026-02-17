@@ -242,19 +242,13 @@ mod tests {
     #[test]
     fn test_create_tool_summary_read() {
         let input = serde_json::json!({"file_path": "/Users/me/project/src/main.rs"});
-        assert_eq!(
-            create_tool_summary("Read", Some(&input)),
-            ".../src/main.rs"
-        );
+        assert_eq!(create_tool_summary("Read", Some(&input)), ".../src/main.rs");
     }
 
     #[test]
     fn test_create_tool_summary_bash() {
         let input = serde_json::json!({"command": "echo hello"});
-        assert_eq!(
-            create_tool_summary("Bash", Some(&input)),
-            "echo hello"
-        );
+        assert_eq!(create_tool_summary("Bash", Some(&input)), "echo hello");
     }
 
     #[test]

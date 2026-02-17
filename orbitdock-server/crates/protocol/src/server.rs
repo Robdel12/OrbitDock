@@ -156,6 +156,14 @@ pub enum ServerMessage {
         session_id: String,
         turn_id: String,
         diff: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        input_tokens: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output_tokens: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        cached_tokens: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_window: Option<u64>,
     },
 
     // Review comments
@@ -492,6 +500,10 @@ mod tests {
             session_id: "sess-1".to_string(),
             turn_id: "turn-3".to_string(),
             diff: "--- a/foo.rs\n+++ b/foo.rs\n@@ -1 +1 @@\n-old\n+new".to_string(),
+            input_tokens: Some(5000),
+            output_tokens: Some(1200),
+            cached_tokens: Some(3000),
+            context_window: Some(200000),
         };
 
         let json = serde_json::to_string(&msg).expect("serialize");
@@ -501,10 +513,18 @@ mod tests {
                 session_id,
                 turn_id,
                 diff,
+                input_tokens,
+                output_tokens,
+                cached_tokens,
+                context_window,
             } => {
                 assert_eq!(session_id, "sess-1");
                 assert_eq!(turn_id, "turn-3");
                 assert!(diff.contains("+new"));
+                assert_eq!(input_tokens, Some(5000));
+                assert_eq!(output_tokens, Some(1200));
+                assert_eq!(cached_tokens, Some(3000));
+                assert_eq!(context_window, Some(200000));
             }
             other => panic!("unexpected variant: {:?}", other),
         }

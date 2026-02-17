@@ -51,6 +51,7 @@ extension ServerSessionSummary {
     session.lastMessage = lastMessage
     session.gitSha = gitSha
     session.currentCwd = currentCwd
+    session.effort = effort
     return session
   }
 }
@@ -103,6 +104,7 @@ extension ServerSessionState {
     session.currentDiff = currentDiff
     session.gitSha = gitSha
     session.currentCwd = currentCwd
+    session.effort = effort
     return session
   }
 }

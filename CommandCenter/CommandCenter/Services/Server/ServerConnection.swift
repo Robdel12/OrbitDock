@@ -35,7 +35,7 @@ final class ServerConnection: ObservableObject {
   private var connectTask: Task<Void, Never>?
 
   private let serverURL = URL(string: "ws://127.0.0.1:4000/ws")!
-  private let maxConnectAttempts = 3
+  private let maxConnectAttempts = 10
   private var connectAttempts = 0
 
   /// Callbacks for received messages
@@ -74,7 +74,8 @@ final class ServerConnection: ObservableObject {
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
   var onThreadRolledBack: ((String, UInt32) -> Void)?
   var onSessionForked: ((String, String, String?) -> Void)? // sourceSessionId, newSessionId, forkedFromThreadId
-  var onTurnDiffSnapshot: ((String, String, String) -> Void)? // sessionId, turnId, diff
+  var onTurnDiffSnapshot: ((String, String, String, UInt64?, UInt64?, UInt64?, UInt64?)
+    -> Void)? // sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow
   var onReviewCommentCreated: ((String, ServerReviewComment) -> Void)?
   var onReviewCommentUpdated: ((String, ServerReviewComment) -> Void)?
   var onReviewCommentDeleted: ((String, String) -> Void)? // sessionId, commentId
@@ -82,6 +83,7 @@ final class ServerConnection: ObservableObject {
   var onSubagentToolsList: ((String, String, [ServerSubagentTool]) -> Void)? // sessionId, subagentId, tools
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
+  var onDisconnected: (() -> Void)?
 
   /// Called when a replay event carries a revision number (for tracking last-seen revision)
   var onRevision: ((String, UInt64) -> Void)?
@@ -150,8 +152,8 @@ final class ServerConnection: ObservableObject {
       } catch {
         logger.warning("Connect attempt \(self.connectAttempts) failed: \(error.localizedDescription)")
 
-        // Exponential backoff: 1s, 2s, 4s
-        let delay = pow(2.0, Double(connectAttempts - 1))
+        // Exponential backoff capped at 10s: 1s, 2s, 4s, 8s, 10s, 10s, ...
+        let delay = min(pow(2.0, Double(connectAttempts - 1)), 10.0)
 
         try? await Task.sleep(for: .seconds(delay))
 
@@ -178,6 +180,7 @@ final class ServerConnection: ObservableObject {
 
     connectAttempts = 0
     status = .disconnected
+    onDisconnected?()
     logger.info("Disconnected from server")
   }
 
@@ -225,6 +228,7 @@ final class ServerConnection: ObservableObject {
           // Connection lost - try to reconnect (with limits)
           if case .connected = self.status {
             self.status = .disconnected
+            self.onDisconnected?()
             self.attemptConnect()
           }
         }
@@ -346,8 +350,8 @@ final class ServerConnection: ObservableObject {
       case let .sessionForked(sourceSessionId, newSessionId, forkedFromThreadId):
         onSessionForked?(sourceSessionId, newSessionId, forkedFromThreadId)
 
-      case let .turnDiffSnapshot(sessionId, turnId, diff):
-        onTurnDiffSnapshot?(sessionId, turnId, diff)
+      case let .turnDiffSnapshot(sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow):
+        onTurnDiffSnapshot?(sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow)
 
       case let .reviewCommentCreated(sessionId, comment):
         onReviewCommentCreated?(sessionId, comment)

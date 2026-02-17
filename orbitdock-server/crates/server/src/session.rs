@@ -42,6 +42,7 @@ pub struct SessionSnapshot {
     pub git_branch: Option<String>,
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
+    pub effort: Option<String>,
 }
 
 const EVENT_LOG_CAPACITY: usize = 1000;
@@ -79,6 +80,7 @@ pub struct SessionHandle {
     current_cwd: Option<String>,
     first_prompt: Option<String>,
     last_message: Option<String>,
+    effort: Option<String>,
     subagents: Vec<SubagentInfo>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
@@ -125,6 +127,7 @@ impl SessionHandle {
             git_branch: None,
             git_sha: None,
             current_cwd: None,
+            effort: None,
         };
         Self {
             id,
@@ -157,6 +160,7 @@ impl SessionHandle {
             current_cwd: None,
             first_prompt: None,
             last_message: None,
+            effort: None,
             subagents: Vec::new(),
             broadcast_tx,
             list_tx: None,
@@ -195,6 +199,7 @@ impl SessionHandle {
         current_cwd: Option<String>,
         first_prompt: Option<String>,
         last_message: Option<String>,
+        effort: Option<String>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -220,6 +225,7 @@ impl SessionHandle {
             git_branch: git_branch.clone(),
             git_sha: git_sha.clone(),
             current_cwd: current_cwd.clone(),
+            effort: effort.clone(),
             first_prompt: first_prompt.clone(),
             last_message: last_message.clone(),
         };
@@ -254,6 +260,7 @@ impl SessionHandle {
             current_cwd,
             first_prompt,
             last_message,
+            effort,
             subagents: Vec::new(),
             broadcast_tx,
             list_tx: None,
@@ -309,6 +316,7 @@ impl SessionHandle {
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
+            effort: self.effort.clone(),
             first_prompt: self.first_prompt.clone(),
             last_message: self.last_message.clone(),
         }
@@ -349,6 +357,7 @@ impl SessionHandle {
             first_prompt: self.first_prompt.clone(),
             last_message: self.last_message.clone(),
             subagents: self.subagents.clone(),
+            effort: self.effort.clone(),
         }
     }
 
@@ -614,6 +623,9 @@ impl SessionHandle {
         if let Some(ref last_message) = changes.last_message {
             self.last_message = last_message.clone();
         }
+        if let Some(ref effort) = changes.effort {
+            self.effort = effort.clone();
+        }
     }
 
     /// Create a snapshot of current session metadata
@@ -641,6 +653,7 @@ impl SessionHandle {
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
+            effort: self.effort.clone(),
             first_prompt: self.first_prompt.clone(),
             last_message: self.last_message.clone(),
         }

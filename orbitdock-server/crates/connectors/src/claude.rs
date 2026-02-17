@@ -658,7 +658,11 @@ impl ClaudeConnector {
 
         for block in content_blocks {
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let id = format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], msg_counter.fetch_add(1, Ordering::Relaxed));
+            let id = format!(
+                "claude-msg-{}-{}",
+                &session_id[..8.min(session_id.len())],
+                msg_counter.fetch_add(1, Ordering::Relaxed)
+            );
 
             match block_type {
                 // Skip text blocks if streaming already delivered the content
@@ -778,7 +782,11 @@ impl ClaudeConnector {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
-                let id = format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], msg_counter.fetch_add(1, Ordering::Relaxed));
+                let id = format!(
+                    "claude-msg-{}-{}",
+                    &session_id[..8.min(session_id.len())],
+                    msg_counter.fetch_add(1, Ordering::Relaxed)
+                );
                 events.push(ConnectorEvent::MessageCreated(
                     orbitdock_protocol::Message {
                         id,
@@ -828,8 +836,11 @@ impl ClaudeConnector {
                     streaming_content.push_str(text);
 
                     if streaming_msg_id.is_none() {
-                        let msg_id =
-                            format!("claude-msg-{}-{}", &session_id[..8.min(session_id.len())], msg_counter.fetch_add(1, Ordering::Relaxed));
+                        let msg_id = format!(
+                            "claude-msg-{}-{}",
+                            &session_id[..8.min(session_id.len())],
+                            msg_counter.fetch_add(1, Ordering::Relaxed)
+                        );
                         events.push(ConnectorEvent::MessageCreated(
                             orbitdock_protocol::Message {
                                 id: msg_id.clone(),

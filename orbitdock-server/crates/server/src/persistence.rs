@@ -81,6 +81,10 @@ pub enum PersistCommand {
         session_id: String,
         turn_id: String,
         diff: String,
+        input_tokens: u64,
+        output_tokens: u64,
+        cached_tokens: u64,
+        context_window: u64,
     },
 
     /// Store codex-core thread ID for a session
@@ -175,6 +179,9 @@ pub enum PersistCommand {
 
     /// Update model name for a session
     ModelUpdate { session_id: String, model: String },
+
+    /// Update effort level for a session
+    EffortUpdate { session_id: String, effort: Option<String> },
 
     /// Create/refresh subagent row
     ClaudeSubagentStart {
@@ -664,10 +671,14 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             session_id,
             turn_id,
             diff,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            context_window,
         } => {
             conn.execute(
-                "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff) VALUES (?1, ?2, ?3)",
-                params![session_id, turn_id, diff],
+                "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![session_id, turn_id, diff, input_tokens as i64, output_tokens as i64, cached_tokens as i64, context_window as i64],
             )?;
         }
 
@@ -980,6 +991,13 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             conn.execute(
                 "UPDATE sessions SET model = ?1 WHERE id = ?2",
                 params![model, session_id],
+            )?;
+        }
+
+        PersistCommand::EffortUpdate { session_id, effort } => {
+            conn.execute(
+                "UPDATE sessions SET effort = ?1 WHERE id = ?2",
+                params![effort, session_id],
             )?;
         }
 
@@ -1497,6 +1515,7 @@ fn is_leap_year(year: i64) -> bool {
 
 /// A session restored from the database on startup
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct RestoredSession {
     pub id: String,
     pub provider: String,
@@ -1524,13 +1543,14 @@ pub struct RestoredSession {
     pub forked_from_session_id: Option<String>,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
-    pub turn_diffs: Vec<(String, String)>, // (turn_id, diff)
+    pub turn_diffs: Vec<(String, String, i64, i64, i64, i64)>, // (turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window)
     pub git_branch: Option<String>,
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
     pub first_prompt: Option<String>,
     pub last_message: Option<String>,
     pub end_reason: Option<String>,
+    pub effort: Option<String>,
 }
 
 /// No longer backfills custom_name from first_prompt — the UI uses first_prompt
@@ -1944,7 +1964,8 @@ fn load_token_usage_from_transcript(
             .and_then(Value::as_str)
             .unwrap_or_default();
 
-        // Claude transcript entries: aggregate per-message usage over the entire transcript.
+        // Claude transcript entries: use the last message's input/cached tokens (current context
+        // fill) but accumulate output tokens across the session.
         if entry_type == "assistant" {
             if let Some(usage) = value
                 .get("message")
@@ -1952,11 +1973,10 @@ fn load_token_usage_from_transcript(
                 .and_then(Value::as_object)
             {
                 saw_claude_usage = true;
-                claude_usage.input_tokens += value_to_u64(usage.get("input_tokens"));
+                claude_usage.input_tokens = value_to_u64(usage.get("input_tokens"));
                 claude_usage.output_tokens += value_to_u64(usage.get("output_tokens"));
-                claude_usage.cached_tokens += value_to_u64(usage.get("cache_read_input_tokens"));
-                claude_usage.cached_tokens +=
-                    value_to_u64(usage.get("cache_creation_input_tokens"));
+                claude_usage.cached_tokens = value_to_u64(usage.get("cache_read_input_tokens"))
+                    + value_to_u64(usage.get("cache_creation_input_tokens"));
             }
             continue;
         }
@@ -1977,8 +1997,8 @@ fn load_token_usage_from_transcript(
             };
 
             let usage_obj = info
-                .get("total_token_usage")
-                .or_else(|| info.get("last_token_usage"))
+                .get("last_token_usage")
+                .or_else(|| info.get("total_token_usage"))
                 .and_then(Value::as_object);
 
             if let Some(usage) = usage_obj {
@@ -2078,11 +2098,15 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         )?;
 
         // Restore recent sessions into runtime for active + history UI continuity.
+        // Only load: active sessions, server-shutdown sessions (need resume), and recent 7-day history.
         let mut stmt = conn.prepare(
             "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
                     COALESCE(cached_tokens, 0), COALESCE(context_window, 0)
              FROM sessions
+             WHERE status = 'active'
+                OR (status = 'ended' AND end_reason = 'server_shutdown')
+                OR datetime(COALESCE(last_activity_at, started_at)) > datetime('now', '-7 days')
              ORDER BY
                datetime(last_activity_at) DESC,
                datetime(started_at) DESC
@@ -2122,12 +2146,29 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         let mut sessions = Vec::new();
 
         for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, _summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, input_tokens, output_tokens, cached_tokens, context_window) in session_rows {
-            let mut messages = load_messages_from_db(&conn, &id)?;
-            if messages.is_empty() {
-                if let Some(path) = transcript_path.as_deref() {
-                    messages = load_messages_from_transcript(path, &id)?;
+            // Skip message loading for ended history sessions (not server_shutdown).
+            // Messages load lazily when a client subscribes.
+            let end_reason_val: Option<String> = conn
+                .query_row(
+                    "SELECT end_reason FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+            let is_ended_history = status == "ended"
+                && !matches!(end_reason_val.as_deref(), Some("server_shutdown"));
+
+            let messages = if is_ended_history {
+                Vec::new()
+            } else {
+                let mut msgs = load_messages_from_db(&conn, &id)?;
+                if msgs.is_empty() {
+                    if let Some(path) = transcript_path.as_deref() {
+                        msgs = load_messages_from_transcript(path, &id)?;
+                    }
                 }
-            }
+                msgs
+            };
             let custom_name = resolve_custom_name_from_first_prompt(
                 &conn,
                 &id,
@@ -2154,11 +2195,11 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 .unwrap_or((None, None));
 
             // Load persisted turn diffs (table may not exist on old schemas)
-            let turn_diffs: Vec<(String, String)> = conn
-                .prepare("SELECT turn_id, diff FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
+            let turn_diffs: Vec<(String, String, i64, i64, i64, i64)> = conn
+                .prepare("SELECT turn_id, diff, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(cached_tokens, 0), COALESCE(context_window, 0) FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
                 .and_then(|mut stmt| {
                     let rows = stmt.query_map(params![id], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?))
                     })?;
                     rows.collect::<Result<Vec<_>, _>>()
                 })
@@ -2200,14 +2241,17 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or(None);
 
-            // Query end_reason
-            let end_reason: Option<String> = conn
+            // Query effort (column may not exist on old schemas)
+            let effort: Option<String> = conn
                 .query_row(
-                    "SELECT end_reason FROM sessions WHERE id = ?1",
+                    "SELECT effort FROM sessions WHERE id = ?1",
                     params![id],
                     |row| row.get(0),
                 )
                 .unwrap_or(None);
+
+            // end_reason already queried above for message-skip logic
+            let end_reason = end_reason_val;
 
             // Query summary (column may not exist on old schemas)
             let mut summary: Option<String> = conn
@@ -2266,6 +2310,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 first_prompt,
                 last_message,
                 end_reason,
+                effort,
             });
         }
 
@@ -2361,11 +2406,11 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             .unwrap_or((None, None));
 
         // Load persisted turn diffs (table may not exist on old schemas)
-        let turn_diffs: Vec<(String, String)> = conn
-            .prepare("SELECT turn_id, diff FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
+        let turn_diffs: Vec<(String, String, i64, i64, i64, i64)> = conn
+            .prepare("SELECT turn_id, diff, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(cached_tokens, 0), COALESCE(context_window, 0) FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
             .and_then(|mut stmt| {
                 let rows = stmt.query_map(params![&id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?))
                 })?;
                 rows.collect::<Result<Vec<_>, _>>()
             })
@@ -2384,6 +2429,15 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         let last_message: Option<String> = conn
             .query_row(
                 "SELECT last_message FROM sessions WHERE id = ?1",
+                params![&id],
+                |row| row.get(0),
+            )
+            .unwrap_or(None);
+
+        // Query effort (column may not exist on old schemas)
+        let effort: Option<String> = conn
+            .query_row(
+                "SELECT effort FROM sessions WHERE id = ?1",
                 params![&id],
                 |row| row.get(0),
             )
@@ -2423,6 +2477,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             first_prompt,
             last_message,
             end_reason: None,
+            effort,
         }))
     }).await??;
 
@@ -3559,9 +3614,10 @@ mod tests {
                 .expect("parse usage")
                 .expect("usage present");
 
-        assert_eq!(usage.input_tokens, 150);
+        // input_tokens and cached_tokens use the LAST message (current context fill)
+        assert_eq!(usage.input_tokens, 50);
         assert_eq!(usage.output_tokens, 60);
-        assert_eq!(usage.cached_tokens, 20);
+        assert_eq!(usage.cached_tokens, 5); // 4 + 1 from last message
         assert_eq!(usage.context_window, 0);
     }
 
@@ -3584,9 +3640,10 @@ mod tests {
                 .expect("parse usage")
                 .expect("usage present");
 
-        assert_eq!(usage.input_tokens, 321);
-        assert_eq!(usage.output_tokens, 123);
-        assert_eq!(usage.cached_tokens, 55);
+        // Prefers last_token_usage (current context fill) over total
+        assert_eq!(usage.input_tokens, 9);
+        assert_eq!(usage.output_tokens, 4);
+        assert_eq!(usage.cached_tokens, 1);
         assert_eq!(usage.context_window, 200_000);
     }
 }

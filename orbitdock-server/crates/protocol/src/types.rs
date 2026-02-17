@@ -190,6 +190,8 @@ pub struct SessionSummary {
     pub git_sha: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// A diff snapshot from a completed turn
@@ -197,6 +199,8 @@ pub struct SessionSummary {
 pub struct TurnDiff {
     pub turn_id: String,
     pub diff: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_usage: Option<TokenUsage>,
 }
 
 /// Subagent metadata
@@ -273,6 +277,8 @@ pub struct SessionState {
     pub current_cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subagents: Vec<SubagentInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Changes to apply to a session state (delta updates)
@@ -320,6 +326,8 @@ pub struct StateChanges {
     pub current_cwd: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Option<String>>,
 }
 
 /// Changes to apply to a message (delta updates)

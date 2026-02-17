@@ -19,8 +19,8 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
-    ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider,
-    ServerMessage, SessionState, TokenUsage,
+    ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
+    SessionState, TokenUsage,
 };
 
 use crate::claude_session::{ClaudeAction, ClaudeSession};
@@ -491,6 +491,232 @@ async fn handle_client_message(
                     }
                 }
 
+                // Lazy connector creation: if the session needs a live connector
+                // but doesn't have one yet, create it now on first subscribe.
+                let needs_lazy_connector = {
+                    let is_active_codex_direct =
+                        snap.provider == Provider::Codex
+                            && snap.status == orbitdock_protocol::SessionStatus::Active
+                            && snap.codex_integration_mode == Some(CodexIntegrationMode::Direct)
+                            && !state.has_codex_connector(&session_id);
+                    let is_claude_direct_needing_connector =
+                        snap.provider == Provider::Claude
+                            && snap.claude_integration_mode == Some(ClaudeIntegrationMode::Direct)
+                            && !state.has_claude_connector(&session_id)
+                            && snap.status == orbitdock_protocol::SessionStatus::Active;
+                    is_active_codex_direct || is_claude_direct_needing_connector
+                };
+
+                if needs_lazy_connector {
+                    info!(
+                        component = "session",
+                        event = "session.lazy_connector.starting",
+                        connection_id = conn_id,
+                        session_id = %session_id,
+                        provider = ?snap.provider,
+                        "Creating connector lazily on first subscribe"
+                    );
+
+                    // Take the handle from the passive actor
+                    let (take_tx, take_rx) = oneshot::channel();
+                    actor.send(SessionCommand::TakeHandle { reply: take_tx }).await;
+
+                    if let Ok(mut handle) = take_rx.await {
+                        handle.set_list_tx(state.list_tx());
+                        let persist_tx = state.persist().clone();
+
+                        // Wrap connector creation in a spawned task + timeout.
+                        // CodexSession::resume/new may block the executor thread
+                        // (codex-core spawns processes), so we need a separate task
+                        // for the timeout to actually fire.
+                        let connector_timeout = std::time::Duration::from_secs(10);
+                        let connector_ok = if snap.provider == Provider::Codex {
+                            let thread_id = state.codex_thread_for_session(&session_id);
+                            let sid = session_id.clone();
+                            let project = snap.project_path.clone();
+                            let model = snap.model.clone();
+                            let approval = snap.approval_policy.clone();
+                            let sandbox = snap.sandbox_mode.clone();
+
+                            let connector_task = tokio::spawn(async move {
+                                if let Some(ref tid) = thread_id {
+                                    match CodexSession::resume(
+                                        sid.clone(), &project, tid,
+                                        model.as_deref(), approval.as_deref(), sandbox.as_deref(),
+                                    ).await {
+                                        Ok(codex) => Ok(codex),
+                                        Err(_) => CodexSession::new(
+                                            sid.clone(), &project,
+                                            model.as_deref(), approval.as_deref(), sandbox.as_deref(),
+                                        ).await,
+                                    }
+                                } else {
+                                    CodexSession::new(
+                                        sid.clone(), &project,
+                                        model.as_deref(), approval.as_deref(), sandbox.as_deref(),
+                                    ).await
+                                }
+                            });
+                            match tokio::time::timeout(connector_timeout, connector_task).await {
+                                Ok(Ok(Ok(codex))) => {
+                                    let new_thread_id = codex.thread_id().to_string();
+                                    let _ = persist_tx.send(PersistCommand::SetThreadId {
+                                        session_id: session_id.clone(),
+                                        thread_id: new_thread_id.clone(),
+                                    }).await;
+                                    state.register_codex_thread(&session_id, &new_thread_id);
+                                    let (actor_handle, action_tx) = codex.start_event_loop(handle, persist_tx);
+                                    state.add_session_actor(actor_handle);
+                                    state.set_codex_action_tx(&session_id, action_tx);
+                                    info!(
+                                        component = "session",
+                                        event = "session.lazy_connector.codex_connected",
+                                        session_id = %session_id,
+                                        "Lazy Codex connector created"
+                                    );
+                                    true
+                                }
+                                Ok(Ok(Err(e))) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.lazy_connector.codex_failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "Failed to create lazy Codex connector, re-registering passive"
+                                    );
+                                    state.add_session(handle);
+                                    false
+                                }
+                                Ok(Err(join_err)) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.lazy_connector.codex_panicked",
+                                        session_id = %session_id,
+                                        error = %join_err,
+                                        "Codex connector task panicked, re-registering passive"
+                                    );
+                                    state.add_session(handle);
+                                    false
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.lazy_connector.codex_timeout",
+                                        session_id = %session_id,
+                                        "Codex connector creation timed out, re-registering passive"
+                                    );
+                                    state.add_session(handle);
+                                    false
+                                }
+                            }
+                        } else {
+                            // Claude direct session
+                            let sdk_id = state.claude_sdk_id_for_session(&session_id);
+                            let sid = session_id.clone();
+                            let project = snap.project_path.clone();
+                            let model = snap.model.clone();
+
+                            let connector_task = tokio::spawn(async move {
+                                ClaudeSession::new(
+                                    sid, &project, model.as_deref(), sdk_id.as_deref(),
+                                ).await
+                            });
+                            match tokio::time::timeout(connector_timeout, connector_task).await {
+                                Ok(Ok(Ok(claude_session))) => {
+                                    let (actor_handle, action_tx) = claude_session.start_event_loop(
+                                        handle,
+                                        persist_tx,
+                                        state.list_tx(),
+                                        state.clone(),
+                                    );
+                                    state.add_session_actor(actor_handle);
+                                    state.set_claude_action_tx(&session_id, action_tx);
+                                    info!(
+                                        component = "session",
+                                        event = "session.lazy_connector.claude_connected",
+                                        session_id = %session_id,
+                                        "Lazy Claude connector created"
+                                    );
+                                    true
+                                }
+                                Ok(Ok(Err(e))) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.lazy_connector.claude_failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "Failed to create lazy Claude connector, re-registering passive"
+                                    );
+                                    state.add_session(handle);
+                                    false
+                                }
+                                Ok(Err(join_err)) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.lazy_connector.claude_panicked",
+                                        session_id = %session_id,
+                                        error = %join_err,
+                                        "Claude connector task panicked, re-registering passive"
+                                    );
+                                    state.add_session(handle);
+                                    false
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.lazy_connector.claude_timeout",
+                                        session_id = %session_id,
+                                        "Claude connector creation timed out, re-registering passive"
+                                    );
+                                    state.add_session(handle);
+                                    false
+                                }
+                            }
+                        };
+
+                        // Subscribe — either from new active actor or re-registered passive
+                        if let Some(new_actor) = state.get_session(&session_id) {
+                            let (sub_tx, sub_rx) = oneshot::channel();
+                            new_actor.send(SessionCommand::Subscribe {
+                                since_revision: None,
+                                reply: sub_tx,
+                            }).await;
+
+                            if let Ok(result) = sub_rx.await {
+                                match result {
+                                    SubscribeResult::Snapshot { state: snapshot, rx } => {
+                                        let mut snapshot = *snapshot;
+                                        if snapshot.subagents.is_empty() {
+                                            if let Ok(subagents) = crate::persistence::load_subagents_for_session(&session_id).await {
+                                                snapshot.subagents = subagents;
+                                            }
+                                        }
+                                        spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
+                                        send_json(client_tx, ServerMessage::SessionSnapshot {
+                                            session: compact_snapshot_for_transport(snapshot),
+                                        }).await;
+                                    }
+                                    SubscribeResult::Replay { events, rx } => {
+                                        spawn_broadcast_forwarder(rx, client_tx.clone(), Some(session_id.clone()));
+                                        for json in events {
+                                            send_raw(client_tx, json).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        let _ = connector_ok;
+                        return;
+                    }
+                    // TakeHandle failed — fall through to normal subscribe
+                    warn!(
+                        component = "session",
+                        event = "session.lazy_connector.take_failed",
+                        session_id = %session_id,
+                        "Failed to take handle from passive actor, falling through to normal subscribe"
+                    );
+                }
+
                 // Normal subscribe flow via actor command
                 let (sub_tx, sub_rx) = oneshot::channel();
                 actor
@@ -750,8 +976,12 @@ async fn handle_client_message(
                 {
                     Ok(claude_session) => {
                         handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) =
-                            claude_session.start_event_loop(handle, persist_tx, state.list_tx(), state.clone());
+                        let (actor_handle, action_tx) = claude_session.start_event_loop(
+                            handle,
+                            persist_tx,
+                            state.list_tx(),
+                            state.clone(),
+                        );
                         state.add_session_actor(actor_handle);
                         state.set_claude_action_tx(&session_id, action_tx);
                         info!(
@@ -854,6 +1084,27 @@ async fn handle_client_message(
                             );
                         }
                     }
+                }
+
+                // Persist effort override and broadcast delta
+                if let Some(actor) = state.get_session(&session_id) {
+                    let _ = state
+                        .persist()
+                        .send(PersistCommand::EffortUpdate {
+                            session_id: session_id.clone(),
+                            effort: effort.clone(),
+                        })
+                        .await;
+                    let changes = orbitdock_protocol::StateChanges {
+                        effort: Some(effort.clone()),
+                        ..Default::default()
+                    };
+                    let _ = actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes,
+                            persist_op: None,
+                        })
+                        .await;
                 }
 
                 // Persist user message immediately
@@ -1683,13 +1934,40 @@ async fn handle_client_message(
                 restored
                     .turn_diffs
                     .into_iter()
-                    .map(|(turn_id, diff)| orbitdock_protocol::TurnDiff { turn_id, diff })
+                    .map(
+                        |(
+                            turn_id,
+                            diff,
+                            input_tokens,
+                            output_tokens,
+                            cached_tokens,
+                            context_window,
+                        )| {
+                            let has_tokens =
+                                input_tokens > 0 || output_tokens > 0 || context_window > 0;
+                            orbitdock_protocol::TurnDiff {
+                                turn_id,
+                                diff,
+                                token_usage: if has_tokens {
+                                    Some(orbitdock_protocol::TokenUsage {
+                                        input_tokens: input_tokens as u64,
+                                        output_tokens: output_tokens as u64,
+                                        cached_tokens: cached_tokens as u64,
+                                        context_window: context_window as u64,
+                                    })
+                                } else {
+                                    None
+                                },
+                            }
+                        },
+                    )
                     .collect(),
                 restored.git_branch,
                 restored.git_sha,
                 restored.current_cwd,
                 restored.first_prompt,
                 restored.last_message,
+                restored.effort,
             );
 
             // Subscribe the requesting client
@@ -1812,9 +2090,7 @@ async fn handle_client_message(
 
             // If there's a direct Claude session awaiting SDK ID registration, claim it eagerly.
             // This prevents shadow rows by registering the SDK ID before `init` arrives.
-            if let Some(owning_id) =
-                state.find_unregistered_direct_claude_session(&cwd)
-            {
+            if let Some(owning_id) = state.find_unregistered_direct_claude_session(&cwd) {
                 state.register_claude_thread(&owning_id, &session_id);
                 let _ = state
                     .persist()
@@ -1998,9 +2274,9 @@ async fn handle_client_message(
                         if hook_event_name == "Stop" {
                             let snap = actor.snapshot();
                             if snap.summary.is_none() {
-                                let derived = cwd.as_deref().and_then(|p| {
-                                    claude_transcript_path_from_cwd(p, &session_id)
-                                });
+                                let derived = cwd
+                                    .as_deref()
+                                    .and_then(|p| claude_transcript_path_from_cwd(p, &session_id));
                                 let tp = snap
                                     .transcript_path
                                     .clone()
@@ -2876,7 +3152,10 @@ async fn handle_client_message(
             match source_provider {
                 Some(Provider::Claude) => {
                     // ── Claude fork: spawn a new CLI, copy messages ──
-                    let effective_cwd = cwd.clone().or(source_cwd).unwrap_or_else(|| ".".to_string());
+                    let effective_cwd = cwd
+                        .clone()
+                        .or(source_cwd)
+                        .unwrap_or_else(|| ".".to_string());
                     let project_name = effective_cwd.split('/').next_back().map(String::from);
                     let fork_branch = crate::git::resolve_git_branch(&effective_cwd).await;
 
@@ -2891,7 +3170,11 @@ async fn handle_client_message(
                     .await
                     {
                         Ok(claude_session) => {
-                            let mut handle = SessionHandle::new(new_id.clone(), Provider::Claude, effective_cwd.clone());
+                            let mut handle = SessionHandle::new(
+                                new_id.clone(),
+                                Provider::Claude,
+                                effective_cwd.clone(),
+                            );
                             handle.set_git_branch(fork_branch.clone());
                             handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
                             handle.set_forked_from(source_session_id.clone());
@@ -2921,8 +3204,12 @@ async fn handle_client_message(
                                 .await;
 
                             handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) =
-                                claude_session.start_event_loop(handle, persist_tx, state.list_tx(), state.clone());
+                            let (actor_handle, action_tx) = claude_session.start_event_loop(
+                                handle,
+                                persist_tx,
+                                state.list_tx(),
+                                state.clone(),
+                            );
                             state.add_session_actor(actor_handle);
                             state.set_claude_action_tx(&new_id, action_tx);
 
@@ -2940,7 +3227,9 @@ async fn handle_client_message(
                                 },
                             )
                             .await;
-                            state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                            state.broadcast_to_list(ServerMessage::SessionCreated {
+                                session: summary,
+                            });
 
                             info!(
                                 component = "session",
@@ -3067,48 +3356,50 @@ async fn handle_client_message(
                     let project_name = fork_cwd.split('/').next_back().map(String::from);
 
                     let fork_branch = crate::git::resolve_git_branch(&fork_cwd).await;
-                    let mut handle = SessionHandle::new(new_id.clone(), Provider::Codex, fork_cwd.clone());
+                    let mut handle =
+                        SessionHandle::new(new_id.clone(), Provider::Codex, fork_cwd.clone());
                     handle.set_git_branch(fork_branch.clone());
                     handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
                     handle.set_config(approval_policy.clone(), sandbox_mode.clone());
                     handle.set_forked_from(source_session_id.clone());
 
-                    let forked_messages = if let Some(rollout_path) = new_connector.rollout_path().await {
-                        match load_messages_from_transcript_path(&rollout_path, &new_id).await {
-                            Ok(messages) if !messages.is_empty() => {
-                                info!(
-                                    component = "session",
-                                    event = "session.fork.messages_loaded",
-                                    new_session_id = %new_id,
-                                    message_count = messages.len(),
-                                    "Loaded forked conversation history"
-                                );
-                                handle.replace_messages(messages.clone());
-                                messages
+                    let forked_messages =
+                        if let Some(rollout_path) = new_connector.rollout_path().await {
+                            match load_messages_from_transcript_path(&rollout_path, &new_id).await {
+                                Ok(messages) if !messages.is_empty() => {
+                                    info!(
+                                        component = "session",
+                                        event = "session.fork.messages_loaded",
+                                        new_session_id = %new_id,
+                                        message_count = messages.len(),
+                                        "Loaded forked conversation history"
+                                    );
+                                    handle.replace_messages(messages.clone());
+                                    messages
+                                }
+                                Ok(_) => {
+                                    debug!(
+                                        component = "session",
+                                        event = "session.fork.no_messages",
+                                        new_session_id = %new_id,
+                                        "Forked thread rollout has no parseable messages"
+                                    );
+                                    Vec::new()
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.fork.messages_load_failed",
+                                        new_session_id = %new_id,
+                                        error = %e,
+                                        "Failed to load forked conversation history"
+                                    );
+                                    Vec::new()
+                                }
                             }
-                            Ok(_) => {
-                                debug!(
-                                    component = "session",
-                                    event = "session.fork.no_messages",
-                                    new_session_id = %new_id,
-                                    "Forked thread rollout has no parseable messages"
-                                );
-                                Vec::new()
-                            }
-                            Err(e) => {
-                                warn!(
-                                    component = "session",
-                                    event = "session.fork.messages_load_failed",
-                                    new_session_id = %new_id,
-                                    error = %e,
-                                    "Failed to load forked conversation history"
-                                );
-                                Vec::new()
-                            }
-                        }
-                    } else {
-                        Vec::new()
-                    };
+                        } else {
+                            Vec::new()
+                        };
 
                     let rx = handle.subscribe();
                     spawn_broadcast_forwarder(rx, client_tx.clone(), Some(new_id.clone()));
@@ -3167,7 +3458,8 @@ async fn handle_client_message(
                         connector: new_connector,
                     };
                     handle.set_list_tx(state.list_tx());
-                    let (actor_handle, action_tx) = codex_session.start_event_loop(handle, persist_tx);
+                    let (actor_handle, action_tx) =
+                        codex_session.start_event_loop(handle, persist_tx);
                     state.add_session_actor(actor_handle);
                     state.set_codex_action_tx(&new_id, action_tx);
 
@@ -3193,10 +3485,7 @@ async fn handle_client_message(
                         client_tx,
                         ServerMessage::Error {
                             code: "not_found".into(),
-                            message: format!(
-                                "Source session {} not found",
-                                source_session_id
-                            ),
+                            message: format!("Source session {} not found", source_session_id),
                             session_id: Some(source_session_id),
                         },
                     )
@@ -3204,7 +3493,6 @@ async fn handle_client_message(
                     return;
                 }
             }
-
         }
 
         ClientMessage::CreateReviewComment {

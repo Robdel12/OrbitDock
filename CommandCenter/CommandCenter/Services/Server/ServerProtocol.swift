@@ -199,6 +199,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let currentCwd: String?
   let firstPrompt: String?
   let lastMessage: String?
+  let effort: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -224,6 +225,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case currentCwd = "current_cwd"
     case firstPrompt = "first_prompt"
     case lastMessage = "last_message"
+    case effort
   }
 }
 
@@ -232,10 +234,81 @@ struct ServerSessionSummary: Codable, Identifiable {
 struct ServerTurnDiff: Codable {
   let turnId: String
   let diff: String
+  let inputTokens: UInt64?
+  let outputTokens: UInt64?
+  let cachedTokens: UInt64?
+  let contextWindow: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case turnId = "turn_id"
     case diff
+    case inputTokens = "input_tokens"
+    case outputTokens = "output_tokens"
+    case cachedTokens = "cached_tokens"
+    case contextWindow = "context_window"
+    case tokenUsage = "token_usage"
+  }
+
+  var tokenUsage: ServerTokenUsage? {
+    guard let input = inputTokens, let output = outputTokens,
+          let cached = cachedTokens, let window = contextWindow,
+          input > 0 || output > 0 || window > 0
+    else { return nil }
+    return ServerTokenUsage(
+      inputTokens: input, outputTokens: output,
+      cachedTokens: cached, contextWindow: window
+    )
+  }
+
+  init(
+    turnId: String,
+    diff: String,
+    inputTokens: UInt64? = nil,
+    outputTokens: UInt64? = nil,
+    cachedTokens: UInt64? = nil,
+    contextWindow: UInt64? = nil
+  ) {
+    self.turnId = turnId
+    self.diff = diff
+    self.inputTokens = inputTokens
+    self.outputTokens = outputTokens
+    self.cachedTokens = cachedTokens
+    self.contextWindow = contextWindow
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    turnId = try container.decode(String.self, forKey: .turnId)
+    diff = try container.decode(String.self, forKey: .diff)
+
+    // Try flat fields first (TurnDiffSnapshot message)
+    var input = try container.decodeIfPresent(UInt64.self, forKey: .inputTokens)
+    var output = try container.decodeIfPresent(UInt64.self, forKey: .outputTokens)
+    var cached = try container.decodeIfPresent(UInt64.self, forKey: .cachedTokens)
+    var window = try container.decodeIfPresent(UInt64.self, forKey: .contextWindow)
+
+    // Fall back to nested token_usage object (SessionState.turn_diffs)
+    if input == nil, let nested = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage) {
+      input = nested.inputTokens
+      output = nested.outputTokens
+      cached = nested.cachedTokens
+      window = nested.contextWindow
+    }
+
+    inputTokens = input
+    outputTokens = output
+    cachedTokens = cached
+    contextWindow = window
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(turnId, forKey: .turnId)
+    try container.encode(diff, forKey: .diff)
+    try container.encodeIfPresent(inputTokens, forKey: .inputTokens)
+    try container.encodeIfPresent(outputTokens, forKey: .outputTokens)
+    try container.encodeIfPresent(cachedTokens, forKey: .cachedTokens)
+    try container.encodeIfPresent(contextWindow, forKey: .contextWindow)
   }
 }
 
@@ -348,6 +421,7 @@ struct ServerSessionState: Codable, Identifiable {
   let firstPrompt: String?
   let lastMessage: String?
   let subagents: [ServerSubagentInfo]
+  let effort: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -382,6 +456,7 @@ struct ServerSessionState: Codable, Identifiable {
     case firstPrompt = "first_prompt"
     case lastMessage = "last_message"
     case subagents
+    case effort
   }
 
   init(from decoder: Decoder) throws {
@@ -421,6 +496,7 @@ struct ServerSessionState: Codable, Identifiable {
     firstPrompt = try container.decodeIfPresent(String.self, forKey: .firstPrompt)
     lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
     subagents = try container.decodeIfPresent([ServerSubagentInfo].self, forKey: .subagents) ?? []
+    effort = try container.decodeIfPresent(String.self, forKey: .effort)
   }
 }
 
@@ -448,6 +524,7 @@ struct ServerStateChanges: Codable {
   let firstPrompt: String??
   let lastMessage: String??
   let model: String??
+  let effort: String??
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -471,6 +548,7 @@ struct ServerStateChanges: Codable {
     case firstPrompt = "first_prompt"
     case lastMessage = "last_message"
     case model
+    case effort
   }
 }
 
@@ -845,7 +923,15 @@ enum ServerToClientMessage: Codable {
   case undoCompleted(sessionId: String, success: Bool, message: String?)
   case threadRolledBack(sessionId: String, numTurns: UInt32)
   case sessionForked(sourceSessionId: String, newSessionId: String, forkedFromThreadId: String?)
-  case turnDiffSnapshot(sessionId: String, turnId: String, diff: String)
+  case turnDiffSnapshot(
+    sessionId: String,
+    turnId: String,
+    diff: String,
+    inputTokens: UInt64?,
+    outputTokens: UInt64?,
+    cachedTokens: UInt64?,
+    contextWindow: UInt64?
+  )
   case reviewCommentCreated(sessionId: String, comment: ServerReviewComment)
   case reviewCommentUpdated(sessionId: String, comment: ServerReviewComment)
   case reviewCommentDeleted(sessionId: String, commentId: String)
@@ -892,6 +978,10 @@ enum ServerToClientMessage: Codable {
     case forkedFromThreadId = "forked_from_thread_id"
     case turnId = "turn_id"
     case diff
+    case inputTokens = "input_tokens"
+    case outputTokens = "output_tokens"
+    case cachedTokens = "cached_tokens"
+    case contextWindow = "context_window"
     case comment
     case commentId = "comment_id"
     case comments
@@ -1069,7 +1159,19 @@ enum ServerToClientMessage: Codable {
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let turnId = try container.decode(String.self, forKey: .turnId)
         let diff = try container.decode(String.self, forKey: .diff)
-        self = .turnDiffSnapshot(sessionId: sessionId, turnId: turnId, diff: diff)
+        let inputTokens = try container.decodeIfPresent(UInt64.self, forKey: .inputTokens)
+        let outputTokens = try container.decodeIfPresent(UInt64.self, forKey: .outputTokens)
+        let cachedTokens = try container.decodeIfPresent(UInt64.self, forKey: .cachedTokens)
+        let contextWindow = try container.decodeIfPresent(UInt64.self, forKey: .contextWindow)
+        self = .turnDiffSnapshot(
+          sessionId: sessionId,
+          turnId: turnId,
+          diff: diff,
+          inputTokens: inputTokens,
+          outputTokens: outputTokens,
+          cachedTokens: cachedTokens,
+          contextWindow: contextWindow
+        )
 
       case "review_comment_created":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -1266,11 +1368,15 @@ enum ServerToClientMessage: Codable {
         try container.encode(newSessionId, forKey: .newSessionId)
         try container.encodeIfPresent(forkedFromThreadId, forKey: .forkedFromThreadId)
 
-      case let .turnDiffSnapshot(sessionId, turnId, diff):
+      case let .turnDiffSnapshot(sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow):
         try container.encode("turn_diff_snapshot", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(turnId, forKey: .turnId)
         try container.encode(diff, forKey: .diff)
+        try container.encodeIfPresent(inputTokens, forKey: .inputTokens)
+        try container.encodeIfPresent(outputTokens, forKey: .outputTokens)
+        try container.encodeIfPresent(cachedTokens, forKey: .cachedTokens)
+        try container.encodeIfPresent(contextWindow, forKey: .contextWindow)
 
       case let .reviewCommentCreated(sessionId, comment):
         try container.encode("review_comment_created", forKey: .type)

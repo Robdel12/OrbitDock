@@ -70,6 +70,7 @@ struct Session: Identifiable, Hashable, Sendable {
 
   var gitSha: String? // Git commit SHA
   var currentCwd: String? // Agent's current working directory
+  var effort: String? // Last-used reasoning effort level
 
   var currentDiff: String? // Aggregated diff for current turn
   var currentPlan: [PlanStep]? // Agent's plan for current turn

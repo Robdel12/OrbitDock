@@ -304,11 +304,21 @@ final class ServerAppState {
       }
     }
 
-    conn.onTurnDiffSnapshot = { [weak self] sessionId, turnId, diff in
-      Task { @MainActor in
-        self?.handleTurnDiffSnapshot(sessionId, turnId: turnId, diff: diff)
+    conn
+      .onTurnDiffSnapshot =
+      { [weak self] sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow in
+        Task { @MainActor in
+          self?.handleTurnDiffSnapshot(
+            sessionId,
+            turnId: turnId,
+            diff: diff,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cachedTokens: cachedTokens,
+            contextWindow: contextWindow
+          )
+        }
       }
-    }
 
     conn.onReviewCommentCreated = { [weak self] sessionId, comment in
       Task { @MainActor in
@@ -381,6 +391,12 @@ final class ServerAppState {
     conn.onError = { [weak self] code, message, sessionId in
       Task { @MainActor in
         self?.handleError(code, message, sessionId)
+      }
+    }
+
+    conn.onDisconnected = { [weak self] in
+      Task { @MainActor in
+        self?.hasReceivedInitialSessionsList = false
       }
     }
 
@@ -929,6 +945,9 @@ final class ServerAppState {
     if let modelOuter = changes.model {
       sess.model = modelOuter
     }
+    if let effortOuter = changes.effort {
+      sess.effort = effortOuter
+    }
     if let lastActivity = changes.lastActivityAt {
       let stripped = lastActivity.hasSuffix("Z") ? String(lastActivity.dropLast()) : lastActivity
       if let secs = TimeInterval(stripped) {
@@ -1214,10 +1233,25 @@ final class ServerAppState {
 
   // MARK: - Turn Diff Handlers
 
-  private func handleTurnDiffSnapshot(_ sessionId: String, turnId: String, diff: String) {
+  private func handleTurnDiffSnapshot(
+    _ sessionId: String,
+    turnId: String,
+    diff: String,
+    inputTokens: UInt64?,
+    outputTokens: UInt64?,
+    cachedTokens: UInt64?,
+    contextWindow: UInt64?
+  ) {
     logger.debug("Turn diff snapshot for \(sessionId), turn \(turnId)")
     let obs = session(sessionId)
-    let newDiff = ServerTurnDiff(turnId: turnId, diff: diff)
+    let newDiff = ServerTurnDiff(
+      turnId: turnId,
+      diff: diff,
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      cachedTokens: cachedTokens,
+      contextWindow: contextWindow
+    )
     if let idx = obs.turnDiffs.firstIndex(where: { $0.turnId == turnId }) {
       obs.turnDiffs[idx] = newDiff
     } else {

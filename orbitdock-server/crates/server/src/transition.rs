@@ -298,6 +298,10 @@ pub enum PersistOp {
         session_id: String,
         turn_id: String,
         diff: String,
+        input_tokens: u64,
+        output_tokens: u64,
+        cached_tokens: u64,
+        context_window: u64,
     },
     SetCustomName {
         session_id: String,
@@ -383,10 +387,18 @@ impl PersistOp {
                 session_id,
                 turn_id,
                 diff,
+                input_tokens,
+                output_tokens,
+                cached_tokens,
+                context_window,
             } => PersistCommand::TurnDiffInsert {
                 session_id,
                 turn_id,
                 diff,
+                input_tokens,
+                output_tokens,
+                cached_tokens,
+                context_window,
             },
             PersistOp::SetCustomName {
                 session_id,
@@ -483,20 +495,30 @@ pub fn transition(
             if let (Some(turn_id), Some(diff)) =
                 (state.current_turn_id.as_ref(), state.current_diff.as_ref())
             {
+                let usage = &state.token_usage;
                 let snapshot = TurnDiff {
                     turn_id: turn_id.clone(),
                     diff: diff.clone(),
+                    token_usage: Some(usage.clone()),
                 };
                 state.turn_diffs.push(snapshot);
                 effects.push(Effect::Persist(Box::new(PersistOp::TurnDiffInsert {
                     session_id: sid.clone(),
                     turn_id: turn_id.clone(),
                     diff: diff.clone(),
+                    input_tokens: usage.input_tokens,
+                    output_tokens: usage.output_tokens,
+                    cached_tokens: usage.cached_tokens,
+                    context_window: usage.context_window,
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::TurnDiffSnapshot {
                     session_id: sid.clone(),
                     turn_id: turn_id.clone(),
                     diff: diff.clone(),
+                    input_tokens: Some(usage.input_tokens),
+                    output_tokens: Some(usage.output_tokens),
+                    cached_tokens: Some(usage.cached_tokens),
+                    context_window: Some(usage.context_window),
                 })));
             }
 

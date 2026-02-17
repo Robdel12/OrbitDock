@@ -240,6 +240,10 @@ struct InstrumentPanel: View {
         if selectedModel.isEmpty {
           selectedModel = defaultModelSelection
         }
+        // Restore persisted effort level from server state
+        if let saved = session.effort, let level = EffortLevel(rawValue: saved) {
+          selectedEffort = level
+        }
       }
       if let path = projectPath {
         Task { await fileIndex.loadIfNeeded(path) }

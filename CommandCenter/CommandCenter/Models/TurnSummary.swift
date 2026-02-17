@@ -27,6 +27,8 @@ struct TurnSummary: Identifiable {
   let changedFiles: [String]
   let status: TurnStatus
   let diff: String? // from TurnDiff snapshot
+  let tokenUsage: ServerTokenUsage? // token snapshot at turn completion
+  let tokenDelta: Int? // tokens consumed by this turn (input delta from previous)
 }
 
 // MARK: - Turn Builder
@@ -61,8 +63,36 @@ enum TurnBuilder {
       groups.append(currentGroup)
     }
 
-    // Build turn diff lookup
+    // Build lookups from server turn diffs
     let diffByTurnId = Dictionary(uniqueKeysWithValues: serverTurnDiffs.map { ($0.turnId, $0.diff) })
+    let tokensByTurnId = Dictionary(uniqueKeysWithValues: serverTurnDiffs.compactMap { td -> (
+      String,
+      ServerTokenUsage
+    )? in
+      guard let usage = td.tokenUsage else { return nil }
+      return (td.turnId, usage)
+    })
+
+    // Also build a token lookup from server turn diffs by index for delta computation
+    let orderedTokens: [ServerTokenUsage?] = (0 ..< groups.count).map { index in
+      let turnNumber = index + 1
+      let syntheticId = "turn-synth-\(turnNumber)"
+      if let usage = tokensByTurnId[syntheticId] { return usage }
+
+      // For Claude sessions: fall back to last assistant message's inputTokens
+      let msgs = groups[index]
+      if let lastAssistant = msgs.last(where: { $0.type == .assistant }),
+         let input = lastAssistant.inputTokens, let output = lastAssistant.outputTokens
+      {
+        return ServerTokenUsage(
+          inputTokens: UInt64(input),
+          outputTokens: UInt64(output),
+          cachedTokens: 0,
+          contextWindow: 0
+        )
+      }
+      return nil
+    }
 
     // Convert groups to TurnSummaries
     return groups.enumerated().map { index, msgs in
@@ -95,6 +125,18 @@ enum TurnBuilder {
       // Try to match a server turn diff
       let diff = diffByTurnId[syntheticId]
 
+      // Token usage and delta
+      let usage = orderedTokens[index]
+      let delta: Int? = {
+        guard let current = usage?.inputTokens else { return nil }
+        // Find previous turn's input tokens
+        if index > 0, let prev = orderedTokens[index - 1]?.inputTokens {
+          return Int(current) - Int(prev)
+        }
+        // First turn — delta is the full input
+        return Int(current)
+      }()
+
       return TurnSummary(
         id: syntheticId,
         turnNumber: turnNumber,
@@ -104,7 +146,9 @@ enum TurnBuilder {
         toolsUsed: uniqueTools,
         changedFiles: uniqueFiles,
         status: status,
-        diff: diff
+        diff: diff,
+        tokenUsage: usage,
+        tokenDelta: delta
       )
     }
   }

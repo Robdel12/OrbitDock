@@ -14,10 +14,10 @@ mod persistence;
 mod rollout_watcher;
 mod session;
 mod session_actor;
-mod subagent_parser;
 mod session_command;
 mod session_naming;
 mod state;
+mod subagent_parser;
 mod transition;
 mod websocket;
 
@@ -36,7 +36,6 @@ use tracing::{info, warn};
 
 use tokio::sync::mpsc;
 
-use crate::codex_session::CodexSession;
 use crate::logging::init_logging;
 use crate::persistence::{
     create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
@@ -137,14 +136,15 @@ async fn async_main() -> anyhow::Result<()> {
     // Create app state with persistence sender
     let state = Arc::new(SessionRegistry::new(persist_tx.clone()));
 
-    // Restore active sessions from database
+    // Restore sessions from database — all registered as passive (no connectors).
+    // Connectors are created lazily when a client subscribes to a session.
     match load_sessions_for_startup().await {
         Ok(restored) if !restored.is_empty() => {
             info!(
                 component = "restore",
                 event = "restore.start",
-                active_sessions = restored.len(),
-                "Restoring active sessions"
+                session_count = restored.len(),
+                "Registering sessions (connectors created lazily on subscribe)"
             );
 
             for rs in restored {
@@ -181,7 +181,8 @@ async fn async_main() -> anyhow::Result<()> {
                     current_cwd,
                     first_prompt,
                     last_message,
-                    end_reason,
+                    end_reason: _,
+                    effort,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -225,13 +226,40 @@ async fn async_main() -> anyhow::Result<()> {
                     current_plan,
                     restored_turn_diffs
                         .into_iter()
-                        .map(|(turn_id, diff)| TurnDiff { turn_id, diff })
+                        .map(
+                            |(
+                                turn_id,
+                                diff,
+                                input_tokens,
+                                output_tokens,
+                                cached_tokens,
+                                context_window,
+                            )| {
+                                let has_tokens =
+                                    input_tokens > 0 || output_tokens > 0 || context_window > 0;
+                                TurnDiff {
+                                    turn_id,
+                                    diff,
+                                    token_usage: if has_tokens {
+                                        Some(TokenUsage {
+                                            input_tokens: input_tokens as u64,
+                                            output_tokens: output_tokens as u64,
+                                            cached_tokens: cached_tokens as u64,
+                                            context_window: context_window as u64,
+                                        })
+                                    } else {
+                                        None
+                                    },
+                                }
+                            },
+                        )
                         .collect(),
                     git_branch,
                     git_sha,
                     current_cwd,
                     first_prompt,
                     last_message,
+                    effort,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_claude = matches!(provider, Provider::Claude);
@@ -239,7 +267,6 @@ async fn async_main() -> anyhow::Result<()> {
                     is_codex && matches!(codex_integration_mode.as_deref(), Some("passive"));
                 let is_claude_direct =
                     is_claude && matches!(claude_integration_mode.as_deref(), Some("direct"));
-                let is_active = status == "active";
                 handle.set_codex_integration_mode(if is_passive {
                     Some(CodexIntegrationMode::Passive)
                 } else if is_codex {
@@ -256,263 +283,42 @@ async fn async_main() -> anyhow::Result<()> {
                     handle.set_forked_from(source_id);
                 }
 
-                // Determine if this session should get a live connector
-                let needs_codex_connector = is_active && is_codex && !is_passive;
-                // Claude direct sessions: resume if still active or if ended by
-                // server shutdown (which kills the CLI subprocess). Don't revive
-                // sessions the user intentionally ended.
-                let ended_by_server = !is_active
-                    && matches!(end_reason.as_deref(), Some("server_shutdown"));
-                let needs_claude_connector =
-                    is_claude_direct && (is_active || ended_by_server);
-
-                if !needs_codex_connector && !needs_claude_connector {
-                    // Passive session: spawn a passive actor
-                    state.add_session(handle);
-                    if is_codex && !is_passive {
-                        if let Some(existing_thread_id) = codex_thread_id.as_deref() {
-                            state.register_codex_thread(&id, existing_thread_id);
-                        }
+                // Register thread IDs for duplicate detection
+                if is_codex && !is_passive {
+                    if let Some(ref thread_id) = codex_thread_id {
+                        state.register_codex_thread(&id, thread_id);
                     }
-                    info!(
-                        component = "restore",
-                        event = "restore.session.passive",
-                        session_id = %id,
-                        provider = %match provider {
-                            Provider::Codex => "codex",
-                            Provider::Claude => "claude",
-                        },
-                        messages = msg_count,
-                        "Restored passive session"
-                    );
-                    continue;
                 }
-
-                // Claude direct session: spawn bridge and resume (even if ended)
-                if needs_claude_connector {
-                    // Prefer the dedicated column; fall back to codex_thread_id for legacy rows
-                    let effective_claude_sdk_id = claude_sdk_session_id
+                if is_claude_direct {
+                    let sdk_id = claude_sdk_session_id
                         .as_deref()
                         .or(codex_thread_id.as_deref());
-
-                    let was_ended = status == "ended";
-                    if was_ended {
-                        // Reset to active — server shutdown killed the CLI, not the user
-                        handle.set_status(orbitdock_protocol::SessionStatus::Active);
-                        handle.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
-                    }
-
-                    info!(
-                        component = "restore",
-                        event = "restore.session.claude_resuming",
-                        session_id = %id,
-                        claude_sdk_session_id = ?effective_claude_sdk_id,
-                        was_ended = was_ended,
-                        messages = msg_count,
-                        "Resuming Claude direct session"
-                    );
-
-                    // Pre-register the thread so hooks arriving during startup are suppressed
-                    if let Some(sdk_id) = effective_claude_sdk_id {
+                    if let Some(sdk_id) = sdk_id {
                         state.register_claude_thread(&id, sdk_id);
-
-                        // Clean up any shadow session created by hooks using the SDK session ID
-                        if state.remove_session(sdk_id).is_some() {
-                            info!(
-                                component = "restore",
-                                event = "restore.session.shadow_removed",
-                                session_id = %id,
-                                shadow_id = %sdk_id,
-                                "Removed shadow session on restore"
-                            );
-                        }
-                        let _ = state
-                            .persist()
-                            .send(PersistCommand::CleanupClaudeShadowSession {
-                                claude_sdk_session_id: sdk_id.to_string(),
-                                reason: "managed_direct_session_restore".to_string(),
-                            })
-                            .await;
-                    }
-
-                    match crate::claude_session::ClaudeSession::new(
-                        id.clone(),
-                        &project_path,
-                        model.as_deref(),
-                        effective_claude_sdk_id,
-                    )
-                    .await
-                    {
-                        Ok(claude_session) => {
-                            let persist = state.persist().clone();
-                            handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) = claude_session.start_event_loop(
-                                handle,
-                                persist.clone(),
-                                state.list_tx(),
-                                state.clone(),
-                            );
-                            state.add_session_actor(actor_handle);
-                            state.set_claude_action_tx(&id, action_tx);
-
-                            // Persist the re-activation
-                            if was_ended {
-                                let _ = state
-                                    .persist()
-                                    .send(PersistCommand::SessionUpdate {
-                                        id: id.clone(),
-                                        status: Some(SessionStatus::Active),
-                                        work_status: Some(WorkStatus::Waiting),
-                                        last_activity_at: None,
-                                    })
-                                    .await;
-                            }
-
-                            info!(
-                                component = "restore",
-                                event = "restore.session.claude_connected",
-                                session_id = %id,
-                                claude_sdk_session_id = ?effective_claude_sdk_id,
-                                messages = msg_count,
-                                "Restored Claude session with live connector"
-                            );
-                        }
-                        Err(e) => {
-                            if was_ended {
-                                // Restore original ended state since we can't resume
-                                handle.set_status(orbitdock_protocol::SessionStatus::Ended);
-                                handle.set_work_status(orbitdock_protocol::WorkStatus::Ended);
-                            }
-                            state.add_session(handle);
-                            info!(
-                                component = "restore",
-                                event = "restore.session.claude_connector_unavailable",
-                                session_id = %id,
-                                messages = msg_count,
-                                error = %e,
-                                "Restored Claude session (connector unavailable)"
-                            );
-                        }
-                    }
-                    continue;
-                }
-
-                // Active Codex direct session: try to resume with conversation history
-                let codex_result = if let Some(thread_id) = codex_thread_id.as_deref() {
-                    info!(
-                        component = "restore",
-                        event = "restore.session.resuming",
-                        session_id = %id,
-                        thread_id = %thread_id,
-                        "Resuming Codex session from rollout"
-                    );
-                    match CodexSession::resume(
-                        id.clone(),
-                        &project_path,
-                        thread_id,
-                        model.as_deref(),
-                        approval_policy.as_deref(),
-                        sandbox_mode.as_deref(),
-                    )
-                    .await
-                    {
-                        Ok(codex) => Ok(codex),
-                        Err(e) => {
-                            warn!(
-                                component = "restore",
-                                event = "restore.session.resume_failed",
-                                session_id = %id,
-                                error = %e,
-                                "Resume failed, falling back to new thread"
-                            );
-                            CodexSession::new(
-                                id.clone(),
-                                &project_path,
-                                model.as_deref(),
-                                approval_policy.as_deref(),
-                                sandbox_mode.as_deref(),
-                            )
-                            .await
-                        }
-                    }
-                } else {
-                    CodexSession::new(
-                        id.clone(),
-                        &project_path,
-                        model.as_deref(),
-                        approval_policy.as_deref(),
-                        sandbox_mode.as_deref(),
-                    )
-                    .await
-                };
-                match codex_result {
-                    Ok(codex) => {
-                        let persist = state.persist().clone();
-
-                        let new_thread_id = codex.thread_id().to_string();
-                        let _ = persist
-                            .send(PersistCommand::SetThreadId {
-                                session_id: id.clone(),
-                                thread_id: new_thread_id.clone(),
-                            })
-                            .await;
-                        state.register_codex_thread(&id, &new_thread_id);
-
-                        if state.remove_session(&new_thread_id).is_some() {
-                            state.broadcast_to_list(
-                                orbitdock_protocol::ServerMessage::SessionEnded {
-                                    session_id: new_thread_id.clone(),
-                                    reason: "direct_session_thread_claimed".into(),
-                                },
-                            );
-                        }
-                        let _ = persist
-                            .send(PersistCommand::CleanupThreadShadowSession {
-                                thread_id: new_thread_id.clone(),
-                                reason: "legacy_codex_thread_row_cleanup".into(),
-                            })
-                            .await;
-
-                        // start_event_loop takes owned handle, returns (SessionActorHandle, action_tx)
-                        handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) = codex.start_event_loop(handle, persist);
-                        state.add_session_actor(actor_handle);
-                        state.set_codex_action_tx(&id, action_tx);
-                        if let Some(existing_thread_id) = codex_thread_id.as_deref() {
-                            state.register_codex_thread(&id, existing_thread_id);
-                        }
-                        info!(
-                            component = "restore",
-                            event = "restore.session.connected",
-                            session_id = %id,
-                            thread_id = %new_thread_id,
-                            messages = msg_count,
-                            "Restored session with live connector"
-                        );
-                    }
-                    Err(e) => {
-                        // Session visible with messages but not interactive — spawn passive actor
-                        state.add_session(handle);
-                        if let Some(existing_thread_id) = codex_thread_id.as_deref() {
-                            state.register_codex_thread(&id, existing_thread_id);
-                        }
-                        info!(
-                            component = "restore",
-                            event = "restore.session.connector_unavailable",
-                            session_id = %id,
-                            messages = msg_count,
-                            error = %e,
-                            "Restored session (connector unavailable)"
-                        );
                     }
                 }
+
+                // All sessions start passive — connectors created on first subscribe
+                state.add_session(handle);
+
+                info!(
+                    component = "restore",
+                    event = "restore.session.registered",
+                    session_id = %id,
+                    provider = %match provider {
+                        Provider::Codex => "codex",
+                        Provider::Claude => "claude",
+                    },
+                    messages = msg_count,
+                    "Registered session"
+                );
             }
         }
         Ok(_) => {
             info!(
                 component = "restore",
                 event = "restore.empty",
-                "No active Codex sessions to restore"
+                "No sessions to restore"
             );
         }
         Err(e) => {
@@ -596,10 +402,7 @@ async fn async_main() -> anyhow::Result<()> {
 }
 
 /// Wait for shutdown signal and mark active direct sessions for resumption.
-async fn shutdown_signal(
-    state: Arc<SessionRegistry>,
-    persist_tx: mpsc::Sender<PersistCommand>,
-) {
+async fn shutdown_signal(state: Arc<SessionRegistry>, persist_tx: mpsc::Sender<PersistCommand>) {
     let _ = tokio::signal::ctrl_c().await;
     info!(
         component = "server",
@@ -659,3 +462,4 @@ fn binary_metadata(path: &str) -> (u64, i64) {
         .unwrap_or(0);
     (size, modified)
 }
+

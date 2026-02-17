@@ -719,11 +719,11 @@ impl CodexConnector {
 
             EventMsg::TokenCount(e) => {
                 if let Some(info) = e.info {
-                    let total = &info.total_token_usage;
+                    let last = &info.last_token_usage;
                     let usage = orbitdock_protocol::TokenUsage {
-                        input_tokens: total.input_tokens.max(0) as u64,
-                        output_tokens: total.output_tokens.max(0) as u64,
-                        cached_tokens: total.cached_input_tokens.max(0) as u64,
+                        input_tokens: last.input_tokens.max(0) as u64,
+                        output_tokens: last.output_tokens.max(0) as u64,
+                        cached_tokens: last.cached_input_tokens.max(0) as u64,
                         context_window: info.model_context_window.unwrap_or(200_000).max(0) as u64,
                     };
                     vec![ConnectorEvent::TokensUpdated(usage)]

@@ -123,6 +123,7 @@ impl SessionRegistry {
                     current_cwd: snap.current_cwd.clone(),
                     first_prompt: snap.first_prompt.clone(),
                     last_message: snap.last_message.clone(),
+                    effort: snap.effort.clone(),
                 }
             })
             .collect()
@@ -207,6 +208,32 @@ impl SessionRegistry {
                     && !registered.contains(&snap.id)
             })
             .map(|entry| entry.key().clone())
+    }
+
+    /// Look up the Codex thread ID for a given session ID (reverse lookup)
+    pub fn codex_thread_for_session(&self, session_id: &str) -> Option<String> {
+        self.codex_threads
+            .iter()
+            .find(|entry| entry.value() == session_id)
+            .map(|entry| entry.key().clone())
+    }
+
+    /// Look up the Claude SDK session ID for a given session ID (reverse lookup)
+    pub fn claude_sdk_id_for_session(&self, session_id: &str) -> Option<String> {
+        self.claude_threads
+            .iter()
+            .find(|entry| entry.value() == session_id)
+            .map(|entry| entry.key().clone())
+    }
+
+    /// Check if a session already has a live connector (action channel registered)
+    pub fn has_codex_connector(&self, session_id: &str) -> bool {
+        self.codex_actions.contains_key(session_id)
+    }
+
+    /// Check if a session already has a live Claude connector
+    pub fn has_claude_connector(&self, session_id: &str) -> bool {
+        self.claude_actions.contains_key(session_id)
     }
 
     /// Subscribe to list updates

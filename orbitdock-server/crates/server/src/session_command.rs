@@ -171,6 +171,12 @@ pub enum SessionCommand {
     GetMessageCount {
         reply: oneshot::Sender<usize>,
     },
+
+    /// Extract the owned SessionHandle from a passive actor, stopping its loop.
+    /// Used for upgrading a passive session to one with a live connector.
+    TakeHandle {
+        reply: oneshot::Sender<crate::session::SessionHandle>,
+    },
 }
 
 /// Result of a Subscribe command
