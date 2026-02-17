@@ -17,15 +17,15 @@ For the product UX direction (including a fluid, non-rigid interaction model for
 |---------|--------|----------|
 | Chat (send message, model/effort overrides) | Yes | Yes |
 | Tool approvals (5 decision variants) | Yes | Yes |
-| Question answering | Yes | Yes (needs verification) |
+| Question answering | Yes | Yes |
 | Approval history + deletion | Yes | Yes |
 | Autonomy level changes (approval_policy + sandbox_mode) | Yes | Yes |
 | Session create/end/resume/rename/interrupt | Yes | Yes |
 | Token usage tracking | Yes | Yes |
 | Rate limiting (primary + secondary windows) | Yes | Yes |
 | Thinking/reasoning display | Yes | Yes |
-| Plan display | Yes (PlanUpdate events) | Exists (likely broken) |
-| Diff display | Yes (TurnDiff events) | Exists (likely broken) |
+| Plan display | Yes (PlanUpdate events) | Yes (capability rail) |
+| Diff display | Yes (TurnDiff events) | Yes (review canvas) |
 | MCP bridge (HTTP API for pair-debugging) | Yes | N/A |
 | Passive Codex session watching | Yes | Yes |
 
@@ -270,14 +270,32 @@ Uses `CodexThread::steer_input()` which queues into the active turn's pending bu
 
 ---
 
-## Phase 8: Shell Commands + Custom Prompts + Misc
+## Phase 8a: Shell Command Execution ✅
 
-**Why**: Quality of life. One-off shell commands, custom prompts, elicitation, stream error handling.
+**Status**: Complete
 
-### Features
+**Why**: Run one-off shell commands through the server without starting a full agent turn.
 
-**One-off shell command** (`Op::RunUserShellCommand { command }`)
-Run a command through Codex's sandbox without starting a full turn. Output streams via normal `ExecCommand*` events.
+### What was built
+
+**Rust server**:
+- [x] `ClientMessage::ExecuteShell { session_id, command, cwd?, timeout_secs }` — protocol type with 30s default timeout
+- [x] `ServerMessage::ShellStarted { session_id, request_id, command }` + `ServerMessage::ShellOutput { session_id, request_id, stdout, stderr, exit_code, duration_ms }`
+- [x] `crates/server/src/shell.rs` — async executor with timeout, spawns `sh -c <command>` in session cwd
+- [x] WebSocket handler: validates session, creates request ID, broadcasts `ShellStarted`, spawns async execution, persists message + updates via `MessageChanges`
+- [x] `MessageType::Shell` for persistence
+
+**SwiftUI frontend**:
+- [x] `ServerProtocol.swift`: `executeShell` client message with snake_case encoding
+- [x] `ShellCard.swift` — terminal-style card with auto-expand, error state, duration badge, "Send to AI" button
+- [x] `UserBashCard.swift` — right-aligned user message variant with expandable stdout/stderr
+- [x] `CodexInputBar.swift`: shell mode detection + dispatch to `executeShell`
+
+---
+
+## Phase 8b: Custom Prompts + Elicitation + Stream Errors
+
+**Why**: Quality of life. Custom prompts, structured form input, and surfacing model stream errors.
 
 **Custom prompts** (`Op::ListCustomPrompts` → `ListCustomPromptsResponse`)
 List project-defined prompt templates.
@@ -289,7 +307,6 @@ Structured form input the agent requests (multiple-choice, text fields, etc.).
 Surface model stream errors and non-fatal warnings to the client.
 
 ### Protocol layer (`crates/protocol`)
-- [ ] Add `ClientMessage::RunShellCommand { session_id, command: String }`
 - [ ] Add `ClientMessage::ListCustomPrompts { session_id }`
 - [ ] Add `ClientMessage::ResolveElicitation { session_id, server_name: String, request_id: String, decision: ElicitationAction }` (Accept/Decline/Cancel)
 - [ ] Add `ServerMessage::CustomPromptsList { session_id, prompts }`
@@ -298,7 +315,6 @@ Surface model stream errors and non-fatal warnings to the client.
 - [ ] Add `ServerMessage::Warning { session_id, message }`
 
 ### Connector layer (`crates/connectors`)
-- [ ] Add `run_shell_command(command)` action → sends `Op::RunUserShellCommand`
 - [ ] Add `list_custom_prompts()` action → sends `Op::ListCustomPrompts`
 - [ ] Add `resolve_elicitation(server_name, request_id, decision)` action → sends `Op::ResolveElicitation`
 - [ ] Handle `EventMsg::ElicitationRequest` → `ConnectorEvent::ElicitationRequested`
@@ -306,11 +322,10 @@ Surface model stream errors and non-fatal warnings to the client.
 - [ ] Handle `EventMsg::Warning` → `ConnectorEvent::Warning`
 
 ### Server layer (`crates/server`)
-- [ ] `websocket.rs`: Handle `RunShellCommand`, `ListCustomPrompts`, `ResolveElicitation`
+- [ ] `websocket.rs`: Handle `ListCustomPrompts`, `ResolveElicitation`
 - [ ] `codex_session.rs`: Handle new connector events, broadcast to subscribers
 
 ### Tests
-- [ ] `test_shell_command_dispatches_op` - RunShellCommand sends `Op::RunUserShellCommand`
 - [ ] `test_custom_prompts_roundtrip` - ListCustomPrompts + response
 - [ ] `test_elicitation_request_broadcast` - ElicitationRequested reaches subscribers
 - [ ] `test_elicitation_resolve_roundtrip` - ResolveElicitation dispatches correct Op
@@ -357,5 +372,5 @@ Every feature follows this path through the codebase:
 - [ ] `cargo test` passes with no warnings
 - [ ] No regressions in existing functionality (run full test suite)
 
-### Current test count: 50
-### Target test count after all phases: ~80+
+### Current test count: 96 (35 protocol + 61 server)
+### Target test count after all phases: ~110+

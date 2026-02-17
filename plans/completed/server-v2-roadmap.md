@@ -4,7 +4,7 @@
 >
 > Each phase is a shippable unit. The system stays running between phases — no big bang rewrite.
 >
-> For the full design rationale, types, and diagrams, see `plans/server-architecture-v2.md`.
+> For the full design rationale, types, and diagrams, see `plans/completed/server-architecture-v2.md`.
 
 ---
 
