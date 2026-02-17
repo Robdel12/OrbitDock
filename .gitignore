@@ -11,6 +11,9 @@
 *.zip
 .cache/
 
+# Internal protocol docs (keep locally, don't publish)
+orbitdock-server/docs/claude-agent-sdk-protocol.md
+
 # Xcode
 *.xcworkspace/
 buildServer.json

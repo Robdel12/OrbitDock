@@ -1,81 +1,97 @@
 # OrbitDock
 
-Mission control for AI coding agents. A native macOS app that lets you monitor all your Claude Code and Codex CLI sessions from one place—like a cosmic harbor where your AI crews dock and report in.
+Mission control for AI coding agents. A native macOS app that monitors all your Claude Code and Codex CLI sessions from one dashboard — live status, conversations, code review, approvals, and usage tracking.
 
 ![macOS](https://img.shields.io/badge/macOS-14.0+-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.9+-orange)
+![Rust](https://img.shields.io/badge/Rust-1.75+-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## Why I Built This
+## Why This Exists
 
-OrbitDock is built to keep agency in your hands while agents do the heavy lifting.
+I don't write code anymore — agents do. My job is review, management, and guidance at the right time.
 
-I don't write code anymore (like 98% of the time). Agents do. My job now is review, management, and guidance at the right time.
+The problem? I've got multiple products, lots of repos, and a bunch of LLM agents running across all of them. Keeping track of it all was chaos. Which session needs permission? Did that refactor finish? Is Claude waiting on me or still working? I'd cycle through terminal tabs trying to figure out what was happening where.
 
-I've got one real SaaS product (with something like 5 repos and 10 SDKs), plus a couple other products I'm building that don't have users yet. That's a lot of projects, a lot of tasks within those projects, and a lot of LLM agents running around in all of them.
-
-The problem? Keeping track of it all. Which session needs permission? Did that refactor finish? Is Claude waiting on me or still working? I'd find myself cycling through terminal tabs trying to figure out what was happening where.
-
-OrbitDock is how I wrangle all that chaos. One dashboard to track every session across every project—live status updates, conversation history, usage limits, and quick terminal access. It's mission control for my new way of working.
+OrbitDock is how I wrangle all that. One dashboard to track every session across every project — live status, conversation history, code review, usage limits, and direct agent control.
 
 ## Features
 
-- **Multi-Provider Support** - Track Claude Code and Codex CLI sessions together
-- **Live Session Monitoring** - Watch conversations unfold in real-time
-- **Local-First** - All session data stays on your machine
-- **5-State Status System** - Working, Permission, Question, Reply, Ended
-- **Quick Switcher (⌘K)** - Jump between sessions or run commands instantly
-- **Quest System** - Flexible work containers with linked sessions, PRs, and inbox
-- **Usage Tracking** - Monitor rate limits for both Claude and Codex
-- **Focus Terminal (⌘T)** - Jump directly to the iTerm2 tab running a session
-- **Cosmic Harbor Theme** - Dark theme optimized for OLED displays
+- **Multi-Provider** — Claude Code and Codex CLI sessions in one place
+- **Live Monitoring** — Watch conversations unfold with real-time status (Working, Permission, Question, Reply, Ended)
+- **Review Canvas** — Magit-style code review with inline comments that steer the agent
+- **Approval Oversight** — Diff previews, risk cues, keyboard triage (y/n/!/N)
+- **Shell Execution** — Run shell commands in Codex sessions directly from the app
+- **Direct Codex Control** — Create sessions, send messages, approve tools — no terminal needed
+- **Usage Tracking** — Rate limit monitoring for both Claude and Codex
+- **Quick Switcher (⌘K)** — Jump between sessions or run commands instantly
+- **Focus Terminal (⌘T)** — Jump to the iTerm2 tab running a session
+- **MCP Bridge** — Control Codex sessions from Claude Code via MCP tools
+- **Local-First** — All data stays on your machine in SQLite
 
-See [FEATURES.md](FEATURES.md) for the full feature list.
+See [FEATURES.md](FEATURES.md) for the full list.
 
-## Supported Providers
+## Architecture
 
-| Provider | Session Tracking | Usage Monitoring | Notes |
-|----------|-----------------|------------------|-------|
-| **Claude Code** | CLI hooks + FSEvents | OAuth API | Hooks for status, FSEvents for transcripts |
-| **Codex CLI** | Native FSEvents | App Server API | Watches `~/.codex/sessions/` rollouts |
+OrbitDock has two main pieces: a **SwiftUI macOS app** and a **Rust WebSocket server** embedded in the app bundle.
 
-## Requirements
+```
+┌─────────────────────────────────────────────────────────┐
+│                   OrbitDock.app (SwiftUI)                │
+│                                                          │
+│  Dashboard ←→ Session Detail ←→ Review Canvas            │
+│       │              │                │                   │
+│       └──────────────┴────────────────┘                   │
+│                      │ WebSocket                          │
+│                      ▼                                    │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │        orbitdock-server (Rust + Tokio)            │    │
+│  │                                                    │    │
+│  │  SessionRegistry ──► SessionActor (per session)    │    │
+│  │       │                    │                       │    │
+│  │       │              TransitionFn (pure)           │    │
+│  │       │                    │                       │    │
+│  │       └──── Persistence ───┘                       │    │
+│  │                    │                               │    │
+│  │             CodexConnector (codex-rs)              │    │
+│  └──────────────────────────────────────────────────┘    │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  Claude Code ← CLI hooks (orbitdock-cli)          │    │
+│  │  Codex CLI   ← FSEvents watcher                   │    │
+│  └──────────────────────────────────────────────────┘    │
+│                                                          │
+│  SQLite + WAL  (~/.orbitdock/orbitdock.db)                │
+└─────────────────────────────────────────────────────────┘
+```
 
-- macOS 14.0+
-- Xcode 15+ (for building from source)
-- At least one CLI installed:
-  - Claude Code: `npm install -g @anthropic-ai/claude-code`
-  - Codex CLI: See [OpenAI Codex docs](https://openai.com/codex)
+**Claude Code** sessions are tracked via CLI hooks embedded in the app bundle. The hooks fire on lifecycle events (session start/end, tool use, status changes) and write to SQLite.
+
+**Codex CLI** sessions are tracked two ways:
+- **FSEvents watcher** — Watches `~/.codex/sessions/` rollout files for passive monitoring
+- **Direct sessions** — The Rust server connects to codex-rs directly, enabling full control (send messages, approve tools, execute shell commands)
+
+For the server's internal architecture (actor model, state machine, registry pattern), see [orbitdock-server/README.md](orbitdock-server/README.md).
 
 ## Quick Start
 
-### Option 1: Download Release
-
-1. Download the latest `.dmg` from [Releases](https://github.com/your-username/orbitdock/releases)
-2. Drag `OrbitDock.app` to `/Applications`
-3. Open the app and go to **Settings → Setup**
-4. Copy the hook configuration and add it to `~/.claude/settings.json`
-5. Restart Claude Code to activate hooks
-
-### Option 2: Build from Source
+### Build from Source
 
 ```bash
-git clone https://github.com/your-username/orbitdock.git
-cd orbitdock
+git clone https://github.com/Robdel12/OrbitDock.git
+cd OrbitDock
 make build
 ```
 
-Open the app in Xcode when you want to run it locally:
+Then open in Xcode:
 
 ```bash
 open CommandCenter/CommandCenter.xcodeproj
 ```
 
-Run with ⌘R in Xcode. The CLI is automatically embedded in the app bundle.
+Run with ⌘R. The Rust server and CLI are automatically embedded in the app bundle.
 
-**Note:** Codex CLI support is automatic—no hook setup needed. OrbitDock watches `~/.codex/sessions/` using native FSEvents.
-
-## Hook Configuration
+### Configure Claude Code Hooks
 
 Add to `~/.claude/settings.json`:
 
@@ -97,158 +113,53 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-### What Each Hook Does
+Codex CLI support is automatic — no hook setup needed.
 
-| Hook | Command | Purpose |
-|------|---------|---------|
-| `SessionStart` | session-start | Creates session, captures model & permission mode |
-| `SessionEnd` | session-end | Marks session ended with reason |
-| `UserPromptSubmit` | status-tracker | Sets status to "working", captures first prompt |
-| `Stop` | status-tracker | Sets status to "waiting" (reply or question) |
-| `Notification` | status-tracker | Handles permission prompts, idle prompts, auth |
-| `PreToolUse` | tool-tracker | Tracks tool usage, sets "working" status |
-| `PostToolUse` | tool-tracker | Clears permission state after tool runs |
-| `PostToolUseFailure` | tool-tracker | Handles failed/interrupted tools |
-| `SubagentStart` | subagent-tracker | Tracks when Claude spawns agents (Explore, Plan) |
-| `SubagentStop` | subagent-tracker | Tracks when agents finish |
-| `PreCompact` | status-tracker | Records context compaction events |
+## Requirements
 
-## Architecture
-
-OrbitDock is intentionally small and fast: local SQLite, lightweight watchers, and SwiftUI views that render quickly.
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        OrbitDock App                              │
-│  ┌─────────────┐  ┌──────────────────────────────────────────┐  │
-│  │  Dashboard  │  │            Session Detail                 │  │
-│  │  - Active   │  │  - Header (status, model, provider)       │  │
-│  │  - History  │  │  - Conversation View                      │  │
-│  │  - Streams  │  │  - Quick Actions                          │  │
-│  └─────────────┘  └──────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │    Usage Panel - Claude (5h/7d) + Codex (rate windows)   │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-                      ┌─────────────────┐
-                      │  SQLite + WAL   │
-                      │  ~/.orbitdock/  │
-                      │  orbitdock.db   │
-                      └─────────────────┘
-                                ▲
-           ┌────────────────────┴────────────────────┐
-           │                                         │
-   ┌───────┴───────┐                       ┌─────────┴─────────┐
-   │  Claude Code  │                       │    Codex CLI      │
-   │   Swift CLI   │                       │  FSEvents Watcher │
-   │  (embedded)   │                       │     (Swift)       │
-   └───────────────┘                       └───────────────────┘
-```
-
-### Provider Integration
-
-**Claude Code** uses a Swift CLI embedded in the app bundle:
-- `orbitdock-cli session-start/end` - Lifecycle tracking (model, source, permission mode)
-- `orbitdock-cli status-tracker` - Work status, attention states, compaction events
-- `orbitdock-cli tool-tracker` - Tool usage and permission state management
-- `orbitdock-cli subagent-tracker` - Track spawned agents (Explore, Plan, etc.)
-
-**Codex CLI** uses native FSEvents watching:
-- Watches `~/.codex/sessions/` for rollout JSONL files
-- Parses session_meta, event_msg, and response_item entries
-- State persisted in `~/.orbitdock/codex-rollout-state.json`
+- macOS 14.0+
+- Xcode 15+ and Rust toolchain (for building from source)
+- At least one CLI: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Codex CLI](https://github.com/openai/codex)
 
 ## Project Structure
 
 ```
-├── migrations/              # Database migrations (SQL)
-└── CommandCenter/          # Xcode project
-    ├── OrbitDockCore/      # Shared Swift package
-    │   └── Sources/
-    │       ├── OrbitDockCore/    # Database, Git, Models
-    │       └── OrbitDockCLI/     # CLI hook handler
-    └── CommandCenter/      # SwiftUI macOS app
-        ├── Models/
-        │   ├── Provider.swift    # Multi-provider enum
-        │   └── Session.swift     # Unified session model
-        ├── Services/
-        │   ├── UsageServiceRegistry.swift     # Coordinates all providers
-        │   ├── SubscriptionUsageService.swift # Claude usage API
-        │   ├── CodexUsageService.swift        # Codex usage API
-        │   └── CodexRolloutWatcher.swift      # Native FSEvents watcher
-        └── Views/
-            └── Usage/          # Provider usage gauges
+├── orbitdock-server/           # Rust WebSocket server
+│   └── crates/
+│       ├── server/             # Main server (actors, registry, persistence)
+│       ├── protocol/           # Shared types (client ↔ server)
+│       └── connectors/         # AI provider connectors (codex-rs)
+├── CommandCenter/              # Xcode project
+│   ├── CommandCenter/          # SwiftUI macOS app
+│   │   ├── Views/              # UI (dashboard, review canvas, tool cards)
+│   │   ├── Services/           # Business logic, server connection
+│   │   └── Models/             # Session, provider, protocol types
+│   └── OrbitDockCore/          # Swift Package (shared code + CLI)
+│       └── Sources/
+│           ├── OrbitDockCore/  # Database, git ops, models
+│           └── OrbitDockCLI/   # CLI hook handler
+├── orbitdock-debug-mcp/        # MCP server for cross-agent control
+├── migrations/                 # Database migrations (SQL)
+└── plans/                      # Design docs and roadmaps
 ```
 
 ## Development
 
-### Common Commands
-
 ```bash
-# App build + tests
-make build
-make test-unit   # Unit tests only (excludes UI tests)
-make test-ui     # UI tests only
-make test-all    # All app tests
+make build        # Build the app
+make test-unit    # Unit tests (excludes UI tests)
+make test-all     # All tests
 
-# Rust server
-make rust-build
-make rust-check
-make rust-test
+make rust-build   # Build the Rust server
+make rust-test    # Run server tests (96 tests)
+make rust-check   # cargo check
 
-# Formatting + linting
-make fmt
-make lint
+make fmt          # Format Swift + Rust
+make lint         # Lint Swift + Rust
 ```
 
-### Building the CLI standalone
-
-```bash
-cd CommandCenter/OrbitDockCore
-swift build
-.build/debug/orbitdock-cli --help
-```
-
-### Debugging
-
-```bash
-# Check CLI logs
-tail -f ~/.orbitdock/cli.log
-
-# Check database directly
-sqlite3 ~/.orbitdock/orbitdock.db "SELECT id, work_status FROM sessions LIMIT 5;"
-```
-
-### Environment variables
-
-| Variable | Description |
-|----------|-------------|
-| `ORBITDOCK_DB_PATH` | Override database path (for testing) |
-| `ORBITDOCK_DISABLE_CODEX_WATCHER` | Disable the Codex FSEvents watcher |
-| `ORBITDOCK_CODEX_WATCHER_DEBUG` | Verbose logging for Codex watcher |
-
-## Permissions
-
-The app needs **Automation** permission to control iTerm2 for the Focus feature:
-
-`System Settings → Privacy & Security → Automation → OrbitDock → iTerm`
-
-## Troubleshooting
-
-**Sessions not appearing?**
-- For Claude Code: Restart the CLI after configuring hooks
-- For Codex: Check that `~/.codex/sessions/` exists and has JSONL files
-
-**Usage data not loading?**
-- Claude: Make sure you're logged in (`claude login`)
-- Codex: Check the app server is reachable
-
-**Hooks not firing?**
-- Check `~/.orbitdock/cli.log` for errors
-- Verify the CLI path in settings.json matches your app location
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
 ## License
 
-MIT
+[MIT](LICENSE)
