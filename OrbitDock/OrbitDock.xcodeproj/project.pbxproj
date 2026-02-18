@@ -274,7 +274,6 @@
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/MacOS/orbitdock-cli",
 				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/MacOS/orbitdock-server",
 			);
 			runOnlyForDeploymentPostprocessing = 0;

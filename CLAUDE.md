@@ -2,14 +2,14 @@
 
 ## Project Overview
 
-OrbitDock is a native macOS SwiftUI app — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via a Swift CLI (WebSocket), manages Codex sessions via codex-core, and serves real-time updates to the SwiftUI app over WebSocket.
+OrbitDock is a native macOS SwiftUI app — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and serves real-time updates to the SwiftUI app over WebSocket.
 
 ## Tech Stack
 
 - **SwiftUI** - macOS 14+ with NavigationSplitView
-- **Rust / Axum** - orbitdock-server (session management, persistence, WebSocket)
+- **Rust / Axum** - orbitdock-server (session management, persistence, WebSocket + HTTP)
 - **rusqlite + SQLite WAL** - Database access, concurrent reads/writes
-- **Swift Argument Parser** - CLI subcommands (forward hooks to server via WebSocket)
+- **Shell hook script** - `~/.orbitdock/hook.sh` forwards Claude Code hooks via HTTP POST
 - **codex-core** - Embedded Codex runtime for direct sessions
 
 ## Build, Test, and Lint Commands
@@ -79,7 +79,8 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - **Codex App Logs**: `~/.orbitdock/logs/codex.log` (structured JSON logs for Codex debugging)
 - **Rust Server Logs**: `~/.orbitdock/logs/server.log` (structured JSON logs from orbitdock-server)
 - **Migrations**: `migrations/` (numbered SQL files, starting at `001_baseline.sql`)
-- **CLI Source**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code + CLI)
+- **Hook Script**: `scripts/hook.sh` (source) / `~/.orbitdock/hook.sh` (installed)
+- **Shared Models**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
 - **Codex Watcher State**: `~/.orbitdock/codex-rollout-state.json` (offset tracking)
@@ -203,35 +204,27 @@ Core event fields are stable for filtering:
 
 ## OrbitDockCore Package
 
-The CLI and shared input models live in a local Swift Package. All CLI commands forward events to the Rust server via WebSocket (`ws://127.0.0.1:4000/ws`).
+Shared Swift models used by the SwiftUI app. No CLI — hooks go directly via HTTP POST.
 
 ```
 OrbitDock/OrbitDockCore/
 ├── Package.swift
 └── Sources/
-    ├── OrbitDockCore/          # Shared library
-    │   └── Models/             # Input structs, enums
-    └── OrbitDockCLI/           # CLI executable
-        ├── CLI.swift           # Entry point with ArgumentParser
-        └── Commands/
-            ├── SessionStartCommand.swift
-            ├── SessionEndCommand.swift
-            ├── StatusTrackerCommand.swift
-            ├── ToolTrackerCommand.swift
-            └── SubagentTrackerCommand.swift
+    └── OrbitDockCore/          # Shared library
+        └── Models/             # Input structs, enums (WorkStatus, SessionStatus, etc.)
 ```
 
-### CLI Commands
-| Command | Hooks Handled | Purpose |
-|---------|---------------|---------|
-| `session-start` | SessionStart | Create session, capture model/source/permission_mode/agent_type |
-| `session-end` | SessionEnd | Mark session ended with reason |
-| `status-tracker` | UserPromptSubmit, Stop, Notification, PreCompact | Status transitions, first_prompt, compaction tracking |
-| `tool-tracker` | PreToolUse, PostToolUse, PostToolUseFailure | Tool usage, permission state clearing |
-| `subagent-tracker` | SubagentStart, SubagentStop | Track spawned agents (Explore, Plan, etc.) |
+### Hook Script
 
-All commands read JSON from stdin (provided by Claude Code hooks).
-All commands log to `~/.orbitdock/cli.log` for debugging.
+Claude Code hooks pipe JSON to `~/.orbitdock/hook.sh <type>`, which injects the `type` field and POSTs to `http://127.0.0.1:4000/api/hook`. Source lives at `scripts/hook.sh`.
+
+| Claude Hook | Type Argument |
+|---|---|
+| `SessionStart` | `claude_session_start` |
+| `SessionEnd` | `claude_session_end` |
+| `UserPromptSubmit`, `Stop`, `Notification`, `PreCompact` | `claude_status_event` |
+| `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | `claude_tool_event` |
+| `SubagentStart`, `SubagentStop` | `claude_subagent_event` |
 
 ## Database Migrations
 
@@ -261,9 +254,9 @@ never touch the database directly. All data flows through WebSocket.
 
 ### Data flow
 ```
-CLI hooks → WebSocket → Rust server (port 4000) → SQLite
-                              ↓ WebSocket
-                        Swift app (read-only client)
+Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
+                                           ↓ WebSocket
+                                     Swift app (read-only client)
 ```
 
 ### Schema changes
@@ -288,8 +281,10 @@ CLI hooks → WebSocket → Rust server (port 4000) → SQLite
 - `orbitdock-server/crates/server/src/persistence.rs` — All CRUD operations
 - `orbitdock-server/crates/server/src/migration_runner.rs` — Runs migrations at startup
 - `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol
+- `orbitdock-server/crates/server/src/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
 - `orbitdock-server/crates/protocol/` — Shared types between server components
 - `migrations/001_baseline.sql` — Complete schema definition
+- `scripts/hook.sh` — Shell hook script (source, copied to `~/.orbitdock/hook.sh`)
 
 ### AppleScript for iTerm2
 - Requires `NSAppleEventsUsageDescription` in Info.plist
@@ -379,11 +374,16 @@ tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
 7. For Codex: Start a Codex session (or modify an existing rollout file)
 8. Verify data appears in OrbitDock
 
-### Testing CLI changes
+### Testing hook script
 ```bash
-cd OrbitDock/OrbitDockCore
-swift build
-echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start
+# Test session start (server must be running on port 4000)
+echo '{"session_id":"test","cwd":"/tmp","model":"claude-opus-4-6","source":"startup"}' \
+  | ~/.orbitdock/hook.sh claude_session_start
+
+# Test with curl directly
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"type":"claude_session_start","session_id":"test","cwd":"/tmp"}' \
+  http://127.0.0.1:4000/api/hook
 ```
 
 ## Text Contrast — Design System
