@@ -8,6 +8,7 @@ mod claude_session;
 mod codex_auth;
 mod codex_session;
 mod git;
+mod hook_handler;
 mod logging;
 mod migration_runner;
 mod persistence;
@@ -27,7 +28,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
-use axum::{response::IntoResponse, routing::get, Router};
+use axum::{
+    response::IntoResponse,
+    routing::{get, post},
+    Router,
+};
 use orbitdock_protocol::{
     CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
 };
@@ -368,6 +373,16 @@ async fn async_main() -> anyhow::Result<()> {
         }
     });
 
+    // Background expiry for pending Claude sessions that never materialize
+    let expiry_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            expiry_state.expire_pending_claude(std::time::Duration::from_secs(60));
+        }
+    });
+
     // Keep a reference for the shutdown handler
     let shutdown_state = state.clone();
     let shutdown_persist = persist_tx.clone();
@@ -375,6 +390,7 @@ async fn async_main() -> anyhow::Result<()> {
     // Build router
     let app = Router::new()
         .route("/ws", get(ws_handler))
+        .route("/api/hook", post(hook_handler::hook_handler))
         .route("/health", get(health_handler))
         .layer(TraceLayer::new_for_http())
         .layer(

@@ -3,12 +3,14 @@
 use dashmap::DashMap;
 use orbitdock_protocol::SessionSummary;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::ai_naming::NamingGuard;
 use crate::claude_session::ClaudeAction;
 use crate::codex_auth::CodexAuthService;
 use crate::codex_session::CodexAction;
+use crate::hook_handler::PendingClaudeSession;
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
@@ -39,6 +41,10 @@ pub struct SessionRegistry {
 
     /// Dedup guard for AI session naming
     naming_guard: Arc<NamingGuard>,
+
+    /// Pending Claude sessions awaiting first actionable hook before materialization.
+    /// Keyed by Claude SDK session_id from SessionStart.
+    pending_claude_sessions: DashMap<String, PendingClaudeSession>,
 }
 
 impl SessionRegistry {
@@ -55,6 +61,7 @@ impl SessionRegistry {
             persist_tx,
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
+            pending_claude_sessions: DashMap::new(),
         }
     }
 
@@ -249,6 +256,40 @@ impl SessionRegistry {
     /// Get a clone of the list broadcast sender (for passing to background tasks)
     pub fn list_tx(&self) -> broadcast::Sender<orbitdock_protocol::ServerMessage> {
         self.list_tx.clone()
+    }
+
+    // ── Pending Claude session cache ──────────────────────────────────
+
+    /// Cache a pending Claude session (called by SessionStart instead of creating a DB row).
+    pub fn cache_pending_claude(&self, session_id: String, pending: PendingClaudeSession) {
+        self.pending_claude_sessions.insert(session_id, pending);
+    }
+
+    /// Take (remove) a pending Claude session for materialization.
+    pub fn take_pending_claude(&self, session_id: &str) -> Option<PendingClaudeSession> {
+        self.pending_claude_sessions
+            .remove(session_id)
+            .map(|(_, v)| v)
+    }
+
+    /// Discard a pending Claude session (e.g. on SessionEnd before materialization).
+    /// Returns true if there was a pending entry to discard.
+    pub fn discard_pending_claude(&self, session_id: &str) -> bool {
+        self.pending_claude_sessions.remove(session_id).is_some()
+    }
+
+    /// Peek at a pending Claude session's cwd without removing it.
+    pub fn peek_pending_claude_cwd(&self, session_id: &str) -> Option<String> {
+        self.pending_claude_sessions
+            .get(session_id)
+            .map(|entry| entry.cwd.clone())
+    }
+
+    /// Expire pending Claude sessions older than `ttl`.
+    pub fn expire_pending_claude(&self, ttl: Duration) {
+        let cutoff = Instant::now() - ttl;
+        self.pending_claude_sessions
+            .retain(|_, pending| pending.cached_at > cutoff);
     }
 }
 

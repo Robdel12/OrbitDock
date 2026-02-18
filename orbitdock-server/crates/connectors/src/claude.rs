@@ -354,9 +354,6 @@ impl ClaudeConnector {
         self.write_stdin_message(&msg).await
     }
 
-
-
-
     /// Change the model mid-session.
     pub async fn set_model(&self, model: &str) -> Result<(), ConnectorError> {
         let _ = self

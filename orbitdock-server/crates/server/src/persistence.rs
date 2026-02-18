@@ -143,6 +143,7 @@ pub enum PersistCommand {
         permission_mode: Option<String>,
         terminal_session_id: Option<String>,
         terminal_app: Option<String>,
+        forked_from_session_id: Option<String>,
     },
 
     /// Update Claude session state/metadata from hook events
@@ -801,14 +802,16 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             permission_mode,
             terminal_session_id,
             terminal_app,
+            forked_from_session_id,
         } => {
             let now = chrono_now();
             conn.execute(
                 "INSERT INTO sessions (
                     id, project_path, project_name, branch, model, context_label, transcript_path,
                     provider, status, work_status, source, agent_type, permission_mode,
-                    terminal_session_id, terminal_app, started_at, last_activity_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, ?11, ?12, ?13, ?13)
+                    terminal_session_id, terminal_app, started_at, last_activity_at,
+                    forked_from_session_id
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14)
                  ON CONFLICT(id) DO UPDATE SET
                     project_path = excluded.project_path,
                     project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -823,6 +826,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     permission_mode = COALESCE(excluded.permission_mode, sessions.permission_mode),
                     terminal_session_id = COALESCE(excluded.terminal_session_id, sessions.terminal_session_id),
                     terminal_app = COALESCE(excluded.terminal_app, sessions.terminal_app),
+                    forked_from_session_id = COALESCE(excluded.forked_from_session_id, sessions.forked_from_session_id),
                     status = 'active',
                     last_activity_at = excluded.last_activity_at",
                 params![
@@ -839,6 +843,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     terminal_session_id,
                     terminal_app,
                     now,
+                    forked_from_session_id,
                 ],
             )?;
         }
@@ -3213,6 +3218,7 @@ mod tests {
                     permission_mode: None,
                     terminal_session_id: None,
                     terminal_app: None,
+                    forked_from_session_id: None,
                 },
                 // Real session: has first prompt and should remain active.
                 PersistCommand::ClaudeSessionUpsert {
@@ -3228,6 +3234,7 @@ mod tests {
                     permission_mode: None,
                     terminal_session_id: None,
                     terminal_app: None,
+                    forked_from_session_id: None,
                 },
                 PersistCommand::ClaudePromptIncrement {
                     id: "claude-real".into(),
@@ -3434,6 +3441,7 @@ mod tests {
                     permission_mode: None,
                     terminal_session_id: None,
                     terminal_app: None,
+                    forked_from_session_id: None,
                 },
                 PersistCommand::ClaudePromptIncrement {
                     id: "claude-1".into(),
@@ -3514,6 +3522,7 @@ mod tests {
                     permission_mode: None,
                     terminal_session_id: None,
                     terminal_app: None,
+                    forked_from_session_id: None,
                 },
                 PersistCommand::ClaudePromptIncrement {
                     id: "claude-hydrate".into(),
