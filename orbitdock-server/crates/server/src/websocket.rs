@@ -3591,7 +3591,6 @@ async fn handle_client_message(
                         },
                     )
                     .await;
-                    return;
                 }
             }
         }
@@ -3913,7 +3912,7 @@ async fn handle_client_message(
             tokio::spawn(async move {
                 let result = crate::shell::execute(&cmd_clone, &resolved_cwd, timeout_secs).await;
 
-                let is_error = result.exit_code.map_or(true, |c| c != 0);
+                let is_error = result.exit_code != Some(0);
                 let combined_output = if result.stderr.is_empty() {
                     result.stdout.clone()
                 } else if result.stdout.is_empty() {

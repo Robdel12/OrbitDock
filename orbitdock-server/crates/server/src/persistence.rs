@@ -2917,23 +2917,6 @@ mod tests {
                 panic!("migration failed for {}: {}", file.display(), err);
             });
         }
-
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                content TEXT,
-                timestamp TEXT NOT NULL,
-                sequence INTEGER NOT NULL DEFAULT 0,
-                tool_name TEXT,
-                tool_input TEXT,
-                tool_output TEXT,
-                tool_duration REAL,
-                is_in_progress INTEGER NOT NULL DEFAULT 0
-            );",
-        )
-        .expect("ensure messages table");
     }
 
     #[test]

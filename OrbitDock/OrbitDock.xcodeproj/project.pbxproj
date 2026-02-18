@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		80BCD0FD2F2C854300D91F91 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCD0FC2F2C854300D91F91 /* SQLite */; };
 		80BCD1002F2C900000D91F91 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCD0FF2F2C900000D91F91 /* MarkdownUI */; };
 		80BCDA942F3113B700D91F91 /* Vizzly in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCDA932F3113B700D91F91 /* Vizzly */; };
 /* End PBXBuildFile section */
@@ -71,7 +70,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				80BCD0FD2F2C854300D91F91 /* SQLite in Frameworks */,
 				80BCD1002F2C900000D91F91 /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -135,7 +133,6 @@
 			);
 			name = OrbitDock;
 			packageProductDependencies = (
-				80BCD0FC2F2C854300D91F91 /* SQLite */,
 				80BCD0FF2F2C900000D91F91 /* MarkdownUI */,
 			);
 			productName = OrbitDock;
@@ -222,7 +219,6 @@
 			mainGroup = 80BCD0B72F2C834F00D91F91;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */,
 				80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */,
 				80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */,
@@ -652,14 +648,6 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.15.5;
-			};
-		};
 		80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
@@ -679,11 +667,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		80BCD0FC2F2C854300D91F91 /* SQLite */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 80BCD0FB2F2C854300D91F91 /* XCRemoteSwiftPackageReference "SQLite" */;
-			productName = SQLite;
-		};
 		80BCD0FF2F2C900000D91F91 /* MarkdownUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;

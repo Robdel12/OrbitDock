@@ -1797,9 +1797,7 @@ mod tests {
             .expect("seed session meta");
 
         // Process the user prompt line too
-        let response_item_line = format!(
-            "{{\"type\":\"response_item\",\"payload\":{{\"type\":\"message\",\"role\":\"user\",\"content\":[{{\"type\":\"input_text\",\"text\":\"Investigate flaky session naming behavior please\"}}]}}}}"
-        );
+        let response_item_line = "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"Investigate flaky session naming behavior please\"}]}}".to_string();
         runtime
             .handle_line(&response_item_line, rollout_path.to_string_lossy().as_ref())
             .await;
@@ -1945,23 +1943,6 @@ mod tests {
                 panic!("migration failed for {}: {}", file.display(), err);
             });
         }
-
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                content TEXT,
-                timestamp TEXT NOT NULL,
-                sequence INTEGER NOT NULL DEFAULT 0,
-                tool_name TEXT,
-                tool_input TEXT,
-                tool_output TEXT,
-                tool_duration REAL,
-                is_in_progress INTEGER NOT NULL DEFAULT 0
-            );",
-        )
-        .expect("ensure messages table");
     }
 
     #[tokio::test]

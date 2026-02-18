@@ -650,7 +650,7 @@ struct InstrumentPanel: View {
         HStack(spacing: 6) {
           let pct = Int(tokenContextPercentage * 100)
           let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
-          let displayPct: String = if tokenContextPercentage > 0, pct == 0 {
+          let displayPct = if tokenContextPercentage > 0, pct == 0 {
             "< 1"
           } else {
             "\(pct)"

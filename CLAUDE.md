@@ -2,15 +2,15 @@
 
 ## Project Overview
 
-OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. It monitors sessions from multiple providers (Claude Code, Codex CLI), displaying them as spacecraft docked at your cosmic harbor. Reads from a SQLite database populated by a Swift CLI (Claude) and native FSEvents watchers (Codex) with real-time session tracking.
+OrbitDock is a native macOS SwiftUI app — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via a Swift CLI (WebSocket), manages Codex sessions via codex-core, and serves real-time updates to the SwiftUI app over WebSocket.
 
 ## Tech Stack
 
 - **SwiftUI** - macOS 14+ with NavigationSplitView
-- **SQLite.swift** - Database access via SPM package
-- **SQLite WAL mode** - Enables concurrent reads/writes from CLI and app
-- **Swift Argument Parser** - CLI subcommands
-- **DispatchSource** - File system monitoring for live updates
+- **Rust / Axum** - orbitdock-server (session management, persistence, WebSocket)
+- **rusqlite + SQLite WAL** - Database access, concurrent reads/writes
+- **Swift Argument Parser** - CLI subcommands (forward hooks to server via WebSocket)
+- **codex-core** - Embedded Codex runtime for direct sessions
 
 ## Build, Test, and Lint Commands
 
@@ -36,9 +36,9 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - Always guard async callbacks with `guard currentId == targetId else { return }`
 
 ### Database Concurrency
-- All SQLite connections MUST use WAL mode: `PRAGMA journal_mode = WAL`
-- Set busy timeout: `PRAGMA busy_timeout = 5000`
-- This applies to both the Swift app AND the CLI
+- The Rust server (`persistence.rs`) is the sole SQLite writer
+- All connections use WAL mode (`journal_mode = WAL`), `busy_timeout = 5000`, `synchronous = NORMAL`
+- The migration runner sets these pragmas at startup
 
 ### Animations
 - Use `.spring(response: 0.35, dampingFraction: 0.8)` for message animations
@@ -78,7 +78,7 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - **CLI Logs**: `~/.orbitdock/cli.log` (debug output from orbitdock-cli)
 - **Codex App Logs**: `~/.orbitdock/logs/codex.log` (structured JSON logs for Codex debugging)
 - **Rust Server Logs**: `~/.orbitdock/logs/server.log` (structured JSON logs from orbitdock-server)
-- **Migrations**: `migrations/` (numbered SQL files, e.g., `001_initial.sql`)
+- **Migrations**: `migrations/` (numbered SQL files, starting at `001_baseline.sql`)
 - **CLI Source**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code + CLI)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
@@ -203,15 +203,13 @@ Core event fields are stable for filtering:
 
 ## OrbitDockCore Package
 
-The CLI and shared database code live in a local Swift Package:
+The CLI and shared input models live in a local Swift Package. All CLI commands forward events to the Rust server via WebSocket (`ws://127.0.0.1:4000/ws`).
 
 ```
 OrbitDock/OrbitDockCore/
 ├── Package.swift
 └── Sources/
     ├── OrbitDockCore/          # Shared library
-    │   ├── Database/           # CLIDatabase, SessionOperations (includes migrations)
-    │   ├── Git/                # GitOperations (branch detection)
     │   └── Models/             # Input structs, enums
     └── OrbitDockCLI/           # CLI executable
         ├── CLI.swift           # Entry point with ArgumentParser
@@ -240,41 +238,58 @@ All commands log to `~/.orbitdock/cli.log` for debugging.
 Schema changes use a migration system with version tracking.
 
 ### Adding a new migration
-1. Create `migrations/NNN_description.sql` (next number in sequence)
+1. Create `migrations/NNN_description.sql` (next number after baseline: 002+)
 2. Write your SQL (CREATE TABLE, ALTER TABLE, etc.)
-3. Update `Session.swift` model if adding session fields
-4. Update `DatabaseManager.swift` column definitions and queries
-5. Update `CLIDatabase.swift` if CLI needs to write the field
+3. Update `persistence.rs` — add PersistCommand variant and handler
+4. Update `RestoredSession` / load queries if adding session fields
+5. Update protocol types in `orbitdock-protocol` crate if field needs to reach the Swift app
 
-Migrations run automatically when:
-- CLI executes (MigrationRunner in OrbitDockCore)
-- Swift app starts (MigrationManager in DatabaseManager.swift)
-
-### Legacy database handling
-Existing databases without `schema_versions` table are automatically bootstrapped - migration 001 is marked as applied and any missing columns are added.
+Migrations run when: Rust server starts (`migration_runner::run_migrations` in `main.rs`)
 
 ### Message Storage Architecture
-The app uses a two-layer architecture for message display:
 
-1. **JSONL Transcripts** (source of truth) - Claude writes here
-2. **SQLite MessageStore** (read layer) - App reads from here for fast UI
+- Rust server receives events via WebSocket (CLI) or codex-core (Codex)
+- `persistence.rs` batches writes through PersistCommand channel
+- Messages stored in SQLite `messages` table
+- Swift app receives messages in real-time via WebSocket — does NOT read SQLite directly
 
-Flow:
-- File change detected → EventBus debounces (300ms)
-- TranscriptParser.parseAll() reads JSONL once
-- MessageStore.syncFromParseResult() stores in SQLite
-- UI reads from SQLite (~50ms for 1000+ messages)
+## Database Conventions
 
-Key files:
-- `MessageStore.swift` - SQLite storage with per-session sync locks
-- `TranscriptParser.swift` - JSONL parsing with in-memory cache
-- `EventBus.swift` - Debounced event coordination
+### Single writer: the Rust server
+Only `orbitdock-server` reads from and writes to SQLite. The Swift app and CLI
+never touch the database directly. All data flows through WebSocket.
 
-### Parsing transcript data
-- Use `TranscriptParser.parseAll()` for unified single-pass parsing
-- Returns messages, stats, lastUserPrompt, and lastTool in one call
-- Messages have `type` field: "human", "assistant", "tool_use", "tool_result"
-- Token usage is in assistant messages under `message.usage`
+### Data flow
+```
+CLI hooks → WebSocket → Rust server (port 4000) → SQLite
+                              ↓ WebSocket
+                        Swift app (read-only client)
+```
+
+### Schema changes
+1. Add a numbered migration in `migrations/` (currently starts at 001_baseline)
+2. Use `IF NOT EXISTS` for safety
+3. Add the corresponding PersistCommand in `persistence.rs`
+4. Update protocol types if the field needs to reach the Swift app
+5. Run `make rust-test` to verify
+
+### Tables
+| Table | Purpose |
+|-------|---------|
+| `sessions` | Core session tracking — one row per Claude/Codex session |
+| `messages` | Conversation messages per session |
+| `subagents` | Spawned Task agents (Explore, Plan, etc.) |
+| `turn_diffs` | Per-turn git diff snapshots + token usage |
+| `approval_history` | Tool approval requests and decisions |
+| `review_comments` | Code review annotations for workbench |
+| `schema_versions` | Migration tracking |
+
+### Key files
+- `orbitdock-server/crates/server/src/persistence.rs` — All CRUD operations
+- `orbitdock-server/crates/server/src/migration_runner.rs` — Runs migrations at startup
+- `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol
+- `orbitdock-server/crates/protocol/` — Shared types between server components
+- `migrations/001_baseline.sql` — Complete schema definition
 
 ### AppleScript for iTerm2
 - Requires `NSAppleEventsUsageDescription` in Info.plist

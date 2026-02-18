@@ -1,11 +1,9 @@
 //
-//  TranscriptParser.swift
+//  TranscriptUsageStats.swift
 //  OrbitDock
 //
 
 import Foundation
-
-// MARK: - Usage Stats
 
 struct TranscriptUsageStats: Equatable {
   var inputTokens: Int = 0
