@@ -1,5 +1,5 @@
 //
-//  CommandCenterApp.swift
+//  OrbitDockApp.swift
 //  OrbitDock
 //
 //  Created by Robert DeLuca on 1/30/26.

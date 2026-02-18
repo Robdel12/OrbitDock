@@ -65,9 +65,9 @@ INSERT INTO quest_notes (id, quest_id, title, content, created_at, updated_at) V
 
 -- Activities for session-1
 INSERT INTO activities (session_id, timestamp, event_type, tool_name, file_path, summary, tokens_used) VALUES
-  ('session-1', datetime('now', '-1 hour', '-50 minutes'), 'tool_use', 'Read', 'CommandCenter/CommandCenterUITests/CommandCenterUITests.swift', 'Read existing UI test file', 150),
+  ('session-1', datetime('now', '-1 hour', '-50 minutes'), 'tool_use', 'Read', 'OrbitDock/OrbitDockUITests/OrbitDockUITests.swift', 'Read existing UI test file', 150),
   ('session-1', datetime('now', '-1 hour', '-45 minutes'), 'tool_use', 'Write', 'package.json', 'Created package.json with Vizzly CLI', 80),
   ('session-1', datetime('now', '-1 hour', '-40 minutes'), 'tool_use', 'Bash', NULL, 'npm install', 200),
-  ('session-1', datetime('now', '-1 hour', '-30 minutes'), 'tool_use', 'Edit', 'CommandCenter/CommandCenterUITests/CommandCenterUITests.swift', 'Added Vizzly screenshot calls', 350),
+  ('session-1', datetime('now', '-1 hour', '-30 minutes'), 'tool_use', 'Edit', 'OrbitDock/OrbitDockUITests/OrbitDockUITests.swift', 'Added Vizzly screenshot calls', 350),
   ('session-1', datetime('now', '-1 hour', '-20 minutes'), 'tool_use', 'Glob', NULL, 'Found view files', 100),
-  ('session-1', datetime('now', '-1 minute'), 'tool_use', 'Edit', 'CommandCenter/CommandCenter/Database/DatabaseManager.swift', 'Added test database support', 450);
+  ('session-1', datetime('now', '-1 minute'), 'tool_use', 'Edit', 'OrbitDock/OrbitDock/Database/DatabaseManager.swift', 'Added test database support', 450);

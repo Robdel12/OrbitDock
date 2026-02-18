@@ -40,15 +40,15 @@ To embed the CLI in the OrbitDock app bundle:
 
 ### 1. Add Package to Xcode Project
 
-1. Open `CommandCenter.xcodeproj` in Xcode
+1. Open `OrbitDock.xcodeproj` in Xcode
 2. File → Add Package Dependencies...
 3. Click "Add Local..."
 4. Select the `OrbitDockCore` folder
-5. Add `OrbitDockCore` library to the CommandCenter target
+5. Add `OrbitDockCore` library to the OrbitDock target
 
 ### 2. Add Build Script Phase
 
-1. Select the CommandCenter target
+1. Select the OrbitDock target
 2. Go to Build Phases
 3. Click "+" → New Run Script Phase
 4. Drag it AFTER "Compile Sources" and "Link Binary With Libraries"

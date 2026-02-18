@@ -1,6 +1,6 @@
 //
-//  CommandCenterUITests.swift
-//  CommandCenterUITests
+//  OrbitDockUITests.swift
+//  OrbitDockUITests
 //
 //  Created by Robert DeLuca on 1/30/26.
 //
@@ -8,7 +8,7 @@
 import Vizzly
 import XCTest
 
-final class CommandCenterUITests: XCTestCase {
+final class OrbitDockUITests: XCTestCase {
   let app = XCUIApplication()
 
   override class func setUp() {

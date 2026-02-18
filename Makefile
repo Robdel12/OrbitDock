@@ -1,5 +1,5 @@
-XCODE_PROJECT ?= CommandCenter/CommandCenter.xcodeproj
-XCODE_SCHEME ?= CommandCenter
+XCODE_PROJECT ?= OrbitDock/OrbitDock.xcodeproj
+XCODE_SCHEME ?= OrbitDock
 XCODE_DESTINATION ?= platform=macOS
 XCODEBUILD_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -destination "$(XCODE_DESTINATION)"
 XCODEBUILD_LOG_DIR ?= .logs
@@ -22,8 +22,8 @@ SHELL := /bin/bash
 help:
 	@echo "make build      Build the macOS app (compact output, full log in .logs/xcodebuild-build.log)"
 	@echo "make test       Run unit tests (no UI tests)"
-	@echo "make test-unit  Run unit tests only (CommandCenterTests)"
-	@echo "make test-ui    Run UI tests only (CommandCenterUITests)"
+	@echo "make test-unit  Run unit tests only (OrbitDockTests)"
+	@echo "make test-ui    Run UI tests only (OrbitDockUITests)"
 	@echo "make test-all   Run all tests"
 	@echo "make clean      Clean build artifacts for the scheme"
 	@echo "make fmt        Format Swift + Rust code"
@@ -69,11 +69,11 @@ test: test-unit
 
 test-unit:
 	@$(MAKE) xcode-cache-dirs
-	$(XCODEBUILD) -only-testing:CommandCenterTests -skip-testing:CommandCenterUITests test
+	$(XCODEBUILD) -only-testing:OrbitDockTests -skip-testing:OrbitDockUITests test
 
 test-ui:
 	@$(MAKE) xcode-cache-dirs
-	$(XCODEBUILD) -only-testing:CommandCenterUITests test
+	$(XCODEBUILD) -only-testing:OrbitDockUITests test
 
 test-all:
 	@$(MAKE) xcode-cache-dirs
@@ -88,10 +88,10 @@ fmt: swift-fmt rust-fmt
 lint: swift-lint rust-lint
 
 swift-fmt:
-	swiftformat CommandCenter
+	swiftformat OrbitDock
 
 swift-lint:
-	swiftformat --lint CommandCenter
+	swiftformat --lint OrbitDock
 
 rust-build:
 	cd $(RUST_WORKSPACE_DIR) && cargo build -p orbitdock-server

@@ -17,8 +17,8 @@ OrbitDock is a native macOS SwiftUI app - mission control for AI coding agents. 
 ```bash
 # From repo root
 make build      # Build app (xcodebuild wrapper)
-make test-unit  # Run unit tests only (CommandCenterTests)
-make test-ui    # Run UI tests only (CommandCenterUITests)
+make test-unit  # Run unit tests only (OrbitDockTests)
+make test-ui    # Run UI tests only (OrbitDockUITests)
 make test-all   # Run both unit + UI tests
 make rust-build # Build orbitdock-server
 make rust-check # cargo check --workspace (orbitdock-server)
@@ -79,7 +79,7 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - **Codex App Logs**: `~/.orbitdock/logs/codex.log` (structured JSON logs for Codex debugging)
 - **Rust Server Logs**: `~/.orbitdock/logs/server.log` (structured JSON logs from orbitdock-server)
 - **Migrations**: `migrations/` (numbered SQL files, e.g., `001_initial.sql`)
-- **CLI Source**: `CommandCenter/OrbitDockCore/` (Swift Package with shared code + CLI)
+- **CLI Source**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code + CLI)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
 - **Codex Watcher State**: `~/.orbitdock/codex-rollout-state.json` (offset tracking)
@@ -206,7 +206,7 @@ Core event fields are stable for filtering:
 The CLI and shared database code live in a local Swift Package:
 
 ```
-CommandCenter/OrbitDockCore/
+OrbitDock/OrbitDockCore/
 ├── Package.swift
 └── Sources/
     ├── OrbitDockCore/          # Shared library

@@ -18,50 +18,50 @@
 			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 80BCD0BF2F2C834F00D91F91;
-			remoteInfo = CommandCenter;
+			remoteInfo = OrbitDock;
 		};
 		80BCD0D82F2C834F00D91F91 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 80BCD0BF2F2C834F00D91F91;
-			remoteInfo = CommandCenter;
+			remoteInfo = OrbitDock;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		80BCD0C02F2C834F00D91F91 /* OrbitDock.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitDock.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		80BCD0CD2F2C834F00D91F91 /* CommandCenterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CommandCenterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		80BCD0D72F2C834F00D91F91 /* CommandCenterUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CommandCenterUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitDockTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitDockUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		80BCDAFF2F3200000D91F91 /* Exceptions for "CommandCenter" folder in "CommandCenter" target */ = {
+		80BCDAFF2F3200000D91F91 /* Exceptions for "OrbitDock" folder in "OrbitDock" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 80BCD0BF2F2C834F00D91F91 /* CommandCenter */;
+			target = 80BCD0BF2F2C834F00D91F91 /* OrbitDock */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		80BCD0C22F2C834F00D91F91 /* CommandCenter */ = {
+		80BCD0C22F2C834F00D91F91 /* OrbitDock */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				80BCDAFF2F3200000D91F91 /* Exceptions for "CommandCenter" folder in "CommandCenter" target */,
+				80BCDAFF2F3200000D91F91 /* Exceptions for "OrbitDock" folder in "OrbitDock" target */,
 			);
-			path = CommandCenter;
+			path = OrbitDock;
 			sourceTree = "<group>";
 		};
-		80BCD0D02F2C834F00D91F91 /* CommandCenterTests */ = {
+		80BCD0D02F2C834F00D91F91 /* OrbitDockTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = CommandCenterTests;
+			path = OrbitDockTests;
 			sourceTree = "<group>";
 		};
-		80BCD0DA2F2C834F00D91F91 /* CommandCenterUITests */ = {
+		80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = CommandCenterUITests;
+			path = OrbitDockUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -97,9 +97,9 @@
 		80BCD0B72F2C834F00D91F91 = {
 			isa = PBXGroup;
 			children = (
-				80BCD0C22F2C834F00D91F91 /* CommandCenter */,
-				80BCD0D02F2C834F00D91F91 /* CommandCenterTests */,
-				80BCD0DA2F2C834F00D91F91 /* CommandCenterUITests */,
+				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
+				80BCD0D02F2C834F00D91F91 /* OrbitDockTests */,
+				80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */,
 				80BCD0C12F2C834F00D91F91 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -108,8 +108,8 @@
 			isa = PBXGroup;
 			children = (
 				80BCD0C02F2C834F00D91F91 /* OrbitDock.app */,
-				80BCD0CD2F2C834F00D91F91 /* CommandCenterTests.xctest */,
-				80BCD0D72F2C834F00D91F91 /* CommandCenterUITests.xctest */,
+				80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */,
+				80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -117,9 +117,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		80BCD0BF2F2C834F00D91F91 /* CommandCenter */ = {
+		80BCD0BF2F2C834F00D91F91 /* OrbitDock */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 80BCD0E12F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "CommandCenter" */;
+			buildConfigurationList = 80BCD0E12F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDock" */;
 			buildPhases = (
 				80BCD0BC2F2C834F00D91F91 /* Sources */,
 				80BCD0BD2F2C834F00D91F91 /* Frameworks */,
@@ -131,20 +131,20 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				80BCD0C22F2C834F00D91F91 /* CommandCenter */,
+				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
 			);
-			name = CommandCenter;
+			name = OrbitDock;
 			packageProductDependencies = (
 				80BCD0FC2F2C854300D91F91 /* SQLite */,
 				80BCD0FF2F2C900000D91F91 /* MarkdownUI */,
 			);
-			productName = CommandCenter;
+			productName = OrbitDock;
 			productReference = 80BCD0C02F2C834F00D91F91 /* OrbitDock.app */;
 			productType = "com.apple.product-type.application";
 		};
-		80BCD0CC2F2C834F00D91F91 /* CommandCenterTests */ = {
+		80BCD0CC2F2C834F00D91F91 /* OrbitDockTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 80BCD0E42F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "CommandCenterTests" */;
+			buildConfigurationList = 80BCD0E42F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDockTests" */;
 			buildPhases = (
 				80BCD0C92F2C834F00D91F91 /* Sources */,
 				80BCD0CA2F2C834F00D91F91 /* Frameworks */,
@@ -156,18 +156,18 @@
 				80BCD0CF2F2C834F00D91F91 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				80BCD0D02F2C834F00D91F91 /* CommandCenterTests */,
+				80BCD0D02F2C834F00D91F91 /* OrbitDockTests */,
 			);
-			name = CommandCenterTests;
+			name = OrbitDockTests;
 			packageProductDependencies = (
 			);
-			productName = CommandCenterTests;
-			productReference = 80BCD0CD2F2C834F00D91F91 /* CommandCenterTests.xctest */;
+			productName = OrbitDockTests;
+			productReference = 80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		80BCD0D62F2C834F00D91F91 /* CommandCenterUITests */ = {
+		80BCD0D62F2C834F00D91F91 /* OrbitDockUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 80BCD0E72F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "CommandCenterUITests" */;
+			buildConfigurationList = 80BCD0E72F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDockUITests" */;
 			buildPhases = (
 				80BCD0D32F2C834F00D91F91 /* Sources */,
 				80BCD0D42F2C834F00D91F91 /* Frameworks */,
@@ -179,14 +179,14 @@
 				80BCD0D92F2C834F00D91F91 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				80BCD0DA2F2C834F00D91F91 /* CommandCenterUITests */,
+				80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */,
 			);
-			name = CommandCenterUITests;
+			name = OrbitDockUITests;
 			packageProductDependencies = (
 				80BCDA932F3113B700D91F91 /* Vizzly */,
 			);
-			productName = CommandCenterUITests;
-			productReference = 80BCD0D72F2C834F00D91F91 /* CommandCenterUITests.xctest */;
+			productName = OrbitDockUITests;
+			productReference = 80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
@@ -212,7 +212,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 80BCD0BB2F2C834F00D91F91 /* Build configuration list for PBXProject "CommandCenter" */;
+			buildConfigurationList = 80BCD0BB2F2C834F00D91F91 /* Build configuration list for PBXProject "OrbitDock" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -232,9 +232,9 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				80BCD0BF2F2C834F00D91F91 /* CommandCenter */,
-				80BCD0CC2F2C834F00D91F91 /* CommandCenterTests */,
-				80BCD0D62F2C834F00D91F91 /* CommandCenterUITests */,
+				80BCD0BF2F2C834F00D91F91 /* OrbitDock */,
+				80BCD0CC2F2C834F00D91F91 /* OrbitDockTests */,
+				80BCD0D62F2C834F00D91F91 /* OrbitDockUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -314,12 +314,12 @@
 /* Begin PBXTargetDependency section */
 		80BCD0CF2F2C834F00D91F91 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 80BCD0BF2F2C834F00D91F91 /* CommandCenter */;
+			target = 80BCD0BF2F2C834F00D91F91 /* OrbitDock */;
 			targetProxy = 80BCD0CE2F2C834F00D91F91 /* PBXContainerItemProxy */;
 		};
 		80BCD0D92F2C834F00D91F91 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 80BCD0BF2F2C834F00D91F91 /* CommandCenter */;
+			target = 80BCD0BF2F2C834F00D91F91 /* OrbitDock */;
 			targetProxy = 80BCD0D82F2C834F00D91F91 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -455,7 +455,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				AUTOMATION_APPLE_EVENTS = YES;
-				CODE_SIGN_ENTITLEMENTS = CommandCenter/CommandCenter.entitlements;
+				CODE_SIGN_ENTITLEMENTS = OrbitDock/OrbitDock.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -465,7 +465,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = CommandCenter/Info.plist;
+				INFOPLIST_FILE = OrbitDock/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -490,7 +490,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				AUTOMATION_APPLE_EVENTS = YES;
-				CODE_SIGN_ENTITLEMENTS = CommandCenter/CommandCenter.entitlements;
+				CODE_SIGN_ENTITLEMENTS = OrbitDock/OrbitDock.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -500,7 +500,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = CommandCenter/Info.plist;
+				INFOPLIST_FILE = OrbitDock/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -537,7 +537,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CommandCenter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CommandCenter";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OrbitDock.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OrbitDock";
 			};
 			name = Debug;
 		};
@@ -559,7 +559,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CommandCenter.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CommandCenter";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OrbitDock.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OrbitDock";
 			};
 			name = Release;
 		};
@@ -579,7 +579,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = CommandCenter;
+				TEST_TARGET_NAME = OrbitDock;
 			};
 			name = Debug;
 		};
@@ -599,14 +599,14 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_TARGET_NAME = CommandCenter;
+				TEST_TARGET_NAME = OrbitDock;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		80BCD0BB2F2C834F00D91F91 /* Build configuration list for PBXProject "CommandCenter" */ = {
+		80BCD0BB2F2C834F00D91F91 /* Build configuration list for PBXProject "OrbitDock" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				80BCD0DF2F2C834F00D91F91 /* Debug */,
@@ -615,7 +615,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		80BCD0E12F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "CommandCenter" */ = {
+		80BCD0E12F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDock" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				80BCD0E22F2C834F00D91F91 /* Debug */,
@@ -624,7 +624,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		80BCD0E42F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "CommandCenterTests" */ = {
+		80BCD0E42F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDockTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				80BCD0E52F2C834F00D91F91 /* Debug */,
@@ -633,7 +633,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		80BCD0E72F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "CommandCenterUITests" */ = {
+		80BCD0E72F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDockUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				80BCD0E82F2C834F00D91F91 /* Debug */,

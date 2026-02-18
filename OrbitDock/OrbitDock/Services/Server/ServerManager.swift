@@ -116,55 +116,27 @@ final class ServerManager: ObservableObject {
   // MARK: - Private
 
   private func findServerBinary() -> String? {
-    // Development paths - prefer local Rust build in DEBUG so rebuilds are always picked up.
-    let homeDir = FileManager.default.homeDirectoryForCurrentUser
-    let repoBase = homeDir.appendingPathComponent("Developer/claude-dashboard/orbitdock-server/target")
-    let debugPath = repoBase.appendingPathComponent("debug/orbitdock-server").path
-    let releasePath = repoBase.appendingPathComponent("release/orbitdock-server").path
-    let universalPath = repoBase.appendingPathComponent("universal/orbitdock-server").path
-
-    #if DEBUG
-      if FileManager.default.fileExists(atPath: debugPath) {
-        return debugPath
-      }
-      if FileManager.default.fileExists(atPath: releasePath) {
-        return releasePath
-      }
-      if FileManager.default.fileExists(atPath: universalPath) {
-        return universalPath
-      }
-    #endif
-
-    // 1. Check app bundle (production)
-    if let bundlePath = Bundle.main.path(forResource: "orbitdock-server", ofType: nil) {
-      return bundlePath
+    // 1. Environment override (for development / custom setups)
+    if let envPath = ProcessInfo.processInfo.environment["ORBITDOCK_SERVER_PATH"],
+      FileManager.default.fileExists(atPath: envPath)
+    {
+      return envPath
     }
 
-    // 2. Check Resources folder in bundle
-    if let resourcePath = Bundle.main.resourcePath {
-      let path = (resourcePath as NSString).appendingPathComponent("orbitdock-server")
+    // 2. Next to the main executable — build phase copies it to Contents/MacOS/
+    if let execDir = Bundle.main.executableURL?.deletingLastPathComponent() {
+      let path = execDir.appendingPathComponent("orbitdock-server").path
       if FileManager.default.fileExists(atPath: path) {
         return path
       }
     }
 
-    // 3. Development paths - try repo location
-    // Try debug binary first (faster builds during development)
-    if FileManager.default.fileExists(atPath: debugPath) {
-      return debugPath
+    // 3. Bundle resource lookup (fallback)
+    if let bundlePath = Bundle.main.path(forResource: "orbitdock-server", ofType: nil) {
+      return bundlePath
     }
 
-    // Try release binary
-    if FileManager.default.fileExists(atPath: releasePath) {
-      return releasePath
-    }
-
-    // Try universal binary
-    if FileManager.default.fileExists(atPath: universalPath) {
-      return universalPath
-    }
-
-    // 4. Check PATH (fallback)
+    // 4. Check PATH
     let pathDirs = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":") ?? []
     for dir in pathDirs {
       let path = "\(dir)/orbitdock-server"

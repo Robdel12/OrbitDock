@@ -1,4 +1,4 @@
-@testable import CommandCenter
+@testable import OrbitDock
 import Testing
 
 struct ShellCommandDisplayTests {

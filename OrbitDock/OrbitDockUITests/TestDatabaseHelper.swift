@@ -1,6 +1,6 @@
 //
 //  TestDatabaseHelper.swift
-//  CommandCenterUITests
+//  OrbitDockUITests
 //
 //  Manages test database setup and teardown for UI tests
 //
@@ -31,7 +31,7 @@ enum TestDatabaseHelper {
     } else {
       // Fallback: try from fixtures directory
       let fixturesPath = projectRoot
-        .appendingPathComponent("CommandCenter/CommandCenterUITests/Fixtures/seed_data.sql")
+        .appendingPathComponent("OrbitDock/OrbitDockUITests/Fixtures/seed_data.sql")
       if FileManager.default.fileExists(atPath: fixturesPath.path) {
         runSQL(dbPath: testDbPath, sqlFile: fixturesPath)
       }
@@ -58,8 +58,8 @@ enum TestDatabaseHelper {
       url = url.deletingLastPathComponent()
     }
 
-    // Fallback to known path
-    return URL(fileURLWithPath: "/Users/robertdeluca/Developer/claude-dashboard")
+    // If we can't find the project root, fail loudly
+    fatalError("Could not find project root (no migrations/ directory found walking up from test bundle)")
   }
 
   private static func runMigrations(dbPath: String, migrationsDir: URL) {

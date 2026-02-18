@@ -1,13 +1,13 @@
 //
-//  CommandCenterUITestsLaunchTests.swift
-//  CommandCenterUITests
+//  OrbitDockUITestsLaunchTests.swift
+//  OrbitDockUITests
 //
 //  Created by Robert DeLuca on 1/30/26.
 //
 
 import XCTest
 
-final class CommandCenterUITestsLaunchTests: XCTestCase {
+final class OrbitDockUITestsLaunchTests: XCTestCase {
 
   override class var runsForEachTargetApplicationUIConfiguration: Bool {
     true
