@@ -35,6 +35,7 @@ struct WorkStreamEntry: View {
     case userSystemCaveat(ParsedSystemCaveat)
     case userCodeReview
     case userSystemContext(ParsedSystemContext)
+    case userShellContext(ParsedShellContext)
     case assistant
     case thinking
     case steer
@@ -56,8 +57,8 @@ struct WorkStreamEntry: View {
   private var renderMode: RenderMode {
     switch kind {
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-           .userSystemCaveat, .userCodeReview, .userSystemContext, .assistant, .steer,
-           .thinking, .shell:
+           .userSystemCaveat, .userCodeReview, .userSystemContext, .userShellContext,
+           .assistant, .steer, .thinking, .shell:
         .inline
       case .toolEdit:
         .compactPreview
@@ -111,6 +112,9 @@ struct WorkStreamEntry: View {
       if let ctx = ParsedSystemContext.parse(from: message.content) {
         return .userSystemContext(ctx)
       }
+      if let shellCtx = ParsedShellContext.parse(from: message.content) {
+        return .userShellContext(shellCtx)
+      }
       return .userPrompt
     }
 
@@ -129,6 +133,7 @@ struct WorkStreamEntry: View {
       case .userSystemCaveat: "info.circle"
       case .userCodeReview: "checkmark.message"
       case .userSystemContext: "doc.text"
+      case .userShellContext: "terminal.fill"
       case .assistant: "sparkle"
       case .thinking: "brain.head.profile"
       case .steer: "arrow.turn.down.right"
@@ -157,6 +162,7 @@ struct WorkStreamEntry: View {
       case .userSystemCaveat: .secondary
       case .userCodeReview: .accent
       case .userSystemContext: Color.textTertiary
+      case .userShellContext: .shellAccent
       case .assistant: Color.white.opacity(0.85)
       case .thinking: Color(red: 0.6, green: 0.55, blue: 0.8)
       case .steer: .accent
@@ -236,6 +242,11 @@ struct WorkStreamEntry: View {
         return "Code review feedback"
       case let .userSystemContext(ctx):
         return ctx.label
+      case let .userShellContext(ctx):
+        if !ctx.userPrompt.isEmpty {
+          return firstLine(of: ctx.userPrompt, maxLength: 120)
+        }
+        return "\(ctx.commandCount) shell command\(ctx.commandCount == 1 ? "" : "s")"
       case .assistant:
         return firstLine(of: message.content, maxLength: 100)
       case .thinking:
@@ -317,7 +328,7 @@ struct WorkStreamEntry: View {
   private var isUserKind: Bool {
     switch kind {
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-           .userSystemCaveat, .userCodeReview, .steer, .shell:
+           .userSystemCaveat, .userCodeReview, .userShellContext, .steer, .shell:
         true
       default:
         false
@@ -329,7 +340,7 @@ struct WorkStreamEntry: View {
   private var isUserEntry: Bool {
     switch kind {
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
-           .userSystemCaveat, .userCodeReview, .shell:
+           .userSystemCaveat, .userCodeReview, .userShellContext, .shell:
         true
       default:
         false
@@ -486,6 +497,9 @@ struct WorkStreamEntry: View {
 
           case let .userSystemCaveat(caveat):
             SystemCaveatView(caveat: caveat)
+
+          case let .userShellContext(ctx):
+            ShellContextCard(context: ctx, timestamp: message.timestamp)
 
           case .userCodeReview:
             CodeReviewFeedbackCard(
@@ -669,6 +683,10 @@ struct WorkStreamEntry: View {
           .padding(.leading, Spacing.xl)
           .padding(.trailing, Spacing.xl)
 
+      case let .userShellContext(ctx):
+        ShellContextCard(context: ctx, timestamp: message.timestamp)
+          .padding(.leading, Spacing.xl)
+
       case .assistant:
         assistantInline
 
@@ -713,7 +731,7 @@ struct WorkStreamEntry: View {
         thinkingDisclosure
       }
 
-      MarkdownView(content: displayContent)
+      StreamingMarkdownView(content: displayContent)
 
       if isLongContent {
         Button {
@@ -774,7 +792,7 @@ struct WorkStreamEntry: View {
       : content
 
     return VStack(alignment: .leading, spacing: 0) {
-      ThinkingMarkdownView(content: displayText)
+      StreamingMarkdownView(content: displayText, style: .thinking)
         .frame(maxWidth: .infinity, alignment: .leading)
 
       if isLong {
@@ -867,7 +885,7 @@ struct WorkStreamEntry: View {
 
       case .thinking:
         ScrollView {
-          ThinkingMarkdownView(content: message.content)
+          StreamingMarkdownView(content: message.content, style: .thinking)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 300)
@@ -923,7 +941,7 @@ struct WorkStreamEntry: View {
 
       if isThinkingExpanded, let thinking = message.thinking {
         ScrollView {
-          ThinkingMarkdownView(content: thinking)
+          StreamingMarkdownView(content: thinking, style: .thinking)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 250)

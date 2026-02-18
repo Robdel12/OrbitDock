@@ -27,6 +27,9 @@ struct ConversationView: View {
   @State private var loadedSessionId: String?
   @State private var displayedCount: Int = 50
   @State private var refreshTask: Task<Void, Never>?
+  @State private var hasPendingRefresh = false
+  @State private var hasActivatedScrollTracking = false
+  @State private var unpinnedByScroll = false
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool
@@ -34,11 +37,22 @@ struct ConversationView: View {
   @Binding var scrollToBottomTrigger: Int
 
   private let pageSize = 50
+  private let refreshCadence: Duration = .milliseconds(33)
+  private let scrollCoordinateSpace = "conversation-scroll"
+  private let unpinDistanceThreshold: CGFloat = 200
+  private let repinDistanceThreshold: CGFloat = 56
 
   /// Pre-computed per-message metadata to avoid O(n²) in ForEach
   private struct MessageMeta {
     let turnsAfter: Int?
     let nthUserMessage: Int?
+  }
+
+  private struct TailRenderSignature: Equatable {
+    let messageId: String?
+    let contentLength: Int
+    let outputLength: Int
+    let isInProgress: Bool
   }
 
   var displayedMessages: [TranscriptMessage] {
@@ -48,6 +62,18 @@ struct ConversationView: View {
 
   var hasMoreMessages: Bool {
     displayedCount < messages.count
+  }
+
+  private var tailRenderSignature: TailRenderSignature {
+    guard let last = messages.last else {
+      return TailRenderSignature(messageId: nil, contentLength: 0, outputLength: 0, isInProgress: false)
+    }
+    return TailRenderSignature(
+      messageId: last.id,
+      contentLength: last.content.count,
+      outputLength: last.toolOutput?.count ?? 0,
+      isInProgress: last.isInProgress
+    )
   }
 
   var body: some View {
@@ -78,19 +104,26 @@ struct ConversationView: View {
     }
     .onAppear {
       loadMessagesIfNeeded()
+      queueRefreshFromServerState()
+    }
+    .onDisappear {
+      refreshTask?.cancel()
+      refreshTask = nil
+      hasPendingRefresh = false
     }
     .onChange(of: sessionId) { _, _ in
       loadMessagesIfNeeded()
+      queueRefreshFromServerState()
     }
-    // React to server message changes (appends, updates, undo, rollback) — only THIS session
-    // Debounce rapid revision bumps during streaming into a single UI update
-    .onChange(of: serverState.session(sessionId ?? "").messagesRevision) { _, _ in
-      refreshTask?.cancel()
-      refreshTask = Task { @MainActor in
-        try? await Task.sleep(for: .milliseconds(50))
-        guard !Task.isCancelled else { return }
-        refreshFromServerStateIfNeeded()
+    .onChange(of: isPinned) { _, nowPinned in
+      if nowPinned {
+        unpinnedByScroll = false
       }
+    }
+    // React to server message changes (appends, updates, undo, rollback) — only THIS session.
+    // Coalesce rapid revision bumps into a throttled refresh loop so streaming never starves.
+    .onChange(of: serverState.session(sessionId ?? "").messagesRevision) { _, _ in
+      queueRefreshFromServerState()
     }
   }
 
@@ -98,122 +131,138 @@ struct ConversationView: View {
 
   private var conversationThread: some View {
     ScrollViewReader { proxy in
-      ZStack(alignment: .topTrailing) {
-        ScrollView {
-          LazyVStack(alignment: .leading, spacing: 2) {
-            // Load more indicator
-            if hasMoreMessages {
-              loadMoreIndicator
-            }
+      GeometryReader { scrollGeometry in
+        ZStack(alignment: .topTrailing) {
+          ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+              // Load more indicator
+              if hasMoreMessages {
+                loadMoreIndicator
+              }
 
-            // Message count (subtle)
-            if messages.count > pageSize {
-              messageCountIndicator
-            }
+              // Message count (subtle)
+              if messages.count > pageSize {
+                messageCountIndicator
+              }
 
-            // Conditional rendering based on chat view mode
-            let msgs = displayedMessages
-            switch chatViewMode {
-              case .verbose:
-                // Existing flat ForEach — full transaction log
-                let metadata = Self.computeMessageMetadata(msgs)
-                ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
-                  let meta = metadata[message.id]
-                  let turnsAfter = meta?.turnsAfter
-                  let nthUser = meta?.nthUserMessage
-                  WorkStreamEntry(
-                    message: message,
-                    provider: provider,
-                    model: model,
-                    sessionId: sessionId,
-                    rollbackTurns: turnsAfter,
-                    nthUserMessage: nthUser,
-                    onRollback: turnsAfter != nil ? {
-                      if let sid = sessionId, let turns = turnsAfter {
-                        serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
-                      }
-                    } : nil,
-                    onFork: nthUser != nil ? {
-                      if let sid = sessionId, let nth = nthUser {
-                        serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
-                      }
-                    } : nil,
-                    onNavigateToReviewFile: onNavigateToReviewFile
+              // Conditional rendering based on chat view mode
+              let msgs = displayedMessages
+              switch chatViewMode {
+                case .verbose:
+                  // Existing flat ForEach — full transaction log
+                  let metadata = Self.computeMessageMetadata(msgs)
+                  ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
+                    let meta = metadata[message.id]
+                    let turnsAfter = meta?.turnsAfter
+                    let nthUser = meta?.nthUserMessage
+                    WorkStreamEntry(
+                      message: message,
+                      provider: provider,
+                      model: model,
+                      sessionId: sessionId,
+                      rollbackTurns: turnsAfter,
+                      nthUserMessage: nthUser,
+                      onRollback: turnsAfter != nil ? {
+                        if let sid = sessionId, let turns = turnsAfter {
+                          serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
+                        }
+                      } : nil,
+                      onFork: nthUser != nil ? {
+                        if let sid = sessionId, let nth = nthUser {
+                          serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
+                        }
+                      } : nil,
+                      onNavigateToReviewFile: onNavigateToReviewFile
+                    )
+                    .id(message.id)
+                  }
+
+                case .focused:
+                  // Turn-grouped rendering with collapse logic
+                  let serverDiffs = sessionId.flatMap { serverState.session($0).turnDiffs } ?? []
+                  let turns = TurnBuilder.build(
+                    from: msgs,
+                    serverTurnDiffs: serverDiffs,
+                    currentTurnId: isSessionActive && workStatus == .working ? "active" : nil
                   )
-                  .id(message.id)
-                }
+                  ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
+                    TurnGroupView(
+                      turn: turn,
+                      turnIndex: index,
+                      provider: provider,
+                      model: model,
+                      sessionId: sessionId,
+                      onNavigateToReviewFile: onNavigateToReviewFile
+                    )
+                  }
+              }
 
-              case .focused:
-                // Turn-grouped rendering with collapse logic
-                let serverDiffs = sessionId.flatMap { serverState.session($0).turnDiffs } ?? []
-                let turns = TurnBuilder.build(
-                  from: msgs,
-                  serverTurnDiffs: serverDiffs,
-                  currentTurnId: isSessionActive && workStatus == .working ? "active" : nil
+              // Live status indicator
+              if isSessionActive, workStatus != .unknown {
+                WorkStreamLiveIndicator(
+                  workStatus: workStatus,
+                  currentTool: currentTool,
+                  currentPrompt: currentPrompt,
+                  pendingToolName: pendingToolName,
+                  pendingToolInput: pendingToolInput,
+                  provider: provider
                 )
-                ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
-                  TurnGroupView(
-                    turn: turn,
-                    turnIndex: index,
-                    provider: provider,
-                    model: model,
-                    sessionId: sessionId,
-                    onNavigateToReviewFile: onNavigateToReviewFile
-                  )
-                }
-            }
+                .id("activity")
+              }
 
-            // Live status indicator
-            if isSessionActive, workStatus != .unknown {
-              WorkStreamLiveIndicator(
-                workStatus: workStatus,
-                currentTool: currentTool,
-                currentPrompt: currentPrompt,
-                pendingToolName: pendingToolName,
-                pendingToolInput: pendingToolInput,
-                provider: provider
-              )
-              .id("activity")
+              // Bottom spacer
+              Color.clear
+                .frame(height: 32)
+                .background(
+                  GeometryReader { geometry in
+                    Color.clear.preference(
+                      key: BottomAnchorMaxYPreferenceKey.self,
+                      value: geometry.frame(in: .named(scrollCoordinateSpace)).maxY
+                    )
+                  }
+                )
+                .id("bottomAnchor")
             }
-
-            // Bottom spacer
-            Color.clear
-              .frame(height: 32)
-              .id("bottomAnchor")
+            .padding(.horizontal, Spacing.sm)
           }
-          .padding(.horizontal, Spacing.sm)
-        }
-        .scrollIndicators(.hidden)
-        .defaultScrollAnchor(.bottom)
-        .onAppear {
-          scrollToEnd(proxy: proxy, animated: false)
-        }
-        .onChange(of: messages.count) { oldCount, newCount in
-          if newCount > oldCount {
-            if isPinned {
-              // Don't animate during rapid streaming — just jump to avoid jitter
-              proxy.scrollTo(
-                isSessionActive && workStatus == .working ? "activity" : "bottomAnchor",
-                anchor: .bottom
-              )
-            } else {
+          .coordinateSpace(name: scrollCoordinateSpace)
+          .scrollIndicators(.hidden)
+          .defaultScrollAnchor(.bottom)
+          .onAppear {
+            hasActivatedScrollTracking = false
+            scrollToEnd(proxy: proxy, animated: false)
+            Task { @MainActor in
+              await Task.yield()
+              hasActivatedScrollTracking = true
+            }
+          }
+          .onPreferenceChange(BottomAnchorMaxYPreferenceKey.self) { bottomAnchorMaxY in
+            updateAutoFollowState(bottomAnchorMaxY: bottomAnchorMaxY, viewportHeight: scrollGeometry.size.height)
+          }
+          .onChange(of: messages.count) { oldCount, newCount in
+            if newCount > oldCount, !isPinned {
               unreadCount += (newCount - oldCount)
             }
           }
-        }
-        .onChange(of: workStatus) {
-          if isPinned {
+          .onChange(of: tailRenderSignature) { _, _ in
+            guard isPinned else { return }
+            scrollToEnd(proxy: proxy, animated: false)
+          }
+          .onChange(of: workStatus) {
+            if isPinned {
+              scrollToEnd(proxy: proxy, animated: true)
+            }
+          }
+          .onChange(of: scrollToBottomTrigger) {
+            unpinnedByScroll = false
             scrollToEnd(proxy: proxy, animated: true)
           }
-        }
-        .onChange(of: scrollToBottomTrigger) {
-          scrollToEnd(proxy: proxy, animated: true)
-        }
 
-        // Floating mode toggle
-        chatViewModeToggle
-          .padding(.top, 8)
-          .padding(.trailing, 12)
+          // Floating mode toggle
+          chatViewModeToggle
+            .padding(.top, 8)
+            .padding(.trailing, 12)
+        }
       }
     }
   }
@@ -267,6 +316,25 @@ struct ConversationView: View {
       }
     } else {
       proxy.scrollTo(targetId, anchor: .bottom)
+    }
+  }
+
+  private func updateAutoFollowState(bottomAnchorMaxY: CGFloat, viewportHeight: CGFloat) {
+    guard hasActivatedScrollTracking, viewportHeight > 0, !messages.isEmpty else { return }
+    let distanceFromBottom = max(0, viewportHeight - bottomAnchorMaxY)
+
+    if isPinned {
+      if distanceFromBottom > unpinDistanceThreshold {
+        unpinnedByScroll = true
+        isPinned = false
+      }
+      return
+    }
+
+    if unpinnedByScroll, distanceFromBottom <= repinDistanceThreshold {
+      unpinnedByScroll = false
+      unreadCount = 0
+      isPinned = true
     }
   }
 
@@ -329,6 +397,11 @@ struct ConversationView: View {
 
   private func loadMessagesIfNeeded() {
     guard sessionId != loadedSessionId else { return }
+    refreshTask?.cancel()
+    refreshTask = nil
+    hasPendingRefresh = false
+    hasActivatedScrollTracking = false
+    unpinnedByScroll = false
     loadedSessionId = sessionId
     messages = []
     currentPrompt = nil
@@ -350,23 +423,27 @@ struct ConversationView: View {
     guard let sid = sessionId else { return }
     let serverMessages = serverState.session(sid).messages
 
-    // Fast path: nothing changed
+    // Fast path: nothing changed at a render-relevant level.
     if messages.count == serverMessages.count,
-       messages.last?.id == serverMessages.last?.id,
-       messages.last == serverMessages.last
+       messages.indices.allSatisfy({ i in
+         messages[i].id == serverMessages[i].id &&
+           messageRenderEquivalent(messages[i], serverMessages[i])
+       })
     {
       return
     }
 
-    // Append path: server has more messages (common during streaming)
+    // Append path: server has more messages and preserves ID ordering.
+    let sharesPrefixIds = !messages.isEmpty &&
+      serverMessages.count >= messages.count &&
+      messages.indices.allSatisfy { messages[$0].id == serverMessages[$0].id }
+
     if serverMessages.count >= messages.count,
-       !messages.isEmpty,
-       // Verify existing messages share the same prefix (no structural change)
-       messages.first?.id == serverMessages.first?.id
+       sharesPrefixIds
     {
-      // Update any changed existing messages (e.g., toolOutput filled in)
+      // Update changed existing messages (e.g., streaming content/tool output).
       for i in messages.indices {
-        if i < serverMessages.count, messages[i] != serverMessages[i] {
+        if i < serverMessages.count, !messageRenderEquivalent(messages[i], serverMessages[i]) {
           messages[i] = serverMessages[i]
         }
       }
@@ -382,6 +459,34 @@ struct ConversationView: View {
 
     displayedCount = max(displayedCount, messages.count)
     isLoading = false
+  }
+
+  private func queueRefreshFromServerState() {
+    hasPendingRefresh = true
+    guard refreshTask == nil else { return }
+
+    refreshTask = Task { @MainActor in
+      while hasPendingRefresh, !Task.isCancelled {
+        hasPendingRefresh = false
+        refreshFromServerStateIfNeeded()
+        try? await Task.sleep(for: refreshCadence)
+      }
+      refreshTask = nil
+    }
+  }
+
+  private func messageRenderEquivalent(_ lhs: TranscriptMessage, _ rhs: TranscriptMessage) -> Bool {
+    lhs.id == rhs.id &&
+      lhs.type == rhs.type &&
+      lhs.content == rhs.content &&
+      lhs.toolName == rhs.toolName &&
+      lhs.toolOutput == rhs.toolOutput &&
+      lhs.toolDuration == rhs.toolDuration &&
+      lhs.inputTokens == rhs.inputTokens &&
+      lhs.outputTokens == rhs.outputTokens &&
+      lhs.isInProgress == rhs.isInProgress &&
+      lhs.thinking == rhs.thinking &&
+      lhs.images == rhs.images
   }
 
   /// Single-pass computation of per-message metadata (turnsAfter, nthUserMessage).
@@ -426,6 +531,14 @@ struct ConversationView: View {
     return result
   }
 
+}
+
+private struct BottomAnchorMaxYPreferenceKey: PreferenceKey {
+  static var defaultValue: CGFloat = 0
+
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+    value = nextValue()
+  }
 }
 
 // MARK: - Image Gallery (Multiple images with fullscreen + collapsible)

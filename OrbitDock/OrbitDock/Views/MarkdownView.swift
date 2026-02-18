@@ -27,6 +27,67 @@ struct MarkdownContentView: View {
 /// Alias for backwards compatibility
 typealias MarkdownView = MarkdownContentView
 
+// MARK: - Streaming Markdown View
+
+/// Throttles rapid markdown updates and adds a subtle fade-in to smooth streaming text.
+struct StreamingMarkdownView: View {
+  let content: String
+  var style: Style = .standard
+  var cadence: Duration = .milliseconds(33)
+
+  enum Style {
+    case standard
+    case thinking
+  }
+
+  @State private var renderedContent = ""
+  @State private var pendingContent = ""
+  @State private var updateTask: Task<Void, Never>?
+  @State private var fadeOpacity: Double = 1.0
+
+  var body: some View {
+    Group {
+      switch style {
+        case .standard:
+          MarkdownContentView(content: renderedContent)
+        case .thinking:
+          ThinkingMarkdownView(content: renderedContent)
+      }
+    }
+    .opacity(fadeOpacity)
+    .onAppear {
+      renderedContent = content
+      pendingContent = content
+      fadeOpacity = 1.0
+    }
+    .onDisappear {
+      updateTask?.cancel()
+      updateTask = nil
+    }
+    .onChange(of: content) { _, newContent in
+      queueRender(newContent)
+    }
+  }
+
+  private func queueRender(_ newContent: String) {
+    pendingContent = newContent
+    guard updateTask == nil else { return }
+
+    updateTask = Task { @MainActor in
+      defer { updateTask = nil }
+
+      while !Task.isCancelled, renderedContent != pendingContent {
+        renderedContent = pendingContent
+        fadeOpacity = 0.82
+        withAnimation(.easeInOut(duration: 0.18)) {
+          fadeOpacity = 1.0
+        }
+        try? await Task.sleep(for: cadence)
+      }
+    }
+  }
+}
+
 // MARK: - Thinking Markdown View (Compact theme)
 
 struct ThinkingMarkdownView: View {

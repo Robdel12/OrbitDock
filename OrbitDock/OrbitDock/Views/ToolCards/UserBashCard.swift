@@ -638,6 +638,302 @@ struct ParsedTaskNotification {
   }
 }
 
+// MARK: - Parsed Shell Context
+
+struct ParsedShellContext {
+  struct CommandBlock: Identifiable {
+    let id = UUID()
+    let command: String
+    let output: String
+    let exitCode: Int?
+
+    var hasError: Bool {
+      guard let code = exitCode else { return false }
+      return code != 0
+    }
+  }
+
+  let commands: [CommandBlock]
+  let userPrompt: String
+
+  var commandCount: Int {
+    commands.count
+  }
+
+  /// Parse content containing <shell-context> tags
+  /// Format inside tags: `$ cmd\noutput\n(exit N)` blocks separated by blank lines
+  /// Text after </shell-context> is the user's follow-up prompt
+  static func parse(from content: String) -> ParsedShellContext? {
+    guard content.contains("<shell-context>") else { return nil }
+
+    let contextBody = extractTag("shell-context", from: content)
+    guard !contextBody.isEmpty else { return nil }
+
+    // Extract user prompt after </shell-context>
+    let userPrompt: String
+    if let closeRange = content.range(of: "</shell-context>") {
+      let afterClose = String(content[closeRange.upperBound...])
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      userPrompt = afterClose
+    } else {
+      userPrompt = ""
+    }
+
+    // Parse command blocks — split by double newline
+    let blocks = contextBody
+      .components(separatedBy: "\n\n")
+      .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var commands: [CommandBlock] = []
+
+    for block in blocks {
+      let lines = block.components(separatedBy: "\n")
+      guard let firstLine = lines.first else { continue }
+
+      // Extract command from "$ cmd" prefix
+      let command: String
+      let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
+      if trimmed.hasPrefix("$ ") {
+        command = String(trimmed.dropFirst(2))
+      } else if trimmed.hasPrefix("$") {
+        command = String(trimmed.dropFirst(1)).trimmingCharacters(in: .whitespaces)
+      } else {
+        // No $ prefix — treat entire block as output with no command
+        command = ""
+      }
+
+      // Check last line for exit code pattern: (exit N)
+      var exitCode: Int?
+      var outputLines = Array(lines.dropFirst())
+      if let lastLine = outputLines.last?.trimmingCharacters(in: .whitespaces),
+         lastLine.hasPrefix("(exit "), lastLine.hasSuffix(")")
+      {
+        let codeStr = lastLine
+          .replacingOccurrences(of: "(exit ", with: "")
+          .replacingOccurrences(of: ")", with: "")
+        exitCode = Int(codeStr)
+        outputLines = Array(outputLines.dropLast())
+      }
+
+      let output = outputLines.joined(separator: "\n")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+      commands.append(CommandBlock(
+        command: command,
+        output: output,
+        exitCode: exitCode
+      ))
+    }
+
+    guard !commands.isEmpty else { return nil }
+
+    return ParsedShellContext(commands: commands, userPrompt: userPrompt)
+  }
+}
+
+// MARK: - Shell Context Card View
+
+struct ShellContextCard: View {
+  let context: ParsedShellContext
+  let timestamp: Date
+
+  private let shellColor = Color.shellAccent
+
+  var body: some View {
+    VStack(alignment: .trailing, spacing: 10) {
+      // Meta line
+      HStack(spacing: 8) {
+        Text(formatTime(timestamp))
+          .font(.system(size: 11, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+
+        Text("You")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
+      }
+
+      // Shell context card
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        // Header pill
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "terminal.fill")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(shellColor)
+
+          Text("Shell Context")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+
+          Text("\u{00B7}")
+            .foregroundStyle(Color.textQuaternary)
+
+          Text("\(context.commandCount) command\(context.commandCount == 1 ? "" : "s")")
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+
+          Spacer()
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+            .fill(shellColor.opacity(OpacityTier.subtle))
+        )
+
+        // Command rows
+        ForEach(context.commands) { cmd in
+          ShellContextCommandRow(command: cmd)
+        }
+
+        // User prompt (if present)
+        if !context.userPrompt.isEmpty {
+          HStack(alignment: .top, spacing: 0) {
+            VStack(alignment: .trailing, spacing: Spacing.sm) {
+              Text(context.userPrompt)
+                .font(.system(size: TypeScale.reading))
+                .foregroundStyle(Color.textPrimary)
+                .lineSpacing(5)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+            }
+            .padding(.vertical, Spacing.sm)
+            .padding(.horizontal, Spacing.md)
+
+            Rectangle()
+              .fill(Color.accent.opacity(OpacityTier.strong))
+              .frame(width: EdgeBar.width)
+          }
+        }
+      }
+    }
+  }
+
+  private static let timeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "h:mm a"
+    return formatter
+  }()
+
+  private func formatTime(_ date: Date) -> String {
+    Self.timeFormatter.string(from: date)
+  }
+}
+
+// MARK: - Shell Context Command Row (per-command card)
+
+private struct ShellContextCommandRow: View {
+  let command: ParsedShellContext.CommandBlock
+
+  @State private var isExpanded = false
+  @State private var isHovering = false
+
+  private var accentColor: Color {
+    command.hasError ? .orange : .shellAccent
+  }
+
+  private var hasOutput: Bool {
+    !command.output.isEmpty
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Command header
+      HStack(spacing: 10) {
+        if !command.command.isEmpty {
+          Text("$")
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundStyle(accentColor.opacity(0.8))
+
+          Text(command.command)
+            .font(.system(size: 12, design: .monospaced))
+            .foregroundStyle(Color.textPrimary)
+            .lineLimit(isExpanded ? nil : 1)
+        } else {
+          Text("Output")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        Spacer()
+
+        HStack(spacing: 6) {
+          // Exit code badge
+          if let code = command.exitCode {
+            Text("exit \(code)")
+              .font(.system(size: 9, weight: .semibold, design: .monospaced))
+              .foregroundStyle(command.hasError ? .orange : Color.textTertiary)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(
+                Capsule()
+                  .fill((command.hasError ? Color.orange : Color.textTertiary).opacity(OpacityTier.subtle))
+              )
+          }
+
+          if command.hasError {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .font(.system(size: 9))
+              .foregroundStyle(.orange)
+          }
+
+          if hasOutput {
+            Image(systemName: "chevron.down")
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundStyle(Color.textTertiary)
+              .rotationEffect(.degrees(isExpanded ? 0 : -90))
+          }
+        }
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .background(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .fill(accentColor.opacity(isHovering ? OpacityTier.light : OpacityTier.subtle))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .strokeBorder(accentColor.opacity(0.15), lineWidth: 1)
+      )
+      .contentShape(Rectangle())
+      .onTapGesture {
+        if hasOutput {
+          withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
+            isExpanded.toggle()
+          }
+        }
+      }
+      .onHover { isHovering = $0 }
+
+      // Expandable output panel
+      if isExpanded, hasOutput {
+        let displayOutput = command.output.count > 3_000
+          ? String(command.output.prefix(3_000)) + "\n\u{2026}"
+          : command.output
+
+        ScrollView {
+          Text(displayOutput)
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(
+              command.hasError
+                ? Color.orange.opacity(0.85)
+                : Color.textPrimary.opacity(0.85)
+            )
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 200)
+        .padding(12)
+        .background(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(Color.backgroundTertiary)
+        )
+        .padding(.top, 8)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+      }
+    }
+  }
+}
+
 // MARK: - Task Notification Card View
 
 struct TaskNotificationCard: View {
@@ -887,6 +1183,63 @@ struct TaskNotificationCard: View {
         outputFile: "/tmp/failed.output",
         status: .failed,
         summary: "Background command \"Build project\" failed (exit code 1)"
+      ),
+      timestamp: Date()
+    )
+  }
+  .padding(32)
+  .frame(width: 600)
+  .background(Color.backgroundPrimary)
+}
+
+#Preview("Shell Context") {
+  VStack(alignment: .trailing, spacing: 30) {
+    // Single command + user prompt
+    ShellContextCard(
+      context: ParsedShellContext(
+        commands: [
+          .init(
+            command: "git status",
+            output: "On branch main\nChanges not staged for commit:\n  modified: ShellCard.swift",
+            exitCode: 0
+          ),
+        ],
+        userPrompt: "What files did I change?"
+      ),
+      timestamp: Date()
+    )
+
+    // Multiple commands with error
+    ShellContextCard(
+      context: ParsedShellContext(
+        commands: [
+          .init(
+            command: "npm test",
+            output: "FAIL src/utils.test.ts\n  Expected: 42\n  Received: undefined",
+            exitCode: 1
+          ),
+          .init(
+            command: "cat src/utils.ts",
+            output: "export function calculate() {\n  return undefined\n}",
+            exitCode: 0
+          ),
+        ],
+        userPrompt: "Fix the failing test"
+      ),
+      timestamp: Date()
+    )
+
+    // Shell-only (no user prompt)
+    ShellContextCard(
+      context: ParsedShellContext(
+        commands: [
+          .init(
+            command: "make build",
+            output: "Build succeeded",
+            exitCode: 0
+          ),
+        ],
+        userPrompt: ""
       ),
       timestamp: Date()
     )
