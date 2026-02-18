@@ -327,7 +327,10 @@ struct InstrumentPanel: View {
     guard let window = session.contextWindow, window > 0,
           let input = session.inputTokens
     else { return 0 }
-    return min(1.0, Double(input) / Double(window))
+    // Anthropic API: input_tokens is non-cached only; cached_tokens
+    // (cache_read + cache_creation) must be added for true context fill.
+    let cached = session.cachedTokens ?? 0
+    return min(1.0, Double(input + cached) / Double(window))
   }
 
   private var tokenTooltipText: String {
@@ -647,13 +650,19 @@ struct InstrumentPanel: View {
         HStack(spacing: 6) {
           let pct = Int(tokenContextPercentage * 100)
           let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
-          Text("\(pct)%")
+          let displayPct: String = if tokenContextPercentage > 0, pct == 0 {
+            "< 1"
+          } else {
+            "\(pct)"
+          }
+          Text("\(displayPct)%")
             .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
           if let input = session.inputTokens {
-            Text(formatTokenCount(input))
+            let totalContext = input + (session.cachedTokens ?? 0)
+            Text(formatTokenCount(totalContext))
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
         }
         .padding(.horizontal, Spacing.md)

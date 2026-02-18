@@ -1038,6 +1038,22 @@ async fn handle_client_message(
                             state.list_tx(),
                             state.clone(),
                         );
+
+                        // Emit permission_mode delta so the Swift UI picks it up.
+                        // The DB row already has it from SessionCreate, but the
+                        // initial SessionSnapshot doesn't include it.
+                        if let Some(ref mode) = permission_mode {
+                            let _ = actor_handle
+                                .send(SessionCommand::ApplyDelta {
+                                    changes: orbitdock_protocol::StateChanges {
+                                        permission_mode: Some(Some(mode.clone())),
+                                        ..Default::default()
+                                    },
+                                    persist_op: None,
+                                })
+                                .await;
+                        }
+
                         state.add_session_actor(actor_handle);
                         state.set_claude_action_tx(&session_id, action_tx);
                         info!(
