@@ -1748,6 +1748,8 @@ async fn handle_client_message(
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::Undo).await;
+            } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let _ = tx.send(ClaudeAction::Undo).await;
             }
         }
 

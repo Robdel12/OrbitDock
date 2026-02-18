@@ -28,6 +28,9 @@ final class SessionObservable {
   var autonomy: AutonomyLevel = .autonomous
   var permissionMode: ClaudePermissionMode = .default
   var skills: [ServerSkillMetadata] = []
+  var slashCommands: Set<String> = []
+  var claudeSkillNames: [String] = []
+  var claudeToolNames: [String] = []
 
   // Turn tracking
   var currentTurnId: String?
@@ -65,6 +68,16 @@ final class SessionObservable {
 
   var hasMcpData: Bool {
     !mcpTools.isEmpty || mcpStartupState != nil
+  }
+
+  /// Whether this session supports a given slash command (e.g. "undo", "compact")
+  func hasSlashCommand(_ name: String) -> Bool {
+    slashCommands.contains(name)
+  }
+
+  /// Whether this session has skills available (from Claude init message)
+  var hasClaudeSkills: Bool {
+    !claudeSkillNames.isEmpty
   }
 
   /// Parse plan JSON string into PlanStep array for UI
@@ -121,6 +134,9 @@ final class SessionObservable {
     mcpAuthStatuses = [:]
     mcpStartupState = nil
     skills = []
+    slashCommands = []
+    claudeSkillNames = []
+    claudeToolNames = []
     diff = nil
     plan = nil
     currentTurnId = nil

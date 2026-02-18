@@ -131,6 +131,14 @@ pub enum ServerMessage {
         cancelled: Vec<String>,
     },
 
+    // Claude capabilities (from init system message)
+    ClaudeCapabilities {
+        session_id: String,
+        slash_commands: Vec<String>,
+        skills: Vec<String>,
+        tools: Vec<String>,
+    },
+
     // Context management
     ContextCompacted {
         session_id: String,

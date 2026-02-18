@@ -256,6 +256,16 @@ final class ServerAppState {
       }
     }
 
+    conn.onClaudeCapabilities = { [weak self] sessionId, slashCommands, skills, tools in
+      Task { @MainActor in
+        guard let self else { return }
+        let obs = self.session(sessionId)
+        obs.slashCommands = Set(slashCommands)
+        obs.claudeSkillNames = skills
+        obs.claudeToolNames = tools
+      }
+    }
+
     conn.onSkillsList = { [weak self] sessionId, entries, _ in
       Task { @MainActor in
         let allSkills = entries.flatMap(\.skills)

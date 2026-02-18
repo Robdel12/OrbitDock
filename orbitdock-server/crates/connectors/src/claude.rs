@@ -354,10 +354,8 @@ impl ClaudeConnector {
         self.write_stdin_message(&msg).await
     }
 
-    /// Request context compaction (send /compact as a user message).
-    pub async fn compact(&self) -> Result<(), ConnectorError> {
-        self.send_message("/compact", None, None).await
-    }
+
+
 
     /// Change the model mid-session.
     pub async fn set_model(&self, model: &str) -> Result<(), ConnectorError> {
@@ -708,16 +706,42 @@ impl ClaudeConnector {
                 if let Some(sid) = raw.get("session_id").and_then(|v| v.as_str()) {
                     *session_id_slot.lock().await = Some(sid.to_string());
                     let model = raw.get("model").and_then(|v| v.as_str());
+
+                    // Parse capability arrays from init message
+                    let parse_string_array = |key: &str| -> Vec<String> {
+                        raw.get(key)
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    };
+                    let slash_commands = parse_string_array("slash_commands");
+                    let skills = parse_string_array("skills");
+                    let tools = parse_string_array("tools");
+
                     info!(
                         component = "claude_connector",
                         event = "claude.init",
                         claude_session_id = %sid,
                         model = ?model,
+                        slash_commands_count = slash_commands.len(),
+                        skills_count = skills.len(),
+                        tools_count = tools.len(),
                         "Claude session initialized via CLI"
                     );
+
                     if let Some(m) = model {
                         events.push(ConnectorEvent::ModelUpdated(m.to_string()));
                     }
+
+                    events.push(ConnectorEvent::ClaudeInitialized {
+                        slash_commands,
+                        skills,
+                        tools,
+                    });
                 }
                 events
             }

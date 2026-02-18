@@ -121,6 +121,13 @@ pub enum ConnectorEvent {
         cancelled: Vec<String>,
     },
 
+    /// Claude session initialized — carries capabilities from the init system message
+    ClaudeInitialized {
+        slash_commands: Vec<String>,
+        skills: Vec<String>,
+        tools: Vec<String>,
+    },
+
     /// Model name updated (e.g. from Claude init event)
     ModelUpdated(String),
 

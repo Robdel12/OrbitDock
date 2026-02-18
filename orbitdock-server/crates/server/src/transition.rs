@@ -135,6 +135,11 @@ pub enum Input {
         failed: Vec<McpStartupFailure>,
         cancelled: Vec<String>,
     },
+    ClaudeInitialized {
+        slash_commands: Vec<String>,
+        skills: Vec<String>,
+        tools: Vec<String>,
+    },
     ModelUpdated(String),
     ContextCompacted,
     UndoStarted {
@@ -229,6 +234,15 @@ impl From<ConnectorEvent> for Input {
                 ready,
                 failed,
                 cancelled,
+            },
+            ConnectorEvent::ClaudeInitialized {
+                slash_commands,
+                skills,
+                tools,
+            } => Input::ClaudeInitialized {
+                slash_commands,
+                skills,
+                tools,
             },
             ConnectorEvent::ModelUpdated(model) => Input::ModelUpdated(model),
             ConnectorEvent::ContextCompacted => Input::ContextCompacted,
@@ -909,6 +923,20 @@ pub fn transition(
                     model: Some(Some(model)),
                     ..Default::default()
                 },
+            })));
+        }
+
+        // -- Claude capabilities (from init message) ---------------------------
+        Input::ClaudeInitialized {
+            slash_commands,
+            skills,
+            tools,
+        } => {
+            effects.push(Effect::Emit(Box::new(ServerMessage::ClaudeCapabilities {
+                session_id: sid,
+                slash_commands,
+                skills,
+                tools,
             })));
         }
 

@@ -558,13 +558,17 @@ struct InstrumentPanel: View {
             modelEffortControlButton
           }
 
-          composerActionButton(
-            icon: "bolt.fill",
-            isActive: !selectedSkills.isEmpty || hasInlineSkills,
-            help: "Attach skills"
-          ) {
-            serverState.listSkills(sessionId: sessionId)
-            onOpenSkills?()
+          if session.isDirectCodex || serverState.session(sessionId).hasClaudeSkills {
+            composerActionButton(
+              icon: "bolt.fill",
+              isActive: !selectedSkills.isEmpty || hasInlineSkills,
+              help: "Attach skills"
+            ) {
+              if session.isDirectCodex {
+                serverState.listSkills(sessionId: sessionId)
+              }
+              onOpenSkills?()
+            }
           }
 
           composerActionButton(
@@ -596,12 +600,14 @@ struct InstrumentPanel: View {
         }
 
         // Action buttons — individual, not cramped
-        stripButton(
-          icon: "arrow.uturn.backward",
-          help: "Undo last turn",
-          disabled: serverState.session(sessionId).undoInProgress
-        ) {
-          serverState.undoLastTurn(sessionId: sessionId)
+        if session.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
+          stripButton(
+            icon: "arrow.uturn.backward",
+            help: "Undo last turn",
+            disabled: serverState.session(sessionId).undoInProgress
+          ) {
+            serverState.undoLastTurn(sessionId: sessionId)
+          }
         }
 
         stripButton(

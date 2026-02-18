@@ -921,6 +921,7 @@ enum ServerToClientMessage: Codable {
   )
   case mcpStartupUpdate(sessionId: String, server: String, status: ServerMcpStartupStatus)
   case mcpStartupComplete(sessionId: String, ready: [String], failed: [ServerMcpStartupFailure], cancelled: [String])
+  case claudeCapabilities(sessionId: String, slashCommands: [String], skills: [String], tools: [String])
   case contextCompacted(sessionId: String)
   case undoStarted(sessionId: String, message: String?)
   case undoCompleted(sessionId: String, success: Bool, message: String?)
@@ -1004,6 +1005,7 @@ enum ServerToClientMessage: Codable {
     case stderr
     case exitCode = "exit_code"
     case durationMs = "duration_ms"
+    case slashCommands = "slash_commands"
   }
 
   init(from decoder: Decoder) throws {
@@ -1142,6 +1144,13 @@ enum ServerToClientMessage: Codable {
         let failed = try container.decode([ServerMcpStartupFailure].self, forKey: .failed)
         let cancelled = try container.decode([String].self, forKey: .cancelled)
         self = .mcpStartupComplete(sessionId: sessionId, ready: ready, failed: failed, cancelled: cancelled)
+
+      case "claude_capabilities":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let slashCommands = try container.decodeIfPresent([String].self, forKey: .slashCommands) ?? []
+        let skills = try container.decodeIfPresent([String].self, forKey: .skills) ?? []
+        let tools = try container.decodeIfPresent([String].self, forKey: .tools) ?? []
+        self = .claudeCapabilities(sessionId: sessionId, slashCommands: slashCommands, skills: skills, tools: tools)
 
       case "context_compacted":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -1377,6 +1386,13 @@ enum ServerToClientMessage: Codable {
         try container.encode(ready, forKey: .ready)
         try container.encode(failed, forKey: .failed)
         try container.encode(cancelled, forKey: .cancelled)
+
+      case let .claudeCapabilities(sessionId, slashCommands, skills, tools):
+        try container.encode("claude_capabilities", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(slashCommands, forKey: .slashCommands)
+        try container.encode(skills, forKey: .skills)
+        try container.encode(tools, forKey: .tools)
 
       case let .contextCompacted(sessionId):
         try container.encode("context_compacted", forKey: .type)

@@ -39,6 +39,7 @@ pub enum ClaudeAction {
         answer: String,
     },
     Compact,
+    Undo,
     Resume {
         session_id: String,
     },
@@ -86,6 +87,7 @@ impl std::fmt::Debug for ClaudeAction {
                 .field("answer_len", &answer.len())
                 .finish(),
             Self::Compact => write!(f, "Compact"),
+            Self::Undo => write!(f, "Undo"),
             Self::Resume { session_id } => f
                 .debug_struct("Resume")
                 .field("session_id", session_id)
@@ -367,7 +369,14 @@ impl ClaudeSession {
                 connector.answer_question(&request_id, &answer).await?;
             }
             ClaudeAction::Compact => {
+                // Send /compact as a user message — the CLI handles it as a slash command.
+                // See: https://platform.claude.com/docs/en/agent-sdk/slash-commands
                 connector.send_message("/compact", None, None).await?;
+            }
+            ClaudeAction::Undo => {
+                // Send /undo as a slash command — only shown in UI if the CLI
+                // reported "undo" in the init message's slash_commands array.
+                connector.send_message("/undo", None, None).await?;
             }
             ClaudeAction::Resume { .. } => {
                 // Resume is handled at spawn time via --resume flag.

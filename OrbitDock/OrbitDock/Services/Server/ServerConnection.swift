@@ -69,6 +69,7 @@ final class ServerConnection: ObservableObject {
   ) -> Void)?
   var onMcpStartupUpdate: ((String, String, ServerMcpStartupStatus) -> Void)?
   var onMcpStartupComplete: ((String, [String], [ServerMcpStartupFailure], [String]) -> Void)?
+  var onClaudeCapabilities: ((String, [String], [String], [String]) -> Void)?
   var onContextCompacted: ((String) -> Void)?
   var onUndoStarted: ((String, String?) -> Void)?
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
@@ -337,6 +338,9 @@ final class ServerConnection: ObservableObject {
 
       case let .mcpStartupComplete(sessionId, ready, failed, cancelled):
         onMcpStartupComplete?(sessionId, ready, failed, cancelled)
+
+      case let .claudeCapabilities(sessionId, slashCommands, skills, tools):
+        onClaudeCapabilities?(sessionId, slashCommands, skills, tools)
 
       case let .contextCompacted(sessionId):
         onContextCompacted?(sessionId)
