@@ -6,9 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-PROJECT_PATH="$PROJECT_ROOT/CommandCenter/CommandCenter.xcodeproj"
-SCHEME="CommandCenter"
-TEST_TARGET="CommandCenterUITests"
+PROJECT_PATH="$PROJECT_ROOT/OrbitDock/OrbitDock.xcodeproj"
+SCHEME="OrbitDock"
+TEST_TARGET="OrbitDockUITests"
 
 # Colors
 RED='\033[0;31m'

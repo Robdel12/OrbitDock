@@ -366,7 +366,7 @@ tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
 
 ### Testing CLI changes
 ```bash
-cd CommandCenter/OrbitDockCore
+cd OrbitDock/OrbitDockCore
 swift build
 echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start
 ```

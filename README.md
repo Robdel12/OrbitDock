@@ -86,7 +86,7 @@ make build
 Then open in Xcode:
 
 ```bash
-open CommandCenter/CommandCenter.xcodeproj
+open OrbitDock/OrbitDock.xcodeproj
 ```
 
 Run with ⌘R. The Rust server and CLI are automatically embedded in the app bundle.
@@ -129,8 +129,8 @@ Codex CLI support is automatic — no hook setup needed.
 │       ├── server/             # Main server (actors, registry, persistence)
 │       ├── protocol/           # Shared types (client ↔ server)
 │       └── connectors/         # AI provider connectors (codex-rs)
-├── CommandCenter/              # Xcode project
-│   ├── CommandCenter/          # SwiftUI macOS app
+├── OrbitDock/                  # Xcode project
+│   ├── OrbitDock/              # SwiftUI macOS app
 │   │   ├── Views/              # UI (dashboard, review canvas, tool cards)
 │   │   ├── Services/           # Business logic, server connection
 │   │   └── Models/             # Session, provider, protocol types

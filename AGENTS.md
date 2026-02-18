@@ -4,13 +4,13 @@
 OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude Code (via Swift CLI hooks) and Codex CLI (via Rust server rollout watching + direct codex-core integration).
 
 ## Project Structure & Module Organization
-- `CommandCenter/` is the macOS SwiftUI app (views, models, services, database layer).
-- `CommandCenter/OrbitDockCore/` is a Swift Package containing the CLI hook handler and shared database code.
+- `OrbitDock/OrbitDock/` is the macOS SwiftUI app (views, models, services, database layer).
+- `OrbitDock/OrbitDockCore/` is a Swift Package containing the CLI hook handler and shared database code.
 - `migrations/` contains numbered SQL files for database schema changes.
 - `docs/` holds additional documentation; `orbitdock.png` is a repository asset.
 
 ## Build & Development Commands
-- SwiftUI app build (standard): `make build` (wraps `xcodebuild -project CommandCenter/CommandCenter.xcodeproj -scheme CommandCenter -destination 'platform=macOS' build`).
+- SwiftUI app build (standard): `make build` (wraps `xcodebuild -project OrbitDock/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`).
 - Unit tests (standard, no UI tests): `make test-unit`.
 - UI tests (standard): `make test-ui`.
 - All app tests: `make test-all`.
@@ -19,8 +19,8 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Rust workspace tests: `make rust-test`.
 - Format all code: `make fmt` (or `make swift-fmt` / `make rust-fmt`).
 - Lint all code: `make lint` (or `make swift-lint` / `make rust-lint`).
-- SwiftUI app in Xcode: open `CommandCenter/CommandCenter.xcodeproj` and build/run (Cmd+R).
-- CLI standalone: `cd CommandCenter/OrbitDockCore && swift build`
+- SwiftUI app in Xcode: open `OrbitDock/OrbitDock.xcodeproj` and build/run (Cmd+R).
+- CLI standalone: `cd OrbitDock/OrbitDockCore && swift build`
 - Test CLI: `echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start`
 
 ## Coding Style & Naming Conventions
@@ -28,7 +28,7 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Prefer descriptive, domain-based naming (e.g., `SessionRowView`, `TranscriptParser`, `StatusTrackerCommand`).
 
 ## Testing Guidelines
-- Swift tests are under `CommandCenter/CommandCenterTests/`; prefer `make test-unit` for non-UI tests and `make test-ui` for UI automation.
+- Swift tests are under `OrbitDock/OrbitDockTests/`; prefer `make test-unit` for non-UI tests and `make test-ui` for UI automation.
 - CLI can be tested by piping JSON to stdin and checking database state.
 
 ## Commit & Pull Request Guidelines

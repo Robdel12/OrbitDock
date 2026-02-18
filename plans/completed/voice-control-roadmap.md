@@ -30,14 +30,14 @@ Build a voice experience that feels fast, reliable, and safe:
 
 What already exists and can be reused:
 
-- Composer and send flow: `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
+- Composer and send flow: `OrbitDock/OrbitDock/Views/Codex/CodexInputBar.swift`
 - Session actions:
-  - `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift:469`
-  - `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift:547`
-  - `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift:559`
-- Session selection and navigation: `CommandCenter/CommandCenter/ContentView.swift`
-- Command palette surface for reusable intents: `CommandCenter/CommandCenter/Views/QuickSwitcher.swift`
-- Settings surface for user toggles: `CommandCenter/CommandCenter/Views/SettingsView.swift`
+  - `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift:469`
+  - `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift:547`
+  - `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift:559`
+- Session selection and navigation: `OrbitDock/OrbitDock/ContentView.swift`
+- Command palette surface for reusable intents: `OrbitDock/OrbitDock/Views/QuickSwitcher.swift`
+- Settings surface for user toggles: `OrbitDock/OrbitDock/Views/SettingsView.swift`
 
 Gaps to fill:
 
@@ -69,14 +69,14 @@ Gaps to fill:
 
 ### Suggested file layout
 
-- `CommandCenter/CommandCenter/Services/Voice/VoiceCaptureService.swift`
-- `CommandCenter/CommandCenter/Services/Voice/SpeechToTextEngine.swift`
-- `CommandCenter/CommandCenter/Services/Voice/WhisperCppEngine.swift`
-- `CommandCenter/CommandCenter/Services/Voice/VoiceIntentParser.swift`
-- `CommandCenter/CommandCenter/Services/Voice/VoiceCommandRouter.swift`
-- `CommandCenter/CommandCenter/Services/Voice/VoiceSettingsStore.swift`
-- `CommandCenter/CommandCenter/Views/Codex/VoiceControlButton.swift`
-- `CommandCenter/CommandCenter/Views/Codex/VoiceFeedbackStrip.swift`
+- `OrbitDock/OrbitDock/Services/Voice/VoiceCaptureService.swift`
+- `OrbitDock/OrbitDock/Services/Voice/SpeechToTextEngine.swift`
+- `OrbitDock/OrbitDock/Services/Voice/WhisperCppEngine.swift`
+- `OrbitDock/OrbitDock/Services/Voice/VoiceIntentParser.swift`
+- `OrbitDock/OrbitDock/Services/Voice/VoiceCommandRouter.swift`
+- `OrbitDock/OrbitDock/Services/Voice/VoiceSettingsStore.swift`
+- `OrbitDock/OrbitDock/Views/Codex/VoiceControlButton.swift`
+- `OrbitDock/OrbitDock/Views/Codex/VoiceFeedbackStrip.swift`
 
 ## Command Taxonomy
 

@@ -12,8 +12,8 @@ Current state is local-only by design:
 - **Server has no signal handling**: SIGTERM kills it mid-write — sessions left inconsistent, DB writes lost
 - **Server paths are hardcoded**: database locked to `~/.orbitdock/orbitdock.db`, no CLI args at all
 - **No deployment story**: no systemd unit, no launchd plist, no Dockerfile — only runs as an embedded subprocess
-- **Client URL is hardcoded**: `CommandCenter/CommandCenter/Services/Server/ServerConnection.swift:37` points at `ws://127.0.0.1:4000/ws`
-- **App assumes one embedded server**: `CommandCenterApp.swift` starts `ServerManager.shared` on launch, waits for health check, then connects the singleton `ServerConnection.shared`
+- **Client URL is hardcoded**: `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift:37` points at `ws://127.0.0.1:4000/ws`
+- **App assumes one embedded server**: `OrbitDockApp.swift` starts `ServerManager.shared` on launch, waits for health check, then connects the singleton `ServerConnection.shared`
 - **Three coupled singletons**: `ServerManager.shared`, `ServerConnection.shared`, and `MCPBridge.shared` all assume a single local server
 - **Health check assumes localhost**: `ServerManager.waitForReady()` probes `http://127.0.0.1:4000/health`
 - **Reconnection gives up fast**: 3 retries with short backoff — fine for local, bad for flaky remote networks
@@ -147,7 +147,7 @@ Make `orbitdock-server` reachable from remote clients and identifiable on connec
 
 - `orbitdock-server/crates/server/src/main.rs` — bind address passthrough
 - `orbitdock-server/crates/server/src/websocket.rs` — hello message on connect
-- `CommandCenter/CommandCenter/Services/Server/ServerManager.swift` — pass `--bind` to embedded server
+- `OrbitDock/OrbitDock/Services/Server/ServerManager.swift` — pass `--bind` to embedded server
 
 ### Acceptance criteria
 
@@ -213,7 +213,7 @@ Replace hardcoded localhost in the macOS app with a persisted endpoint config. M
 - New: `Endpoint.swift` (model + persistence)
 - `ServerConnection.swift` — parameterized URL, reconnection policy per endpoint type
 - `ServerManager.swift` — gated by `isLocalManaged`
-- `CommandCenterApp.swift` — startup flow branches on endpoint type
+- `OrbitDockApp.swift` — startup flow branches on endpoint type
 - `ServerAppState.swift` — teardown/re-wire on endpoint switch
 - `MCPBridge.swift` — gated behind local-only
 

@@ -476,19 +476,19 @@ Preflight review questions:
 - [x] **Orphan cleanup**: Remove `ProjectArchiveSection`, `StatsSummary`, `SessionCard`, `CodexDiffSidebar`. Decide on `InboxView` and Quest system stubs (remove if no plans to rebuild; keep stubs if they'll become project lanes / attention features in Phase 6).
 
 ### Primary surfaces
-- `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
-- `CommandCenter/CommandCenter/Views/MarkdownView.swift` (extract SyntaxHighlighter)
-- `CommandCenter/CommandCenter/Models/` (new files)
+- `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift`
+- `OrbitDock/OrbitDock/Views/Codex/CodexInputBar.swift`
+- `OrbitDock/OrbitDock/Views/MarkdownView.swift` (extract SyntaxHighlighter)
+- `OrbitDock/OrbitDock/Models/` (new files)
 - Various views with duplicated model badge / tool icon code (consolidation)
 
 ### Likely new files
-- `CommandCenter/CommandCenter/Models/TurnSummary.swift`
-- `CommandCenter/CommandCenter/Models/DiffModel.swift`
-- `CommandCenter/CommandCenter/Models/ReviewComment.swift`
-- `CommandCenter/CommandCenter/Models/LayoutConfiguration.swift`
-- `CommandCenter/CommandCenter/Views/SyntaxHighlighter.swift` (extracted from MarkdownView.swift)
-- `CommandCenter/CommandCenter/Services/AttentionService.swift`
+- `OrbitDock/OrbitDock/Models/TurnSummary.swift`
+- `OrbitDock/OrbitDock/Models/DiffModel.swift`
+- `OrbitDock/OrbitDock/Models/ReviewComment.swift`
+- `OrbitDock/OrbitDock/Models/LayoutConfiguration.swift`
+- `OrbitDock/OrbitDock/Views/SyntaxHighlighter.swift` (extracted from MarkdownView.swift)
+- `OrbitDock/OrbitDock/Services/AttentionService.swift`
 
 ### Definition of done
 - [x] `TurnBuilder` can group an existing conversation's messages into turns (handles human → tool_use → tool_result → assistant chains).
@@ -534,10 +534,10 @@ Preflight review questions:
 - Preset picker shows icon + text label for clarity.
 
 ### Primary surfaces
-- `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
-- `CommandCenter/CommandCenter/Views/SessionDetailView.swift`
-- `CommandCenter/CommandCenter/Views/HeaderView.swift`
+- `OrbitDock/OrbitDock/Views/Codex/CodexTurnSidebar.swift`
+- `OrbitDock/OrbitDock/Views/Codex/CodexInputBar.swift`
+- `OrbitDock/OrbitDock/Views/SessionDetailView.swift`
+- `OrbitDock/OrbitDock/Views/HeaderView.swift`
 - `orbitdock-server/crates/server/src/transition.rs`
 
 ### Definition of done
@@ -562,8 +562,8 @@ Preflight review questions:
 - [ ] Turn containers must be responsive at both full and compact widths (anticipating split layout in Phase 3a — conversation canvas may share the center zone with review canvas).
 
 ### Primary surfaces
-- `CommandCenter/CommandCenter/Views/ConversationView.swift`
-- `CommandCenter/CommandCenter/Views/SessionDetailView.swift`
+- `OrbitDock/OrbitDock/Views/ConversationView.swift`
+- `OrbitDock/OrbitDock/Views/SessionDetailView.swift`
 
 ### Definition of done
 - [ ] User can scan 10+ turns quickly in `Turns` density.
@@ -764,9 +764,9 @@ The review canvas extends what already works — it does not start from scratch:
 - `Models/ApprovalRisk.swift` — Risk classification with destructive pattern detection
 
 ### Primary surfaces
-- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalView.swift` (redesigned)
-- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalHistoryView.swift` (moved to rail)
-- `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift` (approval history section)
+- `OrbitDock/OrbitDock/Views/Codex/CodexApprovalView.swift` (redesigned)
+- `OrbitDock/OrbitDock/Views/Codex/CodexApprovalHistoryView.swift` (moved to rail)
+- `OrbitDock/OrbitDock/Views/Codex/CodexTurnSidebar.swift` (approval history section)
 
 ### Definition of done
 - [x] Patch approvals show syntax-highlighted diff preview inline.
@@ -868,18 +868,18 @@ The review canvas should **extend** `UnifiedDiffView`'s rendering approach, not 
 
 ### Primary files/surfaces involved
 
-- `CommandCenter/CommandCenter/Views/SessionDetailView.swift`
-- `CommandCenter/CommandCenter/Views/ConversationView.swift`
-- `CommandCenter/CommandCenter/Views/ToolCards/EditCard.swift` (existing diff rendering to reuse)
-- `CommandCenter/CommandCenter/Views/MarkdownView.swift` (existing SyntaxHighlighter to extract)
-- `CommandCenter/CommandCenter/Views/Codex/CodexTurnSidebar.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexInputBar.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalView.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexApprovalHistoryView.swift`
-- `CommandCenter/CommandCenter/Views/Codex/CodexDiffSidebar.swift` (likely removed, replaced by review canvas)
-- `CommandCenter/CommandCenter/Views/QuickSwitcher.swift`
-- `CommandCenter/CommandCenter/Views/DashboardView.swift`
-- `CommandCenter/CommandCenter/Services/Server/ServerAppState.swift`
+- `OrbitDock/OrbitDock/Views/SessionDetailView.swift`
+- `OrbitDock/OrbitDock/Views/ConversationView.swift`
+- `OrbitDock/OrbitDock/Views/ToolCards/EditCard.swift` (existing diff rendering to reuse)
+- `OrbitDock/OrbitDock/Views/MarkdownView.swift` (existing SyntaxHighlighter to extract)
+- `OrbitDock/OrbitDock/Views/Codex/CodexTurnSidebar.swift`
+- `OrbitDock/OrbitDock/Views/Codex/CodexInputBar.swift`
+- `OrbitDock/OrbitDock/Views/Codex/CodexApprovalView.swift`
+- `OrbitDock/OrbitDock/Views/Codex/CodexApprovalHistoryView.swift`
+- `OrbitDock/OrbitDock/Views/Codex/CodexDiffSidebar.swift` (likely removed, replaced by review canvas)
+- `OrbitDock/OrbitDock/Views/QuickSwitcher.swift`
+- `OrbitDock/OrbitDock/Views/DashboardView.swift`
+- `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift`
 
 ### Likely new models/state
 

@@ -19,7 +19,7 @@ cd OrbitDock
 ### SwiftUI App
 
 ```bash
-open CommandCenter/CommandCenter.xcodeproj
+open OrbitDock/OrbitDock.xcodeproj
 ```
 
 Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team) and hit ⌘R. The Rust server binary and CLI are embedded in the app bundle automatically.
@@ -37,7 +37,7 @@ The server runs on `ws://127.0.0.1:4000/ws`. For development you can run it stan
 ### CLI (standalone)
 
 ```bash
-cd CommandCenter/OrbitDockCore
+cd OrbitDock/OrbitDockCore
 swift build
 echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start
 ```
@@ -50,8 +50,8 @@ echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-s
 │       ├── server/              # Actors, registry, transitions, persistence
 │       ├── protocol/            # Client ↔ server message types
 │       └── connectors/          # Provider connectors (codex-rs)
-├── CommandCenter/               # Xcode project
-│   ├── CommandCenter/           # SwiftUI app
+├── OrbitDock/                   # Xcode project
+│   ├── OrbitDock/               # SwiftUI app
 │   │   ├── Views/               # All UI
 │   │   │   ├── Review/          # Review canvas (magit-style diffs)
 │   │   │   ├── Codex/           # Direct Codex session UI
