@@ -59,6 +59,7 @@ final class ServerAppState {
   /// Raw config values used to derive autonomy accurately across partial deltas
   private var approvalPolicies: [String: String] = [:]
   private var sandboxModes: [String: String] = [:]
+  private var permissionModes: [String: String] = [:]
 
   /// Full session state cache (from snapshots)
   private var sessionStates: [String: ServerSessionState] = [:]
@@ -450,7 +451,13 @@ final class ServerAppState {
   }
 
   /// Create a new Claude direct session
-  func createClaudeSession(cwd: String, model: String? = nil) {
+  func createClaudeSession(
+    cwd: String,
+    model: String? = nil,
+    permissionMode: String? = nil,
+    allowedTools: [String] = [],
+    disallowedTools: [String] = []
+  ) {
     logger.info("Creating Claude session in \(cwd)")
     pendingNavigationOnCreate = true
     ServerConnection.shared.createSession(
@@ -458,7 +465,10 @@ final class ServerAppState {
       cwd: cwd,
       model: model,
       approvalPolicy: nil,
-      sandboxMode: nil
+      sandboxMode: nil,
+      permissionMode: permissionMode,
+      allowedTools: allowedTools,
+      disallowedTools: disallowedTools
     )
   }
 
@@ -551,12 +561,24 @@ final class ServerAppState {
   }
 
   /// Approve or reject a tool with a specific decision
-  func approveTool(sessionId: String, requestId: String, decision: String) {
+  func approveTool(
+    sessionId: String,
+    requestId: String,
+    decision: String,
+    message: String? = nil,
+    interrupt: Bool? = nil
+  ) {
     logger.info("Approving tool \(requestId) in \(sessionId): \(decision)")
 
     resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: decision)
 
-    ServerConnection.shared.approveTool(sessionId: sessionId, requestId: requestId, decision: decision)
+    ServerConnection.shared.approveTool(
+      sessionId: sessionId,
+      requestId: requestId,
+      decision: decision,
+      message: message,
+      interrupt: interrupt
+    )
     ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
     ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
   }
@@ -643,6 +665,19 @@ final class ServerAppState {
       sessionId: sessionId,
       approvalPolicy: autonomy.approvalPolicy,
       sandboxMode: autonomy.sandboxMode
+    )
+  }
+
+  /// Update permission mode for a Claude direct session
+  func updateClaudePermissionMode(sessionId: String, mode: ClaudePermissionMode) {
+    logger.info("Updating Claude permission mode \(sessionId) to \(mode.displayName)")
+    session(sessionId).permissionMode = mode
+    permissionModes[sessionId] = mode.rawValue
+    ServerConnection.shared.updateSessionConfig(
+      sessionId: sessionId,
+      approvalPolicy: nil,
+      sandboxMode: nil,
+      permissionMode: mode.rawValue
     )
   }
 
@@ -813,6 +848,15 @@ final class ServerAppState {
       )
     }
 
+    // Hydrate permission mode from snapshot (stored in approvalPolicy for Claude sessions)
+    if state.provider == .claude, state.claudeIntegrationMode == .direct {
+      // The server may report permission_mode in the session state — for now, keep
+      // whatever the local cache knows, or default.
+      if let pm = permissionModes[state.id] {
+        obs.permissionMode = ClaudePermissionMode(rawValue: pm) ?? .default
+      }
+    }
+
     if let diff = state.currentDiff {
       obs.diff = diff
     }
@@ -972,6 +1016,14 @@ final class ServerAppState {
     }
     if let effortOuter = changes.effort {
       sess.effort = effortOuter
+    }
+    if let pmOuter = changes.permissionMode {
+      if let pm = pmOuter {
+        permissionModes[sessionId] = pm
+      } else {
+        permissionModes.removeValue(forKey: sessionId)
+      }
+      obs.permissionMode = ClaudePermissionMode(rawValue: permissionModes[sessionId] ?? "default") ?? .default
     }
     if let lastActivity = changes.lastActivityAt {
       let stripped = lastActivity.hasSuffix("Z") ? String(lastActivity.dropLast()) : lastActivity
@@ -1230,6 +1282,7 @@ final class ServerAppState {
     lastRevision.removeValue(forKey: sessionId)
     approvalPolicies.removeValue(forKey: sessionId)
     sandboxModes.removeValue(forKey: sessionId)
+    permissionModes.removeValue(forKey: sessionId)
     sessionStates.removeValue(forKey: sessionId)
     // Keep SessionObservable alive — user may still be viewing the conversation
   }

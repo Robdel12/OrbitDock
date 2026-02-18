@@ -1,7 +1,7 @@
 {
   "name": "orbitdock-mcp",
   "version": "0.3.0",
-  "description": "MCP for discovering OrbitDock sessions and controlling direct Codex sessions",
+  "description": "MCP for discovering and controlling OrbitDock sessions (Claude and Codex)",
   "type": "module",
   "main": "index.js",
   "bin": {

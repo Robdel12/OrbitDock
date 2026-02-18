@@ -51,6 +51,10 @@ struct NewClaudeSessionSheet: View {
   @State private var customModelInput: String = ""
   @State private var useCustomModel = false
   @State private var isCreating = false
+  @State private var selectedPermissionMode: ClaudePermissionMode = .default
+  @State private var allowedToolsText: String = ""
+  @State private var disallowedToolsText: String = ""
+  @State private var showToolConfig = false
 
   private var canCreateSession: Bool {
     !selectedPath.isEmpty && !isCreating
@@ -140,6 +144,41 @@ struct NewClaudeSessionSheet: View {
           }
         }
 
+        // Permission Mode
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Permission Mode")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+
+          InlineClaudePermissionPicker(selection: $selectedPermissionMode)
+        }
+
+        // Tool Restrictions (collapsible)
+        DisclosureGroup("Tool Restrictions", isExpanded: $showToolConfig) {
+          VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Allowed Tools")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.textSecondary)
+              TextField("e.g. Read, Glob, Bash(git:*)", text: $allowedToolsText)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, design: .monospaced))
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Disallowed Tools")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.textSecondary)
+              TextField("e.g. Write, Edit", text: $disallowedToolsText)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12, design: .monospaced))
+            }
+          }
+          .padding(.top, Spacing.sm)
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.secondary)
+
         Spacer()
       }
       .padding()
@@ -174,7 +213,7 @@ struct NewClaudeSessionSheet: View {
       }
       .padding()
     }
-    .frame(width: 450, height: 460)
+    .frame(width: 450, height: 620)
     .background(Color.backgroundSecondary)
   }
 
@@ -244,9 +283,21 @@ struct NewClaudeSessionSheet: View {
     }
   }
 
+  private func parseToolList(_ text: String) -> [String] {
+    text.split(separator: ",")
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .filter { !$0.isEmpty }
+  }
+
   private func createSession() {
     guard !selectedPath.isEmpty else { return }
-    serverState.createClaudeSession(cwd: selectedPath, model: resolvedModel)
+    serverState.createClaudeSession(
+      cwd: selectedPath,
+      model: resolvedModel,
+      permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
+      allowedTools: parseToolList(allowedToolsText),
+      disallowedTools: parseToolList(disallowedToolsText)
+    )
     dismiss()
   }
 }

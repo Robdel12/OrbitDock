@@ -17,6 +17,9 @@ struct CodexApprovalView: View {
   @FocusState private var isFocused: Bool
   @State private var isHoveringApprove = false
   @State private var isHoveringDeny = false
+  @State private var showDenyMessage = false
+  @State private var customDenyMessage: String = ""
+  @State private var interruptOnDeny = false
 
   private var hasAmendment: Bool {
     serverState.session(session.id).pendingApproval?.proposedAmendment != nil
@@ -119,11 +122,56 @@ struct CodexApprovalView: View {
             }
           }
 
+          secondaryAction(label: "Deny with Reason", hint: "d", color: Color.statusError.opacity(0.8)) {
+            showDenyMessage.toggle()
+          }
+
           Spacer()
 
           secondaryAction(label: "Deny & Stop", hint: "N", color: Color.statusError.opacity(0.8)) {
             sendDecision("abort")
           }
+        }
+
+        // ━━━ Deny with reason panel ━━━
+        if showDenyMessage {
+          VStack(alignment: .leading, spacing: Spacing.sm) {
+            TextField("Reason for denial...", text: $customDenyMessage, axis: .vertical)
+              .textFieldStyle(.roundedBorder)
+              .lineLimit(1 ... 3)
+              .font(.system(size: TypeScale.code))
+
+            HStack(spacing: Spacing.md) {
+              Toggle(isOn: $interruptOnDeny) {
+                Text("Interrupt turn")
+                  .font(.system(size: TypeScale.caption, weight: .medium))
+                  .foregroundStyle(Color.textSecondary)
+              }
+              .toggleStyle(.checkbox)
+
+              Spacer()
+
+              Button {
+                sendDecision("denied")
+              } label: {
+                HStack(spacing: Spacing.xs) {
+                  Image(systemName: "xmark")
+                    .font(.system(size: TypeScale.caption, weight: .bold))
+                  Text("Send Denial")
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.xs)
+                .background(Color.statusError.opacity(0.75), in: Capsule())
+              }
+              .buttonStyle(.plain)
+              .disabled(customDenyMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+          }
+          .padding(Spacing.sm)
+          .background(Color.backgroundPrimary.opacity(0.5))
+          .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         }
 
         if isExecApproval {
@@ -162,6 +210,10 @@ struct CodexApprovalView: View {
             return .handled
           }
           return .ignored
+
+        case KeyEquivalent("d") where !keyPress.modifiers.contains(.shift):
+          showDenyMessage.toggle()
+          return .handled
 
         case KeyEquivalent("n") where !keyPress.modifiers.contains(.shift):
           sendDecision("denied")
@@ -401,7 +453,23 @@ struct CodexApprovalView: View {
 
   private func sendDecision(_ decision: String) {
     guard let requestId = session.pendingApprovalId else { return }
-    serverState.approveTool(sessionId: session.id, requestId: requestId, decision: decision)
+
+    let denyMessage: String? = (decision == "denied" && showDenyMessage && !customDenyMessage
+      .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      ? customDenyMessage.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+    let interrupt: Bool? = (decision == "denied" && interruptOnDeny) ? true : nil
+
+    serverState.approveTool(
+      sessionId: session.id,
+      requestId: requestId,
+      decision: decision,
+      message: denyMessage,
+      interrupt: interrupt
+    )
+
+    showDenyMessage = false
+    customDenyMessage = ""
+    interruptOnDeny = false
   }
 }
 

@@ -1,6 +1,6 @@
 /**
  * HTTP client for OrbitDock's MCP Bridge
- * Sends commands to OrbitDock which forwards them to the Codex app-server
+ * Sends commands to OrbitDock which forwards them to provider runtimes (Claude, Codex)
  */
 export class OrbitDockClient {
   constructor(port = 19384) {
@@ -32,7 +32,7 @@ export class OrbitDockClient {
   }
 
   /**
-   * List supported Codex models discovered by OrbitDock server
+   * List supported models discovered by OrbitDock server
    */
   async listModels() {
     let response = await this.request("GET", "/api/models");
@@ -81,6 +81,12 @@ export class OrbitDockClient {
     if (options.answer) {
       body.answer = options.answer;
     }
+    if (options.message) {
+      body.message = options.message;
+    }
+    if (options.interrupt != null) {
+      body.interrupt = options.interrupt;
+    }
     let response = await this.request("POST", `/api/sessions/${sessionId}/approve`, body);
     return response;
   }
@@ -95,6 +101,14 @@ export class OrbitDockClient {
     let body = {};
     if (options.nth_user_message != null) body.nth_user_message = options.nth_user_message;
     let response = await this.request("POST", `/api/sessions/${sessionId}/fork`, body);
+    return response;
+  }
+
+  /**
+   * Set the permission mode for a Claude direct session
+   */
+  async setPermissionMode(sessionId, mode) {
+    let response = await this.request("POST", `/api/sessions/${sessionId}/permission-mode`, { mode });
     return response;
   }
 

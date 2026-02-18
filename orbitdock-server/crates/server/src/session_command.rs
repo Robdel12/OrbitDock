@@ -23,6 +23,7 @@ pub enum PersistOp {
         session_id: String,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
     },
 }
 

@@ -641,6 +641,9 @@ async fn handle_client_message(
                                     &project,
                                     model.as_deref(),
                                     sdk_id.as_deref(),
+                                    None,
+                                    &[],
+                                    &[],
                                 )
                                 .await
                             });
@@ -870,6 +873,9 @@ async fn handle_client_message(
             model,
             approval_policy,
             sandbox_mode,
+            permission_mode,
+            allowed_tools,
+            disallowed_tools,
         } => {
             info!(
                 component = "session",
@@ -920,6 +926,7 @@ async fn handle_client_message(
                     model: model.clone(),
                     approval_policy: approval_policy.clone(),
                     sandbox_mode: sandbox_mode.clone(),
+                    permission_mode: permission_mode.clone(),
                     forked_from_session_id: None,
                 })
                 .await;
@@ -1017,6 +1024,9 @@ async fn handle_client_message(
                     &cwd_clone,
                     model_clone.as_deref(),
                     None,
+                    permission_mode.as_deref(),
+                    &allowed_tools,
+                    &disallowed_tools,
                 )
                 .await
                 {
@@ -1299,6 +1309,9 @@ async fn handle_client_message(
             session_id,
             request_id,
             decision,
+            message,
+            interrupt,
+            updated_input,
         } => {
             info!(
                 component = "approval",
@@ -1365,6 +1378,9 @@ async fn handle_client_message(
                     .send(ClaudeAction::ApproveTool {
                         request_id,
                         decision: decision.clone(),
+                        message,
+                        interrupt,
+                        updated_input,
                     })
                     .await;
             }
@@ -1806,6 +1822,7 @@ async fn handle_client_message(
             session_id,
             approval_policy,
             sandbox_mode,
+            permission_mode,
         } => {
             info!(
                 component = "session",
@@ -1814,6 +1831,7 @@ async fn handle_client_message(
                 session_id = %session_id,
                 approval_policy = ?approval_policy,
                 sandbox_mode = ?sandbox_mode,
+                permission_mode = ?permission_mode,
                 "Session config update requested"
             );
 
@@ -1823,12 +1841,14 @@ async fn handle_client_message(
                         changes: orbitdock_protocol::StateChanges {
                             approval_policy: Some(approval_policy.clone()),
                             sandbox_mode: Some(sandbox_mode.clone()),
+                            permission_mode: Some(permission_mode.clone()),
                             ..Default::default()
                         },
                         persist_op: Some(PersistOp::SetSessionConfig {
                             session_id: session_id.clone(),
                             approval_policy: approval_policy.clone(),
                             sandbox_mode: sandbox_mode.clone(),
+                            permission_mode: permission_mode.clone(),
                         }),
                     })
                     .await;
@@ -1839,6 +1859,15 @@ async fn handle_client_message(
                     .await;
                 if let Ok(summary) = sum_rx.await {
                     state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+                }
+            }
+
+            // Send permission_mode to Claude sessions mid-flight
+            if let Some(ref mode) = permission_mode {
+                if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                    let _ = tx
+                        .send(ClaudeAction::SetPermissionMode { mode: mode.clone() })
+                        .await;
                 }
             }
 
@@ -3170,6 +3199,9 @@ async fn handle_client_message(
             approval_policy,
             sandbox_mode,
             cwd,
+            permission_mode,
+            allowed_tools,
+            disallowed_tools,
         } => {
             info!(
                 component = "session",
@@ -3212,6 +3244,9 @@ async fn handle_client_message(
                         &effective_cwd,
                         source_model.as_deref(),
                         None,
+                        permission_mode.as_deref(),
+                        &allowed_tools,
+                        &disallowed_tools,
                     )
                     .await
                     {
@@ -3245,6 +3280,7 @@ async fn handle_client_message(
                                     model: source_model,
                                     approval_policy: None,
                                     sandbox_mode: None,
+                                    permission_mode: permission_mode.clone(),
                                     forked_from_session_id: Some(source_session_id.clone()),
                                 })
                                 .await;
@@ -3465,6 +3501,7 @@ async fn handle_client_message(
                             model,
                             approval_policy,
                             sandbox_mode,
+                            permission_mode: None,
                             forked_from_session_id: Some(source_session_id.clone()),
                         })
                         .await;

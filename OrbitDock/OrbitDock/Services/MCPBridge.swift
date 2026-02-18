@@ -207,6 +207,18 @@ final class MCPBridge {
       return response
     }
 
+    // POST /api/sessions/:id/permission-mode
+    if request.method == "POST",
+       pathParts.count == 4,
+       pathParts[0] == "api",
+       pathParts[1] == "sessions",
+       pathParts[3] == "permission-mode"
+    {
+      let response = handleSetPermissionMode(sessionId: pathParts[2], body: request.body)
+      logResponse(start: start, request: request, response: response)
+      return response
+    }
+
     // GET /api/sessions
     if request.method == "GET",
        pathParts.count == 2,
@@ -365,6 +377,32 @@ final class MCPBridge {
     ])
   }
 
+  private func handleSetPermissionMode(sessionId: String, body: [String: Any]) -> HTTPResponse {
+    guard let state = serverAppState else {
+      return HTTPResponse(status: 503, body: ["error": "Server state not available"])
+    }
+
+    guard let modeString = body["mode"] as? String else {
+      return HTTPResponse(status: 400, body: ["error": "Missing 'mode' field"])
+    }
+
+    guard let mode = ClaudePermissionMode(rawValue: modeString) else {
+      let valid = ClaudePermissionMode.allCases.map(\.rawValue).joined(separator: ", ")
+      return HTTPResponse(status: 400, body: ["error": "Invalid mode '\(modeString)'. Valid: \(valid)"])
+    }
+
+    guard let session = state.sessions.first(where: { $0.id == sessionId }), session.isDirectClaude else {
+      return HTTPResponse(status: 400, body: ["error": "Session is not a Claude direct session"])
+    }
+
+    state.updateClaudePermissionMode(sessionId: sessionId, mode: mode)
+    return HTTPResponse(status: 200, body: [
+      "status": "updated",
+      "session_id": sessionId,
+      "permission_mode": mode.rawValue,
+    ])
+  }
+
   private func handleApprove(sessionId: String, body: [String: Any]) -> HTTPResponse {
     guard let state = serverAppState else {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
@@ -392,11 +430,20 @@ final class MCPBridge {
 
     let approvalType = body["type"] as? String ?? "exec"
 
+    let denyMessage = body["message"] as? String
+    let interrupt = body["interrupt"] as? Bool
+
     if approvalType == "question" {
       let answer = body["answer"] as? String ?? ""
       state.answerQuestion(sessionId: sessionId, requestId: requestId, answer: answer)
     } else {
-      state.approveTool(sessionId: sessionId, requestId: requestId, decision: decision)
+      state.approveTool(
+        sessionId: sessionId,
+        requestId: requestId,
+        decision: decision,
+        message: denyMessage,
+        interrupt: interrupt
+      )
     }
 
     return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId, "request_id": requestId])
@@ -424,6 +471,9 @@ final class MCPBridge {
       ]
       if let pendingApprovalId = session.pendingApprovalId {
         data["pending_approval_id"] = pendingApprovalId
+      }
+      if session.isDirectClaude {
+        data["permission_mode"] = state.session(session.id).permissionMode.rawValue
       }
       return data
     }
@@ -454,6 +504,10 @@ final class MCPBridge {
     ]
     if let pendingApprovalId = session.pendingApprovalId {
       sessionData["pending_approval_id"] = pendingApprovalId
+    }
+
+    if session.isDirectClaude {
+      sessionData["permission_mode"] = state.session(session.id).permissionMode.rawValue
     }
 
     if let startedAt = session.startedAt {

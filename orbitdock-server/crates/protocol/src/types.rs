@@ -314,6 +314,8 @@ pub struct StateChanges {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_activity_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_turn_id: Option<Option<String>>,

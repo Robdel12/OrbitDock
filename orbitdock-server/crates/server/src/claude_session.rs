@@ -30,6 +30,9 @@ pub enum ClaudeAction {
     ApproveTool {
         request_id: String,
         decision: String,
+        message: Option<String>,
+        interrupt: Option<bool>,
+        updated_input: Option<serde_json::Value>,
     },
     AnswerQuestion {
         request_id: String,
@@ -47,6 +50,9 @@ pub enum ClaudeAction {
     },
     SetMaxThinking {
         tokens: u64,
+    },
+    SetPermissionMode {
+        mode: String,
     },
     EndSession,
 }
@@ -68,6 +74,7 @@ impl std::fmt::Debug for ClaudeAction {
             Self::ApproveTool {
                 request_id,
                 decision,
+                ..
             } => f
                 .debug_struct("ApproveTool")
                 .field("request_id", request_id)
@@ -92,6 +99,10 @@ impl std::fmt::Debug for ClaudeAction {
                 .debug_struct("SetMaxThinking")
                 .field("tokens", tokens)
                 .finish(),
+            Self::SetPermissionMode { mode } => f
+                .debug_struct("SetPermissionMode")
+                .field("mode", mode)
+                .finish(),
             Self::EndSession => write!(f, "EndSession"),
         }
     }
@@ -111,8 +122,19 @@ impl ClaudeSession {
         cwd: &str,
         model: Option<&str>,
         resume_id: Option<&str>,
+        permission_mode: Option<&str>,
+        allowed_tools: &[String],
+        disallowed_tools: &[String],
     ) -> Result<Self, orbitdock_connectors::ConnectorError> {
-        let connector = ClaudeConnector::new(cwd, model, resume_id).await?;
+        let connector = ClaudeConnector::new(
+            cwd,
+            model,
+            resume_id,
+            permission_mode,
+            allowed_tools,
+            disallowed_tools,
+        )
+        .await?;
         Ok(Self {
             session_id,
             connector,
@@ -327,8 +349,19 @@ impl ClaudeSession {
             ClaudeAction::ApproveTool {
                 request_id,
                 decision,
+                message,
+                interrupt,
+                updated_input,
             } => {
-                connector.approve_tool(&request_id, &decision).await?;
+                connector
+                    .approve_tool(
+                        &request_id,
+                        &decision,
+                        message.as_deref(),
+                        interrupt,
+                        updated_input.as_ref(),
+                    )
+                    .await?;
             }
             ClaudeAction::AnswerQuestion { request_id, answer } => {
                 connector.answer_question(&request_id, &answer).await?;
@@ -358,6 +391,9 @@ impl ClaudeSession {
             }
             ClaudeAction::SetMaxThinking { tokens } => {
                 connector.set_max_thinking(tokens).await?;
+            }
+            ClaudeAction::SetPermissionMode { mode } => {
+                connector.set_permission_mode(&mode).await?;
             }
             ClaudeAction::EndSession => {
                 connector.shutdown().await?;

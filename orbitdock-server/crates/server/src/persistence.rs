@@ -33,6 +33,7 @@ pub enum PersistCommand {
         model: Option<String>,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
         forked_from_session_id: Option<String>,
     },
 
@@ -122,6 +123,7 @@ pub enum PersistCommand {
         session_id: String,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
     },
 
     /// Reactivate an ended session (for resume)
@@ -447,6 +449,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             model,
             approval_policy,
             sandbox_mode,
+            permission_mode,
             forked_from_session_id,
         } => {
             let provider_str = match provider {
@@ -465,14 +468,14 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             };
 
             conn.execute(
-                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, started_at, last_activity_at, forked_from_session_id)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?7, ?7, ?11)
+                "INSERT INTO sessions (id, project_path, project_name, branch, model, provider, status, work_status, codex_integration_mode, claude_integration_mode, approval_policy, sandbox_mode, permission_mode, started_at, last_activity_at, forked_from_session_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', 'waiting', ?8, ?12, ?9, ?10, ?13, ?7, ?7, ?11)
                  ON CONFLICT(id) DO UPDATE SET
                    project_name = COALESCE(?3, project_name),
                    branch = COALESCE(?4, branch),
                    model = COALESCE(?5, model),
                    last_activity_at = ?7",
-                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode],
+                params![id, project_path, project_name, branch, model, provider_str, now, codex_integration_mode, approval_policy, sandbox_mode, forked_from_session_id, claude_integration_mode, permission_mode],
             )?;
         }
 
@@ -769,10 +772,11 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             session_id,
             approval_policy,
             sandbox_mode,
+            permission_mode,
         } => {
             conn.execute(
-                "UPDATE sessions SET approval_policy = ?, sandbox_mode = ?, last_activity_at = ? WHERE id = ?",
-                params![approval_policy, sandbox_mode, chrono_now(), session_id],
+                "UPDATE sessions SET approval_policy = COALESCE(?, approval_policy), sandbox_mode = COALESCE(?, sandbox_mode), permission_mode = COALESCE(?, permission_mode), last_activity_at = ? WHERE id = ?",
+                params![approval_policy, sandbox_mode, permission_mode, chrono_now(), session_id],
             )?;
         }
 
@@ -2961,6 +2965,7 @@ mod tests {
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    permission_mode: None,
                     forked_from_session_id: None,
                 },
                 PersistCommand::RolloutSessionUpsert {
@@ -2983,6 +2988,7 @@ mod tests {
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    permission_mode: None,
                     forked_from_session_id: None,
                 },
                 PersistCommand::SessionEnd {
@@ -3294,6 +3300,7 @@ mod tests {
                     model: Some("gpt-5".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    permission_mode: None,
                     forked_from_session_id: None,
                 },
                 PersistCommand::SetThreadId {
@@ -3458,6 +3465,7 @@ mod tests {
                     model: Some("gpt-5-codex".into()),
                     approval_policy: None,
                     sandbox_mode: None,
+                    permission_mode: None,
                     forked_from_session_id: None,
                 },
                 PersistCommand::CodexPromptIncrement {

@@ -41,6 +41,12 @@ pub enum ClientMessage {
         session_id: String,
         request_id: String,
         decision: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        interrupt: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        updated_input: Option<Value>,
     },
     AnswerQuestion {
         session_id: String,
@@ -59,6 +65,7 @@ pub enum ClientMessage {
         session_id: String,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
     },
 
     // Session naming
@@ -74,6 +81,12 @@ pub enum ClientMessage {
         model: Option<String>,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        allowed_tools: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        disallowed_tools: Vec<String>,
     },
     ResumeSession {
         session_id: String,
@@ -90,6 +103,12 @@ pub enum ClientMessage {
         sandbox_mode: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        allowed_tools: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        disallowed_tools: Vec<String>,
     },
 
     // Approval history
@@ -645,6 +664,7 @@ mod tests {
                 approval_policy,
                 sandbox_mode,
                 cwd,
+                ..
             } => {
                 assert_eq!(source_session_id, "sess-src-1");
                 assert_eq!(*nth_user_message, Some(3));

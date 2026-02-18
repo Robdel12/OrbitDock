@@ -623,10 +623,12 @@ struct InstrumentPanel: View {
       // Segment divider
       Color.panelBorder.frame(width: 1, height: 16)
 
-      // ━━━ Center segment: Autonomy ━━━
+      // ━━━ Center segment: Permission Control ━━━
       HStack(spacing: Spacing.sm) {
         if session.isDirectCodex {
           AutonomyPill(sessionId: sessionId)
+        } else if session.isDirectClaude {
+          ClaudePermissionPill(sessionId: sessionId)
         }
       }
       .padding(.horizontal, Spacing.md)

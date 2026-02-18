@@ -3,7 +3,7 @@
     "orbitdock-debug": {
       "type": "stdio",
       "command": "node",
-      "args": ["/Users/robertdeluca/Developer/claude-dashboard/orbitdock-debug-mcp/index.js"],
+      "args": ["/Users/robertdeluca/Developer/OrbitDock/orbitdock-debug-mcp/index.js"],
       "env": {}
     }
   }

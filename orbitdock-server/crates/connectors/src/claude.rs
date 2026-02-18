@@ -60,6 +60,7 @@ enum ControlRequestBody {
     Interrupt,
     SetModel { model: Option<String> },
     SetMaxThinkingTokens { max_thinking_tokens: Option<u64> },
+    SetPermissionMode { mode: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -74,11 +75,13 @@ enum ControlResponsePayload {
 // ClaudeConnector
 // ---------------------------------------------------------------------------
 
-/// Stores the `input` and `tool_use_id` from a `can_use_tool` control request
-/// so we can echo them back in the approval response (required by the SDK).
+/// Stores the `input`, `tool_use_id`, and `permission_suggestions` from a
+/// `can_use_tool` control request so we can echo them back in the approval
+/// response (required by the SDK).
 struct PendingApproval {
     input: Value,
     tool_use_id: Option<String>,
+    permission_suggestions: Option<Value>,
 }
 
 #[allow(dead_code)]
@@ -98,6 +101,9 @@ impl ClaudeConnector {
         cwd: &str,
         model: Option<&str>,
         resume_id: Option<&str>,
+        permission_mode: Option<&str>,
+        allowed_tools: &[String],
+        disallowed_tools: &[String],
     ) -> Result<Self, ConnectorError> {
         let claude_bin = resolve_claude_binary()?;
 
@@ -117,6 +123,17 @@ impl ClaudeConnector {
         }
         if let Some(sid) = resume_id {
             args.extend(["--resume", sid]);
+        }
+        if let Some(mode) = permission_mode {
+            args.extend(["--permission-mode", mode]);
+        }
+        let allowed_joined = allowed_tools.join(",");
+        let disallowed_joined = disallowed_tools.join(",");
+        if !allowed_tools.is_empty() {
+            args.extend(["--allowedTools", &allowed_joined]);
+        }
+        if !disallowed_tools.is_empty() {
+            args.extend(["--disallowedTools", &disallowed_joined]);
         }
 
         info!(
@@ -257,18 +274,25 @@ impl ClaudeConnector {
     }
 
     /// Approve or deny a tool use request.
+    ///
+    /// - `message`: Custom deny reason shown to the agent (deny only).
+    /// - `interrupt`: If true, stop the entire turn instead of just this tool.
+    /// - `updated_input`: Modified tool input to use instead of the original.
     pub async fn approve_tool(
         &self,
         request_id: &str,
         decision: &str,
+        message: Option<&str>,
+        interrupt: Option<bool>,
+        updated_input: Option<&Value>,
     ) -> Result<(), ConnectorError> {
         let pending = self.pending_approvals.lock().await.remove(request_id);
 
         let response_payload = if decision == "deny" {
             let mut deny = serde_json::json!({
                 "behavior": "deny",
-                "message": "User denied this operation",
-                "interrupt": false,
+                "message": message.unwrap_or("User denied this operation"),
+                "interrupt": interrupt.unwrap_or(false),
             });
             if let Some(ref p) = pending {
                 if let Some(ref id) = p.tool_use_id {
@@ -281,9 +305,20 @@ impl ClaudeConnector {
                 "behavior": "allow",
             });
             if let Some(ref p) = pending {
-                allow["updatedInput"] = p.input.clone();
+                // Use client-provided updated_input if present, otherwise echo original
+                if let Some(ui) = updated_input {
+                    allow["updatedInput"] = ui.clone();
+                } else {
+                    allow["updatedInput"] = p.input.clone();
+                }
                 if let Some(ref id) = p.tool_use_id {
                     allow["toolUseID"] = serde_json::json!(id);
+                }
+                // For session/always approvals, relay the CLI's permission_suggestions
+                if matches!(decision, "approved_for_session" | "approved_always") {
+                    if let Some(ref suggestions) = p.permission_suggestions {
+                        allow["updatedPermissions"] = suggestions.clone();
+                    }
                 }
             }
             allow
@@ -339,6 +374,16 @@ impl ClaudeConnector {
         let _ = self
             .send_control_request(ControlRequestBody::SetMaxThinkingTokens {
                 max_thinking_tokens: Some(tokens),
+            })
+            .await;
+        Ok(())
+    }
+
+    /// Change permission mode mid-session.
+    pub async fn set_permission_mode(&self, mode: &str) -> Result<(), ConnectorError> {
+        let _ = self
+            .send_control_request(ControlRequestBody::SetPermissionMode {
+                mode: mode.to_string(),
             })
             .await;
         Ok(())
@@ -590,9 +635,7 @@ impl ClaudeConnector {
                 Self::handle_result_message(raw, streaming_content, streaming_msg_id)
             }
 
-            "control_request" => {
-                Self::handle_cli_control_request(raw, pending_approvals).await
-            }
+            "control_request" => Self::handle_cli_control_request(raw, pending_approvals).await,
 
             "control_cancel_request" => {
                 // CLI cancelled a pending approval — clean up stored data
@@ -1037,6 +1080,7 @@ impl ClaudeConnector {
             .get("tool_use_id")
             .and_then(|v| v.as_str())
             .map(String::from);
+        let permission_suggestions = request.get("permission_suggestions").cloned();
 
         // Store for echoing back in approve_tool response
         pending_approvals.lock().await.insert(
@@ -1044,6 +1088,7 @@ impl ClaudeConnector {
             PendingApproval {
                 input: input.clone().unwrap_or(Value::Null),
                 tool_use_id: tool_use_id.clone(),
+                permission_suggestions,
             },
         );
 

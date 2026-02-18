@@ -430,14 +430,20 @@ final class ServerConnection: ObservableObject {
     cwd: String,
     model: String? = nil,
     approvalPolicy: String? = nil,
-    sandboxMode: String? = nil
+    sandboxMode: String? = nil,
+    permissionMode: String? = nil,
+    allowedTools: [String] = [],
+    disallowedTools: [String] = []
   ) {
     send(.createSession(
       provider: provider,
       cwd: cwd,
       model: model,
       approvalPolicy: approvalPolicy,
-      sandboxMode: sandboxMode
+      sandboxMode: sandboxMode,
+      permissionMode: permissionMode,
+      allowedTools: allowedTools,
+      disallowedTools: disallowedTools
     ))
   }
 
@@ -463,8 +469,20 @@ final class ServerConnection: ObservableObject {
   }
 
   /// Approve or reject a tool with a specific decision
-  func approveTool(sessionId: String, requestId: String, decision: String) {
-    send(.approveTool(sessionId: sessionId, requestId: requestId, decision: decision))
+  func approveTool(
+    sessionId: String,
+    requestId: String,
+    decision: String,
+    message: String? = nil,
+    interrupt: Bool? = nil
+  ) {
+    send(.approveTool(
+      sessionId: sessionId,
+      requestId: requestId,
+      decision: decision,
+      message: message,
+      interrupt: interrupt
+    ))
   }
 
   /// Answer a question
@@ -482,9 +500,19 @@ final class ServerConnection: ObservableObject {
     send(.endSession(sessionId: sessionId))
   }
 
-  /// Update session config (autonomy level change)
-  func updateSessionConfig(sessionId: String, approvalPolicy: String?, sandboxMode: String?) {
-    send(.updateSessionConfig(sessionId: sessionId, approvalPolicy: approvalPolicy, sandboxMode: sandboxMode))
+  /// Update session config (autonomy level change or permission mode change)
+  func updateSessionConfig(
+    sessionId: String,
+    approvalPolicy: String?,
+    sandboxMode: String?,
+    permissionMode: String? = nil
+  ) {
+    send(.updateSessionConfig(
+      sessionId: sessionId,
+      approvalPolicy: approvalPolicy,
+      sandboxMode: sandboxMode,
+      permissionMode: permissionMode
+    ))
   }
 
   /// Rename a session
@@ -640,7 +668,10 @@ final class ServerConnection: ObservableObject {
     model: String? = nil,
     approvalPolicy: String? = nil,
     sandboxMode: String? = nil,
-    cwd: String? = nil
+    cwd: String? = nil,
+    permissionMode: String? = nil,
+    allowedTools: [String] = [],
+    disallowedTools: [String] = []
   ) {
     send(.forkSession(
       sourceSessionId: sourceSessionId,
@@ -648,7 +679,10 @@ final class ServerConnection: ObservableObject {
       model: model,
       approvalPolicy: approvalPolicy,
       sandboxMode: sandboxMode,
-      cwd: cwd
+      cwd: cwd,
+      permissionMode: permissionMode,
+      allowedTools: allowedTools,
+      disallowedTools: disallowedTools
     ))
   }
 }

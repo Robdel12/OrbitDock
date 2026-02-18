@@ -26,6 +26,7 @@ final class SessionObservable {
   var diff: String?
   var plan: String?
   var autonomy: AutonomyLevel = .autonomous
+  var permissionMode: ClaudePermissionMode = .default
   var skills: [ServerSkillMetadata] = []
 
   // Turn tracking
@@ -123,6 +124,7 @@ final class SessionObservable {
     diff = nil
     plan = nil
     currentTurnId = nil
+    permissionMode = .default
   }
 }
 

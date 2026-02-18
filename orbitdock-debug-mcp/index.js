@@ -139,6 +139,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Answer for question approvals (required when type=question)",
             },
+            message: {
+              type: "string",
+              description: "Custom deny reason (Claude sessions — sent back to the agent)",
+            },
+            interrupt: {
+              type: "boolean",
+              description: "If true, stop the entire turn on deny (not just this tool call)",
+            },
           },
           required: ["session_id"],
         },
@@ -224,6 +232,27 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
+        name: "set_permission_mode",
+        description:
+          "Change the permission mode for a Claude direct session. Controls what Claude can do without asking.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session_id: {
+              type: "string",
+              description: "Claude session ID",
+            },
+            mode: {
+              type: "string",
+              enum: ["default", "acceptEdits", "plan", "bypassPermissions"],
+              description:
+                "Permission mode: default (ask for everything), acceptEdits (auto-approve file edits), plan (read-only), bypassPermissions (auto-approve all)",
+            },
+          },
+          required: ["session_id", "mode"],
+        },
+      },
+      {
         name: "list_models",
         description: "List Codex models currently available for this OrbitDock/Codex account",
         inputSchema: {
@@ -252,6 +281,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return await handleSteerTurn(args);
       case "fork_session":
         return await handleForkSession(args);
+      case "set_permission_mode":
+        return await handleSetPermissionMode(args);
       case "list_sessions":
         return await handleListSessions(args);
       case "get_session":
@@ -277,7 +308,8 @@ async function handleSendMessage({ session_id, message, model, effort, images, m
   ensureOrbitDock();
   let session = await requireControllableSession(session_id);
 
-  if (model) {
+  // Only validate model against Codex model list for Codex sessions
+  if (model && session.provider === "codex") {
     let models = await orbitdock.listModels();
     if (models.length > 0 && !models.some((m) => m.model === model)) {
       let available = models.slice(0, 10).map((m) => m.model).join(", ");
@@ -313,7 +345,7 @@ async function handleInterruptTurn({ session_id }) {
   };
 }
 
-async function handleApprove({ session_id, request_id, approved, decision, type = "exec", answer }) {
+async function handleApprove({ session_id, request_id, approved, decision, type = "exec", answer, message, interrupt }) {
   ensureOrbitDock();
   await requireControllableSession(session_id);
 
@@ -339,6 +371,8 @@ async function handleApprove({ session_id, request_id, approved, decision, type 
     type,
     decision: resolvedDecision,
     answer,
+    message,
+    interrupt,
   });
 
   return {
@@ -382,6 +416,26 @@ async function handleForkSession({ session_id, nth_user_message }) {
       {
         type: "text",
         text: `Fork requested for ${session_id}${turnInfo}. The new session will appear in OrbitDock once created.`,
+      },
+    ],
+  };
+}
+
+async function handleSetPermissionMode({ session_id, mode }) {
+  ensureOrbitDock();
+  let session = await requireControllableSession(session_id);
+
+  if (session.provider !== "claude") {
+    throw new Error(`set_permission_mode is only available for Claude sessions (this is ${session.provider})`);
+  }
+
+  await orbitdock.setPermissionMode(session_id, mode);
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Permission mode set to '${mode}' for ${session_id}`,
       },
     ],
   };
@@ -437,6 +491,9 @@ async function handleGetSession({ session_id }) {
     `Direct: ${session.is_direct ? "yes" : "no"}`,
     `Controllable: ${isControllableSession(session) ? "yes" : "no"}`,
   ];
+  if (session.permission_mode) {
+    lines.push(`Permission mode: ${session.permission_mode}`);
+  }
   if (session.pending_approval_id) {
     lines.push(`Pending approval: ${session.pending_approval_id}`);
   }

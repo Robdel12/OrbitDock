@@ -349,10 +349,12 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
             session_id,
             approval_policy,
             sandbox_mode,
+            permission_mode,
         } => PersistCommand::SetSessionConfig {
             session_id,
             approval_policy,
             sandbox_mode,
+            permission_mode,
         },
     };
     let _ = persist_tx.send(cmd).await;

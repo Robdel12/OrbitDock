@@ -118,7 +118,7 @@ final class ServerManager: ObservableObject {
   private func findServerBinary() -> String? {
     // 1. Environment override (for development / custom setups)
     if let envPath = ProcessInfo.processInfo.environment["ORBITDOCK_SERVER_PATH"],
-      FileManager.default.fileExists(atPath: envPath)
+       FileManager.default.fileExists(atPath: envPath)
     {
       return envPath
     }

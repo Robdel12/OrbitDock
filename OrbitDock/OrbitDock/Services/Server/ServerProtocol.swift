@@ -526,6 +526,7 @@ struct ServerStateChanges: Codable {
   let lastMessage: String??
   let model: String??
   let effort: String??
+  let permissionMode: String??
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -550,6 +551,7 @@ struct ServerStateChanges: Codable {
     case lastMessage = "last_message"
     case model
     case effort
+    case permissionMode = "permission_mode"
   }
 }
 
@@ -1473,7 +1475,10 @@ enum ClientToServerMessage: Codable {
     cwd: String,
     model: String?,
     approvalPolicy: String?,
-    sandboxMode: String?
+    sandboxMode: String?,
+    permissionMode: String? = nil,
+    allowedTools: [String] = [],
+    disallowedTools: [String] = []
   )
   case sendMessage(
     sessionId: String,
@@ -1484,11 +1489,22 @@ enum ClientToServerMessage: Codable {
     images: [ServerImageInput] = [],
     mentions: [ServerMentionInput] = []
   )
-  case approveTool(sessionId: String, requestId: String, decision: String)
+  case approveTool(
+    sessionId: String,
+    requestId: String,
+    decision: String,
+    message: String? = nil,
+    interrupt: Bool? = nil
+  )
   case answerQuestion(sessionId: String, requestId: String, answer: String)
   case interruptSession(sessionId: String)
   case endSession(sessionId: String)
-  case updateSessionConfig(sessionId: String, approvalPolicy: String?, sandboxMode: String?)
+  case updateSessionConfig(
+    sessionId: String,
+    approvalPolicy: String?,
+    sandboxMode: String?,
+    permissionMode: String? = nil
+  )
   case renameSession(sessionId: String, name: String?)
   case resumeSession(sessionId: String)
   case listApprovals(sessionId: String?, limit: Int?)
@@ -1513,7 +1529,10 @@ enum ClientToServerMessage: Codable {
     model: String? = nil,
     approvalPolicy: String? = nil,
     sandboxMode: String? = nil,
-    cwd: String? = nil
+    cwd: String? = nil,
+    permissionMode: String? = nil,
+    allowedTools: [String] = [],
+    disallowedTools: [String] = []
   )
   case createReviewComment(
     sessionId: String,
@@ -1576,6 +1595,11 @@ enum ClientToServerMessage: Codable {
     case subagentId = "subagent_id"
     case command
     case timeoutSecs = "timeout_secs"
+    case permissionMode = "permission_mode"
+    case allowedTools = "allowed_tools"
+    case disallowedTools = "disallowed_tools"
+    case message
+    case interrupt
   }
 
   func encode(to encoder: Encoder) throws {
@@ -1594,13 +1618,29 @@ enum ClientToServerMessage: Codable {
         try container.encode("unsubscribe_session", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
 
-      case let .createSession(provider, cwd, model, approvalPolicy, sandboxMode):
+      case let .createSession(
+      provider,
+      cwd,
+      model,
+      approvalPolicy,
+      sandboxMode,
+      permissionMode,
+      allowedTools,
+      disallowedTools
+    ):
         try container.encode("create_session", forKey: .type)
         try container.encode(provider, forKey: .provider)
         try container.encode(cwd, forKey: .cwd)
         try container.encodeIfPresent(model, forKey: .model)
         try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
         try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
+        if !allowedTools.isEmpty {
+          try container.encode(allowedTools, forKey: .allowedTools)
+        }
+        if !disallowedTools.isEmpty {
+          try container.encode(disallowedTools, forKey: .disallowedTools)
+        }
 
       case let .sendMessage(sessionId, content, model, effort, skills, images, mentions):
         try container.encode("send_message", forKey: .type)
@@ -1618,11 +1658,13 @@ enum ClientToServerMessage: Codable {
           try container.encode(mentions, forKey: .mentions)
         }
 
-      case let .approveTool(sessionId, requestId, decision):
+      case let .approveTool(sessionId, requestId, decision, message, interrupt):
         try container.encode("approve_tool", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(requestId, forKey: .requestId)
         try container.encode(decision, forKey: .decision)
+        try container.encodeIfPresent(message, forKey: .message)
+        try container.encodeIfPresent(interrupt, forKey: .interrupt)
 
       case let .answerQuestion(sessionId, requestId, answer):
         try container.encode("answer_question", forKey: .type)
@@ -1638,11 +1680,12 @@ enum ClientToServerMessage: Codable {
         try container.encode("end_session", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
 
-      case let .updateSessionConfig(sessionId, approvalPolicy, sandboxMode):
+      case let .updateSessionConfig(sessionId, approvalPolicy, sandboxMode, permissionMode):
         try container.encode("update_session_config", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
         try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
 
       case let .renameSession(sessionId, name):
         try container.encode("rename_session", forKey: .type)
@@ -1726,7 +1769,17 @@ enum ClientToServerMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(numTurns, forKey: .numTurns)
 
-      case let .forkSession(sourceSessionId, nthUserMessage, model, approvalPolicy, sandboxMode, cwd):
+      case let .forkSession(
+      sourceSessionId,
+      nthUserMessage,
+      model,
+      approvalPolicy,
+      sandboxMode,
+      cwd,
+      permissionMode,
+      allowedTools,
+      disallowedTools
+    ):
         try container.encode("fork_session", forKey: .type)
         try container.encode(sourceSessionId, forKey: .sourceSessionId)
         try container.encodeIfPresent(nthUserMessage, forKey: .nthUserMessage)
@@ -1734,6 +1787,13 @@ enum ClientToServerMessage: Codable {
         try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
         try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
         try container.encodeIfPresent(cwd, forKey: .cwd)
+        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
+        if !allowedTools.isEmpty {
+          try container.encode(allowedTools, forKey: .allowedTools)
+        }
+        if !disallowedTools.isEmpty {
+          try container.encode(disallowedTools, forKey: .disallowedTools)
+        }
 
       case let .createReviewComment(sessionId, turnId, filePath, lineStart, lineEnd, body, tag):
         try container.encode("create_review_comment", forKey: .type)
@@ -1801,7 +1861,10 @@ enum ClientToServerMessage: Codable {
           cwd: container.decode(String.self, forKey: .cwd),
           model: container.decodeIfPresent(String.self, forKey: .model),
           approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode)
+          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
+          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
+          allowedTools: container.decodeIfPresent([String].self, forKey: .allowedTools) ?? [],
+          disallowedTools: container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? []
         )
       case "send_message":
         self = try .sendMessage(
@@ -1817,7 +1880,9 @@ enum ClientToServerMessage: Codable {
         self = try .approveTool(
           sessionId: container.decode(String.self, forKey: .sessionId),
           requestId: container.decode(String.self, forKey: .requestId),
-          decision: container.decode(String.self, forKey: .decision)
+          decision: container.decode(String.self, forKey: .decision),
+          message: container.decodeIfPresent(String.self, forKey: .message),
+          interrupt: container.decodeIfPresent(Bool.self, forKey: .interrupt)
         )
       case "answer_question":
         self = try .answerQuestion(
@@ -1833,7 +1898,8 @@ enum ClientToServerMessage: Codable {
         self = try .updateSessionConfig(
           sessionId: container.decode(String.self, forKey: .sessionId),
           approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
-          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode)
+          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
+          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode)
         )
       case "rename_session":
         self = try .renameSession(
@@ -1901,7 +1967,10 @@ enum ClientToServerMessage: Codable {
           model: container.decodeIfPresent(String.self, forKey: .model),
           approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
           sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
-          cwd: container.decodeIfPresent(String.self, forKey: .cwd)
+          cwd: container.decodeIfPresent(String.self, forKey: .cwd),
+          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
+          allowedTools: container.decodeIfPresent([String].self, forKey: .allowedTools) ?? [],
+          disallowedTools: container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? []
         )
       case "create_review_comment":
         self = try .createReviewComment(
