@@ -267,17 +267,32 @@ impl ClaudeSession {
 
     /// Handle an event from the connector using the transition function.
     async fn handle_event_direct(
-        _session_id: &str,
+        session_id: &str,
         event: ConnectorEvent,
         handle: &mut SessionHandle,
         persist_tx: &mpsc::Sender<PersistCommand>,
     ) {
+        let event_desc = format!("{:?}", &event);
         let input = Input::from(event);
         let now = chrono_now();
 
         let state = handle.extract_state();
         let (new_state, effects) = transition::transition(state, input, &now);
         handle.apply_state(new_state);
+
+        // Truncate at a safe UTF-8 char boundary
+        let safe_end = (0..=120.min(event_desc.len()))
+            .rev()
+            .find(|&i| event_desc.is_char_boundary(i))
+            .unwrap_or(0);
+        tracing::debug!(
+            component = "claude_session",
+            event = "claude.transition.processed",
+            session_id = %session_id,
+            connector_event = %&event_desc[..safe_end],
+            effect_count = effects.len(),
+            "Transition processed"
+        );
 
         for effect in effects {
             match effect {

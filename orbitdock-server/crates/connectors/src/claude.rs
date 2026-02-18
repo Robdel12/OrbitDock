@@ -74,6 +74,13 @@ enum ControlResponsePayload {
 // ClaudeConnector
 // ---------------------------------------------------------------------------
 
+/// Stores the `input` and `tool_use_id` from a `can_use_tool` control request
+/// so we can echo them back in the approval response (required by the SDK).
+struct PendingApproval {
+    input: Value,
+    tool_use_id: Option<String>,
+}
+
 #[allow(dead_code)]
 pub struct ClaudeConnector {
     stdin_tx: mpsc::Sender<String>,
@@ -82,6 +89,7 @@ pub struct ClaudeConnector {
     claude_session_id: Arc<Mutex<Option<String>>>,
     msg_counter: Arc<AtomicU64>,
     pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+    pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
 }
 
 impl ClaudeConnector {
@@ -144,8 +152,15 @@ impl ClaudeConnector {
         let (event_tx, event_rx) = mpsc::channel::<ConnectorEvent>(256);
         let (stdin_tx, stdin_rx) = mpsc::channel::<String>(256);
         let claude_session_id = Arc::new(Mutex::new(None));
-        let msg_counter = Arc::new(AtomicU64::new(1));
+        // Seed from epoch millis so IDs never collide across connector restarts
+        let epoch_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let msg_counter = Arc::new(AtomicU64::new(epoch_ms));
         let pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
         // Spawn stderr reader for logging
@@ -173,6 +188,7 @@ impl ClaudeConnector {
         let session_clone = claude_session_id.clone();
         let counter_clone = msg_counter.clone();
         let pending_clone = pending_controls.clone();
+        let approvals_clone = pending_approvals.clone();
 
         tokio::spawn(async move {
             Self::event_loop(
@@ -181,6 +197,7 @@ impl ClaudeConnector {
                 session_clone,
                 counter_clone,
                 pending_clone,
+                approvals_clone,
             )
             .await;
         });
@@ -192,6 +209,7 @@ impl ClaudeConnector {
             claude_session_id,
             msg_counter,
             pending_controls,
+            pending_approvals,
         };
 
         // Send initialize control request
@@ -244,16 +262,31 @@ impl ClaudeConnector {
         request_id: &str,
         decision: &str,
     ) -> Result<(), ConnectorError> {
+        let pending = self.pending_approvals.lock().await.remove(request_id);
+
         let response_payload = if decision == "deny" {
-            serde_json::json!({
+            let mut deny = serde_json::json!({
                 "behavior": "deny",
                 "message": "User denied this operation",
                 "interrupt": false,
-            })
+            });
+            if let Some(ref p) = pending {
+                if let Some(ref id) = p.tool_use_id {
+                    deny["toolUseID"] = serde_json::json!(id);
+                }
+            }
+            deny
         } else {
-            serde_json::json!({
+            let mut allow = serde_json::json!({
                 "behavior": "allow",
-            })
+            });
+            if let Some(ref p) = pending {
+                allow["updatedInput"] = p.input.clone();
+                if let Some(ref id) = p.tool_use_id {
+                    allow["toolUseID"] = serde_json::json!(id);
+                }
+            }
+            allow
         };
 
         let msg = StdinMessage::ControlResponse {
@@ -417,6 +450,7 @@ impl ClaudeConnector {
         session_id: Arc<Mutex<Option<String>>>,
         msg_counter: Arc<AtomicU64>,
         pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+        pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
     ) {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -451,6 +485,7 @@ impl ClaudeConnector {
                         &session_id,
                         &msg_counter,
                         &pending_controls,
+                        &pending_approvals,
                         &mut streaming_content,
                         &mut streaming_msg_id,
                         &mut in_turn,
@@ -500,17 +535,27 @@ impl ClaudeConnector {
     }
 
     /// Dispatch a raw stdout JSON message by its `type` field.
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch_stdout_message(
         raw: &Value,
         session_id_slot: &Arc<Mutex<Option<String>>>,
         msg_counter: &Arc<AtomicU64>,
         pending_controls: &Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+        pending_approvals: &Arc<Mutex<HashMap<String, PendingApproval>>>,
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
         in_turn: &mut bool,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
+
+        debug!(
+            component = "claude_connector",
+            event = "claude.stdout.dispatch",
+            msg_type = %msg_type,
+            session_id = %session_id,
+            "Dispatching stdout message"
+        );
 
         // Emit TurnStarted on first assistant activity (stream_event or assistant message)
         let mut turn_start_event = Vec::new();
@@ -545,11 +590,14 @@ impl ClaudeConnector {
                 Self::handle_result_message(raw, streaming_content, streaming_msg_id)
             }
 
-            "control_request" => Self::handle_cli_control_request(raw),
+            "control_request" => {
+                Self::handle_cli_control_request(raw, pending_approvals).await
+            }
 
             "control_cancel_request" => {
-                // CLI cancelled a pending approval
+                // CLI cancelled a pending approval — clean up stored data
                 if let Some(req_id) = raw.get("request_id").and_then(|v| v.as_str()) {
+                    pending_approvals.lock().await.remove(req_id);
                     debug!(
                         component = "claude_connector",
                         event = "claude.control.cancelled",
@@ -584,12 +632,24 @@ impl ClaudeConnector {
         };
 
         // Prepend TurnStarted so it fires before any message events
-        if !turn_start_event.is_empty() {
+        let final_events = if !turn_start_event.is_empty() {
             turn_start_event.append(&mut events);
             turn_start_event
         } else {
             events
+        };
+
+        if !final_events.is_empty() && msg_type != "stream_event" {
+            debug!(
+                component = "claude_connector",
+                event = "claude.stdout.dispatch_result",
+                msg_type = %msg_type,
+                event_count = final_events.len(),
+                "Produced connector events"
+            );
         }
+
+        final_events
     }
 
     /// Handle `system` messages (init, compact_boundary, status).
@@ -648,13 +708,40 @@ impl ClaudeConnector {
 
         let message = match raw.get("message") {
             Some(m) => m,
-            None => return events,
+            None => {
+                debug!(
+                    component = "claude_connector",
+                    event = "claude.assistant.no_message_field",
+                    "Assistant message missing 'message' field"
+                );
+                return events;
+            }
         };
 
         let content_blocks = match message.get("content").and_then(|v| v.as_array()) {
             Some(arr) => arr,
-            None => return events,
+            None => {
+                debug!(
+                    component = "claude_connector",
+                    event = "claude.assistant.no_content_blocks",
+                    "Assistant message missing 'content' array"
+                );
+                return events;
+            }
         };
+
+        let block_types: Vec<&str> = content_blocks
+            .iter()
+            .map(|b| b.get("type").and_then(|v| v.as_str()).unwrap_or("?"))
+            .collect();
+        debug!(
+            component = "claude_connector",
+            event = "claude.assistant.content_blocks",
+            block_count = content_blocks.len(),
+            block_types = ?block_types,
+            had_streaming = had_streaming,
+            "Processing assistant content blocks"
+        );
 
         for block in content_blocks {
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -912,7 +999,10 @@ impl ClaudeConnector {
     }
 
     /// Handle `control_request` from the CLI (permission prompts).
-    fn handle_cli_control_request(raw: &Value) -> Vec<ConnectorEvent> {
+    async fn handle_cli_control_request(
+        raw: &Value,
+        pending_approvals: &Arc<Mutex<HashMap<String, PendingApproval>>>,
+    ) -> Vec<ConnectorEvent> {
         let request = match raw.get("request") {
             Some(r) => r,
             None => return vec![],
@@ -947,6 +1037,15 @@ impl ClaudeConnector {
             .get("tool_use_id")
             .and_then(|v| v.as_str())
             .map(String::from);
+
+        // Store for echoing back in approve_tool response
+        pending_approvals.lock().await.insert(
+            request_id.clone(),
+            PendingApproval {
+                input: input.clone().unwrap_or(Value::Null),
+                tool_use_id: tool_use_id.clone(),
+            },
+        );
 
         // Classify approval type
         let approval_type = match tool_name.as_deref() {

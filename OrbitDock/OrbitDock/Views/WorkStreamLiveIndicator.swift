@@ -16,8 +16,6 @@ struct WorkStreamLiveIndicator: View {
   var pendingToolInput: String?
   var provider: Provider = .claude
 
-  @State private var isPulsing = false
-
   var body: some View {
     HStack(spacing: 0) {
       // Timestamp column placeholder (52px)
@@ -37,25 +35,13 @@ struct WorkStreamLiveIndicator: View {
     .padding(.horizontal, Spacing.sm)
     .frame(height: 26)
     .clipped()
-    .onAppear {
-      if workStatus == .working {
-        isPulsing = true
-      }
-    }
-    .onChange(of: workStatus) { _, newValue in
-      isPulsing = newValue == .working
-    }
   }
 
   @ViewBuilder
   private var statusIndicator: some View {
     switch workStatus {
       case .working:
-        Circle()
-          .fill(Color.statusWorking)
-          .frame(width: 6, height: 6)
-          .opacity(isPulsing ? 0.4 : 1.0)
-          .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: isPulsing)
+        PulsingDot(color: Color.statusWorking)
 
       case .waiting:
         Circle()
@@ -123,6 +109,26 @@ struct WorkStreamLiveIndicator: View {
 
       case .unknown:
         EmptyView()
+    }
+  }
+
+  // MARK: - Pulsing Dot (isolated from parent layout)
+
+  /// Self-contained pulsing dot that won't propagate animation
+  /// invalidation through the ScrollView/LazyVStack hierarchy.
+  private struct PulsingDot: View {
+    let color: Color
+
+    @State private var dimmed = false
+
+    var body: some View {
+      Circle()
+        .fill(color)
+        .frame(width: 6, height: 6)
+        .opacity(dimmed ? 0.4 : 1.0)
+        .onAppear { dimmed = true }
+        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: dimmed)
+        .drawingGroup()
     }
   }
 
