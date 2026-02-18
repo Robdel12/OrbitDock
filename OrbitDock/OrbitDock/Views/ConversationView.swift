@@ -55,13 +55,20 @@ struct ConversationView: View {
     let isInProgress: Bool
   }
 
+  private var effectiveDisplayedCount: Int {
+    guard !messages.isEmpty else { return 0 }
+    if displayedCount <= 0 { return messages.count }
+    return min(displayedCount, messages.count)
+  }
+
   var displayedMessages: [TranscriptMessage] {
-    let startIndex = max(0, messages.count - displayedCount)
+    guard !messages.isEmpty else { return [] }
+    let startIndex = max(0, messages.count - effectiveDisplayedCount)
     return Array(messages[startIndex...])
   }
 
   var hasMoreMessages: Bool {
-    displayedCount < messages.count
+    effectiveDisplayedCount < messages.count
   }
 
   private var tailRenderSignature: TailRenderSignature {
@@ -149,33 +156,7 @@ struct ConversationView: View {
               let msgs = displayedMessages
               switch chatViewMode {
                 case .verbose:
-                  // Existing flat ForEach — full transaction log
-                  let metadata = Self.computeMessageMetadata(msgs)
-                  ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
-                    let meta = metadata[message.id]
-                    let turnsAfter = meta?.turnsAfter
-                    let nthUser = meta?.nthUserMessage
-                    WorkStreamEntry(
-                      message: message,
-                      provider: provider,
-                      model: model,
-                      sessionId: sessionId,
-                      rollbackTurns: turnsAfter,
-                      nthUserMessage: nthUser,
-                      onRollback: turnsAfter != nil ? {
-                        if let sid = sessionId, let turns = turnsAfter {
-                          serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
-                        }
-                      } : nil,
-                      onFork: nthUser != nil ? {
-                        if let sid = sessionId, let nth = nthUser {
-                          serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
-                        }
-                      } : nil,
-                      onNavigateToReviewFile: onNavigateToReviewFile
-                    )
-                    .id(message.id)
-                  }
+                  verboseMessageEntries(for: msgs)
 
                 case .focused:
                   // Turn-grouped rendering with collapse logic
@@ -185,15 +166,20 @@ struct ConversationView: View {
                     serverTurnDiffs: serverDiffs,
                     currentTurnId: isSessionActive && workStatus == .working ? "active" : nil
                   )
-                  ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
-                    TurnGroupView(
-                      turn: turn,
-                      turnIndex: index,
-                      provider: provider,
-                      model: model,
-                      sessionId: sessionId,
-                      onNavigateToReviewFile: onNavigateToReviewFile
-                    )
+                  if turns.isEmpty, !msgs.isEmpty {
+                    // Fallback safety: never render a blank pane when messages exist.
+                    verboseMessageEntries(for: msgs)
+                  } else {
+                    ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
+                      TurnGroupView(
+                        turn: turn,
+                        turnIndex: index,
+                        provider: provider,
+                        model: model,
+                        sessionId: sessionId,
+                        onNavigateToReviewFile: onNavigateToReviewFile
+                      )
+                    }
                   }
               }
 
@@ -393,6 +379,36 @@ struct ConversationView: View {
       .padding(.bottom, 20)
   }
 
+  @ViewBuilder
+  private func verboseMessageEntries(for msgs: [TranscriptMessage]) -> some View {
+    let metadata = Self.computeMessageMetadata(msgs)
+    ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
+      let meta = metadata[message.id]
+      let turnsAfter = meta?.turnsAfter
+      let nthUser = meta?.nthUserMessage
+      WorkStreamEntry(
+        message: message,
+        provider: provider,
+        model: model,
+        sessionId: sessionId,
+        rollbackTurns: turnsAfter,
+        nthUserMessage: nthUser,
+        onRollback: turnsAfter != nil ? {
+          if let sid = sessionId, let turns = turnsAfter {
+            serverState.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
+          }
+        } : nil,
+        onFork: nthUser != nil ? {
+          if let sid = sessionId, let nth = nthUser {
+            serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
+          }
+        } : nil,
+        onNavigateToReviewFile: onNavigateToReviewFile
+      )
+      .id(message.id)
+    }
+  }
+
   // MARK: - Subscriptions & Data Loading
 
   private func loadMessagesIfNeeded() {
@@ -430,6 +446,10 @@ struct ConversationView: View {
            messageRenderEquivalent(messages[i], serverMessages[i])
        })
     {
+      if displayedCount <= 0, !messages.isEmpty {
+        displayedCount = messages.count
+      }
+      isLoading = false
       return
     }
 
