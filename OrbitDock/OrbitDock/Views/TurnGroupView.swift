@@ -207,16 +207,7 @@ struct TurnGroupView: View {
           serverState.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
         }
       } : nil,
-      onNavigateToReviewFile: onNavigateToReviewFile,
-      onShellSendToAI: message.isShell ? { _ in
-        if let sid = sessionId {
-          serverState.session(sid).bufferShellContext(
-            command: message.content,
-            output: message.toolOutput ?? "",
-            exitCode: nil
-          )
-        }
-      } : nil
+      onNavigateToReviewFile: onNavigateToReviewFile
     )
     .id(message.id)
   }

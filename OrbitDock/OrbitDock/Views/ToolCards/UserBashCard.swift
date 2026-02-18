@@ -660,9 +660,11 @@ struct ParsedShellContext {
     commands.count
   }
 
-  /// Parse content containing <shell-context> tags
-  /// Format inside tags: `$ cmd\noutput\n(exit N)` blocks separated by blank lines
-  /// Text after </shell-context> is the user's follow-up prompt
+  /// Parse content containing <shell-context> tags.
+  /// Each command block starts with `$ cmd` on its own line. Output (including blank lines)
+  /// follows until the next `$ ` line or end of content. An optional `(exit N)` on the
+  /// last line of a block records the exit code.
+  /// Text after `</shell-context>` is the user's follow-up prompt.
   static func parse(from content: String) -> ParsedShellContext? {
     guard content.contains("<shell-context>") else { return nil }
 
@@ -679,32 +681,22 @@ struct ParsedShellContext {
       userPrompt = ""
     }
 
-    // Parse command blocks — split by double newline
-    let blocks = contextBody
-      .components(separatedBy: "\n\n")
-      .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
+    // Split into command blocks by lines starting with "$ "
+    let allLines = contextBody.components(separatedBy: "\n")
     var commands: [CommandBlock] = []
+    var currentCommand: String?
+    var currentOutputLines: [String] = []
 
-    for block in blocks {
-      let lines = block.components(separatedBy: "\n")
-      guard let firstLine = lines.first else { continue }
+    func flushBlock() {
+      guard let cmd = currentCommand else { return }
 
-      // Extract command from "$ cmd" prefix
-      let command: String
-      let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-      if trimmed.hasPrefix("$ ") {
-        command = String(trimmed.dropFirst(2))
-      } else if trimmed.hasPrefix("$") {
-        command = String(trimmed.dropFirst(1)).trimmingCharacters(in: .whitespaces)
-      } else {
-        // No $ prefix — treat entire block as output with no command
-        command = ""
-      }
-
-      // Check last line for exit code pattern: (exit N)
+      // Check last non-empty line for exit code pattern: (exit N)
       var exitCode: Int?
-      var outputLines = Array(lines.dropFirst())
+      var outputLines = currentOutputLines
+      // Trim trailing empty lines to find the (exit N)
+      while outputLines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {
+        outputLines.removeLast()
+      }
       if let lastLine = outputLines.last?.trimmingCharacters(in: .whitespaces),
          lastLine.hasPrefix("(exit "), lastLine.hasSuffix(")")
       {
@@ -719,11 +711,32 @@ struct ParsedShellContext {
         .trimmingCharacters(in: .whitespacesAndNewlines)
 
       commands.append(CommandBlock(
-        command: command,
+        command: cmd,
         output: output,
         exitCode: exitCode
       ))
     }
+
+    for line in allLines {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      if trimmed.hasPrefix("$ ") {
+        // Start of a new command — flush previous block
+        flushBlock()
+        currentCommand = String(trimmed.dropFirst(2))
+        currentOutputLines = []
+      } else if trimmed == "$" {
+        // Bare $ with no command
+        flushBlock()
+        currentCommand = ""
+        currentOutputLines = []
+      } else if currentCommand != nil {
+        // Continuation of current block's output
+        currentOutputLines.append(line)
+      }
+      // Lines before the first $ are ignored
+    }
+    // Flush the last block
+    flushBlock()
 
     guard !commands.isEmpty else { return nil }
 
@@ -788,16 +801,15 @@ struct ShellContextCard: View {
         // User prompt (if present)
         if !context.userPrompt.isEmpty {
           HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .trailing, spacing: Spacing.sm) {
-              Text(context.userPrompt)
-                .font(.system(size: TypeScale.reading))
-                .foregroundStyle(Color.textPrimary)
-                .lineSpacing(5)
-                .multilineTextAlignment(.trailing)
-                .textSelection(.enabled)
-            }
-            .padding(.vertical, Spacing.sm)
-            .padding(.horizontal, Spacing.md)
+            Text(context.userPrompt)
+              .font(.system(size: TypeScale.reading))
+              .foregroundStyle(Color.textPrimary)
+              .lineSpacing(5)
+              .multilineTextAlignment(.trailing)
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .trailing)
+              .padding(.vertical, Spacing.sm)
+              .padding(.horizontal, Spacing.md)
 
             Rectangle()
               .fill(Color.accent.opacity(OpacityTier.strong))
