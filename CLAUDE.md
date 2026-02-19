@@ -223,7 +223,7 @@ Claude Code hooks pipe JSON to `~/.orbitdock/hook.sh <type>`, which injects the 
 | `SessionStart` | `claude_session_start` |
 | `SessionEnd` | `claude_session_end` |
 | `UserPromptSubmit`, `Stop`, `Notification`, `PreCompact` | `claude_status_event` |
-| `PreToolUse`, `PostToolUse`, `PostToolUseFailure` | `claude_tool_event` |
+| `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest` | `claude_tool_event` |
 | `SubagentStart`, `SubagentStop` | `claude_subagent_event` |
 
 ## Database Migrations

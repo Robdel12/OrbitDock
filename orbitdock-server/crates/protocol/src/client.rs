@@ -260,6 +260,8 @@ pub enum ClientMessage {
         trigger: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         custom_instructions: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        permission_mode: Option<String>,
     },
     ClaudeToolEvent {
         session_id: String,
@@ -276,6 +278,8 @@ pub enum ClientMessage {
         error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_interrupt: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        permission_mode: Option<String>,
     },
     // Subagent tools
     GetSubagentTools {

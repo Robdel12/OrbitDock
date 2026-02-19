@@ -249,6 +249,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             title: _,
             trigger: _,
             custom_instructions: _,
+            permission_mode,
         } => {
             // If this hook is from a managed Claude direct session, route
             // supplementary data to the owning session.
@@ -366,7 +367,9 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 let actor = materialize_claude_session(
                     &session_id,
                     &fallback_cwd,
-                    transcript_path.clone().or_else(|| derived_transcript_path.clone()),
+                    transcript_path
+                        .clone()
+                        .or_else(|| derived_transcript_path.clone()),
                     git_branch.as_deref(),
                     state,
                     &persist_tx,
@@ -399,7 +402,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             .or_else(|| derived_transcript_path.clone()),
                         source: None,
                         agent_type: None,
-                        permission_mode: None,
+                        permission_mode: permission_mode.clone(),
                         terminal_session_id: None,
                         terminal_app: None,
                         forked_from_session_id: None,
@@ -593,7 +596,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         pending_question: None,
                         source: None,
                         agent_type: None,
-                        permission_mode: None,
+                        permission_mode: permission_mode.clone().map(Some),
                         active_subagent_id: None,
                         active_subagent_type: None,
                         first_prompt: None,
@@ -616,6 +619,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             tool_use_id: _,
             error: _,
             is_interrupt: _,
+            permission_mode,
         } => {
             // If this hook is from a managed Claude direct session, route
             // supplementary data (tool_count, last_tool) to the owning session.
@@ -652,6 +656,48 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                     })
                                     .await;
                             }
+                        }
+                        "PermissionRequest" => {
+                            if let Some(actor) = state.get_session(&owning_id) {
+                                actor
+                                    .send(SessionCommand::SetLastTool {
+                                        tool: Some(tool_name.clone()),
+                                    })
+                                    .await;
+                                actor
+                                    .send(SessionCommand::ApplyDelta {
+                                        changes: orbitdock_protocol::StateChanges {
+                                            work_status: Some(
+                                                orbitdock_protocol::WorkStatus::Permission,
+                                            ),
+                                            last_activity_at: Some(chrono_now()),
+                                            ..Default::default()
+                                        },
+                                        persist_op: None,
+                                    })
+                                    .await;
+                            }
+                            let serialized_input =
+                                tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                            let _ = persist_tx
+                                .send(PersistCommand::ClaudeSessionUpdate {
+                                    id: owning_id.clone(),
+                                    work_status: Some("permission".to_string()),
+                                    attention_reason: Some(Some("awaitingPermission".to_string())),
+                                    last_tool: Some(Some(tool_name.clone())),
+                                    last_tool_at: Some(Some(chrono_now())),
+                                    pending_tool_name: Some(Some(tool_name)),
+                                    pending_tool_input: Some(serialized_input),
+                                    pending_question: None,
+                                    source: None,
+                                    agent_type: None,
+                                    permission_mode: None,
+                                    active_subagent_id: None,
+                                    active_subagent_type: None,
+                                    first_prompt: None,
+                                    compact_count_increment: false,
+                                })
+                                .await;
                         }
                         "PostToolUse" | "PostToolUseFailure" => {
                             let _ = persist_tx
@@ -713,7 +759,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     transcript_path: derived_transcript_path,
                     source: None,
                     agent_type: None,
-                    permission_mode: None,
+                    permission_mode: permission_mode.clone(),
                     terminal_session_id: None,
                     terminal_app: None,
                     forked_from_session_id: None,
@@ -768,7 +814,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             pending_question: if was_permission { None } else { Some(question) },
                             source: None,
                             agent_type: None,
-                            permission_mode: None,
+                            permission_mode: permission_mode.clone().map(Some),
                             active_subagent_id: None,
                             active_subagent_type: None,
                             first_prompt: None,
@@ -794,7 +840,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             pending_question: Some(None),
                             source: None,
                             agent_type: None,
-                            permission_mode: None,
+                            permission_mode: permission_mode.clone().map(Some),
                             active_subagent_id: None,
                             active_subagent_type: None,
                             first_prompt: None,
@@ -822,8 +868,8 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeSessionUpdate {
                             id: session_id.clone(),
-                            work_status: Some("waiting".to_string()),
-                            attention_reason: Some(Some("awaitingReply".to_string())),
+                            work_status: Some("working".to_string()),
+                            attention_reason: Some(Some("none".to_string())),
                             last_tool: None,
                             last_tool_at: None,
                             pending_tool_name: Some(None),
@@ -831,7 +877,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             pending_question: Some(None),
                             source: None,
                             agent_type: None,
-                            permission_mode: None,
+                            permission_mode: permission_mode.clone().map(Some),
                             active_subagent_id: None,
                             active_subagent_type: None,
                             first_prompt: None,
@@ -842,11 +888,51 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     actor
                         .send(SessionCommand::ApplyDelta {
                             changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
+                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
                                 last_activity_at: Some(chrono_now()),
                                 ..Default::default()
                             },
                             persist_op: None,
+                        })
+                        .await;
+                }
+                "PermissionRequest" => {
+                    let serialized_input =
+                        tool_input.and_then(|value| serde_json::to_string(&value).ok());
+
+                    actor
+                        .send(SessionCommand::SetLastTool {
+                            tool: Some(tool_name.clone()),
+                        })
+                        .await;
+                    actor
+                        .send(SessionCommand::ApplyDelta {
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(orbitdock_protocol::WorkStatus::Permission),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
+                            persist_op: None,
+                        })
+                        .await;
+
+                    let _ = persist_tx
+                        .send(PersistCommand::ClaudeSessionUpdate {
+                            id: session_id.clone(),
+                            work_status: Some("permission".to_string()),
+                            attention_reason: Some(Some("awaitingPermission".to_string())),
+                            last_tool: Some(Some(tool_name.clone())),
+                            last_tool_at: Some(Some(chrono_now())),
+                            pending_tool_name: Some(Some(tool_name)),
+                            pending_tool_input: Some(serialized_input),
+                            pending_question: None,
+                            source: None,
+                            agent_type: None,
+                            permission_mode: permission_mode.map(Some),
+                            active_subagent_id: None,
+                            active_subagent_type: None,
+                            first_prompt: None,
+                            compact_count_increment: false,
                         })
                         .await;
                 }
