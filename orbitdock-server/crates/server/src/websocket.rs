@@ -2060,6 +2060,8 @@ async fn handle_client_message(
                 restored.first_prompt,
                 restored.last_message,
                 restored.effort,
+                restored.terminal_session_id,
+                restored.terminal_app,
             );
 
             // Subscribe the requesting client

@@ -20,12 +20,13 @@ final class TerminalService {
 
   // MARK: - Public API
 
-  /// Focus an existing terminal session or open a new one with resume command
-  func focusSession(_ session: Session) {
+  /// Focus an existing terminal session or open a new one with resume command.
+  /// Returns `true` if the terminal was found/opened successfully.
+  func focusSession(_ session: Session) async -> Bool {
     if session.isActive {
-      focusActiveSession(session)
+      return await focusActiveSession(session)
     } else {
-      openNewTerminalWithResume(session)
+      return await openNewTerminalWithResume(session)
     }
   }
 
@@ -96,7 +97,7 @@ final class TerminalService {
 
   // MARK: - Private Implementation
 
-  private func focusActiveSession(_ session: Session) {
+  private func focusActiveSession(_ session: Session) async -> Bool {
     logger
       .info(
         "focus requested session=\(session.id, privacy: .public) terminalApp=\(session.terminalApp ?? "nil", privacy: .public) terminalId=\(session.terminalSessionId ?? "nil", privacy: .public)"
@@ -106,29 +107,28 @@ final class TerminalService {
     if let terminalId = session.terminalSessionId, !terminalId.isEmpty,
        isITermSession(session.terminalApp)
     {
-      focusBySessionId(terminalId) { [weak self] found in
-        if !found {
-          // Fallback to path-based matching
-          self?.focusByPath(session.projectPath) { found in
-            if !found {
-              self?.logger
-                .error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_id_or_path")
-            }
-          }
-        }
+      let found = await focusBySessionId(terminalId)
+      if found { return true }
+
+      // Fallback to path-based matching
+      let foundByPath = await focusByPath(session.projectPath)
+      if !foundByPath {
+        logger
+          .error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_id_or_path")
       }
+      return foundByPath
     } else {
       // No terminal ID, try path-based matching
-      focusByPath(session.projectPath) { found in
-        if !found {
-          self.logger
-            .error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_path_no_terminal_id")
-        }
+      let found = await focusByPath(session.projectPath)
+      if !found {
+        logger
+          .error("focus failed for session=\(session.id, privacy: .public) reason=not_found_by_path_no_terminal_id")
       }
+      return found
     }
   }
 
-  private func focusBySessionId(_ terminalId: String, completion: @escaping (Bool) -> Void) {
+  private func focusBySessionId(_ terminalId: String) async -> Bool {
     // terminalId format from hooks: "w9t1p0:UUID" - iTerm only knows the UUID part
     let terminalUUID = extractTerminalUUID(from: terminalId)
     let escapedTerminalId = terminalId.replacingOccurrences(of: "\"", with: "\\\"")
@@ -163,21 +163,19 @@ final class TerminalService {
     end tell
     """
 
-    appleScript.execute(script) { result in
-      switch result {
-        case let .success(output):
-          completion(output?.hasPrefix("found") ?? false)
-        case let .failure(error):
-          self.logger
-            .error(
-              "focusBySessionId AppleScript failed terminalId=\(terminalId, privacy: .public) terminalUUID=\(terminalUUID, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
-            )
-          completion(false)
-      }
+    do {
+      let output = try await appleScript.execute(script)
+      return output?.hasPrefix("found") ?? false
+    } catch {
+      logger
+        .error(
+          "focusBySessionId AppleScript failed terminalId=\(terminalId, privacy: .public) terminalUUID=\(terminalUUID, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+        )
+      return false
     }
   }
 
-  private func focusByPath(_ projectPath: String, completion: @escaping (Bool) -> Void) {
+  private func focusByPath(_ projectPath: String) async -> Bool {
     let escapedPath = projectPath.replacingOccurrences(of: "\"", with: "\\\"")
 
     // Use explicit indexing to avoid reference issues when reordering windows
@@ -208,21 +206,19 @@ final class TerminalService {
     end tell
     """
 
-    appleScript.execute(script) { result in
-      switch result {
-        case let .success(output):
-          completion(output == "found")
-        case let .failure(error):
-          self.logger
-            .error(
-              "focusByPath AppleScript failed path=\(projectPath, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
-            )
-          completion(false)
-      }
+    do {
+      let output = try await appleScript.execute(script)
+      return output == "found"
+    } catch {
+      logger
+        .error(
+          "focusByPath AppleScript failed path=\(projectPath, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+        )
+      return false
     }
   }
 
-  private func openNewTerminalWithResume(_ session: Session) {
+  private func openNewTerminalWithResume(_ session: Session) async -> Bool {
     let escapedPath = session.projectPath.replacingOccurrences(of: "'", with: "'\\''")
     let command = "cd '\(escapedPath)' && claude --resume \(session.id)"
 
@@ -236,13 +232,15 @@ final class TerminalService {
     end tell
     """
 
-    appleScript.execute(script) { result in
-      if case let .failure(error) = result {
-        self.logger
-          .error(
-            "openNewTerminal AppleScript failed session=\(session.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
-          )
-      }
+    do {
+      _ = try await appleScript.execute(script)
+      return true
+    } catch {
+      logger
+        .error(
+          "openNewTerminal AppleScript failed session=\(session.id, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+        )
+      return false
     }
   }
 

@@ -189,6 +189,8 @@ async fn async_main() -> anyhow::Result<()> {
                     last_message,
                     end_reason: _,
                     effort,
+                    terminal_session_id,
+                    terminal_app,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -266,6 +268,8 @@ async fn async_main() -> anyhow::Result<()> {
                     first_prompt,
                     last_message,
                     effort,
+                    terminal_session_id,
+                    terminal_app,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_claude = matches!(provider, Provider::Claude);

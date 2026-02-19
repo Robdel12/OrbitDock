@@ -423,6 +423,8 @@ struct ServerSessionState: Codable, Identifiable {
   let lastMessage: String?
   let subagents: [ServerSubagentInfo]
   let effort: String?
+  let terminalSessionId: String?
+  let terminalApp: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -458,6 +460,8 @@ struct ServerSessionState: Codable, Identifiable {
     case lastMessage = "last_message"
     case subagents
     case effort
+    case terminalSessionId = "terminal_session_id"
+    case terminalApp = "terminal_app"
   }
 
   init(from decoder: Decoder) throws {
@@ -498,6 +502,8 @@ struct ServerSessionState: Codable, Identifiable {
     lastMessage = try container.decodeIfPresent(String.self, forKey: .lastMessage)
     subagents = try container.decodeIfPresent([ServerSubagentInfo].self, forKey: .subagents) ?? []
     effort = try container.decodeIfPresent(String.self, forKey: .effort)
+    terminalSessionId = try container.decodeIfPresent(String.self, forKey: .terminalSessionId)
+    terminalApp = try container.decodeIfPresent(String.self, forKey: .terminalApp)
   }
 }
 

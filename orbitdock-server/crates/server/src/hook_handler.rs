@@ -1174,6 +1174,7 @@ async fn materialize_claude_session(
     handle.set_model(model.clone());
     handle.set_transcript_path(transcript_path.clone());
     handle.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
+    handle.set_terminal_info(terminal_session_id.clone(), terminal_app.clone());
     if let Some(ref fork_src) = forked_from_session_id {
         handle.set_forked_from(fork_src.clone());
     }

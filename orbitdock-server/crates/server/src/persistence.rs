@@ -1564,6 +1564,8 @@ pub struct RestoredSession {
     pub last_message: Option<String>,
     pub end_reason: Option<String>,
     pub effort: Option<String>,
+    pub terminal_session_id: Option<String>,
+    pub terminal_app: Option<String>,
 }
 
 /// No longer backfills custom_name from first_prompt — the UI uses first_prompt
@@ -2264,6 +2266,15 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or(None);
 
+            // Query terminal info (columns exist in baseline schema)
+            let (terminal_session_id, terminal_app): (Option<String>, Option<String>) = conn
+                .query_row(
+                    "SELECT terminal_session_id, terminal_app FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap_or((None, None));
+
             // end_reason already queried above for message-skip logic
             let end_reason = end_reason_val;
 
@@ -2325,6 +2336,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 last_message,
                 end_reason,
                 effort,
+                terminal_session_id,
+                terminal_app,
             });
         }
 
@@ -2492,6 +2505,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             last_message,
             end_reason: None,
             effort,
+            terminal_session_id: None,
+            terminal_app: None,
         }))
     }).await??;
 

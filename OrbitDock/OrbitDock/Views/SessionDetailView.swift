@@ -194,7 +194,7 @@ struct SessionDetailView: View {
       navigateToComment = nil
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
-      Button("Open New") { TerminalService.shared.focusSession(session) }
+      Button("Open New") { Task { await TerminalService.shared.focusSession(session) } }
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Couldn't find the terminal. Open a new iTerm window to resume?")
@@ -574,7 +574,12 @@ struct SessionDetailView: View {
       .info(
         "focus terminal clicked session=\(session.id, privacy: .public) provider=\(String(describing: session.provider), privacy: .public)"
       )
-    TerminalService.shared.focusSession(session)
+    Task {
+      let success = await TerminalService.shared.focusSession(session)
+      if !success {
+        terminalActionFailed = true
+      }
+    }
   }
 
   private func endDirectSession() {

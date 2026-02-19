@@ -43,6 +43,8 @@ pub struct SessionSnapshot {
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
     pub effort: Option<String>,
+    pub terminal_session_id: Option<String>,
+    pub terminal_app: Option<String>,
 }
 
 const EVENT_LOG_CAPACITY: usize = 1000;
@@ -81,6 +83,8 @@ pub struct SessionHandle {
     first_prompt: Option<String>,
     last_message: Option<String>,
     effort: Option<String>,
+    terminal_session_id: Option<String>,
+    terminal_app: Option<String>,
     subagents: Vec<SubagentInfo>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
@@ -128,6 +132,8 @@ impl SessionHandle {
             git_sha: None,
             current_cwd: None,
             effort: None,
+            terminal_session_id: None,
+            terminal_app: None,
         };
         Self {
             id,
@@ -161,6 +167,8 @@ impl SessionHandle {
             first_prompt: None,
             last_message: None,
             effort: None,
+            terminal_session_id: None,
+            terminal_app: None,
             subagents: Vec::new(),
             broadcast_tx,
             list_tx: None,
@@ -200,6 +208,8 @@ impl SessionHandle {
         first_prompt: Option<String>,
         last_message: Option<String>,
         effort: Option<String>,
+        terminal_session_id: Option<String>,
+        terminal_app: Option<String>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -228,6 +238,8 @@ impl SessionHandle {
             effort: effort.clone(),
             first_prompt: first_prompt.clone(),
             last_message: last_message.clone(),
+            terminal_session_id: terminal_session_id.clone(),
+            terminal_app: terminal_app.clone(),
         };
         Self {
             id,
@@ -261,6 +273,8 @@ impl SessionHandle {
             first_prompt,
             last_message,
             effort,
+            terminal_session_id,
+            terminal_app,
             subagents: Vec::new(),
             broadcast_tx,
             list_tx: None,
@@ -358,6 +372,8 @@ impl SessionHandle {
             last_message: self.last_message.clone(),
             subagents: self.subagents.clone(),
             effort: self.effort.clone(),
+            terminal_session_id: self.terminal_session_id.clone(),
+            terminal_app: self.terminal_app.clone(),
         }
     }
 
@@ -469,6 +485,16 @@ impl SessionHandle {
     /// Set fork origin
     pub fn set_forked_from(&mut self, source_session_id: String) {
         self.forked_from_session_id = Some(source_session_id);
+    }
+
+    /// Set terminal session ID and app
+    pub fn set_terminal_info(
+        &mut self,
+        terminal_session_id: Option<String>,
+        terminal_app: Option<String>,
+    ) {
+        self.terminal_session_id = terminal_session_id;
+        self.terminal_app = terminal_app;
     }
 
     /// Set status
@@ -656,6 +682,8 @@ impl SessionHandle {
             effort: self.effort.clone(),
             first_prompt: self.first_prompt.clone(),
             last_message: self.last_message.clone(),
+            terminal_session_id: self.terminal_session_id.clone(),
+            terminal_app: self.terminal_app.clone(),
         }
     }
 

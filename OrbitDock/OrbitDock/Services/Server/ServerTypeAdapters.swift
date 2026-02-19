@@ -105,6 +105,8 @@ extension ServerSessionState {
     session.gitSha = gitSha
     session.currentCwd = currentCwd
     session.effort = effort
+    session.terminalSessionId = terminalSessionId
+    session.terminalApp = terminalApp
     return session
   }
 }

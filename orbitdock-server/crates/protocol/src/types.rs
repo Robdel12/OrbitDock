@@ -280,6 +280,10 @@ pub struct SessionState {
     pub subagents: Vec<SubagentInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_app: Option<String>,
 }
 
 /// Changes to apply to a session state (delta updates)
