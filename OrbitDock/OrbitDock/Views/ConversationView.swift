@@ -34,6 +34,8 @@ struct ConversationView: View {
   @State private var pendingBottomAnchorMaxY: CGFloat?
   @State private var pendingViewportHeight: CGFloat = 0
   @State private var autoFollowUpdateTask: Task<Void, Never>?
+  @State private var contentRevision: Int = 0
+  @State private var lastUserScrollInteractionAt: Date = .distantPast
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool
@@ -46,6 +48,7 @@ struct ConversationView: View {
   private let scrollCoordinateSpace = "conversation-scroll"
   private let unpinDistanceThreshold: CGFloat = 200
   private let repinDistanceThreshold: CGFloat = 56
+  private let userScrollInteractionWindow: TimeInterval = 0.35
 
   /// Pre-computed per-message metadata to avoid O(n²) in ForEach
   private struct MessageMeta {
@@ -124,6 +127,8 @@ struct ConversationView: View {
       hasPendingRefresh = false
       autoFollowUpdateTask?.cancel()
       autoFollowUpdateTask = nil
+      contentRevision = 0
+      lastUserScrollInteractionAt = .distantPast
     }
     .onChange(of: sessionId) { _, _ in
       loadMessagesIfNeeded()
@@ -230,6 +235,15 @@ struct ConversationView: View {
           .coordinateSpace(name: scrollCoordinateSpace)
           .scrollIndicators(.hidden)
           .defaultScrollAnchor(.bottom)
+          .simultaneousGesture(
+            DragGesture(minimumDistance: 4)
+              .onChanged { _ in
+                lastUserScrollInteractionAt = Date()
+              }
+              .onEnded { _ in
+                lastUserScrollInteractionAt = Date()
+              }
+          )
           .onAppear {
             hasActivatedScrollTracking = false
             scrollToEnd(proxy: proxy, animated: false)
@@ -250,6 +264,10 @@ struct ConversationView: View {
             }
           }
           .onChange(of: tailRenderSignature) { _, _ in
+            guard isPinned else { return }
+            scrollToEnd(proxy: proxy, animated: false)
+          }
+          .onChange(of: contentRevision) { _, _ in
             guard isPinned else { return }
             scrollToEnd(proxy: proxy, animated: false)
           }
@@ -327,11 +345,13 @@ struct ConversationView: View {
   private func updateAutoFollowState(bottomAnchorMaxY: CGFloat, viewportHeight: CGFloat) {
     guard hasActivatedScrollTracking, viewportHeight > 0, !messages.isEmpty else { return }
     let distanceFromBottom = max(0, viewportHeight - bottomAnchorMaxY)
+    let recentlyInteracted = Date().timeIntervalSince(lastUserScrollInteractionAt) <= userScrollInteractionWindow
 
     if isPinned {
-      if distanceFromBottom > unpinDistanceThreshold {
+      if recentlyInteracted, distanceFromBottom > unpinDistanceThreshold {
         unpinnedByScroll = true
         isPinned = false
+        logDebugState("unpinned_by_user_scroll")
       }
       return
     }
@@ -340,6 +360,7 @@ struct ConversationView: View {
       unpinnedByScroll = false
       unreadCount = 0
       isPinned = true
+      logDebugState("repinned_near_bottom")
     }
   }
 
@@ -479,6 +500,7 @@ struct ConversationView: View {
     let serverMessages = serverState.session(sid).messages
     messages = serverMessages
     displayedCount = serverMessages.count
+    contentRevision += 1
     isLoading = false
     logDebugState("load_messages")
   }
@@ -534,6 +556,7 @@ struct ConversationView: View {
     } else {
       displayedCount = 0
     }
+    contentRevision += 1
     isLoading = false
     logDebugState("refresh_messages")
   }

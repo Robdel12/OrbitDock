@@ -34,7 +34,7 @@ struct TurnGroupView: View {
 
   private struct SplitMessages {
     let leading: [TranscriptMessage] // user prompt, thinking before first tool
-    let tools: [TranscriptMessage] // all tool messages (and interleaved non-tool)
+    let tools: [TranscriptMessage] // work-zone messages between first/last tool
     let trailing: [TranscriptMessage] // assistant response after last tool
     let toolCount: Int // actual tool messages (not interleaved non-tools)
 
@@ -43,13 +43,60 @@ struct TurnGroupView: View {
     }
   }
 
+  private struct CollapsedToolSlice {
+    let visibleMessages: [TranscriptMessage]
+    let hiddenMessages: [TranscriptMessage]
+
+    var hiddenCount: Int {
+      hiddenMessages.count
+    }
+  }
+
+  /// Only tool activity is eligible for roll-up.
+  /// Assistant and user-facing messages remain visible in the timeline.
+  private func isRollupEligible(_ message: TranscriptMessage) -> Bool {
+    message.isTool
+  }
+
+  private func collapseSlice(for toolZoneMessages: [TranscriptMessage], canCollapse: Bool) -> CollapsedToolSlice {
+    guard canCollapse else {
+      return CollapsedToolSlice(visibleMessages: toolZoneMessages, hiddenMessages: [])
+    }
+
+    let rollupEligibleIndices = toolZoneMessages.enumerated().compactMap { index, message in
+      isRollupEligible(message) ? index : nil
+    }
+    let visibleEligibleIndices = Set(rollupEligibleIndices.suffix(visibleToolTail))
+
+    var visibleMessages: [TranscriptMessage] = []
+    var hiddenMessages: [TranscriptMessage] = []
+
+    visibleMessages.reserveCapacity(toolZoneMessages.count)
+
+    for (index, message) in toolZoneMessages.enumerated() {
+      if isRollupEligible(message), !visibleEligibleIndices.contains(index) {
+        hiddenMessages.append(message)
+      } else {
+        visibleMessages.append(message)
+      }
+    }
+
+    return CollapsedToolSlice(visibleMessages: visibleMessages, hiddenMessages: hiddenMessages)
+  }
+
+  private func rollupEligibleCount(in toolZoneMessages: [TranscriptMessage]) -> Int {
+    toolZoneMessages.reduce(0) { partial, message in
+      partial + (isRollupEligible(message) ? 1 : 0)
+    }
+  }
+
   /// Single-pass split of turn messages into leading/tools/trailing.
   /// Called once per body evaluation — all derived values come from the returned struct.
   private func computeSplit() -> (
     split: SplitMessages,
     canCollapse: Bool,
-    hiddenCount: Int,
-    hiddenMessages: [TranscriptMessage]
+    rollupEligibleCount: Int,
+    collapsed: CollapsedToolSlice
   ) {
     var leading: [TranscriptMessage] = []
     var tools: [TranscriptMessage] = []
@@ -78,17 +125,17 @@ struct TurnGroupView: View {
     let split = SplitMessages(
       leading: leading, tools: tools, trailing: trailing, toolCount: toolMsgCount
     )
-    let canCollapse = toolMsgCount >= collapseThreshold
-    let hiddenCount = canCollapse ? max(0, tools.count - visibleToolTail) : 0
-    let hiddenMessages = canCollapse ? Array(tools.prefix(hiddenCount)) : []
+    let eligibleCount = rollupEligibleCount(in: tools)
+    let canCollapse = eligibleCount >= collapseThreshold
+    let collapsed = collapseSlice(for: tools, canCollapse: canCollapse)
 
-    return (split, canCollapse, hiddenCount, hiddenMessages)
+    return (split, canCollapse, eligibleCount, collapsed)
   }
 
   // MARK: - Body
 
   var body: some View {
-    let (split, canCollapse, hiddenCount, hidden) = computeSplit()
+    let (split, canCollapse, rollupCount, collapsedTools) = computeSplit()
     let metadata = computeTurnMetadata(turn.messages)
 
     VStack(alignment: .leading, spacing: 0) {
@@ -111,18 +158,20 @@ struct TurnGroupView: View {
         VStack(alignment: .leading, spacing: 0) {
           // Collapsed state: compressed bar + visible tail
           if canCollapse, isMiddleCollapsed {
-            CompressedToolBar(
-              hiddenMessages: hidden,
-              count: hiddenCount,
-              totalToolCount: split.toolCount
-            ) {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                isMiddleCollapsed = false
+            if collapsedTools.hiddenCount > 0 {
+              CompressedToolBar(
+                hiddenMessages: collapsedTools.hiddenMessages,
+                count: collapsedTools.hiddenCount,
+                totalToolCount: split.toolCount
+              ) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                  isMiddleCollapsed = false
+                }
               }
             }
 
-            // Show only last N tool messages
-            ForEach(Array(split.tools.suffix(visibleToolTail).enumerated()), id: \.offset) { index, message in
+            // Show non-agent interleaves + trailing agent tail (constant-height-ish while active)
+            ForEach(Array(collapsedTools.visibleMessages.enumerated()), id: \.offset) { index, message in
               messageEntry(
                 message: message,
                 meta: metadata[message.id],
@@ -140,8 +189,8 @@ struct TurnGroupView: View {
             }
 
             // Collapse affordance when expanded
-            if canCollapse {
-              CollapseAffordance(count: hiddenCount) {
+            if canCollapse, collapsedTools.hiddenCount > 0 {
+              CollapseAffordance(count: collapsedTools.hiddenCount) {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                   isMiddleCollapsed = true
                 }
@@ -193,9 +242,18 @@ struct TurnGroupView: View {
         }
       }
     }
+    .onChange(of: turn.messages.count) { _, _ in
+      // Keep active turns stable as tools stream in.
+      guard isActive else { return }
+      if rollupCount >= collapseThreshold, !isMiddleCollapsed {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          isMiddleCollapsed = true
+        }
+      }
+    }
     .onAppear {
-      // Active turns start expanded, completed turns start collapsed
-      isMiddleCollapsed = !isActive
+      // Completed turns start collapsed. Active turns collapse once tool activity gets dense.
+      isMiddleCollapsed = !isActive || rollupCount >= collapseThreshold
     }
   }
 
@@ -350,7 +408,7 @@ private struct CompressedToolBar: View {
     var countMap: [String: Int] = [:]
     var glyphMap: [String: ToolGlyph] = [:]
 
-    for msg in hiddenMessages {
+    for msg in hiddenMessages where msg.isTool {
       let name = msg.toolName ?? "tool"
       countMap[name, default: 0] += 1
       if glyphMap[name] == nil {
@@ -422,21 +480,29 @@ private struct CompressedToolBar: View {
   // MARK: - Tool Breakdown Row
 
   private var toolBreakdownRow: some View {
-    HStack(spacing: 12) {
-      ForEach(breakdown.prefix(6)) { entry in
-        HStack(spacing: 5) {
-          Image(systemName: entry.glyph.icon)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(entry.glyph.color)
+    Group {
+      if breakdown.isEmpty {
+        Text("Agent updates")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
+      } else {
+        HStack(spacing: 12) {
+          ForEach(breakdown.prefix(6)) { entry in
+            HStack(spacing: 5) {
+              Image(systemName: entry.glyph.icon)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(entry.glyph.color)
 
-          Text("\(entry.count)")
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.textSecondary)
+              Text("\(entry.count)")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color.textSecondary)
 
-          Text(displayName(for: entry.id))
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(1)
+              Text(displayName(for: entry.id))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.textTertiary)
+                .lineLimit(1)
+            }
+          }
         }
       }
     }
