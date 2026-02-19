@@ -520,18 +520,17 @@ struct WorkStreamEntry: View {
   }
 
   private var userPromptInlineRight: some View {
-    HStack(alignment: .top, spacing: 0) {
+    let markdown = stripXMLTags(message.content)
+
+    return HStack(alignment: .top, spacing: 0) {
       VStack(alignment: .trailing, spacing: Spacing.sm) {
         if !message.images.isEmpty {
           ImageGallery(images: message.images)
         }
-        if !message.content.isEmpty {
-          Text(stripXMLTags(message.content))
-            .font(.system(size: TypeScale.reading))
-            .foregroundStyle(Color.textPrimary)
-            .lineSpacing(5)
+        if !markdown.isEmpty {
+          MarkdownContentView(content: markdown)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .multilineTextAlignment(.trailing)
-            .textSelection(.enabled)
         }
       }
       .padding(.vertical, Spacing.sm)
@@ -702,7 +701,9 @@ struct WorkStreamEntry: View {
   }
 
   private var userPromptInline: some View {
-    HStack(alignment: .top, spacing: 0) {
+    let markdown = stripXMLTags(message.content)
+
+    return HStack(alignment: .top, spacing: 0) {
       Rectangle()
         .fill(Color.accent.opacity(OpacityTier.strong))
         .frame(width: EdgeBar.width)
@@ -711,12 +712,8 @@ struct WorkStreamEntry: View {
         if !message.images.isEmpty {
           ImageGallery(images: message.images)
         }
-        if !message.content.isEmpty {
-          Text(stripXMLTags(message.content))
-            .font(.system(size: TypeScale.reading))
-            .foregroundStyle(Color.textPrimary)
-            .lineSpacing(5)
-            .textSelection(.enabled)
+        if !markdown.isEmpty {
+          MarkdownContentView(content: markdown)
         }
       }
       .padding(.vertical, Spacing.sm)
