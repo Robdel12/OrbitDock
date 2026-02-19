@@ -3,7 +3,11 @@
 # Usage: echo '{"session_id":"..."}' | hook.sh <type>
 #
 # Types: claude_session_start, claude_session_end, claude_status_event,
-#        claude_tool_event, claude_subagent_event
+#        claude_tool_event (PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest),
+#        claude_subagent_event
+#
+# If the server is unreachable, events are spooled to ~/.orbitdock/spool/ as JSON files.
+# The server drains the spool on startup so no events are lost.
 
 TYPE="$1"
 [ -z "$TYPE" ] && exit 0
@@ -25,7 +29,12 @@ else
   BODY=$(echo "$PAYLOAD" | sed "s/^{/{\"type\":\"$TYPE\",/")
 fi
 
-curl -s -X POST --connect-timeout 2 --max-time 5 \
+SPOOL_DIR="$HOME/.orbitdock/spool"
+
+if ! curl -s -X POST --connect-timeout 2 --max-time 5 \
   -H "Content-Type: application/json" \
   -d "$BODY" \
-  "http://127.0.0.1:4000/api/hook" >/dev/null 2>&1 || true
+  "http://127.0.0.1:4000/api/hook" >/dev/null 2>&1; then
+  mkdir -p "$SPOOL_DIR"
+  echo "$BODY" > "$SPOOL_DIR/$(date +%s)-$$.json"
+fi

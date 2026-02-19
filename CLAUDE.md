@@ -84,6 +84,7 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
 - **Codex Watcher State**: `~/.orbitdock/codex-rollout-state.json` (offset tracking)
+- **Hook Event Spool**: `~/.orbitdock/spool/` (queued hook events when server is offline, drained on startup)
 
 ## Debugging Codex Integration
 

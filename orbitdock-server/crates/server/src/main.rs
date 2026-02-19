@@ -337,6 +337,9 @@ async fn async_main() -> anyhow::Result<()> {
         }
     }
 
+    // Drain spooled hook events from when the server was offline
+    drain_spool(&state).await;
+
     // Backfill AI names for active sessions with first_prompt but no summary
     {
         let summaries = state.get_session_summaries();
@@ -478,4 +481,83 @@ fn binary_metadata(path: &str) -> (u64, i64) {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
     (size, modified)
+}
+
+/// Drain spooled hook events written by `hook.sh` while the server was offline.
+///
+/// Reads all `.json` files from `~/.orbitdock/spool/`, processes them in
+/// timestamp order (filenames are `<epoch>-<pid>.json`), and deletes each
+/// file after successful processing. Parse failures are warned and skipped.
+async fn drain_spool(state: &Arc<SessionRegistry>) {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let spool_dir = PathBuf::from(&home).join(".orbitdock/spool");
+    let entries = match std::fs::read_dir(&spool_dir) {
+        Ok(e) => e,
+        Err(_) => return, // No spool dir — nothing to drain
+    };
+
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("json"))
+        .collect();
+
+    if files.is_empty() {
+        return;
+    }
+
+    // Sort by filename to preserve event order (timestamp prefix)
+    files.sort();
+
+    let total = files.len();
+    let mut drained = 0u64;
+    let mut failed = 0u64;
+
+    for path in &files {
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!(
+                    component = "spool",
+                    event = "spool.read_error",
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to read spool file, skipping"
+                );
+                failed += 1;
+                continue;
+            }
+        };
+
+        let msg: orbitdock_protocol::ClientMessage = match serde_json::from_str(&content) {
+            Ok(m) => m,
+            Err(e) => {
+                warn!(
+                    component = "spool",
+                    event = "spool.parse_error",
+                    path = %path.display(),
+                    error = %e,
+                    "Failed to parse spool file, skipping"
+                );
+                failed += 1;
+                continue;
+            }
+        };
+
+        hook_handler::handle_hook_message(msg, state).await;
+        let _ = std::fs::remove_file(path);
+        drained += 1;
+    }
+
+    info!(
+        component = "spool",
+        event = "spool.drained",
+        total = total,
+        drained = drained,
+        failed = failed,
+        "Spool drain complete"
+    );
 }
