@@ -33,6 +33,16 @@ enum TypeScale {
   static let title: CGFloat = 14
   /// Content meant to be read (user prompts, steer text) vs. UI labels
   static let reading: CGFloat = 14
+  /// Conversation timeline role labels ("Assistant", "You", "Reasoning")
+  static let chatLabel: CGFloat = 9
+  /// Assistant/user prose body in transcript cards
+  static let chatBody: CGFloat = 14.5
+  /// Prominent markdown headers inside assistant responses
+  static let chatHeading1: CGFloat = 22
+  static let chatHeading2: CGFloat = 18
+  static let chatHeading3: CGFloat = 15
+  /// Inline and block code inside assistant responses
+  static let chatCode: CGFloat = 12.5
   /// Section headers ("Active Agents") — dominant dashboard tier
   static let headline: CGFloat = 20
   /// Project names, emphasized subheads

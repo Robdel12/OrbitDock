@@ -234,7 +234,7 @@ struct EditCard: View {
 
   @ViewBuilder
   private var diffContent: some View {
-    let maxLines = isExpanded || !isTruncated ? 200 : 30
+    let maxLines = isExpanded || !isTruncated ? 120 : 24
 
     VStack(alignment: .leading, spacing: 0) {
       // For Write tool, show full content as addition
@@ -249,22 +249,17 @@ struct EditCard: View {
           language: language
         )
       }
-      // For Edit tool, show unified diff (old_string/new_string)
-      else if !oldString.isEmpty || !newString.isEmpty {
-        UnifiedDiffView(
-          oldString: oldString,
-          newString: newString,
-          language: language,
+      // For Codex file changes, render only changed lines (no heavy full-context diff).
+      else if let diff = message.unifiedDiff, !diff.isEmpty {
+        ChangedDiffView(
+          lines: Self.extractChangedLines(fromUnifiedDiff: diff),
           maxLines: maxLines
         )
       }
-      // For Codex file changes, parse unified diff into old/new for consistent rendering
-      else if let diff = message.unifiedDiff, !diff.isEmpty {
-        let (old, new) = Self.parseUnifiedDiff(diff)
-        UnifiedDiffView(
-          oldString: old,
-          newString: new,
-          language: language,
+      // For Edit tool payloads, render only changed lines.
+      else if !oldString.isEmpty || !newString.isEmpty {
+        ChangedDiffView(
+          lines: Self.extractChangedLines(oldString: oldString, newString: newString),
           maxLines: maxLines
         )
       }
@@ -284,61 +279,110 @@ struct EditCard: View {
     }
   }
 
-  /// Parse unified diff format into old/new content strings for UnifiedDiffView
-  static func parseUnifiedDiff(_ diff: String) -> (old: String, new: String) {
-    var oldLines: [String] = []
-    var newLines: [String] = []
+  static func extractChangedLines(fromUnifiedDiff diff: String) -> [DiffLine] {
+    let parsed = DiffModel.parse(unifiedDiff: diff)
+    let changed = parsed.files.flatMap { file in
+      file.hunks.flatMap { hunk in
+        hunk.lines.filter { $0.type == .added || $0.type == .removed }
+      }
+    }
+    if !changed.isEmpty {
+      return changed
+    }
+    return fallbackChangedLines(fromUnifiedDiff: diff)
+  }
 
-    for line in diff.components(separatedBy: "\n") {
-      if line.hasPrefix("---") || line.hasPrefix("+++") || line.hasPrefix("@@") {
-        continue
-      } else if line.hasPrefix("-") {
-        oldLines.append(String(line.dropFirst()))
-      } else if line.hasPrefix("+") {
-        newLines.append(String(line.dropFirst()))
-      } else if line.hasPrefix(" ") {
-        let content = String(line.dropFirst())
-        oldLines.append(content)
-        newLines.append(content)
-      } else if !line.isEmpty {
-        oldLines.append(line)
-        newLines.append(line)
+  static func extractChangedLines(oldString: String, newString: String) -> [DiffLine] {
+    let oldLines = oldString.components(separatedBy: "\n")
+    let newLines = newString.components(separatedBy: "\n")
+    let difference = newLines.difference(from: oldLines)
+    var ordered: [(sort: Int, line: DiffLine)] = []
+    ordered.reserveCapacity(difference.count)
+
+    for change in difference {
+      switch change {
+        case let .remove(offset, element, _):
+          ordered.append((
+            sort: offset * 2,
+            line: DiffLine(
+              type: .removed,
+              content: element,
+              oldLineNum: offset + 1,
+              newLineNum: nil,
+              prefix: "-"
+            )
+          ))
+        case let .insert(offset, element, _):
+          ordered.append((
+            sort: (offset * 2) + 1,
+            line: DiffLine(
+              type: .added,
+              content: element,
+              oldLineNum: nil,
+              newLineNum: offset + 1,
+              prefix: "+"
+            )
+          ))
       }
     }
 
-    return (oldLines.joined(separator: "\n"), newLines.joined(separator: "\n"))
+    return ordered.sorted { $0.sort < $1.sort }.map(\.line)
+  }
+
+  private static func fallbackChangedLines(fromUnifiedDiff diff: String) -> [DiffLine] {
+    var lines: [DiffLine] = []
+    lines.reserveCapacity(64)
+
+    for raw in diff.components(separatedBy: "\n") {
+      if raw.hasPrefix("+++") || raw.hasPrefix("---") || raw.hasPrefix("@@")
+        || raw.hasPrefix("diff --git") || raw.hasPrefix("index ")
+      {
+        continue
+      }
+      if raw.hasPrefix("+") {
+        lines.append(DiffLine(type: .added, content: String(raw.dropFirst()), oldLineNum: nil, newLineNum: nil, prefix: "+"))
+      } else if raw.hasPrefix("-") {
+        lines.append(DiffLine(type: .removed, content: String(raw.dropFirst()), oldLineNum: nil, newLineNum: nil, prefix: "-"))
+      }
+    }
+
+    return lines
   }
 }
 
-// MARK: - Unified Diff View
+// MARK: - Changed Diff View
 
-struct UnifiedDiffView: View {
-  let oldString: String
-  let newString: String
-  let language: String
+struct ChangedDiffView: View {
+  let lines: [DiffLine]
   var maxLines: Int = 100
 
   private let addedBg = Color(red: 0.15, green: 0.32, blue: 0.18).opacity(0.6)
   private let removedBg = Color(red: 0.35, green: 0.14, blue: 0.14).opacity(0.6)
-  private let contextBg = Color.clear
   private let addedAccent = Color(red: 0.4, green: 0.95, blue: 0.5)
   private let removedAccent = Color(red: 1.0, green: 0.5, blue: 0.5)
 
   var body: some View {
-    let diffLines = computeUnifiedDiff()
-    let displayLines = diffLines.count > maxLines ? Array(diffLines.prefix(maxLines)) : diffLines
-    let isTruncated = diffLines.count > maxLines
+    let displayLines = lines.count > maxLines ? Array(lines.prefix(maxLines)) : lines
+    let isTruncated = lines.count > maxLines
 
     VStack(alignment: .leading, spacing: 0) {
-      ForEach(Array(displayLines.enumerated()), id: \.offset) { _, line in
-        diffLineView(line)
+      if displayLines.isEmpty {
+        Text("No changed lines")
+          .font(.system(size: 12))
+          .foregroundStyle(.tertiary)
+          .padding(.horizontal, 14)
+          .padding(.vertical, 10)
+      } else {
+        ForEach(Array(displayLines.enumerated()), id: \.offset) { _, line in
+          diffLineView(line)
+        }
       }
 
       if isTruncated {
         HStack(spacing: 6) {
           Image(systemName: "ellipsis")
             .font(.system(size: 10, weight: .medium))
-          Text("\(diffLines.count - maxLines) more lines")
+          Text("\(lines.count - maxLines) more changed lines")
             .font(.system(size: 11, weight: .medium))
         }
         .foregroundStyle(.tertiary)
@@ -372,16 +416,11 @@ struct UnifiedDiffView: View {
         .foregroundStyle(prefixColor(for: line.type))
         .frame(width: 16)
 
-      // Code content
-      Text(SyntaxHighlighter.highlightLine(
-        line.content.isEmpty ? " " : line.content,
-        language: language.isEmpty ? nil : language
-      ))
-      .font(.system(size: 13, design: .monospaced))
-      .opacity(line.type == .context ? 0.7 : 1.0)
-      .textSelection(.enabled)
-      .lineLimit(nil)
-      .fixedSize(horizontal: false, vertical: true)
+      Text(line.content.isEmpty ? " " : line.content)
+        .font(.system(size: 12, design: .monospaced))
+        .textSelection(.enabled)
+        .lineLimit(nil)
+        .fixedSize(horizontal: false, vertical: true)
 
       Spacer(minLength: 0)
     }
@@ -393,7 +432,7 @@ struct UnifiedDiffView: View {
     switch type {
       case .added: addedBg
       case .removed: removedBg
-      case .context: contextBg
+      case .context: .clear
     }
   }
 
@@ -403,65 +442,6 @@ struct UnifiedDiffView: View {
       case .removed: removedAccent
       case .context: .clear
     }
-  }
-
-  private func computeUnifiedDiff() -> [DiffLine] {
-    let oldLines = oldString.components(separatedBy: "\n")
-    let newLines = newString.components(separatedBy: "\n")
-    return computeLCSDiff(oldLines: oldLines, newLines: newLines)
-  }
-
-  private func computeLCSDiff(oldLines: [String], newLines: [String]) -> [DiffLine] {
-    let m = oldLines.count
-    let n = newLines.count
-
-    var dp = [[Int]](repeating: [Int](repeating: 0, count: n + 1), count: m + 1)
-    for i in 1 ... m {
-      for j in 1 ... n {
-        if oldLines[i - 1] == newLines[j - 1] {
-          dp[i][j] = dp[i - 1][j - 1] + 1
-        } else {
-          dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
-        }
-      }
-    }
-
-    var i = m, j = n
-    var tempResult: [DiffLine] = []
-
-    while i > 0 || j > 0 {
-      if i > 0, j > 0, oldLines[i - 1] == newLines[j - 1] {
-        tempResult.append(DiffLine(
-          type: .context,
-          content: oldLines[i - 1],
-          oldLineNum: i,
-          newLineNum: j,
-          prefix: " "
-        ))
-        i -= 1
-        j -= 1
-      } else if j > 0, i == 0 || dp[i][j - 1] >= dp[i - 1][j] {
-        tempResult.append(DiffLine(
-          type: .added,
-          content: newLines[j - 1],
-          oldLineNum: nil,
-          newLineNum: j,
-          prefix: "+"
-        ))
-        j -= 1
-      } else if i > 0 {
-        tempResult.append(DiffLine(
-          type: .removed,
-          content: oldLines[i - 1],
-          oldLineNum: i,
-          newLineNum: nil,
-          prefix: "−"
-        ))
-        i -= 1
-      }
-    }
-
-    return tempResult.reversed()
   }
 }
 

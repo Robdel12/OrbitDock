@@ -21,7 +21,7 @@ struct WorkStreamEntry: View {
   let onNavigateToReviewFile: ((String, Int) -> Void)?
   var onShellSendToAI: ((String) -> Void)?
   @State private var isExpanded = false
-  @State private var isEditCardCollapsed = false
+  @State private var isEditCardCollapsed = true
   @State private var isHovering = false
   @State private var isContentExpanded = false
 
@@ -180,6 +180,47 @@ struct WorkStreamEntry: View {
       case .toolStandard: .secondary
       case .shell: .shellAccent
     }
+  }
+
+  /// Compact speaker label for visual scan hierarchy.
+  private var speakerLabelText: String {
+    switch kind {
+      case .assistant:
+        return "ASSISTANT"
+      case .thinking:
+        return "REASONING"
+      case .steer:
+        return "STEER"
+      case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
+           .userSystemCaveat, .userCodeReview, .userSystemContext, .userShellContext, .shell:
+        return "YOU"
+      default:
+        return "ENTRY"
+    }
+  }
+
+  private var speakerLabelColor: Color {
+    switch kind {
+      case .assistant:
+        return Color.textSecondary
+      case .thinking:
+        return Color(red: 0.65, green: 0.6, blue: 0.85).opacity(0.9)
+      case .steer:
+        return Color.accent.opacity(0.85)
+      case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
+           .userSystemCaveat, .userCodeReview, .userSystemContext, .userShellContext, .shell:
+        return Color.accent.opacity(0.8)
+      default:
+        return Color.textTertiary
+    }
+  }
+
+  private var speakerLabelView: some View {
+    Text(speakerLabelText)
+      .font(.system(size: TypeScale.chatLabel, weight: .bold, design: .rounded))
+      .tracking(0.7)
+      .foregroundStyle(speakerLabelColor)
+      .padding(.horizontal, Spacing.xs)
   }
 
   // MARK: - Summary Text
@@ -437,6 +478,8 @@ struct WorkStreamEntry: View {
       // Glyph column (20px)
       glyphView
 
+      speakerLabelView
+
       Spacer()
     }
     .padding(.horizontal, Spacing.sm)
@@ -456,6 +499,8 @@ struct WorkStreamEntry: View {
           .padding(.trailing, Spacing.sm)
           .transition(.opacity)
       }
+
+      speakerLabelView
 
       // Glyph column (20px)
       glyphView
@@ -540,6 +585,7 @@ struct WorkStreamEntry: View {
         .fill(Color.accent.opacity(OpacityTier.strong))
         .frame(width: EdgeBar.width)
     }
+    .frame(maxWidth: 860, alignment: .trailing)
   }
 
   // MARK: - Compact Row
@@ -719,6 +765,7 @@ struct WorkStreamEntry: View {
       .padding(.vertical, Spacing.sm)
       .padding(.horizontal, Spacing.md)
     }
+    .frame(maxWidth: 920, alignment: .leading)
     .padding(.leading, Spacing.xl)
   }
 
@@ -743,6 +790,7 @@ struct WorkStreamEntry: View {
         .buttonStyle(.plain)
       }
     }
+    .frame(maxWidth: 920, alignment: .leading)
     .padding(.leading, Spacing.xl)
     .padding(.trailing, Spacing.xl)
   }
@@ -806,6 +854,7 @@ struct WorkStreamEntry: View {
         .padding(.top, Spacing.xs)
       }
     }
+    .frame(maxWidth: 920, alignment: .leading)
     .padding(.leading, Spacing.xl)
     .padding(.trailing, Spacing.xl)
   }
@@ -816,16 +865,10 @@ struct WorkStreamEntry: View {
     var results: [(prefix: String, text: String, isAdd: Bool)] = []
 
     if let old = message.editOldString, let new = message.editNewString {
-      let oldLines = old.components(separatedBy: "\n")
-      let newLines = new.components(separatedBy: "\n")
-      // Show removed then added, up to 3 total
-      for line in oldLines where !newLines.contains(line) {
-        if results.count >= 3 { break }
-        results.append(("-", line, false))
-      }
-      for line in newLines where !oldLines.contains(line) {
-        if results.count >= 3 { break }
-        results.append(("+", line, true))
+      let changed = EditCard.extractChangedLines(oldString: old, newString: new)
+      for line in changed.prefix(3) {
+        let isAdd = line.type == .added
+        results.append((isAdd ? "+" : "-", line.content, isAdd))
       }
     } else if message.hasUnifiedDiff, let diff = message.unifiedDiff {
       let lines = diff.components(separatedBy: "\n")

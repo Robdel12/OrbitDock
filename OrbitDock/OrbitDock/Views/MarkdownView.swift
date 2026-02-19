@@ -16,6 +16,7 @@ struct MarkdownContentView: View {
   var body: some View {
     Markdown(content)
       .markdownTheme(.orbitDock)
+      .lineSpacing(3)
       .textSelection(.enabled)
       .environment(\.openURL, OpenURLAction { url in
         NSWorkspace.shared.open(url)
@@ -96,6 +97,7 @@ struct ThinkingMarkdownView: View {
   var body: some View {
     Markdown(content)
       .markdownTheme(.thinking)
+      .lineSpacing(2)
       .textSelection(.enabled)
       .environment(\.openURL, OpenURLAction { url in
         NSWorkspace.shared.open(url)
@@ -110,18 +112,18 @@ extension MarkdownUI.Theme {
   /// Compact theme for thinking traces
   static let thinking = Theme()
     .text {
-      ForegroundColor(.secondary)
-      FontSize(12)
+      ForegroundColor(Color.textSecondary)
+      FontSize(TypeScale.code)
     }
     .code {
       FontFamilyVariant(.monospaced)
-      FontSize(11)
+      FontSize(TypeScale.caption)
       ForegroundColor(Color(red: 0.85, green: 0.6, blue: 0.4))
       BackgroundColor(Color.white.opacity(0.05))
     }
     .strong {
       FontWeight(.semibold)
-      ForegroundColor(.secondary)
+      ForegroundColor(Color.textSecondary)
     }
     .emphasis {
       FontStyle(.italic)
@@ -132,58 +134,58 @@ extension MarkdownUI.Theme {
     .heading1 { configuration in
       configuration.label
         .markdownTextStyle {
-          FontSize(14)
+          FontSize(TypeScale.subhead)
           FontWeight(.semibold)
-          ForegroundColor(.secondary)
+          ForegroundColor(Color.textSecondary)
         }
-        .markdownMargin(top: 12, bottom: 6)
+        .markdownMargin(top: 10, bottom: 5)
     }
     .heading2 { configuration in
       configuration.label
         .markdownTextStyle {
-          FontSize(13)
+          FontSize(TypeScale.body)
           FontWeight(.semibold)
-          ForegroundColor(.secondary)
+          ForegroundColor(Color.textSecondary)
         }
-        .markdownMargin(top: 10, bottom: 5)
+        .markdownMargin(top: 8, bottom: 4)
     }
     .heading3 { configuration in
       configuration.label
         .markdownTextStyle {
-          FontSize(12)
+          FontSize(TypeScale.code)
           FontWeight(.semibold)
-          ForegroundColor(.secondary)
+          ForegroundColor(Color.textSecondary)
         }
-        .markdownMargin(top: 8, bottom: 4)
+        .markdownMargin(top: 6, bottom: 3)
     }
     .paragraph { configuration in
       configuration.label
-        .markdownMargin(top: 0, bottom: 8)
+        .markdownMargin(top: 0, bottom: 6)
     }
     .listItem { configuration in
       configuration.label
-        .markdownMargin(top: 2, bottom: 2)
+        .markdownMargin(top: 1, bottom: 1)
     }
     .blockquote { configuration in
       HStack(spacing: 0) {
         RoundedRectangle(cornerRadius: 1)
-          .fill(Color.secondary.opacity(0.4))
+          .fill(Color.textTertiary.opacity(0.5))
           .frame(width: 2)
         configuration.label
           .markdownTextStyle {
-            ForegroundColor(Color.secondary.opacity(0.7))
+            ForegroundColor(Color.textSecondary.opacity(0.8))
             FontStyle(.italic)
-            FontSize(12)
+            FontSize(TypeScale.code)
           }
           .padding(.leading, 10)
       }
-      .markdownMargin(top: 6, bottom: 6)
+      .markdownMargin(top: 5, bottom: 5)
     }
     .codeBlock { configuration in
       ScrollView(.horizontal, showsIndicators: false) {
         Text(configuration.content)
-          .font(.system(size: 11, design: .monospaced))
-          .foregroundStyle(.secondary)
+          .font(.system(size: TypeScale.caption, design: .monospaced))
+          .foregroundStyle(Color.textSecondary)
           .padding(8)
       }
       .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 4))
@@ -191,21 +193,21 @@ extension MarkdownUI.Theme {
     }
 
   static let orbitDock = Theme()
-    // Body text - comfortable reading size with good weight
+    // Editorial terminal rhythm: readable body + explicit markdown hierarchy.
     .text {
-      ForegroundColor(.primary.opacity(0.92))
-      FontSize(14.5)
+      ForegroundColor(Color.textPrimary)
+      FontSize(TypeScale.chatBody)
     }
-    // Inline code - slightly smaller, warm color with visible bg
+    // Inline code gets a dedicated tier so commands stand out in prose.
     .code {
       FontFamilyVariant(.monospaced)
-      FontSize(13)
+      FontSize(TypeScale.chatCode)
       ForegroundColor(Color(red: 0.95, green: 0.68, blue: 0.45))
       BackgroundColor(Color.white.opacity(0.09))
     }
     .strong {
       FontWeight(.semibold)
-      ForegroundColor(.primary)
+      ForegroundColor(Color.textPrimary)
     }
     .emphasis {
       FontStyle(.italic)
@@ -214,68 +216,70 @@ extension MarkdownUI.Theme {
       ForegroundColor(Color(red: 0.5, green: 0.72, blue: 0.95))
       UnderlineStyle(.single)
     }
-    // H1 - Large and bold, clear section headers
+    // H1 — display tier (serif) for major section breaks.
     .heading1 { configuration in
       configuration.label
         .markdownTextStyle {
-          FontSize(24)
+          FontSize(TypeScale.chatHeading1)
           FontWeight(.bold)
-          ForegroundColor(.primary)
+          ForegroundColor(Color.textPrimary)
         }
-        .markdownMargin(top: 28, bottom: 14)
+        .font(.system(size: TypeScale.chatHeading1, weight: .bold, design: .serif))
+        .markdownMargin(top: 22, bottom: 10)
     }
-    // H2 - Clear subsection headers
+    // H2 — strong sectional heading.
     .heading2 { configuration in
       configuration.label
         .markdownTextStyle {
-          FontSize(20)
+          FontSize(TypeScale.chatHeading2)
           FontWeight(.semibold)
-          ForegroundColor(.primary)
+          ForegroundColor(Color.textPrimary.opacity(0.95))
         }
-        .markdownMargin(top: 24, bottom: 10)
+        .font(.system(size: TypeScale.chatHeading2, weight: .semibold, design: .serif))
+        .markdownMargin(top: 18, bottom: 8)
     }
-    // H3 - Subtle but distinct
+    // H3 — compact subsection marker.
     .heading3 { configuration in
       configuration.label
         .markdownTextStyle {
-          FontSize(17)
+          FontSize(TypeScale.chatHeading3)
           FontWeight(.semibold)
-          ForegroundColor(.primary.opacity(0.9))
+          ForegroundColor(Color.textSecondary)
         }
-        .markdownMargin(top: 20, bottom: 8)
+        .markdownMargin(top: 14, bottom: 6)
     }
-    // Paragraphs - generous spacing for readability
+    // Paragraph rhythm tuned for long assistant replies.
     .paragraph { configuration in
       configuration.label
-        .markdownMargin(top: 0, bottom: 12)
+        .markdownMargin(top: 0, bottom: 10)
     }
-    // Lists - comfortable spacing
+    // Lists should read like real steps, not wall-of-text bullets.
     .listItem { configuration in
       configuration.label
-        .markdownMargin(top: 3, bottom: 3)
+        .markdownMargin(top: 2, bottom: 4)
     }
     .taskListMarker { configuration in
       TaskListCheckbox(isCompleted: configuration.isCompleted)
     }
-    // Blockquotes - distinct but subtle
+    // Blockquotes read as side-notes with a cool accent spine.
     .blockquote { configuration in
       HStack(spacing: 0) {
         RoundedRectangle(cornerRadius: 2)
-          .fill(Color.purple.opacity(0.5))
+          .fill(Color.accentMuted.opacity(0.9))
           .frame(width: 3)
         configuration.label
           .markdownTextStyle {
-            ForegroundColor(.primary.opacity(0.7))
+            ForegroundColor(Color.textSecondary.opacity(0.9))
             FontStyle(.italic)
-            FontSize(15)
+            FontSize(TypeScale.reading)
           }
           .padding(.leading, 14)
       }
-      .markdownMargin(top: 12, bottom: 12)
+      .markdownMargin(top: 10, bottom: 10)
     }
     .thematicBreak {
       HorizontalDivider()
-        .markdownMargin(top: 20, bottom: 20)
+        .markdownMargin(top: 14, bottom: 14)
     }
     .codeBlock { configuration in
       CodeBlockView(
@@ -293,10 +297,10 @@ extension MarkdownUI.Theme {
     .tableCell { configuration in
       configuration.label
         .markdownTextStyle {
-          FontSize(14)
+          FontSize(TypeScale.chatBody)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
     }
 }
 

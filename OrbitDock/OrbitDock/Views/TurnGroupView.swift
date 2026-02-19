@@ -24,7 +24,7 @@ struct TurnGroupView: View {
   /// How many trailing tool messages to show when collapsed
   private let visibleToolTail = 2
   /// Minimum tool count to trigger collapsing
-  private let collapseThreshold = 4
+  private let collapseThreshold = 2
 
   private var isActive: Bool {
     turn.status == .active
@@ -58,15 +58,61 @@ struct TurnGroupView: View {
     message.isTool
   }
 
-  private func collapseSlice(for toolZoneMessages: [TranscriptMessage], canCollapse: Bool) -> CollapsedToolSlice {
-    guard canCollapse else {
-      return CollapsedToolSlice(visibleMessages: toolZoneMessages, hiddenMessages: [])
+  /// Assistant/thinking messages break collapse continuity when they sit between tools.
+  /// Collapse can happen inside a run, but never across this boundary.
+  private func isAgentRollupBoundary(_ message: TranscriptMessage) -> Bool {
+    message.isAssistant || message.isThinking
+  }
+
+  /// Build contiguous runs of roll-up-eligible tools.
+  /// Agent narrative messages split runs, preserving readable chronology.
+  private func rollupEligibleRuns(in toolZoneMessages: [TranscriptMessage]) -> [[Int]] {
+    var runs: [[Int]] = []
+    var currentRun: [Int] = []
+
+    for (index, message) in toolZoneMessages.enumerated() {
+      if isAgentRollupBoundary(message) {
+        if !currentRun.isEmpty {
+          runs.append(currentRun)
+          currentRun = []
+        }
+        continue
+      }
+      if isRollupEligible(message) {
+        currentRun.append(index)
+      }
     }
 
-    let rollupEligibleIndices = toolZoneMessages.enumerated().compactMap { index, message in
-      isRollupEligible(message) ? index : nil
+    if !currentRun.isEmpty {
+      runs.append(currentRun)
     }
-    let visibleEligibleIndices = Set(rollupEligibleIndices.suffix(visibleToolTail))
+
+    return runs
+  }
+
+  /// Decide exactly which tool rows should be hidden in collapsed mode.
+  /// Each run keeps its own trailing tools visible.
+  private func hiddenRollupIndices(in toolZoneMessages: [TranscriptMessage]) -> Set<Int> {
+    let runs = rollupEligibleRuns(in: toolZoneMessages)
+    var hidden: Set<Int> = []
+
+    for run in runs where run.count >= collapseThreshold {
+      // Keep at least one tool visible from each collapsed run so chronology stays clear.
+      let visibleTailCount = min(visibleToolTail, max(1, run.count - 1))
+      let visibleTailIndices = Set(run.suffix(visibleTailCount))
+      for index in run where !visibleTailIndices.contains(index) {
+        hidden.insert(index)
+      }
+    }
+
+    return hidden
+  }
+
+  private func collapseSlice(for toolZoneMessages: [TranscriptMessage], canCollapse: Bool) -> CollapsedToolSlice {
+    let hiddenIndices = hiddenRollupIndices(in: toolZoneMessages)
+    guard canCollapse, !hiddenIndices.isEmpty else {
+      return CollapsedToolSlice(visibleMessages: toolZoneMessages, hiddenMessages: [])
+    }
 
     var visibleMessages: [TranscriptMessage] = []
     var hiddenMessages: [TranscriptMessage] = []
@@ -74,7 +120,7 @@ struct TurnGroupView: View {
     visibleMessages.reserveCapacity(toolZoneMessages.count)
 
     for (index, message) in toolZoneMessages.enumerated() {
-      if isRollupEligible(message), !visibleEligibleIndices.contains(index) {
+      if hiddenIndices.contains(index) {
         hiddenMessages.append(message)
       } else {
         visibleMessages.append(message)
@@ -85,8 +131,8 @@ struct TurnGroupView: View {
   }
 
   private func rollupEligibleCount(in toolZoneMessages: [TranscriptMessage]) -> Int {
-    toolZoneMessages.reduce(0) { partial, message in
-      partial + (isRollupEligible(message) ? 1 : 0)
+    rollupEligibleRuns(in: toolZoneMessages).reduce(0) { currentMax, run in
+      max(currentMax, run.count)
     }
   }
 
