@@ -381,7 +381,17 @@ pub async fn handle_session_command(
             if let Some(since_rev) = since_revision {
                 if let Some(events) = handle.replay_since(since_rev) {
                     let rx = handle.subscribe();
-                    let _ = reply.send(SubscribeResult::Replay { events, rx });
+                    if events.is_empty() {
+                        // Prefer full snapshot when replay would be empty so websocket
+                        // can run snapshot hydration paths (e.g. transcript backfill).
+                        let state = handle.state();
+                        let _ = reply.send(SubscribeResult::Snapshot {
+                            state: Box::new(state),
+                            rx,
+                        });
+                    } else {
+                        let _ = reply.send(SubscribeResult::Replay { events, rx });
+                    }
                     return;
                 }
             }
