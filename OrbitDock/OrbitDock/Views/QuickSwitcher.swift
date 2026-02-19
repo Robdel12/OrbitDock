@@ -201,8 +201,8 @@ struct QuickSwitcher: View {
   var body: some View {
     mainContent
       .onAppear {
-        isSearchFocused = true
         selectedIndex = 0
+        focusSearchField()
       }
       .modifier(KeyboardNavigationModifier(
         onMoveUp: { moveSelection(by: -1) },
@@ -860,7 +860,15 @@ struct QuickSwitcher: View {
   }
 
   private func focusTerminal(for session: Session) {
-    TerminalService.shared.focusSession(session)
+    Task { await TerminalService.shared.focusSession(session) }
+  }
+
+  private func focusSearchField() {
+    Task { @MainActor in
+      // Defer focus by one cycle so it wins against the Cmd+K invocation lifecycle.
+      await Task.yield()
+      isSearchFocused = true
+    }
   }
 
   private func projectName(for session: Session) -> String {
