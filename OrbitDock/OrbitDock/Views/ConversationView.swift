@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import OSLog
 import SwiftUI
 
 struct ConversationView: View {
@@ -30,12 +31,16 @@ struct ConversationView: View {
   @State private var hasPendingRefresh = false
   @State private var hasActivatedScrollTracking = false
   @State private var unpinnedByScroll = false
+  @State private var pendingBottomAnchorMaxY: CGFloat?
+  @State private var pendingViewportHeight: CGFloat = 0
+  @State private var autoFollowUpdateTask: Task<Void, Never>?
 
   // Auto-follow state - controlled by parent
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
   @Binding var scrollToBottomTrigger: Int
 
+  private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "conversation-view")
   private let pageSize = 50
   private let refreshCadence: Duration = .milliseconds(33)
   private let scrollCoordinateSpace = "conversation-scroll"
@@ -117,6 +122,8 @@ struct ConversationView: View {
       refreshTask?.cancel()
       refreshTask = nil
       hasPendingRefresh = false
+      autoFollowUpdateTask?.cancel()
+      autoFollowUpdateTask = nil
     }
     .onChange(of: sessionId) { _, _ in
       loadMessagesIfNeeded()
@@ -154,33 +161,42 @@ struct ConversationView: View {
 
               // Conditional rendering based on chat view mode
               let msgs = displayedMessages
-              switch chatViewMode {
-                case .verbose:
-                  verboseMessageEntries(for: msgs)
-
-                case .focused:
-                  // Turn-grouped rendering with collapse logic
-                  let serverDiffs = sessionId.flatMap { serverState.session($0).turnDiffs } ?? []
-                  let turns = TurnBuilder.build(
-                    from: msgs,
-                    serverTurnDiffs: serverDiffs,
-                    currentTurnId: isSessionActive && workStatus == .working ? "active" : nil
-                  )
-                  if turns.isEmpty, !msgs.isEmpty {
-                    // Fallback safety: never render a blank pane when messages exist.
-                    verboseMessageEntries(for: msgs)
-                  } else {
-                    ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
-                      TurnGroupView(
-                        turn: turn,
-                        turnIndex: index,
-                        provider: provider,
-                        model: model,
-                        sessionId: sessionId,
-                        onNavigateToReviewFile: onNavigateToReviewFile
-                      )
-                    }
+              if msgs.isEmpty, !messages.isEmpty {
+                // Last-line defense: if pagination state desyncs, recover immediately.
+                verboseMessageEntries(for: messages)
+                  .onAppear {
+                    logDebugState("fallback_render_all_messages")
+                    displayedCount = messages.count
                   }
+              } else {
+                switch chatViewMode {
+                  case .verbose:
+                    verboseMessageEntries(for: msgs)
+
+                  case .focused:
+                    // Turn-grouped rendering with collapse logic
+                    let serverDiffs = sessionId.flatMap { serverState.session($0).turnDiffs } ?? []
+                    let turns = TurnBuilder.build(
+                      from: msgs,
+                      serverTurnDiffs: serverDiffs,
+                      currentTurnId: isSessionActive && workStatus == .working ? "active" : nil
+                    )
+                    if turns.isEmpty, !msgs.isEmpty {
+                      // Fallback safety: never render a blank pane when messages exist.
+                      verboseMessageEntries(for: msgs)
+                    } else {
+                      ForEach(Array(turns.enumerated()), id: \.element.id) { index, turn in
+                        TurnGroupView(
+                          turn: turn,
+                          turnIndex: index,
+                          provider: provider,
+                          model: model,
+                          sessionId: sessionId,
+                          onNavigateToReviewFile: onNavigateToReviewFile
+                        )
+                      }
+                    }
+                }
               }
 
               // Live status indicator
@@ -223,7 +239,10 @@ struct ConversationView: View {
             }
           }
           .onPreferenceChange(BottomAnchorMaxYPreferenceKey.self) { bottomAnchorMaxY in
-            updateAutoFollowState(bottomAnchorMaxY: bottomAnchorMaxY, viewportHeight: scrollGeometry.size.height)
+            scheduleAutoFollowStateUpdate(
+              bottomAnchorMaxY: bottomAnchorMaxY,
+              viewportHeight: scrollGeometry.size.height
+            )
           }
           .onChange(of: messages.count) { oldCount, newCount in
             if newCount > oldCount, !isPinned {
@@ -324,6 +343,34 @@ struct ConversationView: View {
     }
   }
 
+  private func scheduleAutoFollowStateUpdate(bottomAnchorMaxY: CGFloat, viewportHeight: CGFloat) {
+    pendingBottomAnchorMaxY = bottomAnchorMaxY
+    pendingViewportHeight = viewportHeight
+
+    guard autoFollowUpdateTask == nil else { return }
+
+    autoFollowUpdateTask = Task { @MainActor in
+      await Task.yield()
+      guard !Task.isCancelled else {
+        autoFollowUpdateTask = nil
+        return
+      }
+
+      let latestBottomAnchor = pendingBottomAnchorMaxY
+      let latestViewportHeight = pendingViewportHeight
+      pendingBottomAnchorMaxY = nil
+
+      if let latestBottomAnchor {
+        updateAutoFollowState(
+          bottomAnchorMaxY: latestBottomAnchor,
+          viewportHeight: latestViewportHeight
+        )
+      }
+
+      autoFollowUpdateTask = nil
+    }
+  }
+
   // MARK: - Loading & Empty States
 
   private var loadingView: some View {
@@ -360,7 +407,7 @@ struct ConversationView: View {
       HStack(spacing: 8) {
         Image(systemName: "arrow.up")
           .font(.system(size: 10, weight: .bold))
-        Text("Load \(min(pageSize, messages.count - displayedCount)) earlier")
+        Text("Load \(min(pageSize, messages.count - effectiveDisplayedCount)) earlier")
           .font(.system(size: 12, weight: .medium))
       }
       .foregroundStyle(.tertiary)
@@ -382,7 +429,7 @@ struct ConversationView: View {
   @ViewBuilder
   private func verboseMessageEntries(for msgs: [TranscriptMessage]) -> some View {
     let metadata = Self.computeMessageMetadata(msgs)
-    ForEach(Array(msgs.enumerated()), id: \.element.id) { _, message in
+    ForEach(Array(msgs.enumerated()), id: \.offset) { index, message in
       let meta = metadata[message.id]
       let turnsAfter = meta?.turnsAfter
       let nthUser = meta?.nthUserMessage
@@ -405,7 +452,7 @@ struct ConversationView: View {
         } : nil,
         onNavigateToReviewFile: onNavigateToReviewFile
       )
-      .id(message.id)
+      .id(renderMessageRowID(messageID: message.id, index: index))
     }
   }
 
@@ -433,6 +480,7 @@ struct ConversationView: View {
     messages = serverMessages
     displayedCount = serverMessages.count
     isLoading = false
+    logDebugState("load_messages")
   }
 
   private func refreshFromServerStateIfNeeded() {
@@ -448,6 +496,7 @@ struct ConversationView: View {
     {
       if displayedCount <= 0, !messages.isEmpty {
         displayedCount = messages.count
+        logDebugState("fast_path_repair_displayed_count")
       }
       isLoading = false
       return
@@ -477,8 +526,16 @@ struct ConversationView: View {
       messages = serverMessages
     }
 
-    displayedCount = max(displayedCount, messages.count)
+    if !messages.isEmpty {
+      displayedCount = max(max(displayedCount, messages.count), effectiveDisplayedCount)
+      if displayedCount <= 0 {
+        displayedCount = messages.count
+      }
+    } else {
+      displayedCount = 0
+    }
     isLoading = false
+    logDebugState("refresh_messages")
   }
 
   private func queueRefreshFromServerState() {
@@ -549,6 +606,43 @@ struct ConversationView: View {
     }
 
     return result
+  }
+
+  private func logDebugState(_ reason: String) {
+#if DEBUG
+    let sid = sessionId ?? "nil"
+    let distinctIDs = Set(self.messages.map(\.id)).count
+    let duplicateIDs = max(0, self.messages.count - distinctIDs)
+    let emptyIDs = self.messages.reduce(0) { partial, message in
+      partial + (message.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 1 : 0)
+    }
+    let nonEmptyContent = self.messages.reduce(0) { partial, message in
+      partial + (message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : 1)
+    }
+    let toolMessages = self.messages.reduce(0) { partial, message in
+      partial + (message.type == .tool ? 1 : 0)
+    }
+    let userMessages = self.messages.reduce(0) { partial, message in
+      partial + (message.type == .user ? 1 : 0)
+    }
+    let assistantMessages = self.messages.reduce(0) { partial, message in
+      partial + (message.type == .assistant ? 1 : 0)
+    }
+    let thinkingMessages = self.messages.reduce(0) { partial, message in
+      partial + (message.type == .thinking ? 1 : 0)
+    }
+    let toolOutputs = self.messages.reduce(0) { partial, message in
+      let hasOutput = !(message.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+      return partial + (hasOutput ? 1 : 0)
+    }
+    logger.debug(
+      "conversation state reason=\(reason, privacy: .public) sid=\(sid, privacy: .public) messages=\(self.messages.count, privacy: .public) displayed=\(self.displayedCount, privacy: .public) effective=\(self.effectiveDisplayedCount, privacy: .public) rendered=\(self.displayedMessages.count, privacy: .public) duplicate_ids=\(duplicateIDs, privacy: .public) empty_ids=\(emptyIDs, privacy: .public) non_empty_content=\(nonEmptyContent, privacy: .public) users=\(userMessages, privacy: .public) assistants=\(assistantMessages, privacy: .public) thinking=\(thinkingMessages, privacy: .public) tools=\(toolMessages, privacy: .public) tool_outputs=\(toolOutputs, privacy: .public) pinned=\(self.isPinned, privacy: .public) unread=\(self.unreadCount, privacy: .public) mode=\(self.chatViewMode.rawValue, privacy: .public)"
+    )
+#endif
+  }
+
+  private func renderMessageRowID(messageID: String, index: Int) -> String {
+    "\(messageID)#\(index)"
   }
 
 }

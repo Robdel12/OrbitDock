@@ -839,7 +839,8 @@ final class ServerAppState {
 
     // Update per-session observable
     let obs = session(state.id)
-    obs.messages = state.messages.map { $0.toTranscriptMessage() }
+    let snapshotMessages = state.messages.map { $0.toTranscriptMessage() }
+    obs.messages = normalizedTranscriptMessages(snapshotMessages, sessionId: state.id, source: "snapshot")
     obs.bumpMessagesRevision()
 
     if let approval = state.pendingApproval {
@@ -1127,34 +1128,130 @@ final class ServerAppState {
     }
   }
 
-  private func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
-    logger.debug("Message appended to \(sessionId): \(message.type.rawValue)")
-    let transcriptMsg = message.toTranscriptMessage()
-    let obs = session(sessionId)
-    var messages = obs.messages
+  private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {
+    let mergedThinking: String? = {
+      if let incomingThinking = incoming.thinking, !incomingThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return incomingThinking
+      }
+      return existing.thinking
+    }()
 
-    if let idx = messages.firstIndex(where: { $0.id == transcriptMsg.id }) {
-      let existing = messages[idx]
-      let merged = TranscriptMessage(
-        id: transcriptMsg.id,
-        type: transcriptMsg.type,
-        content: transcriptMsg.content.isEmpty ? existing.content : transcriptMsg.content,
-        timestamp: transcriptMsg.timestamp,
-        toolName: transcriptMsg.toolName ?? existing.toolName,
-        toolInput: transcriptMsg.toolInput ?? existing.toolInput,
-        toolOutput: transcriptMsg.toolOutput ?? existing.toolOutput,
-        toolDuration: transcriptMsg.toolDuration ?? existing.toolDuration,
-        inputTokens: transcriptMsg.inputTokens ?? existing.inputTokens,
-        outputTokens: transcriptMsg.outputTokens ?? existing.outputTokens,
-        isInProgress: transcriptMsg.isInProgress || existing.isInProgress
-      )
-      messages[idx] = merged
-    } else {
-      messages.append(transcriptMsg)
+    return TranscriptMessage(
+      id: incoming.id,
+      type: incoming.type,
+      content: incoming.content.isEmpty ? existing.content : incoming.content,
+      timestamp: incoming.timestamp,
+      toolName: incoming.toolName ?? existing.toolName,
+      toolInput: incoming.toolInput ?? existing.toolInput,
+      toolOutput: incoming.toolOutput ?? existing.toolOutput,
+      toolDuration: incoming.toolDuration ?? existing.toolDuration,
+      inputTokens: incoming.inputTokens ?? existing.inputTokens,
+      outputTokens: incoming.outputTokens ?? existing.outputTokens,
+      isInProgress: incoming.isInProgress || existing.isInProgress,
+      images: incoming.images.isEmpty ? existing.images : incoming.images,
+      thinking: mergedThinking
+    )
+  }
+
+  private func withMessageID(_ message: TranscriptMessage, id: String) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      type: message.type,
+      content: message.content,
+      timestamp: message.timestamp,
+      toolName: message.toolName,
+      toolInput: message.toolInput,
+      toolOutput: message.toolOutput,
+      toolDuration: message.toolDuration,
+      inputTokens: message.inputTokens,
+      outputTokens: message.outputTokens,
+      isInProgress: message.isInProgress,
+      images: message.images,
+      thinking: message.thinking
+    )
+  }
+
+  private func syntheticMessageID(
+    sessionId: String,
+    source: String,
+    index: Int,
+    message: TranscriptMessage
+  ) -> String {
+    let millis = Int(message.timestamp.timeIntervalSince1970 * 1_000)
+    let tool = message.toolName ?? "-"
+    return "synthetic:\(sessionId):\(source):\(message.type.rawValue):\(millis):\(index):\(tool):\(message.content.count)"
+  }
+
+  private func normalizedTranscriptMessages(
+    _ incoming: [TranscriptMessage],
+    sessionId: String,
+    source: String
+  ) -> [TranscriptMessage] {
+    guard !incoming.isEmpty else { return [] }
+
+    var normalized: [TranscriptMessage] = []
+    normalized.reserveCapacity(incoming.count)
+    var indexByID: [String: Int] = [:]
+    var syntheticCount = 0
+    var duplicateCount = 0
+
+    for (index, raw) in incoming.enumerated() {
+      let trimmedID = raw.id.trimmingCharacters(in: .whitespacesAndNewlines)
+      let messageID: String
+      if trimmedID.isEmpty {
+        messageID = syntheticMessageID(sessionId: sessionId, source: source, index: index, message: raw)
+        syntheticCount += 1
+      } else {
+        messageID = trimmedID
+      }
+
+      let message = messageID == raw.id ? raw : withMessageID(raw, id: messageID)
+
+      if let existingIndex = indexByID[messageID] {
+        normalized[existingIndex] = mergeMessage(normalized[existingIndex], with: message)
+        duplicateCount += 1
+      } else {
+        indexByID[messageID] = normalized.count
+        normalized.append(message)
+      }
     }
 
-    obs.messages = messages
+    if syntheticCount > 0 || duplicateCount > 0 {
+      logger.warning(
+        "Normalized messages for \(sessionId, privacy: .public) source=\(source, privacy: .public) in=\(incoming.count, privacy: .public) out=\(normalized.count, privacy: .public) synthetic=\(syntheticCount, privacy: .public) duplicates=\(duplicateCount, privacy: .public)"
+      )
+    }
+
+    return normalized
+  }
+
+  private func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
+    logger.debug("Message event for \(sessionId): id=\(message.id, privacy: .public) type=\(message.type.rawValue)")
+    guard let transcriptMsg = normalizedTranscriptMessages(
+      [message.toTranscriptMessage()],
+      sessionId: sessionId,
+      source: "append"
+    ).first
+    else { return }
+
+    let obs = session(sessionId)
+    var messages = obs.messages
+    let beforeCount = messages.count
+
+    let mergeAction: String
+    if let idx = messages.firstIndex(where: { $0.id == transcriptMsg.id }) {
+      messages[idx] = mergeMessage(messages[idx], with: transcriptMsg)
+      mergeAction = "merged"
+    } else {
+      messages.append(transcriptMsg)
+      mergeAction = "appended"
+    }
+
+    obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "append-state")
     obs.bumpMessagesRevision()
+    logger.debug(
+      "Message \(mergeAction, privacy: .public) for \(sessionId): id=\(transcriptMsg.id, privacy: .public) before=\(beforeCount, privacy: .public) after=\(obs.messages.count, privacy: .public)"
+    )
   }
 
   private func handleMessageUpdated(_ sessionId: String, _ messageId: String, _ changes: ServerMessageChanges) {
@@ -1179,7 +1276,7 @@ final class ServerAppState {
         isInProgress: false
       )
       messages.append(fallback)
-      obs.messages = messages
+      obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "update-fallback")
       obs.bumpMessagesRevision()
       logger.warning("Message update arrived before create; upserted \(messageId) in \(sessionId)")
       return
@@ -1207,7 +1304,7 @@ final class ServerAppState {
       msg.isInProgress = false
     }
     messages[idx] = msg
-    obs.messages = messages
+    obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "update")
     obs.bumpMessagesRevision()
   }
 

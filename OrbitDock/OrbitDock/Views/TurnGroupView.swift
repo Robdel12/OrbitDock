@@ -98,8 +98,12 @@ struct TurnGroupView: View {
       }
 
       // Leading messages (user prompt, etc.)
-      ForEach(split.leading, id: \.id) { message in
-        messageEntry(message: message, meta: metadata[message.id])
+      ForEach(Array(split.leading.enumerated()), id: \.offset) { index, message in
+        messageEntry(
+          message: message,
+          meta: metadata[message.id],
+          rowID: renderMessageRowID(segment: "leading", index: index, messageID: message.id)
+        )
       }
 
       // Tool zone — contained in a visually distinct panel
@@ -118,13 +122,21 @@ struct TurnGroupView: View {
             }
 
             // Show only last N tool messages
-            ForEach(Array(split.tools.suffix(visibleToolTail)), id: \.id) { message in
-              messageEntry(message: message, meta: metadata[message.id])
+            ForEach(Array(split.tools.suffix(visibleToolTail).enumerated()), id: \.offset) { index, message in
+              messageEntry(
+                message: message,
+                meta: metadata[message.id],
+                rowID: renderMessageRowID(segment: "tools_tail", index: index, messageID: message.id)
+              )
             }
           } else {
             // Show all tool messages
-            ForEach(split.tools, id: \.id) { message in
-              messageEntry(message: message, meta: metadata[message.id])
+            ForEach(Array(split.tools.enumerated()), id: \.offset) { index, message in
+              messageEntry(
+                message: message,
+                meta: metadata[message.id],
+                rowID: renderMessageRowID(segment: "tools", index: index, messageID: message.id)
+              )
             }
 
             // Collapse affordance when expanded
@@ -160,8 +172,12 @@ struct TurnGroupView: View {
       }
 
       // Trailing messages (assistant response)
-      ForEach(split.trailing, id: \.id) { message in
-        messageEntry(message: message, meta: metadata[message.id])
+      ForEach(Array(split.trailing.enumerated()), id: \.offset) { index, message in
+        messageEntry(
+          message: message,
+          meta: metadata[message.id],
+          rowID: renderMessageRowID(segment: "trailing", index: index, messageID: message.id)
+        )
       }
 
       // Per-turn token footer (completed turns only)
@@ -186,7 +202,7 @@ struct TurnGroupView: View {
   // MARK: - Message Entry
 
   @ViewBuilder
-  private func messageEntry(message: TranscriptMessage, meta: TurnMeta?) -> some View {
+  private func messageEntry(message: TranscriptMessage, meta: TurnMeta?, rowID: String) -> some View {
     let turnsAfter = meta?.turnsAfter
     let nthUser = meta?.nthUserMessage
 
@@ -209,7 +225,11 @@ struct TurnGroupView: View {
       } : nil,
       onNavigateToReviewFile: onNavigateToReviewFile
     )
-    .id(message.id)
+    .id(rowID)
+  }
+
+  private func renderMessageRowID(segment: String, index: Int, messageID: String) -> String {
+    "\(turn.id)#\(segment)#\(index)#\(messageID)"
   }
 
   // MARK: - Turn Metadata
