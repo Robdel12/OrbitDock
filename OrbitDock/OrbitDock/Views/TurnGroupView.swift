@@ -20,6 +20,8 @@ struct TurnGroupView: View {
 
   @Environment(ServerAppState.self) private var serverState
   @State private var isMiddleCollapsed: Bool = true
+  @State private var cachedSplit: CachedSplit?
+  @State private var cachedMetadata: [String: TurnMeta] = [:]
 
   /// How many trailing tool messages to show when collapsed
   private let visibleToolTail = 2
@@ -136,14 +138,15 @@ struct TurnGroupView: View {
     }
   }
 
+  private struct CachedSplit {
+    let split: SplitMessages
+    let canCollapse: Bool
+    let rollupEligibleCount: Int
+    let collapsed: CollapsedToolSlice
+  }
+
   /// Single-pass split of turn messages into leading/tools/trailing.
-  /// Called once per body evaluation — all derived values come from the returned struct.
-  private func computeSplit() -> (
-    split: SplitMessages,
-    canCollapse: Bool,
-    rollupEligibleCount: Int,
-    collapsed: CollapsedToolSlice
-  ) {
+  private func computeSplit() -> CachedSplit {
     var leading: [TranscriptMessage] = []
     var tools: [TranscriptMessage] = []
     var trailing: [TranscriptMessage] = []
@@ -175,103 +178,103 @@ struct TurnGroupView: View {
     let canCollapse = eligibleCount >= collapseThreshold
     let collapsed = collapseSlice(for: tools, canCollapse: canCollapse)
 
-    return (split, canCollapse, eligibleCount, collapsed)
+    return CachedSplit(split: split, canCollapse: canCollapse, rollupEligibleCount: eligibleCount, collapsed: collapsed)
   }
 
   // MARK: - Body
 
   var body: some View {
-    let (split, canCollapse, rollupCount, collapsedTools) = computeSplit()
-    let metadata = computeTurnMetadata(turn.messages)
+    let computed = cachedSplit ?? computeSplit()
+    let split = computed.split
+    let canCollapse = computed.canCollapse
+    let collapsedTools = computed.collapsed
+    let metadata = cachedMetadata.isEmpty ? computeTurnMetadata(turn.messages) : cachedMetadata
 
-    VStack(alignment: .leading, spacing: 0) {
+    VStack(alignment: .leading, spacing: ConversationLayout.turnVerticalSpacing) {
       // Turn separator (skip first turn)
       if turnIndex > 0 {
         TurnDivider()
       }
 
       // Leading messages (user prompt, etc.)
-      ForEach(Array(split.leading.enumerated()), id: \.offset) { index, message in
+      ForEach(split.leading) { message in
         messageEntry(
           message: message,
-          meta: metadata[message.id],
-          rowID: renderMessageRowID(segment: "leading", index: index, messageID: message.id)
+          meta: metadata[message.id]
         )
       }
 
       // Tool zone — contained in a visually distinct panel
       if split.hasTools {
-        VStack(alignment: .leading, spacing: 0) {
-          // Collapsed state: compressed bar + visible tail
-          if canCollapse, isMiddleCollapsed {
-            if collapsedTools.hiddenCount > 0 {
-              CompressedToolBar(
-                hiddenMessages: collapsedTools.hiddenMessages,
-                count: collapsedTools.hiddenCount,
-                totalToolCount: split.toolCount
-              ) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                  isMiddleCollapsed = false
+        HStack(alignment: .top, spacing: 0) {
+          Rectangle()
+            .fill(Color.accent.opacity(OpacityTier.medium))
+            .frame(width: EdgeBar.width)
+
+          VStack(alignment: .leading, spacing: 0) {
+            // Collapsed state: compressed bar + visible tail
+            if canCollapse, isMiddleCollapsed {
+              if collapsedTools.hiddenCount > 0 {
+                CompressedToolBar(
+                  hiddenMessages: collapsedTools.hiddenMessages,
+                  count: collapsedTools.hiddenCount,
+                  totalToolCount: split.toolCount
+                ) {
+                  withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isMiddleCollapsed = false
+                  }
                 }
               }
-            }
 
-            // Show non-agent interleaves + trailing agent tail (constant-height-ish while active)
-            ForEach(Array(collapsedTools.visibleMessages.enumerated()), id: \.offset) { index, message in
-              messageEntry(
-                message: message,
-                meta: metadata[message.id],
-                rowID: renderMessageRowID(segment: "tools_tail", index: index, messageID: message.id)
-              )
-            }
-          } else {
-            // Show all tool messages
-            ForEach(Array(split.tools.enumerated()), id: \.offset) { index, message in
-              messageEntry(
-                message: message,
-                meta: metadata[message.id],
-                rowID: renderMessageRowID(segment: "tools", index: index, messageID: message.id)
-              )
-            }
+              // Show non-agent interleaves + trailing agent tail (constant-height-ish while active)
+              ForEach(collapsedTools.visibleMessages) { message in
+                messageEntry(
+                  message: message,
+                  meta: metadata[message.id]
+                )
+              }
+            } else {
+              // Show all tool messages
+              ForEach(split.tools) { message in
+                messageEntry(
+                  message: message,
+                  meta: metadata[message.id]
+                )
+              }
 
-            // Collapse affordance when expanded
-            if canCollapse, collapsedTools.hiddenCount > 0 {
-              CollapseAffordance(count: collapsedTools.hiddenCount) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                  isMiddleCollapsed = true
+              // Collapse affordance when expanded
+              if canCollapse, collapsedTools.hiddenCount > 0 {
+                CollapseAffordance(count: collapsedTools.hiddenCount) {
+                  withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                    isMiddleCollapsed = true
+                  }
                 }
               }
             }
           }
+          .padding(.vertical, ConversationLayout.toolZoneInnerVerticalInset)
+          .padding(.horizontal, ConversationLayout.toolZoneInnerHorizontalInset)
         }
-        .padding(.vertical, 6)
-        .padding(.leading, 8)
         .background(
-          RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-            .fill(Color.backgroundSecondary.opacity(0.5))
+          Color.backgroundTertiary.opacity(0.5),
+          in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         )
-        .overlay(alignment: .leading) {
-          // Left accent edge — visible containment bar
-          UnevenRoundedRectangle(
-            topLeadingRadius: Radius.lg,
-            bottomLeadingRadius: Radius.lg,
-            bottomTrailingRadius: 0,
-            topTrailingRadius: 0
-          )
-          .fill(Color.accent.opacity(OpacityTier.medium))
-          .frame(width: 3)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-        .padding(.top, 6)
-        .padding(.bottom, 4)
+        .frame(maxWidth: ConversationLayout.assistantRailMaxWidth, alignment: .leading)
+        .padding(.horizontal, ConversationLayout.laneHorizontalInset)
+        .padding(.top, ConversationLayout.toolZoneOuterVerticalInset)
+        .padding(
+          .bottom,
+          split.trailing.isEmpty
+            ? ConversationLayout.toolZoneOuterVerticalInset
+            : 8
+        )
       }
 
       // Trailing messages (assistant response)
-      ForEach(Array(split.trailing.enumerated()), id: \.offset) { index, message in
+      ForEach(split.trailing) { message in
         messageEntry(
           message: message,
-          meta: metadata[message.id],
-          rowID: renderMessageRowID(segment: "trailing", index: index, messageID: message.id)
+          meta: metadata[message.id]
         )
       }
 
@@ -289,24 +292,32 @@ struct TurnGroupView: View {
       }
     }
     .onChange(of: turn.messages.count) { _, _ in
+      cachedSplit = computeSplit()
+      cachedMetadata = computeTurnMetadata(turn.messages)
       // Keep active turns stable as tools stream in.
       guard isActive else { return }
-      if rollupCount >= collapseThreshold, !isMiddleCollapsed {
+      if let cached = cachedSplit, cached.rollupEligibleCount >= collapseThreshold, !isMiddleCollapsed {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
           isMiddleCollapsed = true
         }
       }
     }
+    .onChange(of: turn.messages.map(\.id)) { _, _ in
+      cachedMetadata = computeTurnMetadata(turn.messages)
+    }
     .onAppear {
+      cachedSplit = computeSplit()
+      cachedMetadata = computeTurnMetadata(turn.messages)
       // Completed turns start collapsed. Active turns collapse once tool activity gets dense.
-      isMiddleCollapsed = !isActive || rollupCount >= collapseThreshold
+      let eligibleCount = cachedSplit?.rollupEligibleCount ?? 0
+      isMiddleCollapsed = !isActive || eligibleCount >= collapseThreshold
     }
   }
 
   // MARK: - Message Entry
 
   @ViewBuilder
-  private func messageEntry(message: TranscriptMessage, meta: TurnMeta?, rowID: String) -> some View {
+  private func messageEntry(message: TranscriptMessage, meta: TurnMeta?) -> some View {
     let turnsAfter = meta?.turnsAfter
     let nthUser = meta?.nthUserMessage
 
@@ -329,11 +340,6 @@ struct TurnGroupView: View {
       } : nil,
       onNavigateToReviewFile: onNavigateToReviewFile
     )
-    .id(rowID)
-  }
-
-  private func renderMessageRowID(segment: String, index: Int, messageID: String) -> String {
-    "\(turn.id)#\(segment)#\(index)#\(messageID)"
   }
 
   // MARK: - Turn Metadata
@@ -386,12 +392,12 @@ struct TurnGroupView: View {
 private struct TurnDivider: View {
   var body: some View {
     VStack(spacing: 0) {
-      Spacer().frame(height: 12)
+      Spacer().frame(height: 8)
       Rectangle()
-        .fill(Color.surfaceBorder.opacity(0.2))
+        .fill(Color.surfaceBorder.opacity(0.28))
         .frame(height: 1)
-        .padding(.horizontal, Spacing.lg)
-      Spacer().frame(height: 14)
+        .padding(.horizontal, ConversationLayout.laneHorizontalInset)
+      Spacer().frame(height: 8)
     }
   }
 }
@@ -428,9 +434,9 @@ private struct ToolGlyph {
   }
 }
 
-// MARK: - Tool Breakdown Entry
+// MARK: - Tool Breakdown Entry (iOS local — uses ToolGlyph)
 
-private struct ToolBreakdownEntry: Identifiable {
+private struct CompressedToolEntry: Identifiable {
   let id: String // tool name
   let glyph: ToolGlyph
   let count: Int
@@ -449,7 +455,7 @@ private struct CompressedToolBar: View {
   @State private var isHovering = false
 
   /// Tool breakdown: grouped by name, sorted by frequency
-  private var breakdown: [ToolBreakdownEntry] {
+  private var breakdown: [CompressedToolEntry] {
     var counts: [(name: String, glyph: ToolGlyph, count: Int)] = []
     var countMap: [String: Int] = [:]
     var glyphMap: [String: ToolGlyph] = [:]
@@ -466,7 +472,7 @@ private struct CompressedToolBar: View {
       counts.append((name, glyphMap[name]!, count))
     }
 
-    return counts.map { ToolBreakdownEntry(id: $0.name, glyph: $0.glyph, count: $0.count) }
+    return counts.map { CompressedToolEntry(id: $0.name, glyph: $0.glyph, count: $0.count) }
   }
 
   var body: some View {
@@ -686,7 +692,7 @@ private struct TurnTokenFooter: View {
 
       Spacer()
     }
-    .padding(.horizontal, Spacing.lg)
+    .padding(.horizontal, ConversationLayout.laneHorizontalInset)
     .padding(.vertical, 4)
   }
 

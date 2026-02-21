@@ -92,7 +92,10 @@ struct ModelEffortPopover: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      header
+      // Header — macOS only (iOS uses .navigationTitle)
+      #if !os(iOS)
+        header
+      #endif
 
       modelSection
 
@@ -100,13 +103,15 @@ struct ModelEffortPopover: View {
 
       effortSection
     }
-    .frame(width: 356)
+    #if os(iOS)
+    .frame(maxWidth: .infinity)
+    .navigationTitle("Model + Effort")
+    .navigationBarTitleDisplayMode(.inline)
+    #endif
+    .ifMacOS { $0.frame(width: 356) }
     .background(Color.backgroundSecondary)
     .animation(.spring(response: 0.25, dampingFraction: 0.84), value: showModelPicker)
-    .onKeyPress(.escape) {
-      dismiss()
-      return .handled
-    }
+    .ifMacOS { $0.onKeyPress(.escape) { dismiss(); return .handled } }
   }
 
   // MARK: - Sections
@@ -513,7 +518,7 @@ private struct CompactModelRow: View {
       )
     }
     .buttonStyle(.plain)
-    .onHover { isHovered = $0 }
+    .platformHover($isHovered)
   }
 }
 
@@ -573,7 +578,7 @@ private struct EffortListRow: View {
           lineWidth: isSelected ? 1.2 : 1
         )
     )
-    .onHover { isHovered = $0 }
+    .platformHover($isHovered)
   }
 }
 

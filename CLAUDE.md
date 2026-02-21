@@ -16,7 +16,9 @@ OrbitDock is a native macOS SwiftUI app — mission control for AI coding agents
 
 ```bash
 # From repo root
-make build      # Build app (xcodebuild wrapper)
+make build      # Build macOS app (xcbeautify output)
+make build-ios  # Build iOS app
+make build-all  # Build both macOS and iOS
 make test-unit  # Run unit tests only (OrbitDockTests)
 make test-ui    # Run UI tests only (OrbitDockUITests)
 make test-all   # Run both unit + UI tests
@@ -72,19 +74,54 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - All backgrounds should use theme colors, not system defaults
 - Never use system colors (.blue, .green, .purple) - use themed equivalents
 
+## Server Setup Flow
+
+The app doesn't embed the server — it connects over WebSocket. On launch, `ServerManager` checks if the server is reachable:
+
+1. **Health check** `localhost:4000/health` → `.running` (covers `cargo run`, brew, launchd)
+2. **Launchd plist** at `~/Library/LaunchAgents/com.orbitdock.server.plist` → `.installed` (stopped)
+3. **Remote host** in `ServerEndpointSettings` → `.remote`
+4. Otherwise → `.notConfigured` (shows `ServerSetupView`)
+
+`ServerManager` shells out to the server's own CLI for install/service management — no custom plist generation in Swift.
+
+### Key Files
+- `Services/Server/ServerManager.swift` — Install state detection, CLI wrapper (refreshState, install, startService, stopService)
+- `Views/ServerSetupView.swift` — First-launch onboarding (Install Locally / Connect to Remote)
+- `Services/Server/ServerEndpointSettings.swift` — Persisted remote host config
+- `Platform/PlatformPaths.swift` — `orbitDockBinDirectory` (`~/.orbitdock/bin/`)
+
+### Install Flow (triggered from ServerSetupView or Settings)
+1. Find binary (Bundle Resources → env var → `~/.orbitdock/bin/` → PATH)
+2. Copy to `~/.orbitdock/bin/` if from bundle
+3. `orbitdock-server init`
+4. `orbitdock-server install-hooks`
+5. `orbitdock-server install-service --enable`
+6. Wait for health check → connect WebSocket
+
+### Development
+In dev, run `cargo run -p orbitdock-server` — the app detects it via health check and skips setup. Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
+
 ## File Locations
 
-- **Database**: `~/.orbitdock/orbitdock.db` (separate from CLIs to survive reinstalls)
+All server paths are resolved via `paths.rs` from a single data directory (`--data-dir` / `ORBITDOCK_DATA_DIR` / `~/.orbitdock`).
+
+- **Server Binary**: `~/.orbitdock/bin/orbitdock-server` (installed by app) or on PATH
+- **Database**: `<data_dir>/orbitdock.db` (separate from CLIs to survive reinstalls)
+- **PID File**: `<data_dir>/orbitdock.pid` (written after bind, removed on shutdown)
+- **Auth Token**: `<data_dir>/auth-token` (optional, 0600 permissions)
+- **Launchd Plist**: `~/Library/LaunchAgents/com.orbitdock.server.plist` (created by `install-service`)
 - **CLI Logs**: `~/.orbitdock/cli.log` (debug output from orbitdock-cli)
-- **Codex App Logs**: `~/.orbitdock/logs/codex.log` (structured JSON logs for Codex debugging)
-- **Rust Server Logs**: `~/.orbitdock/logs/server.log` (structured JSON logs from orbitdock-server)
-- **Migrations**: `migrations/` (numbered SQL files, starting at `001_baseline.sql`)
-- **Hook Script**: `scripts/hook.sh` (source) / `~/.orbitdock/hook.sh` (installed)
+- **Codex App Logs**: `<data_dir>/logs/codex.log` (structured JSON logs for Codex debugging)
+- **Rust Server Logs**: `<data_dir>/logs/server.log` (structured JSON logs from orbitdock-server)
+- **Migrations**: `migrations/` (SQL files embedded in binary via `include_str!`)
+- **Hook Script**: `scripts/hook.sh` (dev source) / `scripts/hook.sh.template` (standalone template) / `<data_dir>/hook.sh` (installed)
 - **Shared Models**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
-- **Codex Watcher State**: `~/.orbitdock/codex-rollout-state.json` (offset tracking)
-- **Hook Event Spool**: `~/.orbitdock/spool/` (queued hook events when server is offline, drained on startup)
+- **Codex Watcher State**: `<data_dir>/codex-rollout-state.json` (offset tracking)
+- **Hook Event Spool**: `<data_dir>/spool/` (queued hook events when server is offline, drained on startup)
+- **Timeline Logs**: `<data_dir>/logs/timeline.log` (conversation view height calculations and overflow detection)
 
 ## Debugging Codex Integration
 
@@ -203,6 +240,39 @@ Core event fields are stable for filtering:
 - `crates/server/src/codex_session.rs` - Codex event handling, approvals
 - `crates/connectors/src/codex.rs` - codex-core events, message translation
 
+## Debugging Conversation Timeline
+
+The macOS conversation view (NSTableView-based) logs height calculations and overflow detection to a plain-text file. The file truncates on each app launch.
+
+### Log Location
+`~/.orbitdock/logs/timeline.log`
+
+### Viewing Logs
+```bash
+# Watch live
+tail -f ~/.orbitdock/logs/timeline.log
+
+# Check for height overflow (content exceeds calculated bounds — causes clipping)
+grep "OVERFLOW" ~/.orbitdock/logs/timeline.log
+
+# Filter by message ID
+grep "e84dd5b4" ~/.orbitdock/logs/timeline.log
+
+# Filter by cell type
+grep "tool-cell" ~/.orbitdock/logs/timeline.log
+grep "rich\[" ~/.orbitdock/logs/timeline.log
+```
+
+### What Gets Logged
+- **`requiredHeight`**: Height calculation breakdown (header, content, total, width) for every expanded tool card and rich message cell
+- **`tool-cell`** / **`rich`**: Configure-time frame values and max subview bottom position
+- **`⚠️ OVERFLOW`**: Content exceeds calculated height — the root cause of visual clipping. Includes the exact overflow amount, cell type, message ID, and all dimensions
+
+### Key Files
+- `ConversationCollectionView.swift` — `TimelineFileLogger`, `heightOfRow`, `viewFor` logging
+- `NativeExpandedToolCellView.swift` — Expanded tool card height calc + overflow detection
+- `NativeRichMessageCellView.swift` — Rich message height calc + overflow detection
+
 ## OrbitDockCore Package
 
 Shared Swift models used by the SwiftUI app. No CLI — hooks go directly via HTTP POST.
@@ -217,7 +287,9 @@ OrbitDock/OrbitDockCore/
 
 ### Hook Script
 
-Claude Code hooks pipe JSON to `~/.orbitdock/hook.sh <type>`, which injects the `type` field and POSTs to `http://127.0.0.1:4000/api/hook`. Source lives at `scripts/hook.sh`.
+Claude Code hooks pipe JSON to `~/.orbitdock/hook.sh <type>`, which injects the `type` field and POSTs to `http://127.0.0.1:4000/api/hook`. Source lives at `scripts/hook.sh` (dev) and `scripts/hook.sh.template` (standalone deploy with `{{SERVER_URL}}`, `{{SPOOL_DIR}}`, `{{AUTH_HEADER}}` placeholders).
+
+Install hooks automatically: `orbitdock-server install-hooks`
 
 | Claude Hook | Type Argument |
 |---|---|
@@ -227,16 +299,32 @@ Claude Code hooks pipe JSON to `~/.orbitdock/hook.sh <type>`, which injects the 
 | `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest` | `claude_tool_event` |
 | `SubagentStart`, `SubagentStop` | `claude_subagent_event` |
 
+### Server CLI
+
+The server binary is self-contained with subcommands for standalone deployment:
+
+```bash
+orbitdock-server init                    # Bootstrap dirs, DB, hook script
+orbitdock-server install-hooks           # Merge hooks into ~/.claude/settings.json
+orbitdock-server start [--bind ADDR]     # Start server (default: 127.0.0.1:4000)
+orbitdock-server install-service --enable # Generate launchd/systemd service
+orbitdock-server status                  # Check if running
+orbitdock-server generate-token          # Create auth token
+```
+
+Global `--data-dir` overrides all paths. All data paths resolved via `paths.rs` module.
+
 ## Database Migrations
 
-Schema changes use a migration system with version tracking.
+Migrations are **embedded in the binary** via `include_str!` in `migration_runner.rs` — no filesystem access needed at runtime.
 
 ### Adding a new migration
 1. Create `migrations/NNN_description.sql` (next number after baseline: 002+)
 2. Write your SQL (CREATE TABLE, ALTER TABLE, etc.)
-3. Update `persistence.rs` — add PersistCommand variant and handler
-4. Update `RestoredSession` / load queries if adding session fields
-5. Update protocol types in `orbitdock-protocol` crate if field needs to reach the Swift app
+3. Add the `include_str!` entry in `migration_runner.rs` `EMBEDDED_MIGRATIONS` array
+4. Update `persistence.rs` — add PersistCommand variant and handler
+5. Update `RestoredSession` / load queries if adding session fields
+6. Update protocol types in `orbitdock-protocol` crate if field needs to reach the Swift app
 
 Migrations run when: Rust server starts (`migration_runner::run_migrations` in `main.rs`)
 
@@ -262,10 +350,11 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 
 ### Schema changes
 1. Add a numbered migration in `migrations/` (currently starts at 001_baseline)
-2. Use `IF NOT EXISTS` for safety
-3. Add the corresponding PersistCommand in `persistence.rs`
-4. Update protocol types if the field needs to reach the Swift app
-5. Run `make rust-test` to verify
+2. Add `include_str!` entry in `migration_runner.rs` `EMBEDDED_MIGRATIONS` array
+3. Use `IF NOT EXISTS` for safety
+4. Add the corresponding PersistCommand in `persistence.rs`
+5. Update protocol types if the field needs to reach the Swift app
+6. Run `make rust-test` to verify
 
 ### Tables
 | Table | Purpose |
@@ -279,13 +368,16 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 | `schema_versions` | Migration tracking |
 
 ### Key files
+- `orbitdock-server/crates/server/src/paths.rs` — Central path resolution (data dir, db, logs, spool, etc.)
 - `orbitdock-server/crates/server/src/persistence.rs` — All CRUD operations
-- `orbitdock-server/crates/server/src/migration_runner.rs` — Runs migrations at startup
+- `orbitdock-server/crates/server/src/migration_runner.rs` — Embedded migrations via `include_str!`
 - `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol
 - `orbitdock-server/crates/server/src/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
+- `orbitdock-server/crates/server/src/auth.rs` — Optional Bearer token middleware
 - `orbitdock-server/crates/protocol/` — Shared types between server components
 - `migrations/001_baseline.sql` — Complete schema definition
-- `scripts/hook.sh` — Shell hook script (source, copied to `~/.orbitdock/hook.sh`)
+- `scripts/hook.sh` — Dev-time hook script
+- `scripts/hook.sh.template` — Templated hook script for standalone deploy
 
 ### AppleScript for iTerm2
 - Requires `NSAppleEventsUsageDescription` in Info.plist

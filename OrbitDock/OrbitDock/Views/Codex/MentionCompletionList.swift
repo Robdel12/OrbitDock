@@ -65,7 +65,7 @@ struct MentionCompletionList: View {
       let before = String(name[name.startIndex ..< range.lowerBound])
       let match = String(name[range])
       let after = String(name[range.upperBound...])
-      (Text(before) + Text(match).foregroundStyle(Color.accent) + Text(after))
+      Text("\(Text(before))\(Text(match).foregroundStyle(Color.accent))\(Text(after))")
         .font(.callout.weight(.medium))
     } else {
       Text(name)

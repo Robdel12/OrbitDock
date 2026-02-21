@@ -82,6 +82,8 @@ pub struct Message {
     pub is_error: bool,
     pub timestamp: String,
     pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageInput>,
 }
 
 /// Token usage information
@@ -590,4 +592,21 @@ pub struct ReviewComment {
     pub created_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
+}
+
+// Remote filesystem browsing
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub is_git: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentProject {
+    pub path: String,
+    pub session_count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_active: Option<String>,
 }

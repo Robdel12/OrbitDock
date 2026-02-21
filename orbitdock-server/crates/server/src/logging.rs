@@ -14,10 +14,7 @@ pub struct LoggingHandle {
 }
 
 pub fn init_logging() -> anyhow::Result<LoggingHandle> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    let log_dir = std::path::PathBuf::from(home)
-        .join(".orbitdock")
-        .join("logs");
+    let log_dir = crate::paths::log_dir();
     std::fs::create_dir_all(&log_dir)?;
     let log_path = log_dir.join("server.log");
 

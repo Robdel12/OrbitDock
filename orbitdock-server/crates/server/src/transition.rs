@@ -606,6 +606,15 @@ pub fn transition(
         Input::MessageCreated(mut message) => {
             message.session_id = sid.clone();
 
+            // Extract data-URI images to disk before storing/broadcasting
+            if !message.images.is_empty() {
+                message.images = crate::images::extract_images_to_disk(
+                    &message.images,
+                    &sid,
+                    &message.id,
+                );
+            }
+
             // Dedup: skip echoed user messages from the connector
             let is_dup =
                 message.message_type == MessageType::User
@@ -1061,6 +1070,7 @@ mod tests {
             is_error: false,
             timestamp: "0Z".to_string(),
             duration_ms: None,
+            images: vec![],
         }
     }
 

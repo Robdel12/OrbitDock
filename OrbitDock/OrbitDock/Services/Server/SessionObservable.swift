@@ -142,6 +142,19 @@ final class SessionObservable {
     currentTurnId = nil
     permissionMode = .default
   }
+
+  /// Drop heavy conversation payloads when a session is no longer observed.
+  /// Keep lightweight identity/config fields so list UI remains stable.
+  func clearConversationPayloadsForCaching() {
+    messages = []
+    bumpMessagesRevision()
+    turnDiffs = []
+    diff = nil
+    plan = nil
+    currentTurnId = nil
+    pendingShellContext = []
+    reviewComments = []
+  }
 }
 
 // MARK: - Shell Context

@@ -5,7 +5,6 @@
 //  Generic tool card for WebFetch, WebSearch, and other tools
 //
 
-import AppKit
 import SwiftUI
 
 struct StandardToolCard: View {
@@ -136,7 +135,7 @@ struct StandardToolCard: View {
 
       if let path = message.filePath {
         Button {
-          NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
+          _ = Platform.services.revealInFileBrowser(path)
         } label: {
           HStack(spacing: 6) {
             Image(systemName: "doc")

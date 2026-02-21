@@ -19,8 +19,7 @@ final class AppFileLogger: @unchecked Sendable {
   func start() {
     guard !redirected else { return }
 
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    let logDir = home.appendingPathComponent(".orbitdock/logs")
+    let logDir = PlatformPaths.orbitDockLogsDirectory
     let logPath = logDir.appendingPathComponent("app.log").path
 
     do {

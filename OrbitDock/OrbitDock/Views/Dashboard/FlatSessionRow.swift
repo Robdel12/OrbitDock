@@ -15,11 +15,20 @@ struct FlatSessionRow: View {
   var isSelected: Bool = false
   var hideBranch: Bool = false
 
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerAppState.self) private var serverState
   @State private var isHovering = false
 
   private var displayStatus: SessionDisplayStatus {
     SessionDisplayStatus.from(session)
+  }
+
+  private var layoutMode: DashboardLayoutMode {
+    DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
+  }
+
+  private var isPhoneCompact: Bool {
+    layoutMode.isPhoneCompact
   }
 
   /// Whether the label is a real name vs a first-prompt fallback.
@@ -103,8 +112,9 @@ struct FlatSessionRow: View {
   private var inlineBranch: String? {
     guard !hideBranch else { return nil }
     guard let branch = session.branch, !branch.isEmpty else { return nil }
-    if branch.count > 24 {
-      return String(branch.prefix(22)) + "…"
+    let maxLength = isPhoneCompact ? 16 : 24
+    if branch.count > maxLength {
+      return String(branch.prefix(maxLength - 2)) + "…"
     }
     return branch
   }
@@ -160,19 +170,23 @@ struct FlatSessionRow: View {
         Spacer()
 
         // Right side: model + direct + tokens
-        HStack(spacing: 6) {
-          UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+        if isPhoneCompact {
+          compactMeta
+        } else {
+          HStack(spacing: 6) {
+            UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
 
-          if session.isDirect {
-            Text("direct")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.accent.opacity(0.55))
+            if session.isDirect {
+              Text("direct")
+                .font(.system(size: TypeScale.micro, weight: .semibold))
+                .foregroundStyle(Color.accent.opacity(0.55))
+            }
+
+            Text(formatTokens(session.totalTokens))
+              .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
+              .foregroundStyle(Color.textQuaternary)
+              .frame(width: 44, alignment: .trailing)
           }
-
-          Text(formatTokens(session.totalTokens))
-            .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-            .frame(width: 44, alignment: .trailing)
         }
       }
       .padding(.vertical, 7)
@@ -183,15 +197,14 @@ struct FlatSessionRow: View {
     .onHover { isHovering = $0 }
     .contextMenu {
       Button {
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+        _ = Platform.services.revealInFileBrowser(session.projectPath)
       } label: {
         Label("Reveal in Finder", systemImage: "folder")
       }
 
       Button {
         let command = "claude --resume \(session.id)"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
+        Platform.services.copyToClipboard(command)
       } label: {
         Label("Copy Resume Command", systemImage: "doc.on.doc")
       }
@@ -199,6 +212,18 @@ struct FlatSessionRow: View {
   }
 
   // MARK: - Attention Pill
+
+  private var compactMeta: some View {
+    HStack(spacing: 4) {
+      UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+
+      if session.isDirect {
+        Circle()
+          .fill(Color.accent.opacity(0.7))
+          .frame(width: 5, height: 5)
+      }
+    }
+  }
 
   private func attentionPill(icon: String, text: String, color: Color) -> some View {
     HStack(spacing: 3) {

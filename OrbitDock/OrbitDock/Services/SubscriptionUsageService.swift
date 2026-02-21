@@ -187,8 +187,7 @@ final class SubscriptionUsageService {
 
   /// Disk cache for usage data
   private let cacheURL: URL = {
-    let cacheDir = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent(".orbitdock/cache", isDirectory: true)
+    let cacheDir = PlatformPaths.orbitDockCacheDirectory
     try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
     return cacheDir.appendingPathComponent("claude-usage.json")
   }()
@@ -415,56 +414,61 @@ final class SubscriptionUsageService {
   }
 
   private func loadFromClaudeKeychain() throws -> CachedCredentials {
-    // Use security CLI to bypass partition_id restrictions
-    // (SecItemCopyMatching gets blocked by Anthropic's teamid partition)
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-    process.arguments = ["find-generic-password", "-s", claudeKeychainService, "-w"]
-
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = FileHandle.nullDevice
-
-    do {
-      try process.run()
-      process.waitUntilExit()
-    } catch {
+    #if !os(macOS)
+      // TODO(server-extract): Move Claude credential probing behind server endpoint.
       throw SubscriptionUsageError.noCredentials
-    }
+    #else
+      // Use security CLI to bypass partition_id restrictions
+      // (SecItemCopyMatching gets blocked by Anthropic's teamid partition)
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+      process.arguments = ["find-generic-password", "-s", claudeKeychainService, "-w"]
 
-    guard process.terminationStatus == 0 else {
-      throw SubscriptionUsageError.noCredentials
-    }
+      let pipe = Pipe()
+      process.standardOutput = pipe
+      process.standardError = FileHandle.nullDevice
 
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let oauth = json["claudeAiOauth"] as? [String: Any],
-          let token = oauth["accessToken"] as? String
-    else {
-      throw SubscriptionUsageError.noCredentials
-    }
-
-    // Check expiration
-    let expiresAt: Date?
-    if let expiresAtMs = oauth["expiresAt"] as? Double {
-      expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1_000)
-      if Date() >= expiresAt! {
-        throw SubscriptionUsageError.tokenExpired
+      do {
+        try process.run()
+        process.waitUntilExit()
+      } catch {
+        throw SubscriptionUsageError.noCredentials
       }
-    } else {
-      expiresAt = nil
-    }
 
-    // Check scope
-    let scopes = oauth["scopes"] as? [String] ?? []
-    if !scopes.contains("user:profile") {
-      throw SubscriptionUsageError.missingScope
-    }
+      guard process.terminationStatus == 0 else {
+        throw SubscriptionUsageError.noCredentials
+      }
 
-    let tier = oauth["rateLimitTier"] as? String
+      let data = pipe.fileHandleForReading.readDataToEndOfFile()
 
-    return CachedCredentials(token: token, expiresAt: expiresAt, rateLimitTier: tier, scopes: scopes)
+      guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let oauth = json["claudeAiOauth"] as? [String: Any],
+            let token = oauth["accessToken"] as? String
+      else {
+        throw SubscriptionUsageError.noCredentials
+      }
+
+      // Check expiration
+      let expiresAt: Date?
+      if let expiresAtMs = oauth["expiresAt"] as? Double {
+        expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1_000)
+        if Date() >= expiresAt! {
+          throw SubscriptionUsageError.tokenExpired
+        }
+      } else {
+        expiresAt = nil
+      }
+
+      // Check scope
+      let scopes = oauth["scopes"] as? [String] ?? []
+      if !scopes.contains("user:profile") {
+        throw SubscriptionUsageError.missingScope
+      }
+
+      let tier = oauth["rateLimitTier"] as? String
+
+      return CachedCredentials(token: token, expiresAt: expiresAt, rateLimitTier: tier, scopes: scopes)
+    #endif
   }
 
   private func getCachedRateLimitTier() throws -> String? {

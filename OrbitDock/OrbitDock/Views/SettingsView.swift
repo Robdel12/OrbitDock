@@ -272,25 +272,29 @@ struct GeneralSettingsView: View {
         return
       }
 
-      // Check Keychain
-      let task = Process()
-      task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-      task.arguments = ["find-generic-password", "-s", "com.orbitdock.openai-api-key", "-w"]
-      let pipe = Pipe()
-      task.standardOutput = pipe
-      task.standardError = Pipe()
+      #if os(macOS)
+        // Check Keychain
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        task.arguments = ["find-generic-password", "-s", "com.orbitdock.openai-api-key", "-w"]
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
 
-      do {
-        try task.run()
-        task.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        DispatchQueue.main.async {
-          openAiKeyStatus = key.isEmpty ? .notConfigured : .configured
+        do {
+          try task.run()
+          task.waitUntilExit()
+          let data = pipe.fileHandleForReading.readDataToEndOfFile()
+          let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+          DispatchQueue.main.async {
+            openAiKeyStatus = key.isEmpty ? .notConfigured : .configured
+          }
+        } catch {
+          DispatchQueue.main.async { openAiKeyStatus = .notConfigured }
         }
-      } catch {
+      #else
         DispatchQueue.main.async { openAiKeyStatus = .notConfigured }
-      }
+      #endif
     }
   }
 }
@@ -431,6 +435,7 @@ struct NotificationSettingsView: View {
 
   private func previewSound() {
     guard notificationSound != "none" else { return }
+    guard Platform.services.capabilities.canPlaySystemSounds else { return }
 
     if notificationSound == "default" {
       NSSound.beep()
@@ -474,7 +479,7 @@ struct SetupSettingsView: View {
   @State private var hooksConfigured: Bool? = nil
 
   private let cliPath = "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli"
-  private let settingsPath = FileManager.default.homeDirectoryForCurrentUser
+  private let settingsPath = PlatformPaths.homeDirectory
     .appendingPathComponent(".claude/settings.json").path
 
   var body: some View {
@@ -713,8 +718,7 @@ struct SetupSettingsView: View {
   }
 
   private func copyToClipboard() {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(hooksConfigJSON, forType: .string)
+    Platform.services.copyToClipboard(hooksConfigJSON)
     copied = true
     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
       copied = false
@@ -728,12 +732,12 @@ struct SetupSettingsView: View {
       try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
       try? "{}".write(toFile: settingsPath, atomically: true, encoding: .utf8)
     }
-    NSWorkspace.shared.open(URL(fileURLWithPath: settingsPath))
+    _ = Platform.services.openURL(URL(fileURLWithPath: settingsPath))
   }
 
   private func openCodexUsagePage() {
     guard let url = URL(string: "https://chatgpt.com/codex/settings/usage") else { return }
-    NSWorkspace.shared.open(url)
+    _ = Platform.services.openURL(url)
   }
 
   private var hooksConfigJSON: String {
@@ -762,44 +766,32 @@ struct DebugSettingsView: View {
   @State private var showServerTest = false
 
   var body: some View {
-    VStack(spacing: 20) {
-      SettingsSection(title: "RUST SERVER", icon: "server.rack") {
-        VStack(alignment: .leading, spacing: 14) {
-          // Server process status
+    ScrollView {
+      VStack(spacing: 20) {
+        // Server install state
+        SettingsSection(title: "SERVER", icon: "server.rack") {
           HStack {
             Circle()
-              .fill(serverManager.isRunning ? Color.statusSuccess : Color.statusEnded)
+              .fill(installStateColor)
               .frame(width: 8, height: 8)
 
-            Text(serverManager.isRunning ? "Server Running" : "Server Stopped")
+            Text(installStateLabel)
               .font(.system(size: 13))
 
             Spacer()
 
-            if serverManager.isRunning {
-              Button("Stop") {
-                serverManager.stop()
-              }
-              .buttonStyle(.bordered)
-            } else {
-              Button("Start") {
-                serverManager.start()
-              }
-              .buttonStyle(.borderedProminent)
-              .tint(Color.accent)
-            }
+            serverActionButtons
           }
 
-          if let error = serverManager.lastError {
+          if let error = serverManager.installError {
             Text(error)
               .font(.system(size: 11))
-              .foregroundStyle(.red)
+              .foregroundStyle(Color.statusError)
           }
+        }
 
-          Divider()
-            .foregroundStyle(Color.panelBorder)
-
-          // WebSocket status
+        // WebSocket connection
+        SettingsSection(title: "CONNECTION", icon: "bolt.horizontal") {
           HStack {
             Circle()
               .fill(connectionColor)
@@ -815,61 +807,145 @@ struct DebugSettingsView: View {
             }
             .buttonStyle(.bordered)
           }
-        }
-      }
 
-      SettingsSection(title: "LOGS", icon: "doc.text") {
-        VStack(alignment: .leading, spacing: 14) {
           HStack {
             VStack(alignment: .leading, spacing: 4) {
-              Text("Codex Logs")
+              Text("Binary")
                 .font(.system(size: 13))
-              Text("~/.orbitdock/logs/codex.log")
+              Text(serverManager.findServerBinary() ?? "Not found")
                 .font(.system(size: 11).monospaced())
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
 
             Spacer()
 
-            Button("Open in Finder") {
-              let path = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".orbitdock/logs")
-              NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
+            Button("Refresh") {
+              Task { await serverManager.refreshState() }
             }
             .buttonStyle(.bordered)
           }
         }
-      }
 
-      SettingsSection(title: "DATABASE", icon: "cylinder") {
-        VStack(alignment: .leading, spacing: 14) {
-          HStack {
-            VStack(alignment: .leading, spacing: 4) {
-              Text("OrbitDock Database")
-                .font(.system(size: 13))
-              Text("~/.orbitdock/orbitdock.db")
-                .font(.system(size: 11).monospaced())
-                .foregroundStyle(.tertiary)
+        SettingsSection(title: "LOGS", icon: "doc.text") {
+          VStack(alignment: .leading, spacing: 14) {
+            HStack {
+              VStack(alignment: .leading, spacing: 4) {
+                Text("Codex Logs")
+                  .font(.system(size: 13))
+                Text("~/.orbitdock/logs/codex.log")
+                  .font(.system(size: 11).monospaced())
+                  .foregroundStyle(Color.textTertiary)
+              }
+
+              Spacer()
+
+              Button("Open in Finder") {
+                let path = PlatformPaths.orbitDockLogsDirectory
+                _ = Platform.services.revealInFileBrowser(path.path)
+              }
+              .buttonStyle(.bordered)
             }
-
-            Spacer()
-
-            Button("Open in Finder") {
-              let path = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".orbitdock")
-              NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
-            }
-            .buttonStyle(.bordered)
           }
         }
-      }
 
-      Spacer()
+        SettingsSection(title: "DATABASE", icon: "cylinder") {
+          VStack(alignment: .leading, spacing: 14) {
+            HStack {
+              VStack(alignment: .leading, spacing: 4) {
+                Text("OrbitDock Database")
+                  .font(.system(size: 13))
+                Text("~/.orbitdock/orbitdock.db")
+                  .font(.system(size: 11).monospaced())
+                  .foregroundStyle(Color.textTertiary)
+              }
+
+              Spacer()
+
+              Button("Open in Finder") {
+                let path = PlatformPaths.orbitDockBaseDirectory
+                _ = Platform.services.revealInFileBrowser(path.path)
+              }
+              .buttonStyle(.bordered)
+            }
+          }
+        }
+
+      }
+      .padding(20)
     }
-    .padding(20)
     .sheet(isPresented: $showServerTest) {
       ServerTestView()
     }
+  }
+
+  // MARK: - Server State
+
+  private var installStateColor: Color {
+    switch serverManager.installState {
+      case .running: .statusSuccess
+      case .installed: .statusReply
+      case .remote: .statusQuestion
+      case .notConfigured: .statusEnded
+      case .unknown: .statusEnded
+    }
+  }
+
+  private var installStateLabel: String {
+    switch serverManager.installState {
+      case .running: "Server Running"
+      case .installed: "Installed (Stopped)"
+      case .remote: "Remote Configured"
+      case .notConfigured: "Not Configured"
+      case .unknown: "Checking..."
+    }
+  }
+
+  @ViewBuilder
+  private var serverActionButtons: some View {
+    #if os(macOS)
+      switch serverManager.installState {
+        case .running:
+        HStack(spacing: 8) {
+          Button("Stop") {
+            Task { try? await serverManager.stopService() }
+          }
+          .buttonStyle(.bordered)
+
+          Button("Restart") {
+            Task { try? await serverManager.restartService() }
+          }
+          .buttonStyle(.bordered)
+        }
+
+        case .installed:
+        Button("Start") {
+          Task {
+            try? await serverManager.startService()
+            if serverManager.installState == .running {
+              ServerConnection.shared.connect(to: ServerEndpointSettings.effectiveURL)
+            }
+          }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.accent)
+
+        case .notConfigured:
+        Button("Install") {
+          Task {
+            try? await serverManager.install()
+            if serverManager.installState == .running {
+              ServerConnection.shared.connect(to: ServerEndpointSettings.effectiveURL)
+            }
+          }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.accent)
+        .disabled(serverManager.isInstalling)
+
+        case .remote, .unknown:
+        EmptyView()
+      }
+    #endif
   }
 
   private var connectionColor: Color {

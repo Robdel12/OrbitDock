@@ -5,148 +5,177 @@
 //  Created by Robert DeLuca on 1/30/26.
 //
 
-import AppKit
 import SwiftUI
 import UserNotifications
+#if os(macOS)
+  import AppKit
+#elseif os(iOS)
+  import UIKit
+#endif
 
 @main
 struct OrbitDockApp: App {
-  @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+  #if os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+  #endif
   @State private var serverAppState = ServerAppState()
   @State private var attentionService = AttentionService()
+  private let runtimeMode = AppRuntimeMode.current
 
-  var body: some Scene {
-    // Main window
-    WindowGroup {
-      ContentView()
-        .environment(serverAppState)
-        .environment(attentionService)
-        .preferredColorScheme(.dark)
-        .task {
-          // Wire up server state after connection is established
-          serverAppState.setup()
+  private var mainRootView: some View {
+    ContentView()
+      .environment(serverAppState)
+      .environment(attentionService)
+      .preferredColorScheme(.dark)
+    #if os(iOS)
+      .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+        serverAppState.handleMemoryPressure()
+        MarkdownAttributedStringRenderer.clearCache()
+        NativeSyntaxHighlighter.clearCache()
+      }
+    #endif
+      .task {
+        guard runtimeMode.shouldConnectServer else { return }
+        // Wire up server state after connection is established
+        serverAppState.setup()
+        if runtimeMode.shouldStartMcpBridge {
           // Start MCP Bridge for external tool access
           MCPBridge.shared.start(serverAppState: serverAppState)
         }
-    }
-    .windowStyle(.automatic)
-    .defaultSize(width: 1_000, height: 700)
 
-    // Settings window (⌘,)
-    Settings {
-      SettingsView()
-        .environment(serverAppState)
-        .environment(attentionService)
-        .preferredColorScheme(.dark)
-    }
+        // Check server install state before connecting
+        await ServerManager.shared.refreshState()
 
-    // Menu bar
-    MenuBarExtra {
-      MenuBarView()
-        .environment(serverAppState)
-        .environment(attentionService)
-        .environment(\.colorScheme, .dark)
-        .preferredColorScheme(.dark)
-    } label: {
-      Image(systemName: "terminal.fill")
-        .symbolRenderingMode(.monochrome)
-    }
-    .menuBarExtraStyle(.window)
+        let state = ServerManager.shared.installState
+        if state == .running || state == .installed || state == .remote {
+          ServerConnection.shared.connect(to: ServerEndpointSettings.effectiveURL)
+        }
+        // .notConfigured → setup view handles connection after install
+      }
+  }
+
+  var body: some Scene {
+    #if os(macOS)
+      // Main window
+      WindowGroup {
+        mainRootView
+      }
+      .windowStyle(.automatic)
+      .defaultSize(width: 1_000, height: 700)
+
+      // Settings window (⌘,)
+      Settings {
+        SettingsView()
+          .environment(serverAppState)
+          .environment(attentionService)
+          .preferredColorScheme(.dark)
+      }
+
+      // Menu bar
+      MenuBarExtra {
+        MenuBarView()
+          .environment(serverAppState)
+          .environment(attentionService)
+          .environment(\.colorScheme, .dark)
+          .preferredColorScheme(.dark)
+      } label: {
+        Image(systemName: "terminal.fill")
+          .symbolRenderingMode(.monochrome)
+      }
+      .menuBarExtraStyle(.window)
+    #else
+      WindowGroup {
+        mainRootView
+      }
+    #endif
   }
 }
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+#if os(macOS)
+  class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
 
-  /// Shared server app state for MCP bridge
-  static var serverAppState: ServerAppState?
+    /// Shared server app state for MCP bridge
+    static var serverAppState: ServerAppState?
 
-  func applicationDidFinishLaunching(_ notification: Notification) {
-    AppFileLogger.shared.start()
-    NSApp.appearance = NSAppearance(named: .darkAqua)
+    func applicationDidFinishLaunching(_ notification: Notification) {
+      // Disable macOS Ventura+ row-height estimation so our ConversationHeightEngine
+      // has sole authority over heightOfRow: values.
+      UserDefaults.standard.set(false, forKey: "NSTableViewCanEstimateRowHeights")
 
-    // Set up notification delegate
-    UNUserNotificationCenter.current().delegate = self
+      AppFileLogger.shared.start()
+      NSApp.appearance = NSAppearance(named: .darkAqua)
 
-    // Initialize notification manager (triggers authorization request)
-    _ = NotificationManager.shared
+      // Set up notification delegate
+      UNUserNotificationCenter.current().delegate = self
 
-    // Define notification actions
-    let viewAction = UNNotificationAction(
-      identifier: "VIEW_SESSION",
-      title: "View Session",
-      options: [.foreground]
-    )
+      // Initialize notification manager (triggers authorization request)
+      _ = NotificationManager.shared
 
-    let category = UNNotificationCategory(
-      identifier: "SESSION_ATTENTION",
-      actions: [viewAction],
-      intentIdentifiers: [],
-      options: []
-    )
+      // Define notification actions
+      let viewAction = UNNotificationAction(
+        identifier: "VIEW_SESSION",
+        title: "View Session",
+        options: [.foreground]
+      )
 
-    UNUserNotificationCenter.current().setNotificationCategories([category])
+      let category = UNNotificationCategory(
+        identifier: "SESSION_ATTENTION",
+        actions: [viewAction],
+        intentIdentifiers: [],
+        options: []
+      )
 
-    // Fetch latest model pricing in background
-    ModelPricingService.shared.fetchPrices()
+      UNUserNotificationCenter.current().setNotificationCategories([category])
 
-    // Start the Rust server (limited retries, won't poll forever)
-    Task { @MainActor in
-      ServerManager.shared.start()
+      // Fetch latest model pricing in background
+      ModelPricingService.shared.fetchPrices()
+    }
 
-      // Connect WebSocket client once server is ready (warm-up + exponential backoff)
-      let ready = await ServerManager.shared.waitForReady(maxAttempts: 10)
-      if ready {
-        ServerConnection.shared.connect()
+    func applicationWillTerminate(_ notification: Notification) {
+      Task { @MainActor in
+        MCPBridge.shared.stop()
+        ServerConnection.shared.disconnect()
       }
     }
-  }
 
-  func applicationWillTerminate(_ notification: Notification) {
-    // Stop MCP Bridge and Rust server
-    Task { @MainActor in
-      MCPBridge.shared.stop()
-      ServerConnection.shared.disconnect()
-      ServerManager.shared.stop()
-    }
-  }
+    func applicationWillResignActive(_ notification: Notification) {}
 
-  func applicationWillResignActive(_ notification: Notification) {}
-
-  /// Handle notification when app is in foreground
-  func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    willPresent notification: UNNotification,
-    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
-  ) {
-    // Show notification even when app is in foreground
-    completionHandler([.banner, .sound])
-  }
-
-  /// Handle notification tap
-  func userNotificationCenter(
-    _ center: UNUserNotificationCenter,
-    didReceive response: UNNotificationResponse,
-    withCompletionHandler completionHandler: @escaping () -> Void
-  ) {
-    let userInfo = response.notification.request.content.userInfo
-
-    if let sessionId = userInfo["sessionId"] as? String {
-      // Post notification to select this session
-      NotificationCenter.default.post(
-        name: .selectSession,
-        object: nil,
-        userInfo: ["sessionId": sessionId]
-      )
+    /// Handle notification when app is in foreground
+    func userNotificationCenter(
+      _ center: UNUserNotificationCenter,
+      willPresent notification: UNNotification,
+      withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+      // Show notification even when app is in foreground
+      completionHandler([.banner, .sound])
     }
 
-    // Bring app to foreground
-    NSApp.activate(ignoringOtherApps: true)
+    /// Handle notification tap
+    func userNotificationCenter(
+      _ center: UNUserNotificationCenter,
+      didReceive response: UNNotificationResponse,
+      withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+      let userInfo = response.notification.request.content.userInfo
 
-    completionHandler()
+      if let sessionId = userInfo["sessionId"] as? String {
+        // Post notification to select this session
+        NotificationCenter.default.post(
+          name: .selectSession,
+          object: nil,
+          userInfo: ["sessionId": sessionId]
+        )
+      }
+
+      // Bring app to foreground
+      NSApp.activate(ignoringOtherApps: true)
+
+      completionHandler()
+    }
   }
-}
+#endif
 
 // MARK: - Notification Names
 

@@ -201,7 +201,9 @@ extension ServerMessage {
 
     let duration: TimeInterval? = durationMs.map { Double($0) / 1_000.0 }
 
-    return TranscriptMessage(
+    let messageImages = images.compactMap { convertServerImage($0) }
+
+    var msg = TranscriptMessage(
       id: id,
       type: msgType,
       content: content,
@@ -214,6 +216,58 @@ extension ServerMessage {
       outputTokens: nil,
       isInProgress: false
     )
+    msg.images = messageImages
+    return msg
+  }
+}
+
+// MARK: - Image Conversion (Lazy — no Data loaded at decode time)
+
+private func convertServerImage(_ input: ServerImageInput) -> MessageImage? {
+  switch input.inputType {
+    case "url":
+      messageImageFromDataURI(input.value)
+    case "path":
+      messageImageFromPath(input.value)
+    default:
+      nil
+  }
+}
+
+private func messageImageFromPath(_ path: String) -> MessageImage? {
+  let url = URL(fileURLWithPath: path)
+  let byteCount = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0
+  let mimeType = mimeTypeForExtension(url.pathExtension)
+  return MessageImage(source: .filePath(path), mimeType: mimeType, byteCount: byteCount)
+}
+
+private func messageImageFromDataURI(_ uri: String) -> MessageImage? {
+  guard uri.hasPrefix("data:") else { return nil }
+  let withoutScheme = String(uri.dropFirst(5))
+  guard let commaIndex = withoutScheme.firstIndex(of: ",") else { return nil }
+  let meta = String(withoutScheme[withoutScheme.startIndex ..< commaIndex])
+  guard meta.hasSuffix(";base64") else { return nil }
+  let mimeType = String(meta.dropLast(7))
+  // Estimate decoded size from base64 length (3 bytes per 4 chars)
+  let base64Len = withoutScheme.distance(from: withoutScheme.index(after: commaIndex), to: withoutScheme.endIndex)
+  let byteCount = base64Len * 3 / 4
+  return MessageImage(
+    source: .dataURI(uri),
+    mimeType: mimeType.isEmpty ? "image/png" : mimeType,
+    byteCount: byteCount
+  )
+}
+
+private func mimeTypeForExtension(_ ext: String) -> String {
+  switch ext.lowercased() {
+    case "png": "image/png"
+    case "jpg", "jpeg": "image/jpeg"
+    case "gif": "image/gif"
+    case "webp": "image/webp"
+    case "svg": "image/svg+xml"
+    case "bmp": "image/bmp"
+    case "tiff", "tif": "image/tiff"
+    default: "image/png"
   }
 }
 

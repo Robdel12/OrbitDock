@@ -10,6 +10,8 @@
 import SwiftUI
 
 struct ProjectStreamSection: View {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
   let sessions: [Session]
   let onSelectSession: (String) -> Void
   var selectedIndex: Int?
@@ -41,12 +43,12 @@ struct ProjectStreamSection: View {
     allActiveSessions.filter(\.isDirect).count
   }
 
-  private var claudeCount: Int {
-    allActiveSessions.filter { $0.provider == .claude }.count
+  private var layoutMode: DashboardLayoutMode {
+    DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
-  private var codexCount: Int {
-    allActiveSessions.filter { $0.provider == .codex }.count
+  private var isPhoneCompact: Bool {
+    layoutMode.isPhoneCompact
   }
 
   var body: some View {
@@ -83,7 +85,16 @@ struct ProjectStreamSection: View {
 
   // MARK: - Section Header
 
+  @ViewBuilder
   private var sectionHeader: some View {
+    if isPhoneCompact {
+      phoneCompactSectionHeader
+    } else {
+      regularSectionHeader
+    }
+  }
+
+  private var regularSectionHeader: some View {
     VStack(alignment: .leading, spacing: 12) {
       // Line 1: Title
       HStack(spacing: 8) {
@@ -174,6 +185,121 @@ struct ProjectStreamSection: View {
     .padding(.horizontal, 2)
   }
 
+  private var phoneCompactSectionHeader: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack(spacing: 8) {
+        Text("Active Agents")
+          .font(.system(size: TypeScale.subhead, weight: .bold))
+          .foregroundStyle(.primary)
+
+        Text("\(orderedSessions.count)")
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.textTertiary)
+          .padding(.horizontal, 7)
+          .padding(.vertical, 2)
+          .background(Color.surfaceHover.opacity(0.6), in: Capsule())
+
+        Spacer()
+
+        compactFilterMenu
+
+        if filter != .all || providerFilter != .all {
+          Button {
+            filter = .all
+            providerFilter = .all
+          } label: {
+            Text("Clear")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(Color.textTertiary)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+          }
+          .buttonStyle(.plain)
+        }
+      }
+
+      if shouldShowCompactSignalRow {
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 8) {
+            if counts.attention > 0 {
+              compactSignalIndicator(
+                icon: "exclamationmark.circle.fill",
+                label: "Needs review",
+                count: counts.attention,
+                color: .statusPermission
+              )
+            }
+
+            if counts.running > 0 {
+              compactSignalIndicator(
+                icon: "bolt.fill",
+                label: "Running",
+                count: counts.running,
+                color: .statusWorking
+              )
+            }
+
+            if counts.ready > 0 {
+              compactSignalIndicator(
+                icon: "bubble.left.fill",
+                label: "Ready",
+                count: counts.ready,
+                color: .statusReply
+              )
+            }
+
+            if filter == .direct {
+              compactStateChip(
+                target: .direct,
+                icon: "chevron.left.forwardslash.chevron.right",
+                title: "Direct",
+                color: .providerCodex
+              )
+            }
+
+            if filter == .attention {
+              compactStateChip(
+                target: .attention,
+                icon: "exclamationmark.circle.fill",
+                title: "Needs review",
+                color: .statusPermission
+              )
+            }
+
+            if filter == .running {
+              compactStateChip(
+                target: .running,
+                icon: "bolt.fill",
+                title: "Running",
+                color: .statusWorking
+              )
+            }
+
+            if filter == .ready {
+              compactStateChip(
+                target: .ready,
+                icon: "bubble.left.fill",
+                title: "Ready",
+                color: .statusReply
+              )
+            }
+
+            if providerFilter != .all {
+              compactProviderChip
+            }
+          }
+        }
+      }
+    }
+    .padding(.vertical, 12)
+    .padding(.horizontal, 2)
+  }
+
+  private var shouldShowCompactSignalRow: Bool {
+    counts.attention > 0 || counts.running > 0 || counts.ready > 0 || filter != .all || providerFilter != .all
+  }
+
   // MARK: - Sort Picker
 
   private var sortPicker: some View {
@@ -235,6 +361,132 @@ struct ProjectStreamSection: View {
     }
   }
 
+  private var compactFilterMenu: some View {
+    Menu {
+      Section("Sort") {
+        ForEach(ActiveSessionSort.allCases) { option in
+          Button {
+            sort = option
+          } label: {
+            HStack {
+              Text(option.label)
+              if sort == option {
+                Image(systemName: "checkmark")
+              }
+            }
+          }
+        }
+      }
+
+      Section("Provider") {
+        ForEach(ActiveSessionProviderFilter.allCases) { option in
+          Button {
+            providerFilter = option
+          } label: {
+            HStack {
+              Text(option.label)
+              if providerFilter == option {
+                Image(systemName: "checkmark")
+              }
+            }
+          }
+        }
+      }
+
+      Section("State") {
+        ForEach(ActiveSessionWorkbenchFilter.allCases) { option in
+          Button {
+            filter = option
+          } label: {
+            HStack {
+              Text(option.title)
+              if filter == option {
+                Image(systemName: "checkmark")
+              }
+            }
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: "line.3.horizontal.decrease.circle")
+          .font(.system(size: 11, weight: .semibold))
+        Text("Filter")
+          .font(.system(size: 10, weight: .semibold))
+      }
+      .foregroundStyle((filter != .all || providerFilter != .all) ? Color.accent : Color.textSecondary)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+    }
+    .menuStyle(.borderlessButton)
+  }
+
+  private var compactProviderChip: some View {
+    Button {
+      providerFilter = .all
+    } label: {
+      HStack(spacing: 3) {
+        Image(systemName: providerFilter.icon)
+          .font(.system(size: 8, weight: .bold))
+        Text(providerFilter.label)
+          .font(.system(size: 10, weight: .bold))
+      }
+      .foregroundStyle(providerFilter.color)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(providerFilter.color.opacity(OpacityTier.light), in: Capsule())
+    }
+    .buttonStyle(.plain)
+    .help("Provider filter active")
+  }
+
+  private func compactSignalIndicator(
+    icon: String,
+    label: String,
+    count: Int,
+    color: Color
+  ) -> some View {
+    HStack(spacing: 4) {
+      Image(systemName: icon)
+        .font(.system(size: 8, weight: .bold))
+      Text("\(count) \(label)")
+        .font(.system(size: 10, weight: .semibold, design: .rounded))
+    }
+    .foregroundStyle(color)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(color.opacity(0.10), in: Capsule())
+  }
+
+  private func compactStateChip(
+    target: ActiveSessionWorkbenchFilter,
+    icon: String,
+    title: String,
+    color: Color
+  ) -> some View {
+    Button {
+      filter = .all
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: icon)
+          .font(.system(size: 8, weight: .bold))
+        Text(title)
+          .font(.system(size: 10, weight: .bold))
+      }
+      .foregroundStyle(color)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(color.opacity(0.16), in: Capsule())
+      .overlay(
+        Capsule()
+          .stroke(color.opacity(0.3), lineWidth: 1)
+      )
+    }
+    .buttonStyle(.plain)
+    .help(target.title)
+  }
+
   private var thinSeparator: some View {
     Rectangle()
       .fill(Color.surfaceBorder.opacity(0.2))
@@ -291,7 +543,7 @@ struct ProjectStreamSection: View {
       // Project header
       HStack(spacing: 8) {
         Text(group.projectName)
-          .font(.system(size: TypeScale.large, weight: .bold))
+          .font(.system(size: isPhoneCompact ? TypeScale.subhead : TypeScale.large, weight: .bold))
           .foregroundStyle(.primary)
 
         // Shared branch — shown here when all sessions are on the same branch
@@ -307,7 +559,7 @@ struct ProjectStreamSection: View {
 
         Spacer()
 
-        if group.totalTokens > 0 {
+        if !isPhoneCompact, group.totalTokens > 0 {
           Text(formatTokens(group.totalTokens))
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)

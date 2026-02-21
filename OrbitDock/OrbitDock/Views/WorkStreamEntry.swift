@@ -20,10 +20,18 @@ struct WorkStreamEntry: View {
   let onFork: (() -> Void)?
   let onNavigateToReviewFile: ((String, Int) -> Void)?
   var onShellSendToAI: ((String) -> Void)?
+  var externallyExpanded: Bool?
+  var onExpandedChange: ((Bool) -> Void)?
   @State private var isExpanded = false
   @State private var isEditCardCollapsed = true
   @State private var isHovering = false
   @State private var isContentExpanded = false
+  private let assistantRailMaxWidth = ConversationLayout.assistantRailMaxWidth
+  private let userRailMaxWidth = ConversationLayout.userRailMaxWidth
+  private let laneHorizontalInset = ConversationLayout.laneHorizontalInset
+  private let metadataHorizontalInset = ConversationLayout.metadataHorizontalInset
+  private let headerToBodySpacing = ConversationLayout.headerToBodySpacing
+  private let entryBottomSpacing = ConversationLayout.entryBottomSpacing
 
   // MARK: - Entry Kind
 
@@ -186,32 +194,32 @@ struct WorkStreamEntry: View {
   private var speakerLabelText: String {
     switch kind {
       case .assistant:
-        return "ASSISTANT"
+        "ASSISTANT"
       case .thinking:
-        return "REASONING"
+        "REASONING"
       case .steer:
-        return "STEER"
+        "STEER"
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
            .userSystemCaveat, .userCodeReview, .userSystemContext, .userShellContext, .shell:
-        return "YOU"
+        "YOU"
       default:
-        return "ENTRY"
+        "ENTRY"
     }
   }
 
   private var speakerLabelColor: Color {
     switch kind {
       case .assistant:
-        return Color.textSecondary
+        Color.textSecondary
       case .thinking:
-        return Color(red: 0.65, green: 0.6, blue: 0.85).opacity(0.9)
+        Color(red: 0.65, green: 0.6, blue: 0.85).opacity(0.9)
       case .steer:
-        return Color.accent.opacity(0.85)
+        Color.accent.opacity(0.85)
       case .userPrompt, .userBash, .userSlashCommand, .userTaskNotification,
            .userSystemCaveat, .userCodeReview, .userSystemContext, .userShellContext, .shell:
-        return Color.accent.opacity(0.8)
+        Color.accent.opacity(0.8)
       default:
-        return Color.textTertiary
+        Color.textTertiary
     }
   }
 
@@ -388,6 +396,10 @@ struct WorkStreamEntry: View {
     }
   }
 
+  private var shouldTrackHover: Bool {
+    isUserKind && (onRollback != nil || onFork != nil)
+  }
+
   // MARK: - Body
 
   var body: some View {
@@ -397,17 +409,16 @@ struct WorkStreamEntry: View {
           compactRow
             .contentShape(Rectangle())
             .onTapGesture {
-              withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                isExpanded.toggle()
-              }
+              let nextExpanded = !isCompactExpanded
+              setCompactExpanded(nextExpanded)
             }
+            .padding(.bottom, Spacing.xs)
 
-          if isExpanded {
+          if isCompactExpanded {
             expandedContent
-              .padding(.leading, Spacing.xl)
-              .padding(.trailing, Spacing.md)
-              .padding(.bottom, Spacing.sm)
-              .transition(.opacity.combined(with: .move(edge: .top)))
+              .padding(.leading, laneHorizontalInset)
+              .padding(.trailing, laneHorizontalInset)
+              .padding(.bottom, entryBottomSpacing)
           }
 
         case .inline:
@@ -415,43 +426,47 @@ struct WorkStreamEntry: View {
             userGlyphHeaderRow
 
             userInlineContent
-              .padding(.leading, Spacing.md)
-              .padding(.bottom, Spacing.md)
+              .padding(.top, headerToBodySpacing)
+              .padding(.bottom, Spacing.xs)
           } else {
             glyphHeaderRow
 
             inlineContent
-              .padding(.bottom, Spacing.md)
+              .padding(.top, headerToBodySpacing)
+              .padding(.bottom, entryBottomSpacing)
           }
 
         case .compactPreview:
           compactRow
             .contentShape(Rectangle())
             .onTapGesture {
-              withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-                isEditCardCollapsed.toggle()
-              }
+              isEditCardCollapsed.toggle()
             }
 
           if isEditCardCollapsed {
             // Collapsed: show mini 3-line diff preview
             editPreview
-              .padding(.leading, Spacing.xl)
-              .padding(.trailing, Spacing.md)
-              .padding(.top, Spacing.xxs)
+              .padding(.leading, laneHorizontalInset)
+              .padding(.trailing, laneHorizontalInset)
+              .padding(.top, headerToBodySpacing)
               .padding(.bottom, Spacing.xs)
           } else {
             // Default: show full diff card
             expandedContent
-              .padding(.leading, Spacing.xl)
-              .padding(.trailing, Spacing.md)
-              .padding(.bottom, Spacing.sm)
+              .padding(.leading, laneHorizontalInset)
+              .padding(.trailing, laneHorizontalInset)
+              .padding(.bottom, entryBottomSpacing)
           }
       }
     }
-    .frame(maxWidth: .infinity)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .contentShape(Rectangle())
-    .onHover { isHovering = $0 }
+    .onHover { hovering in
+      guard shouldTrackHover else { return }
+      if isHovering != hovering {
+        isHovering = hovering
+      }
+    }
     .animation(.easeInOut(duration: 0.15), value: isHovering)
   }
 
@@ -469,22 +484,14 @@ struct WorkStreamEntry: View {
 
   private var glyphHeaderRow: some View {
     HStack(spacing: 0) {
-      // Timestamp column (52px)
-      Text(formatTime(message.timestamp))
-        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
-        .frame(width: 52, alignment: .leading)
-
-      // Glyph column (20px)
       glyphView
 
       speakerLabelView
 
       Spacer()
     }
-    .padding(.horizontal, Spacing.sm)
+    .padding(.horizontal, metadataHorizontalInset)
     .frame(height: 26)
-    .background(isHovering ? Color.surfaceHover : Color.clear)
   }
 
   // MARK: - User Glyph Header Row (right-aligned, for user inline entries)
@@ -502,29 +509,17 @@ struct WorkStreamEntry: View {
 
       speakerLabelView
 
-      // Glyph column (20px)
       glyphView
-
-      // Timestamp column (52px)
-      Text(formatTime(message.timestamp))
-        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
-        .frame(width: 52, alignment: .trailing)
     }
-    .padding(.horizontal, Spacing.sm)
+    .padding(.horizontal, laneHorizontalInset)
     .frame(height: 26)
-    .background(isHovering ? Color.surfaceHover : Color.clear)
   }
 
   // MARK: - User Inline Content (right-aligned)
 
   private var userInlineContent: some View {
     HStack(spacing: 0) {
-      // Left gutter — prevents user messages from spanning full width.
-      // Takes ~28% of space, pushing content right-aligned.
-      Color.clear
-        .frame(minWidth: 80)
-        .layoutPriority(-1)
+      Spacer(minLength: laneHorizontalInset)
 
       Group {
         switch kind {
@@ -560,8 +555,10 @@ struct WorkStreamEntry: View {
             EmptyView()
         }
       }
+      .frame(maxWidth: userRailMaxWidth, alignment: .trailing)
     }
-    .padding(.trailing, Spacing.sm)
+    .padding(.horizontal, laneHorizontalInset)
+    .frame(maxWidth: .infinity, alignment: .trailing)
   }
 
   private var userPromptInlineRight: some View {
@@ -585,20 +582,17 @@ struct WorkStreamEntry: View {
         .fill(Color.accent.opacity(OpacityTier.strong))
         .frame(width: EdgeBar.width)
     }
-    .frame(maxWidth: 860, alignment: .trailing)
+    .background(
+      Color.backgroundTertiary.opacity(0.68),
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
+    .frame(maxWidth: .infinity, alignment: .trailing)
   }
 
   // MARK: - Compact Row
 
   private var compactRow: some View {
     HStack(spacing: 0) {
-      // Timestamp column (52px)
-      Text(formatTime(message.timestamp))
-        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color.textTertiary)
-        .frame(width: 52, alignment: .leading)
-
-      // Glyph column (20px)
       glyphView
 
       // Summary (flex)
@@ -624,9 +618,8 @@ struct WorkStreamEntry: View {
       }
 
     }
-    .padding(.horizontal, Spacing.sm)
-    .frame(height: 26)
-    .background(isHovering ? Color.surfaceHover : Color.clear)
+    .padding(.horizontal, Spacing.md)
+    .frame(minHeight: 26, alignment: .center)
   }
 
   @State private var isPulsing = false
@@ -701,19 +694,19 @@ struct WorkStreamEntry: View {
 
       case let .userBash(bash):
         UserBashCard(bash: bash, timestamp: message.timestamp)
-          .padding(.leading, Spacing.xl)
+          .padding(.leading, laneHorizontalInset)
 
       case let .userSlashCommand(cmd):
         UserSlashCommandCard(command: cmd, timestamp: message.timestamp)
-          .padding(.leading, Spacing.xl)
+          .padding(.leading, laneHorizontalInset)
 
       case let .userTaskNotification(notif):
         TaskNotificationCard(notification: notif, timestamp: message.timestamp)
-          .padding(.leading, Spacing.xl)
+          .padding(.leading, laneHorizontalInset)
 
       case let .userSystemCaveat(caveat):
         SystemCaveatView(caveat: caveat)
-          .padding(.leading, Spacing.xl)
+          .padding(.leading, laneHorizontalInset)
 
       case .userCodeReview:
         CodeReviewFeedbackCard(
@@ -721,16 +714,16 @@ struct WorkStreamEntry: View {
           timestamp: message.timestamp,
           onNavigateToFile: onNavigateToReviewFile
         )
-        .padding(.leading, Spacing.xl)
+        .padding(.leading, laneHorizontalInset)
 
       case let .userSystemContext(ctx):
         SystemContextCard(context: ctx)
-          .padding(.leading, Spacing.xl)
-          .padding(.trailing, Spacing.xl)
+          .padding(.leading, laneHorizontalInset)
+          .padding(.trailing, laneHorizontalInset)
 
       case let .userShellContext(ctx):
         ShellContextCard(context: ctx, timestamp: message.timestamp)
-          .padding(.leading, Spacing.xl)
+          .padding(.leading, laneHorizontalInset)
 
       case .assistant:
         assistantInline
@@ -765,8 +758,12 @@ struct WorkStreamEntry: View {
       .padding(.vertical, Spacing.sm)
       .padding(.horizontal, Spacing.md)
     }
-    .frame(maxWidth: 920, alignment: .leading)
-    .padding(.leading, Spacing.xl)
+    .background(
+      Color.backgroundTertiary.opacity(0.68),
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
+    .frame(maxWidth: assistantRailMaxWidth, alignment: .leading)
+    .padding(.leading, laneHorizontalInset)
   }
 
   private var assistantInline: some View {
@@ -783,16 +780,17 @@ struct WorkStreamEntry: View {
             isContentExpanded.toggle()
           }
         } label: {
-          Text(isContentExpanded ? "Show less" : "Show more\u{2026}")
-            .font(.system(size: TypeScale.caption, weight: .medium))
+          Text(isContentExpanded ? "SHOW LESS" : "SHOW MORE\u{2026}")
+            .font(.system(size: TypeScale.body, weight: .medium))
+            .tracking(0.2)
             .foregroundStyle(Color.accent.opacity(0.8))
         }
         .buttonStyle(.plain)
       }
     }
-    .frame(maxWidth: 920, alignment: .leading)
-    .padding(.leading, Spacing.xl)
-    .padding(.trailing, Spacing.xl)
+    .frame(maxWidth: assistantRailMaxWidth, alignment: .leading)
+    .padding(.leading, laneHorizontalInset)
+    .padding(.trailing, laneHorizontalInset)
   }
 
   private var steerInline: some View {
@@ -802,8 +800,8 @@ struct WorkStreamEntry: View {
       .lineSpacing(3)
       .italic()
       .textSelection(.enabled)
-      .padding(.leading, Spacing.xl)
-      .padding(.trailing, Spacing.xl)
+      .padding(.leading, laneHorizontalInset)
+      .padding(.trailing, laneHorizontalInset)
   }
 
   // MARK: - Shell Inline
@@ -818,45 +816,34 @@ struct WorkStreamEntry: View {
       isHovering: $isShellHovering,
       onSendToAI: onShellSendToAI
     )
-    .padding(.leading, Spacing.xl)
-    .padding(.trailing, Spacing.xl)
+    .padding(.leading, laneHorizontalInset)
+    .padding(.trailing, laneHorizontalInset)
   }
 
   // MARK: - Thinking Inline
 
-  private let maxThinkingPreviewLength = 600
-
-  @State private var isThinkingContentExpanded = false
-
   private var thinkingInline: some View {
     let thinkingColor = Color(red: 0.65, green: 0.6, blue: 0.85)
-    let content = message.content
-    let isLong = content.count > maxThinkingPreviewLength
-    let displayText = isLong && !isThinkingContentExpanded
-      ? String(content.prefix(maxThinkingPreviewLength))
-      : content
 
     return VStack(alignment: .leading, spacing: 0) {
-      StreamingMarkdownView(content: displayText, style: .thinking)
+      StreamingMarkdownView(content: message.content, style: .thinking)
         .frame(maxWidth: .infinity, alignment: .leading)
-
-      if isLong {
-        Button {
-          withAnimation(.spring(response: 0.2, dampingFraction: 0.9)) {
-            isThinkingContentExpanded.toggle()
-          }
-        } label: {
-          Text(isThinkingContentExpanded ? "Show less" : "Show more\u{2026}")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(thinkingColor.opacity(0.7))
-        }
-        .buttonStyle(.plain)
-        .padding(.top, Spacing.xs)
-      }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
-    .frame(maxWidth: 920, alignment: .leading)
-    .padding(.leading, Spacing.xl)
-    .padding(.trailing, Spacing.xl)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(thinkingColor.opacity(0.05))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(thinkingColor.opacity(0.1), lineWidth: 1)
+    )
+    .frame(maxWidth: ConversationLayout.thinkingRailMaxWidth, alignment: .leading)
+    .padding(.leading, laneHorizontalInset)
+    .padding(.trailing, laneHorizontalInset)
+    .padding(.top, 4)
   }
 
   // MARK: - Edit Preview (mini diff for compactPreview mode)
@@ -957,7 +944,7 @@ struct WorkStreamEntry: View {
           if !isThinkingExpanded {
             Text(message.thinking?.components(separatedBy: "\n").first ?? "")
               .font(.system(size: 11))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(thinkingColor.opacity(0.5))
               .lineLimit(1)
               .truncationMode(.tail)
           }
@@ -966,47 +953,43 @@ struct WorkStreamEntry: View {
 
           Image(systemName: "chevron.right")
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(thinkingColor.opacity(0.5))
             .rotationEffect(.degrees(isThinkingExpanded ? 90 : 0))
         }
         .foregroundStyle(thinkingColor)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-          RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(thinkingColor.opacity(0.08))
-        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
       }
       .buttonStyle(.plain)
 
       if isThinkingExpanded, let thinking = message.thinking {
+        // Separator
+        Rectangle()
+          .fill(thinkingColor.opacity(0.1))
+          .frame(height: 1)
+          .padding(.horizontal, 10)
+
         ScrollView {
           StreamingMarkdownView(content: thinking, style: .thinking)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 250)
-        .padding(10)
-        .background(
-          RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(thinkingColor.opacity(0.04))
-        )
-        .padding(.top, 6)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
+    .background(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .fill(thinkingColor.opacity(0.05))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .strokeBorder(thinkingColor.opacity(0.1), lineWidth: 1)
+    )
   }
 
   // MARK: - Helpers
-
-  private static let timeFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateFormat = "h:mm a"
-    return formatter
-  }()
-
-  private func formatTime(_ date: Date) -> String {
-    Self.timeFormatter.string(from: date)
-  }
 
   private func firstLine(of text: String, maxLength: Int) -> String {
     let line = text.components(separatedBy: "\n")
@@ -1019,5 +1002,17 @@ struct WorkStreamEntry: View {
 
   private func stripXMLTags(_ text: String) -> String {
     text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+  }
+
+  private var isCompactExpanded: Bool {
+    externallyExpanded ?? isExpanded
+  }
+
+  private func setCompactExpanded(_ expanded: Bool) {
+    if let onExpandedChange {
+      onExpandedChange(expanded)
+      return
+    }
+    isExpanded = expanded
   }
 }

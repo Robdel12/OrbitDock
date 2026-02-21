@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(AttentionService.self) private var attentionService
+  @StateObject private var serverManager = ServerManager.shared
   @State private var sessions: [Session] = []
   @State private var selectedSessionId: String?
   @StateObject private var toastManager = ToastManager.shared
@@ -30,6 +31,13 @@ struct ContentView: View {
 
   var waitingSessions: [Session] {
     sessions.filter(\.needsAttention)
+  }
+
+  /// Show setup view when server is not configured and not connected
+  private var shouldShowSetup: Bool {
+    if case .connected = ServerConnection.shared.status { return false }
+    if case .notConfigured = serverManager.installState { return true }
+    return false
   }
 
   var body: some View {
@@ -162,7 +170,9 @@ struct ContentView: View {
 
   private var mainContent: some View {
     Group {
-      if let session = selectedSession {
+      if shouldShowSetup {
+        ServerSetupView()
+      } else if let session = selectedSession {
         SessionDetailView(
           session: session,
           onTogglePanel: {

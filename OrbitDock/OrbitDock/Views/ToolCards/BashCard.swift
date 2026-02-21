@@ -5,7 +5,6 @@
 //  Terminal-style command card with output
 //
 
-import AppKit
 import SwiftUI
 
 struct BashCard: View {

@@ -238,21 +238,25 @@ struct DiffFileView: View {
       : projectPath + "/" + fileDiff.newPath
 
     guard !preferredEditor.isEmpty else {
-      NSWorkspace.shared.open(URL(fileURLWithPath: fullPath))
+      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
       return
     }
 
-    let lineArg = line ?? 1
+    #if !os(macOS)
+      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
+      return
+    #else
+      let lineArg = line ?? 1
 
-    let appNames: [String: String] = [
-      "code": "Visual Studio Code",
-      "cursor": "Cursor",
-      "zed": "Zed",
-      "subl": "Sublime Text",
-    ]
+      let appNames: [String: String] = [
+        "code": "Visual Studio Code",
+        "cursor": "Cursor",
+        "zed": "Zed",
+        "subl": "Sublime Text",
+      ]
 
-    switch preferredEditor {
-      case "code", "cursor":
+      switch preferredEditor {
+        case "code", "cursor":
         if let appName = appNames[preferredEditor] {
           let process = Process()
           process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -260,35 +264,36 @@ struct DiffFileView: View {
           try? process.run()
         }
 
-      case "zed":
+        case "zed":
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "Zed", "--args", "\(fullPath):\(lineArg)"]
         try? process.run()
 
-      case "subl":
+        case "subl":
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "Sublime Text", "--args", "\(fullPath):\(lineArg)"]
         try? process.run()
 
-      case "emacs":
+        case "emacs":
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["emacsclient", "+\(lineArg)", fullPath]
         try? process.run()
 
-      case "vim", "nvim":
+        case "vim", "nvim":
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [preferredEditor, "+\(lineArg)", fullPath]
         try? process.run()
 
-      default:
+        default:
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [preferredEditor, fullPath]
         try? process.run()
-    }
+      }
+    #endif
   }
 }

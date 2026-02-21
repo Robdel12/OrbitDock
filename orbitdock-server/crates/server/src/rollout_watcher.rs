@@ -58,7 +58,7 @@ pub async fn start_rollout_watcher(
         return Ok(());
     }
 
-    let state_path = PathBuf::from(&home).join(".orbitdock/codex-rollout-state.json");
+    let state_path = crate::paths::rollout_state_path();
     let persisted_state = load_persisted_state(&state_path);
 
     let (tx, mut rx) = mpsc::unbounded_channel::<WatcherMessage>();
@@ -907,9 +907,16 @@ impl WatcherRuntime {
                         state.saw_agent_event = false;
                     }
                     let message = extract_response_item_message_text(&payload);
-                    if let Some(text) = message.clone() {
-                        self.append_chat_message(path, &session_id, MessageType::User, text)
-                            .await;
+                    let images = extract_response_item_message_images(&payload);
+                    if message.is_some() || !images.is_empty() {
+                        self.append_chat_message(
+                            path,
+                            &session_id,
+                            MessageType::User,
+                            message.clone().unwrap_or_default(),
+                            images,
+                        )
+                        .await;
                     }
                     self.handle_user_message(&session_id, message).await;
                 } else if role == Some("assistant") {
@@ -917,8 +924,14 @@ impl WatcherRuntime {
                         state.saw_agent_event = true;
                     }
                     if let Some(text) = extract_response_item_message_text(&payload) {
-                        self.append_chat_message(path, &session_id, MessageType::Assistant, text)
-                            .await;
+                        self.append_chat_message(
+                            path,
+                            &session_id,
+                            MessageType::Assistant,
+                            text,
+                            vec![],
+                        )
+                        .await;
                     }
                     self.mark_waiting(&session_id).await;
                 }
@@ -968,9 +981,10 @@ impl WatcherRuntime {
         session_id: &str,
         message_type: MessageType,
         content: String,
+        images: Vec<orbitdock_protocol::ImageInput>,
     ) {
         let content = content.trim().to_string();
-        if content.is_empty() {
+        if content.is_empty() && images.is_empty() {
             return;
         }
 
@@ -982,8 +996,14 @@ impl WatcherRuntime {
             0
         };
 
+        let msg_id = format!("rollout-{session_id}-{next_seq}");
+        let images = crate::images::extract_images_to_disk(
+            &images,
+            session_id,
+            &msg_id,
+        );
         let message = Message {
-            id: format!("rollout-{session_id}-{next_seq}"),
+            id: msg_id,
             session_id: session_id.to_string(),
             message_type,
             content,
@@ -993,6 +1013,7 @@ impl WatcherRuntime {
             is_error: false,
             timestamp: current_time_rfc3339(),
             duration_ms: None,
+            images,
         };
 
         let Some(actor) = self.app_state.get_session(session_id) else {
@@ -1664,6 +1685,25 @@ fn extract_response_item_message_text(payload: &Value) -> Option<String> {
     } else {
         Some(parts.join("\n"))
     }
+}
+
+fn extract_response_item_message_images(payload: &Value) -> Vec<orbitdock_protocol::ImageInput> {
+    let Some(content) = payload.get("content").and_then(|v| v.as_array()) else {
+        return vec![];
+    };
+    let mut images = Vec::new();
+    for item in content {
+        let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if item_type == "input_image" {
+            if let Some(url) = item.get("image_url").and_then(|v| v.as_str()) {
+                images.push(orbitdock_protocol::ImageInput {
+                    input_type: "url".to_string(),
+                    value: url.to_string(),
+                });
+            }
+        }
+    }
+    images
 }
 
 fn extract_question(payload: &Value) -> Option<String> {

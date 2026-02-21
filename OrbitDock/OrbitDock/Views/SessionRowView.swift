@@ -226,5 +226,5 @@ struct ForkBadge: View {
   }
   .padding()
   .frame(width: 380)
-  .background(Color(nsColor: .windowBackgroundColor))
+  .background(Color.backgroundPrimary)
 }

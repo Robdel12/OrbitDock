@@ -74,6 +74,7 @@ struct QuickCommand: Identifiable {
 // MARK: - Quick Switcher
 
 struct QuickSwitcher: View {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerAppState.self) private var serverState
   let sessions: [Session]
   let currentSessionId: String? // Currently selected session in ContentView
@@ -99,6 +100,14 @@ struct QuickSwitcher: View {
   }
 
   // MARK: - Search
+
+  private var isCompactLayout: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
 
   private var searchQuery: String {
     searchText.trimmingCharacters(in: .whitespaces).lowercased()
@@ -133,13 +142,12 @@ struct QuickSwitcher: View {
         onClose()
       },
       onOpenFinder: { session in
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+        _ = Platform.services.revealInFileBrowser(session.projectPath)
         onClose()
       },
       onCopyResume: { session in
         let command = "claude --resume \(session.id)"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
+        Platform.services.copyToClipboard(command)
         onClose()
       },
       onClose: { [self] session in
@@ -258,9 +266,12 @@ struct QuickSwitcher: View {
         resultsView
       }
 
-      footerHint
+      if !isCompactLayout {
+        footerHint
+      }
     }
-    .frame(width: 720)
+    .frame(maxWidth: isCompactLayout ? .infinity : 720)
+    .padding(.horizontal, isCompactLayout ? 12 : 0)
     .background(Color.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     .overlay(
       RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -404,7 +415,7 @@ struct QuickSwitcher: View {
         }
         .padding(.vertical, 8)
       }
-      .frame(maxHeight: 620)
+      .frame(maxHeight: isCompactLayout ? 420 : 620)
       .onChange(of: selectedIndex) { _, newIndex in
         proxy.scrollTo("row-\(newIndex)", anchor: .center)
       }
@@ -679,7 +690,7 @@ struct QuickSwitcher: View {
 
             // Open in Finder
             actionButton(icon: "folder", tooltip: "Open in Finder") {
-              NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+              _ = Platform.services.revealInFileBrowser(session.projectPath)
               onClose()
             }
 
@@ -692,8 +703,7 @@ struct QuickSwitcher: View {
             // Copy resume command
             actionButton(icon: "doc.on.doc", tooltip: "Copy Resume") {
               let command = "claude --resume \(session.id)"
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(command, forType: .string)
+              Platform.services.copyToClipboard(command)
               onClose()
             }
 

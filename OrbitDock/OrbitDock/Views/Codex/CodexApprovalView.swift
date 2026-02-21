@@ -147,7 +147,11 @@ struct CodexApprovalView: View {
                   .font(.system(size: TypeScale.caption, weight: .medium))
                   .foregroundStyle(Color.textSecondary)
               }
+              #if os(macOS)
               .toggleStyle(.checkbox)
+              #else
+              .toggleStyle(.switch)
+              #endif
 
               Spacer()
 

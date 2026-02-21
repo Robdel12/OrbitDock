@@ -306,6 +306,13 @@ pub enum ClientMessage {
         #[serde(default = "default_shell_timeout")]
         timeout_secs: u64,
     },
+
+    // Remote filesystem browsing (for iOS project picker)
+    BrowseDirectory {
+        #[serde(default)]
+        path: Option<String>,
+    },
+    ListRecentProjects,
 }
 
 fn default_shell_timeout() -> u64 {

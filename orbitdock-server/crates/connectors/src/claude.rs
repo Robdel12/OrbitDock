@@ -497,6 +497,9 @@ impl ClaudeConnector {
         let mut streaming_content = String::new();
         let mut streaming_msg_id: Option<String> = None;
         let mut in_turn = false;
+        // Per-call input/cached tokens from the latest assistant message (for accurate context fill)
+        let mut last_turn_input: Option<(u64, u64)> = None;
+        let mut cumulative_output: u64 = 0;
 
         loop {
             match lines.next_line().await {
@@ -529,6 +532,8 @@ impl ClaudeConnector {
                         &mut streaming_content,
                         &mut streaming_msg_id,
                         &mut in_turn,
+                        &mut last_turn_input,
+                        &mut cumulative_output,
                     )
                     .await;
 
@@ -585,6 +590,8 @@ impl ClaudeConnector {
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
         in_turn: &mut bool,
+        last_turn_input: &mut Option<(u64, u64)>,
+        cumulative_output: &mut u64,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
@@ -613,6 +620,8 @@ impl ClaudeConnector {
                 msg_counter,
                 streaming_content,
                 streaming_msg_id,
+                last_turn_input,
+                cumulative_output,
             ),
 
             "user" => Self::handle_user_message(raw, &session_id, msg_counter),
@@ -627,7 +636,13 @@ impl ClaudeConnector {
 
             "result" => {
                 *in_turn = false;
-                Self::handle_result_message(raw, streaming_content, streaming_msg_id)
+                Self::handle_result_message(
+                    raw,
+                    streaming_content,
+                    streaming_msg_id,
+                    last_turn_input,
+                    cumulative_output,
+                )
             }
 
             "control_request" => Self::handle_cli_control_request(raw, pending_approvals).await,
@@ -759,6 +774,8 @@ impl ClaudeConnector {
         msg_counter: &Arc<AtomicU64>,
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
+        last_turn_input: &mut Option<(u64, u64)>,
+        cumulative_output: &mut u64,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
@@ -832,6 +849,7 @@ impl ClaudeConnector {
                             is_error: false,
                             timestamp: now_iso(),
                             duration_ms: None,
+                            images: vec![],
                         },
                     ));
                 }
@@ -853,6 +871,7 @@ impl ClaudeConnector {
                             is_error: false,
                             timestamp: now_iso(),
                             duration_ms: None,
+                            images: vec![],
                         },
                     ));
                 }
@@ -870,11 +889,22 @@ impl ClaudeConnector {
                             is_error: false,
                             timestamp: now_iso(),
                             duration_ms: None,
+                            images: vec![],
                         },
                     ));
                 }
                 _ => {}
             }
+        }
+
+        // Capture per-call usage from the assistant message for accurate context fill.
+        // message.usage contains per-call values (not cumulative session totals).
+        if let Some(usage) = message.get("usage").and_then(Value::as_object) {
+            let input = value_to_u64(usage.get("input_tokens"));
+            let cached = value_to_u64(usage.get("cache_read_input_tokens"))
+                + value_to_u64(usage.get("cache_creation_input_tokens"));
+            *last_turn_input = Some((input, cached));
+            *cumulative_output += value_to_u64(usage.get("output_tokens"));
         }
 
         events
@@ -950,6 +980,7 @@ impl ClaudeConnector {
                         is_error,
                         timestamp: now_iso(),
                         duration_ms: None,
+                        images: vec![],
                     },
                 ));
             }
@@ -1004,6 +1035,7 @@ impl ClaudeConnector {
                                 is_error: false,
                                 timestamp: now_iso(),
                                 duration_ms: None,
+                                images: vec![],
                             },
                         ));
                         *streaming_msg_id = Some(msg_id);
@@ -1028,16 +1060,42 @@ impl ClaudeConnector {
         raw: &Value,
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
+        last_turn_input: &mut Option<(u64, u64)>,
+        cumulative_output: &mut u64,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
         // Flush streaming content
         flush_streaming(&mut events, streaming_content, streaming_msg_id);
 
-        // Extract token usage from modelUsage or usage
+        // Build token usage. Prefer per-call input/cached from the last assistant
+        // message (accurate for context fill) with cumulative output tokens.
+        // Fall back to the old cumulative modelUsage extraction if no per-call data.
         let model_usage = raw.get("modelUsage").cloned();
         let usage = raw.get("usage").cloned();
-        let token_usage = extract_token_usage(&model_usage, &usage);
+
+        let token_usage = if let Some((input, cached)) = last_turn_input.take() {
+            // Extract context_window from modelUsage (any model entry)
+            let context_window = model_usage
+                .as_ref()
+                .and_then(Value::as_object)
+                .and_then(|models| {
+                    models
+                        .values()
+                        .find_map(|stats| stats.get("contextWindow").and_then(Value::as_u64))
+                })
+                .unwrap_or(200_000);
+
+            Some(orbitdock_protocol::TokenUsage {
+                input_tokens: input,
+                output_tokens: *cumulative_output,
+                cached_tokens: cached,
+                context_window,
+            })
+        } else {
+            extract_token_usage(&model_usage, &usage)
+        };
+
         if let Some(tu) = token_usage {
             events.push(ConnectorEvent::TokensUpdated(tu));
         }
@@ -1229,6 +1287,11 @@ fn flush_streaming(
             });
         }
     }
+}
+
+/// Extract a `u64` from an optional JSON value, defaulting to 0.
+fn value_to_u64(v: Option<&Value>) -> u64 {
+    v.and_then(|v| v.as_u64()).unwrap_or(0)
 }
 
 /// Extract token usage from the modelUsage or usage fields in result messages.

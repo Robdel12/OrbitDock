@@ -336,6 +336,23 @@ impl CodexConnector {
             EventMsg::UserMessage(e) => {
                 let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
                 let msg_id = format!("user-{}-{}", event.id, seq);
+
+                let mut images: Vec<orbitdock_protocol::ImageInput> = Vec::new();
+                if let Some(urls) = &e.images {
+                    for url in urls {
+                        images.push(orbitdock_protocol::ImageInput {
+                            input_type: "url".to_string(),
+                            value: url.clone(),
+                        });
+                    }
+                }
+                for path in &e.local_images {
+                    images.push(orbitdock_protocol::ImageInput {
+                        input_type: "path".to_string(),
+                        value: path.to_string_lossy().to_string(),
+                    });
+                }
+
                 let message = orbitdock_protocol::Message {
                     id: msg_id,
                     session_id: String::new(),
@@ -347,6 +364,7 @@ impl CodexConnector {
                     is_error: false,
                     timestamp: iso_now(),
                     duration_ms: None,
+                    images,
                 };
                 vec![ConnectorEvent::MessageCreated(message)]
             }
@@ -414,6 +432,7 @@ impl CodexConnector {
                         is_error: false,
                         timestamp: iso_now(),
                         duration_ms: None,
+                        images: vec![],
                     };
                     vec![ConnectorEvent::MessageCreated(message)]
                 }
@@ -432,6 +451,7 @@ impl CodexConnector {
                     is_error: false,
                     timestamp: iso_now(),
                     duration_ms: None,
+                    images: vec![],
                 };
                 vec![ConnectorEvent::MessageCreated(message)]
             }
@@ -483,6 +503,7 @@ impl CodexConnector {
                     is_error: false,
                     timestamp: iso_now(),
                     duration_ms: None,
+                    images: vec![],
                 };
                 events.push(ConnectorEvent::MessageCreated(message));
                 events
@@ -587,6 +608,7 @@ impl CodexConnector {
                     is_error: false,
                     timestamp: iso_now(),
                     duration_ms: None,
+                    images: vec![],
                 };
                 vec![ConnectorEvent::MessageCreated(message)]
             }
@@ -626,6 +648,7 @@ impl CodexConnector {
                     is_error: false,
                     timestamp: iso_now(),
                     duration_ms: None,
+                    images: vec![],
                 };
                 vec![ConnectorEvent::MessageCreated(message)]
             }
@@ -790,6 +813,7 @@ impl CodexConnector {
                             is_error: false,
                             timestamp: iso_now(),
                             duration_ms: None,
+                            images: vec![],
                         };
                         *streaming = Some(StreamingMessage {
                             message_id: msg_id,
@@ -839,6 +863,7 @@ impl CodexConnector {
                             is_error: false,
                             timestamp: iso_now(),
                             duration_ms: None,
+                            images: vec![],
                         };
                         *streaming = Some(StreamingMessage {
                             message_id: msg_id,

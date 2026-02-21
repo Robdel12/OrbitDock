@@ -66,6 +66,7 @@ struct ServerMessage: Codable, Identifiable {
   let isError: Bool
   let timestamp: String
   let durationMs: UInt64?
+  let images: [ServerImageInput]
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -78,6 +79,39 @@ struct ServerMessage: Codable, Identifiable {
     case isError = "is_error"
     case timestamp
     case durationMs = "duration_ms"
+    case images
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    sessionId = try container.decode(String.self, forKey: .sessionId)
+    type = try container.decode(ServerMessageType.self, forKey: .type)
+    content = try container.decode(String.self, forKey: .content)
+    toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+    toolInput = try container.decodeIfPresent(String.self, forKey: .toolInput)
+    toolOutput = try container.decodeIfPresent(String.self, forKey: .toolOutput)
+    isError = try container.decode(Bool.self, forKey: .isError)
+    timestamp = try container.decode(String.self, forKey: .timestamp)
+    durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
+    images = try container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? []
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(sessionId, forKey: .sessionId)
+    try container.encode(type, forKey: .type)
+    try container.encode(content, forKey: .content)
+    try container.encodeIfPresent(toolName, forKey: .toolName)
+    try container.encodeIfPresent(toolInput, forKey: .toolInput)
+    try container.encodeIfPresent(toolOutput, forKey: .toolOutput)
+    try container.encode(isError, forKey: .isError)
+    try container.encode(timestamp, forKey: .timestamp)
+    try container.encodeIfPresent(durationMs, forKey: .durationMs)
+    if !images.isEmpty {
+      try container.encode(images, forKey: .images)
+    }
   }
 
   /// Parse toolInput JSON string to dictionary if needed
@@ -894,6 +928,40 @@ struct AnyCodable: Codable {
   }
 }
 
+// MARK: - Remote Filesystem Browsing
+
+struct ServerDirectoryEntry: Codable, Identifiable {
+  let name: String
+  let isDir: Bool
+  let isGit: Bool
+
+  var id: String {
+    name
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case name
+    case isDir = "is_dir"
+    case isGit = "is_git"
+  }
+}
+
+struct ServerRecentProject: Codable, Identifiable {
+  let path: String
+  let sessionCount: UInt32
+  let lastActive: String?
+
+  var id: String {
+    path
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case path
+    case sessionCount = "session_count"
+    case lastActive = "last_active"
+  }
+}
+
 // MARK: - Server → Client Messages
 
 enum ServerToClientMessage: Codable {
@@ -956,6 +1024,8 @@ enum ServerToClientMessage: Codable {
     exitCode: Int32?,
     durationMs: UInt64
   )
+  case directoryListing(path: String, entries: [ServerDirectoryEntry])
+  case recentProjectsList(projects: [ServerRecentProject])
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1012,6 +1082,8 @@ enum ServerToClientMessage: Codable {
     case exitCode = "exit_code"
     case durationMs = "duration_ms"
     case slashCommands = "slash_commands"
+    case entries
+    case projects
   }
 
   init(from decoder: Decoder) throws {
@@ -1250,6 +1322,15 @@ enum ServerToClientMessage: Codable {
           stdout: stdout, stderr: stderr, exitCode: exitCode, durationMs: durationMs
         )
 
+      case "directory_listing":
+        let path = try container.decode(String.self, forKey: .path)
+        let entries = try container.decode([ServerDirectoryEntry].self, forKey: .entries)
+        self = .directoryListing(path: path, entries: entries)
+
+      case "recent_projects_list":
+        let projects = try container.decode([ServerRecentProject].self, forKey: .projects)
+        self = .recentProjectsList(projects: projects)
+
       case "error":
         let code = try container.decode(String.self, forKey: .code)
         let message = try container.decode(String.self, forKey: .message)
@@ -1477,6 +1558,15 @@ enum ServerToClientMessage: Codable {
         try container.encodeIfPresent(exitCode, forKey: .exitCode)
         try container.encode(durationMs, forKey: .durationMs)
 
+      case let .directoryListing(path, entries):
+        try container.encode("directory_listing", forKey: .type)
+        try container.encode(path, forKey: .path)
+        try container.encode(entries, forKey: .entries)
+
+      case let .recentProjectsList(projects):
+        try container.encode("recent_projects_list", forKey: .type)
+        try container.encode(projects, forKey: .projects)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -1576,6 +1666,8 @@ enum ClientToServerMessage: Codable {
   case getSubagentTools(sessionId: String, subagentId: String)
   case setOpenAiKey(key: String)
   case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
+  case browseDirectory(path: String? = nil)
+  case listRecentProjects
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -1622,6 +1714,7 @@ enum ClientToServerMessage: Codable {
     case disallowedTools = "disallowed_tools"
     case message
     case interrupt
+    case path
   }
 
   func encode(to encoder: Encoder) throws {
@@ -1860,6 +1953,13 @@ enum ClientToServerMessage: Codable {
         if timeoutSecs != 30 {
           try container.encode(timeoutSecs, forKey: .timeoutSecs)
         }
+
+      case let .browseDirectory(path):
+        try container.encode("browse_directory", forKey: .type)
+        try container.encodeIfPresent(path, forKey: .path)
+
+      case .listRecentProjects:
+        try container.encode("list_recent_projects", forKey: .type)
     }
   }
 
@@ -2034,6 +2134,12 @@ enum ClientToServerMessage: Codable {
           cwd: container.decodeIfPresent(String.self, forKey: .cwd),
           timeoutSecs: container.decodeIfPresent(UInt64.self, forKey: .timeoutSecs) ?? 30
         )
+      case "browse_directory":
+        self = try .browseDirectory(
+          path: container.decodeIfPresent(String.self, forKey: .path)
+        )
+      case "list_recent_projects":
+        self = .listRecentProjects
       default:
         throw DecodingError.dataCorrupted(
           DecodingError.Context(

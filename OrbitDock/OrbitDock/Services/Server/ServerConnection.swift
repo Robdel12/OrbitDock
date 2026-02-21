@@ -34,9 +34,24 @@ final class ServerConnection: ObservableObject {
   private var receiveTask: Task<Void, Never>?
   private var connectTask: Task<Void, Never>?
 
-  private let serverURL = URL(string: "ws://127.0.0.1:4000/ws")!
-  private let maxConnectAttempts = 10
+  private var serverURL: URL = ServerEndpointSettings.effectiveURL
   private var connectAttempts = 0
+
+  /// Whether we're connecting to a non-localhost server
+  private var isRemote: Bool {
+    guard let host = serverURL.host else { return false }
+    return host != "127.0.0.1" && host != "localhost" && host != "::1"
+  }
+
+  /// Remote gets more attempts since network can be flaky; local fails faster
+  private var maxConnectAttempts: Int {
+    isRemote ? 20 : 10
+  }
+
+  /// Remote uses longer max backoff (15s); local caps at 10s
+  private var maxBackoffSeconds: Double {
+    isRemote ? 15.0 : 10.0
+  }
 
   /// Callbacks for received messages
   var onSessionsList: (([ServerSessionSummary]) -> Void)?
@@ -85,6 +100,8 @@ final class ServerConnection: ObservableObject {
   var onShellStarted: ((String, String, String) -> Void)? // sessionId, requestId, command
   var onShellOutput: ((String, String, String, String, Int32?, UInt64)
     -> Void)? // sessionId, requestId, stdout, stderr, exitCode, durationMs
+  var onDirectoryListing: ((String, [ServerDirectoryEntry]) -> Void)? // path, entries
+  var onRecentProjectsList: (([ServerRecentProject]) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
   var onDisconnected: (() -> Void)?
@@ -96,8 +113,13 @@ final class ServerConnection: ObservableObject {
 
   // MARK: - Connection Lifecycle
 
-  /// Connect to the server (retries up to maxConnectAttempts, then gives up)
+  /// Connect to the server at the default (configured) URL
   func connect() {
+    connect(to: ServerEndpointSettings.effectiveURL)
+  }
+
+  /// Connect to a specific server URL
+  func connect(to url: URL) {
     switch status {
       case .disconnected, .failed:
         // OK to connect
@@ -107,13 +129,18 @@ final class ServerConnection: ObservableObject {
         return
     }
 
+    serverURL = url
+    logger.info("Connecting to \(url.absoluteString)")
     attemptConnect()
   }
 
   private func attemptConnect() {
     guard connectAttempts < maxConnectAttempts else {
-      status = .failed("Failed to connect after \(maxConnectAttempts) attempts")
-      lastError = "Server unavailable"
+      let message = isRemote
+        ? "Could not reach remote server after \(maxConnectAttempts) attempts"
+        : "Failed to connect after \(maxConnectAttempts) attempts"
+      status = .failed(message)
+      lastError = message
       logger.error("Max connect attempts reached - giving up")
       return
     }
@@ -156,8 +183,8 @@ final class ServerConnection: ObservableObject {
       } catch {
         logger.warning("Connect attempt \(self.connectAttempts) failed: \(error.localizedDescription)")
 
-        // Exponential backoff capped at 10s: 1s, 2s, 4s, 8s, 10s, 10s, ...
-        let delay = min(pow(2.0, Double(connectAttempts - 1)), 10.0)
+        // Exponential backoff: local caps at 10s, remote caps at 15s
+        let delay = min(pow(2.0, Double(connectAttempts - 1)), maxBackoffSeconds)
 
         try? await Task.sleep(for: .seconds(delay))
 
@@ -380,6 +407,12 @@ final class ServerConnection: ObservableObject {
 
       case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs):
         onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs)
+
+      case let .directoryListing(path, entries):
+        onDirectoryListing?(path, entries)
+
+      case let .recentProjectsList(projects):
+        onRecentProjectsList?(projects)
 
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")

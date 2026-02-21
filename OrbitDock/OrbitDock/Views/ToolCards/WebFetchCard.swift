@@ -142,7 +142,7 @@ struct WebFetchCard: View {
 
           Button {
             if let urlObj = URL(string: url) {
-              NSWorkspace.shared.open(urlObj)
+              _ = Platform.services.openURL(urlObj)
             }
           } label: {
             Image(systemName: "arrow.up.forward.square")

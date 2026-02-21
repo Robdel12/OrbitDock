@@ -167,13 +167,22 @@ struct AutonomyPill: View {
     }
     .buttonStyle(.plain)
     .fixedSize()
-    .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-      AutonomyPopover(selection: Binding(
-        get: { currentLevel },
-        set: { newLevel in
-          serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
+    .platformPopover(isPresented: $showPopover) {
+      NavigationStack {
+        AutonomyPopover(selection: Binding(
+          get: { currentLevel },
+          set: { newLevel in
+            serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
+          }
+        ))
+        .ifIOS { view in
+          view.toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") { showPopover = false }
+            }
+          }
         }
-      ))
+      }
     }
   }
 }
@@ -188,65 +197,79 @@ struct AutonomyPopover: View {
   private let levels = AutonomyLevel.allCases
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      // Header
-      Text("Autonomy Level")
-        .font(.system(size: TypeScale.subhead, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
-        .padding(.horizontal, Spacing.lg)
-        .padding(.top, Spacing.lg)
-        .padding(.bottom, Spacing.sm)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        // Header — macOS only (iOS uses .navigationTitle)
+        #if !os(iOS)
+          Text("Autonomy Level")
+            .font(.system(size: TypeScale.subhead, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+            .padding(.horizontal, Spacing.lg)
+            .padding(.top, Spacing.lg)
+            .padding(.bottom, Spacing.sm)
+        #endif
 
-      // Risk spectrum track
-      AutonomyTrack(selection: $selection)
-        .padding(.horizontal, Spacing.lg)
-        .padding(.bottom, Spacing.md)
+        // Risk spectrum track
+        AutonomyTrack(selection: $selection)
+          .padding(.horizontal, Spacing.lg)
+          .padding(.top, Spacing.sm)
+          .padding(.bottom, Spacing.md)
 
-      Divider()
-        .background(Color.surfaceBorder)
+        Divider()
+          .background(Color.surfaceBorder)
 
-      // Level rows
-      VStack(spacing: 0) {
-        ForEach(Array(levels.enumerated()), id: \.element.id) { idx, level in
-          AutonomyLevelRow(
-            level: level,
-            isSelected: level == selection,
-            isHighlighted: idx == selectedIndex
-          )
-          .contentShape(Rectangle())
-          .onTapGesture {
-            selection = level
-            selectedIndex = idx
-          }
-          .onHover { hovering in
-            if hovering { selectedIndex = idx }
+        // Level rows
+        VStack(spacing: 0) {
+          ForEach(Array(levels.enumerated()), id: \.element.id) { idx, level in
+            AutonomyLevelRow(
+              level: level,
+              isSelected: level == selection,
+              isHighlighted: idx == selectedIndex
+            )
+            .contentShape(Rectangle())
+            .onTapGesture {
+              selection = level
+              selectedIndex = idx
+            }
+            .platformHover { hovering in
+              if hovering { selectedIndex = idx }
+            }
           }
         }
+        .padding(.vertical, Spacing.xs)
       }
-      .padding(.vertical, Spacing.xs)
     }
-    .frame(width: 340)
-    .background(Color.backgroundSecondary)
-    .onAppear {
-      selectedIndex = selection.index
-    }
-    .onKeyPress(.upArrow) {
-      selectedIndex = max(0, selectedIndex - 1)
-      return .handled
-    }
-    .onKeyPress(.downArrow) {
-      selectedIndex = min(levels.count - 1, selectedIndex + 1)
-      return .handled
-    }
-    .onKeyPress(.return) {
-      selection = levels[selectedIndex]
-      dismiss()
-      return .handled
-    }
-    .onKeyPress(.escape) {
-      dismiss()
-      return .handled
-    }
+    .scrollBounceBehavior(.basedOnSize)
+    #if os(iOS)
+      .frame(maxWidth: .infinity)
+      .navigationTitle("Autonomy Level")
+      .navigationBarTitleDisplayMode(.inline)
+    #endif
+      .ifMacOS { $0.frame(width: 340) }
+      .background(Color.backgroundSecondary)
+      .onAppear {
+        selectedIndex = selection.index
+      }
+      .ifMacOS { view in
+        view
+          .onKeyPress(.upArrow) {
+            selectedIndex = max(0, selectedIndex - 1)
+            return .handled
+          }
+          .onKeyPress(.downArrow) {
+            selectedIndex = min(levels.count - 1, selectedIndex + 1)
+            return .handled
+          }
+          .onKeyPress(.return) {
+            selection = levels[selectedIndex]
+            dismiss()
+            return .handled
+          }
+          .onKeyPress(.escape) {
+            dismiss()
+            return .handled
+          }
+      }
   }
 }
 

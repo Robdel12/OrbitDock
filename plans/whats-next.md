@@ -7,6 +7,29 @@
 
 ---
 
+## 0. Universal Shell (iOS + iPad POC)
+
+**Why**: We need OrbitDock building/running in iOS Simulator early, even before live server connectivity. That means carving out platform seams now instead of stacking `#if os(macOS)` everywhere later.
+
+**What**:
+
+- Treat `plans/tailscale-remote-mvp-roadmap.md` as active again (it was archived too early)
+- Add a Phase 0 track that builds a universal shell first:
+  - Platform Abstraction Layer (PAL) for macOS-only APIs
+  - Capability-driven feature gating (instead of ad hoc platform checks)
+  - Runtime modes (`live` vs `mock`) so iOS can run without a server
+  - iOS/iPad target booting into dashboard/session shells with mock data
+- Keep server/connectivity work as the next phase after shell + seams are in place
+
+**Primary files**: `OrbitDock/OrbitDock/OrbitDockApp.swift`, `OrbitDock/OrbitDock/Services/`, `plans/tailscale-remote-mvp-roadmap.md`
+
+**Done when**:
+- OrbitDock launches in iOS Simulator without crashing
+- No direct AppKit usage remains in shared state/services that should be cross-platform
+- macOS-only features are clearly gated via capabilities
+
+---
+
 ## 1. Turn Timeline with Oversight
 
 **Why**: The conversation view shows every message flat. With 10+ turns in a session it's a wall of text. You lose the forest for the trees.

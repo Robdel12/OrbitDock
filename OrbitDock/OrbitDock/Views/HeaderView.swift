@@ -22,6 +22,7 @@ struct HeaderView: View {
   @State private var isHoveringPath = false
   @State private var isHoveringProject = false
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private var statusColor: Color {
     switch session.workStatus {
@@ -32,7 +33,24 @@ struct HeaderView: View {
     }
   }
 
+  private var isCompactLayout: Bool {
+    horizontalSizeClass == .compact
+  }
+
   var body: some View {
+    Group {
+      if isCompactLayout {
+        compactHeader
+      } else {
+        regularHeader
+      }
+    }
+    .background(Color.backgroundSecondary)
+  }
+
+  // MARK: - Layouts
+
+  private var regularHeader: some View {
     // Single-row identity bar
     HStack(spacing: Spacing.sm) {
       // Nav buttons
@@ -110,7 +128,7 @@ struct HeaderView: View {
       .contextMenu {
         Button("Open in Editor") { openInEditor(session.projectPath) }
         Button("Reveal in Finder") {
-          NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+          _ = Platform.services.revealInFileBrowser(session.projectPath)
         }
         Divider()
         Menu("Set Editor") {
@@ -177,7 +195,151 @@ struct HeaderView: View {
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
-    .background(Color.backgroundSecondary)
+  }
+
+  private var compactHeader: some View {
+    VStack(spacing: Spacing.xs) {
+      HStack(spacing: Spacing.xs) {
+        navButton(icon: "sidebar.left", action: onTogglePanel, help: "Toggle projects panel (⌘1)")
+
+        Button(action: onOpenSwitcher) {
+          HStack(spacing: Spacing.xs) {
+            SessionStatusDot(session: session, size: 8)
+
+            Text(agentName)
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(.primary)
+              .lineLimit(1)
+
+            Image(systemName: "chevron.down")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(.tertiary)
+          }
+          .padding(.vertical, Spacing.xs)
+          .padding(.horizontal, Spacing.sm)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
+          )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHoveringProject = $0 }
+        .contextMenu {
+          debugContextMenu
+        }
+        .layoutPriority(1)
+
+        Spacer(minLength: 0)
+
+        navButton(icon: "magnifyingglass", action: onOpenSwitcher, help: "Search sessions (⌘K)", style: .tertiary)
+
+        compactOverflowMenu
+      }
+      .padding(.horizontal, Spacing.md)
+
+      ScrollView(.horizontal) {
+        HStack(spacing: Spacing.sm) {
+          UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
+
+          if session.isActive {
+            StatusPillCompact(workStatus: session.workStatus, currentTool: currentTool)
+          }
+
+          if let branch = session.branch, !branch.isEmpty {
+            HStack(spacing: 4) {
+              Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+              Text(compactBranchLabel(branch))
+                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            }
+            .foregroundStyle(Color.gitBranch)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, 4)
+            .background(Color.backgroundTertiary, in: Capsule())
+          }
+
+          Button {
+            openInEditor(session.projectPath)
+          } label: {
+            HStack(spacing: 4) {
+              Image(systemName: "folder")
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+              Text(compactProjectLabel)
+                .font(.system(size: TypeScale.caption, design: .monospaced))
+                .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, 4)
+            .background(Color.backgroundTertiary, in: Capsule())
+          }
+          .buttonStyle(.plain)
+          .help("Open in editor")
+        }
+        .padding(.horizontal, Spacing.md)
+      }
+      .scrollIndicators(.hidden)
+    }
+    .padding(.vertical, Spacing.sm)
+  }
+
+  private var compactOverflowMenu: some View {
+    Menu {
+      Button {
+        onGoToDashboard()
+      } label: {
+        Label("Dashboard", systemImage: "square.grid.2x2")
+      }
+
+      Button {
+        onFocusTerminal()
+      } label: {
+        Label(
+          session.isActive ? "Focus Terminal" : "Resume in Terminal",
+          systemImage: session.isActive ?
+            "arrow.up.forward.app" : "terminal"
+        )
+      }
+
+      if let sidebarBinding = showTurnSidebar {
+        Button {
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            sidebarBinding.wrappedValue.toggle()
+          }
+        } label: {
+          Label(sidebarBinding.wrappedValue ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.right")
+        }
+      }
+
+      if let layoutBinding = layoutConfig {
+        Section("Layout") {
+          ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+            Button {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                layoutBinding.wrappedValue = config
+              }
+            } label: {
+              Label(config.label, systemImage: config.icon)
+            }
+          }
+        }
+      }
+
+      if session.isDirect, session.isActive, let onEnd = onEndSession {
+        Button(role: .destructive) {
+          onEnd()
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis.circle")
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(.tertiary)
+        .frame(width: 26, height: 26)
+        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    }
+    .help("More")
   }
 
   // MARK: - Nav Button Helper
@@ -268,29 +430,43 @@ struct HeaderView: View {
     Divider()
 
     Button("Open Server Log") {
-      NSWorkspace.shared.open(URL(fileURLWithPath: NSString("~/.orbitdock/logs/server.log").expandingTildeInPath))
+      _ = Platform.services.openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/server.log").expandingTildeInPath))
     }
 
     if session.provider == .codex {
       Button("Open Codex Log") {
-        NSWorkspace.shared.open(URL(fileURLWithPath: NSString("~/.orbitdock/logs/codex.log").expandingTildeInPath))
+        _ = Platform.services
+          .openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/codex.log").expandingTildeInPath))
       }
     }
 
     Button("Open Database") {
-      NSWorkspace.shared.open(URL(fileURLWithPath: NSString("~/.orbitdock/orbitdock.db").expandingTildeInPath))
+      _ = Platform.services.openURL(URL(fileURLWithPath: NSString("~/.orbitdock/orbitdock.db").expandingTildeInPath))
     }
   }
 
   private func copyToClipboard(_ text: String) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
+    Platform.services.copyToClipboard(text)
   }
 
   // MARK: - Helpers
 
   private var agentName: String {
     session.displayName
+  }
+
+  private var compactProjectLabel: String {
+    if let name = session.projectName, !name.isEmpty {
+      return name
+    }
+    let components = session.projectPath.split(separator: "/")
+    return components.last.map(String.init) ?? session.projectPath
+  }
+
+  private func compactBranchLabel(_ branch: String) -> String {
+    let maxLength = 14
+    guard branch.count > maxLength else { return branch }
+    return String(branch.prefix(maxLength - 1)) + "…"
   }
 
   private func shortenPath(_ path: String) -> String {
@@ -304,35 +480,40 @@ struct HeaderView: View {
   private func openInEditor(_ path: String) {
     // If no editor configured, fall back to Finder
     guard !preferredEditor.isEmpty else {
-      NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+      _ = Platform.services.revealInFileBrowser(path)
       return
     }
 
-    // Map common editor commands to app names for `open -a`
-    let appNames: [String: String] = [
-      "emacs": "Emacs",
-      "code": "Visual Studio Code",
-      "cursor": "Cursor",
-      "zed": "Zed",
-      "subl": "Sublime Text",
-    ]
+    #if !os(macOS)
+      _ = Platform.services.openURL(URL(fileURLWithPath: path))
+      return
+    #else
+      // Map common editor commands to app names for `open -a`
+      let appNames: [String: String] = [
+        "emacs": "Emacs",
+        "code": "Visual Studio Code",
+        "cursor": "Cursor",
+        "zed": "Zed",
+        "subl": "Sublime Text",
+      ]
 
-    // Try opening as a macOS app first (works best for GUI editors)
-    if let appName = appNames[preferredEditor] {
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-      process.arguments = ["-a", appName, path]
-      if (try? process.run()) != nil {
-        return
+      // Try opening as a macOS app first (works best for GUI editors)
+      if let appName = appNames[preferredEditor] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-a", appName, path]
+        if (try? process.run()) != nil {
+          return
+        }
       }
-    }
 
-    // Fall back to running the command directly (for terminal editors or custom paths)
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = [preferredEditor, path]
-    process.currentDirectoryURL = URL(fileURLWithPath: path)
-    try? process.run()
+      // Fall back to running the command directly (for terminal editors or custom paths)
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+      process.arguments = [preferredEditor, path]
+      process.currentDirectoryURL = URL(fileURLWithPath: path)
+      try? process.run()
+    #endif
   }
 }
 

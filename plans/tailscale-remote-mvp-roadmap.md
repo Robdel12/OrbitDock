@@ -2,7 +2,9 @@
 
 > Goal: Connect OrbitDock macOS to remote `orbitdock-server` instances over a private Tailscale network, with a tight MVP we can test quickly from real-world networks (including phone hotspot).
 >
-> This plan intentionally avoids iOS/iPad targets for now. We focus on reliable remote connectivity first.
+> Status: Active. This was previously archived too early.
+>
+> Updated scope: iOS/iPad **shell bring-up** is in scope as Phase 0. iOS/iPad **live server connectivity** remains out of scope for the Tailscale MVP itself.
 
 ## Why this plan
 
@@ -32,6 +34,7 @@ That is a solid local baseline. Now we want controlled remote access without tur
 
 ### In scope (MVP)
 
+- Phase 0 universal-shell groundwork (PAL + runtime modes + capability gates) so iOS/iPad can boot without a live server.
 - Harden server for standalone daemon deployment (signals, CLI args, service files).
 - Make server bind address configurable.
 - Add configurable server endpoints in macOS app.
@@ -43,13 +46,45 @@ That is a solid local baseline. Now we want controlled remote access without tur
 
 ### Out of scope (MVP)
 
-- iOS/iPad app targets.
+- iOS/iPad live endpoint connectivity and production parity.
 - Merged multi-server session dashboard.
 - Public internet exposure.
 - Full authn/authz system redesign.
 - `wss://` / TLS termination (Tailscale handles encryption).
 - Docker / container images (defer until someone needs it).
 - Cross-compilation for ARM Linux (defer until Pi deployment is attempted).
+
+---
+
+## Phase 0: Universal Shell + PAL (Pre-Server)
+
+### Objective
+
+Get OrbitDock building and running in iOS Simulator before server work by introducing platform seams and capability-driven feature gating.
+
+### Changes
+
+1. **Platform Abstraction Layer (PAL)**:
+   - Wrap macOS-only APIs behind platform services (open URL, reveal path, file picker, clipboard, sound, terminal integration).
+   - Keep AppKit code in macOS adapters only.
+
+2. **Capability model**:
+   - Introduce explicit capability flags (`canRunEmbeddedServer`, `canUseAppleScript`, `canFocusTerminal`, `canManageHooks`, etc.).
+   - Gate UI affordances by capability, not ad hoc `#if` checks.
+
+3. **Runtime mode split**:
+   - Add `live` and `mock` runtime modes.
+   - iOS defaults to `mock` so app can boot without `orbitdock-server`.
+
+4. **App bootstrap cleanup**:
+   - Route server startup/connection and MCP bridge startup through runtime mode + capabilities.
+   - Leave macOS behavior unchanged in `live` mode.
+
+### Acceptance criteria
+
+- OrbitDock can launch in iOS Simulator without crashing.
+- Shared services/state layers no longer import AppKit directly for functionality that should be cross-platform.
+- macOS-only features are clearly identified and gated.
 
 ---
 

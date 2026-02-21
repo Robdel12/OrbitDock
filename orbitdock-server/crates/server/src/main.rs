@@ -4,13 +4,20 @@
 //! Provides real-time session management via WebSocket.
 
 mod ai_naming;
+mod auth;
 mod claude_session;
+mod cmd_init;
+mod cmd_install_hooks;
+mod cmd_install_service;
+mod cmd_status;
 mod codex_auth;
 mod codex_session;
 mod git;
 mod hook_handler;
+pub(crate) mod images;
 mod logging;
 mod migration_runner;
+pub(crate) mod paths;
 mod persistence;
 mod rollout_watcher;
 mod session;
@@ -33,6 +40,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use clap::{Parser, Subcommand};
 use orbitdock_protocol::{
     CodexIntegrationMode, Provider, SessionStatus, TokenUsage, TurnDiff, WorkStatus,
 };
@@ -41,6 +49,73 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, warn};
 
 use tokio::sync::mpsc;
+
+/// Server version, baked in at compile time.
+pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "orbitdock-server",
+    about = "OrbitDock server — mission control for AI coding agents",
+    version = VERSION,
+)]
+struct Cli {
+    /// Data directory (default: ~/.orbitdock)
+    #[arg(long, global = true, env = "ORBITDOCK_DATA_DIR")]
+    data_dir: Option<PathBuf>,
+
+    /// Bind address (top-level, for backward compat — prefer `start --bind`)
+    #[arg(long, env = "ORBITDOCK_BIND_ADDR")]
+    bind: Option<SocketAddr>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Start the server (default when no subcommand given)
+    Start {
+        /// Bind address (e.g. 0.0.0.0:4000 for remote access)
+        #[arg(long, default_value = "127.0.0.1:4000", env = "ORBITDOCK_BIND_ADDR")]
+        bind: SocketAddr,
+
+        /// Auth token (requests must include `Authorization: Bearer <token>`)
+        #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
+        auth_token: Option<String>,
+    },
+
+    /// Bootstrap a fresh machine (create dirs, run migrations, install hook script)
+    Init {
+        /// Server URL the hook script will POST to
+        #[arg(long, default_value = "http://127.0.0.1:4000")]
+        server_url: String,
+    },
+
+    /// Install Claude Code hooks into ~/.claude/settings.json
+    InstallHooks {
+        /// Path to settings.json (default: ~/.claude/settings.json)
+        #[arg(long)]
+        settings_path: Option<PathBuf>,
+    },
+
+    /// Generate and install a launchd/systemd service file
+    InstallService {
+        /// Bind address for the service
+        #[arg(long, default_value = "127.0.0.1:4000")]
+        bind: SocketAddr,
+
+        /// Enable the service immediately after installing
+        #[arg(long)]
+        enable: bool,
+    },
+
+    /// Check if the server is running
+    Status,
+
+    /// Generate a random auth token and write it to data_dir/auth-token
+    GenerateToken,
+}
 
 use crate::logging::init_logging;
 use crate::persistence::{
@@ -56,11 +131,53 @@ fn main() -> anyhow::Result<()> {
     // This MUST run before the tokio runtime starts (modifies env vars).
     let _arg0_guard = codex_arg0::arg0_dispatch();
 
+    let cli = Cli::parse();
+
+    // Initialize data dir from CLI arg / env / default — before anything else
+    let data_dir = paths::init_data_dir(cli.data_dir.as_deref());
+
+    // Dispatch subcommands that don't need the async runtime
+    match &cli.command {
+        Some(Command::Init { server_url }) => {
+            return cmd_init::run(&data_dir, server_url);
+        }
+        Some(Command::InstallHooks { settings_path }) => {
+            return cmd_install_hooks::run(settings_path.as_deref());
+        }
+        Some(Command::InstallService { bind, enable }) => {
+            return cmd_install_service::run(&data_dir, *bind, *enable);
+        }
+        Some(Command::Status) => {
+            return cmd_status::run(&data_dir);
+        }
+        Some(Command::GenerateToken) => {
+            return cmd_status::generate_token(&data_dir);
+        }
+        _ => {}
+    }
+
+    // Resolve bind address: subcommand --bind > top-level --bind > default
+    let (bind_addr, auth_token) = match cli.command {
+        Some(Command::Start { bind, auth_token }) => (bind, auth_token),
+        _ => (
+            cli.bind
+                .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
+            None,
+        ),
+    };
+
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async_main())
+    runtime.block_on(async_main(bind_addr, auth_token, &data_dir))
 }
 
-async fn async_main() -> anyhow::Result<()> {
+async fn async_main(
+    bind_addr: SocketAddr,
+    auth_token: Option<String>,
+    data_dir: &std::path::Path,
+) -> anyhow::Result<()> {
+    // Ensure directories exist
+    paths::ensure_dirs()?;
+
     let logging = init_logging()?;
     let run_id = logging.run_id.clone();
     let _log_guard = logging.guard;
@@ -76,7 +193,9 @@ async fn async_main() -> anyhow::Result<()> {
         component = "server",
         event = "server.starting",
         run_id = %run_id,
+        version = VERSION,
         pid = std::process::id(),
+        data_dir = %data_dir.display(),
         binary_path = %binary_path,
         binary_size_bytes = binary_size,
         binary_mtime_unix = binary_mtime_unix,
@@ -84,12 +203,7 @@ async fn async_main() -> anyhow::Result<()> {
     );
 
     // Run database migrations before anything else
-    let db_path = {
-        let home = std::env::var("HOME").expect("HOME not set");
-        let dir = PathBuf::from(&home).join(".orbitdock");
-        std::fs::create_dir_all(&dir).expect("create .orbitdock dir");
-        dir.join("orbitdock.db")
-    };
+    let db_path = paths::db_path();
     {
         let mut conn = rusqlite::Connection::open(&db_path).expect("open db for migrations");
         if let Err(e) = migration_runner::run_migrations(&mut conn) {
@@ -395,10 +509,20 @@ async fn async_main() -> anyhow::Result<()> {
     let shutdown_persist = persist_tx.clone();
 
     // Build router
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/ws", get(ws_handler))
         .route("/api/hook", post(hook_handler::hook_handler))
-        .route("/health", get(health_handler))
+        .route("/health", get(health_handler));
+
+    // Apply auth middleware if token configured
+    if let Some(ref token) = auth_token {
+        app = app.layer(axum::middleware::from_fn_with_state(
+            token.clone(),
+            auth::auth_middleware,
+        ));
+    }
+
+    let app = app
         .layer(TraceLayer::new_for_http())
         .layer(
             CorsLayer::new()
@@ -408,21 +532,44 @@ async fn async_main() -> anyhow::Result<()> {
         )
         .with_state(state);
 
-    // Start server
-    let addr = SocketAddr::from(([127, 0, 0, 1], 4000));
+    // Bind listener
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+
     info!(
         component = "server",
         event = "server.listening",
-        bind_address = %addr,
+        bind_address = %bind_addr,
         "Listening for connections"
     );
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // Write PID file after successful bind
+    write_pid_file();
+
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
         .await?;
 
     Ok(())
+}
+
+/// Write PID file to data_dir/orbitdock.pid
+fn write_pid_file() {
+    let pid_path = paths::pid_file_path();
+    if let Err(e) = std::fs::write(&pid_path, std::process::id().to_string()) {
+        warn!(
+            component = "server",
+            event = "server.pid_file.write_error",
+            path = %pid_path.display(),
+            error = %e,
+            "Failed to write PID file"
+        );
+    }
+}
+
+/// Remove PID file on clean shutdown
+fn remove_pid_file() {
+    let pid_path = paths::pid_file_path();
+    let _ = std::fs::remove_file(&pid_path);
 }
 
 /// Wait for shutdown signal and mark active direct sessions for resumption.
@@ -460,10 +607,17 @@ async fn shutdown_signal(state: Arc<SessionRegistry>, persist_tx: mpsc::Sender<P
 
     // Give persistence writer a moment to flush
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Clean up PID file
+    remove_pid_file();
 }
 
 async fn health_handler() -> impl IntoResponse {
-    "OK"
+    serde_json::json!({
+        "status": "ok",
+        "version": VERSION,
+    })
+    .to_string()
 }
 
 fn current_binary_path() -> String {
@@ -489,15 +643,11 @@ fn binary_metadata(path: &str) -> (u64, i64) {
 
 /// Drain spooled hook events written by `hook.sh` while the server was offline.
 ///
-/// Reads all `.json` files from `~/.orbitdock/spool/`, processes them in
+/// Reads all `.json` files from the spool directory, processes them in
 /// timestamp order (filenames are `<epoch>-<pid>.json`), and deletes each
 /// file after successful processing. Parse failures are warned and skipped.
 async fn drain_spool(state: &Arc<SessionRegistry>) {
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => return,
-    };
-    let spool_dir = PathBuf::from(&home).join(".orbitdock/spool");
+    let spool_dir = paths::spool_dir();
     let entries = match std::fs::read_dir(&spool_dir) {
         Ok(e) => e,
         Err(_) => return, // No spool dir — nothing to drain

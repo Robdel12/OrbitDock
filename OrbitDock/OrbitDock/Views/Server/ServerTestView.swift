@@ -23,125 +23,140 @@ struct ServerTestView: View {
   }
 
   var body: some View {
-    HSplitView {
-      // Left: Session list
-      VStack(alignment: .leading, spacing: 0) {
-        header("Sessions")
-
-        if sessions.isEmpty {
-          ContentUnavailableView {
-            Label("No Sessions", systemImage: "folder.badge.questionmark")
-          } description: {
-            Text("Create a session or subscribe to the list")
-          }
-        } else {
-          List(sessions) { session in
-            sessionRow(session)
-          }
+    Group {
+      #if os(macOS)
+        HSplitView {
+          sessionsPane
+          connectionPane
         }
-
-        Divider()
-
-        // Create session
-        HStack {
-          TextField("Project path", text: $newSessionPath)
-            .textFieldStyle(.roundedBorder)
-
-          Button("Create") {
-            connection.createSession(provider: .codex, cwd: newSessionPath)
-            log("Creating session in \(newSessionPath)")
-          }
-          .disabled(connection.status != .connected)
+        .frame(minWidth: 700, minHeight: 400)
+      #else
+        VStack(spacing: 0) {
+          sessionsPane
+          Divider()
+          connectionPane
         }
-        .padding()
-      }
-      .frame(minWidth: 250)
-
-      // Right: Connection status and log
-      VStack(alignment: .leading, spacing: 0) {
-        header("Connection")
-
-        // Status
-        HStack {
-          Circle()
-            .fill(statusColor)
-            .frame(width: 10, height: 10)
-
-          Text(statusText)
-            .font(.headline)
-
-          Spacer()
-
-          if connection.status == .disconnected {
-            Button("Connect") {
-              connection.connect()
-              setupCallbacks()
-              log("Connecting...")
-            }
-            .buttonStyle(.borderedProminent)
-          } else {
-            Button("Disconnect") {
-              connection.disconnect()
-              log("Disconnected")
-            }
-            .buttonStyle(.bordered)
-          }
-        }
-        .padding()
-
-        Divider()
-
-        // Actions
-        HStack {
-          Button("Subscribe List") {
-            connection.subscribeList()
-            log("Subscribed to session list")
-          }
-
-          if let session = selectedSession {
-            Button("Subscribe Session") {
-              connection.subscribeSession(session.id)
-              log("Subscribed to session \(session.id)")
-            }
-          }
-        }
-        .padding(.horizontal)
-        .disabled(connection.status != .connected)
-
-        Divider()
-
-        header("Log")
-
-        // Log
-        ScrollViewReader { proxy in
-          List(logMessages) { msg in
-            HStack(alignment: .top) {
-              Text(msg.timestamp, style: .time)
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-
-              Text(msg.text)
-                .font(.caption.monospaced())
-                .foregroundStyle(msg.isError ? .red : .primary)
-            }
-            .id(msg.id)
-          }
-          .onChange(of: logMessages.count) { _, _ in
-            if let last = logMessages.last {
-              proxy.scrollTo(last.id, anchor: .bottom)
-            }
-          }
-        }
-      }
-      .frame(minWidth: 400)
+      #endif
     }
-    .frame(minWidth: 700, minHeight: 400)
     .onAppear {
       setupCallbacks()
     }
   }
 
   // MARK: - Subviews
+
+  private var sessionsPane: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      header("Sessions")
+
+      if sessions.isEmpty {
+        ContentUnavailableView {
+          Label("No Sessions", systemImage: "folder.badge.questionmark")
+        } description: {
+          Text("Create a session or subscribe to the list")
+        }
+      } else {
+        List(sessions) { session in
+          sessionRow(session)
+        }
+      }
+
+      Divider()
+
+      // Create session
+      HStack {
+        TextField("Project path", text: $newSessionPath)
+          .textFieldStyle(.roundedBorder)
+
+        Button("Create") {
+          connection.createSession(provider: .codex, cwd: newSessionPath)
+          log("Creating session in \(newSessionPath)")
+        }
+        .disabled(connection.status != .connected)
+      }
+      .padding()
+    }
+    .frame(minWidth: 250)
+  }
+
+  private var connectionPane: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      header("Connection")
+
+      // Status
+      HStack {
+        Circle()
+          .fill(statusColor)
+          .frame(width: 10, height: 10)
+
+        Text(statusText)
+          .font(.headline)
+
+        Spacer()
+
+        if connection.status == .disconnected {
+          Button("Connect") {
+            connection.connect()
+            setupCallbacks()
+            log("Connecting...")
+          }
+          .buttonStyle(.borderedProminent)
+        } else {
+          Button("Disconnect") {
+            connection.disconnect()
+            log("Disconnected")
+          }
+          .buttonStyle(.bordered)
+        }
+      }
+      .padding()
+
+      Divider()
+
+      // Actions
+      HStack {
+        Button("Subscribe List") {
+          connection.subscribeList()
+          log("Subscribed to session list")
+        }
+
+        if let session = selectedSession {
+          Button("Subscribe Session") {
+            connection.subscribeSession(session.id)
+            log("Subscribed to session \(session.id)")
+          }
+        }
+      }
+      .padding(.horizontal)
+      .disabled(connection.status != .connected)
+
+      Divider()
+
+      header("Log")
+
+      // Log
+      ScrollViewReader { proxy in
+        List(logMessages) { msg in
+          HStack(alignment: .top) {
+            Text(msg.timestamp, style: .time)
+              .font(.caption.monospaced())
+              .foregroundStyle(.secondary)
+
+            Text(msg.text)
+              .font(.caption.monospaced())
+              .foregroundStyle(msg.isError ? .red : .primary)
+          }
+          .id(msg.id)
+        }
+        .onChange(of: logMessages.count) { _, _ in
+          if let last = logMessages.last {
+            proxy.scrollTo(last.id, anchor: .bottom)
+          }
+        }
+      }
+    }
+    .frame(minWidth: 400)
+  }
 
   private func header(_ title: String) -> some View {
     Text(title)

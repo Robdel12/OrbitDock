@@ -214,6 +214,15 @@ pub enum ServerMessage {
         duration_ms: u64,
     },
 
+    // Remote filesystem browsing
+    DirectoryListing {
+        path: String,
+        entries: Vec<DirectoryEntry>,
+    },
+    RecentProjectsList {
+        projects: Vec<RecentProject>,
+    },
+
     // Errors
     Error {
         code: String,

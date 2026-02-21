@@ -8,7 +8,6 @@
 //  this class is a registry + global state holder.
 //
 
-import AppKit
 import Foundation
 import os.log
 
@@ -61,9 +60,6 @@ final class ServerAppState {
   private var sandboxModes: [String: String] = [:]
   private var permissionModes: [String: String] = [:]
 
-  /// Full session state cache (from snapshots)
-  private var sessionStates: [String: ServerSessionState] = [:]
-
   /// Track which sessions we're subscribed to
   private var subscribedSessions: Set<String> = []
 
@@ -79,6 +75,12 @@ final class ServerAppState {
   }
 
   init() {
+    if AppRuntimeMode.current == .mock {
+      sessions = Self.mockSessions()
+      hasReceivedInitialSessionsList = true
+      return
+    }
+
     if let cached = loadSessionsCache() {
       sessions = cached.summaries.map { $0.toSession() }
       logger.info("Loaded cached sessions list: \(cached.summaries.count) sessions")
@@ -705,7 +707,18 @@ final class ServerAppState {
   func unsubscribeFromSession(_ sessionId: String) {
     subscribedSessions.remove(sessionId)
     ServerConnection.shared.unsubscribeSession(sessionId)
+    trimInactiveSessionPayload(sessionId, reason: "unsubscribe")
     logger.debug("Unsubscribed from session \(sessionId)")
+  }
+
+  /// Called by app lifecycle when iOS signals memory pressure.
+  func handleMemoryPressure() {
+    #if os(iOS)
+      let inactiveSessionIds = _sessionObservables.keys.filter { !subscribedSessions.contains($0) }
+      for sessionId in inactiveSessionIds {
+        trimInactiveSessionPayload(sessionId, reason: "memory-pressure")
+      }
+    #endif
   }
 
   /// Check if a session ID belongs to a server-managed session
@@ -822,7 +835,6 @@ final class ServerAppState {
 
   private func handleSessionSnapshot(_ state: ServerSessionState) {
     logger.info("Received snapshot for \(state.id): \(state.messages.count) messages")
-    sessionStates[state.id] = state
 
     // Track revision for incremental reconnection
     if let rev = state.revision {
@@ -886,6 +898,17 @@ final class ServerAppState {
 
     // Subagents
     obs.subagents = state.subagents
+
+    // Navigate to newly created session on snapshot (arrives before SessionCreated,
+    // so the view gets the full state including integration mode immediately).
+    if pendingNavigationOnCreate {
+      pendingNavigationOnCreate = false
+      NotificationCenter.default.post(
+        name: .selectSession,
+        object: nil,
+        userInfo: ["sessionId": state.id]
+      )
+    }
   }
 
   private func handleSessionDelta(_ sessionId: String, _ changes: ServerStateChanges) {
@@ -1130,7 +1153,9 @@ final class ServerAppState {
 
   private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {
     let mergedThinking: String? = {
-      if let incomingThinking = incoming.thinking, !incomingThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      if let incomingThinking = incoming.thinking,
+         !incomingThinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
         return incomingThinking
       }
       return existing.thinking
@@ -1361,7 +1386,8 @@ final class ServerAppState {
 
     subscribeToSession(summary.id)
 
-    // Navigate to the newly created session
+    // Navigation now handled in handleSessionSnapshot (arrives earlier with full state).
+    // Fall back here only if snapshot was missed (e.g. reconnect race).
     if pendingNavigationOnCreate {
       pendingNavigationOnCreate = false
       NotificationCenter.default.post(
@@ -1390,7 +1416,6 @@ final class ServerAppState {
     approvalPolicies.removeValue(forKey: sessionId)
     sandboxModes.removeValue(forKey: sessionId)
     permissionModes.removeValue(forKey: sessionId)
-    sessionStates.removeValue(forKey: sessionId)
     // Keep SessionObservable alive — user may still be viewing the conversation
   }
 
@@ -1536,7 +1561,7 @@ final class ServerAppState {
       codexAuthError = "Sign-in URL was invalid."
       return
     }
-    let opened = NSWorkspace.shared.open(url)
+    let opened = Platform.services.openURL(url)
     if !opened {
       codexAuthError = "Couldn’t open browser for ChatGPT sign-in."
     }
@@ -1562,6 +1587,67 @@ final class ServerAppState {
     } else {
       sandboxModes.removeValue(forKey: sessionId)
     }
+  }
+
+  private func trimInactiveSessionPayload(_ sessionId: String, reason: String) {
+    guard !subscribedSessions.contains(sessionId) else { return }
+    guard let obs = _sessionObservables[sessionId] else { return }
+
+    let messageCount = obs.messages.count
+    let turnDiffCount = obs.turnDiffs.count
+    guard messageCount > 0 || turnDiffCount > 0 || obs.diff != nil || obs.plan != nil else { return }
+
+    obs.clearConversationPayloadsForCaching()
+    lastRevision.removeValue(forKey: sessionId)
+
+    logger.info(
+      "Trimmed inactive session payload \(sessionId, privacy: .public) reason=\(reason, privacy: .public) messages=\(messageCount, privacy: .public) turnDiffs=\(turnDiffCount, privacy: .public)"
+    )
+  }
+
+  private static func mockSessions() -> [Session] {
+    let now = Date()
+
+    let claude = Session(
+      id: "mock-claude-1",
+      projectPath: "/Users/demo/Developer/OrbitDock",
+      projectName: "OrbitDock",
+      branch: "main",
+      model: "claude-sonnet-4",
+      summary: "Refactor platform abstraction layer",
+      status: .active,
+      workStatus: .working,
+      startedAt: now.addingTimeInterval(-4_200),
+      lastActivityAt: now.addingTimeInterval(-20),
+      lastTool: "Read",
+      promptCount: 12,
+      toolCount: 26,
+      attentionReason: .none,
+      provider: .claude,
+      claudeIntegrationMode: .direct
+    )
+
+    let codex = Session(
+      id: "mock-codex-1",
+      projectPath: "/Users/demo/Developer/vizzly",
+      projectName: "vizzly",
+      branch: "feat/universal-shell",
+      model: "gpt-5-codex",
+      summary: "Needs approval for apply_patch",
+      status: .active,
+      workStatus: .permission,
+      startedAt: now.addingTimeInterval(-1_800),
+      lastActivityAt: now.addingTimeInterval(-90),
+      lastTool: "apply_patch",
+      promptCount: 5,
+      toolCount: 11,
+      attentionReason: .awaitingPermission,
+      pendingToolName: "apply_patch",
+      provider: .codex,
+      codexIntegrationMode: .direct
+    )
+
+    return [claude, codex]
   }
 }
 

@@ -18,10 +18,6 @@ struct WorkStreamLiveIndicator: View {
 
   var body: some View {
     HStack(spacing: 0) {
-      // Timestamp column placeholder (52px)
-      Color.clear
-        .frame(width: 52)
-
       // Status indicator column (20px)
       statusIndicator
         .frame(width: 20, alignment: .center)
@@ -32,16 +28,17 @@ struct WorkStreamLiveIndicator: View {
 
       Spacer(minLength: Spacing.xs)
     }
-    .padding(.horizontal, Spacing.sm)
+    .padding(.horizontal, ConversationLayout.metadataHorizontalInset)
     .frame(height: 26)
-    .clipped()
   }
 
   @ViewBuilder
   private var statusIndicator: some View {
     switch workStatus {
       case .working:
-        PulsingDot(color: Color.statusWorking)
+        Circle()
+          .fill(Color.statusWorking)
+          .frame(width: 6, height: 6)
 
       case .waiting:
         Circle()
@@ -68,10 +65,10 @@ struct WorkStreamLiveIndicator: View {
             .foregroundStyle(Color.statusWorking)
           if let tool = currentTool {
             Text("\u{00B7}")
-              .foregroundStyle(.quaternary)
+              .foregroundStyle(Color.textQuaternary)
             Text(tool)
               .font(.system(size: TypeScale.body, design: .monospaced))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
         }
 
@@ -81,10 +78,10 @@ struct WorkStreamLiveIndicator: View {
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.statusReply)
           Text("\u{00B7}")
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
           Text(provider == .codex ? "Send a message below" : "Respond in terminal")
             .font(.system(size: TypeScale.body))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
 
       case .permission:
@@ -94,7 +91,7 @@ struct WorkStreamLiveIndicator: View {
             .foregroundStyle(Color.statusPermission)
           if let toolName = pendingToolName {
             Text("\u{00B7}")
-              .foregroundStyle(.quaternary)
+              .foregroundStyle(Color.textQuaternary)
             Text(toolName)
               .font(.system(size: TypeScale.body, weight: .bold))
               .foregroundStyle(.primary)
@@ -109,26 +106,6 @@ struct WorkStreamLiveIndicator: View {
 
       case .unknown:
         EmptyView()
-    }
-  }
-
-  // MARK: - Pulsing Dot (isolated from parent layout)
-
-  /// Self-contained pulsing dot that won't propagate animation
-  /// invalidation through the ScrollView/LazyVStack hierarchy.
-  private struct PulsingDot: View {
-    let color: Color
-
-    @State private var dimmed = false
-
-    var body: some View {
-      Circle()
-        .fill(color)
-        .frame(width: 6, height: 6)
-        .opacity(dimmed ? 0.4 : 1.0)
-        .onAppear { dimmed = true }
-        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: dimmed)
-        .drawingGroup()
     }
   }
 

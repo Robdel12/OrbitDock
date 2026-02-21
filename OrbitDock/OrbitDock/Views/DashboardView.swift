@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct DashboardView: View {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
   let sessions: [Session]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
@@ -15,6 +17,7 @@ struct DashboardView: View {
   let onOpenQuickSwitcher: () -> Void
   let onOpenPanel: () -> Void
 
+  @StateObject private var connection = ServerConnection.shared
   @State private var selectedIndex = 0
   @State private var showNewCodexSheet = false
   @State private var showNewClaudeSheet = false
@@ -36,6 +39,10 @@ struct DashboardView: View {
     isInitialLoading && sessions.isEmpty
   }
 
+  private var layoutMode: DashboardLayoutMode {
+    DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       CommandStrip(
@@ -50,6 +57,10 @@ struct DashboardView: View {
 
       Divider()
         .foregroundStyle(Color.panelBorder)
+
+      if !layoutMode.isPhoneCompact {
+        connectionBanner
+      }
 
       sessionsContent
     }
@@ -70,14 +81,16 @@ struct DashboardView: View {
             loadingSkeletonContent
           } else {
             // Zone 1: Ambient stats — recessed metadata strip
-            CommandBar(sessions: sessions)
+            if !layoutMode.isPhoneCompact {
+              CommandBar(sessions: sessions)
+            }
 
             // Zone 2: Attention interrupts — the real priority
             AttentionBanner(
               sessions: sessions,
               onSelectSession: onSelectSession
             )
-            .padding(.top, 14)
+            .padding(.top, layoutMode.attentionTopPadding)
 
             // Zone 3: Active agents — primary content
             ProjectStreamSection(
@@ -88,17 +101,17 @@ struct DashboardView: View {
               sort: $activeSort,
               providerFilter: $activeProviderFilter
             )
-            .padding(.top, 20)
+            .padding(.top, layoutMode.activeTopPadding)
 
             // Zone 4: History
             SessionHistorySection(
               sessions: sessions,
               onSelectSession: onSelectSession
             )
-            .padding(.top, 24)
+            .padding(.top, layoutMode.historyTopPadding)
           }
         }
-        .padding(24)
+        .padding(layoutMode.contentPadding)
       }
       .scrollContentBackground(.hidden)
       .onChange(of: selectedIndex) { _, newIndex in
@@ -237,6 +250,82 @@ struct DashboardView: View {
     RoundedRectangle(cornerRadius: 4, style: .continuous)
       .fill(Color.surfaceHover.opacity(0.9))
       .frame(width: width, height: height)
+  }
+
+  // MARK: - Connection Banner
+
+  @ViewBuilder
+  private var connectionBanner: some View {
+    switch connection.status {
+      case .connected:
+        EmptyView()
+      case .connecting:
+        connectionBannerRow(
+          icon: "antenna.radiowaves.left.and.right",
+          color: Color.statusQuestion,
+          message: "Connecting to server...",
+          showSpinner: true
+        )
+      case .disconnected:
+        connectionBannerRow(
+          icon: "bolt.slash.fill",
+          color: Color.textTertiary,
+          message: "Disconnected",
+          action: ("Connect", { ServerConnection.shared.connect() })
+        )
+      case let .failed(reason):
+        connectionBannerRow(
+          icon: "exclamationmark.triangle.fill",
+          color: Color.statusPermission,
+          message: reason,
+          action: ("Retry", { ServerConnection.shared.connect() })
+        )
+    }
+  }
+
+  private func connectionBannerRow(
+    icon: String,
+    color: Color,
+    message: String,
+    showSpinner: Bool = false,
+    action: (String, () -> Void)? = nil
+  ) -> some View {
+    HStack(spacing: 8) {
+      if showSpinner {
+        ProgressView()
+          .controlSize(.mini)
+          .tint(color)
+      } else {
+        Image(systemName: icon)
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(color)
+      }
+
+      Text(message)
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(color)
+        .lineLimit(1)
+
+      Spacer()
+
+      if let (label, handler) = action {
+        Button(action: handler) {
+          Text(label)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.accent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(
+              Color.accent.opacity(OpacityTier.light),
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
+    .background(color.opacity(0.08))
   }
 
   // MARK: - Navigation

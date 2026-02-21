@@ -54,43 +54,49 @@ class ProjectFileIndex {
   }
 
   private func runGitLsFiles(in directory: String) async -> [ProjectFile] {
-    await withCheckedContinuation { continuation in
-      DispatchQueue.global(qos: .userInitiated).async {
-        let task = Process()
-        task.currentDirectoryURL = URL(fileURLWithPath: directory)
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        task.arguments = ["ls-files", "--cached", "--others", "--exclude-standard"]
-        task.environment = ProcessInfo.processInfo.environment
+    #if !os(macOS)
+      // TODO(server-extract): Project indexing should be provided by the server.
+      _ = directory
+      return []
+    #else
+      await withCheckedContinuation { continuation in
+        DispatchQueue.global(qos: .userInitiated).async {
+          let task = Process()
+          task.currentDirectoryURL = URL(fileURLWithPath: directory)
+          task.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+          task.arguments = ["ls-files", "--cached", "--others", "--exclude-standard"]
+          task.environment = ProcessInfo.processInfo.environment
 
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = FileHandle.nullDevice
+          let pipe = Pipe()
+          task.standardOutput = pipe
+          task.standardError = FileHandle.nullDevice
 
-        do {
-          try task.run()
-          task.waitUntilExit()
+          do {
+            try task.run()
+            task.waitUntilExit()
 
-          let data = pipe.fileHandleForReading.readDataToEndOfFile()
-          guard task.terminationStatus == 0,
-                let output = String(data: data, encoding: .utf8)
-          else {
-            continuation.resume(returning: [])
-            return
-          }
-
-          let files = output
-            .components(separatedBy: .newlines)
-            .filter { !$0.isEmpty }
-            .map { path in
-              let name = URL(fileURLWithPath: path).lastPathComponent
-              return ProjectFile(id: path, name: name, relativePath: path)
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard task.terminationStatus == 0,
+                  let output = String(data: data, encoding: .utf8)
+            else {
+              continuation.resume(returning: [])
+              return
             }
 
-          continuation.resume(returning: files)
-        } catch {
-          continuation.resume(returning: [])
+            let files = output
+              .components(separatedBy: .newlines)
+              .filter { !$0.isEmpty }
+              .map { path in
+                let name = URL(fileURLWithPath: path).lastPathComponent
+                return ProjectFile(id: path, name: name, relativePath: path)
+              }
+
+            continuation.resume(returning: files)
+          } catch {
+            continuation.resume(returning: [])
+          }
         }
       }
-    }
+    #endif
   }
 }

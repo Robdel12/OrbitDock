@@ -310,8 +310,7 @@ pub struct PersistenceWriter {
 impl PersistenceWriter {
     /// Create a new persistence writer
     pub fn new(rx: mpsc::Receiver<PersistCommand>) -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+        let db_path = crate::paths::db_path();
 
         Self {
             rx,
@@ -554,9 +553,22 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 |row| row.get(0),
             )?;
 
+            // Extract data-URI images to disk before persisting
+            let images = crate::images::extract_images_to_disk(
+                &message.images,
+                &session_id,
+                &message.id,
+            );
+
+            let images_json: Option<String> = if images.is_empty() {
+                None
+            } else {
+                serde_json::to_string(&images).ok()
+            };
+
             conn.execute(
-                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_in_progress)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_in_progress, images_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
                     message.id,
                     session_id,
@@ -569,6 +581,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     message.tool_output,
                     message.duration_ms.map(|d| d as f64 / 1000.0),
                     if message.is_error { 1 } else { 0 },
+                    images_json,
                 ],
             )?;
 
@@ -1446,8 +1459,7 @@ fn is_direct_thread_owned(conn: &Connection, thread_id: &str) -> Result<bool, ru
 /// Check if a codex thread_id is already owned by a direct session row.
 pub async fn is_direct_thread_owned_async(thread_id: &str) -> Result<bool, anyhow::Error> {
     let thread_id = thread_id.to_string();
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
 
     tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
         if !db_path.exists() {
@@ -1584,7 +1596,7 @@ fn load_messages_from_db(
     session_id: &str,
 ) -> Result<Vec<Message>, anyhow::Error> {
     let mut msg_stmt = conn.prepare(
-        "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress
+        "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress, images_json
          FROM messages
          WHERE session_id = ?
          ORDER BY sequence",
@@ -1606,6 +1618,10 @@ fn load_messages_from_db(
 
             let duration_secs: Option<f64> = row.get(7)?;
             let is_error_int: i32 = row.get(8)?;
+            let images_json: Option<String> = row.get(9)?;
+            let images: Vec<orbitdock_protocol::ImageInput> = images_json
+                .and_then(|j| serde_json::from_str(&j).ok())
+                .unwrap_or_default();
 
             Ok(Message {
                 id: row.get(0)?,
@@ -1618,6 +1634,7 @@ fn load_messages_from_db(
                 tool_output: row.get(6)?,
                 duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
                 is_error: is_error_int != 0,
+                images,
             })
         })?
         .filter_map(|r| r.ok())
@@ -1636,6 +1653,7 @@ struct ParsedItem {
     tool_output: Option<String>,
     /// Links tool_use → tool_result for pairing
     tool_use_id: Option<String>,
+    images: Vec<orbitdock_protocol::ImageInput>,
 }
 
 fn role_to_message_type(role: &str) -> MessageType {
@@ -1647,7 +1665,7 @@ fn role_to_message_type(role: &str) -> MessageType {
 }
 
 /// Extract individual content items from a content array.
-/// Handles text, tool_use, tool_result, and thinking blocks.
+/// Handles text, tool_use, tool_result, thinking, and image blocks.
 fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
     // Plain string content (Claude CLI user messages)
     if let Some(s) = content.as_str() {
@@ -1660,6 +1678,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                 tool_input: None,
                 tool_output: None,
                 tool_use_id: None,
+                images: vec![],
             }];
         }
         return vec![];
@@ -1671,6 +1690,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
 
     let mut items = Vec::new();
     let mut text_parts: Vec<String> = Vec::new();
+    let mut images: Vec<orbitdock_protocol::ImageInput> = Vec::new();
 
     for item in array {
         let kind = item.get("type").and_then(Value::as_str).unwrap_or_default();
@@ -1681,6 +1701,45 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                     if !trimmed.is_empty() {
                         text_parts.push(trimmed.to_string());
                     }
+                }
+            }
+            // Claude CLI: {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}}
+            "image" => {
+                if let Some(source) = item.get("source") {
+                    let source_type = source
+                        .get("type")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default();
+                    if source_type == "base64" {
+                        let media_type = source
+                            .get("media_type")
+                            .and_then(Value::as_str)
+                            .unwrap_or("image/png");
+                        if let Some(data) = source.get("data").and_then(Value::as_str) {
+                            let data_uri =
+                                format!("data:{media_type};base64,{data}");
+                            images.push(orbitdock_protocol::ImageInput {
+                                input_type: "url".to_string(),
+                                value: data_uri,
+                            });
+                        }
+                    } else if source_type == "url" {
+                        if let Some(url) = source.get("url").and_then(Value::as_str) {
+                            images.push(orbitdock_protocol::ImageInput {
+                                input_type: "url".to_string(),
+                                value: url.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            // Codex rollout: {"type": "input_image", "image_url": "data:..."}
+            "input_image" => {
+                if let Some(url) = item.get("image_url").and_then(Value::as_str) {
+                    images.push(orbitdock_protocol::ImageInput {
+                        input_type: "url".to_string(),
+                        value: url.to_string(),
+                    });
                 }
             }
             "thinking" => {
@@ -1694,6 +1753,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                             tool_input: None,
                             tool_output: None,
                             tool_use_id: None,
+                            images: vec![],
                         });
                     }
                 }
@@ -1712,6 +1772,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                     tool_input: input,
                     tool_output: None,
                     tool_use_id: id,
+                    images: vec![],
                 });
             }
             "tool_result" => {
@@ -1731,14 +1792,15 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                     tool_input: None,
                     tool_output: Some(output),
                     tool_use_id: id,
+                    images: vec![],
                 });
             }
             _ => {}
         }
     }
 
-    // Flush accumulated text as a single message
-    if !text_parts.is_empty() {
+    // Flush accumulated text (+ any images) as a single user/assistant message
+    if !text_parts.is_empty() || !images.is_empty() {
         items.insert(
             0,
             ParsedItem {
@@ -1748,6 +1810,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                 tool_input: None,
                 tool_output: None,
                 tool_use_id: None,
+                images,
             },
         );
     }
@@ -1868,8 +1931,14 @@ fn load_messages_from_transcript(
                 }
             }
 
+            let msg_id = format!("{session_id}:transcript:{msg_counter}");
+            let images = crate::images::extract_images_to_disk(
+                &item.images,
+                session_id,
+                &msg_id,
+            );
             messages.push(Message {
-                id: format!("{session_id}:transcript:{msg_counter}"),
+                id: msg_id,
                 session_id: session_id.to_string(),
                 message_type: item.message_type,
                 content: item.content,
@@ -1879,6 +1948,7 @@ fn load_messages_from_transcript(
                 tool_output: item.tool_output,
                 duration_ms: None,
                 is_error: false,
+                images,
             });
             msg_counter += 1;
         }
@@ -2062,8 +2132,7 @@ pub async fn load_token_usage_from_transcript_path(
 /// Load recent sessions from the database for server restart recovery.
 /// Includes ended sessions so UI history remains visible after app restart.
 pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow::Error> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
 
     let sessions = tokio::task::spawn_blocking(move || -> Result<Vec<RestoredSession>, anyhow::Error> {
         if !db_path.exists() {
@@ -2349,8 +2418,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
 /// Load a specific session by ID (for resume — includes ended sessions)
 pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, anyhow::Error> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
     let id_owned = id.to_string();
 
     let result = tokio::task::spawn_blocking(move || -> Result<Option<RestoredSession>, anyhow::Error> {
@@ -2524,8 +2592,7 @@ pub async fn list_approvals(
     session_id: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
     let limit = limit.unwrap_or(200).min(1000) as i64;
 
     let items = tokio::task::spawn_blocking(move || -> Result<Vec<ApprovalHistoryItem>, anyhow::Error> {
@@ -2635,8 +2702,7 @@ pub async fn list_approvals(
 
 /// Delete one approval history item
 pub async fn delete_approval(approval_id: i64) -> Result<bool, anyhow::Error> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
 
     let deleted = tokio::task::spawn_blocking(move || -> Result<bool, anyhow::Error> {
         if !db_path.exists() {
@@ -2673,8 +2739,7 @@ pub async fn list_review_comments(
 ) -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
     let session_id = session_id.to_string();
     let turn_id = turn_id.map(|s| s.to_string());
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
 
     let comments = tokio::task::spawn_blocking(move || -> Result<Vec<orbitdock_protocol::ReviewComment>, anyhow::Error> {
         if !db_path.exists() {
@@ -2760,8 +2825,7 @@ pub async fn load_subagents_for_session(
     session_id: &str,
 ) -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
     let session_id = session_id.to_string();
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
 
     let subagents = tokio::task::spawn_blocking(move || -> Result<Vec<orbitdock_protocol::SubagentInfo>, anyhow::Error> {
         if !db_path.exists() {
@@ -2810,8 +2874,7 @@ pub async fn load_subagent_transcript_path(
     subagent_id: &str,
 ) -> Result<Option<String>, anyhow::Error> {
     let subagent_id = subagent_id.to_string();
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let db_path = PathBuf::from(home).join(".orbitdock/orbitdock.db");
+    let db_path = crate::paths::db_path();
 
     let path = tokio::task::spawn_blocking(move || -> Result<Option<String>, anyhow::Error> {
         if !db_path.exists() {
@@ -2864,15 +2927,11 @@ mod tests {
 
     static TEST_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-    struct HomeGuard {
-        previous: Option<String>,
-    }
+    struct DataDirGuard;
 
-    impl Drop for HomeGuard {
+    impl Drop for DataDirGuard {
         fn drop(&mut self) {
-            if let Some(prev) = &self.previous {
-                std::env::set_var("HOME", prev);
-            }
+            crate::paths::reset_data_dir();
         }
     }
 
@@ -2880,10 +2939,9 @@ mod tests {
         TEST_ENV_LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn set_test_home(path: &Path) -> HomeGuard {
-        let previous = std::env::var("HOME").ok();
-        std::env::set_var("HOME", path.to_string_lossy().to_string());
-        HomeGuard { previous }
+    fn set_test_data_dir(home: &Path) -> DataDirGuard {
+        crate::paths::init_data_dir(Some(&home.join(".orbitdock")));
+        DataDirGuard
     }
 
     fn iso_minutes_ago(minutes: u64) -> String {
@@ -2952,7 +3010,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3045,7 +3103,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3122,7 +3180,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3212,7 +3270,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3289,7 +3347,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3354,7 +3412,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3436,7 +3494,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3508,7 +3566,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 
@@ -3569,7 +3627,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let home = create_test_home();
-        let _home_guard = set_test_home(&home);
+        let _dd_guard = set_test_data_dir(&home);
         let db_path = home.join(".orbitdock/orbitdock.db");
         run_all_migrations(&db_path);
 

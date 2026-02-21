@@ -128,37 +128,44 @@ final class ShellPathCache {
   }
 
   private static func runShellCommand(shell: String, args: [String]) -> String? {
-    let proc = Process()
-    proc.executableURL = URL(fileURLWithPath: shell)
-    proc.arguments = args
-
-    var env = ProcessInfo.processInfo.environment
-    env["TERM"] = "dumb"
-    proc.environment = env
-
-    let out = Pipe()
-    proc.standardOutput = out
-    proc.standardError = Pipe()
-
-    let group = DispatchGroup()
-    group.enter()
-    proc.terminationHandler = { _ in group.leave() }
-
-    do {
-      try proc.run()
-    } catch {
+    #if !os(macOS)
+      // TODO(server-extract): Shell/PATH resolution should be server-owned.
+      _ = shell
+      _ = args
       return nil
-    }
+    #else
+      let proc = Process()
+      proc.executableURL = URL(fileURLWithPath: shell)
+      proc.arguments = args
 
-    let timeout: DispatchTime = .now() + 2.0
-    if group.wait(timeout: timeout) == .timedOut {
-      proc.terminate()
-      _ = group.wait(timeout: .now() + 0.5)
-      return nil
-    }
+      var env = ProcessInfo.processInfo.environment
+      env["TERM"] = "dumb"
+      proc.environment = env
 
-    let data = out.fileHandleForReading.readDataToEndOfFile()
-    guard let text = String(data: data, encoding: .utf8) else { return nil }
-    return text
+      let out = Pipe()
+      proc.standardOutput = out
+      proc.standardError = Pipe()
+
+      let group = DispatchGroup()
+      group.enter()
+      proc.terminationHandler = { _ in group.leave() }
+
+      do {
+        try proc.run()
+      } catch {
+        return nil
+      }
+
+      let timeout: DispatchTime = .now() + 2.0
+      if group.wait(timeout: timeout) == .timedOut {
+        proc.terminate()
+        _ = group.wait(timeout: .now() + 0.5)
+        return nil
+      }
+
+      let data = out.fileHandleForReading.readDataToEndOfFile()
+      guard let text = String(data: data, encoding: .utf8) else { return nil }
+      return text
+    #endif
   }
 }

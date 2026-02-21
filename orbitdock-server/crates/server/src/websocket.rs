@@ -344,6 +344,9 @@ fn compact_snapshot_for_transport(mut snapshot: SessionState) -> SessionState {
                 message.tool_output = Some(truncate_text(tool_output, SNAPSHOT_MAX_CONTENT_CHARS));
             }
         }
+
+        // Safety net: strip any data URIs that failed disk extraction
+        message.images.retain(|img| img.value.len() <= 500);
     }
 
     snapshot
@@ -1183,8 +1186,15 @@ async fn handle_client_message(
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis();
+                let msg_id = format!("user-ws-{}-{}", ts_millis, conn_id);
+                // Extract data-URI images to disk before persisting/broadcasting
+                let extracted_images = crate::images::extract_images_to_disk(
+                    &images,
+                    &session_id,
+                    &msg_id,
+                );
                 let user_msg = orbitdock_protocol::Message {
-                    id: format!("user-ws-{}-{}", ts_millis, conn_id),
+                    id: msg_id,
                     session_id: session_id.clone(),
                     message_type: orbitdock_protocol::MessageType::User,
                     content: content.clone(),
@@ -1194,6 +1204,7 @@ async fn handle_client_message(
                     is_error: false,
                     timestamp: iso_timestamp(ts_millis),
                     duration_ms: None,
+                    images: extracted_images,
                 };
 
                 if let Some(actor) = state.get_session(&session_id) {
@@ -1283,6 +1294,7 @@ async fn handle_client_message(
                     is_error: false,
                     timestamp: iso_timestamp(ts_millis),
                     duration_ms: None,
+                    images: vec![],
                 };
 
                 if let Some(actor) = state.get_session(&session_id) {
@@ -2912,6 +2924,7 @@ async fn handle_client_message(
                         .as_millis(),
                 ),
                 duration_ms: None,
+                images: vec![],
             };
 
             let _ = state
@@ -2986,6 +2999,97 @@ async fn handle_client_message(
                         .await;
                 }
             });
+        }
+
+        ClientMessage::BrowseDirectory { path } => {
+            let target = match &path {
+                Some(p) if !p.is_empty() => {
+                    let expanded = if p.starts_with('~') {
+                        if let Some(home) = dirs::home_dir() {
+                            home.join(&p[1..].trim_start_matches('/'))
+                        } else {
+                            std::path::PathBuf::from(p)
+                        }
+                    } else {
+                        std::path::PathBuf::from(p)
+                    };
+                    expanded
+                }
+                _ => dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")),
+            };
+
+            info!(
+                component = "browse",
+                event = "browse_directory.requested",
+                connection_id = conn_id,
+                path = %target.display(),
+                "Directory browse requested"
+            );
+
+            match std::fs::read_dir(&target) {
+                Ok(entries) => {
+                    let mut listing: Vec<orbitdock_protocol::DirectoryEntry> = Vec::new();
+                    for entry in entries.flatten() {
+                        let meta = match entry.metadata() {
+                            Ok(m) => m,
+                            Err(_) => continue,
+                        };
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        // Skip hidden files/dirs
+                        if name.starts_with('.') {
+                            continue;
+                        }
+                        let is_dir = meta.is_dir();
+                        let is_git = if is_dir {
+                            entry.path().join(".git").exists()
+                        } else {
+                            false
+                        };
+                        listing.push(orbitdock_protocol::DirectoryEntry {
+                            name,
+                            is_dir,
+                            is_git,
+                        });
+                    }
+                    listing.sort_by(|a, b| {
+                        // Dirs first, then alphabetical
+                        b.is_dir
+                            .cmp(&a.is_dir)
+                            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                    });
+                    send_json(
+                        client_tx,
+                        ServerMessage::DirectoryListing {
+                            path: target.to_string_lossy().to_string(),
+                            entries: listing,
+                        },
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "browse_error".to_string(),
+                            message: format!("Cannot read directory: {e}"),
+                            session_id: None,
+                        },
+                    )
+                    .await;
+                }
+            }
+        }
+
+        ClientMessage::ListRecentProjects => {
+            info!(
+                component = "browse",
+                event = "list_recent_projects.requested",
+                connection_id = conn_id,
+                "Recent projects list requested"
+            );
+
+            let projects = state.list_recent_projects().await;
+            send_json(client_tx, ServerMessage::RecentProjectsList { projects }).await;
         }
     }
 }

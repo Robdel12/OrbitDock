@@ -4,6 +4,9 @@
 //
 
 import Foundation
+#if canImport(Darwin)
+  import Darwin
+#endif
 
 struct DailyActivity: Codable, Identifiable {
   let date: String
@@ -39,7 +42,7 @@ class UsageManager {
   private var fileMonitor: DispatchSourceFileSystemObject?
 
   private init() {
-    let homeDir = FileManager.default.homeDirectoryForCurrentUser
+    let homeDir = PlatformPaths.homeDirectory
     statsCachePath = homeDir.appendingPathComponent(".claude/stats-cache.json").path
     loadStats()
     startFileMonitoring()
@@ -52,26 +55,30 @@ class UsageManager {
   // MARK: - File Monitoring
 
   private func startFileMonitoring() {
-    guard FileManager.default.fileExists(atPath: statsCachePath) else { return }
+    #if !os(macOS)
+      return
+    #else
+      guard FileManager.default.fileExists(atPath: statsCachePath) else { return }
 
-    let fileDescriptor = open(statsCachePath, O_EVTONLY)
-    guard fileDescriptor >= 0 else { return }
+      let fileDescriptor = open(statsCachePath, O_EVTONLY)
+      guard fileDescriptor >= 0 else { return }
 
-    fileMonitor = DispatchSource.makeFileSystemObjectSource(
-      fileDescriptor: fileDescriptor,
-      eventMask: [.write, .extend],
-      queue: .main
-    )
+      fileMonitor = DispatchSource.makeFileSystemObjectSource(
+        fileDescriptor: fileDescriptor,
+        eventMask: [.write, .extend],
+        queue: .main
+      )
 
-    fileMonitor?.setEventHandler { [weak self] in
-      self?.loadStats()
-    }
+      fileMonitor?.setEventHandler { [weak self] in
+        self?.loadStats()
+      }
 
-    fileMonitor?.setCancelHandler {
-      close(fileDescriptor)
-    }
+      fileMonitor?.setCancelHandler {
+        close(fileDescriptor)
+      }
 
-    fileMonitor?.resume()
+      fileMonitor?.resume()
+    #endif
   }
 
   func loadStats() {

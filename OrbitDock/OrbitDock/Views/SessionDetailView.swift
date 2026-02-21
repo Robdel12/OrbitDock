@@ -8,6 +8,7 @@ import SwiftUI
 
 struct SessionDetailView: View {
   @Environment(ServerAppState.self) private var serverState
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let session: Session
   let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
@@ -33,6 +34,10 @@ struct SessionDetailView: View {
   @State private var reviewFileId: String?
   @State private var navigateToComment: ServerReviewComment?
   @State private var selectedCommentIds: Set<String> = []
+
+  private var isCompactLayout: Bool {
+    horizontalSizeClass == .compact
+  }
 
   var body: some View {
     VStack(spacing: 0) {
@@ -283,25 +288,37 @@ struct SessionDetailView: View {
   // MARK: - Action Bar
 
   private var actionBar: some View {
-    HStack(spacing: Spacing.lg) {
-      // Focus/Resume
-      Button {
-        openInITerm()
-      } label: {
-        HStack(spacing: Spacing.sm) {
-          Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
-            .font(.system(size: TypeScale.code, weight: .medium))
-          Text(session.isActive ? "Focus" : "Resume")
-            .font(.system(size: TypeScale.code, weight: .medium))
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-        .foregroundStyle(.primary)
+    Group {
+      if isCompactLayout {
+        compactActionBar
+      } else {
+        regularActionBar
       }
-      .buttonStyle(.plain)
-      .keyboardShortcut("t", modifiers: .command)
-      .help(session.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
+    }
+  }
+
+  private var regularActionBar: some View {
+    HStack(spacing: Spacing.lg) {
+      // Focus/Resume (macOS only — requires terminal)
+      if Platform.services.capabilities.canFocusTerminal {
+        Button {
+          openInITerm()
+        } label: {
+          HStack(spacing: Spacing.sm) {
+            Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
+              .font(.system(size: TypeScale.code, weight: .medium))
+            Text(session.isActive ? "Focus" : "Resume")
+              .font(.system(size: TypeScale.code, weight: .medium))
+          }
+          .padding(.horizontal, Spacing.md)
+          .padding(.vertical, Spacing.sm)
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+          .foregroundStyle(.primary)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("t", modifiers: .command)
+        .help(session.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
+      }
 
       // Secondary actions
       HStack(spacing: Spacing.xxs) {
@@ -316,16 +333,18 @@ struct SessionDetailView: View {
         .buttonStyle(.plain)
         .help("Copy resume command")
 
-        Button {
-          NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
-        } label: {
-          Image(systemName: "folder")
-            .font(.system(size: TypeScale.code, weight: .medium))
-            .frame(width: 32, height: 32)
-            .foregroundStyle(.secondary)
+        if Platform.services.capabilities.canRevealInFileBrowser {
+          Button {
+            _ = Platform.services.revealInFileBrowser(session.projectPath)
+          } label: {
+            Image(systemName: "folder")
+              .font(.system(size: TypeScale.code, weight: .medium))
+              .frame(width: 32, height: 32)
+              .foregroundStyle(.secondary)
+          }
+          .buttonStyle(.plain)
+          .help("Open in Finder")
         }
-        .buttonStyle(.plain)
-        .help("Open in Finder")
       }
       .padding(Spacing.xxs)
       .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
@@ -404,6 +423,146 @@ struct SessionDetailView: View {
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.md)
     .background(Color.backgroundSecondary)
+  }
+
+  private var compactActionBar: some View {
+    VStack(spacing: Spacing.xs) {
+      HStack(spacing: Spacing.sm) {
+        if Platform.services.capabilities.canFocusTerminal {
+          Button {
+            openInITerm()
+          } label: {
+            HStack(spacing: Spacing.xs) {
+              Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
+                .font(.system(size: TypeScale.code, weight: .medium))
+              Text(session.isActive ? "Focus" : "Resume")
+                .font(.system(size: TypeScale.code, weight: .medium))
+            }
+            .padding(.horizontal, Spacing.md)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+            .foregroundStyle(.primary)
+          }
+          .buttonStyle(.plain)
+        }
+
+        Button {
+          copyResumeCommand()
+        } label: {
+          Image(systemName: copiedResume ? "checkmark" : "doc.on.doc")
+            .font(.system(size: TypeScale.code, weight: .medium))
+            .frame(width: 30, height: 30)
+            .foregroundStyle(copiedResume ? Color.statusSuccess : .secondary)
+            .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Copy resume command")
+
+        if Platform.services.capabilities.canRevealInFileBrowser {
+          Button {
+            _ = Platform.services.revealInFileBrowser(session.projectPath)
+          } label: {
+            Image(systemName: "folder")
+              .font(.system(size: TypeScale.code, weight: .medium))
+              .frame(width: 30, height: 30)
+              .foregroundStyle(.secondary)
+              .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .help("Open in Finder")
+        }
+
+        Spacer(minLength: 0)
+
+        if !isPinned, unreadCount > 0 {
+          Button {
+            isPinned = true
+            unreadCount = 0
+            scrollToBottomTrigger += 1
+          } label: {
+            HStack(spacing: 4) {
+              Image(systemName: "arrow.down")
+                .font(.system(size: TypeScale.caption, weight: .bold))
+              Text("\(unreadCount)")
+                .font(.system(size: TypeScale.code, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, Spacing.xs)
+            .background(Color.accent, in: Capsule())
+          }
+          .buttonStyle(.plain)
+          .transition(.scale.combined(with: .opacity))
+        }
+
+        Button {
+          isPinned.toggle()
+          if isPinned {
+            unreadCount = 0
+            scrollToBottomTrigger += 1
+          }
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
+              .font(.system(size: TypeScale.body, weight: .medium))
+            Text(isPinned ? "Following" : "Paused")
+              .font(.system(size: TypeScale.code, weight: .medium))
+          }
+          .foregroundStyle(isPinned ? .secondary : .primary)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .fill(isPinned ? Color.clear : Color.backgroundTertiary)
+          )
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(.horizontal, Spacing.md)
+
+      ScrollView(.horizontal) {
+        HStack(spacing: Spacing.sm) {
+          ContextGaugeCompact(stats: usageStats)
+
+          if usageStats.estimatedCostUSD > 0 {
+            Text(usageStats.formattedCost)
+              .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
+              .foregroundStyle(.primary.opacity(OpacityTier.vivid))
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, 4)
+              .background(Color.backgroundTertiary, in: Capsule())
+          }
+
+          if let branch = session.branch, !branch.isEmpty {
+            HStack(spacing: 4) {
+              Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+              Text(compactBranchLabel(branch))
+                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            }
+            .foregroundStyle(Color.gitBranch)
+            .padding(.horizontal, Spacing.sm)
+            .padding(.vertical, 4)
+            .background(Color.backgroundTertiary, in: Capsule())
+          }
+
+          if let lastActivity = session.lastActivityAt {
+            Text(lastActivity, style: .relative)
+              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+              .foregroundStyle(.tertiary)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, 4)
+              .background(Color.backgroundTertiary, in: Capsule())
+          }
+        }
+        .padding(.horizontal, Spacing.md)
+      }
+      .scrollIndicators(.hidden)
+    }
+    .padding(.vertical, Spacing.sm)
+    .background(Color.backgroundSecondary)
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
   }
 
   // MARK: - Conversation Content
@@ -524,6 +683,12 @@ struct SessionDetailView: View {
     session.lastTool
   }
 
+  private func compactBranchLabel(_ branch: String) -> String {
+    let maxLength = 14
+    guard branch.count > maxLength else { return branch }
+    return String(branch.prefix(maxLength - 1)) + "…"
+  }
+
   private var usageStats: TranscriptUsageStats {
     var stats = TranscriptUsageStats()
     stats.model = session.model
@@ -556,8 +721,7 @@ struct SessionDetailView: View {
 
   private func copyResumeCommand() {
     let command = "claude --resume \(session.id)"
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(command, forType: .string)
+    Platform.services.copyToClipboard(command)
     copiedResume = true
 
     // Reset after visual feedback

@@ -1,7 +1,10 @@
 XCODE_PROJECT ?= OrbitDock/OrbitDock.xcodeproj
 XCODE_SCHEME ?= OrbitDock
 XCODE_DESTINATION ?= platform=macOS
-XCODEBUILD_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme $(XCODE_SCHEME) -destination "$(XCODE_DESTINATION)"
+XCODE_IOS_SCHEME ?= OrbitDock iOS
+XCODE_IOS_DESTINATION ?= generic/platform=iOS
+XCODEBUILD_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme "$(XCODE_SCHEME)" -destination "$(XCODE_DESTINATION)"
+XCODEBUILD_IOS_BASE = xcodebuild -project $(XCODE_PROJECT) -scheme "$(XCODE_IOS_SCHEME)" -destination "$(XCODE_IOS_DESTINATION)" CODE_SIGNING_ALLOWED=NO
 XCODEBUILD_LOG_DIR ?= .logs
 XCODE_DERIVED_DATA_DIR ?= .build/DerivedData
 XCODE_CACHE_DIR ?= .cache/xcodebuild
@@ -12,15 +15,18 @@ XCODE_SWIFTPM_MODULECACHE_DIR ?= $(XCODE_CACHE_DIR)/swiftpm-module-cache
 XCODEBUILD_ARGS = -derivedDataPath "$(abspath $(XCODE_DERIVED_DATA_DIR))" -packageCachePath "$(abspath $(XCODE_PACKAGE_CACHE_DIR))" -clonedSourcePackagesDirPath "$(abspath $(XCODE_SOURCE_PACKAGES_DIR))"
 XCODEBUILD_ENV = CLANG_MODULE_CACHE_PATH="$(abspath $(XCODE_CLANG_MODULE_CACHE_DIR))" SWIFTPM_MODULECACHE_OVERRIDE="$(abspath $(XCODE_SWIFTPM_MODULECACHE_DIR))"
 XCODEBUILD = $(XCODEBUILD_ENV) $(XCODEBUILD_BASE) $(XCODEBUILD_ARGS)
+XCODEBUILD_IOS = $(XCODEBUILD_ENV) $(XCODEBUILD_IOS_BASE) $(XCODEBUILD_ARGS)
 RUST_WORKSPACE_DIR ?= orbitdock-server
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint xcode-cache-dirs
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint xcode-cache-dirs
 
 help:
-	@echo "make build      Build the macOS app (compact output, full log in .logs/xcodebuild-build.log)"
+	@echo "make build      Build the macOS app"
+	@echo "make build-ios  Build the iOS app"
+	@echo "make build-all  Build both macOS and iOS"
 	@echo "make test       Run unit tests (no UI tests)"
 	@echo "make test-unit  Run unit tests only (OrbitDockTests)"
 	@echo "make test-ui    Run UI tests only (OrbitDockUITests)"
@@ -39,45 +45,28 @@ help:
 build:
 	@$(MAKE) xcode-cache-dirs
 	@mkdir -p $(XCODEBUILD_LOG_DIR)
-	@log_file="$(XCODEBUILD_LOG_DIR)/xcodebuild-build.log"; \
-	echo "Running xcodebuild (compact output). Full log: $$log_file"; \
-	$(XCODEBUILD) build 2>&1 | tee "$$log_file" | rg --line-buffered \
-		-e '^xcodebuild: error:' \
-		-e '^--- xcodebuild: WARNING:' \
-		-e '^note: Run script build phase' \
-		-e '^\*\* BUILD (SUCCEEDED|FAILED) \*\*' \
-		-e '^[^:]+:[0-9]+:[0-9]+: (error|warning):' \
-		-e '^[^:]+:[0-9]+: (error|warning):' \
-		-e '^(error|warning):'; \
-	status=$${PIPESTATUS[0]}; \
-	error_count=$$(rg -c \
-		-e '^xcodebuild: error:' \
-		-e '^[^:]+:[0-9]+:[0-9]+: error:' \
-		-e '^[^:]+:[0-9]+: error:' \
-		-e '^error:' \
-		"$$log_file" || echo 0); \
-	warning_count=$$(rg -c \
-		-e '^--- xcodebuild: WARNING:' \
-		-e '^[^:]+:[0-9]+:[0-9]+: warning:' \
-		-e '^[^:]+:[0-9]+: warning:' \
-		-e '^warning:' \
-		"$$log_file" || echo 0); \
-	echo "Build summary: $$error_count errors, $$warning_count warnings"; \
-	exit $$status
+	@$(XCODEBUILD) build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-build.log" | xcbeautify --quiet
+
+build-ios:
+	@$(MAKE) xcode-cache-dirs
+	@mkdir -p $(XCODEBUILD_LOG_DIR)
+	@$(XCODEBUILD_IOS) build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-build-ios.log" | xcbeautify --quiet
+
+build-all: build build-ios
 
 test: test-unit
 
 test-unit:
 	@$(MAKE) xcode-cache-dirs
-	$(XCODEBUILD) -only-testing:OrbitDockTests -skip-testing:OrbitDockUITests test
+	@$(XCODEBUILD) -only-testing:OrbitDockTests -skip-testing:OrbitDockUITests test 2>&1 | xcbeautify
 
 test-ui:
 	@$(MAKE) xcode-cache-dirs
-	$(XCODEBUILD) -only-testing:OrbitDockUITests test
+	@$(XCODEBUILD) -only-testing:OrbitDockUITests test 2>&1 | xcbeautify
 
 test-all:
 	@$(MAKE) xcode-cache-dirs
-	$(XCODEBUILD) test
+	@$(XCODEBUILD) test 2>&1 | xcbeautify
 
 clean:
 	@$(MAKE) xcode-cache-dirs

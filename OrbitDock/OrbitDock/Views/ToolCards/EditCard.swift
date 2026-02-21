@@ -5,7 +5,6 @@
 //  Rich diff view for Edit/Write operations
 //
 
-import AppKit
 import SwiftUI
 
 struct EditCard: View {
@@ -195,7 +194,7 @@ struct EditCard: View {
       // Open in Finder
       if let path = message.filePath {
         Button {
-          NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
+          _ = Platform.services.revealInFileBrowser(path)
         } label: {
           Image(systemName: "arrow.up.forward.square")
             .font(.system(size: 11, weight: .medium))
@@ -340,9 +339,21 @@ struct EditCard: View {
         continue
       }
       if raw.hasPrefix("+") {
-        lines.append(DiffLine(type: .added, content: String(raw.dropFirst()), oldLineNum: nil, newLineNum: nil, prefix: "+"))
+        lines.append(DiffLine(
+          type: .added,
+          content: String(raw.dropFirst()),
+          oldLineNum: nil,
+          newLineNum: nil,
+          prefix: "+"
+        ))
       } else if raw.hasPrefix("-") {
-        lines.append(DiffLine(type: .removed, content: String(raw.dropFirst()), oldLineNum: nil, newLineNum: nil, prefix: "-"))
+        lines.append(DiffLine(
+          type: .removed,
+          content: String(raw.dropFirst()),
+          oldLineNum: nil,
+          newLineNum: nil,
+          prefix: "-"
+        ))
       }
     }
 

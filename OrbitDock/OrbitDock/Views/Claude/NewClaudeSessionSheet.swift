@@ -119,56 +119,66 @@ struct NewClaudeSessionSheet: View {
   // MARK: - Directory
 
   private var directorySection: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
-      Text("Project Directory")
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(Color.textTertiary)
-        .textCase(.uppercase)
-        .tracking(0.5)
-
-      Button {
-        selectDirectory()
-      } label: {
-        HStack(spacing: Spacing.md) {
-          Image(systemName: "folder.fill")
-            .font(.system(size: 14))
-            .foregroundStyle(Color.providerClaude)
-
-          if selectedPath.isEmpty {
-            Text("Choose a project folder…")
-              .font(.system(size: TypeScale.subhead))
-              .foregroundStyle(Color.textQuaternary)
-          } else {
-            VStack(alignment: .leading, spacing: 2) {
-              Text(URL(fileURLWithPath: selectedPath).lastPathComponent)
-                .font(.system(size: TypeScale.subhead, weight: .medium))
-                .foregroundStyle(Color.textPrimary)
-
-              Text(shortenedPath(selectedPath))
-                .font(.system(size: TypeScale.caption, design: .monospaced))
-                .foregroundStyle(Color.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            }
-          }
-
-          Spacer()
-
-          Text("Browse")
-            .font(.system(size: TypeScale.body, weight: .medium))
-            .foregroundStyle(Color.accent)
-        }
-        .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg))
-        .overlay(
-          RoundedRectangle(cornerRadius: Radius.lg)
-            .stroke(Color.surfaceBorder, lineWidth: 1)
-        )
-      }
-      .buttonStyle(.plain)
-    }
+    #if os(iOS)
+      RemoteProjectPicker(selectedPath: $selectedPath)
+    #else
+      macOSDirectorySection
+    #endif
   }
+
+  #if !os(iOS)
+    private var macOSDirectorySection: some View {
+      VStack(alignment: .leading, spacing: Spacing.sm) {
+        Text("Project Directory")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
+          .textCase(.uppercase)
+          .tracking(0.5)
+
+        Button {
+          selectDirectory()
+        } label: {
+          HStack(spacing: Spacing.md) {
+            Image(systemName: "folder.fill")
+              .font(.system(size: 14))
+              .foregroundStyle(Color.providerClaude)
+
+            if selectedPath.isEmpty {
+              Text("Choose a project folder…")
+                .font(.system(size: TypeScale.subhead))
+                .foregroundStyle(Color.textQuaternary)
+            } else {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(URL(fileURLWithPath: selectedPath).lastPathComponent)
+                  .font(.system(size: TypeScale.subhead, weight: .medium))
+                  .foregroundStyle(Color.textPrimary)
+
+                Text(shortenedPath(selectedPath))
+                  .font(.system(size: TypeScale.caption, design: .monospaced))
+                  .foregroundStyle(Color.textTertiary)
+                  .lineLimit(1)
+                  .truncationMode(.middle)
+              }
+            }
+
+            Spacer()
+
+            Text("Browse")
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(Color.accent)
+          }
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.md)
+          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg)
+              .stroke(Color.surfaceBorder, lineWidth: 1)
+          )
+        }
+        .buttonStyle(.plain)
+      }
+    }
+  #endif
 
   // MARK: - Configuration Card (Model + Permission)
 
@@ -391,21 +401,23 @@ struct NewClaudeSessionSheet: View {
 
   // MARK: - Actions
 
-  private func selectDirectory() {
-    let panel = NSOpenPanel()
-    panel.canChooseDirectories = true
-    panel.canChooseFiles = false
-    panel.allowsMultipleSelection = false
-    panel.canCreateDirectories = false
-    panel.prompt = "Select"
-    panel.message = "Choose a project directory for the new Claude session"
+  #if !os(iOS)
+    private func selectDirectory() {
+      let panel = NSOpenPanel()
+      panel.canChooseDirectories = true
+      panel.canChooseFiles = false
+      panel.allowsMultipleSelection = false
+      panel.canCreateDirectories = false
+      panel.prompt = "Select"
+      panel.message = "Choose a project directory for the new Claude session"
 
-    panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/Developer")
+      panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/Developer")
 
-    if panel.runModal() == .OK, let url = panel.url {
-      selectedPath = url.path
+      if panel.runModal() == .OK, let url = panel.url {
+        selectedPath = url.path
+      }
     }
-  }
+  #endif
 
   private func parseToolList(_ text: String) -> [String] {
     text.split(separator: ",")
@@ -479,13 +491,16 @@ private struct CompactClaudePermissionSelector: View {
             .shadow(color: isActive ? mode.color.opacity(0.3) : .clear, radius: 4)
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-          hoveredMode = hovering ? mode : nil
-        }
-        .help(mode.displayName)
-        .contentShape(Circle())
+        #if !os(iOS)
+          .onHover { hovering in
+            hoveredMode = hovering ? mode : nil
+          }
+          .help(mode.displayName)
+        #endif
+          .contentShape(Circle())
       }
     }
+    #if !os(iOS)
     .onHover { hovering in
       if hovering {
         NSCursor.pointingHand.push()
@@ -494,6 +509,7 @@ private struct CompactClaudePermissionSelector: View {
         hoveredMode = nil
       }
     }
+    #endif
     .animation(.easeOut(duration: 0.12), value: hoveredMode)
     .animation(.easeOut(duration: 0.15), value: selection)
   }

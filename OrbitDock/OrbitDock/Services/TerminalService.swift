@@ -24,9 +24,9 @@ final class TerminalService {
   /// Returns `true` if the terminal was found/opened successfully.
   func focusSession(_ session: Session) async -> Bool {
     if session.isActive {
-      return await focusActiveSession(session)
+      await focusActiveSession(session)
     } else {
-      return await openNewTerminalWithResume(session)
+      await openNewTerminalWithResume(session)
     }
   }
 

@@ -41,18 +41,15 @@ final class CodexFileLogger: @unchecked Sendable {
   private let dateFormatter: ISO8601DateFormatter
 
   private init() {
-    let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-    logDir = homeDir + "/.orbitdock/logs"
+    let logDirURL = PlatformPaths.orbitDockLogsDirectory
+    logDir = logDirURL.path
     logPath = logDir + "/codex.log"
 
     dateFormatter = ISO8601DateFormatter()
     dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
 
     // Create logs directory
-    try? FileManager.default.createDirectory(
-      atPath: logDir,
-      withIntermediateDirectories: true
-    )
+    try? FileManager.default.createDirectory(at: logDirURL, withIntermediateDirectories: true)
 
     // Rotate if log is too large (> 10MB)
     if let attrs = try? FileManager.default.attributesOfItem(atPath: logPath),

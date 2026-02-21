@@ -131,15 +131,14 @@ struct ActiveSessionRow: View {
     .onHover { isHovering = $0 }
     .contextMenu {
       Button {
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.projectPath)
+        _ = Platform.services.revealInFileBrowser(session.projectPath)
       } label: {
         Label("Reveal in Finder", systemImage: "folder")
       }
 
       Button {
         let command = "claude --resume \(session.id)"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
+        Platform.services.copyToClipboard(command)
       } label: {
         Label("Copy Resume Command", systemImage: "doc.on.doc")
       }

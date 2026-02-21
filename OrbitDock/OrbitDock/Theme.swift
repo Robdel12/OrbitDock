@@ -34,7 +34,7 @@ enum TypeScale {
   /// Content meant to be read (user prompts, steer text) vs. UI labels
   static let reading: CGFloat = 14
   /// Conversation timeline role labels ("Assistant", "You", "Reasoning")
-  static let chatLabel: CGFloat = 9
+  static let chatLabel: CGFloat = 10
   /// Assistant/user prose body in transcript cards
   static let chatBody: CGFloat = 14.5
   /// Prominent markdown headers inside assistant responses

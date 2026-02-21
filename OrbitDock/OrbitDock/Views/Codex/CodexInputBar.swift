@@ -18,6 +18,7 @@ struct InstrumentPanel: View {
   var onOpenSkills: (() -> Void)?
 
   @Environment(ServerAppState.self) private var serverState
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   @State private var message = ""
   @State private var isSending = false
@@ -132,6 +133,10 @@ struct InstrumentPanel: View {
     if inputMode == .shell { return "Run a shell command..." }
     if isSessionWorking { return "Steer the current turn..." }
     return "Send a message..."
+  }
+
+  private var isCompactLayout: Bool {
+    horizontalSizeClass == .compact
   }
 
   // MARK: - Body
@@ -365,7 +370,7 @@ struct InstrumentPanel: View {
   // MARK: - Composer Row
 
   private var composerRow: some View {
-    HStack(spacing: Spacing.sm) {
+    HStack(spacing: isCompactLayout ? Spacing.xs : Spacing.sm) {
       // Text field inside bordered container with mode tint
       HStack(spacing: Spacing.sm) {
         // Mode badge embedded in the composer
@@ -396,6 +401,15 @@ struct InstrumentPanel: View {
           .lineLimit(1 ... 5)
           .focused($isFocused)
           .disabled(isSending)
+        #if os(iOS)
+          .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+              Spacer()
+              Button("Done") { isFocused = false }
+                .font(.system(size: TypeScale.body, weight: .semibold))
+            }
+          }
+        #endif
           .onChange(of: message) { _, newValue in
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
               updateSkillCompletion(newValue)
@@ -449,7 +463,7 @@ struct InstrumentPanel: View {
           }
         }
       }
-      .padding(.horizontal, Spacing.md)
+      .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md)
       .padding(.vertical, 10)
       .background(
         RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
@@ -472,7 +486,7 @@ struct InstrumentPanel: View {
               .foregroundStyle(.white)
           }
         }
-        .frame(width: 30, height: 30)
+        .frame(width: isCompactLayout ? 34 : 30, height: isCompactLayout ? 34 : 30)
         .background(
           Circle().fill(canSend ? composerBorderColor : Color.surfaceHover)
         )
@@ -482,8 +496,8 @@ struct InstrumentPanel: View {
       .disabled(!canSend)
       .keyboardShortcut(.return, modifiers: .command)
     }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.sm)
+    .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
+    .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm)
   }
 
   // MARK: - Composer Action Button
@@ -520,12 +534,21 @@ struct InstrumentPanel: View {
     .buttonStyle(.plain)
     .fixedSize()
     .help("Model and reasoning effort")
-    .popover(isPresented: $showModelEffortPopover, arrowEdge: .bottom) {
-      ModelEffortPopover(
-        selectedModel: $selectedModel,
-        selectedEffort: $selectedEffort,
-        models: modelOptions
-      )
+    .platformPopover(isPresented: $showModelEffortPopover) {
+      NavigationStack {
+        ModelEffortPopover(
+          selectedModel: $selectedModel,
+          selectedEffort: $selectedEffort,
+          models: modelOptions
+        )
+        .ifIOS { view in
+          view.toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") { showModelEffortPopover = false }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -553,6 +576,16 @@ struct InstrumentPanel: View {
   // MARK: - Instrument Strip
 
   private var instrumentStrip: some View {
+    Group {
+      if isCompactLayout {
+        compactInstrumentStrip
+      } else {
+        regularInstrumentStrip
+      }
+    }
+  }
+
+  private var regularInstrumentStrip: some View {
     HStack(spacing: 0) {
       // ━━━ Left segment: Interrupt + Actions ━━━
       HStack(spacing: Spacing.sm) {
@@ -786,12 +819,6 @@ struct InstrumentPanel: View {
         }
         .buttonStyle(.plain)
 
-        // Relative time
-        if let lastActivity = session.lastActivityAt {
-          Text(lastActivity, style: .relative)
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .foregroundStyle(.quaternary)
-        }
       }
       .padding(.horizontal, Spacing.md)
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
@@ -800,6 +827,203 @@ struct InstrumentPanel: View {
     .frame(height: 32)
     .padding(.bottom, Spacing.sm)
     .background(Color.backgroundTertiary.opacity(0.5))
+  }
+
+  private var compactInstrumentStrip: some View {
+    HStack(spacing: 6) {
+      // ━━━ Interrupt — left-anchored when working ━━━
+      if session.workStatus == .working {
+        CodexInterruptButton(sessionId: sessionId)
+      }
+
+      // ━━━ Single scrollable ribbon: all chips + overflow menu ━━━
+      ScrollView(.horizontal) {
+        HStack(spacing: 6) {
+          if session.isDirectCodex {
+            AutonomyPill(sessionId: sessionId)
+          } else if session.isDirectClaude {
+            ClaudePermissionPill(sessionId: sessionId)
+          }
+
+          if !isSessionWorking, session.isDirectCodex {
+            modelEffortControlButton
+          }
+
+          if session.hasTokenUsage {
+            compactTokenSummaryChip
+          }
+
+          if session.isDirectClaude, let model = session.model {
+            compactMetaChip(icon: nil, text: shortModelName(model), color: Color.textTertiary)
+          }
+
+          if let branch = session.branch, !branch.isEmpty {
+            compactMetaChip(
+              icon: "arrow.triangle.branch",
+              text: compactStripBranchLabel(branch),
+              color: Color.gitBranch.opacity(0.8)
+            )
+            .help(branch)
+          }
+
+          if !isSessionWorking {
+            compactMoreActionsMenu
+          }
+        }
+        .padding(.trailing, Spacing.xs)
+      }
+      .scrollIndicators(.hidden)
+
+      // ━━━ Pinned right: unread badge + follow toggle ━━━
+      if !isPinned, unreadCount > 0 {
+        Button {
+          isPinned = true
+          unreadCount = 0
+          scrollToBottomTrigger += 1
+        } label: {
+          HStack(spacing: 3) {
+            Image(systemName: "arrow.down")
+              .font(.system(size: TypeScale.caption, weight: .bold))
+            Text("\(unreadCount)")
+              .font(.system(size: TypeScale.body, weight: .bold))
+          }
+          .foregroundStyle(.white)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, 3)
+          .background(Color.accent, in: Capsule())
+        }
+        .buttonStyle(.plain)
+      }
+
+      Button {
+        isPinned.toggle()
+        if isPinned {
+          unreadCount = 0
+          scrollToBottomTrigger += 1
+        }
+      } label: {
+        Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(isPinned ? Color.textQuaternary : Color.statusReply)
+          .frame(width: 32, height: 32)
+          .background(
+            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
+            in: Circle()
+          )
+      }
+      .buttonStyle(.plain)
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.top, Spacing.xs)
+    .padding(.bottom, Spacing.sm)
+    .background(Color.backgroundTertiary.opacity(0.5))
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+  }
+
+  private var compactMoreActionsMenu: some View {
+    Menu {
+      // ━━━ Turn actions ━━━
+      if session.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
+        Button {
+          serverState.undoLastTurn(sessionId: sessionId)
+        } label: {
+          Label("Undo Last Turn", systemImage: "arrow.uturn.backward")
+        }
+        .disabled(serverState.session(sessionId).undoInProgress)
+      }
+
+      Button {
+        serverState.forkSession(sessionId: sessionId)
+      } label: {
+        Label("Fork Conversation", systemImage: "arrow.triangle.branch")
+      }
+      .disabled(serverState.session(sessionId).forkInProgress)
+
+      Divider()
+
+      // ━━━ Input helpers ━━━
+      if session.isDirectCodex || serverState.session(sessionId).hasClaudeSkills {
+        Button {
+          if session.isDirectCodex {
+            serverState.listSkills(sessionId: sessionId)
+          }
+          onOpenSkills?()
+        } label: {
+          Label("Attach Skills", systemImage: "bolt.fill")
+        }
+      }
+
+      Button {
+        pickImages()
+      } label: {
+        Label("Attach Images", systemImage: "paperclip")
+      }
+
+      Button {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          manualShellMode.toggle()
+          if manualShellMode { manualReviewMode = false }
+        }
+      } label: {
+        Label(manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode", systemImage: "terminal")
+      }
+
+      if session.hasTokenUsage {
+        Divider()
+
+        Button {
+          serverState.compactContext(sessionId: sessionId)
+        } label: {
+          Label("Compact Context", systemImage: "arrow.triangle.2.circlepath")
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis")
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, Spacing.sm)
+        .padding(.vertical, 6)
+        .background(Color.surfaceHover, in: Capsule())
+    }
+    .help("More actions")
+  }
+
+  private var compactTokenSummaryChip: some View {
+    let pct = Int(tokenContextPercentage * 100)
+    let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
+    let displayPct = if tokenContextPercentage > 0, pct == 0 {
+      "< 1"
+    } else {
+      "\(pct)"
+    }
+    let totalContext = (session.inputTokens ?? 0) + (session.cachedTokens ?? 0)
+    let text = totalContext > 0 ? "\(displayPct)% · \(formatTokenCount(totalContext))" : "\(displayPct)%"
+
+    return compactMetaChip(icon: "gauge.with.needle", text: text, color: color)
+      .help(tokenTooltipText)
+  }
+
+  private func compactStripBranchLabel(_ branch: String) -> String {
+    let maxLength = 12
+    guard branch.count > maxLength else { return branch }
+    return String(branch.prefix(maxLength - 1)) + "…"
+  }
+
+  private func compactMetaChip(icon: String?, text: String, color: Color) -> some View {
+    HStack(spacing: 4) {
+      if let icon {
+        Image(systemName: icon)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+      }
+      Text(text)
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .lineLimit(1)
+    }
+    .foregroundStyle(color)
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, 4)
+    .background(Color.surfaceHover, in: Capsule())
   }
 
   // MARK: - Strip Button
@@ -812,12 +1036,13 @@ struct InstrumentPanel: View {
     disabled: Bool = false,
     action: @escaping () -> Void
   ) -> some View {
-    Button(action: action) {
+    let size: CGFloat = isCompactLayout ? 36 : 26
+    return Button(action: action) {
       Image(systemName: icon)
         .font(.system(size: TypeScale.code, weight: .medium))
         .foregroundStyle(disabled ? AnyShapeStyle(.quaternary) : stripHover == icon ? AnyShapeStyle(Color.accent) :
           AnyShapeStyle(.secondary))
-        .frame(width: 26, height: 26)
+        .frame(width: size, height: size)
         .background(
           stripHover == icon ? Color.surfaceHover : Color.clear,
           in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
@@ -826,7 +1051,7 @@ struct InstrumentPanel: View {
     .buttonStyle(.plain)
     .disabled(disabled)
     .help(help)
-    .onHover { hovering in
+    .platformHover { hovering in
       stripHover = hovering ? icon : (stripHover == icon ? nil : stripHover)
     }
   }
@@ -1357,7 +1582,7 @@ struct CodexInterruptButton: View {
     }
     .buttonStyle(.plain)
     .disabled(isInterrupting)
-    .onHover { isHovering = $0 }
+    .platformHover($isHovering)
     .animation(.easeOut(duration: 0.15), value: isHovering)
   }
 
@@ -1427,7 +1652,7 @@ private struct SkillCompletionList: View {
       let before = String(name[name.startIndex ..< range.lowerBound])
       let match = String(name[range])
       let after = String(name[range.upperBound...])
-      (Text(before) + Text(match).foregroundStyle(Color.accent) + Text(after))
+      Text("\(Text(before))\(Text(match).foregroundStyle(Color.accent))\(Text(after))")
         .font(.callout.weight(.medium))
     } else {
       Text(name)

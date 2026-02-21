@@ -7,15 +7,26 @@ import Foundation
 
 // MARK: - Message Image
 
+/// Lightweight image reference — stores only path/URI + metadata, never raw bytes.
+/// Actual Data/NSImage loading is deferred to `ImageCache`.
 struct MessageImage: Identifiable, Hashable {
-  let id: String
-  let data: Data
-  let mimeType: String
+  /// How the image is referenced
+  enum Source: Hashable {
+    case filePath(String)
+    case dataURI(String)
+  }
 
-  init(data: Data, mimeType: String) {
+  let id: String
+  let source: Source
+  let mimeType: String
+  /// Pre-computed byte count for display (avoids loading data just to show size)
+  let byteCount: Int
+
+  init(source: Source, mimeType: String, byteCount: Int) {
     self.id = UUID().uuidString
-    self.data = data
+    self.source = source
     self.mimeType = mimeType
+    self.byteCount = byteCount
   }
 }
 
@@ -35,11 +46,6 @@ struct TranscriptMessage: Identifiable, Hashable {
   var isInProgress: Bool = false // Tool is currently running
   var images: [MessageImage] = [] // Support multiple images
   var thinking: String? // Claude's thinking trace (collapsed by default)
-
-  /// Legacy single image support (for backwards compatibility)
-  var imageData: Data? {
-    images.first?.data
-  }
 
   var imageMimeType: String? {
     images.first?.mimeType

@@ -161,8 +161,7 @@ final class CodexUsageService {
 
   /// Disk cache for usage data
   private nonisolated static let cacheURL: URL = {
-    let cacheDir = FileManager.default.homeDirectoryForCurrentUser
-      .appendingPathComponent(".orbitdock/cache", isDirectory: true)
+    let cacheDir = PlatformPaths.orbitDockCacheDirectory
     try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
     return cacheDir.appendingPathComponent("codex-usage.json")
   }()
@@ -286,165 +285,175 @@ final class CodexUsageService {
   // MARK: - Synchronous Fetch (runs on background thread)
 
   private nonisolated static func fetchUsageSync() -> Result<CodexUsage, CodexUsageError> {
-    guard let codexPath = findCodexBinary() else {
+    #if !os(macOS)
+      // TODO(server-extract): Move Codex usage collection behind server endpoint.
       return .failure(.notInstalled)
-    }
-
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: codexPath)
-    process.arguments = ["app-server"]
-    process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-
-    // Set up environment
-    var env = ProcessInfo.processInfo.environment
-    let nodeBinDir = (codexPath as NSString).deletingLastPathComponent
-    env["PATH"] = "\(nodeBinDir):\(env["PATH"] ?? "")"
-    process.environment = env
-
-    let stdinPipe = Pipe()
-    let stdoutPipe = Pipe()
-    process.standardInput = stdinPipe
-    process.standardOutput = stdoutPipe
-    process.standardError = FileHandle.nullDevice
-
-    do {
-      try process.run()
-    } catch {
-      return .failure(.requestFailed("Failed to start: \(error.localizedDescription)"))
-    }
-
-    defer {
-      process.terminate()
-      process.waitUntilExit()
-    }
-
-    let stdin = stdinPipe.fileHandleForWriting
-    let stdout = stdoutPipe.fileHandleForReading
-
-    /// Helper to send JSON-RPC
-    func send(_ dict: [String: Any]) {
-      guard let data = try? JSONSerialization.data(withJSONObject: dict),
-            var str = String(data: data, encoding: .utf8)
-      else { return }
-      str += "\n"
-      try? stdin.write(contentsOf: Data(str.utf8))
-    }
-
-    /// Helper to read JSON-RPC response
-    func readResponse() -> [String: Any]? {
-      let data = stdout.availableData
-      guard !data.isEmpty,
-            let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-            let jsonData = text.data(using: .utf8),
-            let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
-      else { return nil }
-      return json
-    }
-
-    // 1. Initialize
-    send([
-      "method": "initialize",
-      "id": 1,
-      "params": ["clientInfo": ["name": "orbitdock", "title": "OrbitDock", "version": "1.0.0"]],
-    ])
-
-    guard let initResponse = readResponse(),
-          initResponse["error"] == nil
-    else {
-      return .failure(.requestFailed("Initialize failed"))
-    }
-
-    // 2. Send initialized notification
-    send(["method": "initialized", "params": [:] as [String: Any]])
-
-    // 3. Check auth state
-    send(["method": "account/read", "id": 2, "params": ["refreshToken": false]])
-
-    guard let authResponse = readResponse(),
-          let authResult = authResponse["result"] as? [String: Any]
-    else {
-      return .failure(.requestFailed("Auth check failed"))
-    }
-
-    // Check auth type
-    if let account = authResult["account"] as? [String: Any],
-       let authType = account["type"] as? String
-    {
-      if authType == "apiKey" {
-        return .failure(.apiKeyMode)
+    #else
+      guard let codexPath = findCodexBinary() else {
+        return .failure(.notInstalled)
       }
-    } else if authResult["account"] == nil || authResult["account"] is NSNull {
-      return .failure(.notLoggedIn)
-    }
 
-    // 4. Fetch rate limits
-    send(["method": "account/rateLimits/read", "id": 3])
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: codexPath)
+      process.arguments = ["app-server"]
+      process.currentDirectoryURL = PlatformPaths.homeDirectory
 
-    guard let limitsResponse = readResponse(),
-          let limitsResult = limitsResponse["result"] as? [String: Any],
-          let rateLimits = limitsResult["rateLimits"] as? [String: Any]
-    else {
-      return .failure(.requestFailed("Rate limits fetch failed"))
-    }
+      // Set up environment
+      var env = ProcessInfo.processInfo.environment
+      let nodeBinDir = (codexPath as NSString).deletingLastPathComponent
+      env["PATH"] = "\(nodeBinDir):\(env["PATH"] ?? "")"
+      process.environment = env
 
-    /// Parse rate limits
-    func parseLimit(_ dict: [String: Any]?) -> CodexUsage.RateLimit? {
-      guard let dict,
-            let usedPercent = dict["usedPercent"] as? Double,
-            let windowMins = dict["windowDurationMins"] as? Int,
-            let resetsAt = dict["resetsAt"] as? Double
-      else { return nil }
+      let stdinPipe = Pipe()
+      let stdoutPipe = Pipe()
+      process.standardInput = stdinPipe
+      process.standardOutput = stdoutPipe
+      process.standardError = FileHandle.nullDevice
 
-      return CodexUsage.RateLimit(
-        usedPercent: usedPercent,
-        windowDurationMins: windowMins,
-        resetsAt: Date(timeIntervalSince1970: resetsAt)
+      do {
+        try process.run()
+      } catch {
+        return .failure(.requestFailed("Failed to start: \(error.localizedDescription)"))
+      }
+
+      defer {
+        process.terminate()
+        process.waitUntilExit()
+      }
+
+      let stdin = stdinPipe.fileHandleForWriting
+      let stdout = stdoutPipe.fileHandleForReading
+
+      /// Helper to send JSON-RPC
+      func send(_ dict: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: dict),
+              var str = String(data: data, encoding: .utf8)
+        else { return }
+        str += "\n"
+        try? stdin.write(contentsOf: Data(str.utf8))
+      }
+
+      /// Helper to read JSON-RPC response
+      func readResponse() -> [String: Any]? {
+        let data = stdout.availableData
+        guard !data.isEmpty,
+              let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let jsonData = text.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
+        else { return nil }
+        return json
+      }
+
+      // 1. Initialize
+      send([
+        "method": "initialize",
+        "id": 1,
+        "params": ["clientInfo": ["name": "orbitdock", "title": "OrbitDock", "version": "1.0.0"]],
+      ])
+
+      guard let initResponse = readResponse(),
+            initResponse["error"] == nil
+      else {
+        return .failure(.requestFailed("Initialize failed"))
+      }
+
+      // 2. Send initialized notification
+      send(["method": "initialized", "params": [:] as [String: Any]])
+
+      // 3. Check auth state
+      send(["method": "account/read", "id": 2, "params": ["refreshToken": false]])
+
+      guard let authResponse = readResponse(),
+            let authResult = authResponse["result"] as? [String: Any]
+      else {
+        return .failure(.requestFailed("Auth check failed"))
+      }
+
+      // Check auth type
+      if let account = authResult["account"] as? [String: Any],
+         let authType = account["type"] as? String
+      {
+        if authType == "apiKey" {
+          return .failure(.apiKeyMode)
+        }
+      } else if authResult["account"] == nil || authResult["account"] is NSNull {
+        return .failure(.notLoggedIn)
+      }
+
+      // 4. Fetch rate limits
+      send(["method": "account/rateLimits/read", "id": 3])
+
+      guard let limitsResponse = readResponse(),
+            let limitsResult = limitsResponse["result"] as? [String: Any],
+            let rateLimits = limitsResult["rateLimits"] as? [String: Any]
+      else {
+        return .failure(.requestFailed("Rate limits fetch failed"))
+      }
+
+      /// Parse rate limits
+      func parseLimit(_ dict: [String: Any]?) -> CodexUsage.RateLimit? {
+        guard let dict,
+              let usedPercent = dict["usedPercent"] as? Double,
+              let windowMins = dict["windowDurationMins"] as? Int,
+              let resetsAt = dict["resetsAt"] as? Double
+        else { return nil }
+
+        return CodexUsage.RateLimit(
+          usedPercent: usedPercent,
+          windowDurationMins: windowMins,
+          resetsAt: Date(timeIntervalSince1970: resetsAt)
+        )
+      }
+
+      let usage = CodexUsage(
+        primary: parseLimit(rateLimits["primary"] as? [String: Any]),
+        secondary: parseLimit(rateLimits["secondary"] as? [String: Any]),
+        fetchedAt: Date()
       )
-    }
 
-    let usage = CodexUsage(
-      primary: parseLimit(rateLimits["primary"] as? [String: Any]),
-      secondary: parseLimit(rateLimits["secondary"] as? [String: Any]),
-      fetchedAt: Date()
-    )
-
-    return .success(usage)
+      return .success(usage)
+    #endif
   }
 
   private nonisolated static func findCodexBinary() -> String? {
-    let paths = [
-      "/usr/local/bin/codex",
-      "/opt/homebrew/bin/codex",
-      "\(FileManager.default.homeDirectoryForCurrentUser.path)/.nvm/versions/node/v24.12.0/bin/codex",
-    ]
+    #if !os(macOS)
+      // TODO(server-extract): Binary discovery should be server-owned.
+      return nil
+    #else
+      let paths = [
+        "/usr/local/bin/codex",
+        "/opt/homebrew/bin/codex",
+        "\(PlatformPaths.homeDirectory.path)/.nvm/versions/node/v24.12.0/bin/codex",
+      ]
 
-    for path in paths {
-      if FileManager.default.isExecutableFile(atPath: path) {
-        return path
-      }
-    }
-
-    // Try which
-    let proc = Process()
-    proc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-    proc.arguments = ["codex"]
-    let pipe = Pipe()
-    proc.standardOutput = pipe
-    proc.standardError = FileHandle.nullDevice
-
-    do {
-      try proc.run()
-      proc.waitUntilExit()
-      if proc.terminationStatus == 0 {
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !path.isEmpty
-        {
+      for path in paths {
+        if FileManager.default.isExecutableFile(atPath: path) {
           return path
         }
       }
-    } catch {}
 
-    return nil
+      // Try which
+      let proc = Process()
+      proc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+      proc.arguments = ["codex"]
+      let pipe = Pipe()
+      proc.standardOutput = pipe
+      proc.standardError = FileHandle.nullDevice
+
+      do {
+        try proc.run()
+        proc.waitUntilExit()
+        if proc.terminationStatus == 0 {
+          let data = pipe.fileHandleForReading.readDataToEndOfFile()
+          if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+             !path.isEmpty
+          {
+            return path
+          }
+        }
+      } catch {}
+
+      return nil
+    #endif
   }
 }

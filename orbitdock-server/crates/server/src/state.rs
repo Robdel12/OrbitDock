@@ -291,6 +291,46 @@ impl SessionRegistry {
         self.pending_claude_sessions
             .retain(|_, pending| pending.cached_at > cutoff);
     }
+
+    /// Collect recent project paths from active/ended sessions.
+    pub async fn list_recent_projects(&self) -> Vec<orbitdock_protocol::RecentProject> {
+        use std::collections::HashMap;
+
+        let mut project_map: HashMap<String, (u32, Option<String>)> = HashMap::new();
+        for entry in self.sessions.iter() {
+            let snap = entry.value().snapshot();
+            let path = snap.project_path.clone();
+            let last_activity = snap.last_activity_at.clone();
+
+            let counter = project_map.entry(path).or_insert((0, None));
+            counter.0 += 1;
+            // Keep the most recent activity timestamp
+            if let Some(ref activity) = last_activity {
+                if counter
+                    .1
+                    .as_ref()
+                    .map_or(true, |existing| activity > existing)
+                {
+                    counter.1 = last_activity;
+                }
+            }
+        }
+
+        let mut projects: Vec<orbitdock_protocol::RecentProject> = project_map
+            .into_iter()
+            .map(
+                |(path, (session_count, last_active))| orbitdock_protocol::RecentProject {
+                    path,
+                    session_count,
+                    last_active,
+                },
+            )
+            .collect();
+
+        // Sort by last_active descending (most recent first)
+        projects.sort_by(|a, b| b.last_active.cmp(&a.last_active));
+        projects
+    }
 }
 
 // Note: No Default impl - requires persist_tx

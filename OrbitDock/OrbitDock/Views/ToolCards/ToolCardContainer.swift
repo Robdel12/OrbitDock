@@ -5,8 +5,10 @@
 //  Reusable container for tool cards with consistent styling
 //
 
-import AppKit
 import SwiftUI
+#if os(macOS)
+  import AppKit
+#endif
 
 struct ToolCardContainer<Header: View, Content: View>: View {
   let color: Color
@@ -48,13 +50,15 @@ struct ToolCardContainer<Header: View, Content: View>: View {
       .contentShape(Rectangle())
       .onHover { hovering in
         isHovering = hovering
-        if hasContent {
-          if hovering {
-            NSCursor.pointingHand.push()
-          } else {
-            NSCursor.pop()
+        #if os(macOS)
+          if hasContent {
+            if hovering {
+              NSCursor.pointingHand.push()
+            } else {
+              NSCursor.pop()
+            }
           }
-        }
+        #endif
       }
       .onTapGesture {
         if hasContent {

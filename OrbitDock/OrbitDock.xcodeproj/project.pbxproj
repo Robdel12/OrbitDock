@@ -7,11 +7,26 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		80BCD1002F2C900000D91F91 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCD0FF2F2C900000D91F91 /* MarkdownUI */; };
+		800E82332F492F37007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82322F492F37007CADF5 /* Markdown */; };
+		800E84212F492FC4007CADF5 /* Markdown in Frameworks */ = {isa = PBXBuildFile; productRef = 800E82342F492F38007CADF5 /* Markdown */; };
 		80BCDA942F3113B700D91F91 /* Vizzly in Frameworks */ = {isa = PBXBuildFile; productRef = 80BCDA932F3113B700D91F91 /* Vizzly */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		800E7CC32F46B778007CADF5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 800E7CB52F46B778007CADF5;
+			remoteInfo = "OrbitDock iOS";
+		};
+		800E7CCD2F46B778007CADF5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 800E7CB52F46B778007CADF5;
+			remoteInfo = "OrbitDock iOS";
+		};
 		80BCD0CE2F2C834F00D91F91 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 80BCD0B82F2C834F00D91F91 /* Project object */;
@@ -29,12 +44,22 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		800E7CB62F46B778007CADF5 /* OrbitDock iOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "OrbitDock iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		800E7CC22F46B778007CADF5 /* OrbitDock iOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "OrbitDock iOSTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		800E7CCC2F46B778007CADF5 /* OrbitDock iOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "OrbitDock iOSUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BCD0C02F2C834F00D91F91 /* OrbitDock.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OrbitDock.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitDockTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrbitDockUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8014A0022F46D50007CADF5 /* Exceptions for "OrbitDock" folder in "OrbitDock iOS" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 800E7CB52F46B778007CADF5 /* OrbitDock iOS */;
+		};
 		80BCDAFF2F3200000D91F91 /* Exceptions for "OrbitDock" folder in "OrbitDock" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -45,10 +70,26 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		800E7CB72F46B778007CADF5 /* OrbitDock iOS */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "OrbitDock iOS";
+			sourceTree = "<group>";
+		};
+		800E7CC52F46B778007CADF5 /* OrbitDock iOSTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "OrbitDock iOSTests";
+			sourceTree = "<group>";
+		};
+		800E7CCF2F46B778007CADF5 /* OrbitDock iOSUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "OrbitDock iOSUITests";
+			sourceTree = "<group>";
+		};
 		80BCD0C22F2C834F00D91F91 /* OrbitDock */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				80BCDAFF2F3200000D91F91 /* Exceptions for "OrbitDock" folder in "OrbitDock" target */,
+				8014A0022F46D50007CADF5 /* Exceptions for "OrbitDock" folder in "OrbitDock iOS" target */,
 			);
 			path = OrbitDock;
 			sourceTree = "<group>";
@@ -66,11 +107,33 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		800E7CB32F46B778007CADF5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				800E84212F492FC4007CADF5 /* Markdown in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		800E7CBF2F46B778007CADF5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		800E7CC92F46B778007CADF5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		80BCD0BD2F2C834F00D91F91 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				80BCD1002F2C900000D91F91 /* MarkdownUI in Frameworks */,
+				800E82332F492F37007CADF5 /* Markdown in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +161,9 @@
 				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
 				80BCD0D02F2C834F00D91F91 /* OrbitDockTests */,
 				80BCD0DA2F2C834F00D91F91 /* OrbitDockUITests */,
+				800E7CB72F46B778007CADF5 /* OrbitDock iOS */,
+				800E7CC52F46B778007CADF5 /* OrbitDock iOSTests */,
+				800E7CCF2F46B778007CADF5 /* OrbitDock iOSUITests */,
 				80BCD0C12F2C834F00D91F91 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -108,6 +174,9 @@
 				80BCD0C02F2C834F00D91F91 /* OrbitDock.app */,
 				80BCD0CD2F2C834F00D91F91 /* OrbitDockTests.xctest */,
 				80BCD0D72F2C834F00D91F91 /* OrbitDockUITests.xctest */,
+				800E7CB62F46B778007CADF5 /* OrbitDock iOS.app */,
+				800E7CC22F46B778007CADF5 /* OrbitDock iOSTests.xctest */,
+				800E7CCC2F46B778007CADF5 /* OrbitDock iOSUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -115,6 +184,75 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		800E7CB52F46B778007CADF5 /* OrbitDock iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 800E7CD42F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOS" */;
+			buildPhases = (
+				800E7CB22F46B778007CADF5 /* Sources */,
+				800E7CB32F46B778007CADF5 /* Frameworks */,
+				800E7CB42F46B778007CADF5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				80BCD0C22F2C834F00D91F91 /* OrbitDock */,
+			);
+			name = "OrbitDock iOS";
+			packageProductDependencies = (
+				800E82342F492F38007CADF5 /* Markdown */,
+			);
+			productName = "OrbitDock iOS";
+			productReference = 800E7CB62F46B778007CADF5 /* OrbitDock iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		800E7CC12F46B778007CADF5 /* OrbitDock iOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 800E7CD72F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOSTests" */;
+			buildPhases = (
+				800E7CBE2F46B778007CADF5 /* Sources */,
+				800E7CBF2F46B778007CADF5 /* Frameworks */,
+				800E7CC02F46B778007CADF5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				800E7CC42F46B778007CADF5 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				800E7CC52F46B778007CADF5 /* OrbitDock iOSTests */,
+			);
+			name = "OrbitDock iOSTests";
+			packageProductDependencies = (
+			);
+			productName = "OrbitDock iOSTests";
+			productReference = 800E7CC22F46B778007CADF5 /* OrbitDock iOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		800E7CCB2F46B778007CADF5 /* OrbitDock iOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 800E7CDA2F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOSUITests" */;
+			buildPhases = (
+				800E7CC82F46B778007CADF5 /* Sources */,
+				800E7CC92F46B778007CADF5 /* Frameworks */,
+				800E7CCA2F46B778007CADF5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				800E7CCE2F46B778007CADF5 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				800E7CCF2F46B778007CADF5 /* OrbitDock iOSUITests */,
+			);
+			name = "OrbitDock iOSUITests";
+			packageProductDependencies = (
+			);
+			productName = "OrbitDock iOSUITests";
+			productReference = 800E7CCC2F46B778007CADF5 /* OrbitDock iOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		80BCD0BF2F2C834F00D91F91 /* OrbitDock */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 80BCD0E12F2C834F00D91F91 /* Build configuration list for PBXNativeTarget "OrbitDock" */;
@@ -122,7 +260,7 @@
 				80BCD0BC2F2C834F00D91F91 /* Sources */,
 				80BCD0BD2F2C834F00D91F91 /* Frameworks */,
 				80BCD0BE2F2C834F00D91F91 /* Resources */,
-				80BCD8502F30590000D91F91 /* Build & Embed CLI */,
+				80BCD8502F30590000D91F91 /* Install Hook Script */,
 			);
 			buildRules = (
 			);
@@ -133,7 +271,7 @@
 			);
 			name = OrbitDock;
 			packageProductDependencies = (
-				80BCD0FF2F2C900000D91F91 /* MarkdownUI */,
+				800E82322F492F37007CADF5 /* Markdown */,
 			);
 			productName = OrbitDock;
 			productReference = 80BCD0C02F2C834F00D91F91 /* OrbitDock.app */;
@@ -196,6 +334,17 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					800E7CB52F46B778007CADF5 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					800E7CC12F46B778007CADF5 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 800E7CB52F46B778007CADF5;
+					};
+					800E7CCB2F46B778007CADF5 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 800E7CB52F46B778007CADF5;
+					};
 					80BCD0BF2F2C834F00D91F91 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -219,9 +368,9 @@
 			mainGroup = 80BCD0B72F2C834F00D91F91;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 				80BCD8482F3058A100D91F91 /* XCLocalSwiftPackageReference "OrbitDockCore" */,
 				80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */,
+				800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 80BCD0C12F2C834F00D91F91 /* Products */;
@@ -231,11 +380,35 @@
 				80BCD0BF2F2C834F00D91F91 /* OrbitDock */,
 				80BCD0CC2F2C834F00D91F91 /* OrbitDockTests */,
 				80BCD0D62F2C834F00D91F91 /* OrbitDockUITests */,
+				800E7CB52F46B778007CADF5 /* OrbitDock iOS */,
+				800E7CC12F46B778007CADF5 /* OrbitDock iOSTests */,
+				800E7CCB2F46B778007CADF5 /* OrbitDock iOSUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		800E7CB42F46B778007CADF5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		800E7CC02F46B778007CADF5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		800E7CCA2F46B778007CADF5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		80BCD0BE2F2C834F00D91F91 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -260,7 +433,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		80BCD8502F30590000D91F91 /* Build & Embed CLI */ = {
+		80BCD8502F30590000D91F91 /* Install Hook Script */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -270,11 +443,10 @@
 			);
 			inputPaths = (
 			);
-			name = "Build & Embed CLI";
+			name = "Install Hook Script";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/MacOS/orbitdock-server",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
@@ -283,6 +455,27 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		800E7CB22F46B778007CADF5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		800E7CBE2F46B778007CADF5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		800E7CC82F46B778007CADF5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		80BCD0BC2F2C834F00D91F91 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -307,6 +500,16 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		800E7CC42F46B778007CADF5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 800E7CB52F46B778007CADF5 /* OrbitDock iOS */;
+			targetProxy = 800E7CC32F46B778007CADF5 /* PBXContainerItemProxy */;
+		};
+		800E7CCE2F46B778007CADF5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 800E7CB52F46B778007CADF5 /* OrbitDock iOS */;
+			targetProxy = 800E7CCD2F46B778007CADF5 /* PBXContainerItemProxy */;
+		};
 		80BCD0CF2F2C834F00D91F91 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 80BCD0BF2F2C834F00D91F91 /* OrbitDock */;
@@ -320,6 +523,175 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		800E7CD52F46B778007CADF5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8KA99UGE8N;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		800E7CD62F46B778007CADF5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8KA99UGE8N;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = OrbitDock;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOS";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		800E7CD82F46B778007CADF5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8KA99UGE8N;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OrbitDock iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OrbitDock iOS";
+			};
+			name = Debug;
+		};
+		800E7CD92F46B778007CADF5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8KA99UGE8N;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOSTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OrbitDock iOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OrbitDock iOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		800E7CDB2F46B778007CADF5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8KA99UGE8N;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "OrbitDock iOS";
+			};
+			name = Debug;
+		};
+		800E7CDC2F46B778007CADF5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 8KA99UGE8N;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.stubborn-mule-software.OrbitDock-iOSUITests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = "OrbitDock iOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		80BCD0DF2F2C834F00D91F91 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -601,6 +973,33 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		800E7CD42F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				800E7CD52F46B778007CADF5 /* Debug */,
+				800E7CD62F46B778007CADF5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		800E7CD72F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				800E7CD82F46B778007CADF5 /* Debug */,
+				800E7CD92F46B778007CADF5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		800E7CDA2F46B778007CADF5 /* Build configuration list for PBXNativeTarget "OrbitDock iOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				800E7CDB2F46B778007CADF5 /* Debug */,
+				800E7CDC2F46B778007CADF5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		80BCD0BB2F2C834F00D91F91 /* Build configuration list for PBXProject "OrbitDock" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -647,12 +1046,12 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+		800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			repositoryURL = "https://github.com/swiftlang/swift-markdown";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.4.1;
+				minimumVersion = 0.7.3;
 			};
 		};
 		80BCDA922F3113B700D91F91 /* XCRemoteSwiftPackageReference "cli" */ = {
@@ -666,10 +1065,15 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		80BCD0FF2F2C900000D91F91 /* MarkdownUI */ = {
+		800E82322F492F37007CADF5 /* Markdown */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 80BCD0FE2F2C900000D91F91 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
+			package = 800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
+		};
+		800E82342F492F38007CADF5 /* Markdown */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 800E82312F492F37007CADF5 /* XCRemoteSwiftPackageReference "swift-markdown" */;
+			productName = Markdown;
 		};
 		80BCDA932F3113B700D91F91 /* Vizzly */ = {
 			isa = XCSwiftPackageProductDependency;

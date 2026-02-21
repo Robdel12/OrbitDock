@@ -2048,13 +2048,18 @@ struct ReviewCanvas: View {
       : projectPath + "/" + file.newPath
 
     guard !preferredEditor.isEmpty else {
-      NSWorkspace.shared.open(URL(fileURLWithPath: fullPath))
+      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
       return
     }
 
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = [preferredEditor, fullPath]
-    try? process.run()
+    #if !os(macOS)
+      _ = Platform.services.openURL(URL(fileURLWithPath: fullPath))
+      return
+    #else
+      let process = Process()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+      process.arguments = [preferredEditor, fullPath]
+      try? process.run()
+    #endif
   }
 }
