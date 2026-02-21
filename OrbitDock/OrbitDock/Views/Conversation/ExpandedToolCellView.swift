@@ -57,19 +57,12 @@ enum ExpandedToolLayout {
   static let diffLineHeight: CGFloat = 22
   static let sectionHeaderHeight: CGFloat = 24
   static let sectionPadding: CGFloat = 10
-  static let truncationFooterHeight: CGFloat = 26
   static let contentTopPad: CGFloat = 6
   static let bottomPadding: CGFloat = 10
 
-  // Max display lines per type
-  static let bashMaxLines = 12
-  static let editMaxLines = 24
-  static let readMaxLines = 30
-  static let globMaxDirs = 5
-  static let globMaxFilesPerDir = 8
-  static let grepMaxFiles = 5
-  static let grepMaxMatchesPerFile = 5
-  static let genericMaxLines = 12
+  // Diff content starts at x=96, ends at width-14
+  static let diffContentX: CGFloat = 96
+  static let diffContentTrailingPad: CGFloat = 14
 
   // Card colors
   static let bgColor = PlatformColor.calibrated(red: 0.06, green: 0.06, blue: 0.08, alpha: 0.85)
@@ -89,6 +82,7 @@ enum ExpandedToolLayout {
 
   // Fonts
   static let codeFont = PlatformFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+  static let diffContentFont = PlatformFont.monospacedSystemFont(ofSize: 12, weight: .regular)
   static let headerFont = PlatformFont.systemFont(ofSize: 13, weight: .semibold)
   static let subtitleFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .regular)
   static let lineNumFont = PlatformFont.monospacedSystemFont(ofSize: 10, weight: .medium)
@@ -139,7 +133,7 @@ enum ExpandedToolLayout {
   static func contentHeight(for model: NativeExpandedToolModel, cardWidth: CGFloat = 0) -> CGFloat {
     switch model.content {
       case let .bash(_, output):
-        return textOutputHeight(output: output, maxLines: bashMaxLines, cardWidth: cardWidth)
+        return textOutputHeight(output: output, cardWidth: cardWidth)
       case let .edit(_, _, _, _, lines, isWriteNew):
         let writeHeaderH: CGFloat = isWriteNew ? 28 : 0
         return writeHeaderH + CGFloat(lines.count) * diffLineHeight
@@ -150,13 +144,13 @@ enum ExpandedToolLayout {
       case let .grep(_, grouped):
         return grepHeight(grouped: grouped, cardWidth: cardWidth)
       case let .task(_, _, _, output, _):
-        return textOutputHeight(output: output, maxLines: genericMaxLines, cardWidth: cardWidth)
+        return textOutputHeight(output: output, cardWidth: cardWidth)
       case let .mcp(_, _, _, output):
-        return textOutputHeight(output: output, maxLines: genericMaxLines, cardWidth: cardWidth)
+        return textOutputHeight(output: output, cardWidth: cardWidth)
       case let .webFetch(_, _, output):
-        return textOutputHeight(output: output, maxLines: genericMaxLines, cardWidth: cardWidth)
+        return textOutputHeight(output: output, cardWidth: cardWidth)
       case let .webSearch(_, output):
-        return textOutputHeight(output: output, maxLines: genericMaxLines, cardWidth: cardWidth)
+        return textOutputHeight(output: output, cardWidth: cardWidth)
       case let .generic(_, input, output):
         return genericHeight(input: input, output: output, cardWidth: cardWidth)
     }
@@ -169,55 +163,36 @@ enum ExpandedToolLayout {
     return h + c + (c > 0 ? bottomPadding : 0)
   }
 
-  static func textOutputHeight(output: String?, maxLines: Int, cardWidth: CGFloat = 0) -> CGFloat {
+  static func textOutputHeight(output: String?, cardWidth: CGFloat = 0) -> CGFloat {
     guard let output, !output.isEmpty else { return 0 }
     let lines = output.components(separatedBy: "\n")
-    let displayLines = Array(lines.prefix(maxLines))
-    let truncH: CGFloat = lines.count > maxLines ? truncationFooterHeight : 0
     let textWidth = contentTextWidth(cardWidth: cardWidth)
 
     var h: CGFloat = sectionPadding + contentTopPad
     if textWidth > 0 {
-      for line in displayLines {
+      for line in lines {
         let text = line.isEmpty ? " " : line
         h += measuredTextHeight(text, font: codeFont, maxWidth: textWidth)
       }
     } else {
-      h += CGFloat(displayLines.count) * contentLineHeight
+      h += CGFloat(lines.count) * contentLineHeight
     }
-    h += truncH + sectionPadding
+    h += sectionPadding
     return h
   }
 
-  static func readHeight(lines: [String], cardWidth: CGFloat) -> CGFloat {
-    let displayLines = Array(lines.prefix(readMaxLines))
-    let truncH: CGFloat = lines.count > readMaxLines ? truncationFooterHeight : 0
-    let maxLineNumWidth = CGFloat("\(lines.count)".count) * 8 + 10
-    let codeX = maxLineNumWidth + 12
-    let textWidth = cardWidth - codeX - headerHPad
-
-    var h: CGFloat = sectionPadding + contentTopPad
-    if textWidth > 0 {
-      for line in displayLines {
-        let text = line.isEmpty ? " " : line
-        h += measuredTextHeight(text, font: codeFont, maxWidth: textWidth)
-      }
-    } else {
-      h += CGFloat(displayLines.count) * contentLineHeight
-    }
-    h += truncH + sectionPadding
-    return h
+  static func readHeight(lines: [String], cardWidth _: CGFloat) -> CGFloat {
+    sectionPadding + contentTopPad + CGFloat(lines.count) * contentLineHeight + sectionPadding
   }
 
   static func globHeight(grouped: [(dir: String, files: [String])], cardWidth: CGFloat = 0) -> CGFloat {
-    let displayDirs = Array(grouped.prefix(globMaxDirs))
     let textWidth = contentTextWidth(cardWidth: cardWidth)
     let fileTextWidth = textWidth > 0 ? textWidth - 28 : 0
     let dirFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
     let fileFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .regular)
 
     var h: CGFloat = sectionPadding + contentTopPad
-    for (dir, files) in displayDirs {
+    for (dir, files) in grouped {
       let dirText = "\(dir == "." ? "(root)" : dir) (\(files.count))"
       if textWidth > 0 {
         h += measuredTextHeight(dirText, font: dirFont, maxWidth: textWidth - 18)
@@ -225,8 +200,7 @@ enum ExpandedToolLayout {
         h += 20
       }
 
-      let displayFiles = Array(files.prefix(globMaxFilesPerDir))
-      for file in displayFiles {
+      for file in files {
         let filename = file.components(separatedBy: "/").last ?? file
         if fileTextWidth > 0 {
           h += measuredTextHeight(filename, font: fileFont, maxWidth: fileTextWidth)
@@ -234,42 +208,36 @@ enum ExpandedToolLayout {
           h += contentLineHeight
         }
       }
-      if files.count > globMaxFilesPerDir { h += 16 }
       h += 6
     }
-    if grouped.count > globMaxDirs { h += 20 }
     return h
   }
 
   static func grepHeight(grouped: [(file: String, matches: [String])], cardWidth: CGFloat = 0) -> CGFloat {
-    let displayFiles = Array(grouped.prefix(grepMaxFiles))
     let textWidth = contentTextWidth(cardWidth: cardWidth)
     let matchTextWidth = textWidth > 0 ? textWidth - 16 : 0
     let fileFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .medium)
 
     var h: CGFloat = sectionPadding + contentTopPad
-    for (file, matches) in displayFiles {
+    for (file, matches) in grouped {
       let shortPath = file.components(separatedBy: "/").suffix(3).joined(separator: "/")
       let matchSuffix = matches.isEmpty ? "" : " (\(matches.count))"
       if textWidth > 0 {
         h += measuredTextHeight(shortPath + matchSuffix, font: fileFont, maxWidth: textWidth)
-        h += 2 // gap after file header
+        h += 2
       } else {
         h += 20
       }
 
-      let displayMatches = Array(matches.prefix(grepMaxMatchesPerFile))
-      for match in displayMatches {
+      for match in matches {
         if matchTextWidth > 0 {
           h += measuredTextHeight(match, font: codeFont, maxWidth: matchTextWidth)
         } else {
           h += contentLineHeight
         }
       }
-      if matches.count > grepMaxMatchesPerFile { h += 16 }
       h += 6
     }
-    if grouped.count > grepMaxFiles { h += 20 }
     return h
   }
 
@@ -279,31 +247,28 @@ enum ExpandedToolLayout {
 
     if let input, !input.isEmpty {
       let inputLines = input.components(separatedBy: "\n")
-      let displayLines = Array(inputLines.prefix(genericMaxLines))
       h += sectionPadding + sectionHeaderHeight
       if textWidth > 0 {
-        for line in displayLines {
+        for line in inputLines {
           h += measuredTextHeight(line.isEmpty ? " " : line, font: codeFont, maxWidth: textWidth)
         }
       } else {
-        h += CGFloat(displayLines.count) * contentLineHeight
+        h += CGFloat(inputLines.count) * contentLineHeight
       }
       h += sectionPadding
     }
 
     if let output, !output.isEmpty {
       let outputLines = output.components(separatedBy: "\n")
-      let displayLines = Array(outputLines.prefix(genericMaxLines))
-      let truncH: CGFloat = outputLines.count > genericMaxLines ? truncationFooterHeight : 0
       h += sectionPadding + sectionHeaderHeight
       if textWidth > 0 {
-        for line in displayLines {
+        for line in outputLines {
           h += measuredTextHeight(line.isEmpty ? " " : line, font: codeFont, maxWidth: textWidth)
         }
       } else {
-        h += CGFloat(displayLines.count) * contentLineHeight
+        h += CGFloat(outputLines.count) * contentLineHeight
       }
-      h += truncH + sectionPadding
+      h += sectionPadding
     }
     return h
   }
@@ -345,18 +310,10 @@ enum ExpandedToolLayout {
     private static let diffLineHeight = ExpandedToolLayout.diffLineHeight
     private static let sectionHeaderHeight = ExpandedToolLayout.sectionHeaderHeight
     private static let sectionPadding = ExpandedToolLayout.sectionPadding
-    private static let truncationFooterHeight = ExpandedToolLayout.truncationFooterHeight
     private static let contentTopPad = ExpandedToolLayout.contentTopPad
     private static let bottomPadding = ExpandedToolLayout.bottomPadding
 
-    private static let bashMaxLines = ExpandedToolLayout.bashMaxLines
-    // editMaxLines removed — show full diff
-    private static let readMaxLines = ExpandedToolLayout.readMaxLines
-    private static let globMaxDirs = ExpandedToolLayout.globMaxDirs
-    private static let globMaxFilesPerDir = ExpandedToolLayout.globMaxFilesPerDir
-    private static let grepMaxFiles = ExpandedToolLayout.grepMaxFiles
-    private static let grepMaxMatchesPerFile = ExpandedToolLayout.grepMaxMatchesPerFile
-    private static let genericMaxLines = ExpandedToolLayout.genericMaxLines
+    // No line count limits — show full content for all tool types
 
     // Card colors — opaque dark surface with subtle depth
     private static let bgColor = NSColor(calibratedRed: 0.06, green: 0.06, blue: 0.08, alpha: 0.85)
@@ -791,7 +748,7 @@ enum ExpandedToolLayout {
     private func buildContent(model: NativeExpandedToolModel, width: CGFloat) {
       switch model.content {
         case let .bash(_, output):
-          buildTextOutputContent(output: output, maxLines: Self.bashMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .edit(_, _, _, _, lines, isWriteNew):
           buildEditContent(lines: lines, isWriteNew: isWriteNew, width: width)
         case let .read(_, _, language, lines):
@@ -801,13 +758,13 @@ enum ExpandedToolLayout {
         case let .grep(_, grouped):
           buildGrepContent(grouped: grouped, width: width)
         case let .task(_, _, _, output, _):
-          buildTextOutputContent(output: output, maxLines: Self.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .mcp(_, _, _, output):
-          buildTextOutputContent(output: output, maxLines: Self.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .webFetch(_, _, output):
-          buildTextOutputContent(output: output, maxLines: Self.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .webSearch(_, output):
-          buildTextOutputContent(output: output, maxLines: Self.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .generic(_, input, output):
           buildGenericContent(input: input, output: output, width: width)
       }
@@ -815,16 +772,14 @@ enum ExpandedToolLayout {
 
     // ── Text Output (bash, mcp, webfetch, websearch, task) ──
 
-    private func buildTextOutputContent(output: String?, maxLines: Int, width: CGFloat) {
+    private func buildTextOutputContent(output: String?, width: CGFloat) {
       guard let output, !output.isEmpty else { return }
 
       let lines = output.components(separatedBy: "\n")
-      let displayLines = Array(lines.prefix(maxLines))
-      let truncated = lines.count > maxLines
       let textWidth = width - Self.headerHPad * 2
       var y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
-      for line in displayLines {
+      for line in lines {
         let text = line.isEmpty ? " " : line
         let label = NSTextField(labelWithString: text)
         label.font = Self.codeFont
@@ -836,14 +791,6 @@ enum ExpandedToolLayout {
         label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: labelH)
         contentContainer.addSubview(label)
         y += labelH
-      }
-
-      if truncated {
-        let footer = NSTextField(labelWithString: "... +\(lines.count - maxLines) more lines")
-        footer.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        footer.textColor = Self.textQuaternary
-        footer.frame = NSRect(x: Self.headerHPad, y: y + 4, width: textWidth, height: 16)
-        contentContainer.addSubview(footer)
       }
     }
 
@@ -867,6 +814,35 @@ enum ExpandedToolLayout {
         y += 28
       }
 
+      let codeX = ExpandedToolLayout.diffContentX
+      let codeAvailW = width - codeX - ExpandedToolLayout.diffContentTrailingPad
+      let diffFont = ExpandedToolLayout.diffContentFont
+
+      // Measure widest line for scroll content
+      var maxTextWidth: CGFloat = 0
+      for line in lines {
+        let text = line.content.isEmpty ? " " : line.content
+        let w = ceil((text as NSString).size(withAttributes: [.font: diffFont as Any]).width)
+        maxTextWidth = max(maxTextWidth, w)
+      }
+      let scrollContentW = max(codeAvailW, maxTextWidth + 8)
+
+      // Horizontal scroll view for code content
+      let totalDiffH = CGFloat(lines.count) * Self.diffLineHeight
+      let scrollView = NSScrollView()
+      scrollView.hasHorizontalScroller = true
+      scrollView.hasVerticalScroller = false
+      scrollView.autohidesScrollers = true
+      scrollView.scrollerStyle = .overlay
+      scrollView.drawsBackground = false
+      scrollView.borderType = .noBorder
+      scrollView.frame = NSRect(x: codeX, y: y, width: codeAvailW, height: totalDiffH)
+
+      let docView = FlippedContentView()
+      docView.frame = NSRect(x: 0, y: 0, width: scrollContentW, height: totalDiffH)
+      scrollView.documentView = docView
+
+      var rowY: CGFloat = 0
       for line in lines {
         let bgColor: NSColor
         let prefixColor: NSColor
@@ -886,106 +862,120 @@ enum ExpandedToolLayout {
             contentColor = Self.textTertiary
         }
 
-        // Row background
-        let rowBg = NSView(frame: NSRect(x: 0, y: y, width: width, height: Self.diffLineHeight))
+        // Row background (full card width, in contentContainer)
+        let rowBg = NSView(frame: NSRect(x: 0, y: y + rowY, width: width, height: Self.diffLineHeight))
         rowBg.wantsLayer = true
         rowBg.layer?.backgroundColor = bgColor.cgColor
         contentContainer.addSubview(rowBg)
 
-        // Old line number
+        // Line numbers (in contentContainer — stay fixed)
         if let num = line.oldLineNum {
           let numLabel = NSTextField(labelWithString: "\(num)")
           numLabel.font = Self.lineNumFont
           numLabel.textColor = Self.textQuaternary
           numLabel.alignment = .right
-          numLabel.frame = NSRect(x: 4, y: y + 2, width: 32, height: 18)
+          numLabel.frame = NSRect(x: 4, y: y + rowY + 2, width: 32, height: 18)
           contentContainer.addSubview(numLabel)
         }
-
-        // New line number
         if let num = line.newLineNum {
           let numLabel = NSTextField(labelWithString: "\(num)")
           numLabel.font = Self.lineNumFont
           numLabel.textColor = Self.textQuaternary
           numLabel.alignment = .right
-          numLabel.frame = NSRect(x: 40, y: y + 2, width: 32, height: 18)
+          numLabel.frame = NSRect(x: 40, y: y + rowY + 2, width: 32, height: 18)
           contentContainer.addSubview(numLabel)
         }
 
-        // Prefix (+/-/space)
+        // Prefix (in contentContainer — stays fixed)
         let prefixLabel = NSTextField(labelWithString: line.prefix)
         prefixLabel.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
         prefixLabel.textColor = prefixColor
-        prefixLabel.frame = NSRect(x: 78, y: y + 1, width: 16, height: 20)
+        prefixLabel.frame = NSRect(x: 78, y: y + rowY + 1, width: 16, height: 20)
         contentContainer.addSubview(prefixLabel)
 
-        // Content
-        let contentLabel = NSTextField(labelWithString: line.content.isEmpty ? " " : line.content)
-        contentLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        // Code content (in scroll view — scrolls horizontally)
+        let text = line.content.isEmpty ? " " : line.content
+        let contentLabel = NSTextField(labelWithString: text)
+        contentLabel.font = diffFont
         contentLabel.textColor = contentColor
-        contentLabel.lineBreakMode = .byTruncatingTail
+        contentLabel.lineBreakMode = .byClipping
         contentLabel.maximumNumberOfLines = 1
         contentLabel.isSelectable = true
-        contentLabel.frame = NSRect(x: 96, y: y + 2, width: width - 110, height: 18)
-        contentContainer.addSubview(contentLabel)
+        contentLabel.frame = NSRect(x: 0, y: rowY + 2, width: scrollContentW, height: 18)
+        docView.addSubview(contentLabel)
 
-        y += Self.diffLineHeight
+        rowY += Self.diffLineHeight
       }
+
+      contentContainer.addSubview(scrollView)
     }
 
     // ── Read (line-numbered code) ──
 
     private func buildReadContent(lines: [String], language: String, width: CGFloat) {
-      let displayLines = Array(lines.prefix(Self.readMaxLines))
-      let truncated = lines.count > Self.readMaxLines
       let maxLineNumWidth = CGFloat("\(lines.count)".count) * 8 + 10
       let codeX = maxLineNumWidth + 12
-      let codeWidth = width - codeX - Self.headerHPad
-      var y: CGFloat = Self.sectionPadding + Self.contentTopPad
+      let codeAvailW = width - codeX - Self.headerHPad
+      let lang = language.isEmpty ? nil : language
+      let y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
-      for (index, line) in displayLines.enumerated() {
+      // Measure widest line for scroll content
+      var maxTextWidth: CGFloat = 0
+      for line in lines {
         let text = line.isEmpty ? " " : line
-        let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: codeWidth)
+        let w = ceil((text as NSString).size(withAttributes: [.font: Self.codeFont as Any]).width)
+        maxTextWidth = max(maxTextWidth, w)
+      }
+      let scrollContentW = max(codeAvailW, maxTextWidth + 8)
 
-        // Line number
+      // Horizontal scroll view for code content
+      let totalH = CGFloat(lines.count) * Self.contentLineHeight
+      let scrollView = NSScrollView()
+      scrollView.hasHorizontalScroller = true
+      scrollView.hasVerticalScroller = false
+      scrollView.autohidesScrollers = true
+      scrollView.scrollerStyle = .overlay
+      scrollView.drawsBackground = false
+      scrollView.borderType = .noBorder
+      scrollView.frame = NSRect(x: codeX, y: y, width: codeAvailW, height: totalH)
+
+      let docView = FlippedContentView()
+      docView.frame = NSRect(x: 0, y: 0, width: scrollContentW, height: totalH)
+      scrollView.documentView = docView
+
+      var rowY: CGFloat = 0
+      for (index, line) in lines.enumerated() {
+        let text = line.isEmpty ? " " : line
+
+        // Line number (in contentContainer — stays fixed)
         let numLabel = NSTextField(labelWithString: "\(index + 1)")
         numLabel.font = Self.lineNumFont
         numLabel.textColor = Self.textQuaternary
         numLabel.alignment = .right
-        numLabel.frame = NSRect(x: 4, y: y, width: maxLineNumWidth, height: lineH)
+        numLabel.frame = NSRect(x: 4, y: y + rowY, width: maxLineNumWidth, height: Self.contentLineHeight)
         contentContainer.addSubview(numLabel)
 
-        // Code line
+        // Code line (in scroll view — scrolls horizontally)
         let codeLine = NSTextField(labelWithString: "")
-        let lang = language.isEmpty ? nil : language
         codeLine.attributedStringValue = NativeSyntaxHighlighter.highlightLine(text, language: lang)
-        codeLine.lineBreakMode = .byCharWrapping
-        codeLine.maximumNumberOfLines = 0
+        codeLine.lineBreakMode = .byClipping
+        codeLine.maximumNumberOfLines = 1
         codeLine.isSelectable = true
-        codeLine.frame = NSRect(x: codeX, y: y, width: codeWidth, height: lineH)
-        contentContainer.addSubview(codeLine)
+        codeLine.frame = NSRect(x: 0, y: rowY, width: scrollContentW, height: Self.contentLineHeight)
+        docView.addSubview(codeLine)
 
-        y += lineH
+        rowY += Self.contentLineHeight
       }
 
-      if truncated {
-        y += 4
-        let footer = NSTextField(labelWithString: "... +\(lines.count - Self.readMaxLines) more lines")
-        footer.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        footer.textColor = Self.textQuaternary
-        footer.frame = NSRect(x: Self.headerHPad, y: y, width: width - Self.headerHPad * 2, height: 16)
-        contentContainer.addSubview(footer)
-      }
+      contentContainer.addSubview(scrollView)
     }
 
     // ── Glob (directory tree) ──
 
     private func buildGlobContent(grouped: [(dir: String, files: [String])], width: CGFloat) {
-      let displayDirs = Array(grouped.prefix(Self.globMaxDirs))
-      let truncated = grouped.count > Self.globMaxDirs
       var y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
-      for (dir, files) in displayDirs {
+      for (dir, files) in grouped {
         // Directory header
         let dirIcon = NSImageView()
         let iconConfig = NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
@@ -1008,8 +998,7 @@ enum ExpandedToolLayout {
         y += dirH + 2
 
         // Files
-        let displayFiles = Array(files.prefix(Self.globMaxFilesPerDir))
-        for file in displayFiles {
+        for file in files {
           let filename = file.components(separatedBy: "/").last ?? file
           let fileLabel = NSTextField(labelWithString: filename)
           fileLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -1026,35 +1015,16 @@ enum ExpandedToolLayout {
           y += fileH
         }
 
-        if files.count > Self.globMaxFilesPerDir {
-          let more = NSTextField(labelWithString: "... +\(files.count - Self.globMaxFilesPerDir) more")
-          more.font = NSFont.systemFont(ofSize: 10, weight: .regular)
-          more.textColor = Self.textQuaternary
-          more.frame = NSRect(x: Self.headerHPad + 28, y: y, width: width - Self.headerHPad * 2 - 28, height: 14)
-          contentContainer.addSubview(more)
-          y += 16
-        }
-
-        y += 6 // gap between dirs
-      }
-
-      if truncated {
-        let footer = NSTextField(labelWithString: "... +\(grouped.count - Self.globMaxDirs) more directories")
-        footer.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        footer.textColor = Self.textQuaternary
-        footer.frame = NSRect(x: Self.headerHPad, y: y, width: width - Self.headerHPad * 2, height: 16)
-        contentContainer.addSubview(footer)
+        y += 6
       }
     }
 
     // ── Grep (file-grouped results) ──
 
     private func buildGrepContent(grouped: [(file: String, matches: [String])], width: CGFloat) {
-      let displayFiles = Array(grouped.prefix(Self.grepMaxFiles))
-      let truncated = grouped.count > Self.grepMaxFiles
       var y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
-      for (file, matches) in displayFiles {
+      for (file, matches) in grouped {
         // File header
         let shortPath = file.components(separatedBy: "/").suffix(3).joined(separator: "/")
         let matchSuffix = matches.isEmpty ? "" : " (\(matches.count))"
@@ -1071,8 +1041,7 @@ enum ExpandedToolLayout {
         y += fileLabelH + 2
 
         // Match lines
-        let displayMatches = Array(matches.prefix(Self.grepMaxMatchesPerFile))
-        for match in displayMatches {
+        for match in matches {
           let matchLabel = NSTextField(labelWithString: match)
           matchLabel.font = Self.codeFont
           matchLabel.textColor = Self.textTertiary
@@ -1088,24 +1057,7 @@ enum ExpandedToolLayout {
           y += matchH
         }
 
-        if matches.count > Self.grepMaxMatchesPerFile {
-          let more = NSTextField(labelWithString: "... +\(matches.count - Self.grepMaxMatchesPerFile) more")
-          more.font = NSFont.systemFont(ofSize: 10, weight: .regular)
-          more.textColor = Self.textQuaternary
-          more.frame = NSRect(x: Self.headerHPad + 16, y: y, width: width - Self.headerHPad * 2 - 16, height: 14)
-          contentContainer.addSubview(more)
-          y += 16
-        }
-
         y += 6
-      }
-
-      if truncated {
-        let footer = NSTextField(labelWithString: "... +\(grouped.count - Self.grepMaxFiles) more files")
-        footer.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        footer.textColor = Self.textQuaternary
-        footer.frame = NSRect(x: Self.headerHPad, y: y, width: width - Self.headerHPad * 2, height: 16)
-        contentContainer.addSubview(footer)
       }
     }
 
@@ -1130,9 +1082,8 @@ enum ExpandedToolLayout {
         y += Self.sectionHeaderHeight + Self.sectionPadding
 
         let inputLines = input.components(separatedBy: "\n")
-        let displayLines = Array(inputLines.prefix(Self.genericMaxLines))
         let textW = width - Self.headerHPad * 2
-        for line in displayLines {
+        for line in inputLines {
           let text = line.isEmpty ? " " : line
           let label = NSTextField(labelWithString: text)
           label.font = Self.codeFont
@@ -1167,9 +1118,8 @@ enum ExpandedToolLayout {
         y += Self.sectionHeaderHeight + Self.sectionPadding
 
         let outputLines = output.components(separatedBy: "\n")
-        let displayLines = Array(outputLines.prefix(Self.genericMaxLines))
         let outTextW = width - Self.headerHPad * 2
-        for line in displayLines {
+        for line in outputLines {
           let text = line.isEmpty ? " " : line
           let label = NSTextField(labelWithString: text)
           label.font = Self.codeFont
@@ -1186,15 +1136,6 @@ enum ExpandedToolLayout {
           )
           contentContainer.addSubview(label)
           y += lineH
-        }
-
-        if outputLines.count > Self.genericMaxLines {
-          let footer = NSTextField(labelWithString: "... +\(outputLines.count - Self.genericMaxLines) more lines")
-          footer.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-          footer.textColor = Self.textQuaternary
-          footer.frame = NSRect(x: Self.headerHPad, y: y + 4, width: width - Self.headerHPad * 2, height: 16)
-          contentContainer.addSubview(footer)
-          y += Self.truncationFooterHeight
         }
 
         y += Self.sectionPadding

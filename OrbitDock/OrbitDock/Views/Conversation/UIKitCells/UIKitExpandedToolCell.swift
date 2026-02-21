@@ -403,7 +403,7 @@
     private func buildContent(model: NativeExpandedToolModel, width: CGFloat) {
       switch model.content {
         case let .bash(_, output):
-          buildTextOutputContent(output: output, maxLines: EL.bashMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .edit(_, _, _, _, lines, isWriteNew):
           buildEditContent(lines: lines, isWriteNew: isWriteNew, width: width)
         case let .read(_, _, language, lines):
@@ -413,13 +413,13 @@
         case let .grep(_, grouped):
           buildGrepContent(grouped: grouped, width: width)
         case let .task(_, _, _, output, _):
-          buildTextOutputContent(output: output, maxLines: EL.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .mcp(_, _, _, output):
-          buildTextOutputContent(output: output, maxLines: EL.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .webFetch(_, _, output):
-          buildTextOutputContent(output: output, maxLines: EL.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .webSearch(_, output):
-          buildTextOutputContent(output: output, maxLines: EL.genericMaxLines, width: width)
+          buildTextOutputContent(output: output, width: width)
         case let .generic(_, input, output):
           buildGenericContent(input: input, output: output, width: width)
       }
@@ -427,30 +427,20 @@
 
     // ── Text Output (bash, mcp, webfetch, websearch, task) ──
 
-    private func buildTextOutputContent(output: String?, maxLines: Int, width: CGFloat) {
+    private func buildTextOutputContent(output: String?, width: CGFloat) {
       guard let output, !output.isEmpty else { return }
 
       let lines = output.components(separatedBy: "\n")
-      let displayLines = Array(lines.prefix(maxLines))
-      let truncated = lines.count > maxLines
       let textWidth = width - EL.headerHPad * 2
       var y: CGFloat = EL.sectionPadding + EL.contentTopPad
 
-      for line in displayLines {
+      for line in lines {
         let text = line.isEmpty ? " " : line
         let label = makeCodeLabel(text, color: EL.textSecondary)
-        label.numberOfLines = 0
-        label.lineBreakMode = .byCharWrapping
         let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
         label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
         contentContainer.addSubview(label)
         y += labelH
-      }
-
-      if truncated {
-        let footer = makeFooterLabel("... +\(lines.count - maxLines) more lines")
-        footer.frame = CGRect(x: EL.headerHPad, y: y + 4, width: textWidth, height: 16)
-        contentContainer.addSubview(footer)
       }
     }
 
@@ -473,6 +463,29 @@
         y += 28
       }
 
+      let codeX = EL.diffContentX
+      let codeAvailW = width - codeX - EL.diffContentTrailingPad
+      let diffFont = EL.diffContentFont
+
+      // Measure widest line for scroll content
+      var maxTextWidth: CGFloat = 0
+      for line in lines {
+        let text = line.content.isEmpty ? " " : line.content
+        let w = ceil((text as NSString).size(withAttributes: [.font: diffFont as Any]).width)
+        maxTextWidth = max(maxTextWidth, w)
+      }
+      let scrollContentW = max(codeAvailW, maxTextWidth + 8)
+
+      // Horizontal scroll view for code content
+      let totalDiffH = CGFloat(lines.count) * EL.diffLineHeight
+      let scrollView = UIScrollView()
+      scrollView.showsHorizontalScrollIndicator = true
+      scrollView.showsVerticalScrollIndicator = false
+      scrollView.backgroundColor = .clear
+      scrollView.frame = CGRect(x: codeX, y: y, width: codeAvailW, height: totalDiffH)
+      scrollView.contentSize = CGSize(width: scrollContentW, height: totalDiffH)
+
+      var rowY: CGFloat = 0
       for line in lines {
         let bgColor: UIColor
         let prefixColor: UIColor
@@ -492,91 +505,110 @@
             contentColor = EL.textTertiary
         }
 
-        let rowBg = UIView(frame: CGRect(x: 0, y: y, width: width, height: EL.diffLineHeight))
+        // Row background (full card width, in contentContainer)
+        let rowBg = UIView(frame: CGRect(x: 0, y: y + rowY, width: width, height: EL.diffLineHeight))
         rowBg.backgroundColor = bgColor
         contentContainer.addSubview(rowBg)
 
+        // Line numbers (in contentContainer — stay fixed)
         if let num = line.oldLineNum {
           let numLabel = makeLineNumLabel("\(num)")
           numLabel.textAlignment = .right
-          numLabel.frame = CGRect(x: 4, y: y + 2, width: 32, height: 18)
+          numLabel.frame = CGRect(x: 4, y: y + rowY + 2, width: 32, height: 18)
           contentContainer.addSubview(numLabel)
         }
-
         if let num = line.newLineNum {
           let numLabel = makeLineNumLabel("\(num)")
           numLabel.textAlignment = .right
-          numLabel.frame = CGRect(x: 40, y: y + 2, width: 32, height: 18)
+          numLabel.frame = CGRect(x: 40, y: y + rowY + 2, width: 32, height: 18)
           contentContainer.addSubview(numLabel)
         }
 
+        // Prefix (in contentContainer — stays fixed)
         let prefixLabel = UILabel()
         prefixLabel.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .bold)
         prefixLabel.textColor = prefixColor
         prefixLabel.text = line.prefix
-        prefixLabel.frame = CGRect(x: 78, y: y + 1, width: 16, height: 20)
+        prefixLabel.frame = CGRect(x: 78, y: y + rowY + 1, width: 16, height: 20)
         contentContainer.addSubview(prefixLabel)
 
-        let contentLabel = makeCodeLabel(
-          line.content.isEmpty ? " " : line.content,
-          color: contentColor,
-          fontSize: 12
-        )
-        contentLabel.frame = CGRect(x: 96, y: y + 2, width: width - 110, height: 18)
-        contentContainer.addSubview(contentLabel)
+        // Code content (in scroll view — scrolls horizontally)
+        let text = line.content.isEmpty ? " " : line.content
+        let contentLabel = UILabel()
+        contentLabel.font = diffFont
+        contentLabel.textColor = contentColor
+        contentLabel.text = text
+        contentLabel.lineBreakMode = .byClipping
+        contentLabel.numberOfLines = 1
+        contentLabel.frame = CGRect(x: 0, y: rowY + 2, width: scrollContentW, height: 18)
+        scrollView.addSubview(contentLabel)
 
-        y += EL.diffLineHeight
+        rowY += EL.diffLineHeight
       }
+
+      contentContainer.addSubview(scrollView)
     }
 
     // ── Read (line-numbered code) ──
 
     private func buildReadContent(lines: [String], language: String, width: CGFloat) {
-      let displayLines = Array(lines.prefix(EL.readMaxLines))
-      let truncated = lines.count > EL.readMaxLines
       let maxLineNumWidth = CGFloat("\(lines.count)".count) * 8 + 10
       let codeX = maxLineNumWidth + 12
-      let codeWidth = width - codeX - EL.headerHPad
-      var y: CGFloat = EL.sectionPadding + EL.contentTopPad
+      let codeAvailW = width - codeX - EL.headerHPad
+      let lang = language.isEmpty ? nil : language
+      let y: CGFloat = EL.sectionPadding + EL.contentTopPad
 
-      for (index, line) in displayLines.enumerated() {
+      // Measure widest line for scroll content
+      var maxTextWidth: CGFloat = 0
+      for line in lines {
         let text = line.isEmpty ? " " : line
-        let lineH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: codeWidth)
+        let w = ceil((text as NSString).size(withAttributes: [.font: EL.codeFont as Any]).width)
+        maxTextWidth = max(maxTextWidth, w)
+      }
+      let scrollContentW = max(codeAvailW, maxTextWidth + 8)
 
+      // Horizontal scroll view for code content
+      let totalH = CGFloat(lines.count) * EL.contentLineHeight
+      let scrollView = UIScrollView()
+      scrollView.showsHorizontalScrollIndicator = true
+      scrollView.showsVerticalScrollIndicator = false
+      scrollView.backgroundColor = .clear
+      scrollView.frame = CGRect(x: codeX, y: y, width: codeAvailW, height: totalH)
+      scrollView.contentSize = CGSize(width: scrollContentW, height: totalH)
+
+      var rowY: CGFloat = 0
+      for (index, line) in lines.enumerated() {
+        let text = line.isEmpty ? " " : line
+
+        // Line number (in contentContainer — stays fixed)
         let numLabel = makeLineNumLabel("\(index + 1)")
         numLabel.textAlignment = .right
-        numLabel.frame = CGRect(x: 4, y: y, width: maxLineNumWidth, height: lineH)
+        numLabel.frame = CGRect(x: 4, y: y + rowY, width: maxLineNumWidth, height: EL.contentLineHeight)
         contentContainer.addSubview(numLabel)
 
+        // Code line (in scroll view — scrolls horizontally)
         let codeLine = UILabel()
-        let lang = language.isEmpty ? nil : language
         codeLine.attributedText = NativeSyntaxHighlighter.highlightLine(text, language: lang)
-        codeLine.lineBreakMode = .byCharWrapping
-        codeLine.numberOfLines = 0
-        codeLine.frame = CGRect(x: codeX, y: y, width: codeWidth, height: lineH)
-        contentContainer.addSubview(codeLine)
+        codeLine.lineBreakMode = .byClipping
+        codeLine.numberOfLines = 1
+        codeLine.frame = CGRect(x: 0, y: rowY, width: scrollContentW, height: EL.contentLineHeight)
+        scrollView.addSubview(codeLine)
 
-        y += lineH
+        rowY += EL.contentLineHeight
       }
 
-      if truncated {
-        let footer = makeFooterLabel("... +\(lines.count - EL.readMaxLines) more lines")
-        footer.frame = CGRect(x: EL.headerHPad, y: y + 4, width: width - EL.headerHPad * 2, height: 16)
-        contentContainer.addSubview(footer)
-      }
+      contentContainer.addSubview(scrollView)
     }
 
     // ── Glob (directory tree) ──
 
     private func buildGlobContent(grouped: [(dir: String, files: [String])], width: CGFloat) {
-      let displayDirs = Array(grouped.prefix(EL.globMaxDirs))
-      let truncated = grouped.count > EL.globMaxDirs
       let textWidth = width - EL.headerHPad * 2
       let dirFont = UIFont.monospacedSystemFont(ofSize: 11, weight: .medium)
       let fileFont = UIFont.monospacedSystemFont(ofSize: 11, weight: .regular)
       var y: CGFloat = EL.sectionPadding + EL.contentTopPad
 
-      for (dir, files) in displayDirs {
+      for (dir, files) in grouped {
         let dirText = "\(dir == "." ? "(root)" : dir) (\(files.count))"
         let dirH = EL.measuredTextHeight(dirText, font: dirFont, maxWidth: textWidth - 18)
 
@@ -588,91 +620,53 @@
         contentContainer.addSubview(dirIcon)
 
         let dirLabel = makeCodeLabel(dirText, color: EL.textSecondary, fontSize: 11, weight: .medium)
-        dirLabel.numberOfLines = 0
-        dirLabel.lineBreakMode = .byCharWrapping
         dirLabel.frame = CGRect(x: EL.headerHPad + 18, y: y, width: textWidth - 18, height: dirH)
         contentContainer.addSubview(dirLabel)
         y += dirH + 2
 
-        let displayFiles = Array(files.prefix(EL.globMaxFilesPerDir))
         let fileX = EL.headerHPad + 28
         let fileW = textWidth - 28
-        for file in displayFiles {
+        for file in files {
           let filename = file.components(separatedBy: "/").last ?? file
           let fileH = EL.measuredTextHeight(filename, font: fileFont, maxWidth: fileW)
           let fileLabel = makeCodeLabel(filename, color: EL.textTertiary, fontSize: 11)
-          fileLabel.numberOfLines = 0
-          fileLabel.lineBreakMode = .byCharWrapping
           fileLabel.frame = CGRect(x: fileX, y: y, width: fileW, height: fileH)
           contentContainer.addSubview(fileLabel)
           y += fileH
         }
 
-        if files.count > EL.globMaxFilesPerDir {
-          let more = makeFooterLabel("... +\(files.count - EL.globMaxFilesPerDir) more")
-          more.frame = CGRect(x: EL.headerHPad + 28, y: y, width: fileW, height: 14)
-          contentContainer.addSubview(more)
-          y += 16
-        }
-
         y += 6
-      }
-
-      if truncated {
-        let footer = makeFooterLabel("... +\(grouped.count - EL.globMaxDirs) more directories")
-        footer.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: 16)
-        contentContainer.addSubview(footer)
       }
     }
 
     // ── Grep (file-grouped results) ──
 
     private func buildGrepContent(grouped: [(file: String, matches: [String])], width: CGFloat) {
-      let displayFiles = Array(grouped.prefix(EL.grepMaxFiles))
-      let truncated = grouped.count > EL.grepMaxFiles
       let textWidth = width - EL.headerHPad * 2
       let fileFont = UIFont.monospacedSystemFont(ofSize: 11, weight: .medium)
       var y: CGFloat = EL.sectionPadding + EL.contentTopPad
 
-      for (file, matches) in displayFiles {
+      for (file, matches) in grouped {
         let shortPath = file.components(separatedBy: "/").suffix(3).joined(separator: "/")
         let matchSuffix = matches.isEmpty ? "" : " (\(matches.count))"
         let fileText = shortPath + matchSuffix
         let fileH = EL.measuredTextHeight(fileText, font: fileFont, maxWidth: textWidth)
         let fileLabel = makeCodeLabel(fileText, color: EL.textPrimary, fontSize: 11, weight: .medium)
-        fileLabel.numberOfLines = 0
-        fileLabel.lineBreakMode = .byCharWrapping
         fileLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: fileH)
         contentContainer.addSubview(fileLabel)
         y += fileH + 2
 
-        let displayMatches = Array(matches.prefix(EL.grepMaxMatchesPerFile))
         let matchX = EL.headerHPad + 16
         let matchW = textWidth - 16
-        for match in displayMatches {
+        for match in matches {
           let matchH = EL.measuredTextHeight(match, font: EL.codeFont, maxWidth: matchW)
           let matchLabel = makeCodeLabel(match, color: EL.textTertiary)
-          matchLabel.numberOfLines = 0
-          matchLabel.lineBreakMode = .byCharWrapping
           matchLabel.frame = CGRect(x: matchX, y: y, width: matchW, height: matchH)
           contentContainer.addSubview(matchLabel)
           y += matchH
         }
 
-        if matches.count > EL.grepMaxMatchesPerFile {
-          let more = makeFooterLabel("... +\(matches.count - EL.grepMaxMatchesPerFile) more")
-          more.frame = CGRect(x: matchX, y: y, width: matchW, height: 14)
-          contentContainer.addSubview(more)
-          y += 16
-        }
-
         y += 6
-      }
-
-      if truncated {
-        let footer = makeFooterLabel("... +\(grouped.count - EL.grepMaxFiles) more files")
-        footer.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: 16)
-        contentContainer.addSubview(footer)
       }
     }
 
@@ -689,12 +683,9 @@
         y += EL.sectionHeaderHeight + EL.sectionPadding
 
         let inputLines = input.components(separatedBy: "\n")
-        let displayLines = Array(inputLines.prefix(EL.genericMaxLines))
-        for line in displayLines {
+        for line in inputLines {
           let text = line.isEmpty ? " " : line
           let label = makeCodeLabel(text, color: EL.textSecondary)
-          label.numberOfLines = 0
-          label.lineBreakMode = .byCharWrapping
           let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
           label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
           contentContainer.addSubview(label)
@@ -710,22 +701,13 @@
         y += EL.sectionHeaderHeight + EL.sectionPadding
 
         let outputLines = output.components(separatedBy: "\n")
-        let displayLines = Array(outputLines.prefix(EL.genericMaxLines))
-        for line in displayLines {
+        for line in outputLines {
           let text = line.isEmpty ? " " : line
           let label = makeCodeLabel(text, color: EL.textSecondary)
-          label.numberOfLines = 0
-          label.lineBreakMode = .byCharWrapping
           let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
           label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
           contentContainer.addSubview(label)
           y += labelH
-        }
-
-        if outputLines.count > EL.genericMaxLines {
-          let footer = makeFooterLabel("... +\(outputLines.count - EL.genericMaxLines) more lines")
-          footer.frame = CGRect(x: EL.headerHPad, y: y + 4, width: textWidth, height: 16)
-          contentContainer.addSubview(footer)
         }
       }
     }
@@ -741,8 +723,8 @@
       let label = UILabel()
       label.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: weight)
       label.textColor = color
-      label.lineBreakMode = .byTruncatingTail
-      label.numberOfLines = 1
+      label.lineBreakMode = .byCharWrapping
+      label.numberOfLines = 0
       label.text = text
       return label
     }
