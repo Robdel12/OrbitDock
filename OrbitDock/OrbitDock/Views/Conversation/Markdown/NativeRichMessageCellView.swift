@@ -53,7 +53,12 @@ struct NativeRichMessageRowModel {
     if messageType == .thinking, !isThinkingExpanded,
        content.count > Self.maxThinkingPreviewLength
     {
-      return String(content.prefix(Self.maxThinkingPreviewLength))
+      let prefix = content.prefix(Self.maxThinkingPreviewLength)
+      // Truncate at a word boundary to avoid mid-word cutoff
+      if let lastSpace = prefix.lastIndex(where: { $0.isWhitespace }) {
+        return String(prefix[prefix.startIndex ..< lastSpace])
+      }
+      return String(prefix)
     }
     return content
   }
@@ -252,6 +257,7 @@ struct NativeRichMessageRowModel {
       thinkingShowMoreButton.isHidden = true
 
       // Markdown content
+      markdownContentView.wantsLayer = true
       markdownContentView.translatesAutoresizingMaskIntoConstraints = false
 
       NSLayoutConstraint.activate([
@@ -382,6 +388,7 @@ struct NativeRichMessageRowModel {
       bubbleBackground.isHidden = true
       accentBar.isHidden = true
       thinkingBackground.isHidden = true
+      markdownContentView.layer?.mask = nil
 
       let contentWidth: CGFloat
 
@@ -504,10 +511,8 @@ struct NativeRichMessageRowModel {
       let hasShowMore = model.isThinkingLong
       let isCollapsed = hasShowMore && !model.isThinkingExpanded
 
-      // Bottom area: separator (1pt) + show more button, or just bottom padding
-      let bottomZoneHeight: CGFloat = hasShowMore
-        ? 1 + Self.thinkingShowMoreHeight
-        : 0
+      // Bottom area: show more button only (fade mask handles the transition)
+      let bottomZoneHeight: CGFloat = hasShowMore ? Self.thinkingShowMoreHeight : 0
       let containerHeight = vTop + mdHeight + vBottom + bottomZoneHeight
 
       // Purple-tinted background with subtle border
@@ -531,43 +536,26 @@ struct NativeRichMessageRowModel {
       markdownContentView.configure(blocks: displayBlocks)
       bodyContainer.addSubview(markdownContentView)
 
-      // Gradient fade for collapsed truncated content
+      // Gradient mask: fade text to transparent over the last lines when collapsed
       if isCollapsed {
-        let fadeY = vTop + mdHeight - Self.thinkingFadeHeight
-        thinkingFadeOverlay.frame = NSRect(
-          x: Self.laneHorizontalInset,
-          y: max(vTop, fadeY),
-          width: contentWidth,
-          height: Self.thinkingFadeHeight
-        )
-        // Rebuild gradient layer (size may have changed)
-        thinkingFadeOverlay.layer?.sublayers?.removeAll()
-        let gradient = CAGradientLayer()
-        gradient.frame = thinkingFadeOverlay.bounds
-        gradient.colors = [
+        let maskLayer = CAGradientLayer()
+        maskLayer.frame = markdownContentView.bounds
+        let fadeStart = max(0, 1.0 - Double(Self.thinkingFadeHeight) / Double(mdHeight))
+        maskLayer.colors = [
+          NSColor.white.cgColor,
+          NSColor.white.cgColor,
           NSColor.clear.cgColor,
-          Self.thinkingColor.withAlphaComponent(0.06).cgColor,
         ]
-        gradient.locations = [0, 1]
-        thinkingFadeOverlay.layer?.addSublayer(gradient)
-        thinkingFadeOverlay.isHidden = false
-        bodyContainer.addSubview(thinkingFadeOverlay)
-      } else {
-        thinkingFadeOverlay.isHidden = true
+        maskLayer.locations = [0, NSNumber(value: fadeStart), 1.0]
+        markdownContentView.layer?.mask = maskLayer
       }
 
-      // Separator + "Show more / Show less" button
-      if hasShowMore {
-        let separatorY = vTop + mdHeight + vBottom
-        thinkingSeparator.frame = NSRect(
-          x: Self.laneHorizontalInset + hPad,
-          y: separatorY,
-          width: innerWidth,
-          height: 1
-        )
-        thinkingSeparator.isHidden = false
-        bodyContainer.addSubview(thinkingSeparator)
+      thinkingFadeOverlay.isHidden = true
+      thinkingSeparator.isHidden = true
 
+      // "Show more / Show less" button
+      if hasShowMore {
+        let buttonY = vTop + mdHeight + vBottom
         let buttonTitle = model.isThinkingExpanded ? "Show less" : "Show more\u{2026}"
         let attrs: [NSAttributedString.Key: Any] = [
           .font: NSFont.systemFont(ofSize: TypeScale.body, weight: .medium),
@@ -577,7 +565,7 @@ struct NativeRichMessageRowModel {
         thinkingShowMoreButton.attributedTitle = NSAttributedString(string: buttonTitle, attributes: attrs)
         thinkingShowMoreButton.frame = NSRect(
           x: Self.laneHorizontalInset + hPad,
-          y: separatorY + 1,
+          y: buttonY,
           width: innerWidth,
           height: Self.thinkingShowMoreHeight
         )
@@ -585,7 +573,6 @@ struct NativeRichMessageRowModel {
         thinkingShowMoreButton.isHidden = false
         bodyContainer.addSubview(thinkingShowMoreButton)
       } else {
-        thinkingSeparator.isHidden = true
         thinkingShowMoreButton.isHidden = true
       }
     }
@@ -888,9 +875,7 @@ struct NativeRichMessageRowModel {
         let contentWidth = min(width - laneHorizontalInset * 2, thinkingRailMaxWidth)
         let innerWidth = contentWidth - thinkingHPad * 2
         let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
-        let bottomZoneHeight: CGFloat = model.isThinkingLong
-          ? 1 + thinkingShowMoreHeight // separator + button
-          : 0
+        let bottomZoneHeight: CGFloat = model.isThinkingLong ? thinkingShowMoreHeight : 0
         bodyHeight = thinkingVPadTop + mdHeight + thinkingVPadBottom + bottomZoneHeight
       } else {
         let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
