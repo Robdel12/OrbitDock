@@ -317,6 +317,14 @@ enum SharedModelBuilders {
     guard !message.isTool else { return nil }
     guard !message.content.isEmpty else { return nil }
 
+    let displayContent: String
+    if message.isUser {
+      displayContent = preprocessUserContent(message.content)
+      guard !displayContent.isEmpty else { return nil }
+    } else {
+      displayContent = message.content
+    }
+
     let messageType: NativeRichMessageRowModel.MessageType
     let speaker: String
 
@@ -340,7 +348,7 @@ enum SharedModelBuilders {
     return NativeRichMessageRowModel(
       messageID: messageID,
       speaker: speaker,
-      content: message.content,
+      content: displayContent,
       thinking: message.thinking,
       messageType: messageType,
       timestamp: message.timestamp,
@@ -388,6 +396,45 @@ enum SharedModelBuilders {
       duration: message.formattedDuration,
       content: content
     )
+  }
+
+  // MARK: User Content Preprocessing
+
+  /// Transform XML-tagged user content into clean display text.
+  /// Handles slash commands, stderr, bash content, system context, and strips unknown tags.
+  private static func preprocessUserContent(_ content: String) -> String {
+    // Slash commands → "/name args"
+    if let cmd = ParsedSlashCommand.parse(from: content) {
+      var result = cmd.name
+      if cmd.hasArgs { result += " " + cmd.args.trimmingCharacters(in: .whitespacesAndNewlines) }
+      if cmd.hasOutput { result += "\n\n" + cmd.stdout.trimmingCharacters(in: .whitespacesAndNewlines) }
+      return result
+    }
+
+    // Stderr → plain error text
+    if content.contains("<local-command-stderr>") {
+      let stderr = extractTag("local-command-stderr", from: content)
+      if !stderr.isEmpty { return stderr }
+    }
+
+    // Bash content → "$ command\noutput"
+    if let bash = ParsedBashContent.parse(from: content) {
+      var parts: [String] = []
+      if bash.hasInput { parts.append("$ " + bash.input) }
+      if !bash.stdout.isEmpty { parts.append(bash.stdout) }
+      if !bash.stderr.isEmpty { parts.append(bash.stderr) }
+      return parts.joined(separator: "\n")
+    }
+
+    // System context / reminders → hide
+    if ParsedSystemContext.parse(from: content) != nil { return "" }
+
+    // No XML tags → return as-is
+    guard content.contains("<") else { return content }
+
+    // Fallback: strip any remaining XML-like tags
+    let stripped = content.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    return stripped.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   /// Build the NativeToolContent for an expanded tool card.

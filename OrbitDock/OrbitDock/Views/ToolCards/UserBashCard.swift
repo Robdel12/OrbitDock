@@ -9,7 +9,7 @@ import SwiftUI
 
 // MARK: - Tag Extraction Helper
 
-private func extractTag(_ tag: String, from content: String) -> String {
+func extractTag(_ tag: String, from content: String) -> String {
   let openTag = "<\(tag)>"
   let closeTag = "</\(tag)>"
 

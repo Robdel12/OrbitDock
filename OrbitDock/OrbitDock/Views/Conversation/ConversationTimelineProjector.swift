@@ -151,6 +151,11 @@ nonisolated enum ConversationTimelineProjector {
     context: ProjectionContext,
     rows: inout [TimelineRow]
   ) {
+    // Hide system noise — local-command-caveat is instructions for Claude, not the user
+    if message.type == .user, message.content.contains("<local-command-caveat>") {
+      return
+    }
+
     let isToolRow = toolRowsEnabled && message.type == .tool
     rows.append(
       makeRow(
