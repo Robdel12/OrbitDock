@@ -1117,7 +1117,13 @@ import SwiftUI
             let compactH: CGFloat
             if let message = messagesByID[id] {
               let summary = CompactToolHelpers.summary(for: message)
-              compactH = NativeCompactToolCellView.requiredHeight(for: tableView.bounds.width, summary: summary)
+              let preview = CompactToolHelpers.diffPreview(for: message)
+              compactH = NativeCompactToolCellView.requiredHeight(
+                for: tableView.bounds.width,
+                summary: summary,
+                hasDiffPreview: preview != nil,
+                hasContextLine: preview?.contextLine != nil
+              )
             } else {
               compactH = ConversationLayout.compactToolRowHeight
             }

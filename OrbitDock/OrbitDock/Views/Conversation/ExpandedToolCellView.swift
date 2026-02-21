@@ -141,10 +141,8 @@ enum ExpandedToolLayout {
       case let .bash(_, output):
         return textOutputHeight(output: output, maxLines: bashMaxLines, cardWidth: cardWidth)
       case let .edit(_, _, _, _, lines, isWriteNew):
-        let displayCount = min(lines.count, editMaxLines)
         let writeHeaderH: CGFloat = isWriteNew ? 28 : 0
-        let truncH: CGFloat = lines.count > editMaxLines ? truncationFooterHeight : 0
-        return writeHeaderH + CGFloat(displayCount) * diffLineHeight + truncH
+        return writeHeaderH + CGFloat(lines.count) * diffLineHeight
       case let .read(_, _, _, lines):
         return readHeight(lines: lines, cardWidth: cardWidth)
       case let .glob(_, grouped):
@@ -352,7 +350,7 @@ enum ExpandedToolLayout {
     private static let bottomPadding = ExpandedToolLayout.bottomPadding
 
     private static let bashMaxLines = ExpandedToolLayout.bashMaxLines
-    private static let editMaxLines = ExpandedToolLayout.editMaxLines
+    // editMaxLines removed — show full diff
     private static let readMaxLines = ExpandedToolLayout.readMaxLines
     private static let globMaxDirs = ExpandedToolLayout.globMaxDirs
     private static let globMaxFilesPerDir = ExpandedToolLayout.globMaxFilesPerDir
@@ -852,8 +850,6 @@ enum ExpandedToolLayout {
     // ── Edit (diff lines) ──
 
     private func buildEditContent(lines: [DiffLine], isWriteNew: Bool, width: CGFloat) {
-      let displayLines = Array(lines.prefix(Self.editMaxLines))
-      let truncated = lines.count > Self.editMaxLines
       var y: CGFloat = 0
 
       // Write new file header
@@ -871,19 +867,23 @@ enum ExpandedToolLayout {
         y += 28
       }
 
-      for line in displayLines {
+      for line in lines {
         let bgColor: NSColor
         let prefixColor: NSColor
+        let contentColor: NSColor
         switch line.type {
           case .added:
             bgColor = Self.addedBgColor
             prefixColor = Self.addedAccentColor
+            contentColor = Self.textPrimary
           case .removed:
             bgColor = Self.removedBgColor
             prefixColor = Self.removedAccentColor
+            contentColor = Self.textPrimary
           case .context:
             bgColor = .clear
-            prefixColor = .clear
+            prefixColor = Self.textQuaternary
+            contentColor = Self.textTertiary
         }
 
         // Row background
@@ -912,7 +912,7 @@ enum ExpandedToolLayout {
           contentContainer.addSubview(numLabel)
         }
 
-        // Prefix (+/-)
+        // Prefix (+/-/space)
         let prefixLabel = NSTextField(labelWithString: line.prefix)
         prefixLabel.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
         prefixLabel.textColor = prefixColor
@@ -922,7 +922,7 @@ enum ExpandedToolLayout {
         // Content
         let contentLabel = NSTextField(labelWithString: line.content.isEmpty ? " " : line.content)
         contentLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        contentLabel.textColor = Self.textPrimary
+        contentLabel.textColor = contentColor
         contentLabel.lineBreakMode = .byTruncatingTail
         contentLabel.maximumNumberOfLines = 1
         contentLabel.isSelectable = true
@@ -930,14 +930,6 @@ enum ExpandedToolLayout {
         contentContainer.addSubview(contentLabel)
 
         y += Self.diffLineHeight
-      }
-
-      if truncated {
-        let footer = NSTextField(labelWithString: "... +\(lines.count - Self.editMaxLines) more changed lines")
-        footer.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        footer.textColor = Self.textQuaternary
-        footer.frame = NSRect(x: Self.headerHPad, y: y + 6, width: width - Self.headerHPad * 2, height: 16)
-        contentContainer.addSubview(footer)
       }
     }
 

@@ -670,7 +670,13 @@ import SwiftUI
           } else if case let .tool(id) = row.payload {
             if let message = messagesByID[id] {
               let summary = CompactToolHelpers.summary(for: message)
-              height = UIKitCompactToolCell.requiredHeight(for: width, summary: summary)
+              let preview = CompactToolHelpers.diffPreview(for: message)
+              height = UIKitCompactToolCell.requiredHeight(
+                for: width,
+                summary: summary,
+                hasDiffPreview: preview != nil,
+                hasContextLine: preview?.contextLine != nil
+              )
             } else {
               height = ConversationLayout.compactToolRowHeight
             }

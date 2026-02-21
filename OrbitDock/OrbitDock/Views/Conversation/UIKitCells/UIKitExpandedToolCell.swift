@@ -457,8 +457,6 @@
     // ── Edit (diff lines) ──
 
     private func buildEditContent(lines: [DiffLine], isWriteNew: Bool, width: CGFloat) {
-      let displayLines = Array(lines.prefix(EL.editMaxLines))
-      let truncated = lines.count > EL.editMaxLines
       var y: CGFloat = 0
 
       if isWriteNew {
@@ -475,19 +473,23 @@
         y += 28
       }
 
-      for line in displayLines {
+      for line in lines {
         let bgColor: UIColor
         let prefixColor: UIColor
+        let contentColor: UIColor
         switch line.type {
           case .added:
             bgColor = EL.addedBgColor
             prefixColor = EL.addedAccentColor
+            contentColor = EL.textPrimary
           case .removed:
             bgColor = EL.removedBgColor
             prefixColor = EL.removedAccentColor
+            contentColor = EL.textPrimary
           case .context:
             bgColor = .clear
-            prefixColor = .clear
+            prefixColor = EL.textQuaternary
+            contentColor = EL.textTertiary
         }
 
         let rowBg = UIView(frame: CGRect(x: 0, y: y, width: width, height: EL.diffLineHeight))
@@ -517,19 +519,13 @@
 
         let contentLabel = makeCodeLabel(
           line.content.isEmpty ? " " : line.content,
-          color: EL.textPrimary,
+          color: contentColor,
           fontSize: 12
         )
         contentLabel.frame = CGRect(x: 96, y: y + 2, width: width - 110, height: 18)
         contentContainer.addSubview(contentLabel)
 
         y += EL.diffLineHeight
-      }
-
-      if truncated {
-        let footer = makeFooterLabel("... +\(lines.count - EL.editMaxLines) more changed lines", fontSize: 11)
-        footer.frame = CGRect(x: EL.headerHPad, y: y + 6, width: width - EL.headerHPad * 2, height: 16)
-        contentContainer.addSubview(footer)
       }
     }
 

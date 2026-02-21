@@ -328,6 +328,103 @@ struct EditCard: View {
     return ordered.sorted { $0.sort < $1.sort }.map(\.line)
   }
 
+  // MARK: - Lines With Context (for expanded diff view)
+
+  /// Extract ALL lines from a unified diff including context lines.
+  static func extractAllLines(fromUnifiedDiff diff: String) -> [DiffLine] {
+    let parsed = DiffModel.parse(unifiedDiff: diff)
+    let allLines = parsed.files.flatMap { file in
+      file.hunks.flatMap(\.lines)
+    }
+    if !allLines.isEmpty {
+      return allLines
+    }
+    return fallbackChangedLines(fromUnifiedDiff: diff)
+  }
+
+  /// Build diff lines from old/new strings, including 1 line of context around changes.
+  static func extractLinesWithContext(oldString: String, newString: String) -> [DiffLine] {
+    let oldLines = oldString.components(separatedBy: "\n")
+    let newLines = newString.components(separatedBy: "\n")
+    let difference = newLines.difference(from: oldLines)
+    guard !difference.isEmpty else { return [] }
+
+    var removedOffsets = Set<Int>()
+    var insertedOffsets = Set<Int>()
+    for change in difference {
+      switch change {
+        case let .remove(offset, _, _):
+          removedOffsets.insert(offset)
+        case let .insert(offset, _, _):
+          insertedOffsets.insert(offset)
+      }
+    }
+
+    // Build a set of old line indices that need context (adjacent to a removed line)
+    var contextOldIndices = Set<Int>()
+    for offset in removedOffsets {
+      if offset > 0 { contextOldIndices.insert(offset - 1) }
+      if offset + 1 < oldLines.count { contextOldIndices.insert(offset + 1) }
+    }
+    // Remove lines that are themselves being removed — they're changes, not context
+    contextOldIndices.subtract(removedOffsets)
+
+    // Build a set of new line indices that need context (adjacent to an inserted line)
+    var contextNewIndices = Set<Int>()
+    for offset in insertedOffsets {
+      if offset > 0 { contextNewIndices.insert(offset - 1) }
+      if offset + 1 < newLines.count { contextNewIndices.insert(offset + 1) }
+    }
+    contextNewIndices.subtract(insertedOffsets)
+
+    // Build output: interleave context + changes in order
+    // Walk through old lines, emitting context or removals; track position in new for insertions
+    var result: [(sort: Int, line: DiffLine)] = []
+
+    // Add removals and old-side context
+    for (i, line) in oldLines.enumerated() {
+      if removedOffsets.contains(i) {
+        result.append((
+          sort: i * 3,
+          line: DiffLine(type: .removed, content: line, oldLineNum: i + 1, newLineNum: nil, prefix: "-")
+        ))
+      } else if contextOldIndices.contains(i) {
+        // Map old index to new index for context line numbering
+        let newIdx = i + (newLines.count - oldLines.count)
+        let newNum: Int? = (newIdx >= 0 && newIdx < newLines.count) ? newIdx + 1 : nil
+        result.append((
+          sort: i * 3 - 1,
+          line: DiffLine(type: .context, content: line, oldLineNum: i + 1, newLineNum: newNum, prefix: " ")
+        ))
+      }
+    }
+
+    // Add insertions and new-side context
+    for (i, line) in newLines.enumerated() {
+      if insertedOffsets.contains(i) {
+        // Sort insertions just after the corresponding old position
+        let sortKey = i * 3 + 1
+        result.append((
+          sort: sortKey,
+          line: DiffLine(type: .added, content: line, oldLineNum: nil, newLineNum: i + 1, prefix: "+")
+        ))
+      } else if contextNewIndices.contains(i), !contextOldIndices.contains(i) {
+        // Only add new-side context if it wasn't already added as old-side context
+        // (unchanged lines appear in both old and new)
+        let oldIdx = i - (newLines.count - oldLines.count)
+        let alreadyAdded = oldIdx >= 0 && oldIdx < oldLines.count && contextOldIndices.contains(oldIdx)
+        if !alreadyAdded {
+          result.append((
+            sort: i * 3 - 1,
+            line: DiffLine(type: .context, content: line, oldLineNum: nil, newLineNum: i + 1, prefix: " ")
+          ))
+        }
+      }
+    }
+
+    return result.sorted { $0.sort < $1.sort }.map(\.line)
+  }
+
   private static func fallbackChangedLines(fromUnifiedDiff diff: String) -> [DiffLine] {
     var lines: [DiffLine] = []
     lines.reserveCapacity(64)

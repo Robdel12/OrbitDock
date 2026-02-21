@@ -8,6 +8,17 @@
 
 import SwiftUI
 
+// MARK: - Diff Preview Info
+
+struct DiffPreviewInfo {
+  let contextLine: String? // Surrounding unchanged line (dimmed)
+  let snippetText: String
+  let snippetPrefix: String
+  let isAddition: Bool
+  let additions: Int
+  let deletions: Int
+}
+
 // MARK: - Compact Tool Row Model
 
 struct NativeCompactToolRowModel {
@@ -17,6 +28,7 @@ struct NativeCompactToolRowModel {
   let summary: String
   let rightMeta: String?
   let isInProgress: Bool
+  let diffPreview: DiffPreviewInfo?
 }
 
 // MARK: - Tool Glyph Info
@@ -142,6 +154,136 @@ enum CompactToolHelpers {
     }
   }
 
+  static func diffPreview(for message: TranscriptMessage) -> DiffPreviewInfo? {
+    guard let name = message.toolName?.lowercased(),
+          ["edit", "write", "notebookedit"].contains(name)
+    else { return nil }
+
+    let isWrite = name == "write"
+
+    // Get changed-only lines for counts and snippet
+    let diffLines: [DiffLine]
+    if isWrite, let wc = message.writeContent {
+      diffLines = wc.components(separatedBy: "\n").enumerated().map { index, line in
+        DiffLine(type: .added, content: line, oldLineNum: nil, newLineNum: index + 1, prefix: "+")
+      }
+    } else if let diff = message.unifiedDiff, !diff.isEmpty {
+      diffLines = EditCard.extractChangedLines(fromUnifiedDiff: diff)
+    } else if message.editOldString != nil || message.editNewString != nil {
+      diffLines = EditCard.extractChangedLines(
+        oldString: message.editOldString ?? "",
+        newString: message.editNewString ?? ""
+      )
+    } else {
+      return nil
+    }
+
+    let additions = diffLines.filter { $0.type == .added }.count
+    let deletions = diffLines.filter { $0.type == .removed }.count
+    guard additions > 0 || deletions > 0 else { return nil }
+
+    // Pick first added line, fall back to first removed
+    let snippetLine = diffLines.first(where: { $0.type == .added })
+      ?? diffLines.first(where: { $0.type == .removed })
+
+    let snippetText: String
+    let snippetPrefix: String
+    let isAddition: Bool
+
+    if let line = snippetLine {
+      let trimmed = line.content.trimmingCharacters(in: .whitespaces)
+      let truncated = trimmed.count > 80 ? String(trimmed.prefix(80)) + "\u{2026}" : trimmed
+
+      if isWrite, message.editOldString == nil, trimmed.isEmpty {
+        snippetText = "NEW FILE \u{00B7} \(additions) lines"
+        snippetPrefix = "+"
+        isAddition = true
+      } else {
+        snippetText = truncated
+        snippetPrefix = line.type == .added ? "+" : "-"
+        isAddition = line.type == .added
+      }
+    } else {
+      return nil
+    }
+
+    // Extract a context line before the first change from full hunk data
+    let contextLine = Self.contextLineNearChange(message: message, isWrite: isWrite)
+
+    return DiffPreviewInfo(
+      contextLine: contextLine,
+      snippetText: snippetText,
+      snippetPrefix: snippetPrefix,
+      isAddition: isAddition,
+      additions: additions,
+      deletions: deletions
+    )
+  }
+
+  /// Find an unchanged line near the edit for orientation context.
+  /// Uses full hunk data for unified diffs, or unchanged lines within old/new strings.
+  private static func contextLineNearChange(
+    message: TranscriptMessage,
+    isWrite: Bool
+  ) -> String? {
+    if isWrite { return nil }
+
+    if let diff = message.unifiedDiff, !diff.isEmpty {
+      let parsed = DiffModel.parse(unifiedDiff: diff)
+      let allLines = parsed.files.flatMap { $0.hunks.flatMap(\.lines) }
+      guard let firstChangeIdx = allLines.firstIndex(where: { $0.type != .context }) else {
+        return nil
+      }
+      if firstChangeIdx > 0, allLines[firstChangeIdx - 1].type == .context {
+        return truncateContext(allLines[firstChangeIdx - 1].content)
+      }
+      if let lastChangeIdx = allLines.lastIndex(where: { $0.type != .context }),
+         lastChangeIdx + 1 < allLines.count,
+         allLines[lastChangeIdx + 1].type == .context
+      {
+        return truncateContext(allLines[lastChangeIdx + 1].content)
+      }
+      return nil
+    }
+
+    if let oldStr = message.editOldString, let newStr = message.editNewString {
+      let oldLines = oldStr.components(separatedBy: "\n")
+      let newLines = newStr.components(separatedBy: "\n")
+
+      let commonPrefix = zip(oldLines, newLines).prefix(while: { $0 == $1 }).count
+      if commonPrefix > 0 {
+        return truncateContext(oldLines[commonPrefix - 1])
+      }
+
+      let difference = newLines.difference(from: oldLines)
+      var removedOffsets = Set<Int>()
+      for change in difference {
+        if case let .remove(offset, _, _) = change {
+          removedOffsets.insert(offset)
+        }
+      }
+
+      for (i, line) in oldLines.enumerated() {
+        if !removedOffsets.contains(i) {
+          if let ctx = truncateContext(line) {
+            return ctx
+          }
+        }
+      }
+    }
+
+    return nil
+  }
+
+  private static func truncateContext(_ line: String) -> String? {
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard !trimmed.isEmpty else { return nil }
+    if trimmed.count > 80 {
+      return String(trimmed.prefix(80)) + "\u{2026}"
+    }
+    return trimmed
+  }
+
   static func mcpPrimaryParameter(message: TranscriptMessage) -> String? {
     guard let input = message.toolInput else { return nil }
     let priorityKeys = ["query", "url", "path", "owner", "repo", "message", "title", "name"]
@@ -214,6 +356,7 @@ enum SharedModelBuilders {
     let glyph = ToolGlyphInfo.from(message: message)
     let summary = CompactToolHelpers.summary(for: message)
     let meta = CompactToolHelpers.rightMeta(for: message)
+    let preview = CompactToolHelpers.diffPreview(for: message)
 
     return NativeCompactToolRowModel(
       timestamp: message.timestamp,
@@ -221,7 +364,8 @@ enum SharedModelBuilders {
       glyphColor: glyph.color,
       summary: summary,
       rightMeta: meta,
-      isInProgress: message.isInProgress
+      isInProgress: message.isInProgress,
+      diffPreview: preview
     )
   }
 
@@ -266,9 +410,9 @@ enum SharedModelBuilders {
             DiffLine(type: .added, content: line, oldLineNum: nil, newLineNum: index + 1, prefix: "+")
           }
         } else if let diff = message.unifiedDiff, !diff.isEmpty {
-          EditCard.extractChangedLines(fromUnifiedDiff: diff)
+          EditCard.extractAllLines(fromUnifiedDiff: diff)
         } else {
-          EditCard.extractChangedLines(
+          EditCard.extractLinesWithContext(
             oldString: message.editOldString ?? "",
             newString: message.editNewString ?? ""
           )

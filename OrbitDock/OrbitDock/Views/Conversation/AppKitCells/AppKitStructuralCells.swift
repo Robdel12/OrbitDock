@@ -524,6 +524,13 @@
     private let glyphImage = NSImageView()
     private let summaryField = NSTextField(labelWithString: "")
     private let metaField = NSTextField(labelWithString: "")
+    private let contextField = NSTextField(labelWithString: "")
+    private let snippetField = NSTextField(labelWithString: "")
+    private let diffBarContainer = NSView()
+    private let diffBarAdded = NSView()
+    private let diffBarRemoved = NSView()
+    private var diffBarAddedWidth: NSLayoutConstraint?
+    private var diffBarRemovedWidth: NSLayoutConstraint?
     var onTap: (() -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -568,6 +575,44 @@
       metaField.setContentCompressionResistancePriority(.required, for: .horizontal)
       addSubview(metaField)
 
+      // Context label — unchanged line before the edit (dimmed)
+      contextField.translatesAutoresizingMaskIntoConstraints = false
+      contextField.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+      contextField.textColor = NSColor.white.withAlphaComponent(0.25)
+      contextField.lineBreakMode = .byTruncatingTail
+      contextField.maximumNumberOfLines = 1
+      contextField.isHidden = true
+      addSubview(contextField)
+
+      // Snippet label — first changed line preview
+      snippetField.translatesAutoresizingMaskIntoConstraints = false
+      snippetField.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+      snippetField.lineBreakMode = .byTruncatingTail
+      snippetField.maximumNumberOfLines = 1
+      snippetField.isHidden = true
+      addSubview(snippetField)
+
+      // Diff bar — green/red ratio indicator
+      diffBarContainer.wantsLayer = true
+      diffBarContainer.translatesAutoresizingMaskIntoConstraints = false
+      diffBarContainer.isHidden = true
+      addSubview(diffBarContainer)
+
+      diffBarAdded.wantsLayer = true
+      diffBarAdded.layer?.cornerRadius = 1.5
+      diffBarAdded.translatesAutoresizingMaskIntoConstraints = false
+      diffBarContainer.addSubview(diffBarAdded)
+
+      diffBarRemoved.wantsLayer = true
+      diffBarRemoved.layer?.cornerRadius = 1.5
+      diffBarRemoved.translatesAutoresizingMaskIntoConstraints = false
+      diffBarContainer.addSubview(diffBarRemoved)
+
+      let addedW = diffBarAdded.widthAnchor.constraint(equalToConstant: 0)
+      let removedW = diffBarRemoved.widthAnchor.constraint(equalToConstant: 0)
+      diffBarAddedWidth = addedW
+      diffBarRemovedWidth = removedW
+
       NSLayoutConstraint.activate([
         threadLine.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 6),
         threadLine.widthAnchor.constraint(equalToConstant: 2),
@@ -581,10 +626,35 @@
         summaryField.leadingAnchor.constraint(equalTo: glyphImage.trailingAnchor, constant: 4),
         summaryField.topAnchor.constraint(equalTo: topAnchor, constant: 6),
         summaryField.trailingAnchor.constraint(lessThanOrEqualTo: metaField.leadingAnchor, constant: -8),
-        summaryField.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -6),
 
         metaField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
         metaField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+
+        // Context — below summary (shown when surrounding context exists)
+        contextField.leadingAnchor.constraint(equalTo: summaryField.leadingAnchor),
+        contextField.topAnchor.constraint(equalTo: summaryField.bottomAnchor, constant: 2),
+        contextField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -inset),
+
+        // Snippet — below context (or summary when no context)
+        snippetField.leadingAnchor.constraint(equalTo: summaryField.leadingAnchor),
+        snippetField.topAnchor.constraint(equalTo: contextField.bottomAnchor, constant: 0),
+        snippetField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -inset),
+
+        // Diff bar — below snippet
+        diffBarContainer.leadingAnchor.constraint(equalTo: summaryField.leadingAnchor),
+        diffBarContainer.topAnchor.constraint(equalTo: snippetField.bottomAnchor, constant: 3),
+        diffBarContainer.heightAnchor.constraint(equalToConstant: 3),
+        diffBarContainer.widthAnchor.constraint(lessThanOrEqualToConstant: 80),
+
+        diffBarAdded.leadingAnchor.constraint(equalTo: diffBarContainer.leadingAnchor),
+        diffBarAdded.topAnchor.constraint(equalTo: diffBarContainer.topAnchor),
+        diffBarAdded.heightAnchor.constraint(equalToConstant: 3),
+        addedW,
+
+        diffBarRemoved.leadingAnchor.constraint(equalTo: diffBarAdded.trailingAnchor, constant: 1),
+        diffBarRemoved.topAnchor.constraint(equalTo: diffBarContainer.topAnchor),
+        diffBarRemoved.heightAnchor.constraint(equalToConstant: 3),
+        removedW,
       ])
 
       let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
@@ -595,14 +665,24 @@
       onTap?()
     }
 
-    static func requiredHeight(for width: CGFloat, summary: String) -> CGFloat {
+    static func requiredHeight(
+      for width: CGFloat,
+      summary: String,
+      hasDiffPreview: Bool = false,
+      hasContextLine: Bool = false
+    ) -> CGFloat {
       let inset = ConversationLayout.laneHorizontalInset
       let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
       // glyph leading: inset + 16 + 18 (glyph) + 4 (gap) = inset + 38
       // meta trailing area ~ 60pt reserve
       let textWidth = max(60, width - inset * 2 - 38 - 60)
       let textH = ExpandedToolLayout.measuredTextHeight(summary, font: font, maxWidth: textWidth)
-      return max(ConversationLayout.compactToolRowHeight, textH + 12)
+      let baseHeight = max(ConversationLayout.compactToolRowHeight, textH + 12)
+      if hasDiffPreview {
+        let contextExtra: CGFloat = hasContextLine ? 14 : 0
+        return baseHeight + 22 + contextExtra // snippet (~14pt) + gap (2pt) + bar (3pt) + gap (3pt) + context
+      }
+      return baseHeight
     }
 
     func configure(model: NativeCompactToolRowModel) {
@@ -616,6 +696,57 @@
         metaField.stringValue = meta
       } else {
         metaField.isHidden = true
+      }
+
+      if let preview = model.diffPreview {
+        // Context line (unchanged code before the edit)
+        if let ctx = preview.contextLine {
+          contextField.stringValue = "  \(ctx)"
+          contextField.isHidden = false
+        } else {
+          contextField.isHidden = true
+        }
+
+        // Snippet
+        let prefixColor = preview.isAddition
+          ? ExpandedToolLayout.addedAccentColor
+          : ExpandedToolLayout.removedAccentColor
+        let attributed = NSMutableAttributedString()
+        attributed.append(NSAttributedString(
+          string: "\(preview.snippetPrefix) ",
+          attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: prefixColor.withAlphaComponent(0.7),
+          ]
+        ))
+        attributed.append(NSAttributedString(
+          string: preview.snippetText,
+          attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: prefixColor.withAlphaComponent(0.7),
+          ]
+        ))
+        snippetField.attributedStringValue = attributed
+        snippetField.isHidden = false
+
+        // Diff bar
+        let total = CGFloat(preview.additions + preview.deletions)
+        let maxBarWidth: CGFloat = 80
+        let addedFraction = total > 0 ? CGFloat(preview.additions) / total : 1
+        let addedWidth = round(addedFraction * maxBarWidth)
+        let removedWidth = max(0, maxBarWidth - addedWidth - 1) // -1 for gap
+
+        diffBarAddedWidth?.constant = addedWidth
+        diffBarRemovedWidth?.constant = preview.deletions > 0 ? removedWidth : 0
+
+        diffBarAdded.layer?.backgroundColor = ExpandedToolLayout.addedAccentColor.withAlphaComponent(0.6).cgColor
+        diffBarRemoved.layer?.backgroundColor = ExpandedToolLayout.removedAccentColor.withAlphaComponent(0.6).cgColor
+        diffBarRemoved.isHidden = preview.deletions == 0
+        diffBarContainer.isHidden = false
+      } else {
+        contextField.isHidden = true
+        snippetField.isHidden = true
+        diffBarContainer.isHidden = true
       }
     }
   }
