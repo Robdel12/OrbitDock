@@ -44,7 +44,7 @@
 - Turn containers responsive at both full and compact widths (split layout with review canvas)
 - No data hidden in any density — raw events always one click away
 
-**Primary files**: `ConversationView.swift`, `TurnGroupView.swift`, `SessionDetailView.swift`
+**Primary files**: `ConversationView.swift`, `ConversationCollectionView+macOS.swift`, `ConversationCollectionView+iOS.swift`, `SessionDetailView.swift`
 
 **Done when**:
 - Can scan 10+ turns quickly in `Turns` density

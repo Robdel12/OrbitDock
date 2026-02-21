@@ -1,5 +1,5 @@
 //
-//  NativeExpandedToolCellView.swift
+//  ExpandedToolCellView.swift
 //  OrbitDock
 //
 //  Native cell for expanded tool cards.

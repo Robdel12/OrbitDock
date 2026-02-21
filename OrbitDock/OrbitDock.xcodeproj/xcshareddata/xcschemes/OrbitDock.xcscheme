@@ -35,7 +35,7 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "80BCD0CD2F2C834F00D91F91"
+               BlueprintIdentifier = "80BCD0CC2F2C834F00D91F91"
                BuildableName = "OrbitDockTests.xctest"
                BlueprintName = "OrbitDockTests"
                ReferencedContainer = "container:OrbitDock.xcodeproj">
@@ -46,7 +46,7 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "80BCD0D72F2C834F00D91F91"
+               BlueprintIdentifier = "80BCD0D62F2C834F00D91F91"
                BuildableName = "OrbitDockUITests.xctest"
                BlueprintName = "OrbitDockUITests"
                ReferencedContainer = "container:OrbitDock.xcodeproj">

@@ -121,7 +121,7 @@ All server paths are resolved via `paths.rs` from a single data directory (`--da
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
 - **Codex Watcher State**: `<data_dir>/codex-rollout-state.json` (offset tracking)
 - **Hook Event Spool**: `<data_dir>/spool/` (queued hook events when server is offline, drained on startup)
-- **Timeline Logs**: `<data_dir>/logs/timeline.log` (conversation view height calculations and overflow detection)
+- **Timeline Logs**: `<data_dir>/logs/timeline.log` (macOS) / `timeline-ios.log` (iOS) — conversation view height calculations and overflow detection
 
 ## Debugging Codex Integration
 
@@ -242,10 +242,11 @@ Core event fields are stable for filtering:
 
 ## Debugging Conversation Timeline
 
-The macOS conversation view (NSTableView-based) logs height calculations and overflow detection to a plain-text file. The file truncates on each app launch.
+Both platforms log height calculations and overflow detection to a plain-text file via `TimelineFileLogger`. The file truncates on each app launch.
 
 ### Log Location
-`~/.orbitdock/logs/timeline.log`
+- macOS: `~/.orbitdock/logs/timeline.log`
+- iOS: `~/.orbitdock/logs/timeline-ios.log`
 
 ### Viewing Logs
 ```bash
@@ -269,9 +270,11 @@ grep "rich\[" ~/.orbitdock/logs/timeline.log
 - **`⚠️ OVERFLOW`**: Content exceeds calculated height — the root cause of visual clipping. Includes the exact overflow amount, cell type, message ID, and all dimensions
 
 ### Key Files
-- `ConversationCollectionView.swift` — `TimelineFileLogger`, `heightOfRow`, `viewFor` logging
-- `NativeExpandedToolCellView.swift` — Expanded tool card height calc + overflow detection
-- `NativeRichMessageCellView.swift` — Rich message height calc + overflow detection
+- `TimelineFileLogger.swift` — `TimelineFileLogger` singleton (shared by both platforms)
+- `ConversationCollectionView+macOS.swift` — macOS `heightOfRow`, `viewFor` logging
+- `ConversationCollectionView+iOS.swift` — iOS `sizeForItemAt` logging
+- `ExpandedToolCellView.swift` — Expanded tool card height calc + overflow detection
+- `Markdown/NativeRichMessageCellView.swift` — Rich message height calc + overflow detection
 
 ## OrbitDockCore Package
 
