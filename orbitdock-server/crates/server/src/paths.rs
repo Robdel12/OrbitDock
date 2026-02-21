@@ -70,6 +70,10 @@ pub fn images_dir() -> PathBuf {
     data_dir().join("images")
 }
 
+pub fn encryption_key_path() -> PathBuf {
+    data_dir().join("encryption.key")
+}
+
 /// Create all required subdirectories under the data dir.
 pub fn ensure_dirs() -> io::Result<()> {
     let base = data_dir();

@@ -289,6 +289,13 @@ pub enum PersistCommand {
     /// Delete a review comment
     ReviewCommentDelete { id: String },
 
+    /// Update integration mode for a session (takeover: passive → direct)
+    SetIntegrationMode {
+        session_id: String,
+        codex_mode: Option<String>,
+        claude_mode: Option<String>,
+    },
+
     /// Update environment info (cwd, git branch, git sha)
     EnvironmentUpdate {
         session_id: String,
@@ -296,6 +303,9 @@ pub enum PersistCommand {
         git_branch: Option<String>,
         git_sha: Option<String>,
     },
+
+    /// Upsert a key-value config entry
+    SetConfig { key: String, value: String },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -554,11 +564,8 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             )?;
 
             // Extract data-URI images to disk before persisting
-            let images = crate::images::extract_images_to_disk(
-                &message.images,
-                &session_id,
-                &message.id,
-            );
+            let images =
+                crate::images::extract_images_to_disk(&message.images, &session_id, &message.id);
 
             let images_json: Option<String> = if images.is_empty() {
                 None
@@ -822,9 +829,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 "INSERT INTO sessions (
                     id, project_path, project_name, branch, model, context_label, transcript_path,
                     provider, status, work_status, source, agent_type, permission_mode,
-                    terminal_session_id, terminal_app, started_at, last_activity_at,
-                    forked_from_session_id
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14)
+                    claude_integration_mode, terminal_session_id, terminal_app,
+                    started_at, last_activity_at, forked_from_session_id
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, 'passive', ?11, ?12, ?13, ?13, ?14)
                  ON CONFLICT(id) DO UPDATE SET
                     project_path = excluded.project_path,
                     project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -834,6 +841,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     transcript_path = COALESCE(excluded.transcript_path, sessions.transcript_path),
                     provider = 'claude',
                     codex_integration_mode = NULL,
+                    claude_integration_mode = COALESCE(sessions.claude_integration_mode, 'passive'),
                     source = COALESCE(excluded.source, sessions.source),
                     agent_type = COALESCE(excluded.agent_type, sessions.agent_type),
                     permission_mode = COALESCE(excluded.permission_mode, sessions.permission_mode),
@@ -1407,6 +1415,32 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             conn.execute("DELETE FROM review_comments WHERE id = ?1", params![id])?;
         }
 
+        PersistCommand::SetIntegrationMode {
+            session_id,
+            codex_mode,
+            claude_mode,
+        } => {
+            let mut updates = Vec::new();
+            let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(m) = codex_mode {
+                updates.push("codex_integration_mode = ?");
+                params_vec.push(Box::new(m));
+            }
+            if let Some(m) = claude_mode {
+                updates.push("claude_integration_mode = ?");
+                params_vec.push(Box::new(m));
+            }
+
+            if !updates.is_empty() {
+                params_vec.push(Box::new(session_id));
+                let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
+                let params_refs: Vec<&dyn rusqlite::ToSql> =
+                    params_vec.iter().map(|p| p.as_ref()).collect();
+                conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            }
+        }
+
         PersistCommand::EnvironmentUpdate {
             session_id,
             cwd,
@@ -1436,6 +1470,15 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     params_vec.iter().map(|p| p.as_ref()).collect();
                 conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
             }
+        }
+
+        PersistCommand::SetConfig { key, value } => {
+            let stored_value = crate::crypto::encrypt(&value);
+            conn.execute(
+                "INSERT INTO config (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, stored_value],
+            )?;
         }
     }
 
@@ -1716,8 +1759,7 @@ fn extract_content_items(content: &Value, role: &str) -> Vec<ParsedItem> {
                             .and_then(Value::as_str)
                             .unwrap_or("image/png");
                         if let Some(data) = source.get("data").and_then(Value::as_str) {
-                            let data_uri =
-                                format!("data:{media_type};base64,{data}");
+                            let data_uri = format!("data:{media_type};base64,{data}");
                             images.push(orbitdock_protocol::ImageInput {
                                 input_type: "url".to_string(),
                                 value: data_uri,
@@ -1932,11 +1974,7 @@ fn load_messages_from_transcript(
             }
 
             let msg_id = format!("{session_id}:transcript:{msg_counter}");
-            let images = crate::images::extract_images_to_disk(
-                &item.images,
-                session_id,
-                &msg_id,
-            );
+            let images = crate::images::extract_images_to_disk(&item.images, session_id, &msg_id);
             messages.push(Message {
                 id: msg_id,
                 session_id: session_id.to_string(),
@@ -2912,6 +2950,36 @@ pub async fn load_subagent_transcript_path(
     .await??;
 
     Ok(path)
+}
+
+/// Read a config value from the database.
+///
+/// Transparently decrypts values with the `enc:` prefix.
+/// Plaintext values pass through unchanged (no migration needed).
+pub fn load_config_value(key: &str) -> Option<String> {
+    let db_path = crate::paths::db_path();
+    if !db_path.exists() {
+        return None;
+    }
+
+    let conn = Connection::open(&db_path).ok()?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA busy_timeout = 5000;",
+    )
+    .ok()?;
+
+    let raw: String = conn
+        .query_row(
+            "SELECT value FROM config WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        )
+        .optional()
+        .ok()
+        .flatten()?;
+
+    crate::crypto::decrypt(&raw)
 }
 
 #[cfg(test)]

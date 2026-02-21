@@ -3924,6 +3924,7 @@ dependencies = [
  "orbitdock-connectors",
  "orbitdock-protocol",
  "reqwest",
+ "ring",
  "rusqlite",
  "serde",
  "serde_json",

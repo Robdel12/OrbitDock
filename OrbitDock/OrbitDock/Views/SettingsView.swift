@@ -137,6 +137,7 @@ struct GeneralSettingsView: View {
   @State private var openAiKey: String = ""
   @State private var openAiKeySaved = false
   @State private var openAiKeyStatus: OpenAiKeyStatus = .checking
+  @State private var isReplacingKey = false
 
   private enum OpenAiKeyStatus {
     case checking, configured, notConfigured
@@ -196,6 +197,13 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(Color.statusSuccess)
                   Text("API key configured")
                     .font(.system(size: 13))
+                  Spacer()
+                  Image(systemName: "lock.shield.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.textTertiary)
+                  Text("Encrypted")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textTertiary)
                 case .notConfigured:
                   Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(Color.statusPermission)
@@ -209,40 +217,95 @@ struct GeneralSettingsView: View {
               .foregroundStyle(Color.panelBorder)
 
             VStack(alignment: .leading, spacing: 8) {
-              Text("OpenAI API key for auto-naming sessions from first prompts.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+              if openAiKeyStatus == .configured && !isReplacingKey {
+                // Key exists — show confirmation with option to replace
+                Text("OpenAI API key for auto-naming sessions from first prompts.")
+                  .font(.system(size: 12))
+                  .foregroundStyle(.secondary)
 
-              HStack(spacing: 8) {
-                SecureField("sk-...", text: $openAiKey)
-                  .textFieldStyle(.roundedBorder)
-                  .font(.system(size: 12).monospaced())
-
-                Button {
-                  saveOpenAiKey()
-                } label: {
-                  HStack(spacing: 4) {
-                    Image(systemName: openAiKeySaved ? "checkmark" : "arrow.up.circle")
-                      .font(.system(size: 11, weight: .medium))
-                    Text(openAiKeySaved ? "Saved" : "Save")
-                      .font(.system(size: 12, weight: .medium))
+                HStack(spacing: 8) {
+                  HStack(spacing: 6) {
+                    Image(systemName: "key.fill")
+                      .font(.system(size: 10))
+                      .foregroundStyle(Color.textTertiary)
+                    Text("sk-\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}")
+                      .font(.system(size: 12).monospaced())
+                      .foregroundStyle(Color.textSecondary)
                   }
-                  .foregroundStyle(openAiKeySaved ? Color.statusSuccess : Color.backgroundPrimary)
-                  .padding(.horizontal, 12)
+                  .padding(.horizontal, 10)
                   .padding(.vertical, 7)
-                  .background(
-                    openAiKeySaved ? Color.statusSuccess.opacity(0.2) : Color.accent,
-                    in: RoundedRectangle(cornerRadius: 6)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                  .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                      .strokeBorder(Color.panelBorder, lineWidth: 1)
                   )
-                }
-                .buttonStyle(.plain)
-                .disabled(openAiKey.isEmpty)
-              }
 
-              if openAiKeySaved {
-                Text("Quit and reopen OrbitDock for new sessions to be named.")
-                  .font(.system(size: 11))
-                  .foregroundStyle(Color.textTertiary)
+                  Button {
+                    isReplacingKey = true
+                  } label: {
+                    Text("Replace")
+                      .font(.system(size: 12, weight: .medium))
+                      .foregroundStyle(Color.accent)
+                      .padding(.horizontal, 12)
+                      .padding(.vertical, 7)
+                      .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6))
+                  }
+                  .buttonStyle(.plain)
+                }
+              } else {
+                // No key yet, or replacing — show input field
+                Text(isReplacingKey
+                  ? "Enter a new key to replace the existing one."
+                  : "OpenAI API key for auto-naming sessions from first prompts.")
+                  .font(.system(size: 12))
+                  .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                  SecureField("sk-...", text: $openAiKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12).monospaced())
+
+                  Button {
+                    saveOpenAiKey()
+                  } label: {
+                    HStack(spacing: 4) {
+                      Image(systemName: openAiKeySaved ? "checkmark" : "arrow.up.circle")
+                        .font(.system(size: 11, weight: .medium))
+                      Text(openAiKeySaved ? "Saved" : "Save")
+                        .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundStyle(openAiKeySaved ? Color.statusSuccess : Color.backgroundPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(
+                      openAiKeySaved ? Color.statusSuccess.opacity(0.2) : Color.accent,
+                      in: RoundedRectangle(cornerRadius: 6)
+                    )
+                  }
+                  .buttonStyle(.plain)
+                  .disabled(openAiKey.isEmpty)
+
+                  if isReplacingKey {
+                    Button {
+                      isReplacingKey = false
+                      openAiKey = ""
+                    } label: {
+                      Text("Cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.plain)
+                  }
+                }
+
+                if openAiKeySaved {
+                  Text("Key encrypted and saved — new sessions will be auto-named.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.textTertiary)
+                }
               }
             }
           }
@@ -258,44 +321,16 @@ struct GeneralSettingsView: View {
   private func saveOpenAiKey() {
     ServerConnection.shared.setOpenAiKey(openAiKey)
     openAiKeySaved = true
-    openAiKeyStatus = .configured
     openAiKey = ""
+    isReplacingKey = false
   }
 
   private func checkOpenAiKeyStatus() {
     openAiKeyStatus = .checking
-    DispatchQueue.global(qos: .userInitiated).async {
-      // Check env var
-      let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
-      if !envKey.isEmpty {
-        DispatchQueue.main.async { openAiKeyStatus = .configured }
-        return
-      }
-
-      #if os(macOS)
-        // Check Keychain
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        task.arguments = ["find-generic-password", "-s", "com.orbitdock.openai-api-key", "-w"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-
-        do {
-          try task.run()
-          task.waitUntilExit()
-          let data = pipe.fileHandleForReading.readDataToEndOfFile()
-          let key = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-          DispatchQueue.main.async {
-            openAiKeyStatus = key.isEmpty ? .notConfigured : .configured
-          }
-        } catch {
-          DispatchQueue.main.async { openAiKeyStatus = .notConfigured }
-        }
-      #else
-        DispatchQueue.main.async { openAiKeyStatus = .notConfigured }
-      #endif
+    ServerConnection.shared.onOpenAiKeyStatus = { configured in
+      openAiKeyStatus = configured ? .configured : .notConfigured
     }
+    ServerConnection.shared.checkOpenAiKey()
   }
 }
 

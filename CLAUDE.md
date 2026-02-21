@@ -110,6 +110,7 @@ All server paths are resolved via `paths.rs` from a single data directory (`--da
 - **Database**: `<data_dir>/orbitdock.db` (separate from CLIs to survive reinstalls)
 - **PID File**: `<data_dir>/orbitdock.pid` (written after bind, removed on shutdown)
 - **Auth Token**: `<data_dir>/auth-token` (optional, 0600 permissions)
+- **Encryption Key**: `<data_dir>/encryption.key` (auto-generated, 0600 permissions — see "Config Encryption" below)
 - **Launchd Plist**: `~/Library/LaunchAgents/com.orbitdock.server.plist` (created by `install-service`)
 - **CLI Logs**: `~/.orbitdock/cli.log` (debug output from orbitdock-cli)
 - **Codex App Logs**: `<data_dir>/logs/codex.log` (structured JSON logs for Codex debugging)
@@ -368,6 +369,7 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 | `turn_diffs` | Per-turn git diff snapshots + token usage |
 | `approval_history` | Tool approval requests and decisions |
 | `review_comments` | Code review annotations for workbench |
+| `config` | Key-value settings (API keys stored encrypted) |
 | `schema_versions` | Migration tracking |
 
 ### Key files
@@ -376,11 +378,27 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 - `orbitdock-server/crates/server/src/migration_runner.rs` — Embedded migrations via `include_str!`
 - `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol
 - `orbitdock-server/crates/server/src/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
+- `orbitdock-server/crates/server/src/crypto.rs` — AES-256-GCM encryption for config secrets
 - `orbitdock-server/crates/server/src/auth.rs` — Optional Bearer token middleware
 - `orbitdock-server/crates/protocol/` — Shared types between server components
 - `migrations/001_baseline.sql` — Complete schema definition
 - `scripts/hook.sh` — Dev-time hook script
 - `scripts/hook.sh.template` — Templated hook script for standalone deploy
+
+### Config Encryption
+
+Sensitive values in the `config` table (like the OpenAI API key) are encrypted at rest with AES-256-GCM via the `ring` crate.
+
+**How it works:** `persistence.rs` calls `crypto::encrypt()` before writing to the `config` table. `load_config_value()` calls `crypto::decrypt()` on read. Encrypted values get an `enc:` prefix — plaintext values without the prefix pass through unchanged, so no migration is needed for existing data.
+
+**Key resolution order:**
+1. `ORBITDOCK_ENCRYPTION_KEY` env var (base64-encoded 32 bytes)
+2. `<data_dir>/encryption.key` file (raw 32 bytes, 0600 permissions)
+3. Auto-generated on first `ensure_key()` call (startup + `init`)
+
+**If the key is lost**, any `enc:` prefixed values become unrecoverable. The server logs an ERROR when it can't decrypt.
+
+**Key files:** `crypto.rs` (encrypt/decrypt + key management), `paths.rs` (`encryption_key_path()`), `persistence.rs` (transparent encrypt on write, decrypt on read)
 
 ### AppleScript for iTerm2
 - Requires `NSAppleEventsUsageDescription` in Info.plist

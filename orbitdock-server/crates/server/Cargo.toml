@@ -38,4 +38,5 @@ reqwest = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
 base64 = { workspace = true }
+ring = { workspace = true }
 libc = { workspace = true }

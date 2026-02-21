@@ -12,6 +12,7 @@ mod cmd_install_service;
 mod cmd_status;
 mod codex_auth;
 mod codex_session;
+pub(crate) mod crypto;
 mod git;
 mod hook_handler;
 pub(crate) mod images;
@@ -177,6 +178,9 @@ async fn async_main(
 ) -> anyhow::Result<()> {
     // Ensure directories exist
     paths::ensure_dirs()?;
+
+    // Ensure encryption key exists (auto-generates on first run)
+    crypto::ensure_key();
 
     let logging = init_logging()?;
     let run_id = logging.run_id.clone();
@@ -398,10 +402,12 @@ async fn async_main(
                 } else {
                     None
                 });
-                if is_claude_direct {
-                    handle.set_claude_integration_mode(Some(
-                        orbitdock_protocol::ClaudeIntegrationMode::Direct,
-                    ));
+                if is_claude {
+                    handle.set_claude_integration_mode(Some(if is_claude_direct {
+                        orbitdock_protocol::ClaudeIntegrationMode::Direct
+                    } else {
+                        orbitdock_protocol::ClaudeIntegrationMode::Passive
+                    }));
                 }
                 if let Some(source_id) = forked_from_session_id {
                     handle.set_forked_from(source_id);

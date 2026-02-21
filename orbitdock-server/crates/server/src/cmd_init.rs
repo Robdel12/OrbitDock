@@ -18,6 +18,13 @@ pub fn run(data_dir: &Path, server_url: &str) -> anyhow::Result<()> {
     paths::ensure_dirs()?;
     println!("  Created {}/", data_dir.display());
 
+    // 2. Ensure encryption key exists
+    crate::crypto::ensure_key();
+    println!(
+        "  Encryption key ready at {}",
+        paths::encryption_key_path().display()
+    );
+
     // 2. Run database migrations
     let db_path = paths::db_path();
     let mut conn = rusqlite::Connection::open(&db_path)?;

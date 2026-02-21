@@ -32,8 +32,8 @@ impl NamingGuard {
     }
 }
 
-/// Resolve the OpenAI API key from env var or macOS Keychain.
-fn resolve_api_key() -> Option<String> {
+/// Resolve the OpenAI API key from env var or database.
+pub fn resolve_api_key() -> Option<String> {
     // Check env var first
     if let Ok(key) = std::env::var("OPENAI_API_KEY") {
         if !key.is_empty() {
@@ -41,25 +41,8 @@ fn resolve_api_key() -> Option<String> {
         }
     }
 
-    // Fall back to macOS Keychain
-    let output = std::process::Command::new("security")
-        .args([
-            "find-generic-password",
-            "-s",
-            "com.orbitdock.openai-api-key",
-            "-w",
-        ])
-        .output()
-        .ok()?;
-
-    if output.status.success() {
-        let key = String::from_utf8(output.stdout).ok()?.trim().to_string();
-        if !key.is_empty() {
-            return Some(key);
-        }
-    }
-
-    None
+    // Fall back to config table in SQLite
+    crate::persistence::load_config_value("openai_api_key")
 }
 
 /// Returns true if the prompt is a bootstrap/system prompt that shouldn't be named.
@@ -155,19 +138,25 @@ async fn generate_name(api_key: &str, prompt: &str) -> Result<String, anyhow::Er
     };
 
     let body = serde_json::json!({
-        "model": "gpt-4.1-mini",
-        "max_tokens": 30,
-        "temperature": 0.3,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You name coding sessions. Given a user's first message to an AI coding assistant, produce a concise 3-7 word name. Reply with ONLY the name, no quotes or punctuation."
-            },
-            {
-                "role": "user",
-                "content": truncated
+        "model": "gpt-5-mini-2025-08-07",
+        "max_output_tokens": 4096,
+        "instructions": "You name coding sessions. Given a user's first message to an AI coding assistant, produce a concise 3-7 word name.",
+        "input": truncated,
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "session_name",
+                "strict": true,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" }
+                    },
+                    "required": ["name"],
+                    "additionalProperties": false
+                }
             }
-        ]
+        }
     });
 
     let client = reqwest::Client::new();
@@ -194,7 +183,7 @@ async fn call_openai(
     body: &serde_json::Value,
 ) -> Result<String, anyhow::Error> {
     let resp = client
-        .post("https://api.openai.com/v1/chat/completions")
+        .post("https://api.openai.com/v1/responses")
         .header("Authorization", format!("Bearer {}", api_key))
         .json(body)
         .send()
@@ -207,14 +196,44 @@ async fn call_openai(
     }
 
     let json: serde_json::Value = resp.json().await?;
-    let name = json["choices"][0]["message"]["content"]
+
+    // With structured output, output_text is the JSON string `{"name": "..."}`
+    let name = json["output_text"]
         .as_str()
-        .unwrap_or("")
-        .trim()
-        .trim_matches('"')
-        .to_string();
+        .and_then(|text| {
+            let parsed: serde_json::Value = serde_json::from_str(text).ok()?;
+            parsed["name"].as_str().map(|s| s.to_string())
+        })
+        // Fallback: walk the output array for message content
+        .or_else(|| {
+            json["output"]
+                .as_array()?
+                .iter()
+                .filter(|item| item["type"].as_str() == Some("message"))
+                .find_map(|item| {
+                    item["content"].as_array()?.iter().find_map(|c| {
+                        if c["type"].as_str() == Some("output_text") {
+                            let text = c["text"].as_str()?;
+                            // Try parsing as structured JSON first
+                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(text) {
+                                parsed["name"].as_str().map(|s| s.to_string())
+                            } else {
+                                Some(text.to_string())
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                })
+        })
+        .map(|s| s.trim().trim_matches('"').to_string())
+        .unwrap_or_default();
 
     if name.is_empty() {
+        warn!(
+            response = %json,
+            "OpenAI API returned empty name — check response format"
+        );
         anyhow::bail!("Empty name from OpenAI API");
     }
 

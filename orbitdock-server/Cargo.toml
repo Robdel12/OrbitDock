@@ -42,6 +42,9 @@ tracing-appender = "0.2"
 # Encoding
 base64 = "0.22"
 
+# Crypto
+ring = "0.17"
+
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
