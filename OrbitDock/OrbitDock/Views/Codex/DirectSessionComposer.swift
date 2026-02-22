@@ -1,8 +1,8 @@
 //
-//  CodexInputBar.swift
+//  DirectSessionComposer.swift
 //  OrbitDock
 //
-//  Unified instrument panel for direct Codex sessions.
+//  Unified composer for direct sessions.
 //  Three layers: token strip → composer → instrument strip.
 //
 
@@ -12,7 +12,7 @@ import UniformTypeIdentifiers
   import PhotosUI
 #endif
 
-struct InstrumentPanel: View {
+struct DirectSessionComposer: View {
   let session: Session
   @Binding var selectedSkills: Set<String>
   @Binding var isPinned: Bool
@@ -36,11 +36,18 @@ struct InstrumentPanel: View {
 
   // Attachments
   @State private var fileIndex = ProjectFileIndex()
-  @State private var attachedImages: [AttachedImage] = []
+  // Internal visibility keeps image input logic split into platform extension files.
+  @State var attachedImages: [AttachedImage] = []
   @State private var attachedMentions: [AttachedMention] = []
   @State private var mentionActive = false
   @State private var mentionQuery = ""
   @State private var mentionIndex = 0
+  #if os(iOS)
+    // Internal visibility keeps iOS picker handling in DirectSessionComposer+ImageIOS.swift.
+    @State var photoPickerItems: [PhotosPickerItem] = []
+    @State var isPhotoPickerPresented = false
+    @State var photoPickerLoadTask: Task<Void, Never>?
+  #endif
 
   /// Input mode
   @State private var manualReviewMode = false
@@ -269,6 +276,14 @@ struct InstrumentPanel: View {
       }
     }
     .background(Color.backgroundSecondary)
+    #if os(iOS)
+      .photosPicker(
+        isPresented: $isPhotoPickerPresented,
+        selection: $photoPickerItems,
+        maxSelectionCount: 5,
+        matching: .images
+      )
+    #endif
     .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
       handleDrop(providers)
     }
@@ -295,30 +310,11 @@ struct InstrumentPanel: View {
     }
     #if os(iOS)
       .onChange(of: photoPickerItems) { _, newItems in
-        Task {
-          for item in newItems {
-            guard let data = try? await item.loadTransferable(type: Data.self),
-                  let image = UIImage(data: data),
-                  let pngData = image.pngData()
-            else { continue }
-
-            let base64 = pngData.base64EncodedString()
-            let dataURI = "data:image/png;base64,\(base64)"
-            let thumbnail = createThumbnail(from: image)
-            let input = ServerImageInput(inputType: "url", value: dataURI)
-            let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-
-            await MainActor.run {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                attachedImages.append(attached)
-              }
-            }
-          }
-          // Clear selection after loading
-          await MainActor.run {
-            photoPickerItems = []
-          }
-        }
+        handlePhotoPickerSelection(newItems)
+      }
+      .onDisappear {
+        photoPickerLoadTask?.cancel()
+        photoPickerLoadTask = nil
       }
     #endif
   }
@@ -642,12 +638,29 @@ struct InstrumentPanel: View {
             ) {
               pickImages()
             }
+            .contextMenu {
+              Button {
+                _ = pasteImageFromClipboard()
+              } label: {
+                Label("Paste Image", systemImage: "doc.on.clipboard")
+              }
+              .disabled(!canPasteImageFromClipboard)
+            }
           #else
-            PhotosPicker(
-              selection: $photoPickerItems,
-              maxSelectionCount: 5,
-              matching: .images
-            ) {
+            Menu {
+              Button {
+                pickImages()
+              } label: {
+                Label("Choose Photos", systemImage: "photo.on.rectangle")
+              }
+
+              Button {
+                _ = pasteImageFromClipboard()
+              } label: {
+                Label("Paste Image", systemImage: "doc.on.clipboard")
+              }
+              .disabled(!canPasteImageFromClipboard)
+            } label: {
               Image(systemName: "paperclip")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(!attachedImages.isEmpty ? Color.accent : .secondary)
@@ -1017,14 +1030,19 @@ struct InstrumentPanel: View {
           Label("Attach Images", systemImage: "paperclip")
         }
       #else
-        PhotosPicker(
-          selection: $photoPickerItems,
-          maxSelectionCount: 5,
-          matching: .images
-        ) {
+        Button {
+          pickImages()
+        } label: {
           Label("Attach Images", systemImage: "paperclip")
         }
       #endif
+
+      Button {
+        _ = pasteImageFromClipboard()
+      } label: {
+        Label("Paste Image", systemImage: "doc.on.clipboard")
+      }
+      .disabled(!canPasteImageFromClipboard)
 
       Button {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -1511,167 +1529,7 @@ struct InstrumentPanel: View {
   }
 
   // MARK: - Image Input
-
-  #if os(macOS)
-    private func pickImages() {
-      let panel = NSOpenPanel()
-      panel.allowedContentTypes = [.image]
-      panel.allowsMultipleSelection = true
-      panel.canChooseDirectories = false
-      panel.message = "Select images to attach"
-
-      guard panel.runModal() == .OK else { return }
-
-      for url in panel.urls {
-        guard let nsImage = NSImage(contentsOf: url) else { continue }
-        let thumbnail = createThumbnail(from: nsImage)
-        let input = ServerImageInput(inputType: "path", value: url.path)
-        let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-          attachedImages.append(attached)
-        }
-      }
-    }
-  #else
-    @State private var photoPickerItems: [PhotosPickerItem] = []
-  #endif
-
-  #if os(macOS)
-    private func pasteImageFromClipboard() -> Bool {
-      let pasteboard = NSPasteboard.general
-
-      guard let imageType = pasteboard.availableType(from: [.tiff, .png]) else {
-        return false
-      }
-
-      guard let data = pasteboard.data(forType: imageType),
-            let nsImage = NSImage(data: data)
-      else {
-        return false
-      }
-
-      guard let tiffData = nsImage.tiffRepresentation,
-            let bitmapRep = NSBitmapImageRep(data: tiffData),
-            let pngData = bitmapRep.representation(using: .png, properties: [:])
-      else {
-        return false
-      }
-
-      let base64 = pngData.base64EncodedString()
-      let dataURI = "data:image/png;base64,\(base64)"
-      let thumbnail = createThumbnail(from: nsImage)
-      let input = ServerImageInput(inputType: "url", value: dataURI)
-      let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-        attachedImages.append(attached)
-      }
-      return true
-    }
-  #else
-    private func pasteImageFromClipboard() -> Bool {
-      let pasteboard = UIPasteboard.general
-
-      guard let image = pasteboard.image else {
-        return false
-      }
-
-      guard let pngData = image.pngData() else {
-        return false
-      }
-
-      let base64 = pngData.base64EncodedString()
-      let dataURI = "data:image/png;base64,\(base64)"
-      let thumbnail = createThumbnail(from: image)
-      let input = ServerImageInput(inputType: "url", value: dataURI)
-      let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-        attachedImages.append(attached)
-      }
-      return true
-    }
-  #endif
-
-  #if os(macOS)
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-      var handled = false
-
-      for provider in providers {
-        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-          provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
-            guard let urlData = data as? Data,
-                  let url = URL(dataRepresentation: urlData, relativeTo: nil),
-                  let nsImage = NSImage(contentsOf: url)
-            else { return }
-
-            let thumbnail = createThumbnail(from: nsImage)
-            let input = ServerImageInput(inputType: "path", value: url.path)
-            let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-
-            DispatchQueue.main.async {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                attachedImages.append(attached)
-              }
-            }
-          }
-          handled = true
-        } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-          provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, _ in
-            guard let imageData = data as? Data,
-                  let nsImage = NSImage(data: imageData),
-                  let tiffData = nsImage.tiffRepresentation,
-                  let bitmapRep = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmapRep.representation(using: .png, properties: [:])
-            else { return }
-
-            let base64 = pngData.base64EncodedString()
-            let dataURI = "data:image/png;base64,\(base64)"
-            let thumbnail = createThumbnail(from: nsImage)
-            let input = ServerImageInput(inputType: "url", value: dataURI)
-            let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-
-            DispatchQueue.main.async {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                attachedImages.append(attached)
-              }
-            }
-          }
-          handled = true
-        }
-      }
-
-      return handled
-    }
-
-    private func createThumbnail(from image: NSImage) -> NSImage {
-      let size = NSSize(width: 80, height: 80)
-      let thumbnail = NSImage(size: size)
-      thumbnail.lockFocus()
-      NSGraphicsContext.current?.imageInterpolation = .high
-      image.draw(
-        in: NSRect(origin: .zero, size: size),
-        from: NSRect(origin: .zero, size: image.size),
-        operation: .copy,
-        fraction: 1.0
-      )
-      thumbnail.unlockFocus()
-      return thumbnail
-    }
-  #else
-    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-      // iOS drag/drop (lower priority - not commonly used on phones)
-      return false
-    }
-
-    private func createThumbnail(from image: UIImage) -> UIImage {
-      let size = CGSize(width: 80, height: 80)
-      let renderer = UIGraphicsImageRenderer(size: size)
-      return renderer.image { context in
-        image.draw(in: CGRect(origin: .zero, size: size))
-      }
-    }
-  #endif
+  // Implemented in DirectSessionComposer+ImageShared.swift and platform extensions.
 }
 
 // MARK: - Interrupt Button
@@ -1789,7 +1647,7 @@ private struct SkillCompletionList: View {
   @Previewable @State var pinned = true
   @Previewable @State var unread = 0
   @Previewable @State var scroll = 0
-  InstrumentPanel(
+  DirectSessionComposer(
     session: Session(
       id: "test-session",
       projectPath: "/Users/test/project",

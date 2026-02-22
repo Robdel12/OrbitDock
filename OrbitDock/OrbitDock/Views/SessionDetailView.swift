@@ -138,9 +138,9 @@ struct SessionDetailView: View {
       }
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: showTurnSidebar)
 
-      // Action bar (unified instrument panel for Codex, simpler bar for Claude)
+      // Action bar (unified composer for direct sessions, simpler bar for passive sessions)
       if session.isDirect {
-        InstrumentPanel(
+        DirectSessionComposer(
           session: session,
           selectedSkills: $selectedSkills,
           isPinned: $isPinned,
