@@ -7,7 +7,8 @@ Mission control for AI coding agents. A native macOS app that monitors all your 
 ![Rust](https://img.shields.io/badge/Rust-1.75+-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-<video src="demo.mov" width="100%" autoplay loop muted playsinline></video>
+https://github.com/user-attachments/assets/58be4f6e-55f9-43fe-9336-d3db99c4471c
+
 
 ## Why This Exists
 
