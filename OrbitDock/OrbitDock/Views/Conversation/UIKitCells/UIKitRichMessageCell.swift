@@ -60,6 +60,14 @@
     private static let thinkingShowMoreHeight: CGFloat = 32
     private static let thinkingFadeHeight: CGFloat = 28
 
+    // Error containment
+    private static let errorCornerRadius: CGFloat = Radius.lg
+    private static let errorHPad: CGFloat = 16
+    private static let errorVPadTop: CGFloat = 14
+    private static let errorVPadBottom: CGFloat = 12
+    private static let errorAccentBarWidth: CGFloat = EdgeBar.width
+    private static let errorColor = PlatformColor(Color.statusPermission)
+
     // MARK: - Subviews
 
     private let headerContainer = UIView()
@@ -77,6 +85,10 @@
     private let thinkingSeparator = UIView()
     private let thinkingFadeOverlay = UIView()
     private let thinkingShowMoreButton = UIButton(type: .system)
+
+    // Error-specific
+    private let errorBackground = UIView()
+    private let errorAccentBar = UIView()
 
     var onThinkingExpandToggle: ((String) -> Void)?
 
@@ -147,6 +159,18 @@
       thinkingShowMoreButton.addTarget(self, action: #selector(handleThinkingExpandToggle), for: .touchUpInside)
       thinkingShowMoreButton.isHidden = true
       thinkingShowMoreButton.contentHorizontalAlignment = .left
+
+      // Error background
+      errorBackground.backgroundColor = Self.errorColor.withAlphaComponent(0.08)
+      errorBackground.layer.cornerRadius = Self.errorCornerRadius
+      errorBackground.layer.masksToBounds = true
+      errorBackground.layer.borderColor = Self.errorColor.withAlphaComponent(0.10).cgColor
+      errorBackground.layer.borderWidth = 1
+      errorBackground.isHidden = true
+
+      // Error accent bar
+      errorAccentBar.backgroundColor = Self.errorColor
+      errorAccentBar.isHidden = true
     }
 
     // MARK: - Prepare for Reuse
@@ -160,6 +184,8 @@
       thinkingSeparator.isHidden = true
       thinkingFadeOverlay.isHidden = true
       thinkingShowMoreButton.isHidden = true
+      errorBackground.isHidden = true
+      errorAccentBar.isHidden = true
       currentModel = nil
       currentBlocks = []
       currentImages = []
@@ -279,6 +305,8 @@
       bubbleBackground.isHidden = true
       accentBar.isHidden = true
       thinkingBackground.isHidden = true
+      errorBackground.isHidden = true
+      errorAccentBar.isHidden = true
       markdownContentView.layer.mask = nil
 
       let bodyY = Self.headerHeight + Self.headerToBodySpacing
@@ -293,6 +321,9 @@
       } else if model.messageType == .thinking {
         contentWidth = min(width - Self.laneHorizontalInset * 2, Self.thinkingRailMaxWidth)
         rebuildThinkingBody(model: model, contentWidth: contentWidth)
+      } else if model.messageType == .error {
+        contentWidth = min(width - Self.laneHorizontalInset * 2, Self.assistantRailMaxWidth)
+        rebuildErrorBody(model: model, contentWidth: contentWidth)
       } else {
         contentWidth = min(width - Self.laneHorizontalInset * 2, Self.assistantRailMaxWidth)
         rebuildAssistantBody(model: model, contentWidth: contentWidth)
@@ -459,6 +490,47 @@
     @objc private func handleThinkingExpandToggle() {
       guard let model = currentModel else { return }
       onThinkingExpandToggle?(model.messageID)
+    }
+
+    private func rebuildErrorBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
+      let hPad = Self.errorHPad
+      let vTop = Self.errorVPadTop
+      let vBottom = Self.errorVPadBottom
+      let barWidth = Self.errorAccentBarWidth
+      let innerWidth = contentWidth - hPad * 2 - barWidth
+      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth)
+      let containerHeight = vTop + mdHeight + vBottom
+
+      // Coral-tinted background with subtle border
+      errorBackground.frame = CGRect(
+        x: Self.laneHorizontalInset,
+        y: 0,
+        width: contentWidth,
+        height: containerHeight
+      )
+      errorBackground.isHidden = false
+      bodyContainer.addSubview(errorBackground)
+
+      // Solid coral accent bar on left edge
+      errorAccentBar.frame = CGRect(
+        x: Self.laneHorizontalInset,
+        y: 0,
+        width: barWidth,
+        height: containerHeight
+      )
+      errorAccentBar.isHidden = false
+      bodyContainer.addSubview(errorAccentBar)
+
+      // Content inside the container
+      let contentX = Self.laneHorizontalInset + barWidth + hPad
+      markdownContentView.frame = CGRect(
+        x: contentX,
+        y: vTop,
+        width: innerWidth,
+        height: mdHeight
+      )
+      markdownContentView.configure(blocks: currentBlocks)
+      bodyContainer.addSubview(markdownContentView)
     }
 
     // MARK: - Image Layout
@@ -754,6 +826,11 @@
         let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
         let bottomZone: CGFloat = model.isThinkingLong ? thinkingShowMoreHeight : 0
         return thinkingVPadTop + mdHeight + thinkingVPadBottom + bottomZone
+      } else if model.messageType == .error {
+        let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
+        let innerWidth = contentWidth - errorHPad * 2 - errorAccentBarWidth
+        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
+        return errorVPadTop + mdHeight + errorVPadBottom
       } else {
         let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
         let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: contentWidth)

@@ -214,6 +214,7 @@ extension ServerMessage {
       toolDuration: duration,
       inputTokens: nil,
       outputTokens: nil,
+      isError: isError,
       isInProgress: false
     )
     msg.images = messageImages

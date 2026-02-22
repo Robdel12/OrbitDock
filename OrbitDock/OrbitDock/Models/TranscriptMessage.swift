@@ -43,6 +43,7 @@ struct TranscriptMessage: Identifiable, Hashable {
   var toolDuration: TimeInterval? // How long the tool took
   let inputTokens: Int?
   let outputTokens: Int?
+  var isError: Bool = false // Error message from connector (rate limit, etc.)
   var isInProgress: Bool = false // Tool is currently running
   var images: [MessageImage] = [] // Support multiple images
   var thinking: String? // Claude's thinking trace (collapsed by default)

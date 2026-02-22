@@ -340,6 +340,9 @@ enum SharedModelBuilders {
     } else if message.isShell {
       messageType = .shell
       speaker = "YOU"
+    } else if message.isError, message.isAssistant {
+      messageType = .error
+      speaker = "ERROR"
     } else {
       messageType = .assistant
       speaker = "ASSISTANT"

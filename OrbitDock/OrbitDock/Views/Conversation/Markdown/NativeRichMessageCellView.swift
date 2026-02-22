@@ -46,6 +46,7 @@ struct NativeRichMessageRowModel {
     case thinking
     case steer
     case shell
+    case error
   }
 
   /// The display content for this row — truncated for collapsed thinking.
@@ -80,6 +81,8 @@ struct NativeRichMessageRowModel {
         PlatformColor(Color.accent).withAlphaComponent(0.85)
       case .shell:
         PlatformColor(Color.accent).withAlphaComponent(0.8)
+      case .error:
+        PlatformColor(Color.statusPermission)
     }
   }
 
@@ -90,6 +93,7 @@ struct NativeRichMessageRowModel {
       case .thinking: "brain.head.profile"
       case .steer: "arrow.turn.down.right"
       case .shell: "terminal"
+      case .error: "exclamationmark.triangle.fill"
     }
   }
 
@@ -100,6 +104,7 @@ struct NativeRichMessageRowModel {
       case .thinking: PlatformColor.calibrated(red: 0.6, green: 0.55, blue: 0.8, alpha: 1)
       case .steer: PlatformColor(Color.accent)
       case .shell: PlatformColor(Color.shellAccent)
+      case .error: PlatformColor(Color.statusPermission)
     }
   }
 
@@ -153,6 +158,14 @@ struct NativeRichMessageRowModel {
     private static let thinkingShowMoreHeight: CGFloat = 32
     private static let thinkingFadeHeight: CGFloat = 28
 
+    // Error containment
+    private static let errorCornerRadius: CGFloat = Radius.lg
+    private static let errorHPad: CGFloat = 16
+    private static let errorVPadTop: CGFloat = 14
+    private static let errorVPadBottom: CGFloat = 12
+    private static let errorAccentBarWidth: CGFloat = EdgeBar.width
+    private static let errorColor = NSColor(Color.statusPermission)
+
     // MARK: - Subviews
 
     private let headerContainer = FlippedContainerView()
@@ -170,6 +183,10 @@ struct NativeRichMessageRowModel {
     private let thinkingSeparator = NSView()
     private let thinkingFadeOverlay = NSView()
     private let thinkingShowMoreButton = NSButton(title: "", target: nil, action: nil)
+
+    // Error-specific: coral-tinted containment + accent bar
+    private let errorBackground = NSView()
+    private let errorAccentBar = NSView()
 
     /// Callback when thinking expansion is toggled. Parent should update model + invalidate row.
     var onThinkingExpandToggle: ((String) -> Void)?
@@ -255,6 +272,22 @@ struct NativeRichMessageRowModel {
       thinkingShowMoreButton.action = #selector(handleThinkingExpandToggle)
       thinkingShowMoreButton.translatesAutoresizingMaskIntoConstraints = false
       thinkingShowMoreButton.isHidden = true
+
+      // Error background (coral-tinted containment)
+      errorBackground.wantsLayer = true
+      errorBackground.layer?.backgroundColor = Self.errorColor.withAlphaComponent(0.08).cgColor
+      errorBackground.layer?.cornerRadius = Self.errorCornerRadius
+      errorBackground.layer?.masksToBounds = true
+      errorBackground.layer?.borderColor = Self.errorColor.withAlphaComponent(0.10).cgColor
+      errorBackground.layer?.borderWidth = 1
+      errorBackground.translatesAutoresizingMaskIntoConstraints = false
+      errorBackground.isHidden = true
+
+      // Error accent bar (solid coral on left edge)
+      errorAccentBar.wantsLayer = true
+      errorAccentBar.layer?.backgroundColor = Self.errorColor.cgColor
+      errorAccentBar.translatesAutoresizingMaskIntoConstraints = false
+      errorAccentBar.isHidden = true
 
       // Markdown content
       markdownContentView.wantsLayer = true
@@ -388,6 +421,8 @@ struct NativeRichMessageRowModel {
       bubbleBackground.isHidden = true
       accentBar.isHidden = true
       thinkingBackground.isHidden = true
+      errorBackground.isHidden = true
+      errorAccentBar.isHidden = true
       markdownContentView.layer?.mask = nil
 
       let contentWidth: CGFloat
@@ -404,6 +439,10 @@ struct NativeRichMessageRowModel {
         // Thinking: compact, narrower, left-aligned
         contentWidth = min(width - Self.laneHorizontalInset * 2, Self.thinkingRailMaxWidth)
         rebuildThinkingBody(model: model, contentWidth: contentWidth)
+      } else if model.messageType == .error {
+        // Error: coral-tinted container, left-aligned
+        contentWidth = min(width - Self.laneHorizontalInset * 2, Self.assistantRailMaxWidth)
+        rebuildErrorBody(model: model, contentWidth: contentWidth)
       } else {
         // Assistant: markdown content, left-aligned
         contentWidth = min(width - Self.laneHorizontalInset * 2, Self.assistantRailMaxWidth)
@@ -580,6 +619,47 @@ struct NativeRichMessageRowModel {
     @objc private func handleThinkingExpandToggle() {
       guard let model = currentModel else { return }
       onThinkingExpandToggle?(model.messageID)
+    }
+
+    private func rebuildErrorBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
+      let hPad = Self.errorHPad
+      let vTop = Self.errorVPadTop
+      let vBottom = Self.errorVPadBottom
+      let barWidth = Self.errorAccentBarWidth
+      let innerWidth = contentWidth - hPad * 2 - barWidth
+      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth)
+      let containerHeight = vTop + mdHeight + vBottom
+
+      // Coral-tinted background with subtle border
+      errorBackground.frame = NSRect(
+        x: Self.laneHorizontalInset,
+        y: 0,
+        width: contentWidth,
+        height: containerHeight
+      )
+      errorBackground.isHidden = false
+      bodyContainer.addSubview(errorBackground)
+
+      // Solid coral accent bar on left edge
+      errorAccentBar.frame = NSRect(
+        x: Self.laneHorizontalInset,
+        y: 0,
+        width: barWidth,
+        height: containerHeight
+      )
+      errorAccentBar.isHidden = false
+      bodyContainer.addSubview(errorAccentBar)
+
+      // Content inside the container (offset by accent bar + padding)
+      let contentX = Self.laneHorizontalInset + barWidth + hPad
+      markdownContentView.frame = NSRect(
+        x: contentX,
+        y: vTop,
+        width: innerWidth,
+        height: mdHeight
+      )
+      markdownContentView.configure(blocks: currentBlocks)
+      bodyContainer.addSubview(markdownContentView)
     }
 
     // MARK: - Image Layout
@@ -877,6 +957,11 @@ struct NativeRichMessageRowModel {
         let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
         let bottomZoneHeight: CGFloat = model.isThinkingLong ? thinkingShowMoreHeight : 0
         bodyHeight = thinkingVPadTop + mdHeight + thinkingVPadBottom + bottomZoneHeight
+      } else if model.messageType == .error {
+        let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
+        let innerWidth = contentWidth - errorHPad * 2 - errorAccentBarWidth
+        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
+        bodyHeight = errorVPadTop + mdHeight + errorVPadBottom
       } else {
         let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
         let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: contentWidth)

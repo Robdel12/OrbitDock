@@ -585,10 +585,34 @@ pub fn transition(
             })));
         }
 
-        Input::Error(_) => {
+        Input::Error(msg) => {
             state.phase = WorkPhase::Idle;
             state.last_activity_at = Some(now.to_string());
 
+            // Create an error message so the user sees what happened
+            let error_msg = Message {
+                id: format!("error-{}", uuid::Uuid::new_v4()),
+                session_id: sid.clone(),
+                message_type: MessageType::Assistant,
+                content: msg,
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: true,
+                timestamp: now.to_string(),
+                duration_ms: None,
+                images: vec![],
+            };
+            state.messages.push(error_msg.clone());
+
+            effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
+                session_id: sid.clone(),
+                message: error_msg.clone(),
+            })));
+            effects.push(Effect::Emit(Box::new(ServerMessage::MessageAppended {
+                session_id: sid.clone(),
+                message: error_msg,
+            })));
             effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
                 id: sid.clone(),
                 status: None,
@@ -1263,7 +1287,14 @@ mod tests {
             transition(state, Input::Error("something broke".to_string()), NOW);
 
         assert_eq!(new_state.phase, WorkPhase::Idle);
-        assert_eq!(effects.len(), 2);
+        // 4 effects: message persist, message emit, session update, session delta
+        assert_eq!(effects.len(), 4);
+        // Verify the error message was added to state
+        let last_msg = new_state.messages.last().unwrap();
+        assert!(last_msg.id.starts_with("error-"));
+        assert_eq!(last_msg.content, "something broke");
+        assert!(last_msg.is_error);
+        assert_eq!(last_msg.message_type, MessageType::Assistant);
     }
 
     #[test]
