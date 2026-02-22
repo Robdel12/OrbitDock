@@ -258,14 +258,19 @@ struct NewCodexSessionSheet: View {
 
         Spacer()
 
-        Picker("Model", selection: $selectedModel) {
-          ForEach(modelOptions.filter { !$0.model.isEmpty }, id: \.id) { model in
-            Text(model.displayName).tag(model.model)
+        if !selectedModel.isEmpty {
+          Picker("Model", selection: $selectedModel) {
+            ForEach(modelOptions.filter { !$0.model.isEmpty }, id: \.id) { model in
+              Text(model.displayName).tag(model.model)
+            }
           }
+          .pickerStyle(.menu)
+          .labelsHidden()
+          .fixedSize()
+        } else {
+          ProgressView()
+            .controlSize(.small)
         }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .fixedSize()
       }
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md)

@@ -45,6 +45,7 @@ struct NewClaudeSessionSheet: View {
   @State private var allowedToolsText: String = ""
   @State private var disallowedToolsText: String = ""
   @State private var showToolConfig = false
+  @State private var selectedEffort: String? = nil
 
   private var canCreateSession: Bool {
     !selectedPath.isEmpty && !isCreating
@@ -83,8 +84,9 @@ struct NewClaudeSessionSheet: View {
     .frame(minWidth: 420, idealWidth: 500, maxWidth: 580)
     .background(Color.backgroundSecondary)
     .onAppear {
-      if selectedModelId.isEmpty {
-        selectedModelId = ClaudeModelOption.models.first(where: \.isDefault)?.id ?? ""
+      // Set default model from dynamic list
+      if selectedModelId.isEmpty, let firstModel = serverState.claudeModels.first {
+        selectedModelId = firstModel.value
       }
     }
   }
@@ -204,8 +206,8 @@ struct NewClaudeSessionSheet: View {
             .frame(maxWidth: 220)
         } else {
           Picker("Model", selection: $selectedModelId) {
-            ForEach(ClaudeModelOption.models) { model in
-              Text(model.displayName).tag(model.id)
+            ForEach(serverState.claudeModels) { model in
+              Text(model.displayName).tag(model.value)
             }
           }
           .pickerStyle(.menu)
@@ -432,7 +434,8 @@ struct NewClaudeSessionSheet: View {
       model: resolvedModel,
       permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
       allowedTools: parseToolList(allowedToolsText),
-      disallowedTools: parseToolList(disallowedToolsText)
+      disallowedTools: parseToolList(disallowedToolsText),
+      effort: selectedEffort
     )
     dismiss()
   }

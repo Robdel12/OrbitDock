@@ -8,6 +8,9 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS)
+  import PhotosUI
+#endif
 
 struct InstrumentPanel: View {
   let session: Session
@@ -291,18 +294,29 @@ struct InstrumentPanel: View {
       }
     }
     #if os(iOS)
-      .sheet(isPresented: $showImagePicker) {
-        ImagePickerView { images in
-          for image in images {
-            guard let pngData = image.pngData() else { continue }
+      .onChange(of: photoPickerItems) { _, newItems in
+        Task {
+          for item in newItems {
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data),
+                  let pngData = image.pngData()
+            else { continue }
+
             let base64 = pngData.base64EncodedString()
             let dataURI = "data:image/png;base64,\(base64)"
             let thumbnail = createThumbnail(from: image)
             let input = ServerImageInput(inputType: "url", value: dataURI)
             let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              attachedImages.append(attached)
+
+            await MainActor.run {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                attachedImages.append(attached)
+              }
             }
+          }
+          // Clear selection after loading
+          await MainActor.run {
+            photoPickerItems = []
           }
         }
       }
@@ -620,13 +634,32 @@ struct InstrumentPanel: View {
             }
           }
 
-          composerActionButton(
-            icon: "paperclip",
-            isActive: !attachedImages.isEmpty,
-            help: "Attach images"
-          ) {
-            pickImages()
-          }
+          #if os(macOS)
+            composerActionButton(
+              icon: "paperclip",
+              isActive: !attachedImages.isEmpty,
+              help: "Attach images"
+            ) {
+              pickImages()
+            }
+          #else
+            PhotosPicker(
+              selection: $photoPickerItems,
+              maxSelectionCount: 5,
+              matching: .images
+            ) {
+              Image(systemName: "paperclip")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(!attachedImages.isEmpty ? Color.accent : .secondary)
+                .frame(width: 28, height: 28)
+                .background(
+                  !attachedImages.isEmpty ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+                  in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Attach images")
+          #endif
 
           composerActionButton(
             icon: "terminal",
@@ -977,11 +1010,21 @@ struct InstrumentPanel: View {
         }
       }
 
-      Button {
-        pickImages()
-      } label: {
-        Label("Attach Images", systemImage: "paperclip")
-      }
+      #if os(macOS)
+        Button {
+          pickImages()
+        } label: {
+          Label("Attach Images", systemImage: "paperclip")
+        }
+      #else
+        PhotosPicker(
+          selection: $photoPickerItems,
+          maxSelectionCount: 5,
+          matching: .images
+        ) {
+          Label("Attach Images", systemImage: "paperclip")
+        }
+      #endif
 
       Button {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -1490,11 +1533,7 @@ struct InstrumentPanel: View {
       }
     }
   #else
-    @State private var showImagePicker = false
-
-    private func pickImages() {
-      showImagePicker = true
-    }
+    @State private var photoPickerItems: [PhotosPickerItem] = []
   #endif
 
   #if os(macOS)
@@ -1744,62 +1783,6 @@ private struct SkillCompletionList: View {
   }
 }
 
-// MARK: - iOS Image Picker
-
-#if os(iOS)
-  import PhotosUI
-
-  struct ImagePickerView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedItems: [PhotosPickerItem] = []
-    let onSelect: ([UIImage]) -> Void
-
-    var body: some View {
-      NavigationStack {
-        PhotosPicker(
-          selection: $selectedItems,
-          maxSelectionCount: 5,
-          matching: .images
-        ) {
-          Label("Select Photos", systemImage: "photo.on.rectangle.angled")
-        }
-        .photosPickerStyle(.inline)
-        .navigationTitle("Select Images")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") {
-              dismiss()
-            }
-          }
-          ToolbarItem(placement: .confirmationAction) {
-            Button("Done") {
-              loadImages()
-            }
-            .disabled(selectedItems.isEmpty)
-          }
-        }
-      }
-    }
-
-    private func loadImages() {
-      Task {
-        var images: [UIImage] = []
-        for item in selectedItems {
-          if let data = try? await item.loadTransferable(type: Data.self),
-             let image = UIImage(data: data)
-          {
-            images.append(image)
-          }
-        }
-        await MainActor.run {
-          onSelect(images)
-          dismiss()
-        }
-      }
-    }
-  }
-#endif
 
 #Preview {
   @Previewable @State var skills: Set<String> = []

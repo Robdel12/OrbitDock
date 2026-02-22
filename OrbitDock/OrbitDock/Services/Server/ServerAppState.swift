@@ -31,11 +31,17 @@ final class ServerAppState {
   /// Codex models discovered by the server for the current account
   private(set) var codexModels: [ServerCodexModelOption] = []
 
+  /// Claude models discovered from Claude CLI initialize response
+  private(set) var claudeModels: [ServerClaudeModelOption] = []
+
   /// Current Codex account/auth status (global account state, not per-session)
   private(set) var codexAccountStatus: ServerCodexAccountStatus?
 
   /// Most recent Codex auth/login error suitable for UI display
   private(set) var codexAuthError: String?
+
+  /// Most recent unhandled server error — surfaced as a toast/alert so errors are never silent
+  private(set) var lastServerError: (code: String, message: String)?
 
   // MARK: - Per-Session Observable Registry
 
@@ -258,13 +264,14 @@ final class ServerAppState {
       }
     }
 
-    conn.onClaudeCapabilities = { [weak self] sessionId, slashCommands, skills, tools in
+    conn.onClaudeCapabilities = { [weak self] sessionId, slashCommands, skills, tools, models in
       Task { @MainActor in
         guard let self else { return }
         let obs = self.session(sessionId)
         obs.slashCommands = Set(slashCommands)
         obs.claudeSkillNames = skills
         obs.claudeToolNames = tools
+        self.claudeModels = models
       }
     }
 
@@ -468,7 +475,8 @@ final class ServerAppState {
     model: String? = nil,
     permissionMode: String? = nil,
     allowedTools: [String] = [],
-    disallowedTools: [String] = []
+    disallowedTools: [String] = [],
+    effort: String? = nil
   ) {
     logger.info("Creating Claude session in \(cwd)")
     pendingNavigationOnCreate = true
@@ -480,7 +488,8 @@ final class ServerAppState {
       sandboxMode: nil,
       permissionMode: permissionMode,
       allowedTools: allowedTools,
-      disallowedTools: disallowedTools
+      disallowedTools: disallowedTools,
+      effort: effort
     )
   }
 
@@ -1456,10 +1465,13 @@ final class ServerAppState {
   private func handleError(_ code: String, _ message: String, _ sessionId: String?) {
     logger.error("Server error [\(code)]: \(message)")
 
+    var handled = false
+
     if code == "fork_failed" || code == "not_found" {
       if let sid = sessionId {
         session(sid).forkInProgress = false
       }
+      handled = true
     }
 
     // Broadcast subscriber lagged — re-subscribe to get a fresh snapshot
@@ -1467,12 +1479,24 @@ final class ServerAppState {
       logger.info("Re-subscribing to \(sid) after lagged broadcast")
       subscribedSessions.remove(sid)
       subscribeToSession(sid)
+      handled = true
     }
 
     if code.hasPrefix("codex_auth_") {
       codexAuthError = message
       refreshCodexAccount()
+      handled = true
     }
+
+    // Surface unhandled errors so they're never silent
+    if !handled {
+      lastServerError = (code: code, message: message)
+    }
+  }
+
+  /// Clear the last server error (call after displaying it)
+  func clearServerError() {
+    lastServerError = nil
   }
 
   // MARK: - Turn Diff Handlers
