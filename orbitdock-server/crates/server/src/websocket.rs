@@ -1356,6 +1356,7 @@ async fn handle_client_message(
                             content,
                             model: action_model,
                             effort: action_effort,
+                            images,
                         })
                         .await
                         .is_ok()
@@ -1408,7 +1409,11 @@ async fn handle_client_message(
                 "Steering active turn"
             );
 
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
+            // Try Codex action channel first, then Claude
+            let codex_tx = state.get_codex_action_tx(&session_id);
+            let claude_tx = state.get_claude_action_tx(&session_id);
+
+            if codex_tx.is_some() || claude_tx.is_some() {
                 // Persist steer message so it appears in conversation
                 let ts_millis = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -1442,12 +1447,21 @@ async fn handle_client_message(
                         .await;
                 }
 
-                let _ = tx
-                    .send(CodexAction::SteerTurn {
-                        content,
-                        message_id: steer_msg_id,
-                    })
-                    .await;
+                if let Some(tx) = codex_tx {
+                    let _ = tx
+                        .send(CodexAction::SteerTurn {
+                            content,
+                            message_id: steer_msg_id,
+                        })
+                        .await;
+                } else if let Some(tx) = claude_tx {
+                    let _ = tx
+                        .send(ClaudeAction::SteerTurn {
+                            content,
+                            message_id: steer_msg_id,
+                        })
+                        .await;
+                }
             } else {
                 send_json(
                     client_tx,

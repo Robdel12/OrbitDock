@@ -25,6 +25,7 @@ pub enum ClaudeAction {
         content: String,
         model: Option<String>,
         effort: Option<String>,
+        images: Vec<orbitdock_protocol::ImageInput>,
     },
     Interrupt,
     ApproveTool {
@@ -55,6 +56,10 @@ pub enum ClaudeAction {
     SetPermissionMode {
         mode: String,
     },
+    SteerTurn {
+        content: String,
+        message_id: String,
+    },
     EndSession,
 }
 
@@ -65,11 +70,13 @@ impl std::fmt::Debug for ClaudeAction {
                 content,
                 model,
                 effort,
+                images,
             } => f
                 .debug_struct("SendMessage")
                 .field("content_len", &content.len())
                 .field("model", model)
                 .field("effort", effort)
+                .field("images_count", &images.len())
                 .finish(),
             Self::Interrupt => write!(f, "Interrupt"),
             Self::ApproveTool {
@@ -104,6 +111,14 @@ impl std::fmt::Debug for ClaudeAction {
             Self::SetPermissionMode { mode } => f
                 .debug_struct("SetPermissionMode")
                 .field("mode", mode)
+                .finish(),
+            Self::SteerTurn {
+                content,
+                message_id,
+            } => f
+                .debug_struct("SteerTurn")
+                .field("content_len", &content.len())
+                .field("message_id", message_id)
                 .finish(),
             Self::EndSession => write!(f, "EndSession"),
         }
@@ -376,9 +391,10 @@ impl ClaudeSession {
                 content,
                 model,
                 effort,
+                images,
             } => {
                 connector
-                    .send_message(&content, model.as_deref(), effort.as_deref())
+                    .send_message(&content, model.as_deref(), effort.as_deref(), &images)
                     .await?;
             }
             ClaudeAction::Interrupt => {
@@ -407,12 +423,12 @@ impl ClaudeSession {
             ClaudeAction::Compact => {
                 // Send /compact as a user message — the CLI handles it as a slash command.
                 // See: https://platform.claude.com/docs/en/agent-sdk/slash-commands
-                connector.send_message("/compact", None, None).await?;
+                connector.send_message("/compact", None, None, &[]).await?;
             }
             ClaudeAction::Undo => {
                 // Send /undo as a slash command — only shown in UI if the CLI
                 // reported "undo" in the init message's slash_commands array.
-                connector.send_message("/undo", None, None).await?;
+                connector.send_message("/undo", None, None, &[]).await?;
             }
             ClaudeAction::Resume { .. } => {
                 // Resume is handled at spawn time via --resume flag.
@@ -439,6 +455,12 @@ impl ClaudeSession {
             }
             ClaudeAction::SetPermissionMode { mode } => {
                 connector.set_permission_mode(&mode).await?;
+            }
+            ClaudeAction::SteerTurn { content, .. } => {
+                // Claude SDK has no native steer_input — interrupt the active
+                // turn and resend the guidance as a new user message.
+                connector.interrupt().await?;
+                connector.send_message(&content, None, None, &[]).await?;
             }
             ClaudeAction::EndSession => {
                 connector.shutdown().await?;
