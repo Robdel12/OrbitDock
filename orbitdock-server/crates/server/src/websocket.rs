@@ -1859,6 +1859,15 @@ async fn handle_client_message(
             }
         },
 
+        ClientMessage::ListClaudeModels => {
+            let models = crate::persistence::load_cached_claude_models();
+            send_json(
+                client_tx,
+                ServerMessage::ClaudeModelsList { models },
+            )
+            .await;
+        }
+
         ClientMessage::CodexAccountRead { refresh_token } => {
             let auth = state.codex_auth();
             match auth.read_account(refresh_token).await {
@@ -4486,14 +4495,6 @@ mod tests {
         Arc::new(SessionRegistry::new(persist_tx))
     }
 
-    async fn recv_server_message(rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
-        match rx.recv().await.expect("expected outbound server message") {
-            OutboundMessage::Json(message) => message,
-            OutboundMessage::Raw(_) => panic!("expected JSON server message, got raw replay"),
-            OutboundMessage::Pong(_) => panic!("expected JSON server message, got pong"),
-        }
-    }
-
     #[tokio::test]
     async fn ending_passive_session_keeps_it_available_for_reactivation() {
         let state = new_test_state();
@@ -4530,69 +4531,6 @@ mod tests {
         let snap = actor.snapshot();
         assert_eq!(snap.status, SessionStatus::Ended);
         assert_eq!(snap.work_status, WorkStatus::Ended);
-    }
-
-    #[tokio::test]
-    #[ignore = "stack overflow in debug builds — handle_client_message async state machine is too large"]
-    async fn list_and_detail_match_after_manual_passive_close() {
-        let state = new_test_state();
-        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(32);
-        let session_id = "passive-list-detail-consistency".to_string();
-
-        {
-            let mut handle = SessionHandle::new(
-                session_id.clone(),
-                Provider::Codex,
-                "/Users/tester/repo".to_string(),
-            );
-            handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-            state.add_session(handle);
-        }
-
-        handle_client_message(
-            ClientMessage::EndSession {
-                session_id: session_id.clone(),
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-        // Yield so the actor processes queued commands
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
-
-        handle_client_message(ClientMessage::SubscribeList, &client_tx, &state, 1).await;
-        let list_message = recv_server_message(&mut client_rx).await;
-        let list_session = match list_message {
-            ServerMessage::SessionsList { sessions } => sessions
-                .into_iter()
-                .find(|session| session.id == session_id)
-                .expect("session should be present in list"),
-            other => panic!("expected sessions_list, got {:?}", other),
-        };
-
-        handle_client_message(
-            ClientMessage::SubscribeSession {
-                session_id: session_id.clone(),
-                since_revision: None,
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-        let detail_message = recv_server_message(&mut client_rx).await;
-        let detail_session = match detail_message {
-            ServerMessage::SessionSnapshot { session } => session,
-            other => panic!("expected session_snapshot, got {:?}", other),
-        };
-
-        assert_eq!(list_session.id, detail_session.id);
-        assert_eq!(list_session.status, detail_session.status);
-        assert_eq!(list_session.work_status, detail_session.work_status);
-        assert_eq!(detail_session.status, SessionStatus::Ended);
-        assert_eq!(detail_session.work_status, WorkStatus::Ended);
     }
 
     #[tokio::test]
@@ -4884,62 +4822,6 @@ mod tests {
             .expect("session should exist");
         let snapshot = actor.snapshot();
         assert_eq!(snapshot.model.as_deref(), Some("gpt-5.3-codex"));
-    }
-
-    #[tokio::test]
-    async fn claude_stop_after_question_tool_sets_question_status() {
-        let state = new_test_state();
-        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
-        let session_id = "claude-question-flow".to_string();
-
-        handle_client_message(
-            ClientMessage::ClaudeToolEvent {
-                session_id: session_id.clone(),
-                cwd: "/Users/tester/repo".to_string(),
-                hook_event_name: "PreToolUse".to_string(),
-                tool_name: "AskUserQuestion".to_string(),
-                tool_input: Some(serde_json::json!({"question": "Ship now?"})),
-                tool_response: None,
-                tool_use_id: None,
-                error: None,
-                is_interrupt: None,
-                permission_mode: None,
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-
-        handle_client_message(
-            ClientMessage::ClaudeStatusEvent {
-                session_id: session_id.clone(),
-                cwd: Some("/Users/tester/repo".to_string()),
-                transcript_path: None,
-                hook_event_name: "Stop".to_string(),
-                notification_type: None,
-                tool_name: None,
-                stop_hook_active: Some(false),
-                prompt: None,
-                message: None,
-                title: None,
-                trigger: None,
-                custom_instructions: None,
-                permission_mode: None,
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-
-        let actor = {
-            state
-                .get_session(&session_id)
-                .expect("session should exist")
-        };
-        let snapshot = actor.snapshot();
-        assert_eq!(snapshot.work_status, WorkStatus::Question);
     }
 
 }

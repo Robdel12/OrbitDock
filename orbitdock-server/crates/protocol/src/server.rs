@@ -132,6 +132,11 @@ pub enum ServerMessage {
         cancelled: Vec<String>,
     },
 
+    // Cached Claude models from DB
+    ClaudeModelsList {
+        models: Vec<crate::ClaudeModelOption>,
+    },
+
     // Claude capabilities (from init system message)
     ClaudeCapabilities {
         session_id: String,

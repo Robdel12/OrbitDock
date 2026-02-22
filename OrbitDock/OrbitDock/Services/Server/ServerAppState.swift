@@ -271,7 +271,17 @@ final class ServerAppState {
         obs.slashCommands = Set(slashCommands)
         obs.claudeSkillNames = skills
         obs.claudeToolNames = tools
-        self.claudeModels = models
+        if !models.isEmpty {
+          self.claudeModels = models
+        }
+      }
+    }
+
+    conn.onClaudeModelsList = { [weak self] models in
+      Task { @MainActor in
+        if !models.isEmpty {
+          self?.claudeModels = models
+        }
       }
     }
 
@@ -444,12 +454,14 @@ final class ServerAppState {
         self?.resubscribeAll()
         self?.refreshCodexModels()
         self?.refreshCodexAccount()
+        self?.refreshClaudeModels()
       }
     }
 
     logger.info("ServerAppState callbacks wired")
     refreshCodexModels()
     refreshCodexAccount()
+    refreshClaudeModels()
   }
 
   // MARK: - Actions
@@ -496,6 +508,11 @@ final class ServerAppState {
   /// Refresh model options from the server.
   func refreshCodexModels() {
     ServerConnection.shared.listModels()
+  }
+
+  /// Refresh cached Claude models from the server DB.
+  func refreshClaudeModels() {
+    ServerConnection.shared.listClaudeModels()
   }
 
   /// Refresh global Codex account/auth status.

@@ -139,6 +139,8 @@ pub enum ClientMessage {
 
     // Codex models
     ListModels,
+    // Claude models (cached from DB)
+    ListClaudeModels,
     // Codex account/auth state
     CodexAccountRead {
         #[serde(default)]

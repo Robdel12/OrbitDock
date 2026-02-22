@@ -306,6 +306,11 @@ pub enum PersistCommand {
 
     /// Upsert a key-value config entry
     SetConfig { key: String, value: String },
+
+    /// Replace all cached Claude models
+    SaveClaudeModels {
+        models: Vec<orbitdock_protocol::ClaudeModelOption>,
+    },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -1480,6 +1485,18 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 params![key, stored_value],
             )?;
         }
+
+        PersistCommand::SaveClaudeModels { models } => {
+            conn.execute("DELETE FROM claude_models", [])?;
+            let mut stmt = conn.prepare(
+                "INSERT INTO claude_models (value, display_name, description, updated_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            let now = chrono_now();
+            for m in models {
+                stmt.execute(params![m.value, m.display_name, m.description, now])?;
+            }
+        }
     }
 
     Ok(())
@@ -2229,6 +2246,28 @@ pub async fn load_messages_from_transcript_path(
     let session_id_owned = session_id.to_string();
     tokio::task::spawn_blocking(move || {
         load_messages_from_transcript(&transcript_path_owned, &session_id_owned)
+    })
+    .await?
+}
+
+/// Load messages for a session directly from the database.
+/// Used for lazy-loading messages when viewing closed sessions.
+pub async fn load_messages_for_session(session_id: &str) -> Result<Vec<Message>, anyhow::Error> {
+    let db_path = crate::paths::db_path();
+    let session_id_owned = session_id.to_string();
+
+    tokio::task::spawn_blocking(move || {
+        if !db_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        load_messages_from_db(&conn, &session_id_owned)
     })
     .await?
 }
@@ -3121,6 +3160,41 @@ pub fn load_config_value(key: &str) -> Option<String> {
         .flatten()?;
 
     crate::crypto::decrypt(&raw)
+}
+
+/// Load cached Claude models from the database.
+///
+/// Opens its own connection like `load_config_value` — safe to call from any context.
+pub fn load_cached_claude_models() -> Vec<orbitdock_protocol::ClaudeModelOption> {
+    let db_path = crate::paths::db_path();
+    if !db_path.exists() {
+        return Vec::new();
+    }
+
+    let conn = match Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let _ = conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA busy_timeout = 5000;",
+    );
+
+    let mut stmt = match conn.prepare("SELECT value, display_name, description FROM claude_models")
+    {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+
+    stmt.query_map([], |row| {
+        Ok(orbitdock_protocol::ClaudeModelOption {
+            value: row.get(0)?,
+            display_name: row.get(1)?,
+            description: row.get(2)?,
+        })
+    })
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
 }
 
 #[cfg(test)]

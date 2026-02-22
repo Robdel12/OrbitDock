@@ -85,6 +85,7 @@ final class ServerConnection: ObservableObject {
   var onMcpStartupUpdate: ((String, String, ServerMcpStartupStatus) -> Void)?
   var onMcpStartupComplete: ((String, [String], [ServerMcpStartupFailure], [String]) -> Void)?
   var onClaudeCapabilities: ((String, [String], [String], [String], [ServerClaudeModelOption]) -> Void)?
+  var onClaudeModelsList: (([ServerClaudeModelOption]) -> Void)?
   var onContextCompacted: ((String) -> Void)?
   var onUndoStarted: ((String, String?) -> Void)?
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
@@ -384,6 +385,9 @@ final class ServerConnection: ObservableObject {
       case let .claudeCapabilities(sessionId, slashCommands, skills, tools, models):
         onClaudeCapabilities?(sessionId, slashCommands, skills, tools, models)
 
+      case let .claudeModelsList(models):
+        onClaudeModelsList?(models)
+
       case let .contextCompacted(sessionId):
         onContextCompacted?(sessionId)
 
@@ -657,6 +661,11 @@ final class ServerConnection: ObservableObject {
   /// Load codex model options discovered by the server
   func listModels() {
     send(.listModels)
+  }
+
+  /// Load cached Claude models from DB
+  func listClaudeModels() {
+    send(.listClaudeModels)
   }
 
   /// Read Codex account/auth state.

@@ -8,30 +8,6 @@
 
 import SwiftUI
 
-private struct ClaudeModelOption: Identifiable, Hashable {
-  let id: String
-  let displayName: String
-  let isDefault: Bool
-
-  static let models: [ClaudeModelOption] = [
-    ClaudeModelOption(
-      id: "claude-sonnet-4-5-20250929",
-      displayName: "Sonnet 4.5",
-      isDefault: true
-    ),
-    ClaudeModelOption(
-      id: "claude-opus-4-6",
-      displayName: "Opus 4.6",
-      isDefault: false
-    ),
-    ClaudeModelOption(
-      id: "claude-haiku-4-5-20251001",
-      displayName: "Haiku 4.5",
-      isDefault: false
-    ),
-  ]
-}
-
 struct NewClaudeSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerAppState.self) private var serverState
@@ -49,6 +25,10 @@ struct NewClaudeSessionSheet: View {
 
   private var canCreateSession: Bool {
     !selectedPath.isEmpty && !isCreating
+  }
+
+  private var availableModels: [ServerClaudeModelOption] {
+    serverState.claudeModels
   }
 
   private var resolvedModel: String? {
@@ -84,8 +64,9 @@ struct NewClaudeSessionSheet: View {
     .frame(minWidth: 420, idealWidth: 500, maxWidth: 580)
     .background(Color.backgroundSecondary)
     .onAppear {
-      // Set default model from dynamic list
-      if selectedModelId.isEmpty, let firstModel = serverState.claudeModels.first {
+      if availableModels.isEmpty {
+        useCustomModel = true
+      } else if selectedModelId.isEmpty, let firstModel = availableModels.first {
         selectedModelId = firstModel.value
       }
     }
@@ -206,7 +187,7 @@ struct NewClaudeSessionSheet: View {
             .frame(maxWidth: 220)
         } else {
           Picker("Model", selection: $selectedModelId) {
-            ForEach(serverState.claudeModels) { model in
+            ForEach(availableModels) { model in
               Text(model.displayName).tag(model.value)
             }
           }

@@ -1021,6 +1021,7 @@ enum ServerToClientMessage: Codable {
     tools: [String],
     models: [ServerClaudeModelOption]
   )
+  case claudeModelsList(models: [ServerClaudeModelOption])
   case contextCompacted(sessionId: String)
   case undoStarted(sessionId: String, message: String?)
   case undoCompleted(sessionId: String, success: Bool, message: String?)
@@ -1263,6 +1264,10 @@ enum ServerToClientMessage: Codable {
           tools: tools,
           models: models
         )
+
+      case "claude_models_list":
+        let models = try container.decode([ServerClaudeModelOption].self, forKey: .models)
+        self = .claudeModelsList(models: models)
 
       case "context_compacted":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -1520,6 +1525,10 @@ enum ServerToClientMessage: Codable {
         try container.encode(tools, forKey: .tools)
         try container.encode(models, forKey: .models)
 
+      case let .claudeModelsList(models):
+        try container.encode("claude_models_list", forKey: .type)
+        try container.encode(models, forKey: .models)
+
       case let .contextCompacted(sessionId):
         try container.encode("context_compacted", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
@@ -1675,6 +1684,7 @@ enum ClientToServerMessage: Codable {
   case listApprovals(sessionId: String?, limit: Int?)
   case deleteApproval(approvalId: Int64)
   case listModels
+  case listClaudeModels
   case codexAccountRead(refreshToken: Bool = false)
   case codexLoginChatgptStart
   case codexLoginChatgptCancel(loginId: String)
@@ -1900,6 +1910,9 @@ enum ClientToServerMessage: Codable {
 
       case .listModels:
         try container.encode("list_models", forKey: .type)
+
+      case .listClaudeModels:
+        try container.encode("list_claude_models", forKey: .type)
 
       case let .codexAccountRead(refreshToken):
         try container.encode("codex_account_read", forKey: .type)
@@ -2131,6 +2144,8 @@ enum ClientToServerMessage: Codable {
         self = try .deleteApproval(approvalId: container.decode(Int64.self, forKey: .approvalId))
       case "list_models":
         self = .listModels
+      case "list_claude_models":
+        self = .listClaudeModels
       case "codex_account_read":
         self = try .codexAccountRead(
           refreshToken: container.decodeIfPresent(Bool.self, forKey: .refreshToken) ?? false
