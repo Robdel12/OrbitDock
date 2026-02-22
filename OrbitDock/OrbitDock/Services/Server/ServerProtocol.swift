@@ -154,6 +154,8 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let id: String
   let sessionId: String
   let type: ServerApprovalType
+  let toolName: String?
+  let toolInput: String?
   let command: String?
   let filePath: String?
   let diff: String?
@@ -164,6 +166,8 @@ struct ServerApprovalRequest: Codable, Identifiable {
     case id
     case sessionId = "session_id"
     case type
+    case toolName = "tool_name"
+    case toolInput = "tool_input"
     case command
     case filePath = "file_path"
     case diff
@@ -629,6 +633,21 @@ struct ServerCodexModelOption: Codable, Identifiable {
   }
 }
 
+// MARK: - Claude Models
+
+struct ServerClaudeModelOption: Codable, Identifiable {
+  var id: String { value }
+  let value: String
+  let displayName: String
+  let description: String
+
+  enum CodingKeys: String, CodingKey {
+    case value
+    case displayName = "display_name"
+    case description
+  }
+}
+
 // MARK: - Codex Account Auth
 
 enum ServerCodexAuthMode: String, Codable {
@@ -995,7 +1014,13 @@ enum ServerToClientMessage: Codable {
   )
   case mcpStartupUpdate(sessionId: String, server: String, status: ServerMcpStartupStatus)
   case mcpStartupComplete(sessionId: String, ready: [String], failed: [ServerMcpStartupFailure], cancelled: [String])
-  case claudeCapabilities(sessionId: String, slashCommands: [String], skills: [String], tools: [String])
+  case claudeCapabilities(
+    sessionId: String,
+    slashCommands: [String],
+    skills: [String],
+    tools: [String],
+    models: [ServerClaudeModelOption]
+  )
   case contextCompacted(sessionId: String)
   case undoStarted(sessionId: String, message: String?)
   case undoCompleted(sessionId: String, success: Bool, message: String?)
@@ -1230,7 +1255,14 @@ enum ServerToClientMessage: Codable {
         let slashCommands = try container.decodeIfPresent([String].self, forKey: .slashCommands) ?? []
         let skills = try container.decodeIfPresent([String].self, forKey: .skills) ?? []
         let tools = try container.decodeIfPresent([String].self, forKey: .tools) ?? []
-        self = .claudeCapabilities(sessionId: sessionId, slashCommands: slashCommands, skills: skills, tools: tools)
+        let models = try container.decodeIfPresent([ServerClaudeModelOption].self, forKey: .models) ?? []
+        self = .claudeCapabilities(
+          sessionId: sessionId,
+          slashCommands: slashCommands,
+          skills: skills,
+          tools: tools,
+          models: models
+        )
 
       case "context_compacted":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -1480,12 +1512,13 @@ enum ServerToClientMessage: Codable {
         try container.encode(failed, forKey: .failed)
         try container.encode(cancelled, forKey: .cancelled)
 
-      case let .claudeCapabilities(sessionId, slashCommands, skills, tools):
+      case let .claudeCapabilities(sessionId, slashCommands, skills, tools, models):
         try container.encode("claude_capabilities", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(slashCommands, forKey: .slashCommands)
         try container.encode(skills, forKey: .skills)
         try container.encode(tools, forKey: .tools)
+        try container.encode(models, forKey: .models)
 
       case let .contextCompacted(sessionId):
         try container.encode("context_compacted", forKey: .type)
@@ -1600,7 +1633,8 @@ enum ClientToServerMessage: Codable {
     sandboxMode: String?,
     permissionMode: String? = nil,
     allowedTools: [String] = [],
-    disallowedTools: [String] = []
+    disallowedTools: [String] = [],
+    effort: String? = nil
   )
   case sendMessage(
     sessionId: String,
@@ -1761,7 +1795,8 @@ enum ClientToServerMessage: Codable {
       sandboxMode,
       permissionMode,
       allowedTools,
-      disallowedTools
+      disallowedTools,
+      effort
     ):
         try container.encode("create_session", forKey: .type)
         try container.encode(provider, forKey: .provider)
@@ -1776,6 +1811,7 @@ enum ClientToServerMessage: Codable {
         if !disallowedTools.isEmpty {
           try container.encode(disallowedTools, forKey: .disallowedTools)
         }
+        try container.encodeIfPresent(effort, forKey: .effort)
 
       case let .sendMessage(sessionId, content, model, effort, skills, images, mentions):
         try container.encode("send_message", forKey: .type)
@@ -2031,7 +2067,8 @@ enum ClientToServerMessage: Codable {
           sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
           permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
           allowedTools: container.decodeIfPresent([String].self, forKey: .allowedTools) ?? [],
-          disallowedTools: container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? []
+          disallowedTools: container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? [],
+          effort: container.decodeIfPresent(String.self, forKey: .effort)
         )
       case "send_message":
         self = try .sendMessage(

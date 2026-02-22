@@ -120,6 +120,10 @@ pub struct ApprovalRequest {
     pub session_id: String,
     #[serde(rename = "type")]
     pub approval_type: ApprovalType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_input: Option<String>,
     pub command: Option<String>,
     pub file_path: Option<String>,
     pub diff: Option<String>,
@@ -361,6 +365,14 @@ pub struct CodexModelOption {
     pub description: String,
     pub is_default: bool,
     pub supported_reasoning_efforts: Vec<String>,
+}
+
+/// Claude model option exposed to clients.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeModelOption {
+    pub value: String,
+    pub display_name: String,
+    pub description: String,
 }
 
 /// Skill attached to a message

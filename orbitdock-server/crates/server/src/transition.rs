@@ -95,6 +95,8 @@ pub enum Input {
     ApprovalRequested {
         request_id: String,
         approval_type: ApprovalType,
+        tool_name: Option<String>,
+        tool_input: Option<String>,
         command: Option<String>,
         file_path: Option<String>,
         diff: Option<String>,
@@ -140,6 +142,7 @@ pub enum Input {
         slash_commands: Vec<String>,
         skills: Vec<String>,
         tools: Vec<String>,
+        models: Vec<orbitdock_protocol::ClaudeModelOption>,
     },
     ModelUpdated(String),
     ContextCompacted,
@@ -184,6 +187,8 @@ impl From<ConnectorEvent> for Input {
             ConnectorEvent::ApprovalRequested {
                 request_id,
                 approval_type,
+                tool_name,
+                tool_input,
                 command,
                 file_path,
                 diff,
@@ -196,6 +201,8 @@ impl From<ConnectorEvent> for Input {
                     ConnectorApprovalType::Patch => ApprovalType::Patch,
                     ConnectorApprovalType::Question => ApprovalType::Question,
                 },
+                tool_name,
+                tool_input,
                 command,
                 file_path,
                 diff,
@@ -240,10 +247,12 @@ impl From<ConnectorEvent> for Input {
                 slash_commands,
                 skills,
                 tools,
+                models,
             } => Input::ClaudeInitialized {
                 slash_commands,
                 skills,
                 tools,
+                models,
             },
             ConnectorEvent::ModelUpdated(model) => Input::ModelUpdated(model),
             ConnectorEvent::ContextCompacted => Input::ContextCompacted,
@@ -700,6 +709,8 @@ pub fn transition(
         Input::ApprovalRequested {
             request_id,
             approval_type,
+            tool_name,
+            tool_input,
             command,
             file_path,
             diff,
@@ -713,7 +724,8 @@ pub fn transition(
             };
             state.last_activity_at = Some(now.to_string());
 
-            let tool_name = Some(match approval_type {
+            // Use real tool_name from connector when available, fall back to type-based name
+            let resolved_tool_name = tool_name.unwrap_or_else(|| match approval_type {
                 ApprovalType::Exec => "Bash".to_string(),
                 ApprovalType::Patch => "Edit".to_string(),
                 ApprovalType::Question => "Question".to_string(),
@@ -723,6 +735,8 @@ pub fn transition(
                 id: request_id.clone(),
                 session_id: sid.clone(),
                 approval_type,
+                tool_name: Some(resolved_tool_name.clone()),
+                tool_input: tool_input.clone(),
                 command: command.clone(),
                 file_path: file_path.clone(),
                 diff,
@@ -736,7 +750,7 @@ pub fn transition(
                 session_id: sid.clone(),
                 request_id,
                 approval_type,
-                tool_name,
+                tool_name: Some(resolved_tool_name),
                 command,
                 file_path,
                 cwd: Some(state.project_path.clone()),
@@ -966,12 +980,14 @@ pub fn transition(
             slash_commands,
             skills,
             tools,
+            models,
         } => {
             effects.push(Effect::Emit(Box::new(ServerMessage::ClaudeCapabilities {
                 session_id: sid,
                 slash_commands,
                 skills,
                 tools,
+                models,
             })));
         }
 
@@ -1160,6 +1176,8 @@ mod tests {
             Input::ApprovalRequested {
                 request_id: "req-1".to_string(),
                 approval_type: ApprovalType::Exec,
+                tool_name: None,
+                tool_input: None,
                 command: Some("rm -rf /".to_string()),
                 file_path: None,
                 diff: None,

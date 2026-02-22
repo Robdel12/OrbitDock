@@ -395,6 +395,11 @@
         commandText.text = filePath
         commandAccentBar.backgroundColor = UIColor(model.risk.tintColor)
         commandContainer.isHidden = false
+      } else if let toolName = model.toolName {
+        // Generic fallback: show tool name so the card is never blank
+        commandText.text = "Approve \(toolName) action?"
+        commandAccentBar.backgroundColor = UIColor(model.risk.tintColor)
+        commandContainer.isHidden = false
       } else {
         commandContainer.isHidden = true
       }

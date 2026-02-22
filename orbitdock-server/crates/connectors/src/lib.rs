@@ -57,6 +57,8 @@ pub enum ConnectorEvent {
     ApprovalRequested {
         request_id: String,
         approval_type: ApprovalType,
+        tool_name: Option<String>,
+        tool_input: Option<String>,
         command: Option<String>,
         file_path: Option<String>,
         diff: Option<String>,
@@ -126,6 +128,7 @@ pub enum ConnectorEvent {
         slash_commands: Vec<String>,
         skills: Vec<String>,
         tools: Vec<String>,
+        models: Vec<orbitdock_protocol::ClaudeModelOption>,
     },
 
     /// Model name updated (e.g. from Claude init event)

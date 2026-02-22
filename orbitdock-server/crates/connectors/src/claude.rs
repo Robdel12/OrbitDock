@@ -159,6 +159,7 @@ pub struct ClaudeConnector {
     msg_counter: Arc<AtomicU64>,
     pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
     pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+    models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
 }
 
 impl ClaudeConnector {
@@ -170,6 +171,7 @@ impl ClaudeConnector {
         permission_mode: Option<&str>,
         allowed_tools: &[String],
         disallowed_tools: &[String],
+        effort: Option<&str>,
     ) -> Result<Self, ConnectorError> {
         let claude_bin = resolve_claude_binary()?;
 
@@ -199,6 +201,9 @@ impl ClaudeConnector {
         }
         if !disallowed_tools.is_empty() {
             args.extend(["--disallowedTools", &disallowed_joined]);
+        }
+        if let Some(e) = effort {
+            args.extend(["--effort", e]);
         }
 
         let args_display = args.join(" ");
@@ -319,6 +324,9 @@ impl ClaudeConnector {
         let counter_clone = msg_counter.clone();
         let pending_clone = pending_controls.clone();
         let approvals_clone = pending_approvals.clone();
+        let models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let models_clone = models.clone();
 
         tokio::spawn(async move {
             Self::event_loop(
@@ -328,6 +336,7 @@ impl ClaudeConnector {
                 counter_clone,
                 pending_clone,
                 approvals_clone,
+                models_clone,
             )
             .await;
         });
@@ -340,18 +349,48 @@ impl ClaudeConnector {
             msg_counter,
             pending_controls,
             pending_approvals,
+            models: models.clone(),
         };
 
-        // Send initialize control request — kill the child if it fails
-        if let Err(e) = connector.send_initialize().await {
-            error!(
-                component = "claude_connector",
-                event = "claude.init.failed",
-                error = %e,
-                "Initialize failed, killing orphaned child process"
-            );
-            let _ = connector.shutdown().await;
-            return Err(e);
+        // Send initialize control request — kill the child if it fails, and parse models from response
+        match connector.send_initialize().await {
+            Ok(init_response) => {
+                // Parse models from init response
+                if let Some(models_array) = init_response.get("models").and_then(|v| v.as_array()) {
+                    let parsed_models: Vec<orbitdock_protocol::ClaudeModelOption> = models_array
+                        .iter()
+                        .filter_map(|m| {
+                            let value = m.get("value")?.as_str()?.to_string();
+                            let display_name = m.get("displayName")?.as_str()?.to_string();
+                            let description = m.get("description")?.as_str()?.to_string();
+                            Some(orbitdock_protocol::ClaudeModelOption {
+                                value,
+                                display_name,
+                                description,
+                            })
+                        })
+                        .collect();
+
+                    info!(
+                        component = "claude_connector",
+                        event = "claude.init.models_parsed",
+                        count = parsed_models.len(),
+                        "Parsed models from initialize response"
+                    );
+
+                    *models.lock().await = parsed_models;
+                }
+            }
+            Err(e) => {
+                error!(
+                    component = "claude_connector",
+                    event = "claude.init.failed",
+                    error = %e,
+                    "Initialize failed, killing orphaned child process"
+                );
+                let _ = connector.shutdown().await;
+                return Err(e);
+            }
         }
 
         Ok(connector)
@@ -630,6 +669,7 @@ impl ClaudeConnector {
         msg_counter: Arc<AtomicU64>,
         pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
         pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
+        models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
     ) {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -687,6 +727,7 @@ impl ClaudeConnector {
                         &mut in_turn,
                         &mut last_turn_input,
                         &mut cumulative_output,
+                        &models,
                     )
                     .await;
 
@@ -746,6 +787,7 @@ impl ClaudeConnector {
         in_turn: &mut bool,
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
+        models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
@@ -778,7 +820,7 @@ impl ClaudeConnector {
         }
 
         let mut events = match msg_type {
-            "system" => Self::handle_system_message(raw, session_id_slot).await,
+            "system" => Self::handle_system_message(raw, session_id_slot, &models).await,
 
             "assistant" => Self::handle_assistant_message(
                 raw,
@@ -875,6 +917,7 @@ impl ClaudeConnector {
     async fn handle_system_message(
         raw: &Value,
         session_id_slot: &Arc<Mutex<Option<String>>>,
+        models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
     ) -> Vec<ConnectorEvent> {
         let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -915,10 +958,12 @@ impl ClaudeConnector {
                         events.push(ConnectorEvent::ModelUpdated(m.to_string()));
                     }
 
+                    let models_list = models.lock().await.clone();
                     events.push(ConnectorEvent::ClaudeInitialized {
                         slash_commands,
                         skills,
                         tools,
+                        models: models_list,
                     });
                 }
                 events
@@ -1394,9 +1439,15 @@ impl ClaudeConnector {
             "CLI requesting tool approval"
         );
 
+        let tool_input_json = input
+            .as_ref()
+            .and_then(|i| serde_json::to_string(i).ok());
+
         vec![ConnectorEvent::ApprovalRequested {
             request_id,
             approval_type,
+            tool_name: tool_name.clone(),
+            tool_input: tool_input_json,
             command,
             file_path,
             diff,

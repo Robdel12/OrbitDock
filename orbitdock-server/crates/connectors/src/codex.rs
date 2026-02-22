@@ -677,6 +677,8 @@ impl CodexConnector {
                 vec![ConnectorEvent::ApprovalRequested {
                     request_id: event.id.clone(),
                     approval_type: ApprovalType::Exec,
+                    tool_name: None,
+                    tool_input: None,
                     command: Some(command),
                     file_path: Some(e.cwd.display().to_string()),
                     diff: None,
@@ -733,6 +735,8 @@ impl CodexConnector {
                 vec![ConnectorEvent::ApprovalRequested {
                     request_id: event.id.clone(),
                     approval_type: ApprovalType::Patch,
+                    tool_name: None,
+                    tool_input: None,
                     command: None,
                     file_path: first_file,
                     diff: Some(diff),
@@ -746,6 +750,8 @@ impl CodexConnector {
                 vec![ConnectorEvent::ApprovalRequested {
                     request_id: e.call_id,
                     approval_type: ApprovalType::Question,
+                    tool_name: None,
+                    tool_input: None,
                     command: None,
                     file_path: None,
                     diff: None,

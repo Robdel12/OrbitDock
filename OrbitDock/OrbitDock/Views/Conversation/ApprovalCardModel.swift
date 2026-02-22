@@ -48,21 +48,39 @@ enum ApprovalCardModelBuilder {
       .normal
     }
 
-    let command: String? = {
+    // Parse toolInput once for both command and filePath extraction
+    let inputDict: [String: Any]? = {
       guard let json = session.pendingToolInput,
-            let data = json.data(using: .utf8),
-            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let data = json.data(using: .utf8)
       else { return nil }
+      return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }()
+
+    // Tool-aware content extraction: try multiple fields to find preview content
+    let command: String? = {
+      guard let dict = inputDict else { return nil }
+      // 1. Shell command (Bash)
       if let cmd = String.shellCommandDisplay(from: dict["command"]) { return cmd }
       if let cmd = String.shellCommandDisplay(from: dict["cmd"]) { return cmd }
+      // 2. URL (WebFetch, WebSearch)
+      if let url = dict["url"] as? String { return url }
+      // 3. Query (WebSearch, Grep, Glob, search tools)
+      if let query = dict["query"] as? String { return query }
+      // 4. Pattern (Grep, Glob)
+      if let pattern = dict["pattern"] as? String { return pattern }
+      // 5. Prompt (generic description field)
+      if let prompt = dict["prompt"] as? String, prompt.count <= 200 { return prompt }
+      // 6. Generic fallback: first short string value from the input dict
+      for (_, value) in dict {
+        if let str = value as? String, !str.isEmpty, str.count <= 200 {
+          return str
+        }
+      }
       return nil
     }()
 
     let filePath: String? = {
-      guard let json = session.pendingToolInput,
-            let data = json.data(using: .utf8),
-            let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-      else { return nil }
+      guard let dict = inputDict else { return nil }
       return (dict["path"] as? String) ?? (dict["file_path"] as? String)
     }()
 

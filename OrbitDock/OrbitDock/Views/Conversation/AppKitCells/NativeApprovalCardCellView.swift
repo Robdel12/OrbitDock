@@ -623,6 +623,12 @@
         projectPathIcon.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
         commandContainer.isHidden = false
         projectPathRow.isHidden = true
+      } else if let toolName = model.toolName {
+        // Generic fallback: show tool name so the card is never blank
+        commandText.stringValue = "Approve \(toolName) action?"
+        commandAccentBar.layer?.backgroundColor = NSColor(model.risk.tintColor).cgColor
+        commandContainer.isHidden = false
+        projectPathRow.isHidden = true
       } else {
         commandContainer.isHidden = true
         projectPathRow.isHidden = true

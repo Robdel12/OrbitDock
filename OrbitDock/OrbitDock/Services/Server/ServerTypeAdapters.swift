@@ -157,7 +157,8 @@ extension ServerWorkStatus {
 
 extension ServerApprovalRequest {
   var toolNameForDisplay: String? {
-    switch type {
+    if let name = toolName, !name.isEmpty { return name }
+    return switch type {
       case .exec: "Bash"
       case .patch: "Edit"
       case .question: nil
@@ -165,6 +166,10 @@ extension ServerApprovalRequest {
   }
 
   var toolInputForDisplay: String? {
+    // Prefer real tool_input from the server when available
+    if let input = toolInput, !input.isEmpty { return input }
+
+    // Fall back to synthesized JSON from legacy fields
     var payload: [String: Any] = [:]
     if let cmd = command {
       payload["command"] = cmd
