@@ -271,6 +271,9 @@ async fn async_main(
                 "Registering sessions (connectors created lazily on subscribe)"
             );
 
+            // Collect sessions needing transcript backfill (0 DB messages but have a transcript)
+            let mut backfill_tasks: Vec<(String, String)> = Vec::new();
+
             for rs in restored {
                 let crate::persistence::RestoredSession {
                     id,
@@ -312,10 +315,18 @@ async fn async_main(
                 } = rs;
                 let msg_count = messages.len();
 
+                // Track Claude sessions with 0 DB messages for transcript backfill
+                if msg_count == 0 && provider == "claude" {
+                    if let Some(ref tp) = transcript_path {
+                        backfill_tasks.push((id.clone(), tp.clone()));
+                    }
+                }
+
                 let provider = match provider.as_str() {
                     "codex" => Provider::Codex,
                     _ => Provider::Claude,
                 };
+
                 let mut handle = SessionHandle::restore(
                     id.clone(),
                     provider,
@@ -413,18 +424,22 @@ async fn async_main(
                     handle.set_forked_from(source_id);
                 }
 
-                // Register thread IDs for duplicate detection
+                // Register thread IDs for duplicate detection.
+                // Filter through ProviderSessionId to prevent registering OrbitDock IDs.
                 if is_codex && !is_passive {
                     if let Some(ref thread_id) = codex_thread_id {
-                        state.register_codex_thread(&id, thread_id);
+                        if orbitdock_protocol::is_provider_id(thread_id) {
+                            state.register_codex_thread(&id, thread_id);
+                        }
                     }
                 }
                 if is_claude_direct {
                     let sdk_id = claude_sdk_session_id
                         .as_deref()
-                        .or(codex_thread_id.as_deref());
-                    if let Some(sdk_id) = sdk_id {
-                        state.register_claude_thread(&id, sdk_id);
+                        .or(codex_thread_id.as_deref())
+                        .and_then(orbitdock_protocol::ProviderSessionId::new);
+                    if let Some(ref sdk_id) = sdk_id {
+                        state.register_claude_thread(&id, sdk_id.as_str());
                     }
                 }
 
@@ -442,6 +457,70 @@ async fn async_main(
                     messages = msg_count,
                     "Registered session"
                 );
+            }
+
+            // Backfill messages from transcript files for sessions that lost them
+            if !backfill_tasks.is_empty() {
+                info!(
+                    component = "restore",
+                    event = "restore.backfill.starting",
+                    count = backfill_tasks.len(),
+                    "Backfilling messages from transcript files"
+                );
+                let backfill_persist_tx = persist_tx.clone();
+                let backfill_state = state.clone();
+                tokio::spawn(async move {
+                    for (session_id, transcript_path) in backfill_tasks {
+                        match persistence::load_messages_from_transcript_path(
+                            &transcript_path,
+                            &session_id,
+                        )
+                        .await
+                        {
+                            Ok(messages) if !messages.is_empty() => {
+                                let count = messages.len();
+                                for msg in &messages {
+                                    let _ = backfill_persist_tx
+                                        .send(persistence::PersistCommand::MessageAppend {
+                                            session_id: session_id.clone(),
+                                            message: msg.clone(),
+                                        })
+                                        .await;
+                                }
+
+                                // Update the in-memory session handle so subscribers
+                                // see messages without a server restart
+                                if let Some(actor) = backfill_state.get_session(&session_id) {
+                                    actor
+                                        .send(
+                                            session_command::SessionCommand::ReplaceMessages {
+                                                messages,
+                                            },
+                                        )
+                                        .await;
+                                }
+
+                                info!(
+                                    component = "restore",
+                                    event = "restore.backfill.session_done",
+                                    session_id = %session_id,
+                                    messages = count,
+                                    "Backfilled messages from transcript"
+                                );
+                            }
+                            Ok(_) => {} // No messages in transcript
+                            Err(e) => {
+                                tracing::debug!(
+                                    component = "restore",
+                                    event = "restore.backfill.failed",
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "Failed to backfill from transcript"
+                                );
+                            }
+                        }
+                    }
+                });
             }
         }
         Ok(_) => {

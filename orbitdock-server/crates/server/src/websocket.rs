@@ -28,8 +28,8 @@ use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{
     delete_approval, list_approvals, list_review_comments,
     load_latest_codex_turn_context_settings_from_transcript_path,
-    load_messages_from_transcript_path, load_session_by_id, load_session_permission_mode,
-    load_token_usage_from_transcript_path, PersistCommand,
+    load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
+    load_session_permission_mode, load_token_usage_from_transcript_path, PersistCommand,
 };
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
@@ -706,13 +706,16 @@ async fn handle_client_message(
                                 if let Ok(Some(restored_session)) =
                                     load_session_by_id(&session_id).await
                                 {
-                                    sdk_id = restored_session
-                                        .claude_sdk_session_id
-                                        .or_else(|| Some(session_id.clone()));
+                                    sdk_id = restored_session.claude_sdk_session_id;
+                                    // Don't fall back to session_id — it's an OrbitDock ID
                                 }
                             }
-                            if let Some(ref resume_id) = sdk_id {
-                                state.register_claude_thread(&session_id, resume_id);
+                            // Validate through ProviderSessionId to prevent passing od- IDs
+                            let provider_id = sdk_id
+                                .as_deref()
+                                .and_then(orbitdock_protocol::ProviderSessionId::new);
+                            if let Some(ref pid) = provider_id {
+                                state.register_claude_thread(&session_id, pid.as_str());
                             }
                             let sid = session_id.clone();
                             let project = snap.project_path.clone();
@@ -723,7 +726,7 @@ async fn handle_client_message(
                                     sid,
                                     &project,
                                     model.as_deref(),
-                                    sdk_id.as_deref(),
+                                    provider_id.as_ref(),
                                     None,
                                     &[],
                                     &[],
@@ -885,8 +888,9 @@ async fn handle_client_message(
                             rx,
                         } => {
                             let mut snapshot = *snapshot;
-                            // If snapshot has no messages, try loading from transcript
-                            snapshot = if snapshot.messages.is_empty() {
+                            // If snapshot has no messages, try loading from transcript or database
+                            if snapshot.messages.is_empty() {
+                                // First try transcript (for Codex sessions)
                                 if let Some(path) = snapshot.transcript_path.clone() {
                                     let (reply_tx, reply_rx) = oneshot::channel();
                                     actor
@@ -897,16 +901,20 @@ async fn handle_client_message(
                                         })
                                         .await;
                                     if let Ok(Some(loaded_snapshot)) = reply_rx.await {
-                                        loaded_snapshot
-                                    } else {
-                                        snapshot
+                                        snapshot = loaded_snapshot;
                                     }
-                                } else {
-                                    snapshot
                                 }
-                            } else {
-                                snapshot
-                            };
+                                // If still empty, try loading from database (for Claude sessions)
+                                if snapshot.messages.is_empty() {
+                                    if let Ok(messages) =
+                                        load_messages_for_session(&session_id).await
+                                    {
+                                        if !messages.is_empty() {
+                                            snapshot.messages = messages;
+                                        }
+                                    }
+                                }
+                            }
 
                             // Enrich snapshot with subagents from DB
                             if snapshot.subagents.is_empty() {
@@ -934,15 +942,139 @@ async fn handle_client_message(
                     }
                 }
             } else {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "not_found".into(),
-                        message: format!("Session {} not found", session_id),
-                        session_id: Some(session_id),
-                    },
-                )
-                .await;
+                // Session not in runtime state — try loading from database (closed session)
+                match load_session_by_id(&session_id).await {
+                    Ok(Some(mut restored)) => {
+                        // Load messages from transcript if DB has none (passive sessions)
+                        if restored.messages.is_empty() {
+                            if let Some(ref tp) = restored.transcript_path {
+                                if let Ok(msgs) = load_messages_from_transcript_path(tp, &session_id).await {
+                                    if !msgs.is_empty() {
+                                        restored.messages = msgs;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Determine provider
+                        let provider = if restored.provider == "claude" {
+                            Provider::Claude
+                        } else {
+                            Provider::Codex
+                        };
+
+                        // Determine status - ended if end_reason is set
+                        let (status, work_status) = if restored.end_reason.is_some() {
+                            (SessionStatus::Ended, WorkStatus::Ended)
+                        } else {
+                            (SessionStatus::Active, WorkStatus::Waiting)
+                        };
+
+                        // Parse integration modes
+                        let codex_integration_mode = restored.codex_integration_mode.as_deref().and_then(|s| match s {
+                            "direct" => Some(CodexIntegrationMode::Direct),
+                            "passive" => Some(CodexIntegrationMode::Passive),
+                            _ => None,
+                        });
+                        let claude_integration_mode = restored.claude_integration_mode.as_deref().and_then(|s| match s {
+                            "direct" => Some(ClaudeIntegrationMode::Direct),
+                            "passive" => Some(ClaudeIntegrationMode::Passive),
+                            _ => None,
+                        });
+
+                        // Build SessionState for transport
+                        let state = SessionState {
+                            id: restored.id,
+                            provider,
+                            project_path: restored.project_path,
+                            transcript_path: restored.transcript_path,
+                            project_name: restored.project_name,
+                            model: restored.model,
+                            custom_name: restored.custom_name,
+                            summary: restored.summary,
+                            first_prompt: restored.first_prompt,
+                            last_message: restored.last_message,
+                            status,
+                            work_status,
+                            messages: restored.messages,
+                            pending_approval: None,
+                            token_usage: TokenUsage {
+                                input_tokens: restored.input_tokens as u64,
+                                output_tokens: restored.output_tokens as u64,
+                                cached_tokens: restored.cached_tokens as u64,
+                                context_window: restored.context_window as u64,
+                            },
+                            current_diff: restored.current_diff,
+                            current_plan: restored.current_plan,
+                            codex_integration_mode,
+                            claude_integration_mode,
+                            approval_policy: restored.approval_policy,
+                            sandbox_mode: restored.sandbox_mode,
+                            started_at: restored.started_at,
+                            last_activity_at: restored.last_activity_at,
+                            forked_from_session_id: restored.forked_from_session_id,
+                            revision: Some(0),
+                            current_turn_id: None,
+                            turn_count: 0,
+                            turn_diffs: restored.turn_diffs.into_iter().map(|(tid, diff, inp, out, cached, ctx)| {
+                                orbitdock_protocol::TurnDiff {
+                                    turn_id: tid,
+                                    diff,
+                                    token_usage: Some(TokenUsage {
+                                        input_tokens: inp as u64,
+                                        output_tokens: out as u64,
+                                        cached_tokens: cached as u64,
+                                        context_window: ctx as u64,
+                                    }),
+                                }
+                            }).collect(),
+                            git_branch: restored.git_branch,
+                            git_sha: restored.git_sha,
+                            current_cwd: restored.current_cwd,
+                            subagents: Vec::new(),
+                            effort: restored.effort,
+                            terminal_session_id: restored.terminal_session_id,
+                            terminal_app: restored.terminal_app,
+                        };
+
+                        send_json(
+                            client_tx,
+                            ServerMessage::SessionSnapshot {
+                                session: compact_snapshot_for_transport(state),
+                            },
+                        )
+                        .await;
+                    }
+                    Ok(None) => {
+                        send_json(
+                            client_tx,
+                            ServerMessage::Error {
+                                code: "not_found".into(),
+                                message: format!("Session {} not found", session_id),
+                                session_id: Some(session_id),
+                            },
+                        )
+                        .await;
+                    }
+                    Err(e) => {
+                        error!(
+                            component = "websocket",
+                            event = "session.subscribe.db_error",
+                            session_id = %session_id,
+                            error = %e,
+                            "Failed to load session from database"
+                        );
+                        send_json(
+                            client_tx,
+                            ServerMessage::Error {
+                                code: "db_error".into(),
+                                message: e.to_string(),
+                                session_id: Some(session_id),
+                            },
+                        )
+                        .await;
+                    }
+                }
             }
         }
 
@@ -2349,25 +2481,47 @@ async fn handle_client_message(
                 };
 
                 let sid = session_id.clone();
-                let claude_resume_id = restored
+                // Validate through ProviderSessionId — refuse to resume with an OrbitDock ID
+                let provider_resume_id = restored
                     .claude_sdk_session_id
                     .clone()
-                    .unwrap_or_else(|| sid.clone());
-                state.register_claude_thread(&session_id, &claude_resume_id);
+                    .and_then(orbitdock_protocol::ProviderSessionId::new);
+
+                if provider_resume_id.is_none() {
+                    warn!(
+                        component = "session",
+                        event = "session.resume.no_sdk_id",
+                        session_id = %session_id,
+                        "Cannot resume Claude session — no valid Claude SDK session ID was saved"
+                    );
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "resume_failed".into(),
+                            message: "Cannot resume this session — no valid Claude SDK session ID was saved. The session may have been interrupted before the CLI initialized.".into(),
+                            session_id: Some(session_id.clone()),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+                let provider_resume_id = provider_resume_id.unwrap();
+
+                state.register_claude_thread(&session_id, provider_resume_id.as_str());
                 let m = restored.model.clone();
                 let restored_permission_mode = load_session_permission_mode(&session_id)
                     .await
                     .unwrap_or(None);
                 let connector_timeout = std::time::Duration::from_secs(15);
                 let pm = restored_permission_mode.clone();
-                let resume_id = claude_resume_id.clone();
+                let resume_id = provider_resume_id.clone();
 
                 let connector_task = tokio::spawn(async move {
                     ClaudeSession::new(
                         sid.clone(),
                         &project,
                         m.as_deref(),
-                        Some(resume_id.as_str()),
+                        Some(&resume_id),
                         pm.as_deref(),
                         &[], // allowed_tools
                         &[], // disallowed_tools
@@ -2378,7 +2532,7 @@ async fn handle_client_message(
 
                 match tokio::time::timeout(connector_timeout, connector_task).await {
                     Ok(Ok(Ok(claude_session))) => {
-                        state.register_claude_thread(&session_id, &claude_resume_id);
+                        state.register_claude_thread(&session_id, provider_resume_id.as_str());
 
                         handle.set_list_tx(state.list_tx());
 
@@ -2931,12 +3085,26 @@ async fn handle_client_message(
                 let at = allowed_tools.clone();
                 let dt = disallowed_tools.clone();
 
+                // Look up real Claude SDK session ID — don't pass OrbitDock ID as resume
+                let takeover_sdk_id = state
+                    .claude_sdk_id_for_session(&session_id)
+                    .and_then(orbitdock_protocol::ProviderSessionId::new);
+                if takeover_sdk_id.is_none() {
+                    info!(
+                        component = "session",
+                        event = "session.takeover.no_sdk_id",
+                        session_id = %session_id,
+                        "No Claude SDK session ID for takeover — starting fresh session"
+                    );
+                }
+
+                let takeover_sdk_id_for_spawn = takeover_sdk_id.clone();
                 let connector_task = tokio::spawn(async move {
                     ClaudeSession::new(
                         sid.clone(),
                         &project,
                         m.as_deref(),
-                        Some(&sid), // resume_id = session_id
+                        takeover_sdk_id_for_spawn.as_ref(),
                         pm.as_deref(),
                         &at,
                         &dt,
@@ -2947,7 +3115,10 @@ async fn handle_client_message(
 
                 match tokio::time::timeout(connector_timeout, connector_task).await {
                     Ok(Ok(Ok(claude_session))) => {
-                        state.register_claude_thread(&session_id, &session_id);
+                        // Only register thread if we have a real SDK ID
+                        if let Some(ref sdk_id) = takeover_sdk_id {
+                            state.register_claude_thread(&session_id, sdk_id.as_str());
+                        }
 
                         let (actor_handle, action_tx) = claude_session.start_event_loop(
                             handle,
@@ -4053,7 +4224,10 @@ async fn handle_client_message(
 
 /// Re-read a session's transcript and broadcast any new messages to subscribers.
 /// Works for any hook-triggered session (Claude CLI, future Codex CLI hooks).
-pub(crate) async fn sync_transcript_messages(actor: &SessionActorHandle) {
+pub(crate) async fn sync_transcript_messages(
+    actor: &SessionActorHandle,
+    persist_tx: &tokio::sync::mpsc::Sender<crate::persistence::PersistCommand>,
+) {
     let snap = actor.snapshot();
     let transcript_path = match snap.transcript_path.as_deref() {
         Some(p) => p.to_string(),
@@ -4101,6 +4275,12 @@ pub(crate) async fn sync_transcript_messages(actor: &SessionActorHandle) {
     }
 
     for msg in new_messages {
+        let _ = persist_tx
+            .send(crate::persistence::PersistCommand::MessageAppend {
+                session_id: session_id.clone(),
+                message: msg.clone(),
+            })
+            .await;
         actor
             .send(SessionCommand::AddMessageAndBroadcast { message: msg })
             .await;

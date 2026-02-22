@@ -164,8 +164,19 @@ impl SessionRegistry {
         self.sessions.remove(id).map(|(_, v)| v)
     }
 
-    /// Register codex-core thread ID for a direct session
+    /// Register codex-core thread ID for a direct session.
+    /// Rejects OrbitDock IDs (`od-` prefix) as a defense-in-depth guard.
     pub fn register_codex_thread(&self, session_id: &str, thread_id: &str) {
+        if orbitdock_protocol::is_orbitdock_id(thread_id) {
+            tracing::error!(
+                component = "state",
+                event = "state.register_codex_thread.rejected",
+                session_id = %session_id,
+                thread_id = %thread_id,
+                "Rejected OrbitDock ID as codex thread ID"
+            );
+            return;
+        }
         self.codex_threads
             .insert(thread_id.to_string(), session_id.to_string());
     }
@@ -175,8 +186,19 @@ impl SessionRegistry {
         self.codex_threads.contains_key(thread_id)
     }
 
-    /// Register Claude SDK session ID for a direct session
+    /// Register Claude SDK session ID for a direct session.
+    /// Rejects OrbitDock IDs (`od-` prefix) as a defense-in-depth guard.
     pub fn register_claude_thread(&self, session_id: &str, sdk_session_id: &str) {
+        if orbitdock_protocol::is_orbitdock_id(sdk_session_id) {
+            tracing::error!(
+                component = "state",
+                event = "state.register_claude_thread.rejected",
+                session_id = %session_id,
+                sdk_session_id = %sdk_session_id,
+                "Rejected OrbitDock ID as Claude SDK session ID"
+            );
+            return;
+        }
         self.claude_threads
             .insert(sdk_session_id.to_string(), session_id.to_string());
     }

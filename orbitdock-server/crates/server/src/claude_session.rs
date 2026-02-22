@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use orbitdock_connectors::{ClaudeConnector, ConnectorEvent};
-use orbitdock_protocol::ServerMessage;
+use orbitdock_protocol::{ProviderSessionId, ServerMessage};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{error, info, warn};
 
@@ -134,11 +134,12 @@ pub struct ClaudeSession {
 impl ClaudeSession {
     /// Create a new Claude session by spawning a CLI subprocess.
     /// If `resume_id` is provided, the CLI will resume that session.
+    /// Accepts `ProviderSessionId` to prevent accidentally passing an OrbitDock ID.
     pub async fn new(
         session_id: String,
         cwd: &str,
         model: Option<&str>,
-        resume_id: Option<&str>,
+        resume_id: Option<&ProviderSessionId>,
         permission_mode: Option<&str>,
         allowed_tools: &[String],
         disallowed_tools: &[String],
@@ -147,7 +148,7 @@ impl ClaudeSession {
         let connector = ClaudeConnector::new(
             cwd,
             model,
-            resume_id,
+            resume_id.map(|id| id.as_str()),
             permission_mode,
             allowed_tools,
             disallowed_tools,
