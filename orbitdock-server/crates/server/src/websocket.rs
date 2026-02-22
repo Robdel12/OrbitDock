@@ -27,9 +27,9 @@ use crate::claude_session::{ClaudeAction, ClaudeSession};
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{
     delete_approval, list_approvals, list_review_comments,
-    load_latest_codex_turn_context_settings_from_transcript_path,
-    load_messages_for_session, load_messages_from_transcript_path, load_session_by_id,
-    load_session_permission_mode, load_token_usage_from_transcript_path, PersistCommand,
+    load_latest_codex_turn_context_settings_from_transcript_path, load_messages_for_session,
+    load_messages_from_transcript_path, load_session_by_id, load_session_permission_mode,
+    load_token_usage_from_transcript_path, PersistCommand,
 };
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
@@ -607,7 +607,7 @@ async fn handle_client_message(
                             let approval = snap.approval_policy.clone();
                             let sandbox = snap.sandbox_mode.clone();
 
-                            let connector_task = tokio::spawn(async move {
+                            let mut connector_task = tokio::spawn(async move {
                                 if let Some(ref tid) = thread_id {
                                     match CodexSession::resume(
                                         sid.clone(),
@@ -642,7 +642,8 @@ async fn handle_client_message(
                                     .await
                                 }
                             });
-                            match tokio::time::timeout(connector_timeout, connector_task).await {
+                            match tokio::time::timeout(connector_timeout, &mut connector_task).await
+                            {
                                 Ok(Ok(Ok(codex))) => {
                                     let new_thread_id = codex.thread_id().to_string();
                                     let _ = persist_tx
@@ -687,6 +688,7 @@ async fn handle_client_message(
                                     false
                                 }
                                 Err(_) => {
+                                    connector_task.abort();
                                     warn!(
                                         component = "session",
                                         event = "session.lazy_connector.codex_timeout",
@@ -948,7 +950,9 @@ async fn handle_client_message(
                         // Load messages from transcript if DB has none (passive sessions)
                         if restored.messages.is_empty() {
                             if let Some(ref tp) = restored.transcript_path {
-                                if let Ok(msgs) = load_messages_from_transcript_path(tp, &session_id).await {
+                                if let Ok(msgs) =
+                                    load_messages_from_transcript_path(tp, &session_id).await
+                                {
                                     if !msgs.is_empty() {
                                         restored.messages = msgs;
                                     }
@@ -971,16 +975,22 @@ async fn handle_client_message(
                         };
 
                         // Parse integration modes
-                        let codex_integration_mode = restored.codex_integration_mode.as_deref().and_then(|s| match s {
-                            "direct" => Some(CodexIntegrationMode::Direct),
-                            "passive" => Some(CodexIntegrationMode::Passive),
-                            _ => None,
-                        });
-                        let claude_integration_mode = restored.claude_integration_mode.as_deref().and_then(|s| match s {
-                            "direct" => Some(ClaudeIntegrationMode::Direct),
-                            "passive" => Some(ClaudeIntegrationMode::Passive),
-                            _ => None,
-                        });
+                        let codex_integration_mode = restored
+                            .codex_integration_mode
+                            .as_deref()
+                            .and_then(|s| match s {
+                                "direct" => Some(CodexIntegrationMode::Direct),
+                                "passive" => Some(CodexIntegrationMode::Passive),
+                                _ => None,
+                            });
+                        let claude_integration_mode = restored
+                            .claude_integration_mode
+                            .as_deref()
+                            .and_then(|s| match s {
+                                "direct" => Some(ClaudeIntegrationMode::Direct),
+                                "passive" => Some(ClaudeIntegrationMode::Passive),
+                                _ => None,
+                            });
 
                         // Build SessionState for transport
                         let state = SessionState {
@@ -1016,18 +1026,22 @@ async fn handle_client_message(
                             revision: Some(0),
                             current_turn_id: None,
                             turn_count: 0,
-                            turn_diffs: restored.turn_diffs.into_iter().map(|(tid, diff, inp, out, cached, ctx)| {
-                                orbitdock_protocol::TurnDiff {
-                                    turn_id: tid,
-                                    diff,
-                                    token_usage: Some(TokenUsage {
-                                        input_tokens: inp as u64,
-                                        output_tokens: out as u64,
-                                        cached_tokens: cached as u64,
-                                        context_window: ctx as u64,
-                                    }),
-                                }
-                            }).collect(),
+                            turn_diffs: restored
+                                .turn_diffs
+                                .into_iter()
+                                .map(|(tid, diff, inp, out, cached, ctx)| {
+                                    orbitdock_protocol::TurnDiff {
+                                        turn_id: tid,
+                                        diff,
+                                        token_usage: Some(TokenUsage {
+                                            input_tokens: inp as u64,
+                                            output_tokens: out as u64,
+                                            cached_tokens: cached as u64,
+                                            context_window: ctx as u64,
+                                        }),
+                                    }
+                                })
+                                .collect(),
                             git_branch: restored.git_branch,
                             git_sha: restored.git_sha,
                             current_cwd: restored.current_cwd,
@@ -1162,16 +1176,34 @@ async fn handle_client_message(
                 let model_clone = model.clone();
                 let approval_clone = approval_policy.clone();
                 let sandbox_clone = sandbox_mode.clone();
+                let connector_timeout = std::time::Duration::from_secs(15);
+                let task_session_id = session_id.clone();
 
-                match CodexSession::new(
-                    session_id.clone(),
-                    &cwd_clone,
-                    model_clone.as_deref(),
-                    approval_clone.as_deref(),
-                    sandbox_clone.as_deref(),
-                )
-                .await
-                {
+                // Codex startup does a lot of async initialization. Running it in a
+                // dedicated task avoids deep poll stack growth in this large handler.
+                let mut connector_task = tokio::spawn(async move {
+                    CodexSession::new(
+                        task_session_id.clone(),
+                        &cwd_clone,
+                        model_clone.as_deref(),
+                        approval_clone.as_deref(),
+                        sandbox_clone.as_deref(),
+                    )
+                    .await
+                });
+
+                let codex_start =
+                    match tokio::time::timeout(connector_timeout, &mut connector_task).await {
+                        Ok(Ok(Ok(codex_session))) => Ok(codex_session),
+                        Ok(Ok(Err(e))) => Err(e.to_string()),
+                        Ok(Err(join_err)) => Err(format!("Connector task panicked: {}", join_err)),
+                        Err(_) => {
+                            connector_task.abort();
+                            Err("Connector creation timed out".to_string())
+                        }
+                    };
+
+                match codex_start {
                     Ok(codex_session) => {
                         let thread_id = codex_session.thread_id().to_string();
                         let _ = persist_tx
@@ -1208,7 +1240,7 @@ async fn handle_client_message(
                             "Codex connector started"
                         );
                     }
-                    Err(e) => {
+                    Err(error_message) => {
                         // Direct sessions that failed to connect have no way to
                         // receive messages — don't keep as passive (creates ghosts).
                         let _ = persist_tx
@@ -1226,14 +1258,14 @@ async fn handle_client_message(
                             event = "session.create.connector_failed",
                             connection_id = conn_id,
                             session_id = %session_id,
-                            error = %e,
+                            error = %error_message,
                             "Failed to start Codex session — ended immediately"
                         );
                         send_json(
                             client_tx,
                             ServerMessage::Error {
                                 code: "codex_error".into(),
-                                message: e.to_string(),
+                                message: error_message,
                                 session_id: Some(session_id),
                             },
                         )
@@ -1316,9 +1348,7 @@ async fn handle_client_message(
                                 );
 
                                 // Kill the CLI subprocess
-                                let _ = watchdog_action_tx
-                                    .send(ClaudeAction::EndSession)
-                                    .await;
+                                let _ = watchdog_action_tx.send(ClaudeAction::EndSession).await;
 
                                 // End in DB
                                 let _ = watchdog_persist_tx
@@ -1501,6 +1531,7 @@ async fn handle_client_message(
                 // Extract data-URI images to disk before persisting/broadcasting
                 let extracted_images =
                     crate::images::extract_images_to_disk(&images, &session_id, &msg_id);
+                let connector_images = extracted_images.clone();
                 let user_msg = orbitdock_protocol::Message {
                     id: msg_id,
                     session_id: session_id.clone(),
@@ -1535,7 +1566,7 @@ async fn handle_client_message(
                             model: action_model,
                             effort: action_effort,
                             skills,
-                            images,
+                            images: connector_images.clone(),
                             mentions,
                         })
                         .await
@@ -1558,7 +1589,7 @@ async fn handle_client_message(
                             content,
                             model: action_model,
                             effort: action_effort,
-                            images,
+                            images: connector_images,
                         })
                         .await
                         .is_ok()
@@ -1861,11 +1892,7 @@ async fn handle_client_message(
 
         ClientMessage::ListClaudeModels => {
             let models = crate::persistence::load_cached_claude_models();
-            send_json(
-                client_tx,
-                ServerMessage::ClaudeModelsList { models },
-            )
-            .await;
+            send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
         }
 
         ClientMessage::CodexAccountRead { refresh_token } => {
@@ -2532,8 +2559,8 @@ async fn handle_client_message(
                         m.as_deref(),
                         Some(&resume_id),
                         pm.as_deref(),
-                        &[], // allowed_tools
-                        &[], // disallowed_tools
+                        &[],  // allowed_tools
+                        &[],  // disallowed_tools
                         None, // effort
                     )
                     .await
@@ -2657,15 +2684,36 @@ async fn handle_client_message(
                 }
             } else {
                 // Codex connector
-                match CodexSession::new(
-                    session_id.clone(),
-                    &restored.project_path,
-                    restored.model.as_deref(),
-                    restored.approval_policy.as_deref(),
-                    restored.sandbox_mode.as_deref(),
-                )
-                .await
-                {
+                let connector_timeout = std::time::Duration::from_secs(15);
+                let task_session_id = session_id.clone();
+                let task_project_path = restored.project_path.clone();
+                let task_model = restored.model.clone();
+                let task_approval = restored.approval_policy.clone();
+                let task_sandbox = restored.sandbox_mode.clone();
+
+                let mut connector_task = tokio::spawn(async move {
+                    CodexSession::new(
+                        task_session_id,
+                        &task_project_path,
+                        task_model.as_deref(),
+                        task_approval.as_deref(),
+                        task_sandbox.as_deref(),
+                    )
+                    .await
+                });
+
+                let codex_start =
+                    match tokio::time::timeout(connector_timeout, &mut connector_task).await {
+                        Ok(Ok(Ok(codex_session))) => Ok(codex_session),
+                        Ok(Ok(Err(e))) => Err(e.to_string()),
+                        Ok(Err(join_err)) => Err(format!("Connector task panicked: {}", join_err)),
+                        Err(_) => {
+                            connector_task.abort();
+                            Err("Connector creation timed out".to_string())
+                        }
+                    };
+
+                match codex_start {
                     Ok(codex_session) => {
                         let new_thread_id = codex_session.thread_id().to_string();
                         let _ = persist_tx
@@ -2703,7 +2751,7 @@ async fn handle_client_message(
                             "Resumed Codex session with live connector"
                         );
                     }
-                    Err(e) => {
+                    Err(error_message) => {
                         // No connector; add as passive actor
                         state.add_session(handle);
                         error!(
@@ -2711,14 +2759,14 @@ async fn handle_client_message(
                             event = "session.resume.connector_failed",
                             connection_id = conn_id,
                             session_id = %session_id,
-                            error = %e,
+                            error = %error_message,
                             "Failed to start Codex connector for resumed session"
                         );
                         send_json(
                             client_tx,
                             ServerMessage::Error {
                                 code: "codex_error".into(),
-                                message: e.to_string(),
+                                message: error_message,
                                 session_id: Some(session_id.clone()),
                             },
                         )
@@ -2897,7 +2945,7 @@ async fn handle_client_message(
                 let ap = effective_approval.clone();
                 let sb = effective_sandbox.clone();
 
-                let connector_task = tokio::spawn(async move {
+                let mut connector_task = tokio::spawn(async move {
                     if let Some(ref tid) = thread_id {
                         match CodexSession::resume(
                             sid.clone(),
@@ -2933,7 +2981,7 @@ async fn handle_client_message(
                     }
                 });
 
-                match tokio::time::timeout(connector_timeout, connector_task).await {
+                match tokio::time::timeout(connector_timeout, &mut connector_task).await {
                     Ok(Ok(Ok(codex))) => {
                         let new_thread_id = codex.thread_id().to_string();
                         let _ = persist_tx
@@ -3053,6 +3101,7 @@ async fn handle_client_message(
                         false
                     }
                     Err(_) => {
+                        connector_task.abort();
                         warn!(
                             component = "session",
                             event = "session.takeover.codex_timeout",
@@ -4374,9 +4423,7 @@ fn resolve_claude_resume_cwd(project_path: &str, transcript_path: &str) -> Strin
 
     let mut candidate = std::path::PathBuf::from(project_path);
     for _ in 0..5 {
-        let hash = candidate
-            .to_string_lossy()
-            .replace(['/', '.'], "-");
+        let hash = candidate.to_string_lossy().replace(['/', '.'], "-");
         if hash == expected {
             return candidate.to_string_lossy().to_string();
         }
@@ -4395,15 +4442,26 @@ mod tests {
         claude_transcript_path_from_cwd, direct_mode_activation_changes, handle_client_message,
         work_status_for_approval_decision, OutboundMessage,
     };
+    use crate::claude_session::ClaudeAction;
+    use crate::codex_session::CodexAction;
     use crate::session::SessionHandle;
     use crate::session_naming::name_from_first_prompt;
     use crate::state::SessionRegistry;
     use orbitdock_protocol::{
-        ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, Provider, ServerMessage,
+        ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput, Provider,
         SessionStatus, WorkStatus,
     };
-    use std::sync::Arc;
+    use std::sync::{Arc, Once};
     use tokio::sync::mpsc;
+
+    static INIT_TEST_DATA_DIR: Once = Once::new();
+
+    fn ensure_test_data_dir() {
+        INIT_TEST_DATA_DIR.call_once(|| {
+            let dir = std::env::temp_dir().join("orbitdock-websocket-tests");
+            crate::paths::init_data_dir(Some(&dir));
+        });
+    }
 
     #[test]
     fn approval_decisions_that_continue_tooling_stay_working() {
@@ -4491,6 +4549,7 @@ mod tests {
     }
 
     fn new_test_state() -> Arc<SessionRegistry> {
+        ensure_test_data_dir();
         let (persist_tx, _persist_rx) = mpsc::channel(128);
         Arc::new(SessionRegistry::new(persist_tx))
     }
@@ -4735,6 +4794,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn send_message_dispatches_extracted_images_to_codex_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-images-codex".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        {
+            state.add_session(SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/Users/tester/repo".to_string(),
+            ));
+            state.set_codex_action_tx(&session_id, action_tx);
+        }
+
+        handle_client_message(
+            ClientMessage::SendMessage {
+                session_id,
+                content: "ping".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                }],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let action = action_rx.recv().await.expect("expected codex action");
+        match action {
+            CodexAction::SendMessage { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+            }
+            other => panic!("expected SendMessage action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn send_message_dispatches_extracted_images_to_claude_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "send-message-images-claude".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        {
+            state.add_session(SessionHandle::new(
+                session_id.clone(),
+                Provider::Claude,
+                "/Users/tester/repo".to_string(),
+            ));
+            state.set_claude_action_tx(&session_id, action_tx);
+        }
+
+        handle_client_message(
+            ClientMessage::SendMessage {
+                session_id,
+                content: "ping".to_string(),
+                model: None,
+                effort: None,
+                skills: vec![],
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                }],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let action = action_rx.recv().await.expect("expected claude action");
+        match action {
+            ClaudeAction::SendMessage { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+            }
+            other => panic!("expected SendMessage action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
     async fn send_message_without_effort_preserves_existing_effort() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
@@ -4823,5 +4974,4 @@ mod tests {
         let snapshot = actor.snapshot();
         assert_eq!(snapshot.model.as_deref(), Some("gpt-5.3-codex"));
     }
-
 }
