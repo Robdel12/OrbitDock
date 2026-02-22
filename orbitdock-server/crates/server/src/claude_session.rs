@@ -142,6 +142,7 @@ impl ClaudeSession {
         permission_mode: Option<&str>,
         allowed_tools: &[String],
         disallowed_tools: &[String],
+        effort: Option<&str>,
     ) -> Result<Self, orbitdock_connectors::ConnectorError> {
         let connector = ClaudeConnector::new(
             cwd,
@@ -150,6 +151,7 @@ impl ClaudeSession {
             permission_mode,
             allowed_tools,
             disallowed_tools,
+            effort,
         )
         .await?;
         Ok(Self {

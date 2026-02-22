@@ -87,6 +87,8 @@ pub enum ClientMessage {
         allowed_tools: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         disallowed_tools: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
     },
     ResumeSession {
         session_id: String,

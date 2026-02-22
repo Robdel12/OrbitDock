@@ -727,6 +727,7 @@ async fn handle_client_message(
                                     None,
                                     &[],
                                     &[],
+                                    None, // effort
                                 )
                                 .await
                             });
@@ -959,6 +960,7 @@ async fn handle_client_message(
             permission_mode,
             allowed_tools,
             disallowed_tools,
+            effort,
         } => {
             info!(
                 component = "session",
@@ -971,31 +973,6 @@ async fn handle_client_message(
                 project_path = %cwd,
                 "Create session requested"
             );
-
-            // Block duplicate direct sessions for the same project
-            if let Some(existing_id) = state.find_active_direct_session(provider, &cwd) {
-                info!(
-                    component = "session",
-                    event = "session.create.duplicate_blocked",
-                    connection_id = conn_id,
-                    existing_session_id = %existing_id,
-                    project_path = %cwd,
-                    "Duplicate direct session blocked — active session already exists"
-                );
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "duplicate_session".into(),
-                        message: format!(
-                            "Active direct session already exists for this project: {}",
-                            existing_id
-                        ),
-                        session_id: Some(existing_id),
-                    },
-                )
-                .await;
-                return;
-            }
 
             let id = orbitdock_protocol::new_id();
             let project_name = cwd.split('/').next_back().map(String::from);
@@ -1136,6 +1113,7 @@ async fn handle_client_message(
                 let session_id = id.clone();
                 let cwd_clone = cwd.clone();
                 let model_clone = model.clone();
+                let effort_clone = effort.clone();
 
                 match ClaudeSession::new(
                     session_id.clone(),
@@ -1145,6 +1123,7 @@ async fn handle_client_message(
                     permission_mode.as_deref(),
                     &allowed_tools,
                     &disallowed_tools,
+                    effort_clone.as_deref(),
                 )
                 .await
                 {
@@ -2392,6 +2371,7 @@ async fn handle_client_message(
                         pm.as_deref(),
                         &[], // allowed_tools
                         &[], // disallowed_tools
+                        None, // effort
                     )
                     .await
                 });
@@ -2960,6 +2940,7 @@ async fn handle_client_message(
                         pm.as_deref(),
                         &at,
                         &dt,
+                        None, // effort
                     )
                     .await
                 });
@@ -3272,6 +3253,7 @@ async fn handle_client_message(
                         permission_mode.as_deref(),
                         &allowed_tools,
                         &disallowed_tools,
+                        None, // effort
                     )
                     .await
                     {
@@ -4780,106 +4762,4 @@ mod tests {
         assert_eq!(snapshot.work_status, WorkStatus::Question);
     }
 
-    #[tokio::test]
-    async fn find_active_direct_session_detects_existing_claude_session() {
-        let state = new_test_state();
-        let project_path = "/Users/tester/my-project";
-
-        // No sessions yet — should return None
-        assert!(state
-            .find_active_direct_session(Provider::Claude, project_path)
-            .is_none());
-
-        // Add an active direct Claude session
-        let mut handle = SessionHandle::new(
-            "claude-direct-1".to_string(),
-            Provider::Claude,
-            project_path.to_string(),
-        );
-        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-        state.add_session(handle);
-
-        // Should now find it
-        let found = state.find_active_direct_session(Provider::Claude, project_path);
-        assert_eq!(found.as_deref(), Some("claude-direct-1"));
-
-        // Different provider — should not match
-        assert!(state
-            .find_active_direct_session(Provider::Codex, project_path)
-            .is_none());
-
-        // Different project — should not match
-        assert!(state
-            .find_active_direct_session(Provider::Claude, "/Users/tester/other-project")
-            .is_none());
-    }
-
-    #[tokio::test]
-    async fn find_active_direct_session_detects_existing_codex_session() {
-        let state = new_test_state();
-        let project_path = "/Users/tester/my-project";
-
-        let mut handle = SessionHandle::new(
-            "codex-direct-1".to_string(),
-            Provider::Codex,
-            project_path.to_string(),
-        );
-        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
-        state.add_session(handle);
-
-        let found = state.find_active_direct_session(Provider::Codex, project_path);
-        assert_eq!(found.as_deref(), Some("codex-direct-1"));
-    }
-
-    #[tokio::test]
-    async fn find_active_direct_session_ignores_ended_sessions() {
-        let state = new_test_state();
-        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
-        let project_path = "/Users/tester/my-project";
-
-        // Add a direct Claude session and then end it
-        let mut handle = SessionHandle::new(
-            "claude-ended".to_string(),
-            Provider::Claude,
-            project_path.to_string(),
-        );
-        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
-        state.add_session(handle);
-
-        handle_client_message(
-            ClientMessage::EndSession {
-                session_id: "claude-ended".to_string(),
-            },
-            &client_tx,
-            &state,
-            1,
-        )
-        .await;
-        tokio::task::yield_now().await;
-        tokio::task::yield_now().await;
-
-        // Ended session should not be found
-        assert!(state
-            .find_active_direct_session(Provider::Claude, project_path)
-            .is_none());
-    }
-
-    #[tokio::test]
-    async fn find_active_direct_session_ignores_passive_sessions() {
-        let state = new_test_state();
-        let project_path = "/Users/tester/my-project";
-
-        // Add a passive Claude session — should not block direct session creation
-        let mut handle = SessionHandle::new(
-            "claude-passive".to_string(),
-            Provider::Claude,
-            project_path.to_string(),
-        );
-        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive));
-        state.add_session(handle);
-
-        assert!(state
-            .find_active_direct_session(Provider::Claude, project_path)
-            .is_none());
-    }
 }

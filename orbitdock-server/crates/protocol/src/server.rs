@@ -138,6 +138,7 @@ pub enum ServerMessage {
         slash_commands: Vec<String>,
         skills: Vec<String>,
         tools: Vec<String>,
+        models: Vec<crate::ClaudeModelOption>,
     },
 
     // Context management
