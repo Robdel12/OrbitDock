@@ -606,7 +606,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             }
 
             // Sync new messages from transcript
-            sync_transcript_messages(&actor).await;
+            sync_transcript_messages(&actor, &persist_tx).await;
         }
 
         ClientMessage::ClaudeToolEvent {
@@ -940,7 +940,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             }
 
             // Sync new messages from transcript
-            sync_transcript_messages(&actor).await;
+            sync_transcript_messages(&actor, &persist_tx).await;
         }
 
         ClientMessage::ClaudeSubagentEvent {
