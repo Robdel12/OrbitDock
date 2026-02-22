@@ -687,15 +687,21 @@ struct InstrumentPanel: View {
           Text("\(displayPct)%")
             .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
-          if let input = session.inputTokens {
+          if let input = session.inputTokens, let window = session.contextWindow {
             let totalContext = if session.provider == .codex {
               input // Codex: input already includes cached
             } else {
               input + (session.cachedTokens ?? 0) // Claude: add cached to input
             }
-            Text(formatTokenCount(totalContext))
-              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textTertiary)
+            HStack(spacing: 4) {
+              Text(formatTokenCount(totalContext))
+                .foregroundStyle(Color.textTertiary)
+              Text("/")
+                .foregroundStyle(Color.textQuaternary)
+              Text(formatTokenCount(window))
+                .foregroundStyle(Color.textQuaternary)
+            }
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
           }
         }
         .padding(.horizontal, Spacing.md)
@@ -1002,7 +1008,14 @@ struct InstrumentPanel: View {
     } else {
       (session.inputTokens ?? 0) + (session.cachedTokens ?? 0) // Claude: add cached to input
     }
-    let text = totalContext > 0 ? "\(displayPct)% · \(formatTokenCount(totalContext))" : "\(displayPct)%"
+
+    let text: String = if totalContext > 0, let window = session.contextWindow {
+      "\(displayPct)% · \(formatTokenCount(totalContext)) / \(formatTokenCount(window))"
+    } else if totalContext > 0 {
+      "\(displayPct)% · \(formatTokenCount(totalContext))"
+    } else {
+      "\(displayPct)%"
+    }
 
     return compactMetaChip(icon: "gauge.with.needle", text: text, color: color)
       .help(tokenTooltipText)
