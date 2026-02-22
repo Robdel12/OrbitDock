@@ -335,11 +335,12 @@ impl ClaudeConnector {
     ) -> Result<(), ConnectorError> {
         let pending = self.pending_approvals.lock().await.remove(request_id);
 
-        let response_payload = if decision == "deny" {
+        let is_deny = matches!(decision, "denied" | "deny" | "abort");
+        let response_payload = if is_deny {
             let mut deny = serde_json::json!({
                 "behavior": "deny",
                 "message": message.unwrap_or("User denied this operation"),
-                "interrupt": interrupt.unwrap_or(false),
+                "interrupt": interrupt.unwrap_or(decision == "abort"),
             });
             if let Some(ref p) = pending {
                 if let Some(ref id) = p.tool_use_id {

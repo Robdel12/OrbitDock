@@ -201,8 +201,8 @@
       commandText.translatesAutoresizingMaskIntoConstraints = false
       commandText.font = UIFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
       commandText.textColor = UIColor(Color.textPrimary)
-      commandText.numberOfLines = 3
-      commandText.lineBreakMode = .byTruncatingTail
+      commandText.numberOfLines = 0
+      commandText.lineBreakMode = .byWordWrapping
       commandContainer.addSubview(commandText)
 
       let pad = CGFloat(Spacing.lg)
@@ -565,25 +565,73 @@
 
     // MARK: - Height
 
-    static func requiredHeight(for mode: ApprovalCardMode, hasCommand: Bool, hasDiff: Bool) -> CGFloat {
-      switch mode {
+    static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
+      guard let model else { return 180 }
+
+      let pad = CGFloat(Spacing.lg)
+      let laneInset = ConversationLayout.laneHorizontalInset
+      let contentWidth = availableWidth - laneInset * 2 - pad * 2
+
+      switch model.mode {
         case .permission:
-          var h: CGFloat = 16 // top padding + risk strip
-          h += 16 + 16 // header row
-          h += 12 + 20 // tool badge
-          if hasCommand { h += 8 + 40 } // command preview
-          if hasDiff { h += 120 }
-          h += 12 + 1 // divider
-          h += 12 + 44 // primary buttons (44pt touch targets)
-          h += 16 // bottom padding
+          var h: CGFloat = 8 + 2 + pad // cell pad + risk strip + card pad
+          h += 16 // header
+          h += CGFloat(Spacing.md) + 20 // tool badge
+
+          if model.command != nil || model.filePath != nil {
+            let text = model.command ?? model.filePath ?? ""
+            let commandFont = UIFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
+            let textWidth = contentWidth - CGFloat(EdgeBar.width) - CGFloat(Spacing.md) * 2
+            let textHeight = Self.measureTextHeight(text, font: commandFont, width: textWidth)
+            h += CGFloat(Spacing.sm) // spacing before command container
+            h += CGFloat(Spacing.sm) + textHeight + CGFloat(Spacing.sm)
+          }
+
+          if model.diff != nil { h += 120 }
+
+          h += CGFloat(Spacing.md) + 1 // divider
+          h += CGFloat(Spacing.md) + 44 // primary buttons (44pt touch targets)
+          h += pad + 8 // card pad + cell pad
           return h
+
         case .question:
-          return 220 // header + question + answer field + submit button + padding
+          var h: CGFloat = 8 + 2 + pad
+          h += 16 // header
+          h += CGFloat(Spacing.md)
+          if let question = model.question {
+            let qFont = UIFont.systemFont(ofSize: TypeScale.reading)
+            h += Self.measureTextHeight(question, font: qFont, width: contentWidth)
+          } else {
+            h += 20
+          }
+          h += CGFloat(Spacing.md) + 36 // answer field
+          h += CGFloat(Spacing.md) + 44 // submit button
+          h += pad + 8
+          return h
+
         case .takeover:
-          return 180 // header + tool badge + description + button + padding
+          var h: CGFloat = 8 + 2 + pad
+          h += 16 // header
+          h += CGFloat(Spacing.md) + 20 // tool badge
+          h += CGFloat(Spacing.md) + 20 // description
+          h += CGFloat(Spacing.md) + 44 // button
+          h += pad + 8
+          return h
+
         case .none:
           return 1
       }
+    }
+
+    private static func measureTextHeight(_ text: String, font: UIFont, width: CGFloat) -> CGFloat {
+      guard !text.isEmpty, width > 0 else { return 0 }
+      let attr = NSAttributedString(string: text, attributes: [.font: font])
+      let rect = attr.boundingRect(
+        with: CGSize(width: width, height: .greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading],
+        context: nil
+      )
+      return ceil(rect.height)
     }
   }
 

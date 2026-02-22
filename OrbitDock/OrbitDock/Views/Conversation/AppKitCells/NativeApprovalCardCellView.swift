@@ -241,9 +241,10 @@
       commandText.translatesAutoresizingMaskIntoConstraints = false
       commandText.font = NSFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
       commandText.textColor = NSColor(Color.textPrimary)
-      commandText.lineBreakMode = .byTruncatingTail
-      commandText.maximumNumberOfLines = 3
+      commandText.lineBreakMode = .byWordWrapping
+      commandText.maximumNumberOfLines = 0
       commandText.isSelectable = true
+      commandText.setContentCompressionResistancePriority(.required, for: .vertical)
       commandContainer.addSubview(commandText)
 
       projectPathRow.translatesAutoresizingMaskIntoConstraints = false
@@ -820,29 +821,83 @@
 
     // MARK: - Height Calculation
 
-    static func requiredHeight(for mode: ApprovalCardMode, hasCommand: Bool, hasDiff: Bool) -> CGFloat {
-      switch mode {
+    static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
+      guard let model else { return 160 }
+
+      let pad = CGFloat(Spacing.lg) // 16
+      let laneInset = ConversationLayout.laneHorizontalInset
+      // Inner content width: table width → card insets → card padding
+      let contentWidth = availableWidth - laneInset * 2 - pad * 2
+
+      switch model.mode {
         case .permission:
-          var h: CGFloat = 16 // top padding + risk strip
-          h += 16 + 16 // header row
-          h += 12 + 20 // tool badge
-          if hasCommand {
-            h += 8 + 36 // command preview
-            h += 8 + 14 // project path
+          var h: CGFloat = 8 // top cell padding
+          h += 2 // risk strip
+          h += pad // top card padding
+          h += 16 // header row (icon + label)
+          h += CGFloat(Spacing.md) + 20 // tool badge row
+
+          if model.command != nil || model.filePath != nil {
+            let text = model.command ?? model.filePath ?? ""
+            let commandFont = NSFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
+            // Subtract accent bar width + inner padding from content width
+            let textWidth = contentWidth - CGFloat(EdgeBar.width) - CGFloat(Spacing.md) * 2
+            let textHeight = Self.measureTextHeight(text, font: commandFont, width: textWidth)
+            h += CGFloat(Spacing.sm) // spacing before command container
+            h += CGFloat(Spacing.sm) + textHeight + CGFloat(Spacing.sm) // command container padding + text + padding
+
+            if model.command != nil {
+              h += CGFloat(Spacing.sm) + 14 // project path row
+            }
           }
-          if hasDiff { h += 120 } // inline diff preview
-          h += 12 + 1 // divider
-          h += 12 + 30 // primary buttons
-          h += 8 + 16 // secondary row
-          h += 16 // bottom padding
+
+          if model.diff != nil { h += 120 }
+
+          h += CGFloat(Spacing.md) + 1 // divider
+          h += CGFloat(Spacing.md) + 30 // primary buttons
+          h += CGFloat(Spacing.sm) + 16 // secondary row
+          h += pad // bottom card padding
+          h += 8 // bottom cell padding
           return h
+
         case .question:
-          return 200 // header + question text + answer field + submit button + padding
+          var h: CGFloat = 8 + 2 + pad // cell pad + risk strip + card pad
+          h += 16 // header
+          h += CGFloat(Spacing.md) // spacing before question text
+          if let question = model.question {
+            let qFont = NSFont.systemFont(ofSize: TypeScale.reading, weight: .regular)
+            h += Self.measureTextHeight(question, font: qFont, width: contentWidth)
+          } else {
+            h += 20
+          }
+          h += CGFloat(Spacing.md) + 28 // answer field
+          h += CGFloat(Spacing.md) + 30 // submit button
+          h += pad + 8 // card pad + cell pad
+          return h
+
         case .takeover:
-          return 160 // header + tool badge + description + button + padding
+          var h: CGFloat = 8 + 2 + pad
+          h += 16 // header
+          h += CGFloat(Spacing.md) + 20 // tool badge (if visible)
+          h += CGFloat(Spacing.md) + 20 // description
+          h += CGFloat(Spacing.md) + 32 // button
+          h += pad + 8
+          return h
+
         case .none:
           return 1
       }
+    }
+
+    /// Measure wrapped text height for a given font and constrained width.
+    private static func measureTextHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
+      guard !text.isEmpty, width > 0 else { return 0 }
+      let attr = NSAttributedString(string: text, attributes: [.font: font])
+      let rect = attr.boundingRect(
+        with: NSSize(width: width, height: .greatestFiniteMagnitude),
+        options: [.usesLineFragmentOrigin, .usesFontLeading]
+      )
+      return ceil(rect.height)
     }
   }
 

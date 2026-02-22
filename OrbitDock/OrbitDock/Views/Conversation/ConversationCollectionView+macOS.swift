@@ -1175,18 +1175,11 @@ import SwiftUI
         case .rollupSummary:
           return ConversationLayout.rollupSummaryHeight
         case .approvalCard:
-          if case let .approvalCard(mode) = timelineRow.payload {
-            let model = buildApprovalCardModel()
-            let h = NativeApprovalCardCellView.requiredHeight(
-              for: mode,
-              hasCommand: model?.command != nil,
-              hasDiff: model?.diff != nil
-            )
-            logger
-              .debug("heightOfRow[\(row)] \(timelineRow.id.rawValue) T1-approvalCard h=\(String(format: "%.1f", h))")
-            return h
-          }
-          return 160
+          let model = buildApprovalCardModel()
+          let h = NativeApprovalCardCellView.requiredHeight(for: model, availableWidth: tableView.bounds.width)
+          logger
+            .debug("heightOfRow[\(row)] \(timelineRow.id.rawValue) T1-approvalCard h=\(String(format: "%.1f", h))")
+          return h
         case .tool:
           if case let .tool(id) = timelineRow.payload, !uiState.expandedToolCards.contains(id) {
             let compactH: CGFloat

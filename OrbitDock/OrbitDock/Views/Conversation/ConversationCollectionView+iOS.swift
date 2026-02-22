@@ -760,16 +760,8 @@ import SwiftUI
         case .liveIndicator:
           height = UIKitLiveIndicatorCell.cellHeight
         case .approvalCard:
-          if case let .approvalCard(mode) = row.payload {
-            let model = buildApprovalCardModel()
-            height = UIKitApprovalCardCell.requiredHeight(
-              for: mode,
-              hasCommand: model?.command != nil,
-              hasDiff: model?.diff != nil
-            )
-          } else {
-            height = 180
-          }
+          let model = buildApprovalCardModel()
+          height = UIKitApprovalCardCell.requiredHeight(for: model, availableWidth: width)
       }
 
       heightCache[row.id] = height
