@@ -1,7 +1,7 @@
 //! Application state
 
 use dashmap::DashMap;
-use orbitdock_protocol::SessionSummary;
+use orbitdock_protocol::{Provider, SessionSummary};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
@@ -192,6 +192,37 @@ impl SessionRegistry {
         self.claude_threads.get(sdk_session_id).map(|r| r.clone())
     }
 
+    /// Find any active direct session for the given provider and project path.
+    /// Used to prevent duplicate direct sessions for the same project.
+    pub fn find_active_direct_session(
+        &self,
+        provider: Provider,
+        project_path: &str,
+    ) -> Option<String> {
+        use orbitdock_protocol::{ClaudeIntegrationMode, CodexIntegrationMode, SessionStatus};
+
+        self.sessions
+            .iter()
+            .find(|entry| {
+                let snap = entry.value().snapshot();
+                snap.status == SessionStatus::Active
+                    && snap.project_path == project_path
+                    && match provider {
+                        Provider::Claude => {
+                            snap.provider == Provider::Claude
+                                && snap.claude_integration_mode
+                                    == Some(ClaudeIntegrationMode::Direct)
+                        }
+                        Provider::Codex => {
+                            snap.provider == Provider::Codex
+                                && snap.codex_integration_mode
+                                    == Some(CodexIntegrationMode::Direct)
+                        }
+                    }
+            })
+            .map(|entry| entry.key().clone())
+    }
+
     /// Find an active direct Claude session for a project that hasn't registered its SDK ID yet.
     /// Used by `ClaudeSessionStart` to eagerly claim the SDK ID before the `init` event arrives.
     pub fn find_unregistered_direct_claude_session(&self, project_path: &str) -> Option<String> {
@@ -309,7 +340,7 @@ impl SessionRegistry {
                 if counter
                     .1
                     .as_ref()
-                    .map_or(true, |existing| activity > existing)
+                    .is_none_or(|existing| activity > existing)
                 {
                     counter.1 = last_activity;
                 }

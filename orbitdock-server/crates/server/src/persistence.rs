@@ -2304,6 +2304,40 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             params![chrono_now()],
         )?;
 
+        // Cleanup ghost direct Claude sessions that never initialized.
+        // These have no SDK session ID, no first_prompt, and no messages —
+        // meaning the CLI subprocess failed to start or was killed before init.
+        conn.execute(
+            "UPDATE sessions
+             SET status = 'ended',
+                 work_status = 'ended',
+                 ended_at = COALESCE(ended_at, ?1),
+                 end_reason = COALESCE(end_reason, 'startup_ghost_direct')
+             WHERE provider = 'claude'
+               AND claude_integration_mode = 'direct'
+               AND status = 'active'
+               AND claude_sdk_session_id IS NULL
+               AND (first_prompt IS NULL OR trim(first_prompt) = '')
+               AND id NOT IN (SELECT DISTINCT session_id FROM messages)",
+            params![chrono_now()],
+        )?;
+
+        // Same for Codex direct sessions without a thread ID
+        conn.execute(
+            "UPDATE sessions
+             SET status = 'ended',
+                 work_status = 'ended',
+                 ended_at = COALESCE(ended_at, ?1),
+                 end_reason = COALESCE(end_reason, 'startup_ghost_direct')
+             WHERE provider = 'codex'
+               AND codex_integration_mode = 'direct'
+               AND status = 'active'
+               AND codex_thread_id IS NULL
+               AND (first_prompt IS NULL OR trim(first_prompt) = '')
+               AND id NOT IN (SELECT DISTINCT session_id FROM messages)",
+            params![chrono_now()],
+        )?;
+
         // Restore recent sessions into runtime for active + history UI continuity.
         // Only load: active sessions, server-shutdown sessions (need resume), and recent 7-day history.
         let mut stmt = conn.prepare(
@@ -3986,5 +4020,192 @@ mod tests {
 
         assert_eq!(model.as_deref(), Some("gpt-5.3-codex"));
         assert_eq!(effort.as_deref(), Some("xhigh"));
+    }
+
+    #[tokio::test]
+    async fn startup_ends_ghost_direct_claude_sessions() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                // Ghost: direct Claude session that never initialized (no SDK ID, no prompt, no messages)
+                PersistCommand::SessionCreate {
+                    id: "claude-ghost".into(),
+                    provider: Provider::Claude,
+                    project_path: "/tmp/ghost".into(),
+                    project_name: Some("ghost".into()),
+                    branch: Some("main".into()),
+                    model: Some("claude-opus-4-6".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                // Initialized: direct Claude session with SDK ID — should survive
+                PersistCommand::SessionCreate {
+                    id: "claude-alive".into(),
+                    provider: Provider::Claude,
+                    project_path: "/tmp/alive".into(),
+                    project_name: Some("alive".into()),
+                    branch: Some("main".into()),
+                    model: Some("claude-opus-4-6".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                PersistCommand::SetClaudeSdkSessionId {
+                    session_id: "claude-alive".into(),
+                    claude_sdk_session_id: "sdk-abc-123".into(),
+                },
+                // Has messages but no SDK ID — should survive (messages prove it was real)
+                PersistCommand::SessionCreate {
+                    id: "claude-has-msgs".into(),
+                    provider: Provider::Claude,
+                    project_path: "/tmp/has-msgs".into(),
+                    project_name: Some("has-msgs".into()),
+                    branch: Some("main".into()),
+                    model: Some("claude-opus-4-6".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                PersistCommand::MessageAppend {
+                    session_id: "claude-has-msgs".into(),
+                    message: Message {
+                        id: "msg-1".into(),
+                        session_id: "claude-has-msgs".into(),
+                        message_type: MessageType::User,
+                        content: "hello".into(),
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        timestamp: "2026-02-22T00:00:00Z".into(),
+                        duration_ms: None,
+                        images: vec![],
+                    },
+                },
+            ],
+        )
+        .expect("flush batch");
+
+        let _ = load_sessions_for_startup().await.expect("load sessions");
+
+        let conn = Connection::open(&db_path).expect("open db");
+
+        // Ghost should be ended
+        let ghost: (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT status, work_status, end_reason FROM sessions WHERE id = ?1",
+                params!["claude-ghost"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query ghost");
+        assert_eq!(ghost.0, "ended");
+        assert_eq!(ghost.1, "ended");
+        assert_eq!(ghost.2.as_deref(), Some("startup_ghost_direct"));
+
+        // Initialized session should remain active
+        let alive: String = conn
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                params!["claude-alive"],
+                |row| row.get(0),
+            )
+            .expect("query alive");
+        assert_eq!(alive, "active");
+
+        // Session with messages should remain active
+        let has_msgs: String = conn
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                params!["claude-has-msgs"],
+                |row| row.get(0),
+            )
+            .expect("query has-msgs");
+        assert_eq!(has_msgs, "active");
+    }
+
+    #[tokio::test]
+    async fn startup_ends_ghost_direct_codex_sessions() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                // Ghost: direct Codex session with no thread_id
+                PersistCommand::SessionCreate {
+                    id: "codex-ghost".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/codex-ghost".into(),
+                    project_name: Some("codex-ghost".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                // Initialized: direct Codex session with thread_id — should survive
+                PersistCommand::SessionCreate {
+                    id: "codex-alive".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/codex-alive".into(),
+                    project_name: Some("codex-alive".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                PersistCommand::SetThreadId {
+                    session_id: "codex-alive".into(),
+                    thread_id: "thread-abc-123".into(),
+                },
+            ],
+        )
+        .expect("flush batch");
+
+        let _ = load_sessions_for_startup().await.expect("load sessions");
+
+        let conn = Connection::open(&db_path).expect("open db");
+
+        // Ghost should be ended
+        let ghost: (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT status, work_status, end_reason FROM sessions WHERE id = ?1",
+                params!["codex-ghost"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("query ghost");
+        assert_eq!(ghost.0, "ended");
+        assert_eq!(ghost.1, "ended");
+        assert_eq!(ghost.2.as_deref(), Some("startup_ghost_direct"));
+
+        // Initialized session should remain active
+        let alive: String = conn
+            .query_row(
+                "SELECT status FROM sessions WHERE id = ?1",
+                params!["codex-alive"],
+                |row| row.get(0),
+            )
+            .expect("query alive");
+        assert_eq!(alive, "active");
     }
 }

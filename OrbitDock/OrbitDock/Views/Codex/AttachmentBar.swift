@@ -10,7 +10,7 @@ import SwiftUI
 
 struct AttachedImage: Identifiable, Equatable {
   let id: String
-  let thumbnail: NSImage
+  let thumbnail: PlatformImage
   let serverInput: ServerImageInput
 
   static func == (lhs: AttachedImage, rhs: AttachedImage) -> Bool {
@@ -49,11 +49,19 @@ struct AttachmentBar: View {
 
   private func imageChip(_ image: AttachedImage) -> some View {
     ZStack(alignment: .topTrailing) {
-      Image(nsImage: image.thumbnail)
-        .resizable()
-        .aspectRatio(contentMode: .fill)
-        .frame(width: 40, height: 40)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+      #if os(macOS)
+        Image(nsImage: image.thumbnail)
+          .resizable()
+          .aspectRatio(contentMode: .fill)
+          .frame(width: 40, height: 40)
+          .clipShape(RoundedRectangle(cornerRadius: 6))
+      #else
+        Image(uiImage: image.thumbnail)
+          .resizable()
+          .aspectRatio(contentMode: .fill)
+          .frame(width: 40, height: 40)
+          .clipShape(RoundedRectangle(cornerRadius: 6))
+      #endif
 
       removeButton {
         images.removeAll { $0.id == image.id }

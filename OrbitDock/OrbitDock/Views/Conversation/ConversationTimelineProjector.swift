@@ -55,7 +55,7 @@ nonisolated enum ConversationTimelineProjector {
     switch metadata.chatViewMode {
       case .verbose:
         for message in context.source.messages {
-          appendMessageRow(message, toolRowsEnabled: false, context: context, rows: &rows)
+          appendMessageRow(message, toolRowsEnabled: true, context: context, rows: &rows)
         }
 
       case .focused:

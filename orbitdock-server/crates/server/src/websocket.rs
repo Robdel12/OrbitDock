@@ -972,6 +972,31 @@ async fn handle_client_message(
                 "Create session requested"
             );
 
+            // Block duplicate direct sessions for the same project
+            if let Some(existing_id) = state.find_active_direct_session(provider, &cwd) {
+                info!(
+                    component = "session",
+                    event = "session.create.duplicate_blocked",
+                    connection_id = conn_id,
+                    existing_session_id = %existing_id,
+                    project_path = %cwd,
+                    "Duplicate direct session blocked — active session already exists"
+                );
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "duplicate_session".into(),
+                        message: format!(
+                            "Active direct session already exists for this project: {}",
+                            existing_id
+                        ),
+                        session_id: Some(existing_id),
+                    },
+                )
+                .await;
+                return;
+            }
+
             let id = orbitdock_protocol::new_id();
             let project_name = cwd.split('/').next_back().map(String::from);
             let git_branch = crate::git::resolve_git_branch(&cwd).await;
@@ -1075,15 +1100,25 @@ async fn handle_client_message(
                         );
                     }
                     Err(e) => {
-                        // No Codex connector; add as passive actor
-                        state.add_session(handle);
+                        // Direct sessions that failed to connect have no way to
+                        // receive messages — don't keep as passive (creates ghosts).
+                        let _ = persist_tx
+                            .send(PersistCommand::SessionEnd {
+                                id: session_id.clone(),
+                                reason: "connector_failed".to_string(),
+                            })
+                            .await;
+                        state.broadcast_to_list(ServerMessage::SessionEnded {
+                            session_id: session_id.clone(),
+                            reason: "connector_failed".into(),
+                        });
                         error!(
                             component = "session",
                             event = "session.create.connector_failed",
                             connection_id = conn_id,
                             session_id = %session_id,
                             error = %e,
-                            "Failed to start Codex session"
+                            "Failed to start Codex session — ended immediately"
                         );
                         send_json(
                             client_tx,
@@ -1138,7 +1173,7 @@ async fn handle_client_message(
                         }
 
                         state.add_session_actor(actor_handle);
-                        state.set_claude_action_tx(&session_id, action_tx);
+                        state.set_claude_action_tx(&session_id, action_tx.clone());
                         info!(
                             component = "session",
                             event = "session.create.claude_connector_started",
@@ -1146,16 +1181,72 @@ async fn handle_client_message(
                             session_id = %session_id,
                             "Claude connector started"
                         );
+
+                        // Init-timeout watchdog: if the CLI never sends system/init
+                        // within 45s, the session is a ghost — kill it.
+                        let watchdog_state = state.clone();
+                        let watchdog_session_id = session_id.clone();
+                        let watchdog_action_tx = action_tx;
+                        let watchdog_persist_tx = state.persist().clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+
+                            // Check if the session registered a Claude SDK ID (set on init)
+                            let has_sdk_id = watchdog_state
+                                .claude_sdk_id_for_session(&watchdog_session_id)
+                                .is_some();
+
+                            if !has_sdk_id {
+                                warn!(
+                                    component = "session",
+                                    event = "session.init_timeout",
+                                    session_id = %watchdog_session_id,
+                                    "Claude session never initialized after 45s — ending ghost"
+                                );
+
+                                // Kill the CLI subprocess
+                                let _ = watchdog_action_tx
+                                    .send(ClaudeAction::EndSession)
+                                    .await;
+
+                                // End in DB
+                                let _ = watchdog_persist_tx
+                                    .send(PersistCommand::SessionEnd {
+                                        id: watchdog_session_id.clone(),
+                                        reason: "init_timeout".to_string(),
+                                    })
+                                    .await;
+
+                                // Remove from registry and broadcast
+                                watchdog_state.remove_session(&watchdog_session_id);
+                                watchdog_state.broadcast_to_list(ServerMessage::SessionEnded {
+                                    session_id: watchdog_session_id,
+                                    reason: "init_timeout".into(),
+                                });
+                            }
+                        });
                     }
                     Err(e) => {
-                        state.add_session(handle);
+                        // Direct sessions that failed to connect have no way to
+                        // receive messages — don't keep as passive (creates ghosts).
+                        // End immediately.
+                        let _ = persist_tx
+                            .send(PersistCommand::SessionEnd {
+                                id: session_id.clone(),
+                                reason: "connector_failed".to_string(),
+                            })
+                            .await;
+                        state.broadcast_to_list(ServerMessage::SessionEnded {
+                            session_id: session_id.clone(),
+                            reason: "connector_failed".into(),
+                        });
                         error!(
                             component = "session",
                             event = "session.create.claude_connector_failed",
                             connection_id = conn_id,
                             session_id = %session_id,
                             error = %e,
-                            "Failed to start Claude session"
+                            "Failed to start Claude session — ended immediately"
                         );
                         send_json(
                             client_tx,
@@ -3888,9 +3979,9 @@ async fn handle_client_message(
         ClientMessage::BrowseDirectory { path } => {
             let target = match &path {
                 Some(p) if !p.is_empty() => {
-                    let expanded = if p.starts_with('~') {
+                    let expanded = if let Some(stripped) = p.strip_prefix('~') {
                         if let Some(home) = dirs::home_dir() {
-                            home.join(&p[1..].trim_start_matches('/'))
+                            home.join(stripped.trim_start_matches('/'))
                         } else {
                             std::path::PathBuf::from(p)
                         }
@@ -4114,8 +4205,7 @@ fn resolve_claude_resume_cwd(project_path: &str, transcript_path: &str) -> Strin
     for _ in 0..5 {
         let hash = candidate
             .to_string_lossy()
-            .replace('/', "-")
-            .replace('.', "-");
+            .replace(['/', '.'], "-");
         if hash == expected {
             return candidate.to_string_lossy().to_string();
         }
@@ -4688,5 +4778,108 @@ mod tests {
         };
         let snapshot = actor.snapshot();
         assert_eq!(snapshot.work_status, WorkStatus::Question);
+    }
+
+    #[tokio::test]
+    async fn find_active_direct_session_detects_existing_claude_session() {
+        let state = new_test_state();
+        let project_path = "/Users/tester/my-project";
+
+        // No sessions yet — should return None
+        assert!(state
+            .find_active_direct_session(Provider::Claude, project_path)
+            .is_none());
+
+        // Add an active direct Claude session
+        let mut handle = SessionHandle::new(
+            "claude-direct-1".to_string(),
+            Provider::Claude,
+            project_path.to_string(),
+        );
+        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
+        state.add_session(handle);
+
+        // Should now find it
+        let found = state.find_active_direct_session(Provider::Claude, project_path);
+        assert_eq!(found.as_deref(), Some("claude-direct-1"));
+
+        // Different provider — should not match
+        assert!(state
+            .find_active_direct_session(Provider::Codex, project_path)
+            .is_none());
+
+        // Different project — should not match
+        assert!(state
+            .find_active_direct_session(Provider::Claude, "/Users/tester/other-project")
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn find_active_direct_session_detects_existing_codex_session() {
+        let state = new_test_state();
+        let project_path = "/Users/tester/my-project";
+
+        let mut handle = SessionHandle::new(
+            "codex-direct-1".to_string(),
+            Provider::Codex,
+            project_path.to_string(),
+        );
+        handle.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+        state.add_session(handle);
+
+        let found = state.find_active_direct_session(Provider::Codex, project_path);
+        assert_eq!(found.as_deref(), Some("codex-direct-1"));
+    }
+
+    #[tokio::test]
+    async fn find_active_direct_session_ignores_ended_sessions() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let project_path = "/Users/tester/my-project";
+
+        // Add a direct Claude session and then end it
+        let mut handle = SessionHandle::new(
+            "claude-ended".to_string(),
+            Provider::Claude,
+            project_path.to_string(),
+        );
+        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Direct));
+        state.add_session(handle);
+
+        handle_client_message(
+            ClientMessage::EndSession {
+                session_id: "claude-ended".to_string(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        // Ended session should not be found
+        assert!(state
+            .find_active_direct_session(Provider::Claude, project_path)
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn find_active_direct_session_ignores_passive_sessions() {
+        let state = new_test_state();
+        let project_path = "/Users/tester/my-project";
+
+        // Add a passive Claude session — should not block direct session creation
+        let mut handle = SessionHandle::new(
+            "claude-passive".to_string(),
+            Provider::Claude,
+            project_path.to_string(),
+        );
+        handle.set_claude_integration_mode(Some(ClaudeIntegrationMode::Passive));
+        state.add_session(handle);
+
+        assert!(state
+            .find_active_direct_session(Provider::Claude, project_path)
+            .is_none());
     }
 }

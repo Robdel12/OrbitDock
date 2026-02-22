@@ -9,6 +9,7 @@ use crate::types::*;
 /// Messages sent from server to client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum ServerMessage {
     // Full state sync
     SessionsList {

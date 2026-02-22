@@ -10,6 +10,8 @@ use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -51,6 +53,18 @@ struct UserMessagePayload {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum UserContentBlock {
     Text { text: String },
+    Image { source: ImageSource },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ImageSource {
+    Base64 {
+        media_type: String,
+        data: String,
+    },
+    #[serde(rename = "url")]
+    Url { url: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -69,6 +83,58 @@ enum ControlRequestBody {
 enum ControlResponsePayload {
     Success { request_id: String, response: Value },
     Error { request_id: String, error: String },
+}
+
+// ---------------------------------------------------------------------------
+// Image transformation helper
+// ---------------------------------------------------------------------------
+
+/// Transform ImageInput to Anthropic's image content block format.
+/// - URL images: pass through as-is
+/// - Path images: read file, convert to base64
+fn transform_image(
+    image: &orbitdock_protocol::ImageInput,
+) -> Result<UserContentBlock, String> {
+    match image.input_type.as_str() {
+        "url" => Ok(UserContentBlock::Image {
+            source: ImageSource::Url {
+                url: image.value.clone(),
+            },
+        }),
+        "path" => {
+            // Read file from disk
+            let bytes = std::fs::read(&image.value)
+                .map_err(|e| format!("Failed to read image file {}: {}", image.value, e))?;
+
+            // Infer media type from file extension
+            let media_type = infer_media_type(&image.value);
+
+            // Encode to base64
+            let data = STANDARD.encode(&bytes);
+
+            Ok(UserContentBlock::Image {
+                source: ImageSource::Base64 { media_type, data },
+            })
+        }
+        other => Err(format!("Unknown image input_type: {}", other)),
+    }
+}
+
+/// Infer MIME type from file path extension.
+fn infer_media_type(path: &str) -> String {
+    let path_lower = path.to_lowercase();
+    if path_lower.ends_with(".png") {
+        "image/png".to_string()
+    } else if path_lower.ends_with(".jpg") || path_lower.ends_with(".jpeg") {
+        "image/jpeg".to_string()
+    } else if path_lower.ends_with(".gif") {
+        "image/gif".to_string()
+    } else if path_lower.ends_with(".webp") {
+        "image/webp".to_string()
+    } else {
+        // Default to PNG for unknown types
+        "image/png".to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -276,8 +342,17 @@ impl ClaudeConnector {
             pending_approvals,
         };
 
-        // Send initialize control request
-        connector.send_initialize().await?;
+        // Send initialize control request — kill the child if it fails
+        if let Err(e) = connector.send_initialize().await {
+            error!(
+                component = "claude_connector",
+                event = "claude.init.failed",
+                error = %e,
+                "Initialize failed, killing orphaned child process"
+            );
+            let _ = connector.shutdown().await;
+            return Err(e);
+        }
 
         Ok(connector)
     }
@@ -298,14 +373,32 @@ impl ClaudeConnector {
         content: &str,
         _model: Option<&str>,
         _effort: Option<&str>,
+        images: &[orbitdock_protocol::ImageInput],
     ) -> Result<(), ConnectorError> {
+        let mut content_blocks = vec![UserContentBlock::Text {
+            text: content.to_string(),
+        }];
+
+        // Transform images to Anthropic format
+        for image in images {
+            match transform_image(image) {
+                Ok(block) => content_blocks.push(block),
+                Err(e) => {
+                    warn!(
+                        event = "claude.image.transform_failed",
+                        error = %e,
+                        input_type = %image.input_type,
+                        "Failed to transform image, skipping"
+                    );
+                }
+            }
+        }
+
         let msg = StdinMessage::User {
             session_id: String::new(),
             message: UserMessagePayload {
                 role: "user",
-                content: vec![UserContentBlock::Text {
-                    text: content.to_string(),
-                }],
+                content: content_blocks,
             },
             parent_tool_use_id: None,
         };
@@ -445,11 +538,9 @@ impl ClaudeConnector {
     // -- Internal helpers ---------------------------------------------------
 
     /// Send the initialize control request.
-    async fn send_initialize(&self) -> Result<(), ConnectorError> {
-        let _ = self
-            .send_control_request(ControlRequestBody::Initialize {})
-            .await;
-        Ok(())
+    async fn send_initialize(&self) -> Result<Value, ConnectorError> {
+        self.send_control_request(ControlRequestBody::Initialize {})
+            .await
     }
 
     /// Send a control request and wait for the response.

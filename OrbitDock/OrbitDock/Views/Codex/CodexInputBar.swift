@@ -290,6 +290,23 @@ struct InstrumentPanel: View {
         selectedModel = defaultModelSelection
       }
     }
+    #if os(iOS)
+      .sheet(isPresented: $showImagePicker) {
+        ImagePickerView { images in
+          for image in images {
+            guard let pngData = image.pngData() else { continue }
+            let base64 = pngData.base64EncodedString()
+            let dataURI = "data:image/png;base64,\(base64)"
+            let thumbnail = createThumbnail(from: image)
+            let input = ServerImageInput(inputType: "url", value: dataURI)
+            let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              attachedImages.append(attached)
+            }
+          }
+        }
+      }
+    #endif
   }
 
   // MARK: - Token Progress Strip
@@ -1452,122 +1469,170 @@ struct InstrumentPanel: View {
 
   // MARK: - Image Input
 
-  private func pickImages() {
-    let panel = NSOpenPanel()
-    panel.allowedContentTypes = [.image]
-    panel.allowsMultipleSelection = true
-    panel.canChooseDirectories = false
-    panel.message = "Select images to attach"
+  #if os(macOS)
+    private func pickImages() {
+      let panel = NSOpenPanel()
+      panel.allowedContentTypes = [.image]
+      panel.allowsMultipleSelection = true
+      panel.canChooseDirectories = false
+      panel.message = "Select images to attach"
 
-    guard panel.runModal() == .OK else { return }
+      guard panel.runModal() == .OK else { return }
 
-    for url in panel.urls {
-      guard let nsImage = NSImage(contentsOf: url) else { continue }
+      for url in panel.urls {
+        guard let nsImage = NSImage(contentsOf: url) else { continue }
+        let thumbnail = createThumbnail(from: nsImage)
+        let input = ServerImageInput(inputType: "path", value: url.path)
+        let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          attachedImages.append(attached)
+        }
+      }
+    }
+  #else
+    @State private var showImagePicker = false
+
+    private func pickImages() {
+      showImagePicker = true
+    }
+  #endif
+
+  #if os(macOS)
+    private func pasteImageFromClipboard() -> Bool {
+      let pasteboard = NSPasteboard.general
+
+      guard let imageType = pasteboard.availableType(from: [.tiff, .png]) else {
+        return false
+      }
+
+      guard let data = pasteboard.data(forType: imageType),
+            let nsImage = NSImage(data: data)
+      else {
+        return false
+      }
+
+      guard let tiffData = nsImage.tiffRepresentation,
+            let bitmapRep = NSBitmapImageRep(data: tiffData),
+            let pngData = bitmapRep.representation(using: .png, properties: [:])
+      else {
+        return false
+      }
+
+      let base64 = pngData.base64EncodedString()
+      let dataURI = "data:image/png;base64,\(base64)"
       let thumbnail = createThumbnail(from: nsImage)
-      let input = ServerImageInput(inputType: "path", value: url.path)
+      let input = ServerImageInput(inputType: "url", value: dataURI)
       let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+
       withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
         attachedImages.append(attached)
       }
+      return true
     }
-  }
+  #else
+    private func pasteImageFromClipboard() -> Bool {
+      let pasteboard = UIPasteboard.general
 
-  private func pasteImageFromClipboard() -> Bool {
-    let pasteboard = NSPasteboard.general
+      guard let image = pasteboard.image else {
+        return false
+      }
 
-    guard let imageType = pasteboard.availableType(from: [.tiff, .png]) else {
-      return false
+      guard let pngData = image.pngData() else {
+        return false
+      }
+
+      let base64 = pngData.base64EncodedString()
+      let dataURI = "data:image/png;base64,\(base64)"
+      let thumbnail = createThumbnail(from: image)
+      let input = ServerImageInput(inputType: "url", value: dataURI)
+      let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+
+      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        attachedImages.append(attached)
+      }
+      return true
     }
+  #endif
 
-    guard let data = pasteboard.data(forType: imageType),
-          let nsImage = NSImage(data: data)
-    else {
-      return false
-    }
+  #if os(macOS)
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+      var handled = false
 
-    guard let tiffData = nsImage.tiffRepresentation,
-          let bitmapRep = NSBitmapImageRep(data: tiffData),
-          let pngData = bitmapRep.representation(using: .png, properties: [:])
-    else {
-      return false
-    }
+      for provider in providers {
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+          provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
+            guard let urlData = data as? Data,
+                  let url = URL(dataRepresentation: urlData, relativeTo: nil),
+                  let nsImage = NSImage(contentsOf: url)
+            else { return }
 
-    let base64 = pngData.base64EncodedString()
-    let dataURI = "data:image/png;base64,\(base64)"
-    let thumbnail = createThumbnail(from: nsImage)
-    let input = ServerImageInput(inputType: "url", value: dataURI)
-    let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+            let thumbnail = createThumbnail(from: nsImage)
+            let input = ServerImageInput(inputType: "path", value: url.path)
+            let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
 
-    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-      attachedImages.append(attached)
-    }
-    return true
-  }
-
-  private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
-    var handled = false
-
-    for provider in providers {
-      if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
-          guard let urlData = data as? Data,
-                let url = URL(dataRepresentation: urlData, relativeTo: nil),
-                let nsImage = NSImage(contentsOf: url)
-          else { return }
-
-          let thumbnail = createThumbnail(from: nsImage)
-          let input = ServerImageInput(inputType: "path", value: url.path)
-          let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
-
-          DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              attachedImages.append(attached)
+            DispatchQueue.main.async {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                attachedImages.append(attached)
+              }
             }
           }
-        }
-        handled = true
-      } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-        provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, _ in
-          guard let imageData = data as? Data,
-                let nsImage = NSImage(data: imageData),
-                let tiffData = nsImage.tiffRepresentation,
-                let bitmapRep = NSBitmapImageRep(data: tiffData),
-                let pngData = bitmapRep.representation(using: .png, properties: [:])
-          else { return }
+          handled = true
+        } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+          provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, _ in
+            guard let imageData = data as? Data,
+                  let nsImage = NSImage(data: imageData),
+                  let tiffData = nsImage.tiffRepresentation,
+                  let bitmapRep = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmapRep.representation(using: .png, properties: [:])
+            else { return }
 
-          let base64 = pngData.base64EncodedString()
-          let dataURI = "data:image/png;base64,\(base64)"
-          let thumbnail = createThumbnail(from: nsImage)
-          let input = ServerImageInput(inputType: "url", value: dataURI)
-          let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
+            let base64 = pngData.base64EncodedString()
+            let dataURI = "data:image/png;base64,\(base64)"
+            let thumbnail = createThumbnail(from: nsImage)
+            let input = ServerImageInput(inputType: "url", value: dataURI)
+            let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
 
-          DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              attachedImages.append(attached)
+            DispatchQueue.main.async {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                attachedImages.append(attached)
+              }
             }
           }
+          handled = true
         }
-        handled = true
+      }
+
+      return handled
+    }
+
+    private func createThumbnail(from image: NSImage) -> NSImage {
+      let size = NSSize(width: 80, height: 80)
+      let thumbnail = NSImage(size: size)
+      thumbnail.lockFocus()
+      NSGraphicsContext.current?.imageInterpolation = .high
+      image.draw(
+        in: NSRect(origin: .zero, size: size),
+        from: NSRect(origin: .zero, size: image.size),
+        operation: .copy,
+        fraction: 1.0
+      )
+      thumbnail.unlockFocus()
+      return thumbnail
+    }
+  #else
+    private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
+      // iOS drag/drop (lower priority - not commonly used on phones)
+      return false
+    }
+
+    private func createThumbnail(from image: UIImage) -> UIImage {
+      let size = CGSize(width: 80, height: 80)
+      let renderer = UIGraphicsImageRenderer(size: size)
+      return renderer.image { context in
+        image.draw(in: CGRect(origin: .zero, size: size))
       }
     }
-
-    return handled
-  }
-
-  private func createThumbnail(from image: NSImage) -> NSImage {
-    let size = NSSize(width: 80, height: 80)
-    let thumbnail = NSImage(size: size)
-    thumbnail.lockFocus()
-    NSGraphicsContext.current?.imageInterpolation = .high
-    image.draw(
-      in: NSRect(origin: .zero, size: size),
-      from: NSRect(origin: .zero, size: image.size),
-      operation: .copy,
-      fraction: 1.0
-    )
-    thumbnail.unlockFocus()
-    return thumbnail
-  }
+  #endif
 }
 
 // MARK: - Interrupt Button
@@ -1678,6 +1743,63 @@ private struct SkillCompletionList: View {
     }
   }
 }
+
+// MARK: - iOS Image Picker
+
+#if os(iOS)
+  import PhotosUI
+
+  struct ImagePickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedItems: [PhotosPickerItem] = []
+    let onSelect: ([UIImage]) -> Void
+
+    var body: some View {
+      NavigationStack {
+        PhotosPicker(
+          selection: $selectedItems,
+          maxSelectionCount: 5,
+          matching: .images
+        ) {
+          Label("Select Photos", systemImage: "photo.on.rectangle.angled")
+        }
+        .photosPickerStyle(.inline)
+        .navigationTitle("Select Images")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") {
+              dismiss()
+            }
+          }
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Done") {
+              loadImages()
+            }
+            .disabled(selectedItems.isEmpty)
+          }
+        }
+      }
+    }
+
+    private func loadImages() {
+      Task {
+        var images: [UIImage] = []
+        for item in selectedItems {
+          if let data = try? await item.loadTransferable(type: Data.self),
+             let image = UIImage(data: data)
+          {
+            images.append(image)
+          }
+        }
+        await MainActor.run {
+          onSelect(images)
+          dismiss()
+        }
+      }
+    }
+  }
+#endif
 
 #Preview {
   @Previewable @State var skills: Set<String> = []
