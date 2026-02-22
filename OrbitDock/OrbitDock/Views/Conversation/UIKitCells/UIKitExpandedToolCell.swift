@@ -16,6 +16,37 @@
 
   private typealias EL = ExpandedToolLayout
 
+  private final class HorizontalPanPassthroughScrollView: UIScrollView, UIGestureRecognizerDelegate {
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      configureForHorizontalPan()
+    }
+
+    required init?(coder: NSCoder) {
+      super.init(coder: coder)
+      configureForHorizontalPan()
+    }
+
+    private func configureForHorizontalPan() {
+      directionalLockEnabled = true
+      alwaysBounceVertical = false
+      panGestureRecognizer.delegate = self
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard gestureRecognizer === panGestureRecognizer,
+            let panGesture = gestureRecognizer as? UIPanGestureRecognizer
+      else {
+        return true
+      }
+
+      // Let the parent conversation scroll view handle vertical swipes.
+      guard contentSize.width > bounds.width + 1 else { return false }
+      let velocity = panGesture.velocity(in: self)
+      return abs(velocity.x) > abs(velocity.y)
+    }
+  }
+
   final class UIKitExpandedToolCell: UICollectionViewCell {
     static let reuseIdentifier = "UIKitExpandedToolCell"
 
@@ -463,7 +494,8 @@
         y += 28
       }
 
-      let codeX = EL.diffContentX
+      let gutterMetrics = EL.diffGutterMetrics(for: lines)
+      let codeX = gutterMetrics.codeX
       let codeAvailW = width - codeX - EL.diffContentTrailingPad
       let diffFont = EL.diffContentFont
 
@@ -478,7 +510,7 @@
 
       // Horizontal scroll view for code content
       let totalDiffH = CGFloat(lines.count) * EL.diffLineHeight
-      let scrollView = UIScrollView()
+      let scrollView = HorizontalPanPassthroughScrollView()
       scrollView.showsHorizontalScrollIndicator = true
       scrollView.showsVerticalScrollIndicator = false
       scrollView.backgroundColor = .clear
@@ -511,16 +543,26 @@
         contentContainer.addSubview(rowBg)
 
         // Line numbers (in contentContainer — stay fixed)
-        if let num = line.oldLineNum {
+        if let oldLineNumberX = gutterMetrics.oldLineNumberX, let num = line.oldLineNum {
           let numLabel = makeLineNumLabel("\(num)")
           numLabel.textAlignment = .right
-          numLabel.frame = CGRect(x: 4, y: y + rowY + 2, width: 32, height: 18)
+          numLabel.frame = CGRect(
+            x: oldLineNumberX,
+            y: y + rowY + 2,
+            width: gutterMetrics.oldLineNumberWidth,
+            height: 18
+          )
           contentContainer.addSubview(numLabel)
         }
-        if let num = line.newLineNum {
+        if let newLineNumberX = gutterMetrics.newLineNumberX, let num = line.newLineNum {
           let numLabel = makeLineNumLabel("\(num)")
           numLabel.textAlignment = .right
-          numLabel.frame = CGRect(x: 40, y: y + rowY + 2, width: 32, height: 18)
+          numLabel.frame = CGRect(
+            x: newLineNumberX,
+            y: y + rowY + 2,
+            width: gutterMetrics.newLineNumberWidth,
+            height: 18
+          )
           contentContainer.addSubview(numLabel)
         }
 
@@ -529,7 +571,12 @@
         prefixLabel.font = UIFont.monospacedSystemFont(ofSize: 13, weight: .bold)
         prefixLabel.textColor = prefixColor
         prefixLabel.text = line.prefix
-        prefixLabel.frame = CGRect(x: 78, y: y + rowY + 1, width: 16, height: 20)
+        prefixLabel.frame = CGRect(
+          x: gutterMetrics.prefixX,
+          y: y + rowY + 1,
+          width: EL.diffPrefixWidth,
+          height: 20
+        )
         contentContainer.addSubview(prefixLabel)
 
         // Code content (in scroll view — scrolls horizontally)
@@ -552,9 +599,9 @@
     // ── Read (line-numbered code) ──
 
     private func buildReadContent(lines: [String], language: String, width: CGFloat) {
-      let maxLineNumWidth = CGFloat("\(lines.count)".count) * 8 + 10
-      let codeX = maxLineNumWidth + 12
-      let codeAvailW = width - codeX - EL.headerHPad
+      let gutterMetrics = EL.readGutterMetrics(lineCount: lines.count)
+      let codeX = gutterMetrics.codeX
+      let codeAvailW = width - codeX - EL.diffContentTrailingPad
       let lang = language.isEmpty ? nil : language
       let y: CGFloat = EL.sectionPadding + EL.contentTopPad
 
@@ -569,7 +616,7 @@
 
       // Horizontal scroll view for code content
       let totalH = CGFloat(lines.count) * EL.contentLineHeight
-      let scrollView = UIScrollView()
+      let scrollView = HorizontalPanPassthroughScrollView()
       scrollView.showsHorizontalScrollIndicator = true
       scrollView.showsVerticalScrollIndicator = false
       scrollView.backgroundColor = .clear
@@ -583,7 +630,12 @@
         // Line number (in contentContainer — stays fixed)
         let numLabel = makeLineNumLabel("\(index + 1)")
         numLabel.textAlignment = .right
-        numLabel.frame = CGRect(x: 4, y: y + rowY, width: maxLineNumWidth, height: EL.contentLineHeight)
+        numLabel.frame = CGRect(
+          x: gutterMetrics.lineNumberX,
+          y: y + rowY,
+          width: gutterMetrics.lineNumberWidth,
+          height: EL.contentLineHeight
+        )
         contentContainer.addSubview(numLabel)
 
         // Code line (in scroll view — scrolls horizontally)

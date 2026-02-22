@@ -60,9 +60,81 @@ enum ExpandedToolLayout {
   static let contentTopPad: CGFloat = 6
   static let bottomPadding: CGFloat = 10
 
-  // Diff content starts at x=96, ends at width-14
-  static let diffContentX: CGFloat = 96
-  static let diffContentTrailingPad: CGFloat = 14
+  // Diff/read gutter metrics
+  static let diffContentTrailingPad: CGFloat = 10
+  static let diffNumberLeadingInset: CGFloat = 6
+  static let diffNumberColumnGap: CGFloat = 2
+  static let diffPrefixGap: CGFloat = 2
+  static let diffPrefixWidth: CGFloat = 10
+  static let lineNumberHorizontalPadding: CGFloat = 2
+  static let minLineNumberColumnWidth: CGFloat = 14
+
+  struct DiffGutterMetrics {
+    let oldLineNumberX: CGFloat?
+    let oldLineNumberWidth: CGFloat
+    let newLineNumberX: CGFloat?
+    let newLineNumberWidth: CGFloat
+    let prefixX: CGFloat
+    let codeX: CGFloat
+  }
+
+  struct ReadGutterMetrics {
+    let lineNumberX: CGFloat
+    let lineNumberWidth: CGFloat
+    let codeX: CGFloat
+  }
+
+  static func diffGutterMetrics(for lines: [DiffLine]) -> DiffGutterMetrics {
+    let hasOldLineNumbers = lines.contains { $0.oldLineNum != nil }
+    let hasNewLineNumbers = lines.contains { $0.newLineNum != nil }
+    let maxOldLineNumber = lines.compactMap(\.oldLineNum).max() ?? 0
+    let maxNewLineNumber = lines.compactMap(\.newLineNum).max() ?? 0
+
+    let oldWidth = hasOldLineNumbers ? lineNumberColumnWidth(maxLineNumber: maxOldLineNumber) : 0
+    let newWidth = hasNewLineNumbers ? lineNumberColumnWidth(maxLineNumber: maxNewLineNumber) : 0
+
+    var cursorX = diffNumberLeadingInset
+
+    let oldX: CGFloat? = hasOldLineNumbers ? cursorX : nil
+    if hasOldLineNumbers {
+      cursorX += oldWidth + diffNumberColumnGap
+    }
+
+    let newX: CGFloat? = hasNewLineNumbers ? cursorX : nil
+    if hasNewLineNumbers {
+      cursorX += newWidth + diffNumberColumnGap
+    }
+
+    let prefixX = cursorX
+    let codeX = prefixX + diffPrefixWidth + diffPrefixGap
+
+    return DiffGutterMetrics(
+      oldLineNumberX: oldX,
+      oldLineNumberWidth: oldWidth,
+      newLineNumberX: newX,
+      newLineNumberWidth: newWidth,
+      prefixX: prefixX,
+      codeX: codeX
+    )
+  }
+
+  static func readGutterMetrics(lineCount: Int) -> ReadGutterMetrics {
+    let maxLineNumber = max(1, lineCount)
+    let lineNumberWidth = lineNumberColumnWidth(maxLineNumber: maxLineNumber)
+    let lineNumberX = diffNumberLeadingInset
+    let codeX = lineNumberX + lineNumberWidth + 4
+    return ReadGutterMetrics(
+      lineNumberX: lineNumberX,
+      lineNumberWidth: lineNumberWidth,
+      codeX: codeX
+    )
+  }
+
+  private static func lineNumberColumnWidth(maxLineNumber: Int) -> CGFloat {
+    let text = "\(max(0, maxLineNumber))"
+    let measured = ceil((text as NSString).size(withAttributes: [.font: lineNumFont as Any]).width)
+    return max(minLineNumberColumnWidth, measured + lineNumberHorizontalPadding)
+  }
 
   // Card colors
   static let bgColor = PlatformColor.calibrated(red: 0.06, green: 0.06, blue: 0.08, alpha: 0.85)
@@ -292,6 +364,23 @@ enum ExpandedToolLayout {
 // MARK: - macOS Cell View
 
 #if os(macOS)
+
+  private final class HorizontalPanPassthroughScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+      let hasHorizontalOverflow = (documentView?.bounds.width ?? 0) > contentView.bounds.width + 1
+      let horizontalDelta = abs(event.scrollingDeltaX)
+      let verticalDelta = abs(event.scrollingDeltaY)
+      let shouldHandleHorizontally = hasHorizontalOverflow && horizontalDelta > verticalDelta
+
+      if shouldHandleHorizontally {
+        super.scrollWheel(with: event)
+      } else if let nextResponder {
+        nextResponder.scrollWheel(with: event)
+      } else {
+        super.scrollWheel(with: event)
+      }
+    }
+  }
 
   final class NativeExpandedToolCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeExpandedToolCell")
@@ -814,7 +903,8 @@ enum ExpandedToolLayout {
         y += 28
       }
 
-      let codeX = ExpandedToolLayout.diffContentX
+      let gutterMetrics = ExpandedToolLayout.diffGutterMetrics(for: lines)
+      let codeX = gutterMetrics.codeX
       let codeAvailW = width - codeX - ExpandedToolLayout.diffContentTrailingPad
       let diffFont = ExpandedToolLayout.diffContentFont
 
@@ -829,7 +919,7 @@ enum ExpandedToolLayout {
 
       // Horizontal scroll view for code content
       let totalDiffH = CGFloat(lines.count) * Self.diffLineHeight
-      let scrollView = NSScrollView()
+      let scrollView = HorizontalPanPassthroughScrollView()
       scrollView.hasHorizontalScroller = true
       scrollView.hasVerticalScroller = false
       scrollView.autohidesScrollers = true
@@ -869,20 +959,30 @@ enum ExpandedToolLayout {
         contentContainer.addSubview(rowBg)
 
         // Line numbers (in contentContainer — stay fixed)
-        if let num = line.oldLineNum {
+        if let oldLineNumberX = gutterMetrics.oldLineNumberX, let num = line.oldLineNum {
           let numLabel = NSTextField(labelWithString: "\(num)")
           numLabel.font = Self.lineNumFont
           numLabel.textColor = Self.textQuaternary
           numLabel.alignment = .right
-          numLabel.frame = NSRect(x: 4, y: y + rowY + 2, width: 32, height: 18)
+          numLabel.frame = NSRect(
+            x: oldLineNumberX,
+            y: y + rowY + 2,
+            width: gutterMetrics.oldLineNumberWidth,
+            height: 18
+          )
           contentContainer.addSubview(numLabel)
         }
-        if let num = line.newLineNum {
+        if let newLineNumberX = gutterMetrics.newLineNumberX, let num = line.newLineNum {
           let numLabel = NSTextField(labelWithString: "\(num)")
           numLabel.font = Self.lineNumFont
           numLabel.textColor = Self.textQuaternary
           numLabel.alignment = .right
-          numLabel.frame = NSRect(x: 40, y: y + rowY + 2, width: 32, height: 18)
+          numLabel.frame = NSRect(
+            x: newLineNumberX,
+            y: y + rowY + 2,
+            width: gutterMetrics.newLineNumberWidth,
+            height: 18
+          )
           contentContainer.addSubview(numLabel)
         }
 
@@ -890,7 +990,12 @@ enum ExpandedToolLayout {
         let prefixLabel = NSTextField(labelWithString: line.prefix)
         prefixLabel.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .bold)
         prefixLabel.textColor = prefixColor
-        prefixLabel.frame = NSRect(x: 78, y: y + rowY + 1, width: 16, height: 20)
+        prefixLabel.frame = NSRect(
+          x: gutterMetrics.prefixX,
+          y: y + rowY + 1,
+          width: ExpandedToolLayout.diffPrefixWidth,
+          height: 20
+        )
         contentContainer.addSubview(prefixLabel)
 
         // Code content (in scroll view — scrolls horizontally)
@@ -913,9 +1018,9 @@ enum ExpandedToolLayout {
     // ── Read (line-numbered code) ──
 
     private func buildReadContent(lines: [String], language: String, width: CGFloat) {
-      let maxLineNumWidth = CGFloat("\(lines.count)".count) * 8 + 10
-      let codeX = maxLineNumWidth + 12
-      let codeAvailW = width - codeX - Self.headerHPad
+      let gutterMetrics = ExpandedToolLayout.readGutterMetrics(lineCount: lines.count)
+      let codeX = gutterMetrics.codeX
+      let codeAvailW = width - codeX - ExpandedToolLayout.diffContentTrailingPad
       let lang = language.isEmpty ? nil : language
       let y: CGFloat = Self.sectionPadding + Self.contentTopPad
 
@@ -930,7 +1035,7 @@ enum ExpandedToolLayout {
 
       // Horizontal scroll view for code content
       let totalH = CGFloat(lines.count) * Self.contentLineHeight
-      let scrollView = NSScrollView()
+      let scrollView = HorizontalPanPassthroughScrollView()
       scrollView.hasHorizontalScroller = true
       scrollView.hasVerticalScroller = false
       scrollView.autohidesScrollers = true
@@ -952,7 +1057,12 @@ enum ExpandedToolLayout {
         numLabel.font = Self.lineNumFont
         numLabel.textColor = Self.textQuaternary
         numLabel.alignment = .right
-        numLabel.frame = NSRect(x: 4, y: y + rowY, width: maxLineNumWidth, height: Self.contentLineHeight)
+        numLabel.frame = NSRect(
+          x: gutterMetrics.lineNumberX,
+          y: y + rowY,
+          width: gutterMetrics.lineNumberWidth,
+          height: Self.contentLineHeight
+        )
         contentContainer.addSubview(numLabel)
 
         // Code line (in scroll view — scrolls horizontally)
