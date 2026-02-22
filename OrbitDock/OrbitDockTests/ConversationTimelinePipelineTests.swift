@@ -224,7 +224,10 @@ struct ConversationTimelinePipelineTests {
         currentPrompt: nil,
         messageCount: messages.count,
         remainingLoadCount: 0,
-        hasMoreMessages: false
+        hasMoreMessages: false,
+        needsApprovalCard: false,
+        approvalMode: .none,
+        isDirectSession: false
       )
     )
   }

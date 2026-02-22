@@ -15,6 +15,15 @@ nonisolated enum ConversationSection: Hashable, Sendable {
   case main
 }
 
+// MARK: - Approval Card Mode
+
+nonisolated enum ApprovalCardMode: Hashable, Sendable {
+  case permission // Direct session needing tool approval
+  case question // Direct session with pending question
+  case takeover // Passive session with pending approval
+  case none // No approval needed
+}
+
 // MARK: - Timeline Source + UI State
 
 nonisolated struct ConversationSourceState {
@@ -34,6 +43,15 @@ nonisolated struct ConversationSourceState {
     var remainingLoadCount: Int
     var hasMoreMessages: Bool
 
+    // Approval card fields
+    var needsApprovalCard: Bool
+    var approvalMode: ApprovalCardMode
+    var pendingQuestion: String?
+    var pendingApprovalId: String?
+    var isDirectSession: Bool
+    var sessionId: String?
+    var projectPath: String?
+
     var shouldShowLiveIndicator: Bool {
       isSessionActive && (workStatus == .waiting || workStatus == .permission)
     }
@@ -52,7 +70,14 @@ nonisolated struct ConversationSourceState {
       currentPrompt: nil,
       messageCount: 0,
       remainingLoadCount: 0,
-      hasMoreMessages: false
+      hasMoreMessages: false,
+      needsApprovalCard: false,
+      approvalMode: .none,
+      pendingQuestion: nil,
+      pendingApprovalId: nil,
+      isDirectSession: false,
+      sessionId: nil,
+      projectPath: nil
     )
   ) {
     self.messages = messages
@@ -107,6 +132,7 @@ nonisolated struct TimelineRowID: Hashable, Sendable, RawRepresentable, Expressi
   static let loadMore: Self = "timeline:load-more"
   static let messageCount: Self = "timeline:message-count"
   static let liveIndicator: Self = "timeline:live-indicator"
+  static let approvalCard: Self = "timeline:approval-card"
   static let bottomSpacer: Self = "timeline:bottom-spacer"
 
   static func message(_ messageID: String) -> Self {
@@ -138,6 +164,7 @@ nonisolated enum TimelineRowKind: Hashable, Sendable {
   case tool
   case rollupSummary
   case liveIndicator
+  case approvalCard
   case bottomSpacer
 }
 
@@ -158,6 +185,7 @@ nonisolated enum TimelineRowPayload: Hashable, Sendable {
     id: String, hiddenCount: Int, totalToolCount: Int, isExpanded: Bool,
     breakdown: [ToolBreakdownEntry]
   )
+  case approvalCard(mode: ApprovalCardMode)
 }
 
 nonisolated struct TimelineRow: Hashable, Sendable {

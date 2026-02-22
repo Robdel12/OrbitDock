@@ -64,7 +64,16 @@ nonisolated enum ConversationTimelineProjector {
         }
     }
 
-    if metadata.shouldShowLiveIndicator {
+    // Approval card takes priority over live indicator — it replaces the
+    // "waiting" indicator when the session is blocked on an approval/question.
+    if metadata.needsApprovalCard, metadata.approvalMode != .none {
+      rows.append(makeRow(
+        id: .approvalCard,
+        kind: .approvalCard,
+        payload: .approvalCard(mode: metadata.approvalMode),
+        context: context
+      ))
+    } else if metadata.shouldShowLiveIndicator {
       rows.append(makeRow(id: .liveIndicator, kind: .liveIndicator, payload: .none, context: context))
     }
 
@@ -351,6 +360,15 @@ nonisolated enum ConversationTimelineProjector {
         combineTextSignature(metadata.currentPrompt, into: &hasher)
         combineTextSignature(metadata.pendingToolName, into: &hasher)
         combineTextSignature(metadata.pendingToolInput, into: &hasher)
+
+      case .approvalCard:
+        let metadata = context.source.metadata
+        hasher.combine(metadata.approvalMode)
+        combineTextSignature(metadata.pendingToolName, into: &hasher)
+        combineTextSignature(metadata.pendingToolInput, into: &hasher)
+        combineTextSignature(metadata.pendingQuestion, into: &hasher)
+        hasher.combine(metadata.pendingApprovalId)
+        hasher.combine(metadata.isDirectSession)
 
       case .bottomSpacer:
         hasher.combine(32)

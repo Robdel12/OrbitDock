@@ -2147,6 +2147,80 @@ fn load_token_usage_from_transcript(
     Ok(None)
 }
 
+fn load_latest_codex_turn_context_settings_from_transcript(
+    transcript_path: &str,
+) -> Result<(Option<String>, Option<String>), anyhow::Error> {
+    let file = match File::open(transcript_path) {
+        Ok(file) => file,
+        Err(_) => return Ok((None, None)),
+    };
+    let reader = BufReader::new(file);
+
+    let mut model: Option<String> = None;
+    let mut effort: Option<String> = None;
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(line) => line,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let value: Value = match serde_json::from_str(trimmed) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+
+        if value
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            != "turn_context"
+        {
+            continue;
+        }
+
+        let payload = match value.get("payload").and_then(Value::as_object) {
+            Some(payload) => payload,
+            None => continue,
+        };
+
+        if let Some(m) = payload
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            model = Some(m.to_string());
+        }
+
+        let effort_from_payload = payload
+            .get("effort")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        let effort_from_collaboration_mode = payload
+            .get("collaboration_mode")
+            .and_then(|v| v.get("settings"))
+            .and_then(|v| v.get("reasoning_effort"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
+        if let Some(e) = effort_from_payload.or(effort_from_collaboration_mode) {
+            effort = Some(e);
+        }
+    }
+
+    Ok((model, effort))
+}
+
 pub async fn load_messages_from_transcript_path(
     transcript_path: &str,
     session_id: &str,
@@ -2165,6 +2239,16 @@ pub async fn load_token_usage_from_transcript_path(
     let transcript_path_owned = transcript_path.to_string();
     tokio::task::spawn_blocking(move || load_token_usage_from_transcript(&transcript_path_owned))
         .await?
+}
+
+pub async fn load_latest_codex_turn_context_settings_from_transcript_path(
+    transcript_path: &str,
+) -> Result<(Option<String>, Option<String>), anyhow::Error> {
+    let transcript_path_owned = transcript_path.to_string();
+    tokio::task::spawn_blocking(move || {
+        load_latest_codex_turn_context_settings_from_transcript(&transcript_path_owned)
+    })
+    .await?
 }
 
 /// Load recent sessions from the database for server restart recovery.
@@ -2473,55 +2557,46 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         let mut stmt = conn.prepare(
             "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode,
                     COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
-                    COALESCE(cached_tokens, 0), COALESCE(context_window, 0)
+                    COALESCE(cached_tokens, 0), COALESCE(context_window, 0),
+                    provider, codex_integration_mode, claude_integration_mode,
+                    claude_sdk_session_id, codex_thread_id, end_reason,
+                    terminal_session_id, terminal_app
              FROM sessions
-             WHERE id = ?1 AND provider = 'codex'
-               AND (codex_integration_mode = 'direct' OR codex_integration_mode IS NULL)"
+             WHERE id = ?1"
         )?;
 
-        type DirectSessionRow = (
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            i64,
-            i64,
-            i64,
-            i64,
-        );
-
-        let row: Option<DirectSessionRow> = stmt
+        let row = stmt
             .query_row(params![&id_owned], |row| {
                 Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                    row.get(8)?,
-                    row.get(9)?,
-                    row.get(10)?,
-                    row.get(11)?,
-                    row.get(12)?,
-                    row.get(13)?,
-                    row.get(14)?,
-                    row.get(15)?,
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, i64>(12)?,
+                    row.get::<_, i64>(13)?,
+                    row.get::<_, i64>(14)?,
+                    row.get::<_, i64>(15)?,
+                    row.get::<_, String>(16)?,
+                    row.get::<_, Option<String>>(17)?,
+                    row.get::<_, Option<String>>(18)?,
+                    row.get::<_, Option<String>>(19)?,
+                    row.get::<_, Option<String>>(20)?,
+                    row.get::<_, Option<String>>(21)?,
+                    row.get::<_, Option<String>>(22)?,
+                    row.get::<_, Option<String>>(23)?,
                 ))
             })
             .optional()?;
 
-        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, input_tokens, output_tokens, cached_tokens, context_window)) = row else {
+        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, input_tokens, output_tokens, cached_tokens, context_window, provider, codex_integration_mode, claude_integration_mode, claude_sdk_session_id, codex_thread_id, end_reason, terminal_session_id, terminal_app)) = row else {
             return Ok(None);
         };
 
@@ -2578,7 +2653,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
 
         Ok(Some(RestoredSession {
             id,
-            provider: "codex".to_string(),
+            provider,
             status: "active".to_string(),
             work_status: "waiting".to_string(),
             project_path,
@@ -2587,10 +2662,10 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             model,
             custom_name,
             summary,
-            codex_integration_mode: Some("direct".to_string()),
-            claude_integration_mode: None,
-            codex_thread_id: None,
-            claude_sdk_session_id: None,
+            codex_integration_mode,
+            claude_integration_mode,
+            codex_thread_id,
+            claude_sdk_session_id,
             started_at,
             last_activity_at,
             approval_policy,
@@ -2609,14 +2684,46 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             current_cwd,
             first_prompt,
             last_message,
-            end_reason: None,
+            end_reason,
             effort,
-            terminal_session_id: None,
-            terminal_app: None,
+            terminal_session_id,
+            terminal_app,
         }))
     }).await??;
 
     Ok(result)
+}
+
+/// Load only the persisted Claude permission_mode for a session.
+pub async fn load_session_permission_mode(id: &str) -> Result<Option<String>, anyhow::Error> {
+    let db_path = crate::paths::db_path();
+    let id_owned = id.to_string();
+
+    let mode = tokio::task::spawn_blocking(move || -> Result<Option<String>, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let mode = conn
+            .query_row(
+                "SELECT permission_mode FROM sessions WHERE id = ?1",
+                params![&id_owned],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+
+        Ok(mode)
+    })
+    .await??;
+
+    Ok(mode)
 }
 
 /// Create a sender for the persistence writer
@@ -3070,6 +3177,44 @@ mod tests {
         // 2024-01-15 12:30:45 UTC
         let result = time_to_iso8601(1705322445);
         assert!(result.starts_with("2024-01-15"));
+    }
+
+    #[tokio::test]
+    async fn load_session_permission_mode_returns_persisted_value() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::SessionCreate {
+                id: "claude-permission".into(),
+                provider: Provider::Claude,
+                project_path: "/tmp/claude-permission".into(),
+                project_name: Some("claude-permission".into()),
+                branch: Some("main".into()),
+                model: Some("claude-opus-4-6".into()),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: Some("bypassPermissions".into()),
+                forked_from_session_id: None,
+            }],
+        )
+        .expect("seed session");
+
+        let mode = load_session_permission_mode("claude-permission")
+            .await
+            .expect("load permission mode");
+        assert_eq!(mode.as_deref(), Some("bypassPermissions"));
+
+        let missing = load_session_permission_mode("missing-session")
+            .await
+            .expect("load missing permission mode");
+        assert!(missing.is_none());
     }
 
     #[tokio::test]
@@ -3791,5 +3936,55 @@ mod tests {
         assert_eq!(usage.output_tokens, 4);
         assert_eq!(usage.cached_tokens, 1);
         assert_eq!(usage.context_window, 200_000);
+    }
+
+    #[tokio::test]
+    async fn transcript_turn_context_settings_extract_latest_model_and_effort() {
+        let tmp_dir =
+            std::env::temp_dir().join(format!("orbitdock-turn-context-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let transcript_path = tmp_dir.join("codex-turn-context.jsonl");
+
+        std::fs::write(
+            &transcript_path,
+            r#"{"type":"session_meta","payload":{"id":"s","cwd":"/tmp/repo","model_provider":"openai"}}
+{"type":"turn_context","payload":{"model":"gpt-5.3-codex","effort":"xhigh"}}
+{"type":"turn_context","payload":{"model":"gpt-5.4-codex","effort":"high"}}
+"#,
+        )
+        .expect("write transcript");
+
+        let (model, effort) = load_latest_codex_turn_context_settings_from_transcript_path(
+            transcript_path.to_string_lossy().as_ref(),
+        )
+        .await
+        .expect("load settings");
+
+        assert_eq!(model.as_deref(), Some("gpt-5.4-codex"));
+        assert_eq!(effort.as_deref(), Some("high"));
+    }
+
+    #[tokio::test]
+    async fn transcript_turn_context_settings_falls_back_to_reasoning_effort() {
+        let tmp_dir =
+            std::env::temp_dir().join(format!("orbitdock-turn-context-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let transcript_path = tmp_dir.join("codex-turn-context-collab.jsonl");
+
+        std::fs::write(
+            &transcript_path,
+            r#"{"type":"turn_context","payload":{"model":"gpt-5.3-codex","collaboration_mode":{"settings":{"reasoning_effort":"xhigh"}}}}
+"#,
+        )
+        .expect("write transcript");
+
+        let (model, effort) = load_latest_codex_turn_context_settings_from_transcript_path(
+            transcript_path.to_string_lossy().as_ref(),
+        )
+        .await
+        .expect("load settings");
+
+        assert_eq!(model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(effort.as_deref(), Some("xhigh"));
     }
 }

@@ -148,17 +148,6 @@ struct InstrumentPanel: View {
         tokenStrip
       }
 
-      // ━━━ Approval / Question UI ━━━
-      if session.canApprove {
-        CodexApprovalView(session: session)
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.sm)
-      } else if session.canAnswer {
-        CodexQuestionView(session: session)
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.sm)
-      }
-
       // ━━━ Review notes indicator (only for review mode) ━━━
       if isSessionActive, inputMode == .reviewNotes {
         HStack(spacing: 8) {
@@ -332,10 +321,17 @@ struct InstrumentPanel: View {
     guard let window = session.contextWindow, window > 0,
           let input = session.inputTokens
     else { return 0 }
-    // Anthropic API: input_tokens is non-cached only; cached_tokens
-    // (cache_read + cache_creation) must be added for true context fill.
-    let cached = session.cachedTokens ?? 0
-    return min(1.0, Double(input + cached) / Double(window))
+
+    // Provider-specific context calculation:
+    // - Claude/Anthropic: input_tokens is non-cached only, add cached_tokens for total
+    // - Codex/OpenAI: input_tokens already includes cached, use input alone
+    let totalContext = if session.provider == .codex {
+      input // Codex input_tokens already includes cached
+    } else {
+      input + (session.cachedTokens ?? 0) // Claude input_tokens + cached
+    }
+
+    return min(1.0, Double(totalContext) / Double(window))
   }
 
   private var tokenTooltipText: String {
@@ -692,7 +688,11 @@ struct InstrumentPanel: View {
             .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
           if let input = session.inputTokens {
-            let totalContext = input + (session.cachedTokens ?? 0)
+            let totalContext = if session.provider == .codex {
+              input // Codex: input already includes cached
+            } else {
+              input + (session.cachedTokens ?? 0) // Claude: add cached to input
+            }
             Text(formatTokenCount(totalContext))
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textTertiary)
@@ -997,7 +997,11 @@ struct InstrumentPanel: View {
     } else {
       "\(pct)"
     }
-    let totalContext = (session.inputTokens ?? 0) + (session.cachedTokens ?? 0)
+    let totalContext = if session.provider == .codex {
+      session.inputTokens ?? 0 // Codex: input already includes cached
+    } else {
+      (session.inputTokens ?? 0) + (session.cachedTokens ?? 0) // Claude: add cached to input
+    }
     let text = totalContext > 0 ? "\(displayPct)% · \(formatTokenCount(totalContext))" : "\(displayPct)%"
 
     return compactMetaChip(icon: "gauge.with.needle", text: text, color: color)
@@ -1061,6 +1065,7 @@ struct InstrumentPanel: View {
   private var resumeRow: some View {
     HStack {
       Button {
+        connLog(.info, category: .resume, "Resume button tapped", sessionId: sessionId)
         serverState.resumeSession(sessionId)
       } label: {
         HStack(spacing: Spacing.sm) {

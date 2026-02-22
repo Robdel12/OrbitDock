@@ -91,6 +91,21 @@ pub enum ClientMessage {
     ResumeSession {
         session_id: String,
     },
+    TakeoverSession {
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        approval_policy: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sandbox_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        permission_mode: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        allowed_tools: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        disallowed_tools: Vec<String>,
+    },
     ForkSession {
         source_session_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -161,6 +176,7 @@ pub enum ClientMessage {
     SetOpenAiKey {
         key: String,
     },
+    CheckOpenAiKey,
 
     // Turn steering
     SteerTurn {

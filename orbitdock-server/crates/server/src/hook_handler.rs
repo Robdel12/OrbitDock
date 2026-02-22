@@ -1170,6 +1170,7 @@ async fn materialize_claude_session(
 
     // Create the session
     let mut handle = SessionHandle::new(session_id.to_string(), Provider::Claude, cwd.clone());
+    handle.set_claude_integration_mode(Some(orbitdock_protocol::ClaudeIntegrationMode::Passive));
     handle.set_project_name(project_name_from_cwd(&cwd));
     handle.set_model(model.clone());
     handle.set_transcript_path(transcript_path.clone());

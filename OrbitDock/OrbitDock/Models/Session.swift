@@ -257,6 +257,17 @@ struct Session: Identifiable, Hashable, Sendable {
     return isDirect
   }
 
+  /// Returns true if this passive session can be taken over (flipped to direct)
+  /// Hook-created Claude sessions have nil integration mode (not explicitly "passive"),
+  /// so we treat nil as passive for Claude. Codex passive sessions are always explicitly set.
+  var canTakeOver: Bool {
+    guard !isDirect else { return false }
+    switch provider {
+      case .codex: return codexIntegrationMode == .passive
+      case .claude: return claudeIntegrationMode != .direct
+    }
+  }
+
   /// Returns true if user can approve/reject a pending tool (direct Codex only)
   var canApprove: Bool {
     canSendInput && attentionReason == .awaitingPermission && pendingApprovalId != nil
@@ -265,6 +276,14 @@ struct Session: Identifiable, Hashable, Sendable {
   /// Returns true if user can answer a pending question (direct Codex only)
   var canAnswer: Bool {
     canSendInput && attentionReason == .awaitingQuestion && pendingApprovalId != nil
+  }
+
+  /// Returns true if the approval/question overlay should be shown.
+  /// Covers both direct sessions (can approve inline) and passive sessions
+  /// with a pending approval (need takeover first).
+  var needsApprovalOverlay: Bool {
+    guard isActive, pendingApprovalId != nil else { return false }
+    return attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion
   }
 
   var statusIcon: String {

@@ -185,6 +185,7 @@ import SwiftUI
     private var loadMoreCellReg: UICollectionView.CellRegistration<UIKitLoadMoreCell, Void>!
     private var messageCountCellReg: UICollectionView.CellRegistration<UIKitMessageCountCell, Void>!
     private var liveIndicatorCellReg: UICollectionView.CellRegistration<UIKitLiveIndicatorCell, Void>!
+    private var approvalCardCellReg: UICollectionView.CellRegistration<UIKitApprovalCardCell, Void>!
     private var spacerCellReg: UICollectionView.CellRegistration<UIKitSpacerCell, Void>!
 
     private var needsInitialScroll = true
@@ -329,6 +330,30 @@ import SwiftUI
         ))
       }
 
+      approvalCardCellReg = UICollectionView.CellRegistration<UIKitApprovalCardCell, Void> {
+        [weak self] cell, _, _ in
+        guard let self, let model = self.buildApprovalCardModel() else { return }
+        cell.configure(model: model)
+        cell.onDecision = { [weak self] decision, message, interrupt in
+          guard let self, let requestId = model.approvalId else { return }
+          self.serverState?.approveTool(
+            sessionId: model.sessionId,
+            requestId: requestId,
+            decision: decision,
+            message: message,
+            interrupt: interrupt
+          )
+        }
+        cell.onAnswer = { [weak self] answer in
+          guard let self, let requestId = model.approvalId else { return }
+          self.serverState?.answerQuestion(sessionId: model.sessionId, requestId: requestId, answer: answer)
+        }
+        cell.onTakeOver = { [weak self] in
+          guard let self else { return }
+          self.serverState?.takeoverSession(model.sessionId)
+        }
+      }
+
       spacerCellReg = UICollectionView.CellRegistration<UIKitSpacerCell, Void> { _, _, _ in
         // No configuration needed — just a clear cell
       }
@@ -389,6 +414,10 @@ import SwiftUI
             return collectionView.dequeueConfiguredReusableCell(
               using: self.liveIndicatorCellReg, for: indexPath, item: ()
             )
+          case .approvalCard:
+            return collectionView.dequeueConfiguredReusableCell(
+              using: self.approvalCardCellReg, for: indexPath, item: ()
+            )
           case .bottomSpacer:
             return collectionView.dequeueConfiguredReusableCell(
               using: self.spacerCellReg, for: indexPath, item: ()
@@ -396,6 +425,21 @@ import SwiftUI
         }
         return UICollectionViewCell()
       }
+    }
+
+    // MARK: - Approval Card Model
+
+    private func buildApprovalCardModel() -> ApprovalCardModel? {
+      guard let sid = sessionId,
+            let serverState,
+            let session = serverState.sessions.first(where: { $0.id == sid })
+      else { return nil }
+      let obs = serverState.session(sid)
+      return ApprovalCardModelBuilder.build(
+        session: session,
+        pendingApproval: obs.pendingApproval,
+        serverState: serverState
+      )
     }
 
     // MARK: - State Updates
@@ -413,6 +457,17 @@ import SwiftUI
       remainingLoadCount: Int,
       hasMoreMessages: Bool
     ) {
+      // Derive approval state directly from serverState (source of truth)
+      let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
+      let needsApproval = session?.needsApprovalOverlay ?? false
+      let approvalMode: ApprovalCardMode = {
+        guard let s = session else { return .none }
+        if s.canApprove { return .permission }
+        if s.canAnswer { return .question }
+        if s.canTakeOver { return .takeover }
+        return .none
+      }()
+
       let metadata = ConversationSourceState.SessionMetadata(
         chatViewMode: chatViewMode,
         isSessionActive: isSessionActive,
@@ -423,7 +478,14 @@ import SwiftUI
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
-        hasMoreMessages: hasMoreMessages
+        hasMoreMessages: hasMoreMessages,
+        needsApprovalCard: needsApproval,
+        approvalMode: approvalMode,
+        pendingQuestion: session?.pendingQuestion,
+        pendingApprovalId: session?.pendingApprovalId,
+        isDirectSession: session?.isDirect ?? false,
+        sessionId: self.sessionId,
+        projectPath: session?.projectPath
       )
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setSessionMetadata(metadata))
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(messages))
@@ -697,6 +759,17 @@ import SwiftUI
           }
         case .liveIndicator:
           height = UIKitLiveIndicatorCell.cellHeight
+        case .approvalCard:
+          if case let .approvalCard(mode) = row.payload {
+            let model = buildApprovalCardModel()
+            height = UIKitApprovalCardCell.requiredHeight(
+              for: mode,
+              hasCommand: model?.command != nil,
+              hasDiff: model?.diff != nil
+            )
+          } else {
+            height = 180
+          }
       }
 
       heightCache[row.id] = height

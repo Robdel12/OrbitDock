@@ -134,6 +134,9 @@ pub enum ConnectorEvent {
     /// Context was compacted (summarized)
     ContextCompacted,
 
+    /// Hook started with a (possibly new) session ID — used to register managed threads
+    HookSessionId(String),
+
     /// Undo operation started
     UndoStarted { message: Option<String> },
 

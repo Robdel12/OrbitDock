@@ -153,6 +153,11 @@ struct SessionDetailView: View {
           }
         )
       } else {
+        if session.canTakeOver, !session.needsApprovalOverlay {
+          TakeOverInputBar {
+            serverState.takeoverSession(session.id)
+          }
+        }
         actionBar
       }
     }

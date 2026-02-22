@@ -217,7 +217,7 @@ struct GeneralSettingsView: View {
               .foregroundStyle(Color.panelBorder)
 
             VStack(alignment: .leading, spacing: 8) {
-              if openAiKeyStatus == .configured && !isReplacingKey {
+              if openAiKeyStatus == .configured, !isReplacingKey {
                 // Key exists — show confirmation with option to replace
                 Text("OpenAI API key for auto-naming sessions from first prompts.")
                   .font(.system(size: 12))

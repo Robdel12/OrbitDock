@@ -69,6 +69,7 @@ pub struct TransitionState {
     pub git_branch: Option<String>,
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
+    pub pending_approval: Option<ApprovalRequest>,
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +262,8 @@ impl From<ConnectorEvent> for Input {
                 git_sha,
             },
             ConnectorEvent::Error(msg) => Input::Error(msg),
+            // Handled in event loop before reaching transitions
+            ConnectorEvent::HookSessionId(_) => unreachable!(),
         }
     }
 }
@@ -608,11 +611,8 @@ pub fn transition(
 
             // Extract data-URI images to disk before storing/broadcasting
             if !message.images.is_empty() {
-                message.images = crate::images::extract_images_to_disk(
-                    &message.images,
-                    &sid,
-                    &message.id,
-                );
+                message.images =
+                    crate::images::extract_images_to_disk(&message.images, &sid, &message.id);
             }
 
             // Dedup: skip echoed user messages from the connector
@@ -705,6 +705,8 @@ pub fn transition(
                 question,
                 proposed_amendment: proposed_amendment.clone(),
             };
+
+            state.pending_approval = Some(request.clone());
 
             effects.push(Effect::Persist(Box::new(PersistOp::ApprovalRequested {
                 session_id: sid.clone(),
@@ -1025,6 +1027,12 @@ pub fn transition(
         }
     }
 
+    // Clear pending_approval whenever phase transitions away from AwaitingApproval.
+    // The ApprovalRequested handler sets it; all other transitions clear it.
+    if !matches!(state.phase, WorkPhase::AwaitingApproval { .. }) {
+        state.pending_approval = None;
+    }
+
     (state, effects)
 }
 
@@ -1055,6 +1063,7 @@ mod tests {
             git_branch: None,
             git_sha: None,
             current_cwd: None,
+            pending_approval: None,
         }
     }
 

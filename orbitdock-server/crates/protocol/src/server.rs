@@ -223,6 +223,11 @@ pub enum ServerMessage {
         projects: Vec<RecentProject>,
     },
 
+    // Server config
+    OpenAiKeyStatus {
+        configured: bool,
+    },
+
     // Errors
     Error {
         code: String,

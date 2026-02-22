@@ -115,7 +115,6 @@ impl ClaudeConnector {
             "stream-json",
             "--permission-prompt-tool",
             "stdio",
-            "--include-partial-messages",
         ];
 
         if let Some(m) = model {
@@ -136,12 +135,14 @@ impl ClaudeConnector {
             args.extend(["--disallowedTools", &disallowed_joined]);
         }
 
+        let args_display = args.join(" ");
         info!(
             component = "claude_connector",
             event = "claude.spawn",
             cwd = %cwd,
             claude_bin = %claude_bin,
             resume_id = ?resume_id,
+            args = %args_display,
             "Spawning Claude CLI directly"
         );
 
@@ -152,8 +153,17 @@ impl ClaudeConnector {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env("CLAUDE_CODE_ENTRYPOINT", "orbitdock")
+            .env_remove("CLAUDECODE")
             .spawn()
             .map_err(|e| {
+                error!(
+                    component = "claude_connector",
+                    event = "claude.spawn.failed",
+                    error = %e,
+                    claude_bin = %claude_bin,
+                    args = %args_display,
+                    "Failed to spawn Claude CLI"
+                );
                 ConnectorError::ProviderError(format!("Failed to spawn claude CLI: {}", e))
             })?;
 
@@ -180,18 +190,55 @@ impl ClaudeConnector {
         let pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        // Spawn stderr reader for logging
-        if let Some(stderr) = child.stderr.take() {
+        // Spawn stderr reader + exit code watcher
+        let child_arc: Arc<Mutex<Child>> = Arc::new(Mutex::new(child));
+        if let Some(stderr) = child_arc.lock().await.stderr.take() {
+            let child_for_exit = child_arc.clone();
             tokio::spawn(async move {
                 let reader = BufReader::new(stderr);
                 let mut lines = reader.lines();
+                let mut stderr_lines = Vec::new();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    debug!(
+                    warn!(
                         component = "claude_connector",
                         event = "claude.stderr",
                         line = %line,
                         "Claude CLI stderr"
                     );
+                    stderr_lines.push(line);
+                }
+                // stderr closed — process is exiting, capture exit code
+                let exit_status = child_for_exit.lock().await.wait().await;
+                match exit_status {
+                    Ok(status) => {
+                        let code = status.code();
+                        if code != Some(0) {
+                            warn!(
+                                component = "claude_connector",
+                                event = "claude.exit",
+                                exit_code = ?code,
+                                stderr_tail = %stderr_lines.iter().rev().take(5)
+                                    .collect::<Vec<_>>().into_iter().rev()
+                                    .cloned().collect::<Vec<_>>().join("\n"),
+                                "Claude CLI exited with non-zero status"
+                            );
+                        } else {
+                            info!(
+                                component = "claude_connector",
+                                event = "claude.exit",
+                                exit_code = ?code,
+                                "Claude CLI exited"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            component = "claude_connector",
+                            event = "claude.exit.error",
+                            error = %e,
+                            "Failed to get Claude CLI exit status"
+                        );
+                    }
                 }
             });
         }
@@ -221,7 +268,7 @@ impl ClaudeConnector {
 
         let connector = Self {
             stdin_tx,
-            child: Arc::new(Mutex::new(child)),
+            child: child_arc,
             event_rx: Some(event_rx),
             claude_session_id,
             msg_counter,
@@ -501,12 +548,26 @@ impl ClaudeConnector {
         let mut last_turn_input: Option<(u64, u64)> = None;
         let mut cumulative_output: u64 = 0;
 
+        let mut line_count: u64 = 0;
+
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
+                    line_count += 1;
                     let line = line.trim().to_string();
                     if line.is_empty() {
                         continue;
+                    }
+
+                    // Log first few lines and any non-JSON for debugging startup issues
+                    if line_count <= 3 {
+                        info!(
+                            component = "claude_connector",
+                            event = "claude.stdout.raw",
+                            line_num = line_count,
+                            preview = %if line.len() > 300 { &line[..300] } else { &line },
+                            "Raw stdout line"
+                        );
                     }
 
                     let raw: Value = match serde_json::from_str(&line) {
@@ -549,9 +610,10 @@ impl ClaudeConnector {
                     }
                 }
                 Ok(None) => {
-                    info!(
+                    warn!(
                         component = "claude_connector",
                         event = "claude.stdout.eof",
+                        lines_read = line_count,
                         "Claude CLI stdout EOF"
                     );
                     let _ = event_tx
@@ -596,13 +658,25 @@ impl ClaudeConnector {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
 
+        let is_replay = raw
+            .get("isReplay")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         debug!(
             component = "claude_connector",
             event = "claude.stdout.dispatch",
             msg_type = %msg_type,
             session_id = %session_id,
+            is_replay = is_replay,
             "Dispatching stdout message"
         );
+
+        // Skip replayed messages from --resume. Only allow `system` through
+        // (contains init with session_id, hook_started for thread registration).
+        if is_replay && msg_type != "system" {
+            return vec![];
+        }
 
         // Emit TurnStarted on first assistant activity (stream_event or assistant message)
         let mut turn_start_event = Vec::new();
@@ -760,6 +834,23 @@ impl ClaudeConnector {
             "compact_boundary" => {
                 vec![ConnectorEvent::ContextCompacted]
             }
+            "hook_started" => {
+                // Capture the hook's session_id so we can register it as a managed thread.
+                // On --resume the CLI creates a new session_id for hooks, different from
+                // the original. Without registering it, the hook handler creates a
+                // duplicate passive session.
+                if let Some(sid) = raw.get("session_id").and_then(|v| v.as_str()) {
+                    info!(
+                        component = "claude_connector",
+                        event = "claude.hook_started",
+                        hook_session_id = %sid,
+                        "Hook started with session ID"
+                    );
+                    vec![ConnectorEvent::HookSessionId(sid.to_string())]
+                } else {
+                    vec![]
+                }
+            }
             _ => {
                 // status messages, hook_response, etc. — ignore
                 vec![]
@@ -916,15 +1007,6 @@ impl ClaudeConnector {
         session_id: &str,
         msg_counter: &Arc<AtomicU64>,
     ) -> Vec<ConnectorEvent> {
-        // Skip replayed messages
-        if raw
-            .get("isReplay")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            return vec![];
-        }
-
         // Skip non-synthetic messages (real user input echoes)
         if !raw
             .get("isSynthetic")

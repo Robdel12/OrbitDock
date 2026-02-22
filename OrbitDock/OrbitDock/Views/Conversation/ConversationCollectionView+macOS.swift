@@ -518,6 +518,17 @@ import SwiftUI
       let previousMode = sourceState.metadata.chatViewMode
       let identityChanged = messageIdentityChanged(sourceState.messages, messages)
 
+      // Derive approval state directly from serverState (source of truth)
+      let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
+      let needsApproval = session?.needsApprovalOverlay ?? false
+      let approvalMode: ApprovalCardMode = {
+        guard let s = session else { return .none }
+        if s.canApprove { return .permission }
+        if s.canAnswer { return .question }
+        if s.canTakeOver { return .takeover }
+        return .none
+      }()
+
       let metadata = ConversationSourceState.SessionMetadata(
         chatViewMode: chatViewMode,
         isSessionActive: isSessionActive,
@@ -528,7 +539,14 @@ import SwiftUI
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
-        hasMoreMessages: hasMoreMessages
+        hasMoreMessages: hasMoreMessages,
+        needsApprovalCard: needsApproval,
+        approvalMode: approvalMode,
+        pendingQuestion: session?.pendingQuestion,
+        pendingApprovalId: session?.pendingApprovalId,
+        isDirectSession: session?.isDirect ?? false,
+        sessionId: self.sessionId,
+        projectPath: session?.projectPath
       )
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setSessionMetadata(metadata))
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .setMessages(messages))
@@ -932,6 +950,21 @@ import SwiftUI
       return SharedModelBuilders.expandedToolModel(from: message, messageID: id)
     }
 
+    // MARK: - Approval Card Model
+
+    private func buildApprovalCardModel() -> ApprovalCardModel? {
+      guard let sid = sessionId,
+            let serverState,
+            let session = serverState.sessions.first(where: { $0.id == sid })
+      else { return nil }
+      let obs = serverState.session(sid)
+      return ApprovalCardModelBuilder.build(
+        session: session,
+        pendingApproval: obs.pendingApproval,
+        serverState: serverState
+      )
+    }
+
     // MARK: - NSTableViewDataSource / NSTableViewDelegate
 
     func numberOfRows(in tableView: NSTableView) -> Int {
@@ -952,6 +985,35 @@ import SwiftUI
             ?? NativeSpacerCellView(frame: .zero)
           cell.identifier = id
           return cell
+
+        case .approvalCard:
+          if let model = buildApprovalCardModel() {
+            let id = NativeApprovalCardCellView.reuseIdentifier
+            let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeApprovalCardCellView)
+              ?? NativeApprovalCardCellView(frame: .zero)
+            cell.identifier = id
+            cell.configure(model: model)
+            cell.onDecision = { [weak self] decision, message, interrupt in
+              guard let self, let requestId = model.approvalId else { return }
+              self.serverState?.approveTool(
+                sessionId: model.sessionId,
+                requestId: requestId,
+                decision: decision,
+                message: message,
+                interrupt: interrupt
+              )
+            }
+            cell.onAnswer = { [weak self] answer in
+              guard let self, let requestId = model.approvalId else { return }
+              self.serverState?.answerQuestion(sessionId: model.sessionId, requestId: requestId, answer: answer)
+            }
+            cell.onTakeOver = { [weak self] in
+              guard let self else { return }
+              self.serverState?.takeoverSession(model.sessionId)
+            }
+            return cell
+          }
+          return NativeSpacerCellView(frame: .zero)
 
         case .turnHeader:
           if case let .turnHeader(turnID) = timelineRow.payload, let turn = turnsByID[turnID] {
@@ -1112,6 +1174,19 @@ import SwiftUI
           return ConversationLayout.messageCountHeight
         case .rollupSummary:
           return ConversationLayout.rollupSummaryHeight
+        case .approvalCard:
+          if case let .approvalCard(mode) = timelineRow.payload {
+            let model = buildApprovalCardModel()
+            let h = NativeApprovalCardCellView.requiredHeight(
+              for: mode,
+              hasCommand: model?.command != nil,
+              hasDiff: model?.diff != nil
+            )
+            logger
+              .debug("heightOfRow[\(row)] \(timelineRow.id.rawValue) T1-approvalCard h=\(String(format: "%.1f", h))")
+            return h
+          }
+          return 160
         case .tool:
           if case let .tool(id) = timelineRow.payload, !uiState.expandedToolCards.contains(id) {
             let compactH: CGFloat
@@ -1207,7 +1282,7 @@ import SwiftUI
           )
 
         // Native rows — should never reach SwiftUI, but provide minimal fallback
-        case .loadMore, .messageCount, .turnHeader, .rollupSummary, .bottomSpacer:
+        case .loadMore, .messageCount, .turnHeader, .rollupSummary, .approvalCard, .bottomSpacer:
           return AnyView(Color.clear.frame(height: 1))
       }
     }

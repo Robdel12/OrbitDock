@@ -656,8 +656,27 @@ final class ServerAppState {
   /// Resume an ended session
   func resumeSession(_ sessionId: String) {
     logger.info("Resuming session \(sessionId)")
+    connLog(.info, category: .resume, "ServerAppState.resumeSession", sessionId: sessionId)
     subscribedSessions.insert(sessionId)
     ServerConnection.shared.resumeSession(sessionId)
+  }
+
+  /// Take over a passive session (flip to direct mode so we can send messages)
+  func takeoverSession(_ sessionId: String) {
+    logger.info("Taking over session \(sessionId)")
+    subscribedSessions.insert(sessionId)
+
+    // Optimistic: set Direct immediately for instant UI feedback
+    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+      switch sessions[idx].provider {
+        case .codex:
+          sessions[idx].codexIntegrationMode = .direct
+        case .claude:
+          sessions[idx].claudeIntegrationMode = .direct
+      }
+    }
+
+    ServerConnection.shared.takeoverSession(sessionId: sessionId)
   }
 
   /// Rename a session
@@ -774,7 +793,22 @@ final class ServerAppState {
     logger.info("Received sessions list: \(summaries.count) sessions")
     hasReceivedInitialSessionsList = true
     persistSessionsCache(summaries)
-    sessions = summaries.map { $0.toSession() }
+
+    // Merge: preserve local state for sessions we're actively subscribed to,
+    // since the subscription channel (snapshots + deltas) is authoritative.
+    let currentById = Dictionary(
+      sessions.map { ($0.id, $0) },
+      uniquingKeysWith: { _, new in new }
+    )
+    sessions = summaries.map { summary in
+      if subscribedSessions.contains(summary.id),
+         let existing = currentById[summary.id]
+      {
+        return existing
+      }
+      return summary.toSession()
+    }
+
     for summary in summaries where summary.provider == .codex {
       setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
       session(summary.id).autonomy = AutonomyLevel.from(

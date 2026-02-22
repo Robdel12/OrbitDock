@@ -177,6 +177,35 @@ impl ClaudeSession {
                 tokio::select! {
                     // Handle events from Claude connector
                     Some(event) = event_rx.recv() => {
+                        // Register hook session IDs as managed threads so the hook
+                        // handler doesn't create duplicate passive sessions. On --resume
+                        // the CLI creates a new session_id for hooks.
+                        if let ConnectorEvent::HookSessionId(ref hook_sid) = event {
+                            if hook_sid != &session_id {
+                                info!(
+                                    component = "claude_connector",
+                                    event = "claude.hook_session_id.registered",
+                                    session_id = %session_id,
+                                    hook_session_id = %hook_sid,
+                                    "Registering hook session ID as managed thread"
+                                );
+                                state.register_claude_thread(&session_id, hook_sid);
+                                // Clean up any shadow row the hook handler already created
+                                let _ = persist
+                                    .send(PersistCommand::CleanupClaudeShadowSession {
+                                        claude_sdk_session_id: hook_sid.clone(),
+                                        reason: "managed_direct_session".to_string(),
+                                    })
+                                    .await;
+                                if state.remove_session(hook_sid).is_some() {
+                                    state.broadcast_to_list(ServerMessage::SessionEnded {
+                                        session_id: hook_sid.clone(),
+                                        reason: "managed_direct_session".to_string(),
+                                    });
+                                }
+                            }
+                        }
+
                         // Persist the Claude SDK session ID on first opportunity
                         if !claude_sdk_session_persisted {
                             if let Some(sdk_sid) = self.connector.claude_session_id().await {
@@ -203,8 +232,12 @@ impl ClaudeSession {
                                         reason: "managed_direct_session".to_string(),
                                     })
                                     .await;
-                                // Remove the shadow session from runtime if it exists
-                                if state.remove_session(&sdk_sid).is_some() {
+                                // Remove the shadow session from runtime if it exists.
+                                // Guard against deleting the owning direct session when
+                                // the SDK session id is identical to the OrbitDock session id.
+                                if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
+                                    && state.remove_session(&sdk_sid).is_some()
+                                {
                                     state.broadcast_to_list(ServerMessage::SessionEnded {
                                         session_id: sdk_sid,
                                         reason: "managed_direct_session".to_string(),
@@ -213,12 +246,15 @@ impl ClaudeSession {
                             }
                         }
 
-                        Self::handle_event_direct(
-                            &session_id,
-                            event,
-                            &mut session_handle,
-                            &persist,
-                        ).await;
+                        // HookSessionId is fully handled above; skip transition
+                        if !matches!(event, ConnectorEvent::HookSessionId(_)) {
+                            Self::handle_event_direct(
+                                &session_id,
+                                event,
+                                &mut session_handle,
+                                &persist,
+                            ).await;
+                        }
                     }
 
                     // Handle actions from WebSocket
@@ -420,4 +456,32 @@ fn chrono_now() -> String {
         .unwrap_or_default()
         .as_secs();
     format!("{}Z", secs)
+}
+
+fn should_remove_shadow_runtime_session(
+    owning_session_id: &str,
+    observed_sdk_session_id: &str,
+) -> bool {
+    owning_session_id != observed_sdk_session_id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_remove_shadow_runtime_session;
+
+    #[test]
+    fn shadow_cleanup_skips_owning_session_id() {
+        assert!(!should_remove_shadow_runtime_session(
+            "owning-session",
+            "owning-session"
+        ));
+    }
+
+    #[test]
+    fn shadow_cleanup_allows_distinct_shadow_session_id() {
+        assert!(should_remove_shadow_runtime_session(
+            "owning-session",
+            "hook-shadow-session"
+        ));
+    }
 }

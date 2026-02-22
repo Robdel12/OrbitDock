@@ -1026,6 +1026,7 @@ enum ServerToClientMessage: Codable {
   )
   case directoryListing(path: String, entries: [ServerDirectoryEntry])
   case recentProjectsList(projects: [ServerRecentProject])
+  case openAiKeyStatus(configured: Bool)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1084,6 +1085,7 @@ enum ServerToClientMessage: Codable {
     case slashCommands = "slash_commands"
     case entries
     case projects
+    case configured
   }
 
   init(from decoder: Decoder) throws {
@@ -1331,6 +1333,10 @@ enum ServerToClientMessage: Codable {
         let projects = try container.decode([ServerRecentProject].self, forKey: .projects)
         self = .recentProjectsList(projects: projects)
 
+      case "open_ai_key_status":
+        let configured = try container.decode(Bool.self, forKey: .configured)
+        self = .openAiKeyStatus(configured: configured)
+
       case "error":
         let code = try container.decode(String.self, forKey: .code)
         let message = try container.decode(String.self, forKey: .message)
@@ -1567,6 +1573,10 @@ enum ServerToClientMessage: Codable {
         try container.encode("recent_projects_list", forKey: .type)
         try container.encode(projects, forKey: .projects)
 
+      case let .openAiKeyStatus(configured):
+        try container.encode("open_ai_key_status", forKey: .type)
+        try container.encode(configured, forKey: .configured)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -1619,6 +1629,15 @@ enum ClientToServerMessage: Codable {
   )
   case renameSession(sessionId: String, name: String?)
   case resumeSession(sessionId: String)
+  case takeoverSession(
+    sessionId: String,
+    model: String? = nil,
+    approvalPolicy: String? = nil,
+    sandboxMode: String? = nil,
+    permissionMode: String? = nil,
+    allowedTools: [String] = [],
+    disallowedTools: [String] = []
+  )
   case listApprovals(sessionId: String?, limit: Int?)
   case deleteApproval(approvalId: Int64)
   case listModels
@@ -1665,6 +1684,7 @@ enum ClientToServerMessage: Codable {
   case listReviewComments(sessionId: String, turnId: String? = nil)
   case getSubagentTools(sessionId: String, subagentId: String)
   case setOpenAiKey(key: String)
+  case checkOpenAiKey
   case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
   case browseDirectory(path: String? = nil)
   case listRecentProjects
@@ -1811,6 +1831,28 @@ enum ClientToServerMessage: Codable {
         try container.encode("resume_session", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
 
+      case let .takeoverSession(
+      sessionId,
+      model,
+      approvalPolicy,
+      sandboxMode,
+      permissionMode,
+      allowedTools,
+      disallowedTools
+    ):
+        try container.encode("takeover_session", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encodeIfPresent(model, forKey: .model)
+        try container.encodeIfPresent(approvalPolicy, forKey: .approvalPolicy)
+        try container.encodeIfPresent(sandboxMode, forKey: .sandboxMode)
+        try container.encodeIfPresent(permissionMode, forKey: .permissionMode)
+        if !allowedTools.isEmpty {
+          try container.encode(allowedTools, forKey: .allowedTools)
+        }
+        if !disallowedTools.isEmpty {
+          try container.encode(disallowedTools, forKey: .disallowedTools)
+        }
+
       case let .listApprovals(sessionId, limit):
         try container.encode("list_approvals", forKey: .type)
         try container.encodeIfPresent(sessionId, forKey: .sessionId)
@@ -1945,6 +1987,9 @@ enum ClientToServerMessage: Codable {
         try container.encode("set_open_ai_key", forKey: .type)
         try container.encode(key, forKey: .key)
 
+      case .checkOpenAiKey:
+        try container.encode("check_open_ai_key", forKey: .type)
+
       case let .executeShell(sessionId, command, cwd, timeoutSecs):
         try container.encode("execute_shell", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
@@ -2030,6 +2075,16 @@ enum ClientToServerMessage: Codable {
         )
       case "resume_session":
         self = try .resumeSession(sessionId: container.decode(String.self, forKey: .sessionId))
+      case "takeover_session":
+        self = try .takeoverSession(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          model: container.decodeIfPresent(String.self, forKey: .model),
+          approvalPolicy: container.decodeIfPresent(String.self, forKey: .approvalPolicy),
+          sandboxMode: container.decodeIfPresent(String.self, forKey: .sandboxMode),
+          permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
+          allowedTools: (try? container.decode([String].self, forKey: .allowedTools)) ?? [],
+          disallowedTools: (try? container.decode([String].self, forKey: .disallowedTools)) ?? []
+        )
       case "list_approvals":
         self = try .listApprovals(
           sessionId: container.decodeIfPresent(String.self, forKey: .sessionId),
@@ -2127,6 +2182,8 @@ enum ClientToServerMessage: Codable {
         self = try .setOpenAiKey(
           key: container.decode(String.self, forKey: .key)
         )
+      case "check_open_ai_key":
+        self = .checkOpenAiKey
       case "execute_shell":
         self = try .executeShell(
           sessionId: container.decode(String.self, forKey: .sessionId),

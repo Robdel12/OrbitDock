@@ -91,12 +91,24 @@ fn write_data_uri_to_disk(
     // Sanitize session_id for filesystem (replace non-alphanumeric except dash/underscore)
     let safe_session: String = session_id
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
     let safe_msg: String = message_id
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
 
     let dir = images_dir().join(&safe_session);

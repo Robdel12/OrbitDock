@@ -102,6 +102,7 @@ final class ServerConnection: ObservableObject {
     -> Void)? // sessionId, requestId, stdout, stderr, exitCode, durationMs
   var onDirectoryListing: ((String, [ServerDirectoryEntry]) -> Void)? // path, entries
   var onRecentProjectsList: (([ServerRecentProject]) -> Void)?
+  var onOpenAiKeyStatus: ((Bool) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
   var onDisconnected: (() -> Void)?
@@ -120,6 +121,12 @@ final class ServerConnection: ObservableObject {
 
   /// Connect to a specific server URL
   func connect(to url: URL) {
+    connLog(
+      .info,
+      category: .lifecycle,
+      "connect(to:) called",
+      data: ["url": url.absoluteString, "currentStatus": String(describing: status)]
+    )
     switch status {
       case .disconnected, .failed:
         // OK to connect
@@ -172,6 +179,7 @@ final class ServerConnection: ObservableObject {
           self.status = .connected
           self.connectAttempts = 0
           logger.info("Connected to server")
+          connLog(.info, category: .lifecycle, "status → connected")
           self.startReceiving()
 
           // Auto-subscribe to session list
@@ -254,11 +262,18 @@ final class ServerConnection: ObservableObject {
         }
       } catch {
         logger.error("Receive error: \(error.localizedDescription)")
+        connLog(
+          .error,
+          category: .lifecycle,
+          "Receive error — reconnecting",
+          data: ["error": error.localizedDescription]
+        )
 
         await MainActor.run {
           // Connection lost - try to reconnect (with limits)
           if case .connected = self.status {
             self.status = .disconnected
+            connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
             self.onDisconnected?()
             self.attemptConnect()
           }
@@ -414,8 +429,17 @@ final class ServerConnection: ObservableObject {
       case let .recentProjectsList(projects):
         onRecentProjectsList?(projects)
 
+      case let .openAiKeyStatus(configured):
+        onOpenAiKeyStatus?(configured)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
+        connLog(
+          .error,
+          category: .error,
+          "Server error: [\(code)] \(errorMessage)",
+          sessionId: sessionId
+        )
         onError?(code, errorMessage, sessionId)
     }
   }
@@ -424,22 +448,50 @@ final class ServerConnection: ObservableObject {
 
   /// Send a message to the server
   func send(_ message: ClientToServerMessage) {
+    let messageDesc = String(describing: message).prefix(200)
     guard case .connected = status else {
+      connLog(
+        .warning,
+        category: .send,
+        "BLOCKED — not connected",
+        data: ["status": String(describing: status), "message": String(messageDesc)]
+      )
       logger.warning("Cannot send - not connected")
       return
     }
 
     do {
       let data = try JSONEncoder().encode(message)
-      guard let text = String(data: data, encoding: .utf8) else { return }
+      guard let text = String(data: data, encoding: .utf8) else {
+        connLog(.error, category: .send, "Failed to encode to UTF-8 string")
+        return
+      }
+
+      connLog(
+        .info,
+        category: .send,
+        "Sending \(text.count) bytes",
+        data: ["type": String(messageDesc)]
+      )
 
       webSocket?.send(.string(text)) { error in
         if let error {
+          connLog(
+            .error,
+            category: .send,
+            "WebSocket send error",
+            data: ["error": error.localizedDescription]
+          )
           logger.error("Send error: \(error.localizedDescription)")
-          // Don't auto-reconnect on send errors - let receiveLoop handle it
         }
       }
     } catch {
+      connLog(
+        .error,
+        category: .send,
+        "Encode failed",
+        data: ["error": error.localizedDescription]
+      )
       logger.error("Failed to encode message: \(error.localizedDescription)")
     }
   }
@@ -562,9 +614,32 @@ final class ServerConnection: ObservableObject {
     send(.setOpenAiKey(key: key))
   }
 
+  /// Check if an OpenAI API key is configured on the server
+  func checkOpenAiKey() {
+    send(.checkOpenAiKey)
+  }
+
   /// Resume an ended session
   func resumeSession(_ sessionId: String) {
+    connLog(.info, category: .resume, "resumeSession called", sessionId: sessionId)
     send(.resumeSession(sessionId: sessionId))
+  }
+
+  /// Take over a passive session (flip to direct mode)
+  func takeoverSession(
+    sessionId: String,
+    model: String? = nil,
+    approvalPolicy: String? = nil,
+    sandboxMode: String? = nil,
+    permissionMode: String? = nil
+  ) {
+    send(.takeoverSession(
+      sessionId: sessionId,
+      model: model,
+      approvalPolicy: approvalPolicy,
+      sandboxMode: sandboxMode,
+      permissionMode: permissionMode
+    ))
   }
 
   /// Load approval history

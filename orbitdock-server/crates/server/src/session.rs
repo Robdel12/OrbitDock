@@ -5,12 +5,29 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::{
-    ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState,
-    SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage, TurnDiff, WorkStatus,
+    ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider,
+    SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage, TurnDiff,
+    WorkStatus,
 };
 use tokio::sync::broadcast;
 
+use orbitdock_protocol::ServerMessage;
+
 use crate::transition::{TransitionState, WorkPhase};
+
+/// Events that matter for the session list sidebar (status, mode, name changes).
+/// Per-message events (streaming deltas, message appends) are excluded to avoid
+/// overflowing the list broadcast channel during active turns.
+fn is_list_relevant(msg: &ServerMessage) -> bool {
+    matches!(
+        msg,
+        ServerMessage::SessionCreated { .. }
+            | ServerMessage::SessionEnded { .. }
+            | ServerMessage::SessionDelta { .. }
+            | ServerMessage::SessionForked { .. }
+            | ServerMessage::SessionSnapshot { .. }
+    )
+}
 
 /// Lightweight, lock-free snapshot of session metadata.
 /// Used by `ArcSwap` so list subscribers and snapshot readers never block
@@ -86,6 +103,7 @@ pub struct SessionHandle {
     terminal_session_id: Option<String>,
     terminal_app: Option<String>,
     subagents: Vec<SubagentInfo>,
+    pending_approval: Option<ApprovalRequest>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -170,6 +188,7 @@ impl SessionHandle {
             terminal_session_id: None,
             terminal_app: None,
             subagents: Vec::new(),
+            pending_approval: None,
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -276,6 +295,7 @@ impl SessionHandle {
             terminal_session_id,
             terminal_app,
             subagents: Vec::new(),
+            pending_approval: None,
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -320,7 +340,7 @@ impl SessionHandle {
             status: self.status,
             work_status: self.work_status,
             token_usage: self.token_usage.clone(),
-            has_pending_approval: false, // TODO
+            has_pending_approval: self.pending_approval.is_some(),
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
@@ -350,7 +370,7 @@ impl SessionHandle {
             status: self.status,
             work_status: self.work_status,
             messages: self.messages.clone(),
-            pending_approval: None, // TODO
+            pending_approval: self.pending_approval.clone(),
             token_usage: self.token_usage.clone(),
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
@@ -430,11 +450,13 @@ impl SessionHandle {
     /// Set codex integration mode
     pub fn set_codex_integration_mode(&mut self, mode: Option<CodexIntegrationMode>) {
         self.codex_integration_mode = mode;
+        self.refresh_snapshot();
     }
 
     /// Set claude integration mode
     pub fn set_claude_integration_mode(&mut self, mode: Option<ClaudeIntegrationMode>) {
         self.claude_integration_mode = mode;
+        self.refresh_snapshot();
     }
 
     /// Set project name
@@ -474,12 +496,14 @@ impl SessionHandle {
     /// Set model
     pub fn set_model(&mut self, model: Option<String>) {
         self.model = model;
+        self.refresh_snapshot();
     }
 
     /// Set autonomy configuration
     pub fn set_config(&mut self, approval_policy: Option<String>, sandbox_mode: Option<String>) {
         self.approval_policy = approval_policy;
         self.sandbox_mode = sandbox_mode;
+        self.refresh_snapshot();
     }
 
     /// Set fork origin
@@ -604,6 +628,9 @@ impl SessionHandle {
         if let Some(ref summary) = changes.summary {
             self.summary = summary.clone();
         }
+        if let Some(ref model) = changes.model {
+            self.model = model.clone();
+        }
         if let Some(ref approval_policy) = changes.approval_policy {
             self.approval_policy = approval_policy.clone();
         }
@@ -713,9 +740,13 @@ impl SessionHandle {
         // Non-blocking fan-out to all receivers
         let _ = self.broadcast_tx.send(msg.clone());
 
-        // Also broadcast to list subscribers (dashboard sidebar)
+        // Forward session-level events to list subscribers (dashboard sidebar).
+        // Per-message events (streaming deltas, message appends, etc.) are too
+        // frequent and overflow the list channel during active turns.
         if let Some(ref list_tx) = self.list_tx {
-            let _ = list_tx.send(msg);
+            if is_list_relevant(&msg) {
+                let _ = list_tx.send(msg);
+            }
         }
 
         // Update lock-free snapshot
@@ -777,6 +808,7 @@ impl SessionHandle {
             git_branch: self.git_branch.clone(),
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
+            pending_approval: self.pending_approval.clone(),
         }
     }
 
@@ -795,6 +827,7 @@ impl SessionHandle {
         self.git_branch = state.git_branch;
         self.git_sha = state.git_sha;
         self.current_cwd = state.current_cwd;
+        self.pending_approval = state.pending_approval;
 
         // Sync pending approval tracking from phase
         if let WorkPhase::AwaitingApproval {
@@ -812,6 +845,8 @@ impl SessionHandle {
                 }
             }
         }
+
+        self.refresh_snapshot();
     }
 }
 
