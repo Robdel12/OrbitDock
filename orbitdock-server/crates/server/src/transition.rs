@@ -472,9 +472,7 @@ impl PersistOp {
             PersistOp::ModelUpdate { session_id, model } => {
                 PersistCommand::ModelUpdate { session_id, model }
             }
-            PersistOp::SaveClaudeModels { models } => {
-                PersistCommand::SaveClaudeModels { models }
-            }
+            PersistOp::SaveClaudeModels { models } => PersistCommand::SaveClaudeModels { models },
         }
     }
 }
@@ -691,6 +689,25 @@ pub fn transition(
             is_error,
             duration_ms,
         } => {
+            if let Some(existing) = state
+                .messages
+                .iter_mut()
+                .find(|message| message.id.as_str() == message_id.as_str())
+            {
+                if let Some(content) = content.as_ref() {
+                    existing.content = content.clone();
+                }
+                if let Some(tool_output) = tool_output.as_ref() {
+                    existing.tool_output = Some(tool_output.clone());
+                }
+                if let Some(is_error) = is_error {
+                    existing.is_error = is_error;
+                }
+                if let Some(duration_ms) = duration_ms {
+                    existing.duration_ms = Some(duration_ms);
+                }
+            }
+
             effects.push(Effect::Persist(Box::new(PersistOp::MessageUpdate {
                 session_id: sid.clone(),
                 message_id: message_id.clone(),
@@ -1219,6 +1236,39 @@ mod tests {
 
         assert_eq!(new_state.messages.len(), 1);
         assert_eq!(new_state.messages[0].content, "Hello world");
+        assert_eq!(effects.len(), 2); // Persist + Emit
+    }
+
+    #[test]
+    fn message_updated_mutates_existing_state_message() {
+        let mut state = test_state();
+        let mut msg = test_message(MessageType::Assistant, "I");
+        msg.id = "msg-stream".to_string();
+        msg.tool_output = Some("old output".to_string());
+        state.messages.push(msg);
+
+        let (new_state, effects) = transition(
+            state,
+            Input::MessageUpdated {
+                message_id: "msg-stream".to_string(),
+                content: Some("I'm now cross-checking the highest-risk claims".to_string()),
+                tool_output: Some("new output".to_string()),
+                is_error: Some(false),
+                duration_ms: Some(420),
+            },
+            NOW,
+        );
+
+        assert_eq!(new_state.messages.len(), 1);
+        let updated = &new_state.messages[0];
+        assert_eq!(updated.id, "msg-stream");
+        assert_eq!(
+            updated.content,
+            "I'm now cross-checking the highest-risk claims"
+        );
+        assert_eq!(updated.tool_output.as_deref(), Some("new output"));
+        assert_eq!(updated.is_error, false);
+        assert_eq!(updated.duration_ms, Some(420));
         assert_eq!(effects.len(), 2); // Persist + Emit
     }
 

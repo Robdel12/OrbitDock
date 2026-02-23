@@ -492,11 +492,9 @@ async fn async_main(
                                 // see messages without a server restart
                                 if let Some(actor) = backfill_state.get_session(&session_id) {
                                     actor
-                                        .send(
-                                            session_command::SessionCommand::ReplaceMessages {
-                                                messages,
-                                            },
-                                        )
+                                        .send(session_command::SessionCommand::ReplaceMessages {
+                                            messages,
+                                        })
                                         .await;
                                 }
 
