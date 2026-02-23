@@ -186,6 +186,9 @@ pub enum ClientMessage {
     SetOpenAiKey {
         key: String,
     },
+    SetServerRole {
+        is_primary: bool,
+    },
     CheckOpenAiKey {
         request_id: String,
     },
@@ -494,6 +497,22 @@ mod tests {
                 assert_eq!(skills.len(), 1);
                 assert_eq!(skills[0].name, "deploy");
                 assert_eq!(skills[0].path, "/home/.codex/skills/deploy.md");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_set_server_role() {
+        let json = r#"{
+          "type":"set_server_role",
+          "is_primary":false
+        }"#;
+
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse set_server_role");
+        match parsed {
+            ClientMessage::SetServerRole { is_primary } => {
+                assert!(!is_primary);
             }
             other => panic!("unexpected variant: {:?}", other),
         }

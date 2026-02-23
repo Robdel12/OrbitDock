@@ -151,6 +151,19 @@ final class ServerRuntimeRegistry {
     runtimesByEndpointId[endpointId]?.reconnect()
   }
 
+  func setServerRole(endpointId: UUID, isPrimary: Bool) {
+    ensureInitialized()
+    guard let targetRuntime = runtimesByEndpointId[endpointId], targetRuntime.endpoint.isEnabled else { return }
+
+    if isPrimary {
+      for runtime in runtimesByEndpointId.values where runtime.endpoint.id != endpointId && runtime.endpoint.isEnabled {
+        runtime.connection.setServerRole(isPrimary: false)
+      }
+    }
+
+    targetRuntime.connection.setServerRole(isPrimary: isPrimary)
+  }
+
   func stop(endpointId: UUID) {
     runtimesByEndpointId[endpointId]?.stop()
   }

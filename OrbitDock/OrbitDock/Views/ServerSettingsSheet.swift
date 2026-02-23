@@ -188,9 +188,15 @@ struct ServerSettingsSheet: View {
         )
       }
 
-      Text("Primary endpoint comes from the connected server role. Fallback is used only when no server declares primary.")
+      Text("Primary endpoint comes from each server's live role. Fallback is used only when no server is currently primary.")
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
+
+      if runtimeRegistry.hasPrimaryEndpointConflict {
+        Text("Multiple connected servers currently report Primary. Choose one and set the others to Secondary.")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.statusPermission)
+      }
     }
     .padding(14)
     .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
@@ -288,6 +294,15 @@ struct ServerSettingsSheet: View {
         if let action = connectionAction(for: endpointStatus), endpoint.isEnabled {
           Button(action.label) {
             action.handler(endpoint.id)
+          }
+          .buttonStyle(.borderless)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.accent)
+        }
+
+        if let roleAction = serverRoleAction(for: endpoint, status: endpointStatus) {
+          Button(roleAction.label) {
+            roleAction.handler(endpoint.id)
           }
           .buttonStyle(.borderless)
           .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -456,6 +471,24 @@ struct ServerSettingsSheet: View {
           runtimeRegistry.reconnect(endpointId: endpointId)
         })
     }
+  }
+
+  private func serverRoleAction(
+    for endpoint: ServerEndpoint,
+    status: ConnectionStatus
+  ) -> (label: String, handler: (UUID) -> Void)? {
+    guard endpoint.isEnabled else { return nil }
+    guard case .connected = status else { return nil }
+
+    if runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true {
+      return ("Set Secondary", { endpointId in
+        runtimeRegistry.setServerRole(endpointId: endpointId, isPrimary: false)
+      })
+    }
+
+    return ("Set Primary", { endpointId in
+      runtimeRegistry.setServerRole(endpointId: endpointId, isPrimary: true)
+    })
   }
 
   private func beginAddingEndpoint() {

@@ -92,4 +92,12 @@ struct ServerProtocolRequestCorrelationTests {
         Issue.record("Expected server_info")
     }
   }
+
+  @Test func clientSetServerRoleMessageEncodesPrimaryFlag() throws {
+    let message = ClientToServerMessage.setServerRole(isPrimary: true)
+    let data = try JSONEncoder().encode(message)
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(payload["type"] as? String == "set_server_role")
+    #expect(payload["is_primary"] as? Bool == true)
+  }
 }

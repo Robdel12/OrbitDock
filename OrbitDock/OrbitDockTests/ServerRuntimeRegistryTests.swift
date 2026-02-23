@@ -367,6 +367,41 @@ struct ServerRuntimeRegistryTests {
     #expect(registry.hasPrimaryEndpointConflict)
     #expect(registry.primaryEndpointId == endpointB.id)
   }
+
+  @Test func settingPrimaryRoleDemotesPeerEndpoints() {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: false
+    )
+
+    var spies: [UUID: SpyServerConnection] = [:]
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        spies[endpoint.id] = spy
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+    registry.setServerRole(endpointId: endpointB.id, isPrimary: true)
+
+    #expect(spies[endpointA.id]?.setServerRoleCalls == [false])
+    #expect(spies[endpointB.id]?.setServerRoleCalls == [true])
+  }
 }
 
 @MainActor
@@ -375,6 +410,7 @@ private final class SpyServerConnection: ServerConnection {
   var disconnectCount = 0
   var recentProjectsResponse: [ServerRecentProject] = []
   var listRecentProjectsCallCount = 0
+  var setServerRoleCalls: [Bool] = []
 
   override func connect(to url: URL) {
     connectCalls.append(url)
@@ -387,5 +423,9 @@ private final class SpyServerConnection: ServerConnection {
   override func listRecentProjects() async throws -> [ServerRecentProject] {
     listRecentProjectsCallCount += 1
     return recentProjectsResponse
+  }
+
+  override func setServerRole(isPrimary: Bool) {
+    setServerRoleCalls.append(isPrimary)
   }
 }

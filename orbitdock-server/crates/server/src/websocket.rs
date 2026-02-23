@@ -2412,6 +2412,35 @@ async fn handle_client_message(
             }
         }
 
+        ClientMessage::SetServerRole { is_primary } => {
+            info!(
+                component = "config",
+                event = "config.server_role.set",
+                connection_id = conn_id,
+                is_primary = is_primary,
+                "Server role updated via WebSocket"
+            );
+
+            let _changed = state.set_primary(is_primary);
+
+            let role_value = if is_primary {
+                "primary".to_string()
+            } else {
+                "secondary".to_string()
+            };
+            let _ = state
+                .persist()
+                .send(PersistCommand::SetConfig {
+                    key: "server_role".into(),
+                    value: role_value,
+                })
+                .await;
+
+            let update = ServerMessage::ServerInfo { is_primary };
+            send_json(client_tx, update.clone()).await;
+            state.broadcast_to_list(update);
+        }
+
         ClientMessage::SetOpenAiKey { key } => {
             info!(
                 component = "config",
@@ -4868,6 +4897,29 @@ mod tests {
             client_rx.try_recv().is_err(),
             "set_open_ai_key should not emit websocket messages"
         );
+    }
+
+    #[tokio::test]
+    async fn set_server_role_updates_state_and_emits_server_info() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        assert!(state.is_primary());
+
+        handle_client_message(
+            ClientMessage::SetServerRole { is_primary: false },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        assert!(!state.is_primary());
+        match recv_json(&mut client_rx).await {
+            ServerMessage::ServerInfo { is_primary } => {
+                assert!(!is_primary);
+            }
+            other => panic!("expected ServerInfo, got {:?}", other),
+        }
     }
 
     #[tokio::test]

@@ -85,7 +85,7 @@ enum Command {
         #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
         auth_token: Option<String>,
 
-        /// Run as a secondary endpoint (non-primary control plane for clients)
+        /// Bootstrap initial role as secondary when no persisted role exists yet
         #[arg(long, env = "ORBITDOCK_SERVER_SECONDARY", default_value_t = false)]
         secondary: bool,
     },
@@ -163,7 +163,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Resolve bind address: subcommand --bind > top-level --bind > default
-    let (bind_addr, auth_token, is_primary) = match cli.command {
+    let (bind_addr, auth_token, startup_is_primary) = match cli.command {
         Some(Command::Start {
             bind,
             auth_token,
@@ -178,13 +178,26 @@ fn main() -> anyhow::Result<()> {
     };
 
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async_main(bind_addr, auth_token, is_primary, &data_dir))
+    runtime.block_on(async_main(
+        bind_addr,
+        auth_token,
+        startup_is_primary,
+        &data_dir,
+    ))
+}
+
+fn parse_server_role_value(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "primary" | "true" | "1" => Some(true),
+        "secondary" | "false" | "0" => Some(false),
+        _ => None,
+    }
 }
 
 async fn async_main(
     bind_addr: SocketAddr,
     auth_token: Option<String>,
-    is_primary: bool,
+    startup_is_primary: bool,
     data_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
     // Ensure directories exist
@@ -209,7 +222,7 @@ async fn async_main(
         event = "server.starting",
         run_id = %run_id,
         version = VERSION,
-        is_primary = is_primary,
+        startup_is_primary = startup_is_primary,
         pid = std::process::id(),
         data_dir = %data_dir.display(),
         binary_path = %binary_path,
@@ -231,6 +244,21 @@ async fn async_main(
             );
         }
     }
+
+    let persisted_is_primary = persistence::load_config_value("server_role")
+        .and_then(|value| parse_server_role_value(&value));
+    let is_primary = persisted_is_primary.unwrap_or(startup_is_primary);
+    info!(
+        component = "server",
+        event = "server.role.resolved",
+        is_primary = is_primary,
+        source = if persisted_is_primary.is_some() {
+            "config"
+        } else {
+            "startup_default"
+        },
+        "Resolved server control-plane role"
+    );
 
     // Check for Claude CLI binary
     {
@@ -268,6 +296,17 @@ async fn async_main(
     let (persist_tx, persist_rx) = create_persistence_channel();
     let persistence_writer = PersistenceWriter::new(persist_rx);
     tokio::spawn(persistence_writer.run());
+
+    // First run (or legacy installs): persist resolved role so runtime changes survive restart.
+    if persisted_is_primary.is_none() {
+        let initial_role = if is_primary { "primary" } else { "secondary" }.to_string();
+        let _ = persist_tx
+            .send(PersistCommand::SetConfig {
+                key: "server_role".into(),
+                value: initial_role,
+            })
+            .await;
+    }
 
     // Create app state with persistence sender
     let state = Arc::new(SessionRegistry::new_with_primary(

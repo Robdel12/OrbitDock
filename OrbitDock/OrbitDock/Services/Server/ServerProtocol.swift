@@ -1779,6 +1779,7 @@ enum ClientToServerMessage: Codable {
   case deleteReviewComment(commentId: String)
   case listReviewComments(sessionId: String, turnId: String? = nil)
   case getSubagentTools(sessionId: String, subagentId: String)
+  case setServerRole(isPrimary: Bool)
   case setOpenAiKey(key: String)
   case checkOpenAiKey(requestId: String)
   case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
@@ -1833,6 +1834,7 @@ enum ClientToServerMessage: Codable {
     case message
     case interrupt
     case path
+    case isPrimary = "is_primary"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -2094,6 +2096,10 @@ enum ClientToServerMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(subagentId, forKey: .subagentId)
 
+      case let .setServerRole(isPrimary):
+        try container.encode("set_server_role", forKey: .type)
+        try container.encode(isPrimary, forKey: .isPrimary)
+
       case let .setOpenAiKey(key):
         try container.encode("set_open_ai_key", forKey: .type)
         try container.encode(key, forKey: .key)
@@ -2298,6 +2304,10 @@ enum ClientToServerMessage: Codable {
         self = try .getSubagentTools(
           sessionId: container.decode(String.self, forKey: .sessionId),
           subagentId: container.decode(String.self, forKey: .subagentId)
+        )
+      case "set_server_role":
+        self = try .setServerRole(
+          isPrimary: container.decode(Bool.self, forKey: .isPrimary)
         )
       case "set_open_ai_key":
         self = try .setOpenAiKey(

@@ -2,6 +2,7 @@
 
 use dashmap::DashMap;
 use orbitdock_protocol::SessionSummary;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
@@ -47,7 +48,7 @@ pub struct SessionRegistry {
     pending_claude_sessions: DashMap<String, PendingClaudeSession>,
 
     /// True when this server should act as the primary control-plane endpoint.
-    is_primary: bool,
+    is_primary: AtomicBool,
 }
 
 impl SessionRegistry {
@@ -69,12 +70,17 @@ impl SessionRegistry {
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),
-            is_primary,
+            is_primary: AtomicBool::new(is_primary),
         }
     }
 
     pub fn is_primary(&self) -> bool {
-        self.is_primary
+        self.is_primary.load(Ordering::Relaxed)
+    }
+
+    pub fn set_primary(&self, is_primary: bool) -> bool {
+        let previous = self.is_primary.swap(is_primary, Ordering::SeqCst);
+        previous != is_primary
     }
 
     /// Get persistence sender

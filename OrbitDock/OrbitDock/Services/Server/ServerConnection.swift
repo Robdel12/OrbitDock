@@ -164,6 +164,7 @@ class ServerConnection: ObservableObject {
     }
 
     serverURL = url
+    serverIsPrimary = nil
     logger.info("Connecting to \(url.absoluteString)")
     attemptConnect()
   }
@@ -182,6 +183,7 @@ class ServerConnection: ObservableObject {
     connectAttempts += 1
     status = .connecting
     lastError = nil
+    serverIsPrimary = nil
 
     logger.info("Connecting to server (attempt \(self.connectAttempts)/\(self.maxConnectAttempts))...")
 
@@ -248,6 +250,7 @@ class ServerConnection: ObservableObject {
 
     connectAttempts = 0
     status = .disconnected
+    serverIsPrimary = nil
     onDisconnected?()
     logger.info("Disconnected from server")
   }
@@ -303,6 +306,7 @@ class ServerConnection: ObservableObject {
           if case .connected = self.status {
             self.failPendingRequests(with: ServerRequestError.connectionLost)
             self.status = .disconnected
+            self.serverIsPrimary = nil
             connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
             self.onDisconnected?()
             self.attemptConnect()
@@ -667,6 +671,11 @@ class ServerConnection: ObservableObject {
   /// Rename a session
   func renameSession(sessionId: String, name: String?) {
     send(.renameSession(sessionId: sessionId, name: name))
+  }
+
+  /// Update this server's runtime role for control-plane routing.
+  func setServerRole(isPrimary: Bool) {
+    send(.setServerRole(isPrimary: isPrimary))
   }
 
   /// Set the OpenAI API key for AI session naming
