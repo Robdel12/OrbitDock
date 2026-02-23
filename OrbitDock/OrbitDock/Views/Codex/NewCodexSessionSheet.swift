@@ -183,63 +183,9 @@ struct NewCodexSessionSheet: View {
     #if os(iOS)
       RemoteProjectPicker(selectedPath: $selectedPath)
     #else
-      macOSDirectorySection
+      ProjectPicker(selectedPath: $selectedPath)
     #endif
   }
-
-  #if !os(iOS)
-    private var macOSDirectorySection: some View {
-      VStack(alignment: .leading, spacing: Spacing.sm) {
-        Text("Project Directory")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.textTertiary)
-          .textCase(.uppercase)
-          .tracking(0.5)
-
-        Button {
-          selectDirectory()
-        } label: {
-          HStack(spacing: Spacing.md) {
-            Image(systemName: "folder.fill")
-              .font(.system(size: 14))
-              .foregroundStyle(Color.providerCodex)
-
-            if selectedPath.isEmpty {
-              Text("Choose a project folder…")
-                .font(.system(size: TypeScale.subhead))
-                .foregroundStyle(Color.textQuaternary)
-            } else {
-              VStack(alignment: .leading, spacing: 2) {
-                Text(URL(fileURLWithPath: selectedPath).lastPathComponent)
-                  .font(.system(size: TypeScale.subhead, weight: .medium))
-                  .foregroundStyle(Color.textPrimary)
-
-                Text(shortenedPath(selectedPath))
-                  .font(.system(size: TypeScale.caption, design: .monospaced))
-                  .foregroundStyle(Color.textTertiary)
-                  .lineLimit(1)
-                  .truncationMode(.middle)
-              }
-            }
-
-            Spacer()
-
-            Text("Browse")
-              .font(.system(size: TypeScale.body, weight: .medium))
-              .foregroundStyle(Color.accent)
-          }
-          .padding(.horizontal, Spacing.lg)
-          .padding(.vertical, Spacing.md)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg))
-          .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg)
-              .stroke(Color.surfaceBorder, lineWidth: 1)
-          )
-        }
-        .buttonStyle(.plain)
-      }
-    }
-  #endif
 
   // MARK: - Configuration Card (Model + Autonomy)
 
@@ -454,33 +400,7 @@ struct NewCodexSessionSheet: View {
     .background(Color.statusPermission.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
   }
 
-  private func shortenedPath(_ path: String) -> String {
-    let home = NSHomeDirectory()
-    if path.hasPrefix(home) {
-      return "~" + path.dropFirst(home.count)
-    }
-    return path
-  }
-
   // MARK: - Actions
-
-  #if !os(iOS)
-    private func selectDirectory() {
-      let panel = NSOpenPanel()
-      panel.canChooseDirectories = true
-      panel.canChooseFiles = false
-      panel.allowsMultipleSelection = false
-      panel.canCreateDirectories = false
-      panel.prompt = "Select"
-      panel.message = "Choose a project directory for the new Codex session"
-
-      panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory() + "/Developer")
-
-      if panel.runModal() == .OK, let url = panel.url {
-        selectedPath = url.path
-      }
-    }
-  #endif
 
   private func createSession() {
     guard !selectedPath.isEmpty, !selectedModel.isEmpty else { return }

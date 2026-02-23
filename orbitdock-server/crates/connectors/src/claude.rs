@@ -391,6 +391,19 @@ impl ClaudeConnector {
         // Send initialize control request — kill the child if it fails, and parse models from response
         match connector.send_initialize().await {
             Ok(init_response) => {
+                // Log the response keys to debug model parsing
+                let keys: Vec<&str> = init_response
+                    .as_object()
+                    .map(|o| o.keys().map(|k| k.as_str()).collect())
+                    .unwrap_or_default();
+                debug!(
+                    component = "claude_connector",
+                    event = "claude.init.response_keys",
+                    keys = ?keys,
+                    has_models = init_response.get("models").is_some(),
+                    "Initialize response received"
+                );
+
                 // Parse models from init response
                 if let Some(models_array) = init_response.get("models").and_then(|v| v.as_array()) {
                     let parsed_models: Vec<orbitdock_protocol::ClaudeModelOption> = models_array

@@ -123,6 +123,8 @@ All server paths are resolved via `paths.rs` from a single data directory (`--da
 - **Codex Watcher State**: `<data_dir>/codex-rollout-state.json` (offset tracking)
 - **Hook Event Spool**: `<data_dir>/spool/` (queued hook events when server is offline, drained on startup)
 - **Timeline Logs**: `<data_dir>/logs/timeline.log` (macOS) / `timeline-ios.log` (iOS) — conversation view height calculations and overflow detection
+- **Claude Agent SDK**: `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` — reference SDK for protocol reverse-engineering
+- **Claude Protocol Docs**: `orbitdock-server/docs/claude-agent-sdk-protocol.md` — stdin/stdout JSON protocol reference
 
 ## Debugging Codex Integration
 

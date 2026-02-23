@@ -16,11 +16,11 @@ struct DashboardView: View {
   let onSelectSession: (String) -> Void
   let onOpenQuickSwitcher: () -> Void
   let onOpenPanel: () -> Void
+  let onNewClaude: () -> Void
+  let onNewCodex: () -> Void
 
   @StateObject private var connection = ServerConnection.shared
   @State private var selectedIndex = 0
-  @State private var showNewCodexSheet = false
-  @State private var showNewClaudeSheet = false
   @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
   @State private var activeSort: ActiveSessionSort = .status
   @State private var activeProviderFilter: ActiveSessionProviderFilter = .all
@@ -51,8 +51,8 @@ struct DashboardView: View {
         isRefreshingCachedSessions: isRefreshingCachedSessions,
         onOpenPanel: onOpenPanel,
         onOpenQuickSwitcher: onOpenQuickSwitcher,
-        onNewClaude: { showNewClaudeSheet = true },
-        onNewCodex: { showNewCodexSheet = true }
+        onNewClaude: onNewClaude,
+        onNewCodex: onNewCodex
       )
 
       Divider()
@@ -65,12 +65,6 @@ struct DashboardView: View {
       sessionsContent
     }
     .background(Color.backgroundPrimary)
-    .sheet(isPresented: $showNewCodexSheet) {
-      NewCodexSessionSheet()
-    }
-    .sheet(isPresented: $showNewClaudeSheet) {
-      NewClaudeSessionSheet()
-    }
   }
 
   private var sessionsContent: some View {
@@ -356,7 +350,9 @@ struct DashboardView: View {
     isRefreshingCachedSessions: false,
     onSelectSession: { _ in },
     onOpenQuickSwitcher: {},
-    onOpenPanel: {}
+    onOpenPanel: {},
+    onNewClaude: {},
+    onNewCodex: {}
   )
   .frame(width: 900, height: 500)
 }

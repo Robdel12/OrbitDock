@@ -5,9 +5,38 @@
 //  Command palette for switching agents and executing actions (⌘K)
 //  - No prefix: Search sessions
 //  - ">" prefix: Search commands
+//  - "new claude" / "new codex": Quick launch mode with recent projects
 //
 
 import SwiftUI
+
+// MARK: - Quick Launch Provider
+
+enum QuickLaunchProvider: Equatable {
+  case claude
+  case codex
+
+  var displayName: String {
+    switch self {
+      case .claude: "Claude"
+      case .codex: "Codex"
+    }
+  }
+
+  var color: Color {
+    switch self {
+      case .claude: Color.providerClaude
+      case .codex: Color.providerCodex
+    }
+  }
+
+  var icon: String {
+    switch self {
+      case .claude: "sparkles"
+      case .codex: "terminal.fill"
+    }
+  }
+}
 
 // MARK: - Command Definition
 
@@ -82,6 +111,12 @@ struct QuickSwitcher: View {
   let onGoToDashboard: () -> Void
   let onClose: () -> Void
 
+  // Quick launch callbacks
+  let onQuickLaunchClaude: ((String) -> Void)?
+  let onQuickLaunchCodex: ((String) -> Void)?
+  let onOpenClaudeSheet: (() -> Void)?
+  let onOpenCodexSheet: (() -> Void)?
+
   @State private var searchText = ""
   @State private var selectedIndex = 0
   @State private var hoveredIndex: Int?
@@ -90,6 +125,11 @@ struct QuickSwitcher: View {
   @State private var targetSession: Session? // Session that commands will act on
   @State private var isRecentExpanded = false // Recent section collapsed by default
   @FocusState private var isSearchFocused: Bool
+
+  // Quick launch state
+  @State private var quickLaunchMode: QuickLaunchProvider?
+  @State private var recentProjects: [ServerRecentProject] = []
+  @State private var isLoadingProjects = false
 
   /// The session currently being viewed (for commands to act on)
   private var currentSession: Session? {
@@ -126,6 +166,28 @@ struct QuickSwitcher: View {
         requiresSession: false,
         action: { _ in
           onGoToDashboard()
+          onClose()
+        }
+      ),
+      QuickCommand(
+        id: "new-claude",
+        name: "New Claude Session",
+        icon: "plus.circle.fill",
+        shortcut: nil,
+        requiresSession: false,
+        action: { _ in
+          onOpenClaudeSheet?()
+          onClose()
+        }
+      ),
+      QuickCommand(
+        id: "new-codex",
+        name: "New Codex Session",
+        icon: "plus.circle.fill",
+        shortcut: nil,
+        requiresSession: false,
+        action: { _ in
+          onOpenCodexSheet?()
           onClose()
         }
       ),
@@ -202,8 +264,12 @@ struct QuickSwitcher: View {
 
   // Total items for navigation
   // Order: Commands (if searching) → Dashboard → Sessions
+  // In quick launch mode: just recent projects
   private var totalItems: Int {
-    filteredCommands.count + 1 + allVisibleSessions.count // commands + dashboard + sessions
+    if quickLaunchMode != nil {
+      return recentProjects.count
+    }
+    return filteredCommands.count + 1 + allVisibleSessions.count // commands + dashboard + sessions
   }
 
   var body: some View {
@@ -220,7 +286,8 @@ struct QuickSwitcher: View {
           if totalItems > 0 { selectedIndex = totalItems - 1 }
         },
         onSelect: { selectCurrent() },
-        onRename: { renameCurrentSelection() }
+        onRename: { renameCurrentSelection() },
+        onShiftSelect: quickLaunchMode != nil ? { openFullSheet() } : nil
       ))
       .onChange(of: searchText) { oldValue, newValue in
         // When starting to type, capture the current session as target
@@ -236,6 +303,26 @@ struct QuickSwitcher: View {
         }
         selectedIndex = 0
         hoveredIndex = nil
+
+        // Detect quick launch mode
+        let query = newValue.lowercased().trimmingCharacters(in: .whitespaces)
+        let oldMode = quickLaunchMode
+
+        if query.hasPrefix("new c") || query.hasPrefix("claude") || query == "nc" {
+          quickLaunchMode = .claude
+        } else if query.hasPrefix("new o") || query.hasPrefix("new codex") || query.hasPrefix("codex") || query == "no" {
+          quickLaunchMode = .codex
+        } else if query.hasPrefix("new") || query == "n" {
+          // Just "new" - show both options, not quick launch mode
+          quickLaunchMode = nil
+        } else {
+          quickLaunchMode = nil
+        }
+
+        // Load recent projects when entering quick launch mode
+        if quickLaunchMode != nil, oldMode == nil {
+          loadRecentProjects()
+        }
       }
       .sheet(item: $renamingSession) { session in
         RenameSessionSheet(
@@ -394,23 +481,29 @@ struct QuickSwitcher: View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(spacing: 0) {
-          // Commands section (when searching)
-          if !filteredCommands.isEmpty {
-            commandsSection
-          }
+          if quickLaunchMode != nil {
+            // Quick launch mode: show recent projects
+            quickLaunchSection
+          } else {
+            // Normal mode: commands, dashboard, sessions
+            // Commands section (when searching)
+            if !filteredCommands.isEmpty {
+              commandsSection
+            }
 
-          // Dashboard row
-          dashboardRow
-            .id("row-\(dashboardIndex)")
+            // Dashboard row
+            dashboardRow
+              .id("row-\(dashboardIndex)")
 
-          // Active sessions - flat list sorted by start time (matches dashboard)
-          if !activeSessions.isEmpty {
-            activeSessionsSection
-          }
+            // Active sessions - flat list sorted by start time (matches dashboard)
+            if !activeSessions.isEmpty {
+              activeSessionsSection
+            }
 
-          // Recent ended sessions
-          if !recentSessions.isEmpty {
-            recentSessionsSection
+            // Recent ended sessions
+            if !recentSessions.isEmpty {
+              recentSessionsSection
+            }
           }
         }
         .padding(.vertical, 8)
@@ -420,6 +513,149 @@ struct QuickSwitcher: View {
         proxy.scrollTo("row-\(newIndex)", anchor: .center)
       }
     }
+  }
+
+  // MARK: - Quick Launch Section
+
+  private var quickLaunchSection: some View {
+    let provider = quickLaunchMode!
+
+    return VStack(alignment: .leading, spacing: 4) {
+      // Header
+      HStack(spacing: 8) {
+        Image(systemName: provider.icon)
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(provider.color)
+
+        Text("NEW \(provider.displayName.uppercased()) SESSION")
+          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .foregroundStyle(provider.color)
+          .tracking(0.8)
+
+        Spacer()
+
+        // Full sheet option
+        Button {
+          openFullSheet()
+        } label: {
+          HStack(spacing: 4) {
+            Text("Full Options")
+              .font(.system(size: 10, weight: .medium))
+            Image(systemName: "arrow.up.right")
+              .font(.system(size: 8, weight: .semibold))
+          }
+          .foregroundStyle(Color.textTertiary)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 4)
+          .background(Color.surfaceHover, in: Capsule())
+        }
+        .buttonStyle(.plain)
+      }
+      .padding(.horizontal, 20)
+      .padding(.top, 8)
+      .padding(.bottom, 8)
+
+      // Loading state
+      if isLoadingProjects {
+        HStack {
+          Spacer()
+          ProgressView()
+            .controlSize(.small)
+          Spacer()
+        }
+        .padding(.vertical, 24)
+      } else if recentProjects.isEmpty {
+        // Empty state
+        VStack(spacing: 8) {
+          Image(systemName: "folder.badge.plus")
+            .font(.system(size: 24))
+            .foregroundStyle(Color.textQuaternary)
+          Text("No recent projects")
+            .font(.system(size: 13))
+            .foregroundStyle(Color.textTertiary)
+          Text("Use Full Options to browse directories")
+            .font(.system(size: 11))
+            .foregroundStyle(Color.textQuaternary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+      } else {
+        // Recent projects list
+        ForEach(Array(recentProjects.enumerated()), id: \.element.id) { index, project in
+          quickLaunchProjectRow(project: project, index: index, provider: provider)
+            .id("row-\(index)")
+        }
+      }
+    }
+  }
+
+  private func quickLaunchProjectRow(project: ServerRecentProject, index: Int, provider: QuickLaunchProvider) -> some View {
+    Button {
+      quickLaunchSession(path: project.path)
+    } label: {
+      HStack(spacing: 14) {
+        // Folder icon with provider color
+        ZStack {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(provider.color.opacity(0.1))
+            .frame(width: 36, height: 36)
+
+          Image(systemName: "folder.fill")
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(provider.color.opacity(0.8))
+        }
+
+        VStack(alignment: .leading, spacing: 3) {
+          Text(URL(fileURLWithPath: project.path).lastPathComponent)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+
+          Text(displayPath(project.path))
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+        }
+
+        Spacer()
+
+        // Session count badge
+        HStack(spacing: 4) {
+          Image(systemName: "clock")
+            .font(.system(size: 9))
+          Text("\(project.sessionCount)")
+            .font(.system(size: 10, weight: .medium))
+        }
+        .foregroundStyle(Color.textQuaternary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.surfaceHover, in: Capsule())
+      }
+      .padding(.horizontal, 16)
+      .padding(.vertical, 10)
+      .background(
+        QuickSwitcherRowBackground(
+          isSelected: selectedIndex == index,
+          isHovered: hoveredIndex == index
+        )
+      )
+      .padding(.horizontal, 8)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovered in
+      hoveredIndex = isHovered ? index : nil
+    }
+  }
+
+  private func displayPath(_ path: String) -> String {
+    if path.hasPrefix("/Users/") {
+      let parts = path.split(separator: "/", maxSplits: 3)
+      if parts.count >= 2 {
+        return "~/" + (parts.count > 2 ? String(parts[2...].joined(separator: "/")) : "")
+      }
+    }
+    return path.isEmpty ? "~" : path
   }
 
   // MARK: - Active Sessions Section
@@ -787,9 +1023,17 @@ struct QuickSwitcher: View {
     HStack(spacing: 0) {
       hintItem(keys: "↑↓", label: "Navigate")
       footerDivider
-      hintItem(keys: "↵", label: "Select")
-      footerDivider
-      hintItem(keys: "⌘R", label: "Rename")
+
+      if quickLaunchMode != nil {
+        hintItem(keys: "↵", label: "Launch")
+        footerDivider
+        hintItem(keys: "⇧↵", label: "Full Sheet")
+      } else {
+        hintItem(keys: "↵", label: "Select")
+        footerDivider
+        hintItem(keys: "⌘R", label: "Rename")
+      }
+
       footerDivider
       hintItem(keys: "esc", label: "Close")
 
@@ -838,6 +1082,14 @@ struct QuickSwitcher: View {
   }
 
   private func selectCurrent() {
+    // Quick launch mode: launch session with selected project
+    if quickLaunchMode != nil {
+      guard selectedIndex >= 0, selectedIndex < recentProjects.count else { return }
+      let project = recentProjects[selectedIndex]
+      quickLaunchSession(path: project.path)
+      return
+    }
+
     // Commands come first
     if selectedIndex < commandCount {
       let command = filteredCommands[selectedIndex]
@@ -944,6 +1196,44 @@ struct QuickSwitcher: View {
         return "moon.fill"
     }
   }
+
+  // MARK: - Quick Launch
+
+  private func loadRecentProjects() {
+    isLoadingProjects = true
+    let connection = ServerConnection.shared
+
+    connection.onRecentProjectsList = { projects in
+      Task { @MainActor in
+        self.recentProjects = projects
+        self.isLoadingProjects = false
+      }
+    }
+
+    connection.send(.listRecentProjects)
+  }
+
+  private func quickLaunchSession(path: String) {
+    guard let provider = quickLaunchMode else { return }
+    switch provider {
+      case .claude:
+        onQuickLaunchClaude?(path)
+      case .codex:
+        onQuickLaunchCodex?(path)
+    }
+    onClose()
+  }
+
+  private func openFullSheet() {
+    guard let provider = quickLaunchMode else { return }
+    switch provider {
+      case .claude:
+        onOpenClaudeSheet?()
+      case .codex:
+        onOpenCodexSheet?()
+    }
+    onClose()
+  }
 }
 
 // MARK: - Preview
@@ -1028,7 +1318,11 @@ struct QuickSwitcher: View {
       currentSessionId: "1",
       onSelect: { _ in },
       onGoToDashboard: {},
-      onClose: {}
+      onClose: {},
+      onQuickLaunchClaude: nil,
+      onQuickLaunchCodex: nil,
+      onOpenClaudeSheet: nil,
+      onOpenCodexSheet: nil
     )
   }
   .frame(width: 800, height: 600)
@@ -1080,6 +1374,25 @@ struct KeyboardNavigationModifier: ViewModifier {
   let onMoveToLast: () -> Void
   let onSelect: () -> Void
   let onRename: () -> Void
+  let onShiftSelect: (() -> Void)?
+
+  init(
+    onMoveUp: @escaping () -> Void,
+    onMoveDown: @escaping () -> Void,
+    onMoveToFirst: @escaping () -> Void,
+    onMoveToLast: @escaping () -> Void,
+    onSelect: @escaping () -> Void,
+    onRename: @escaping () -> Void,
+    onShiftSelect: (() -> Void)? = nil
+  ) {
+    self.onMoveUp = onMoveUp
+    self.onMoveDown = onMoveDown
+    self.onMoveToFirst = onMoveToFirst
+    self.onMoveToLast = onMoveToLast
+    self.onSelect = onSelect
+    self.onRename = onRename
+    self.onShiftSelect = onShiftSelect
+  }
 
   func body(content: Content) -> some View {
     content
@@ -1092,8 +1405,12 @@ struct KeyboardNavigationModifier: ViewModifier {
         onMoveDown()
         return .handled
       }
-      // Enter to select
-      .onKeyPress(keys: [.return]) { _ in
+      // Enter to select (check for shift modifier first)
+      .onKeyPress(keys: [.return]) { keyPress in
+        if keyPress.modifiers.contains(.shift), let shiftAction = onShiftSelect {
+          shiftAction()
+          return .handled
+        }
         onSelect()
         return .handled
       }

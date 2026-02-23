@@ -19,6 +19,10 @@ struct ContentView: View {
   @State private var showAgentPanel = false
   @State private var showQuickSwitcher = false
 
+  // New session sheet state (moved from DashboardView for QuickSwitcher access)
+  @State private var showNewClaudeSheet = false
+  @State private var showNewCodexSheet = false
+
   /// Resolve ID to fresh session object from current sessions array
   private var selectedSession: Session? {
     guard let id = selectedSessionId else { return nil }
@@ -164,6 +168,12 @@ struct ContentView: View {
         .keyboardShortcut("k", modifiers: .command)
       }
     }
+    .sheet(isPresented: $showNewClaudeSheet) {
+      NewClaudeSessionSheet()
+    }
+    .sheet(isPresented: $showNewCodexSheet) {
+      NewCodexSessionSheet()
+    }
   }
 
   // MARK: - Main Content
@@ -211,7 +221,9 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
               showAgentPanel = true
             }
-          }
+          },
+          onNewClaude: { showNewClaudeSheet = true },
+          onNewCodex: { showNewCodexSheet = true }
         )
       }
     }
@@ -250,6 +262,32 @@ struct ContentView: View {
           withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
             showQuickSwitcher = false
           }
+        },
+        onQuickLaunchClaude: { path in
+          serverState.createClaudeSession(
+            cwd: path,
+            model: nil,
+            permissionMode: nil,
+            allowedTools: [],
+            disallowedTools: [],
+            effort: nil
+          )
+        },
+        onQuickLaunchCodex: { path in
+          let defaultModel = serverState.codexModels.first(where: { $0.isDefault })?.model
+            ?? serverState.codexModels.first?.model ?? ""
+          serverState.createSession(
+            cwd: path,
+            model: defaultModel,
+            approvalPolicy: "on-request",
+            sandboxMode: "workspace-write"
+          )
+        },
+        onOpenClaudeSheet: {
+          showNewClaudeSheet = true
+        },
+        onOpenCodexSheet: {
+          showNewCodexSheet = true
         }
       )
     }
