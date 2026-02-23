@@ -2,11 +2,9 @@ import Foundation
 
 struct ServerEndpointStore {
   static let endpointsStorageKey = "orbitdock.server.endpoints"
-  static let legacyRemoteHostStorageKey = "orbitdock.server.remote_host"
 
   private let defaults: UserDefaults
   private let endpointsKey: String
-  private let legacyRemoteHostKey: String
   private let defaultPort: Int
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
@@ -14,28 +12,25 @@ struct ServerEndpointStore {
   init(
     defaults: UserDefaults = .standard,
     endpointsKey: String = ServerEndpointStore.endpointsStorageKey,
-    legacyRemoteHostKey: String = ServerEndpointStore.legacyRemoteHostStorageKey,
     defaultPort: Int = ServerEndpointSettings.defaultPort
   ) {
     self.defaults = defaults
     self.endpointsKey = endpointsKey
-    self.legacyRemoteHostKey = legacyRemoteHostKey
     self.defaultPort = defaultPort
   }
 
   func endpoints() -> [ServerEndpoint] {
-    if let persisted = persistedEndpoints() {
-      let normalized = normalizedEndpoints(persisted)
-      if normalized != persisted {
-        save(normalized)
-      }
-      return normalized
+    guard let persisted = persistedEndpoints() else {
+      let seeded = [ServerEndpoint.localDefault(defaultPort: defaultPort)]
+      save(seeded)
+      return seeded
     }
 
-    // Migrate once from the legacy `remote_host` key or seed with localhost.
-    let migrated = migratedOrSeededEndpoints()
-    save(migrated)
-    return migrated
+    let normalized = normalizedEndpoints(persisted)
+    if normalized != persisted {
+      save(normalized)
+    }
+    return normalized
   }
 
   func defaultEndpoint() -> ServerEndpoint {
@@ -49,43 +44,13 @@ struct ServerEndpointStore {
     defaultEndpoint().wsURL
   }
 
-  func legacyRemoteHost() -> String? {
-    if let legacy = sanitizedHost(defaults.string(forKey: legacyRemoteHostKey)) {
-      return legacy
-    }
-
-    let remoteEndpoint = endpoints().first(where: { $0.isRemote && $0.isDefault })
+  func remoteEndpoint() -> ServerEndpoint? {
+    endpoints().first(where: { $0.isRemote && $0.isDefault })
       ?? endpoints().first(where: \.isRemote)
-    return remoteEndpoint.flatMap { hostPortString(from: $0.wsURL) }
   }
 
-  func setLegacyRemoteHost(_ newValue: String?) {
-    let sanitized = sanitizedHost(newValue)
-    if let sanitized {
-      defaults.set(sanitized, forKey: legacyRemoteHostKey)
-    } else {
-      defaults.removeObject(forKey: legacyRemoteHostKey)
-    }
-
-    var updated = endpoints()
-    updated.removeAll(where: { !$0.isLocalManaged })
-
-    if let sanitized, let remoteURL = Self.buildURL(fromHostInput: sanitized, defaultPort: defaultPort) {
-      for idx in updated.indices {
-        updated[idx].isDefault = false
-      }
-      updated.append(
-        ServerEndpoint(
-          name: "Remote Server",
-          wsURL: remoteURL,
-          isLocalManaged: false,
-          isEnabled: true,
-          isDefault: true
-        )
-      )
-    }
-
-    save(updated)
+  func hasRemoteEndpoint() -> Bool {
+    remoteEndpoint() != nil
   }
 
   func save(_ rawEndpoints: [ServerEndpoint]) {
@@ -127,34 +92,37 @@ struct ServerEndpointStore {
     save(updated)
   }
 
-  private func persistedEndpoints() -> [ServerEndpoint]? {
-    guard let data = defaults.data(forKey: endpointsKey), !data.isEmpty else {
-      return nil
-    }
-    return try? decoder.decode([ServerEndpoint].self, from: data)
-  }
-
-  private func migratedOrSeededEndpoints() -> [ServerEndpoint] {
-    var local = ServerEndpoint.localDefault(defaultPort: defaultPort)
-
-    guard
-      let host = sanitizedHost(defaults.string(forKey: legacyRemoteHostKey)),
-      let remoteURL = Self.buildURL(fromHostInput: host, defaultPort: defaultPort)
-    else {
-      return [local]
+  func replaceRemoteEndpoint(hostInput: String) {
+    guard let remoteURL = Self.buildURL(fromHostInput: hostInput, defaultPort: defaultPort) else {
+      return
     }
 
-    local.isDefault = false
-    return normalizedEndpoints([
-      local,
+    var updated = endpoints().filter(\.isLocalManaged)
+    for idx in updated.indices {
+      updated[idx].isDefault = false
+    }
+    updated.append(
       ServerEndpoint(
         name: "Remote Server",
         wsURL: remoteURL,
         isLocalManaged: false,
         isEnabled: true,
         isDefault: true
-      ),
-    ])
+      )
+    )
+    save(updated)
+  }
+
+  func clearRemoteEndpoints() {
+    let kept = endpoints().filter(\.isLocalManaged)
+    save(kept)
+  }
+
+  private func persistedEndpoints() -> [ServerEndpoint]? {
+    guard let data = defaults.data(forKey: endpointsKey), !data.isEmpty else {
+      return nil
+    }
+    return try? decoder.decode([ServerEndpoint].self, from: data)
   }
 
   private func normalizedEndpoints(_ rawEndpoints: [ServerEndpoint]) -> [ServerEndpoint] {
@@ -193,34 +161,6 @@ struct ServerEndpointStore {
     return endpoints
   }
 
-  private func sanitizedHost(_ input: String?) -> String? {
-    guard let input else { return nil }
-    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-
-    let hostPort: String
-    if trimmed.hasPrefix("ws://") {
-      hostPort = String(trimmed.dropFirst(5))
-    } else if trimmed.hasPrefix("wss://") {
-      hostPort = String(trimmed.dropFirst(6))
-    } else if trimmed.hasPrefix("http://") {
-      hostPort = String(trimmed.dropFirst(7))
-    } else {
-      hostPort = trimmed
-    }
-
-    let clean = hostPort.split(separator: "/").first.map(String.init) ?? hostPort
-    return clean.isEmpty ? nil : clean
-  }
-
-  private func hostPortString(from url: URL) -> String? {
-    guard let host = url.host else { return nil }
-    if let port = url.port, port != defaultPort {
-      return "\(host):\(port)"
-    }
-    return host
-  }
-
   static func buildURL(fromHostInput input: String, defaultPort: Int) -> URL? {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
@@ -241,5 +181,13 @@ struct ServerEndpointStore {
 
     let withPort = clean.contains(":") ? clean : "\(clean):\(defaultPort)"
     return URL(string: "ws://\(withPort)/ws")
+  }
+
+  static func hostInput(from url: URL, defaultPort: Int) -> String? {
+    guard let host = url.host else { return nil }
+    if let port = url.port, port != defaultPort {
+      return "\(host):\(port)"
+    }
+    return host
   }
 }

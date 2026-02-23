@@ -1201,7 +1201,7 @@ struct QuickSwitcher: View {
 
   private func loadRecentProjects() {
     isLoadingProjects = true
-    let connection = ServerConnection.shared
+    let connection = ServerRuntimeRegistry.shared.activeConnection
 
     connection.onRecentProjectsList = { projects in
       Task { @MainActor in

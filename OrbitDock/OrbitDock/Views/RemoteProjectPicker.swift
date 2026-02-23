@@ -355,7 +355,7 @@ struct RemoteProjectPicker: View {
 
   private func loadRecentProjects() {
     isLoadingRecent = true
-    let connection = ServerConnection.shared
+    let connection = ServerRuntimeRegistry.shared.activeConnection
 
     connection.onRecentProjectsList = { projects in
       Task { @MainActor in
@@ -369,7 +369,7 @@ struct RemoteProjectPicker: View {
 
   private func browseDirectory(_ path: String?) {
     isLoadingDirectory = true
-    let connection = ServerConnection.shared
+    let connection = ServerRuntimeRegistry.shared.activeConnection
 
     if let path, !path.isEmpty {
       browseHistory.append(currentBrowsePath)
@@ -389,7 +389,7 @@ struct RemoteProjectPicker: View {
   private func navigateBack() {
     guard let previous = browseHistory.popLast() else { return }
     isLoadingDirectory = true
-    let connection = ServerConnection.shared
+    let connection = ServerRuntimeRegistry.shared.activeConnection
 
     connection.onDirectoryListing = { resolvedPath, entries in
       Task { @MainActor in

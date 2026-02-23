@@ -19,7 +19,7 @@ struct DashboardView: View {
   let onNewClaude: () -> Void
   let onNewCodex: () -> Void
 
-  @StateObject private var connection = ServerConnection.shared
+  @StateObject private var connection = ServerRuntimeRegistry.shared.activeConnection
   @State private var selectedIndex = 0
   @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
   @State private var activeSort: ActiveSessionSort = .status
@@ -265,14 +265,14 @@ struct DashboardView: View {
           icon: "bolt.slash.fill",
           color: Color.textTertiary,
           message: "Disconnected",
-          action: ("Connect", { ServerConnection.shared.connect() })
+          action: ("Connect", { ServerRuntimeRegistry.shared.activeConnection.connect() })
         )
       case let .failed(reason):
         connectionBannerRow(
           icon: "exclamationmark.triangle.fill",
           color: Color.statusPermission,
           message: reason,
-          action: ("Retry", { ServerConnection.shared.connect() })
+          action: ("Retry", { ServerRuntimeRegistry.shared.activeConnection.connect() })
         )
     }
   }

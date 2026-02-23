@@ -399,7 +399,7 @@ struct GeneralSettingsView: View {
   }
 
   private func saveOpenAiKey() {
-    ServerConnection.shared.setOpenAiKey(openAiKey)
+    ServerRuntimeRegistry.shared.activeConnection.setOpenAiKey(openAiKey)
     openAiKeySaved = true
     openAiKey = ""
     isReplacingKey = false
@@ -407,10 +407,10 @@ struct GeneralSettingsView: View {
 
   private func checkOpenAiKeyStatus() {
     openAiKeyStatus = .checking
-    ServerConnection.shared.onOpenAiKeyStatus = { configured in
+    ServerRuntimeRegistry.shared.activeConnection.onOpenAiKeyStatus = { configured in
       openAiKeyStatus = configured ? .configured : .notConfigured
     }
-    ServerConnection.shared.checkOpenAiKey()
+    ServerRuntimeRegistry.shared.activeConnection.checkOpenAiKey()
   }
 }
 
@@ -877,7 +877,7 @@ struct SetupSettingsView: View {
 
 struct DebugSettingsView: View {
   @StateObject private var serverManager = ServerManager.shared
-  @StateObject private var serverConnection = ServerConnection.shared
+  @StateObject private var serverConnection = ServerRuntimeRegistry.shared.activeConnection
   @State private var showServerTest = false
 
   var body: some View {
@@ -1037,7 +1037,7 @@ struct DebugSettingsView: View {
           Task {
             try? await serverManager.startService()
             if serverManager.installState == .running {
-              ServerConnection.shared.connect(to: ServerEndpointSettings.effectiveURL)
+              ServerRuntimeRegistry.shared.startEnabledRuntimes()
             }
           }
         }
@@ -1049,7 +1049,7 @@ struct DebugSettingsView: View {
           Task {
             try? await serverManager.install()
             if serverManager.installState == .running {
-              ServerConnection.shared.connect(to: ServerEndpointSettings.effectiveURL)
+              ServerRuntimeRegistry.shared.startEnabledRuntimes()
             }
           }
         }

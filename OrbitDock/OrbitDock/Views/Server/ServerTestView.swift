@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct ServerTestView: View {
-  @StateObject private var connection = ServerConnection.shared
+  @StateObject private var connection = ServerRuntimeRegistry.shared.activeConnection
   @State private var sessions: [ServerSessionSummary] = []
   @State private var selectedSession: ServerSessionState?
   @State private var logMessages: [LogMessage] = []

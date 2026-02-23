@@ -13,10 +13,10 @@ import os.log
 
 enum ServerInstallState: Equatable {
   case unknown // Haven't checked yet
-  case notConfigured // No server binary found, no remote host
+  case notConfigured // No server binary found, no remote endpoint
   case running // Health check passes (don't care how it started)
   case installed // Binary + launchd plist exist, but not responding
-  case remote // Remote host configured
+  case remote // Remote endpoint configured
 }
 
 #if os(macOS)
@@ -47,7 +47,7 @@ enum ServerInstallState: Equatable {
     /// Refresh install state. Priority order:
     /// 1. Health check → .running
     /// 2. Launchd plist exists → .installed (stopped)
-    /// 3. Remote host configured → .remote
+    /// 3. Remote endpoint configured → .remote
     /// 4. Otherwise → .notConfigured
     func refreshState() async {
       if await checkHealth() {
@@ -60,7 +60,7 @@ enum ServerInstallState: Equatable {
         return
       }
 
-      if ServerEndpointSettings.remoteHost != nil {
+      if ServerEndpointSettings.hasRemoteEndpoint {
         installState = .remote
         return
       }
@@ -408,7 +408,7 @@ enum ServerInstallState: Equatable {
     private init() {}
 
     func refreshState() async {
-      if ServerEndpointSettings.remoteHost != nil {
+      if ServerEndpointSettings.hasRemoteEndpoint {
         installState = .remote
       } else {
         installState = .notConfigured

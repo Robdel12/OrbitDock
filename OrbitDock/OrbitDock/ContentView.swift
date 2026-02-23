@@ -39,7 +39,7 @@ struct ContentView: View {
 
   /// Show setup view when server is not configured and not connected
   private var shouldShowSetup: Bool {
-    if case .connected = ServerConnection.shared.status { return false }
+    if case .connected = ServerRuntimeRegistry.shared.activeConnection.status { return false }
     if case .notConfigured = serverManager.installState { return true }
     return false
   }

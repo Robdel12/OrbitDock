@@ -23,8 +23,9 @@ enum ConnectionStatus: Equatable {
 
 /// WebSocket connection to OrbitDock server
 @MainActor
-final class ServerConnection: ObservableObject {
-  static let shared = ServerConnection()
+class ServerConnection: ObservableObject {
+  let endpointId: UUID
+  let endpointName: String
 
   @Published private(set) var status: ConnectionStatus = .disconnected
   @Published private(set) var lastError: String?
@@ -34,7 +35,7 @@ final class ServerConnection: ObservableObject {
   private var receiveTask: Task<Void, Never>?
   private var connectTask: Task<Void, Never>?
 
-  private var serverURL: URL = ServerEndpointSettings.effectiveURL
+  private var serverURL: URL
   private var connectAttempts = 0
 
   /// Whether we're connecting to a non-localhost server
@@ -116,13 +117,17 @@ final class ServerConnection: ObservableObject {
   /// Called when a replay event carries a revision number (for tracking last-seen revision)
   var onRevision: ((String, UInt64) -> Void)?
 
-  private init() {}
+  init(endpoint: ServerEndpoint) {
+    endpointId = endpoint.id
+    endpointName = endpoint.name
+    serverURL = endpoint.wsURL
+  }
 
   // MARK: - Connection Lifecycle
 
-  /// Connect to the server at the default (configured) URL
+  /// Connect to the runtime's current endpoint URL.
   func connect() {
-    connect(to: ServerEndpointSettings.effectiveURL)
+    connect(to: serverURL)
   }
 
   /// Connect to a specific server URL

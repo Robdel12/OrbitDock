@@ -19,6 +19,11 @@ final class ServerAppState {
   private static let codexModelsCacheKey = "orbitdock.server.codex_models_cache.v1"
   private static let sessionsCacheKey = "orbitdock.server.sessions_cache.v1"
 
+  @ObservationIgnored
+  let connection: ServerConnection
+
+  let endpointId: UUID
+
   // MARK: - Observable State (global, not per-session)
 
   /// Sessions managed by the server (converted to Session model for view compatibility)
@@ -80,7 +85,10 @@ final class ServerAppState {
     let summaries: [ServerSessionSummary]
   }
 
-  init() {
+  init(connection: ServerConnection, endpointId: UUID) {
+    self.connection = connection
+    self.endpointId = endpointId
+
     if AppRuntimeMode.current == .mock {
       sessions = Self.mockSessions()
       hasReceivedInitialSessionsList = true
@@ -97,6 +105,12 @@ final class ServerAppState {
     {
       codexModels = models
     }
+  }
+
+  convenience init() {
+    let endpoint = ServerEndpointSettings.defaultEndpoint
+    let connection = ServerConnection(endpoint: endpoint)
+    self.init(connection: connection, endpointId: endpoint.id)
   }
 
   var codexAccount: ServerCodexAccount? {
@@ -131,7 +145,7 @@ final class ServerAppState {
 
   /// Wire up ServerConnection callbacks. Call after connection is established.
   func setup() {
-    let conn = ServerConnection.shared
+    let conn = connection
 
     conn.onSessionsList = { [weak self] summaries in
       Task { @MainActor in
@@ -292,9 +306,9 @@ final class ServerAppState {
       }
     }
 
-    conn.onSkillsUpdateAvailable = { sessionId in
+    conn.onSkillsUpdateAvailable = { [weak self] sessionId in
       Task { @MainActor in
-        ServerConnection.shared.listSkills(sessionId: sessionId)
+        self?.connection.listSkills(sessionId: sessionId)
       }
     }
 
@@ -472,7 +486,7 @@ final class ServerAppState {
     let autonomy = AutonomyLevel.from(approvalPolicy: approvalPolicy, sandboxMode: sandboxMode)
     pendingCreationAutonomy = autonomy
     pendingNavigationOnCreate = true
-    ServerConnection.shared.createSession(
+    connection.createSession(
       provider: .codex,
       cwd: cwd,
       model: model,
@@ -492,7 +506,7 @@ final class ServerAppState {
   ) {
     logger.info("Creating Claude session in \(cwd)")
     pendingNavigationOnCreate = true
-    ServerConnection.shared.createSession(
+    connection.createSession(
       provider: .claude,
       cwd: cwd,
       model: model,
@@ -507,23 +521,23 @@ final class ServerAppState {
 
   /// Refresh model options from the server.
   func refreshCodexModels() {
-    ServerConnection.shared.listModels()
+    connection.listModels()
   }
 
   /// Refresh cached Claude models from the server DB.
   func refreshClaudeModels() {
-    ServerConnection.shared.listClaudeModels()
+    connection.listClaudeModels()
   }
 
   /// Refresh global Codex account/auth status.
   func refreshCodexAccount(refreshToken: Bool = false) {
-    ServerConnection.shared.readCodexAccount(refreshToken: refreshToken)
+    connection.readCodexAccount(refreshToken: refreshToken)
   }
 
   /// Start ChatGPT browser login for Codex.
   func startCodexChatgptLogin() {
     codexAuthError = nil
-    ServerConnection.shared.startCodexChatgptLogin()
+    connection.startCodexChatgptLogin()
   }
 
   /// Cancel an in-progress ChatGPT browser login for Codex.
@@ -532,17 +546,17 @@ final class ServerAppState {
       codexAuthError = "No active sign-in request to cancel."
       return
     }
-    ServerConnection.shared.cancelCodexChatgptLogin(loginId: loginId)
+    connection.cancelCodexChatgptLogin(loginId: loginId)
   }
 
   /// Log out the current Codex account.
   func logoutCodexAccount() {
-    ServerConnection.shared.logoutCodexAccount()
+    connection.logoutCodexAccount()
   }
 
   /// Refresh the server-authoritative sessions list.
   func refreshSessionsList() {
-    ServerConnection.shared.subscribeList()
+    connection.subscribeList()
   }
 
   private func persistCodexModelsCache(_ models: [ServerCodexModelOption]) {
@@ -582,7 +596,7 @@ final class ServerAppState {
     mentions: [ServerMentionInput] = []
   ) {
     logger.info("Sending message to \(sessionId)")
-    ServerConnection.shared.sendMessage(
+    connection.sendMessage(
       sessionId: sessionId,
       content: content,
       model: model,
@@ -595,7 +609,7 @@ final class ServerAppState {
 
   /// Request the list of available skills for a session
   func listSkills(sessionId: String) {
-    ServerConnection.shared.listSkills(sessionId: sessionId)
+    connection.listSkills(sessionId: sessionId)
   }
 
   /// Approve or reject a tool with a specific decision
@@ -610,15 +624,15 @@ final class ServerAppState {
 
     resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: decision)
 
-    ServerConnection.shared.approveTool(
+    connection.approveTool(
       sessionId: sessionId,
       requestId: requestId,
       decision: decision,
       message: message,
       interrupt: interrupt
     )
-    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
-    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
+    connection.listApprovals(sessionId: sessionId, limit: 200)
+    connection.listApprovals(sessionId: nil, limit: 200)
   }
 
   /// Answer a question
@@ -631,15 +645,15 @@ final class ServerAppState {
   ) {
     logger.info("Answering question \(requestId) in \(sessionId)")
     resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: "approved")
-    ServerConnection.shared.answerQuestion(
+    connection.answerQuestion(
       sessionId: sessionId,
       requestId: requestId,
       answer: answer,
       questionId: questionId,
       answers: answers
     )
-    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
-    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
+    connection.listApprovals(sessionId: sessionId, limit: 200)
+    connection.listApprovals(sessionId: nil, limit: 200)
   }
 
   /// Steer the active turn with additional guidance
@@ -650,7 +664,7 @@ final class ServerAppState {
     mentions: [ServerMentionInput] = []
   ) {
     logger.info("Steering turn for \(sessionId)")
-    ServerConnection.shared.steerTurn(
+    connection.steerTurn(
       sessionId: sessionId,
       content: content,
       images: images,
@@ -661,44 +675,44 @@ final class ServerAppState {
   /// Compact (summarize) the conversation context
   func compactContext(sessionId: String) {
     logger.info("Compacting context for \(sessionId)")
-    ServerConnection.shared.compactContext(sessionId: sessionId)
+    connection.compactContext(sessionId: sessionId)
   }
 
   /// Undo the last turn (reverts filesystem changes + removes from context)
   func undoLastTurn(sessionId: String) {
     logger.info("Undoing last turn for \(sessionId)")
-    ServerConnection.shared.undoLastTurn(sessionId: sessionId)
+    connection.undoLastTurn(sessionId: sessionId)
   }
 
   /// Roll back N turns from context (does NOT revert filesystem changes)
   func rollbackTurns(sessionId: String, numTurns: UInt32) {
     logger.info("Rolling back \(numTurns) turns for \(sessionId)")
-    ServerConnection.shared.rollbackTurns(sessionId: sessionId, numTurns: numTurns)
+    connection.rollbackTurns(sessionId: sessionId, numTurns: numTurns)
   }
 
   /// Fork a session (creates a new session with conversation history)
   func forkSession(sessionId: String, nthUserMessage: UInt32? = nil) {
     logger.info("Forking session \(sessionId) at turn \(nthUserMessage.map(String.init) ?? "full")")
     session(sessionId).forkInProgress = true
-    ServerConnection.shared.forkSession(sourceSessionId: sessionId, nthUserMessage: nthUserMessage)
+    connection.forkSession(sourceSessionId: sessionId, nthUserMessage: nthUserMessage)
   }
 
   /// Execute a shell command in a session's working directory (does not trigger AI response)
   func executeShell(sessionId: String, command: String, cwd: String? = nil) {
     logger.info("Executing shell in \(sessionId): \(command)")
-    ServerConnection.shared.executeShell(sessionId: sessionId, command: command, cwd: cwd)
+    connection.executeShell(sessionId: sessionId, command: command, cwd: cwd)
   }
 
   /// Interrupt a session
   func interruptSession(_ sessionId: String) {
     logger.info("Interrupting session \(sessionId)")
-    ServerConnection.shared.interruptSession(sessionId)
+    connection.interruptSession(sessionId)
   }
 
   /// End a session
   func endSession(_ sessionId: String) {
     logger.info("Ending session \(sessionId)")
-    ServerConnection.shared.endSession(sessionId)
+    connection.endSession(sessionId)
   }
 
   /// Resume an ended session
@@ -706,7 +720,7 @@ final class ServerAppState {
     logger.info("Resuming session \(sessionId)")
     connLog(.info, category: .resume, "ServerAppState.resumeSession", sessionId: sessionId)
     subscribedSessions.insert(sessionId)
-    ServerConnection.shared.resumeSession(sessionId)
+    connection.resumeSession(sessionId)
   }
 
   /// Take over a passive session (flip to direct mode so we can send messages)
@@ -724,7 +738,7 @@ final class ServerAppState {
       }
     }
 
-    ServerConnection.shared.takeoverSession(sessionId: sessionId)
+    connection.takeoverSession(sessionId: sessionId)
   }
 
   /// Rename a session
@@ -733,14 +747,14 @@ final class ServerAppState {
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].customName = name
     }
-    ServerConnection.shared.renameSession(sessionId: sessionId, name: name)
+    connection.renameSession(sessionId: sessionId, name: name)
   }
 
   /// Update session config (change autonomy level mid-session)
   func updateSessionConfig(sessionId: String, autonomy: AutonomyLevel) {
     logger.info("Updating session config \(sessionId) to \(autonomy.displayName)")
     session(sessionId).autonomy = autonomy
-    ServerConnection.shared.updateSessionConfig(
+    connection.updateSessionConfig(
       sessionId: sessionId,
       approvalPolicy: autonomy.approvalPolicy,
       sandboxMode: autonomy.sandboxMode
@@ -752,7 +766,7 @@ final class ServerAppState {
     logger.info("Updating Claude permission mode \(sessionId) to \(mode.displayName)")
     session(sessionId).permissionMode = mode
     permissionModes[sessionId] = mode.rawValue
-    ServerConnection.shared.updateSessionConfig(
+    connection.updateSessionConfig(
       sessionId: sessionId,
       approvalPolicy: nil,
       sandboxMode: nil,
@@ -765,15 +779,15 @@ final class ServerAppState {
     guard !subscribedSessions.contains(sessionId) else { return }
     subscribedSessions.insert(sessionId)
     let sinceRev = lastRevision[sessionId]
-    ServerConnection.shared.subscribeSession(sessionId, sinceRevision: sinceRev)
-    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
+    connection.subscribeSession(sessionId, sinceRevision: sinceRev)
+    connection.listApprovals(sessionId: sessionId, limit: 200)
     logger.debug("Subscribed to session \(sessionId) (sinceRevision: \(sinceRev.map(String.init) ?? "nil"))")
   }
 
   /// Unsubscribe from a session (called when navigating away)
   func unsubscribeFromSession(_ sessionId: String) {
     subscribedSessions.remove(sessionId)
-    ServerConnection.shared.unsubscribeSession(sessionId)
+    connection.unsubscribeSession(sessionId)
     trimInactiveSessionPayload(sessionId, reason: "unsubscribe")
     logger.debug("Unsubscribed from session \(sessionId)")
   }
@@ -795,32 +809,32 @@ final class ServerAppState {
 
   /// Load approval history for one session
   func loadApprovalHistory(sessionId: String, limit: Int = 200) {
-    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: limit)
+    connection.listApprovals(sessionId: sessionId, limit: limit)
   }
 
   /// Load global approval history across all sessions
   func loadGlobalApprovalHistory(limit: Int = 200) {
-    ServerConnection.shared.listApprovals(sessionId: nil, limit: limit)
+    connection.listApprovals(sessionId: nil, limit: limit)
   }
 
   /// Delete one approval history item
   func deleteApproval(approvalId: Int64) {
-    ServerConnection.shared.deleteApproval(approvalId)
+    connection.deleteApproval(approvalId)
   }
 
   /// Request subagent tools from the server
   func getSubagentTools(sessionId: String, subagentId: String) {
-    ServerConnection.shared.getSubagentTools(sessionId: sessionId, subagentId: subagentId)
+    connection.getSubagentTools(sessionId: sessionId, subagentId: subagentId)
   }
 
   /// List MCP tools for a session
   func listMcpTools(sessionId: String) {
-    ServerConnection.shared.listMcpTools(sessionId: sessionId)
+    connection.listMcpTools(sessionId: sessionId)
   }
 
   /// Refresh MCP servers for a session
   func refreshMcpServers(sessionId: String) {
-    ServerConnection.shared.refreshMcpServers(sessionId: sessionId)
+    connection.refreshMcpServers(sessionId: sessionId)
   }
 
   // MARK: - Reconnection
@@ -1173,8 +1187,8 @@ final class ServerAppState {
   }
 
   private func refreshApprovalHistory(sessionId: String) {
-    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
-    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
+    connection.listApprovals(sessionId: sessionId, limit: 200)
+    connection.listApprovals(sessionId: nil, limit: 200)
   }
 
   private func resolvePendingApprovalLocally(sessionId: String, requestId: String, decision: String) {
@@ -1427,8 +1441,8 @@ final class ServerAppState {
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest) {
     logger.info("Approval requested in \(sessionId): \(request.type.rawValue)")
     session(sessionId).pendingApproval = request
-    ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
-    ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
+    connection.listApprovals(sessionId: sessionId, limit: 200)
+    connection.listApprovals(sessionId: nil, limit: 200)
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       var sess = sessions[idx]
@@ -1642,7 +1656,7 @@ final class ServerAppState {
     tag: ServerReviewCommentTag?
   ) {
     logger.info("Creating review comment in \(sessionId)")
-    ServerConnection.shared.createReviewComment(
+    connection.createReviewComment(
       sessionId: sessionId,
       turnId: turnId,
       filePath: filePath,
@@ -1660,16 +1674,16 @@ final class ServerAppState {
     status: ServerReviewCommentStatus?
   ) {
     logger.info("Updating review comment \(commentId)")
-    ServerConnection.shared.updateReviewComment(commentId: commentId, body: body, tag: tag, status: status)
+    connection.updateReviewComment(commentId: commentId, body: body, tag: tag, status: status)
   }
 
   func deleteReviewComment(commentId: String) {
     logger.info("Deleting review comment \(commentId)")
-    ServerConnection.shared.deleteReviewComment(commentId: commentId)
+    connection.deleteReviewComment(commentId: commentId)
   }
 
   func listReviewComments(sessionId: String, turnId: String? = nil) {
-    ServerConnection.shared.listReviewComments(sessionId: sessionId, turnId: turnId)
+    connection.listReviewComments(sessionId: sessionId, turnId: turnId)
   }
 
   // MARK: - Helpers

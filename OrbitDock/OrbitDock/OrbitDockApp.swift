@@ -18,9 +18,13 @@ struct OrbitDockApp: App {
   #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
   #endif
-  @State private var serverAppState = ServerAppState()
+  @State private var runtimeRegistry = ServerRuntimeRegistry.shared
   @State private var attentionService = AttentionService()
   private let runtimeMode = AppRuntimeMode.current
+
+  private var serverAppState: ServerAppState {
+    runtimeRegistry.activeAppState
+  }
 
   private var mainRootView: some View {
     ContentView()
@@ -35,20 +39,23 @@ struct OrbitDockApp: App {
       }
     #endif
       .task {
-        guard runtimeMode.shouldConnectServer else { return }
-        // Wire up server state after connection is established
-        serverAppState.setup()
+        runtimeRegistry.configureFromSettings(startEnabled: false)
+      #if os(macOS)
+        AppDelegate.serverAppState = runtimeRegistry.activeAppState
+      #endif
+
         if runtimeMode.shouldStartMcpBridge {
-          // Start MCP Bridge for external tool access
-          MCPBridge.shared.start(serverAppState: serverAppState)
+          MCPBridge.shared.start(serverAppState: runtimeRegistry.activeAppState)
         }
+
+        guard runtimeMode.shouldConnectServer else { return }
 
         // Check server install state before connecting
         await ServerManager.shared.refreshState()
 
         let state = ServerManager.shared.installState
         if state == .running || state == .installed || state == .remote {
-          ServerConnection.shared.connect(to: ServerEndpointSettings.effectiveURL)
+          runtimeRegistry.startEnabledRuntimes()
         }
         // .notConfigured → setup view handles connection after install
       }
@@ -136,7 +143,7 @@ struct OrbitDockApp: App {
     func applicationWillTerminate(_ notification: Notification) {
       Task { @MainActor in
         MCPBridge.shared.stop()
-        ServerConnection.shared.disconnect()
+        ServerRuntimeRegistry.shared.stopAllRuntimes()
       }
     }
 

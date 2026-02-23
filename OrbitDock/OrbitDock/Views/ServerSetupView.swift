@@ -73,7 +73,7 @@ struct ServerSetupView: View {
         Task {
           try? await serverManager.install()
           if serverManager.installState == .running {
-            ServerConnection.shared.connect(to: ServerEndpointSettings.effectiveURL)
+            ServerRuntimeRegistry.shared.startEnabledRuntimes()
           }
         }
       } label: {

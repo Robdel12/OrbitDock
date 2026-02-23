@@ -19,7 +19,7 @@ struct CommandStrip: View {
   let onNewClaude: () -> Void
   let onNewCodex: () -> Void
 
-  @StateObject private var connection = ServerConnection.shared
+  @StateObject private var connection = ServerRuntimeRegistry.shared.activeConnection
   @State private var showServerSettings = false
   private let registry = UsageServiceRegistry.shared
 

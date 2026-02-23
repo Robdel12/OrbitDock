@@ -16,8 +16,8 @@ enum AppRuntimeMode: String {
     }
 
     #if os(iOS)
-      // iOS checks for a saved remote host — if one exists, use remote mode
-      if ServerEndpointSettings.remoteHost != nil {
+      // iOS uses remote mode when a remote endpoint is configured.
+      if ServerEndpointSettings.hasRemoteEndpoint {
         return .remote
       }
       return .mock

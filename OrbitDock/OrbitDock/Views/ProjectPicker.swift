@@ -357,7 +357,7 @@ import SwiftUI
 
     private func loadRecentProjects() {
       isLoadingRecent = true
-      let connection = ServerConnection.shared
+      let connection = ServerRuntimeRegistry.shared.activeConnection
 
       connection.onRecentProjectsList = { projects in
         Task { @MainActor in
@@ -371,7 +371,7 @@ import SwiftUI
 
     private func browseDirectory(_ path: String?) {
       isLoadingDirectory = true
-      let connection = ServerConnection.shared
+      let connection = ServerRuntimeRegistry.shared.activeConnection
 
       if let path, !path.isEmpty {
         browseHistory.append(currentBrowsePath)
@@ -391,7 +391,7 @@ import SwiftUI
     private func navigateBack() {
       guard let previous = browseHistory.popLast() else { return }
       isLoadingDirectory = true
-      let connection = ServerConnection.shared
+      let connection = ServerRuntimeRegistry.shared.activeConnection
 
       connection.onDirectoryListing = { resolvedPath, entries in
         Task { @MainActor in

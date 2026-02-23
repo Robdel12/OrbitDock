@@ -13,9 +13,11 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "server-settin
 
 struct ServerSettingsSheet: View {
   @Environment(\.dismiss) private var dismiss
-  @State private var hostText: String = ServerEndpointSettings.remoteHost ?? ""
+  @State private var hostText: String = ServerEndpointSettings
+    .remoteEndpoint
+    .flatMap { ServerEndpointSettings.hostInput(from: $0.wsURL) } ?? ""
   @State private var testStatus: TestStatus = .idle
-  @State private var isSaved: Bool = ServerEndpointSettings.remoteHost != nil
+  @State private var isSaved: Bool = ServerEndpointSettings.hasRemoteEndpoint
 
   private enum TestStatus: Equatable {
     case idle
@@ -94,7 +96,7 @@ struct ServerSettingsSheet: View {
 
   @ViewBuilder
   private var connectionStatusSection: some View {
-    let connStatus = ServerConnection.shared.status
+    let connStatus = ServerRuntimeRegistry.shared.activeConnection.status
 
     VStack(alignment: .leading, spacing: 8) {
       Text("Connection")
@@ -114,7 +116,7 @@ struct ServerSettingsSheet: View {
 
         if case .failed = connStatus {
           Button("Reconnect") {
-            ServerConnection.shared.connect()
+            ServerRuntimeRegistry.shared.activeConnection.connect()
           }
           .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(Color.accent)
@@ -287,22 +289,20 @@ struct ServerSettingsSheet: View {
 
   private func saveEndpoint() {
     guard let url = resolvedURL else { return }
-    ServerEndpointSettings.remoteHost = hostText
+    ServerEndpointSettings.replaceRemoteEndpoint(hostInput: hostText)
     isSaved = true
     logger.info("Saved remote endpoint: \(url.absoluteString)")
 
-    // Disconnect existing and reconnect to new URL
-    ServerConnection.shared.disconnect()
-    ServerConnection.shared.connect(to: url)
+    ServerRuntimeRegistry.shared.configureFromSettings(startEnabled: true)
   }
 
   private func clearEndpoint() {
-    ServerEndpointSettings.remoteHost = nil
+    ServerEndpointSettings.clearRemoteEndpoints()
     isSaved = false
     hostText = ""
     logger.info("Cleared remote endpoint")
 
-    ServerConnection.shared.disconnect()
+    ServerRuntimeRegistry.shared.configureFromSettings(startEnabled: true)
   }
 }
 

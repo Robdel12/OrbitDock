@@ -17,11 +17,11 @@ struct ServerEndpointStoreTests {
     #expect(context.store.effectiveURL() == URL(string: "ws://127.0.0.1:4000/ws"))
   }
 
-  @Test func migratesLegacyRemoteHostIntoEndpointList() {
+  @Test func replaceRemoteEndpointSetsRemoteAsDefault() {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
-    context.defaults.set("10.0.0.5:4100", forKey: context.legacyRemoteHostKey)
+    context.store.replaceRemoteEndpoint(hostInput: "10.0.0.5:4100")
 
     let endpoints = context.store.endpoints()
     let remote = endpoints.first(where: \.isRemote)
@@ -30,28 +30,19 @@ struct ServerEndpointStoreTests {
     #expect(remote != nil)
     #expect(remote?.isDefault == true)
     #expect(remote?.wsURL == URL(string: "ws://10.0.0.5:4100/ws"))
-    #expect(context.defaults.data(forKey: context.endpointsKey) != nil)
+    #expect(context.store.hasRemoteEndpoint())
   }
 
-  @Test func legacyRemoteHostSetterUpdatesAndClearsConfiguredRemoteEndpoint() {
+  @Test func clearRemoteEndpointsLeavesLocalDefault() {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
-    context.store.setLegacyRemoteHost("192.168.1.99")
-
-    let configured = context.store.endpoints()
-    let configuredRemote = configured.first(where: \.isRemote)
-
-    #expect(context.store.legacyRemoteHost() == "192.168.1.99")
-    #expect(configuredRemote != nil)
-    #expect(configuredRemote?.isDefault == true)
-    #expect(configured.filter { $0.isRemote }.count == 1)
-
-    context.store.setLegacyRemoteHost(nil)
+    context.store.replaceRemoteEndpoint(hostInput: "192.168.1.99")
+    context.store.clearRemoteEndpoints()
 
     let cleared = context.store.endpoints()
 
-    #expect(context.store.legacyRemoteHost() == nil)
+    #expect(context.store.remoteEndpoint() == nil)
     #expect(cleared.count == 1)
     #expect(cleared[0].isLocalManaged)
     #expect(cleared[0].isDefault)
@@ -104,26 +95,31 @@ struct ServerEndpointStoreTests {
     #expect(withPath == URL(string: "ws://10.0.0.9:4010/ws"))
   }
 
+  @Test func hostInputOmitsDefaultPort() {
+    let defaultPortURL = URL(string: "ws://10.0.0.8:4000/ws")!
+    let customPortURL = URL(string: "ws://10.0.0.8:4111/ws")!
+
+    #expect(ServerEndpointStore.hostInput(from: defaultPortURL, defaultPort: 4_000) == "10.0.0.8")
+    #expect(ServerEndpointStore.hostInput(from: customPortURL, defaultPort: 4_000) == "10.0.0.8:4111")
+  }
+
   private func makeStoreContext() -> (
     store: ServerEndpointStore,
     defaults: UserDefaults,
     suiteName: String,
-    endpointsKey: String,
-    legacyRemoteHostKey: String
+    endpointsKey: String
   ) {
     let suiteName = "ServerEndpointStoreTests.\(UUID().uuidString)"
     let endpointsKey = "endpoints.\(UUID().uuidString)"
-    let legacyKey = "legacy.\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suiteName)!
     defaults.removePersistentDomain(forName: suiteName)
 
     let store = ServerEndpointStore(
       defaults: defaults,
       endpointsKey: endpointsKey,
-      legacyRemoteHostKey: legacyKey,
       defaultPort: 4_000
     )
 
-    return (store, defaults, suiteName, endpointsKey, legacyKey)
+    return (store, defaults, suiteName, endpointsKey)
   }
 }
