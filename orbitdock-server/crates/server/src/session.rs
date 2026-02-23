@@ -42,7 +42,11 @@ fn fallback_tool_name(approval: &ApprovalRequest) -> Option<String> {
 }
 
 fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
-    if let Some(input) = approval.tool_input.as_ref().filter(|input| !input.is_empty()) {
+    if let Some(input) = approval
+        .tool_input
+        .as_ref()
+        .filter(|input| !input.is_empty())
+    {
         return Some(input.clone());
     }
 
@@ -432,7 +436,9 @@ impl SessionHandle {
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
-            pending_approval_id: self.pending_approval_id.clone()
+            pending_approval_id: self
+                .pending_approval_id
+                .clone()
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
@@ -464,7 +470,9 @@ impl SessionHandle {
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
-            pending_approval_id: self.pending_approval_id.clone()
+            pending_approval_id: self
+                .pending_approval_id
+                .clone()
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             token_usage: self.token_usage.clone(),
             current_diff: self.current_diff.clone(),
@@ -826,7 +834,9 @@ impl SessionHandle {
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
-            pending_approval_id: self.pending_approval_id.clone()
+            pending_approval_id: self
+                .pending_approval_id
+                .clone()
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             message_count: self.messages.len(),
             token_usage: self.token_usage.clone(),
@@ -962,7 +972,10 @@ impl SessionHandle {
             self.pending_tool_name = fallback_tool_name(approval);
             self.pending_tool_input = fallback_tool_input(approval);
             self.pending_question = approval.question.clone();
-        } else if !matches!(self.work_status, WorkStatus::Permission | WorkStatus::Question) {
+        } else if !matches!(
+            self.work_status,
+            WorkStatus::Permission | WorkStatus::Question
+        ) {
             self.pending_tool_name = None;
             self.pending_tool_input = None;
             self.pending_question = None;

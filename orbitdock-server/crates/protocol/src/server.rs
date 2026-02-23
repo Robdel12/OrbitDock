@@ -223,15 +223,18 @@ pub enum ServerMessage {
 
     // Remote filesystem browsing
     DirectoryListing {
+        request_id: String,
         path: String,
         entries: Vec<DirectoryEntry>,
     },
     RecentProjectsList {
+        request_id: String,
         projects: Vec<RecentProject>,
     },
 
     // Server config
     OpenAiKeyStatus {
+        request_id: String,
         configured: bool,
     },
 
@@ -571,6 +574,77 @@ mod tests {
                 assert_eq!(context_window, Some(200000));
             }
             other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_correlated_utility_responses() {
+        let directory = ServerMessage::DirectoryListing {
+            request_id: "req-dir".to_string(),
+            path: "/tmp".to_string(),
+            entries: vec![],
+        };
+        let projects = ServerMessage::RecentProjectsList {
+            request_id: "req-projects".to_string(),
+            projects: vec![],
+        };
+        let key_status = ServerMessage::OpenAiKeyStatus {
+            request_id: "req-key".to_string(),
+            configured: true,
+        };
+
+        let directory_json = serde_json::to_string(&directory).expect("serialize directory");
+        let projects_json = serde_json::to_string(&projects).expect("serialize projects");
+        let key_json = serde_json::to_string(&key_status).expect("serialize key status");
+
+        match serde_json::from_str::<ServerMessage>(&directory_json).expect("deserialize directory")
+        {
+            ServerMessage::DirectoryListing {
+                request_id,
+                path,
+                entries,
+            } => {
+                assert_eq!(request_id, "req-dir");
+                assert_eq!(path, "/tmp");
+                assert!(entries.is_empty());
+            }
+            other => panic!("unexpected directory variant: {:?}", other),
+        }
+
+        match serde_json::from_str::<ServerMessage>(&projects_json).expect("deserialize projects") {
+            ServerMessage::RecentProjectsList {
+                request_id,
+                projects,
+            } => {
+                assert_eq!(request_id, "req-projects");
+                assert!(projects.is_empty());
+            }
+            other => panic!("unexpected projects variant: {:?}", other),
+        }
+
+        match serde_json::from_str::<ServerMessage>(&key_json).expect("deserialize key status") {
+            ServerMessage::OpenAiKeyStatus {
+                request_id,
+                configured,
+            } => {
+                assert_eq!(request_id, "req-key");
+                assert!(configured);
+            }
+            other => panic!("unexpected key status variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn correlated_utility_responses_require_request_id() {
+        let missing_request_id_payloads = [
+            r#"{"type":"directory_listing","path":"/tmp","entries":[]}"#,
+            r#"{"type":"recent_projects_list","projects":[]}"#,
+            r#"{"type":"open_ai_key_status","configured":true}"#,
+        ];
+
+        for payload in missing_request_id_payloads {
+            let result = serde_json::from_str::<ServerMessage>(payload);
+            assert!(result.is_err(), "payload should fail: {payload}");
         }
     }
 }

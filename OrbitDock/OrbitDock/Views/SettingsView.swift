@@ -405,6 +405,7 @@ struct GeneralSettingsView: View {
     openAiKeySaved = true
     openAiKey = ""
     isReplacingKey = false
+    checkOpenAiKeyStatus()
   }
 
   private func checkOpenAiKeyStatus() {

@@ -100,9 +100,7 @@ fn select_primary_answer(
         }
     }
 
-    answers
-        .values()
-        .find_map(|values| values.first().cloned())
+    answers.values().find_map(|values| values.first().cloned())
 }
 
 fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::WorkStatus {
@@ -2184,7 +2182,8 @@ async fn handle_client_message(
                     client_tx,
                     ServerMessage::Error {
                         code: "invalid_answer_payload".into(),
-                        message: "Question approvals require a non-empty answer or answers map".into(),
+                        message: "Question approvals require a non-empty answer or answers map"
+                            .into(),
                         session_id: Some(session_id),
                     },
                 )
@@ -2419,15 +2418,18 @@ async fn handle_client_message(
                     value: key,
                 })
                 .await;
-
-            // Verify it was persisted by reading it back
-            let configured = crate::ai_naming::resolve_api_key().is_some();
-            send_json(client_tx, ServerMessage::OpenAiKeyStatus { configured }).await;
         }
 
-        ClientMessage::CheckOpenAiKey => {
+        ClientMessage::CheckOpenAiKey { request_id } => {
             let configured = crate::ai_naming::resolve_api_key().is_some();
-            send_json(client_tx, ServerMessage::OpenAiKeyStatus { configured }).await;
+            send_json(
+                client_tx,
+                ServerMessage::OpenAiKeyStatus {
+                    request_id,
+                    configured,
+                },
+            )
+            .await;
         }
 
         ClientMessage::ResumeSession { session_id } => {
@@ -4302,7 +4304,7 @@ async fn handle_client_message(
             });
         }
 
-        ClientMessage::BrowseDirectory { path } => {
+        ClientMessage::BrowseDirectory { path, request_id } => {
             let target = match &path {
                 Some(p) if !p.is_empty() => {
                     let expanded = if let Some(stripped) = p.strip_prefix('~') {
@@ -4361,6 +4363,7 @@ async fn handle_client_message(
                     send_json(
                         client_tx,
                         ServerMessage::DirectoryListing {
+                            request_id,
                             path: target.to_string_lossy().to_string(),
                             entries: listing,
                         },
@@ -4377,11 +4380,20 @@ async fn handle_client_message(
                         },
                     )
                     .await;
+                    send_json(
+                        client_tx,
+                        ServerMessage::DirectoryListing {
+                            request_id,
+                            path: target.to_string_lossy().to_string(),
+                            entries: vec![],
+                        },
+                    )
+                    .await;
                 }
             }
         }
 
-        ClientMessage::ListRecentProjects => {
+        ClientMessage::ListRecentProjects { request_id } => {
             info!(
                 component = "browse",
                 event = "list_recent_projects.requested",
@@ -4390,7 +4402,14 @@ async fn handle_client_message(
             );
 
             let projects = state.list_recent_projects().await;
-            send_json(client_tx, ServerMessage::RecentProjectsList { projects }).await;
+            send_json(
+                client_tx,
+                ServerMessage::RecentProjectsList {
+                    request_id,
+                    projects,
+                },
+            )
+            .await;
         }
     }
 }
@@ -4564,7 +4583,7 @@ mod tests {
     use crate::state::SessionRegistry;
     use orbitdock_protocol::{
         ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput, MentionInput,
-        Provider, SessionStatus, WorkStatus,
+        Provider, ServerMessage, SessionStatus, WorkStatus,
     };
     use std::sync::{Arc, Once};
     use tokio::sync::mpsc;
@@ -4667,6 +4686,179 @@ mod tests {
         ensure_test_data_dir();
         let (persist_tx, _persist_rx) = mpsc::channel(128);
         Arc::new(SessionRegistry::new(persist_tx))
+    }
+
+    async fn recv_json(client_rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {
+        match client_rx.recv().await.expect("expected outbound message") {
+            OutboundMessage::Json(msg) => msg,
+            OutboundMessage::Raw(_) => panic!("expected JSON message, got raw payload"),
+            OutboundMessage::Pong(_) => panic!("expected JSON message, got pong"),
+        }
+    }
+
+    #[tokio::test]
+    async fn check_open_ai_key_response_echoes_request_id() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+
+        handle_client_message(
+            ClientMessage::CheckOpenAiKey {
+                request_id: "req-check-key".to_string(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::OpenAiKeyStatus {
+                request_id,
+                configured: _,
+            } => {
+                assert_eq!(request_id, "req-check-key");
+            }
+            other => panic!("expected OpenAiKeyStatus, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn list_recent_projects_response_echoes_request_id() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+
+        handle_client_message(
+            ClientMessage::ListRecentProjects {
+                request_id: "req-recent-projects".to_string(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::RecentProjectsList {
+                request_id,
+                projects: _,
+            } => {
+                assert_eq!(request_id, "req-recent-projects");
+            }
+            other => panic!("expected RecentProjectsList, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn browse_directory_response_echoes_request_id() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let test_path =
+            std::env::temp_dir().join(format!("orbitdock-browse-{}", orbitdock_protocol::new_id()));
+        std::fs::create_dir_all(&test_path).expect("create browse test dir");
+        std::fs::write(test_path.join("README.md"), "hello").expect("create test file");
+
+        handle_client_message(
+            ClientMessage::BrowseDirectory {
+                path: Some(test_path.to_string_lossy().to_string()),
+                request_id: "req-browse-dir".to_string(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let outbound = recv_json(&mut client_rx).await;
+        std::fs::remove_dir_all(&test_path).expect("remove browse test dir");
+
+        match outbound {
+            ServerMessage::DirectoryListing {
+                request_id,
+                path: listed_path,
+                entries,
+            } => {
+                assert_eq!(request_id, "req-browse-dir");
+                assert_eq!(listed_path, test_path.to_string_lossy().to_string());
+                assert!(entries.iter().any(|entry| entry.name == "README.md"));
+            }
+            other => panic!("expected DirectoryListing, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn browse_directory_error_still_returns_correlated_listing() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let missing_path = std::env::temp_dir().join(format!(
+            "orbitdock-missing-{}",
+            orbitdock_protocol::new_id()
+        ));
+        assert!(
+            !missing_path.exists(),
+            "test path unexpectedly exists: {}",
+            missing_path.display()
+        );
+
+        handle_client_message(
+            ClientMessage::BrowseDirectory {
+                path: Some(missing_path.to_string_lossy().to_string()),
+                request_id: "req-browse-missing".to_string(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
+            } => {
+                assert_eq!(code, "browse_error");
+                assert!(message.contains("Cannot read directory"));
+                assert_eq!(session_id, None);
+            }
+            other => panic!("expected browse error first, got {:?}", other),
+        }
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::DirectoryListing {
+                request_id,
+                path,
+                entries,
+            } => {
+                assert_eq!(request_id, "req-browse-missing");
+                assert_eq!(path, missing_path.to_string_lossy().to_string());
+                assert!(entries.is_empty());
+            }
+            other => panic!(
+                "expected correlated empty DirectoryListing, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn set_open_ai_key_does_not_emit_unsolicited_status() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+
+        handle_client_message(
+            ClientMessage::SetOpenAiKey {
+                key: "sk-test".to_string(),
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        assert!(
+            client_rx.try_recv().is_err(),
+            "set_open_ai_key should not emit websocket messages"
+        );
     }
 
     #[tokio::test]

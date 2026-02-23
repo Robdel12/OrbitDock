@@ -186,7 +186,9 @@ pub enum ClientMessage {
     SetOpenAiKey {
         key: String,
     },
-    CheckOpenAiKey,
+    CheckOpenAiKey {
+        request_id: String,
+    },
 
     // Turn steering
     SteerTurn {
@@ -341,8 +343,11 @@ pub enum ClientMessage {
     BrowseDirectory {
         #[serde(default)]
         path: Option<String>,
+        request_id: String,
     },
-    ListRecentProjects,
+    ListRecentProjects {
+        request_id: String,
+    },
 }
 
 fn default_shell_timeout() -> u64 {
@@ -989,6 +994,60 @@ mod tests {
                 assert_eq!(mentions.len(), 1);
             }
             other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_correlated_utility_requests() {
+        let check = ClientMessage::CheckOpenAiKey {
+            request_id: "req-check".to_string(),
+        };
+        let list = ClientMessage::ListRecentProjects {
+            request_id: "req-projects".to_string(),
+        };
+        let browse = ClientMessage::BrowseDirectory {
+            path: Some("/tmp".to_string()),
+            request_id: "req-browse".to_string(),
+        };
+
+        let check_json = serde_json::to_string(&check).expect("serialize check");
+        let list_json = serde_json::to_string(&list).expect("serialize list");
+        let browse_json = serde_json::to_string(&browse).expect("serialize browse");
+
+        match serde_json::from_str::<ClientMessage>(&check_json).expect("deserialize check") {
+            ClientMessage::CheckOpenAiKey { request_id } => {
+                assert_eq!(request_id, "req-check");
+            }
+            other => panic!("unexpected variant for check: {:?}", other),
+        }
+
+        match serde_json::from_str::<ClientMessage>(&list_json).expect("deserialize list") {
+            ClientMessage::ListRecentProjects { request_id } => {
+                assert_eq!(request_id, "req-projects");
+            }
+            other => panic!("unexpected variant for list: {:?}", other),
+        }
+
+        match serde_json::from_str::<ClientMessage>(&browse_json).expect("deserialize browse") {
+            ClientMessage::BrowseDirectory { path, request_id } => {
+                assert_eq!(request_id, "req-browse");
+                assert_eq!(path.as_deref(), Some("/tmp"));
+            }
+            other => panic!("unexpected variant for browse: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn correlated_utility_requests_require_request_id() {
+        let missing_request_id_payloads = [
+            r#"{"type":"check_open_ai_key"}"#,
+            r#"{"type":"list_recent_projects"}"#,
+            r#"{"type":"browse_directory","path":"/tmp"}"#,
+        ];
+
+        for payload in missing_request_id_payloads {
+            let result = serde_json::from_str::<ClientMessage>(payload);
+            assert!(result.is_err(), "payload should fail: {payload}");
         }
     }
 }

@@ -1075,9 +1075,9 @@ enum ServerToClientMessage: Codable {
     exitCode: Int32?,
     durationMs: UInt64
   )
-  case directoryListing(path: String, entries: [ServerDirectoryEntry])
-  case recentProjectsList(projects: [ServerRecentProject])
-  case openAiKeyStatus(configured: Bool)
+  case directoryListing(requestId: String, path: String, entries: [ServerDirectoryEntry])
+  case recentProjectsList(requestId: String, projects: [ServerRecentProject])
+  case openAiKeyStatus(requestId: String, configured: Bool)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1387,17 +1387,20 @@ enum ServerToClientMessage: Codable {
         )
 
       case "directory_listing":
+        let requestId = try container.decode(String.self, forKey: .requestId)
         let path = try container.decode(String.self, forKey: .path)
         let entries = try container.decode([ServerDirectoryEntry].self, forKey: .entries)
-        self = .directoryListing(path: path, entries: entries)
+        self = .directoryListing(requestId: requestId, path: path, entries: entries)
 
       case "recent_projects_list":
+        let requestId = try container.decode(String.self, forKey: .requestId)
         let projects = try container.decode([ServerRecentProject].self, forKey: .projects)
-        self = .recentProjectsList(projects: projects)
+        self = .recentProjectsList(requestId: requestId, projects: projects)
 
       case "open_ai_key_status":
+        let requestId = try container.decode(String.self, forKey: .requestId)
         let configured = try container.decode(Bool.self, forKey: .configured)
-        self = .openAiKeyStatus(configured: configured)
+        self = .openAiKeyStatus(requestId: requestId, configured: configured)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -1631,17 +1634,20 @@ enum ServerToClientMessage: Codable {
         try container.encodeIfPresent(exitCode, forKey: .exitCode)
         try container.encode(durationMs, forKey: .durationMs)
 
-      case let .directoryListing(path, entries):
+      case let .directoryListing(requestId, path, entries):
         try container.encode("directory_listing", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
         try container.encode(path, forKey: .path)
         try container.encode(entries, forKey: .entries)
 
-      case let .recentProjectsList(projects):
+      case let .recentProjectsList(requestId, projects):
         try container.encode("recent_projects_list", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
         try container.encode(projects, forKey: .projects)
 
-      case let .openAiKeyStatus(configured):
+      case let .openAiKeyStatus(requestId, configured):
         try container.encode("open_ai_key_status", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
         try container.encode(configured, forKey: .configured)
 
       case let .error(code, message, sessionId):
@@ -1764,10 +1770,10 @@ enum ClientToServerMessage: Codable {
   case listReviewComments(sessionId: String, turnId: String? = nil)
   case getSubagentTools(sessionId: String, subagentId: String)
   case setOpenAiKey(key: String)
-  case checkOpenAiKey
+  case checkOpenAiKey(requestId: String)
   case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
-  case browseDirectory(path: String? = nil)
-  case listRecentProjects
+  case browseDirectory(path: String? = nil, requestId: String)
+  case listRecentProjects(requestId: String)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -2082,8 +2088,9 @@ enum ClientToServerMessage: Codable {
         try container.encode("set_open_ai_key", forKey: .type)
         try container.encode(key, forKey: .key)
 
-      case .checkOpenAiKey:
+      case let .checkOpenAiKey(requestId):
         try container.encode("check_open_ai_key", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
 
       case let .executeShell(sessionId, command, cwd, timeoutSecs):
         try container.encode("execute_shell", forKey: .type)
@@ -2094,12 +2101,14 @@ enum ClientToServerMessage: Codable {
           try container.encode(timeoutSecs, forKey: .timeoutSecs)
         }
 
-      case let .browseDirectory(path):
+      case let .browseDirectory(path, requestId):
         try container.encode("browse_directory", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
         try container.encodeIfPresent(path, forKey: .path)
 
-      case .listRecentProjects:
+      case let .listRecentProjects(requestId):
         try container.encode("list_recent_projects", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
     }
   }
 
@@ -2285,7 +2294,9 @@ enum ClientToServerMessage: Codable {
           key: container.decode(String.self, forKey: .key)
         )
       case "check_open_ai_key":
-        self = .checkOpenAiKey
+        self = try .checkOpenAiKey(
+          requestId: container.decode(String.self, forKey: .requestId)
+        )
       case "execute_shell":
         self = try .executeShell(
           sessionId: container.decode(String.self, forKey: .sessionId),
@@ -2295,10 +2306,13 @@ enum ClientToServerMessage: Codable {
         )
       case "browse_directory":
         self = try .browseDirectory(
-          path: container.decodeIfPresent(String.self, forKey: .path)
+          path: container.decodeIfPresent(String.self, forKey: .path),
+          requestId: container.decode(String.self, forKey: .requestId)
         )
       case "list_recent_projects":
-        self = .listRecentProjects
+        self = try .listRecentProjects(
+          requestId: container.decode(String.self, forKey: .requestId)
+        )
       default:
         throw DecodingError.dataCorrupted(
           DecodingError.Context(

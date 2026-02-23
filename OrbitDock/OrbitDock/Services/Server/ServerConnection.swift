@@ -52,9 +52,9 @@ class ServerConnection: ObservableObject {
   private var serverURL: URL
   private var connectAttempts = 0
 
-  private var pendingDirectoryListingContinuations: [CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>] = []
-  private var pendingRecentProjectsContinuations: [CheckedContinuation<[ServerRecentProject], Error>] = []
-  private var pendingOpenAiKeyStatusContinuations: [CheckedContinuation<Bool, Error>] = []
+  private var pendingDirectoryListingContinuations: [String: CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>] = [:]
+  private var pendingRecentProjectsContinuations: [String: CheckedContinuation<[ServerRecentProject], Error>] = [:]
+  private var pendingOpenAiKeyStatusContinuations: [String: CheckedContinuation<Bool, Error>] = [:]
 
   /// Whether we're connecting to a non-localhost server
   private var isRemote: Bool {
@@ -455,18 +455,18 @@ class ServerConnection: ObservableObject {
       case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs):
         onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs)
 
-      case let .directoryListing(path, entries):
-        if let continuation = dequeueDirectoryListingContinuation() {
+      case let .directoryListing(requestId, path, entries):
+        if let continuation = pendingDirectoryListingContinuations.removeValue(forKey: requestId) {
           continuation.resume(returning: (path, entries))
         }
 
-      case let .recentProjectsList(projects):
-        if let continuation = dequeueRecentProjectsContinuation() {
+      case let .recentProjectsList(requestId, projects):
+        if let continuation = pendingRecentProjectsContinuations.removeValue(forKey: requestId) {
           continuation.resume(returning: projects)
         }
 
-      case let .openAiKeyStatus(configured):
-        if let continuation = dequeueOpenAiKeyStatusContinuation() {
+      case let .openAiKeyStatus(requestId, configured):
+        if let continuation = pendingOpenAiKeyStatusContinuations.removeValue(forKey: requestId) {
           continuation.resume(returning: configured)
         }
 
@@ -673,8 +673,9 @@ class ServerConnection: ObservableObject {
     }
 
     return try await withCheckedThrowingContinuation { continuation in
-      pendingOpenAiKeyStatusContinuations.append(continuation)
-      send(.checkOpenAiKey)
+      let requestId = UUID().uuidString
+      pendingOpenAiKeyStatusContinuations[requestId] = continuation
+      send(.checkOpenAiKey(requestId: requestId))
     }
   }
 
@@ -685,8 +686,9 @@ class ServerConnection: ObservableObject {
     }
 
     return try await withCheckedThrowingContinuation { continuation in
-      pendingRecentProjectsContinuations.append(continuation)
-      send(.listRecentProjects)
+      let requestId = UUID().uuidString
+      pendingRecentProjectsContinuations[requestId] = continuation
+      send(.listRecentProjects(requestId: requestId))
     }
   }
 
@@ -697,8 +699,9 @@ class ServerConnection: ObservableObject {
     }
 
     return try await withCheckedThrowingContinuation { continuation in
-      pendingDirectoryListingContinuations.append(continuation)
-      send(.browseDirectory(path: path))
+      let requestId = UUID().uuidString
+      pendingDirectoryListingContinuations[requestId] = continuation
+      send(.browseDirectory(path: path, requestId: requestId))
     }
   }
 
@@ -891,37 +894,20 @@ class ServerConnection: ObservableObject {
     ))
   }
 
-  private func dequeueDirectoryListingContinuation()
-    -> CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>?
-  {
-    guard !pendingDirectoryListingContinuations.isEmpty else { return nil }
-    return pendingDirectoryListingContinuations.removeFirst()
-  }
-
-  private func dequeueRecentProjectsContinuation() -> CheckedContinuation<[ServerRecentProject], Error>? {
-    guard !pendingRecentProjectsContinuations.isEmpty else { return nil }
-    return pendingRecentProjectsContinuations.removeFirst()
-  }
-
-  private func dequeueOpenAiKeyStatusContinuation() -> CheckedContinuation<Bool, Error>? {
-    guard !pendingOpenAiKeyStatusContinuations.isEmpty else { return nil }
-    return pendingOpenAiKeyStatusContinuations.removeFirst()
-  }
-
   private func failPendingRequests(with error: Error) {
-    let pendingDirectory = pendingDirectoryListingContinuations
+    let pendingDirectory = Array(pendingDirectoryListingContinuations.values)
     pendingDirectoryListingContinuations.removeAll()
     for continuation in pendingDirectory {
       continuation.resume(throwing: error)
     }
 
-    let pendingProjects = pendingRecentProjectsContinuations
+    let pendingProjects = Array(pendingRecentProjectsContinuations.values)
     pendingRecentProjectsContinuations.removeAll()
     for continuation in pendingProjects {
       continuation.resume(throwing: error)
     }
 
-    let pendingOpenAi = pendingOpenAiKeyStatusContinuations
+    let pendingOpenAi = Array(pendingOpenAiKeyStatusContinuations.values)
     pendingOpenAiKeyStatusContinuations.removeAll()
     for continuation in pendingOpenAi {
       continuation.resume(throwing: error)
