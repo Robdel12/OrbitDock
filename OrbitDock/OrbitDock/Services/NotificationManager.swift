@@ -62,11 +62,13 @@ class NotificationManager {
   }
 
   func notifyNeedsAttention(session: Session) {
+    let scopedID = session.scopedID
+
     guard isAuthorized else { return }
     guard notificationsEnabled else { return }
-    guard !notifiedSessionIds.contains(session.id) else { return }
+    guard !notifiedSessionIds.contains(scopedID) else { return }
 
-    notifiedSessionIds.insert(session.id)
+    notifiedSessionIds.insert(scopedID)
 
     let content = UNMutableNotificationContent()
     content.title = "Session Needs Attention"
@@ -79,12 +81,12 @@ class NotificationManager {
 
     // Add session info for handling tap
     content.userInfo = [
-      "sessionId": session.id,
+      "sessionId": scopedID,
       "projectPath": session.projectPath,
     ]
 
     let request = UNNotificationRequest(
-      identifier: "attention-\(session.id)",
+      identifier: "attention-\(scopedID)",
       content: content,
       trigger: nil // Deliver immediately
     )
@@ -109,19 +111,20 @@ class NotificationManager {
 
   /// Track session work status and notify when work completes
   func updateSessionWorkStatus(session: Session) {
-    let wasWorking = workingSessionIds.contains(session.id)
+    let scopedID = session.scopedID
+    let wasWorking = workingSessionIds.contains(scopedID)
     let isWorking = session.isActive && session.workStatus == .working
 
     if isWorking {
       // Session started working
-      workingSessionIds.insert(session.id)
+      workingSessionIds.insert(scopedID)
     } else if wasWorking, !isWorking, session.isActive {
       // Session was working but now stopped (waiting/permission)
-      workingSessionIds.remove(session.id)
+      workingSessionIds.remove(scopedID)
       notifyWorkComplete(session: session)
     } else if !session.isActive {
       // Session ended, clean up
-      workingSessionIds.remove(session.id)
+      workingSessionIds.remove(scopedID)
     }
   }
 
@@ -140,12 +143,12 @@ class NotificationManager {
     content.categoryIdentifier = "SESSION_ATTENTION"
 
     content.userInfo = [
-      "sessionId": session.id,
+      "sessionId": session.scopedID,
       "projectPath": session.projectPath,
     ]
 
     let request = UNNotificationRequest(
-      identifier: "complete-\(session.id)-\(Date().timeIntervalSince1970)",
+      identifier: "complete-\(session.scopedID)-\(Date().timeIntervalSince1970)",
       content: content,
       trigger: nil
     )

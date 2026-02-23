@@ -105,6 +105,7 @@ struct QuickCommand: Identifiable {
 struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   let sessions: [Session]
   let currentSessionId: String? // Currently selected session in ContentView
   let onSelect: (String) -> Void
@@ -135,7 +136,7 @@ struct QuickSwitcher: View {
   /// The session currently being viewed (for commands to act on)
   private var currentSession: Session? {
     if let id = currentSessionId {
-      return sessions.first { $0.id == id }
+      return sessions.first { $0.scopedID == id }
     }
     return nil
   }
@@ -214,7 +215,7 @@ struct QuickSwitcher: View {
         onClose()
       },
       onClose: { [self] session in
-        serverState.endSession(session.id)
+        appState(for: session).endSession(session.id)
         onClose()
       }
     )
@@ -331,7 +332,7 @@ struct QuickSwitcher: View {
           initialText: renameText,
           onSave: { newName in
             let name = newName.isEmpty ? nil : newName
-            serverState.renameSession(sessionId: session.id, name: name)
+            appState(for: session).renameSession(sessionId: session.id, name: name)
             renamingSession = nil
           },
           onCancel: {
@@ -687,7 +688,7 @@ struct QuickSwitcher: View {
       .padding(.bottom, 8)
 
       // Session Rows
-      ForEach(Array(activeSessions.enumerated()), id: \.element.id) { index, session in
+      ForEach(Array(activeSessions.enumerated()), id: \.element.scopedID) { index, session in
         let globalIndex = sessionStartIndex + index
         switcherRow(session: session, index: globalIndex)
           .id("row-\(globalIndex)")
@@ -745,7 +746,7 @@ struct QuickSwitcher: View {
 
       // Session Rows - shown when expanded OR searching
       if isRecentExpanded || isSearching {
-        ForEach(Array(recentSessions.enumerated()), id: \.element.id) { index, session in
+        ForEach(Array(recentSessions.enumerated()), id: \.element.scopedID) { index, session in
           let globalIndex = sessionStartIndex + activeSessions.count + index
           switcherRow(session: session, index: globalIndex)
             .id("row-\(globalIndex)")
@@ -859,7 +860,7 @@ struct QuickSwitcher: View {
     let displayStatus = SessionDisplayStatus.from(session)
 
     return Button {
-      onSelect(session.id)
+      onSelect(session.scopedID)
     } label: {
       HStack(spacing: 14) {
         // Status indicator - using unified component
@@ -884,7 +885,7 @@ struct QuickSwitcher: View {
               .foregroundStyle(Color.gitBranch.opacity(0.7))
             }
 
-            if serverState.session(session.id).forkedFrom != nil {
+            if sessionObservable(for: session).forkedFrom != nil {
               ForkBadge()
             }
           }
@@ -947,7 +948,7 @@ struct QuickSwitcher: View {
             // Close session (only for active sessions)
             if session.isActive {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
-                serverState.endSession(session.id)
+                appState(for: session).endSession(session.id)
                 onClose()
               }
             }
@@ -1109,7 +1110,7 @@ struct QuickSwitcher: View {
     let sessionIndex = selectedIndex - sessionStartIndex
     guard sessionIndex >= 0, sessionIndex < allVisibleSessions.count else { return }
     let session = allVisibleSessions[sessionIndex]
-    onSelect(session.id)
+    onSelect(session.scopedID)
   }
 
   private func renameCurrentSelection() {
@@ -1136,6 +1137,14 @@ struct QuickSwitcher: View {
 
   private func projectName(for session: Session) -> String {
     session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
+  }
+
+  private func appState(for session: Session) -> ServerAppState {
+    runtimeRegistry.appState(for: session, fallback: serverState)
+  }
+
+  private func sessionObservable(for session: Session) -> SessionObservable {
+    runtimeRegistry.sessionObservable(for: session, fallback: serverState)
   }
 
   private func agentName(for session: Session) -> String {

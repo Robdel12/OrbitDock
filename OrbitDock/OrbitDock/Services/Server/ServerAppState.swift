@@ -40,7 +40,16 @@ final class ServerAppState {
   // MARK: - Observable State (global, not per-session)
 
   /// Sessions managed by the server (converted to Session model for view compatibility)
-  private(set) var sessions: [Session] = []
+  private(set) var sessions: [Session] = [] {
+    didSet {
+      guard oldValue != sessions else { return }
+      NotificationCenter.default.post(
+        name: .serverSessionsDidChange,
+        object: nil,
+        userInfo: ["endpointId": endpointId]
+      )
+    }
+  }
   private(set) var hasReceivedInitialSessionsList = false
 
   /// Cross-session approval history (global view)
@@ -459,7 +468,7 @@ final class ServerAppState {
         NotificationCenter.default.post(
           name: .selectSession,
           object: nil,
-          userInfo: ["sessionId": newSessionId]
+          userInfo: ["sessionId": SessionRef(endpointId: self.endpointId, sessionId: newSessionId).scopedID]
         )
       }
     }
@@ -1024,7 +1033,7 @@ final class ServerAppState {
       NotificationCenter.default.post(
         name: .selectSession,
         object: nil,
-        userInfo: ["sessionId": state.id]
+        userInfo: ["sessionId": SessionRef(endpointId: endpointId, sessionId: state.id).scopedID]
       )
     }
   }
@@ -1541,7 +1550,7 @@ final class ServerAppState {
       NotificationCenter.default.post(
         name: .selectSession,
         object: nil,
-        userInfo: ["sessionId": summary.id]
+        userInfo: ["sessionId": SessionRef(endpointId: endpointId, sessionId: summary.id).scopedID]
       )
     }
   }

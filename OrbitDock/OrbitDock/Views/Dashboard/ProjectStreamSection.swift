@@ -28,7 +28,7 @@ struct ProjectStreamSection: View {
   }
 
   private var sessionIndexByID: [String: Int] {
-    Dictionary(uniqueKeysWithValues: orderedSessions.enumerated().map { ($1.id, $0) })
+    Dictionary(uniqueKeysWithValues: orderedSessions.enumerated().map { ($1.scopedID, $0) })
   }
 
   private var allActiveSessions: [Session] {
@@ -571,13 +571,13 @@ struct ProjectStreamSection: View {
 
       // Session rows
       VStack(spacing: 2) {
-        ForEach(group.sessions) { session in
-          let rowIndex = sessionIndexByID[session.id]
+        ForEach(group.sessions, id: \.scopedID) { session in
+          let rowIndex = sessionIndexByID[session.scopedID]
           let isSelected = rowIndex == selectedIndex
 
           FlatSessionRow(
             session: session,
-            onSelect: { onSelectSession(session.id) },
+            onSelect: { onSelectSession(session.scopedID) },
             isSelected: isSelected,
             hideBranch: sharedBranch != nil
           )
@@ -673,8 +673,12 @@ struct ProjectStreamSection: View {
     // Merge subdirectory paths into their parent project.
     // e.g., sessions in /foo/bar and /foo/bar/sub both group under /foo/bar.
     // But don't merge into overly generic parent paths like ~/Developer.
-    let allPaths = Set(sessions.map(\.projectPath))
-    let canonicalPath: (String) -> String = { path in
+    let pathsByEndpointScope = Dictionary(grouping: sessions) { $0.endpointId?.uuidString ?? "single-endpoint" }
+      .mapValues { Set($0.map(\.projectPath)) }
+    let canonicalPath: (Session) -> String = { session in
+      let path = session.projectPath
+      let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
+      let allPaths = pathsByEndpointScope[endpointScope] ?? []
       // If this path is a subdirectory of another session's path, merge up
       // Only merge into candidates that look like actual project dirs (4+ components)
       // e.g., /Users/name/Developer/project — not /Users/name/Developer
@@ -687,9 +691,14 @@ struct ProjectStreamSection: View {
       return path
     }
 
-    let grouped = Dictionary(grouping: sessions) { canonicalPath($0.projectPath) }
+    let grouped = Dictionary(grouping: sessions) { session in
+      let path = canonicalPath(session)
+      let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
+      return "\(endpointScope)::\(path)"
+    }
 
-    return grouped.map { path, projectSessions in
+    return grouped.compactMap { _, projectSessions in
+      guard let first = projectSessions.first else { return nil }
       let sorted = projectSessions.sorted { lhs, rhs in
         switch sort {
           case .status:
@@ -708,11 +717,16 @@ struct ProjectStreamSection: View {
         }
       }
 
-      let projectName = path.components(separatedBy: "/").last ?? "Unknown"
+      let path = first.projectPath
+      let projectName = first.projectName ?? path.components(separatedBy: "/").last ?? "Unknown"
+      let endpointScope = first.endpointId?.uuidString ?? "single-endpoint"
+      let groupKey = "\(endpointScope)::\(path)"
 
       return ProjectGroup(
+        groupKey: groupKey,
         projectPath: path,
         projectName: projectName,
+        endpointName: first.endpointName,
         sessions: sorted,
         totalCost: sorted.reduce(0) { $0 + $1.totalCostUSD },
         totalTokens: sorted.reduce(0) { $0 + $1.totalTokens },
@@ -722,7 +736,15 @@ struct ProjectStreamSection: View {
     .sorted { lhs, rhs in
       // Project groups are always alphabetical — they're spatial anchors.
       // Only sessions within groups reorder based on the active sort/filter.
-      lhs.projectName.localizedCaseInsensitiveCompare(rhs.projectName) == .orderedAscending
+      let nameOrder = lhs.projectName.localizedCaseInsensitiveCompare(rhs.projectName)
+      if nameOrder != .orderedSame {
+        return nameOrder == .orderedAscending
+      }
+      let endpointOrder = (lhs.endpointName ?? "").localizedCaseInsensitiveCompare(rhs.endpointName ?? "")
+      if endpointOrder != .orderedSame {
+        return endpointOrder == .orderedAscending
+      }
+      return lhs.projectPath.localizedCaseInsensitiveCompare(rhs.projectPath) == .orderedAscending
     }
   }
 
@@ -763,15 +785,17 @@ struct ProjectStreamSection: View {
 // MARK: - Project Group Model
 
 struct ProjectGroup: Identifiable {
+  let groupKey: String
   let projectPath: String
   let projectName: String
+  let endpointName: String?
   let sessions: [Session]
   let totalCost: Double
   let totalTokens: Int
   let latestActivityAt: Date
 
   var id: String {
-    projectPath
+    groupKey
   }
 
   /// When all sessions share the same branch, return it for the header.

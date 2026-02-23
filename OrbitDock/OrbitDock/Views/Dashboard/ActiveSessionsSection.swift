@@ -232,7 +232,7 @@ struct ActiveSessionsSection: View {
   }
 
   private var sessionIndexByID: [String: Int] {
-    Dictionary(uniqueKeysWithValues: orderedSessions.enumerated().map { ($1.id, $0) })
+    Dictionary(uniqueKeysWithValues: orderedSessions.enumerated().map { ($1.scopedID, $0) })
   }
 
   private var counts: TriageCounts {
@@ -628,7 +628,7 @@ struct ActiveSessionsSection: View {
         .foregroundStyle(Color.surfaceBorder.opacity(0.28))
 
       VStack(spacing: 6) {
-        ForEach(workstream.sessions) { session in
+        ForEach(workstream.sessions, id: \.scopedID) { session in
           laneSessionRow(session)
         }
       }
@@ -645,12 +645,12 @@ struct ActiveSessionsSection: View {
   }
 
   private func laneSessionRow(_ session: Session) -> some View {
-    let rowIndex = sessionIndexByID[session.id]
+    let rowIndex = sessionIndexByID[session.scopedID]
     let isSelected = rowIndex == selectedIndex
 
     return ActiveSessionRow(
       session: session,
-      onSelect: { onSelectSession(session.id) },
+      onSelect: { onSelectSession(session.scopedID) },
       onFocusTerminal: nil,
       isSelected: isSelected
     )

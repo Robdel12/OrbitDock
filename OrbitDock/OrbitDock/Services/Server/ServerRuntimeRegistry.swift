@@ -124,6 +124,23 @@ final class ServerRuntimeRegistry {
     }
   }
 
+  func appState(for session: Session, fallback: ServerAppState) -> ServerAppState {
+    guard let endpointId = session.endpointId,
+          let runtime = runtimesByEndpointId[endpointId]
+    else {
+      return fallback
+    }
+    return runtime.appState
+  }
+
+  func sessionObservable(for session: Session, fallback: ServerAppState) -> SessionObservable {
+    appState(for: session, fallback: fallback).session(session.id)
+  }
+
+  func isForkedSession(_ session: Session, fallback: ServerAppState) -> Bool {
+    sessionObservable(for: session, fallback: fallback).forkedFrom != nil
+  }
+
   private func ensureInitialized() {
     if runtimesByEndpointId.isEmpty {
       configureFromSettings(startEnabled: false)

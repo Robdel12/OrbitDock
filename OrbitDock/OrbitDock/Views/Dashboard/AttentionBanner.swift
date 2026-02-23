@@ -35,10 +35,10 @@ struct AttentionBanner: View {
   var body: some View {
     if !attentionSessions.isEmpty {
       VStack(spacing: 4) {
-        ForEach(attentionSessions) { session in
+        ForEach(attentionSessions, id: \.scopedID) { session in
           AttentionBannerItem(
             session: session,
-            onSelect: { onSelectSession(session.id) }
+            onSelect: { onSelectSession(session.scopedID) }
           )
         }
       }

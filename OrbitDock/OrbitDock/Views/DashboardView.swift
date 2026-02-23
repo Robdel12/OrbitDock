@@ -12,6 +12,7 @@ struct DashboardView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let sessions: [Session]
+  let endpointHealth: [UnifiedEndpointHealth]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
   let onSelectSession: (String) -> Void
@@ -250,6 +251,15 @@ struct DashboardView: View {
 
   @ViewBuilder
   private var connectionBanner: some View {
+    if endpointHealth.count > 1 {
+      multiEndpointConnectionBanner
+    } else {
+      singleEndpointConnectionBanner
+    }
+  }
+
+  @ViewBuilder
+  private var singleEndpointConnectionBanner: some View {
     switch runtimeRegistry.activeConnectionStatus {
       case .connected:
         EmptyView()
@@ -274,6 +284,82 @@ struct DashboardView: View {
           message: reason,
           action: ("Retry", { runtimeRegistry.activeConnection.connect() })
         )
+    }
+  }
+
+  private var multiEndpointConnectionBanner: some View {
+    VStack(spacing: 6) {
+      HStack(spacing: 8) {
+        Image(systemName: "network")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
+
+        Text("Endpoint Health")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+
+        Spacer()
+
+        Text("\(endpointHealth.count) connected targets")
+          .font(.system(size: TypeScale.micro, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
+      }
+
+      HStack(spacing: 8) {
+        ForEach(endpointHealth) { endpoint in
+          endpointHealthChip(endpoint)
+        }
+      }
+    }
+    .padding(.horizontal, 14)
+    .padding(.vertical, 8)
+    .background(Color.backgroundTertiary.opacity(0.55))
+  }
+
+  private func endpointHealthChip(_ endpoint: UnifiedEndpointHealth) -> some View {
+    HStack(spacing: 6) {
+      Image(systemName: connectionIcon(for: endpoint.status))
+        .font(.system(size: 9, weight: .semibold))
+        .foregroundStyle(connectionColor(for: endpoint.status))
+
+      Text(endpoint.endpointName)
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(Color.textSecondary)
+
+      if endpoint.counts.active > 0 {
+        Text("\(endpoint.counts.active)")
+          .font(.system(size: 9, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.textTertiary)
+      }
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(Color.backgroundSecondary.opacity(0.7), in: Capsule())
+  }
+
+  private func connectionIcon(for status: ConnectionStatus) -> String {
+    switch status {
+      case .connected:
+        "checkmark.circle.fill"
+      case .connecting:
+        "arrow.triangle.2.circlepath.circle.fill"
+      case .disconnected:
+        "bolt.slash.fill"
+      case .failed:
+        "exclamationmark.triangle.fill"
+    }
+  }
+
+  private func connectionColor(for status: ConnectionStatus) -> Color {
+    switch status {
+      case .connected:
+        Color.statusSuccess
+      case .connecting:
+        Color.statusQuestion
+      case .disconnected:
+        Color.textTertiary
+      case .failed:
+        Color.statusPermission
     }
   }
 
@@ -339,13 +425,14 @@ struct DashboardView: View {
   private func selectCurrentSession() {
     guard selectedIndex >= 0, selectedIndex < activeSessions.count else { return }
     let session = activeSessions[selectedIndex]
-    onSelectSession(session.id)
+    onSelectSession(session.scopedID)
   }
 }
 
 #Preview {
   DashboardView(
     sessions: [],
+    endpointHealth: [],
     isInitialLoading: false,
     isRefreshingCachedSessions: false,
     onSelectSession: { _ in },

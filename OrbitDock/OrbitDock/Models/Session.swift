@@ -23,6 +23,8 @@ enum ClaudeIntegrationMode: String, Hashable, Sendable {
 
 struct Session: Identifiable, Hashable, Sendable {
   let id: String
+  var endpointId: UUID?
+  var endpointName: String?
   let projectPath: String
   let projectName: String?
   var branch: String?
@@ -133,6 +135,8 @@ struct Session: Identifiable, Hashable, Sendable {
   /// Custom initializer with backward compatibility for legacy code using contextLabel
   nonisolated init(
     id: String,
+    endpointId: UUID? = nil,
+    endpointName: String? = nil,
     projectPath: String,
     projectName: String? = nil,
     branch: String? = nil,
@@ -171,6 +175,8 @@ struct Session: Identifiable, Hashable, Sendable {
     contextWindow: Int? = nil
   ) {
     self.id = id
+    self.endpointId = endpointId
+    self.endpointName = endpointName
     self.projectPath = projectPath
     self.projectName = projectName
     self.branch = branch
@@ -208,6 +214,16 @@ struct Session: Identifiable, Hashable, Sendable {
     self.outputTokens = outputTokens
     self.cachedTokens = cachedTokens
     self.contextWindow = contextWindow
+  }
+
+  var scopedID: String {
+    guard let endpointId else { return id }
+    return SessionRef(endpointId: endpointId, sessionId: id).scopedID
+  }
+
+  var sessionRef: SessionRef? {
+    guard let endpointId else { return nil }
+    return SessionRef(endpointId: endpointId, sessionId: id)
   }
 
   var displayName: String {

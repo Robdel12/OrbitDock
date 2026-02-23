@@ -72,14 +72,21 @@ struct SessionHistorySection: View {
 
   /// Sessions grouped by project for alternate view
   private var projectGroups: [SessionHistoryGroup] {
-    let grouped = Dictionary(grouping: endedSessions) { $0.projectPath }
+    let grouped = Dictionary(grouping: endedSessions) { session in
+      let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
+      return "\(endpointScope)::\(session.projectPath)"
+    }
 
-    return grouped.map { path, sessions in
+    return grouped.compactMap { _, sessions in
+      guard let first = sessions.first else { return nil }
+      let path = first.projectPath
+      let endpointScope = first.endpointId?.uuidString ?? "single-endpoint"
       let projectName = sessions.first?.projectName
         ?? path.components(separatedBy: "/").last
         ?? "Unknown"
 
       return SessionHistoryGroup(
+        groupKey: "\(endpointScope)::\(path)",
         projectPath: path,
         projectName: projectName,
         sessions: sessions
@@ -281,9 +288,9 @@ struct DateGroupSection: View {
 
       // Sessions
       VStack(spacing: 2) {
-        ForEach(visibleSessions, id: \.id) { session in
+        ForEach(visibleSessions, id: \.scopedID) { session in
           HistorySessionRow(session: session, referenceDate: referenceDate) {
-            onSelectSession(session.id)
+            onSelectSession(session.scopedID)
           }
         }
 
@@ -308,6 +315,7 @@ struct HistorySessionRow: View {
   let onSelect: () -> Void
 
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   @State private var isHovering = false
   private static let timeAgoFormatter: RelativeDateTimeFormatter = {
@@ -337,7 +345,7 @@ struct HistorySessionRow: View {
               .foregroundStyle(Color.textSecondary)
               .lineLimit(1)
 
-            if serverState.session(session.id).forkedFrom != nil {
+            if isForkedSession {
               ForkBadge()
             }
           }
@@ -406,17 +414,22 @@ struct HistorySessionRow: View {
       }
     }
   }
+
+  private var isForkedSession: Bool {
+    runtimeRegistry.isForkedSession(session, fallback: serverState)
+  }
 }
 
 // MARK: - Session History Group
 
 struct SessionHistoryGroup: Identifiable {
+  let groupKey: String
   let projectPath: String
   let projectName: String
   let sessions: [Session]
 
   var id: String {
-    projectPath
+    groupKey
   }
 }
 
@@ -477,9 +490,9 @@ struct ProjectHistoryGroup: View {
       // Sessions
       if isExpanded {
         VStack(spacing: 2) {
-          ForEach(visibleSessions, id: \.id) { session in
+          ForEach(visibleSessions, id: \.scopedID) { session in
             CompactHistoryRow(session: session, referenceDate: referenceDate) {
-              onSelectSession(session.id)
+              onSelectSession(session.scopedID)
             }
           }
 
@@ -514,6 +527,7 @@ struct CompactHistoryRow: View {
   let onSelect: () -> Void
 
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var isHovering = false
   private static let timeAgoFormatter: RelativeDateTimeFormatter = {
     let formatter = RelativeDateTimeFormatter()
@@ -538,7 +552,7 @@ struct CompactHistoryRow: View {
           .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
 
-        if serverState.session(session.id).forkedFrom != nil {
+        if isForkedSession {
           ForkBadge()
         }
 
@@ -565,6 +579,10 @@ struct CompactHistoryRow: View {
     }
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
+  }
+
+  private var isForkedSession: Bool {
+    runtimeRegistry.isForkedSession(session, fallback: serverState)
   }
 }
 

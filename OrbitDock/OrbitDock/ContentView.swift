@@ -12,8 +12,9 @@ struct ContentView: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AttentionService.self) private var attentionService
   @StateObject private var serverManager = ServerManager.shared
+  @State private var unifiedSessionsStore = UnifiedSessionsStore()
   @State private var sessions: [Session] = []
-  @State private var selectedSessionId: String?
+  @State private var selectedSessionScopedID: String?
   @StateObject private var toastManager = ToastManager.shared
 
   // Panel state
@@ -26,8 +27,17 @@ struct ContentView: View {
 
   /// Resolve ID to fresh session object from current sessions array
   private var selectedSession: Session? {
-    guard let id = selectedSessionId else { return nil }
-    return sessions.first { $0.id == id }
+    guard let ref = selectedSessionRef else { return nil }
+    guard let runtime = runtimeRegistry.runtimesByEndpointId[ref.endpointId] else { return nil }
+    guard var session = runtime.appState.sessions.first(where: { $0.id == ref.sessionId }) else { return nil }
+    session.endpointId = runtime.endpoint.id
+    session.endpointName = runtime.endpoint.name
+    return session
+  }
+
+  private var selectedSessionRef: SessionRef? {
+    guard let selectedSessionScopedID else { return nil }
+    return unifiedSessionsStore.sessionRef(for: selectedSessionScopedID)
   }
 
   var workingSessions: [Session] {
@@ -38,9 +48,17 @@ struct ContentView: View {
     sessions.filter(\.needsAttention)
   }
 
+  private var isAnyInitialLoading: Bool {
+    runtimeRegistry.runtimes.contains { $0.appState.isLoadingInitialSessions }
+  }
+
+  private var isAnyRefreshingCachedSessions: Bool {
+    runtimeRegistry.runtimes.contains { $0.appState.isRefreshingCachedSessions }
+  }
+
   /// Show setup view when server is not configured and not connected
   private var shouldShowSetup: Bool {
-    if case .connected = runtimeRegistry.activeConnectionStatus { return false }
+    if runtimeRegistry.connectedRuntimeCount > 0 { return false }
     if case .notConfigured = serverManager.installState { return true }
     return false
   }
@@ -56,10 +74,10 @@ struct ContentView: View {
         HStack(spacing: 0) {
           AgentListPanel(
             sessions: sessions,
-            selectedSessionId: selectedSessionId,
+            selectedSessionId: selectedSessionScopedID,
             onSelectSession: { id in
               withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                selectedSessionId = id
+                selectSession(scopedID: id)
               }
             },
             onClose: {
@@ -95,7 +113,7 @@ struct ContentView: View {
             toastManager: toastManager,
             onSelectSession: { id in
               withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                selectedSessionId = id
+                selectSession(scopedID: id)
               }
             }
           )
@@ -103,18 +121,29 @@ struct ContentView: View {
       }
     }
     .background(Color.backgroundPrimary)
-    .onChange(of: selectedSessionId) { _, newId in
+    .onChange(of: selectedSessionScopedID) { _, newId in
       toastManager.currentSessionId = newId
     }
     .onAppear {
       Task { await loadSessions() }
     }
-    .onChange(of: serverState.sessions) { _, _ in
+    .onChange(of: runtimeRegistry.connectionStatusByEndpointId) { _, _ in
+      Task { await loadSessions() }
+    }
+    .onChange(of: runtimeRegistry.runtimesByEndpointId.count) { _, _ in
+      Task { await loadSessions() }
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .serverSessionsDidChange)) { _ in
       Task { await loadSessions() }
     }
     .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
-      if let sessionId = notification.userInfo?["sessionId"] as? String {
-        selectedSessionId = sessionId
+      if let sessionID = notification.userInfo?["sessionId"] as? String {
+        if let ref = unifiedSessionsStore.sessionRef(for: sessionID) {
+          selectSession(scopedID: ref.scopedID)
+        } else if let activeEndpointId = runtimeRegistry.activeEndpointId {
+          let scopedID = SessionRef(endpointId: activeEndpointId, sessionId: sessionID).scopedID
+          selectSession(scopedID: scopedID)
+        }
       }
     }
     // Keyboard shortcuts via focusable + onKeyPress
@@ -139,7 +168,7 @@ struct ContentView: View {
       ToolbarItem(placement: .primaryAction) {
         Button {
           withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            selectedSessionId = nil
+            selectedSessionScopedID = nil
           }
         } label: {
           Label("Dashboard", systemImage: "square.grid.2x2")
@@ -198,7 +227,7 @@ struct ContentView: View {
           },
           onGoToDashboard: {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-              selectedSessionId = nil
+              selectedSessionScopedID = nil
             }
           }
         )
@@ -206,11 +235,12 @@ struct ContentView: View {
         // Dashboard view when no session selected
         DashboardView(
           sessions: sessions,
-          isInitialLoading: serverState.isLoadingInitialSessions,
-          isRefreshingCachedSessions: serverState.isRefreshingCachedSessions,
+          endpointHealth: unifiedSessionsStore.endpointHealth,
+          isInitialLoading: isAnyInitialLoading,
+          isRefreshingCachedSessions: isAnyRefreshingCachedSessions,
           onSelectSession: { id in
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-              selectedSessionId = id
+              selectSession(scopedID: id)
             }
           },
           onOpenQuickSwitcher: {
@@ -246,16 +276,16 @@ struct ContentView: View {
       // Quick Switcher
       QuickSwitcher(
         sessions: sessions,
-        currentSessionId: selectedSessionId,
+        currentSessionId: selectedSessionScopedID,
         onSelect: { id in
           withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            selectedSessionId = id
+            selectSession(scopedID: id)
             showQuickSwitcher = false
           }
         },
         onGoToDashboard: {
           withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            selectedSessionId = nil
+            selectedSessionScopedID = nil
             showQuickSwitcher = false
           }
         },
@@ -298,12 +328,15 @@ struct ContentView: View {
   // MARK: - Setup
 
   private func loadSessions() async {
-    let oldWaitingIds = Set(waitingSessions.map(\.id))
+    let oldWaitingIds = Set(waitingSessions.map(\.scopedID))
     let oldSessions = sessions
 
-    // Rust server is the runtime source of truth for session list identity/state.
-    // Avoid merging DB rows in-app to prevent direct/passive shadow drift on rebuild.
-    sessions = serverState.sessions
+    unifiedSessionsStore.refresh()
+    sessions = unifiedSessionsStore.sessions
+
+    if let selectedSessionScopedID, !unifiedSessionsStore.containsSession(scopedID: selectedSessionScopedID) {
+      self.selectedSessionScopedID = nil
+    }
 
     // Track work status for "agent finished" notifications
     for session in sessions where session.isActive {
@@ -319,7 +352,7 @@ struct ContentView: View {
 
     // Clear notifications for sessions no longer needing attention
     for oldId in oldWaitingIds {
-      if !waitingSessions.contains(where: { $0.id == oldId }) {
+      if !waitingSessions.contains(where: { $0.scopedID == oldId }) {
         NotificationManager.shared.resetNotificationState(for: oldId)
       }
     }
@@ -328,7 +361,20 @@ struct ContentView: View {
     toastManager.checkForAttentionChanges(sessions: sessions, previousSessions: oldSessions)
 
     // Update attention service for cross-session urgency strip
-    attentionService.update(sessions: sessions, sessionObservable: serverState.session)
+    attentionService.update(sessions: sessions) { session in
+      guard let ref = session.sessionRef else { return nil }
+      guard let runtime = runtimeRegistry.runtimesByEndpointId[ref.endpointId] else { return nil }
+      return runtime.appState.session(ref.sessionId)
+    }
+  }
+
+  private func selectSession(scopedID: String) {
+    guard let ref = unifiedSessionsStore.sessionRef(for: scopedID) else {
+      selectedSessionScopedID = nil
+      return
+    }
+    runtimeRegistry.setActiveEndpoint(id: ref.endpointId)
+    selectedSessionScopedID = ref.scopedID
   }
 }
 

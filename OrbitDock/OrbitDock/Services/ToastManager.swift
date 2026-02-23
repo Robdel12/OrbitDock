@@ -29,11 +29,13 @@ class ToastManager: ObservableObject {
 
   /// Show a toast for a session that needs attention
   func showToast(for session: Session) {
+    let scopedID = session.scopedID
+
     // Don't show if viewing this session
-    guard session.id != currentSessionId else { return }
+    guard scopedID != currentSessionId else { return }
 
     // Don't show duplicate toasts
-    guard !notifiedSessionIds.contains(session.id) else { return }
+    guard !notifiedSessionIds.contains(scopedID) else { return }
 
     let status = SessionDisplayStatus.from(session)
 
@@ -41,13 +43,13 @@ class ToastManager: ObservableObject {
     guard status == .permission || status == .question else { return }
 
     let toast = SessionToast(
-      sessionId: session.id,
+      sessionId: scopedID,
       sessionName: session.displayName,
       status: status,
       detail: session.pendingToolName
     )
 
-    notifiedSessionIds.insert(session.id)
+    notifiedSessionIds.insert(scopedID)
     toasts.append(toast)
 
     // Schedule auto-dismiss
@@ -73,11 +75,12 @@ class ToastManager: ObservableObject {
   /// Check sessions for status changes and show toasts as needed
   func checkForAttentionChanges(sessions: [Session], previousSessions: [Session]) {
     let previousStates = Dictionary(uniqueKeysWithValues: previousSessions
-      .map { ($0.id, SessionDisplayStatus.from($0)) })
+      .map { ($0.scopedID, SessionDisplayStatus.from($0)) })
 
     for session in sessions {
+      let scopedID = session.scopedID
       let currentStatus = SessionDisplayStatus.from(session)
-      let previousStatus = previousStates[session.id]
+      let previousStatus = previousStates[scopedID]
 
       // Session transitioned TO needing attention
       if currentStatus == .permission || currentStatus == .question,
@@ -88,7 +91,7 @@ class ToastManager: ObservableObject {
 
       // Session no longer needs attention - clear tracking
       if currentStatus != .permission, currentStatus != .question {
-        clearNotification(for: session.id)
+        clearNotification(for: scopedID)
       }
     }
   }

@@ -9,6 +9,7 @@ import SwiftUI
 
 struct AgentListPanel: View {
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   let sessions: [Session]
   let selectedSessionId: String?
   let onSelectSession: (String) -> Void
@@ -91,11 +92,11 @@ struct AgentListPanel: View {
             }
           } else {
             // Search results
-            ForEach(filteredSessions) { session in
+            ForEach(filteredSessions, id: \.scopedID) { session in
               AgentRowCompact(
                 session: session,
-                isSelected: selectedSessionId == session.id,
-                onSelect: { onSelectSession(session.id) },
+                isSelected: selectedSessionId == session.scopedID,
+                onSelect: { onSelectSession(session.scopedID) },
                 onRename: {
                   renameText = session.customName ?? ""
                   renamingSession = session
@@ -121,7 +122,7 @@ struct AgentListPanel: View {
         initialText: renameText,
         onSave: { newName in
           let name = newName.isEmpty ? nil : newName
-          serverState.renameSession(sessionId: session.id, name: name)
+          appState(for: session).renameSession(sessionId: session.id, name: name)
           renamingSession = nil
         },
         onCancel: {
@@ -222,11 +223,11 @@ struct AgentListPanel: View {
       .padding(.bottom, 6)
 
       // Session rows
-      ForEach(sessions) { session in
+      ForEach(sessions, id: \.scopedID) { session in
         AgentRowCompact(
           session: session,
-          isSelected: selectedSessionId == session.id,
-          onSelect: { onSelectSession(session.id) },
+          isSelected: selectedSessionId == session.scopedID,
+          onSelect: { onSelectSession(session.scopedID) },
           onRename: {
             renameText = session.customName ?? ""
             renamingSession = session
@@ -258,6 +259,10 @@ struct AgentListPanel: View {
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 40)
+  }
+
+  private func appState(for session: Session) -> ServerAppState {
+    runtimeRegistry.appState(for: session, fallback: serverState)
   }
 }
 
