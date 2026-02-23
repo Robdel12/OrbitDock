@@ -40,7 +40,7 @@
     // Command preview
     private let commandContainer = UIView()
     private let commandAccentBar = UIView()
-    private let commandText = UILabel()
+    private let commandText = UITextView()
 
     // Question mode
     private let questionTextLabel = UILabel()
@@ -60,6 +60,8 @@
     private let moreActionsButton = UIButton(type: .system)
 
     private var currentModel: ApprovalCardModel?
+    private var commandTextHeightConstraint: NSLayoutConstraint?
+    private var commandPreviewTextForSizing: String?
 
     private enum Layout {
       static let outerVerticalInset: CGFloat = 6
@@ -67,6 +69,8 @@
       static let headerIconSize: CGFloat = 15
       static let commandVerticalPadding: CGFloat = 6
       static let commandHorizontalPadding: CGFloat = 10
+      static let minCommandTextHeight: CGFloat = 22
+      static let maxCommandTextHeight: CGFloat = 220
       static let primaryButtonHeight: CGFloat = 44
       static let actionFooterHeight: CGFloat = 24
     }
@@ -81,6 +85,11 @@
     required init?(coder: NSCoder) {
       super.init(coder: coder)
       setup()
+    }
+
+    override func layoutSubviews() {
+      super.layoutSubviews()
+      refreshCommandPreviewHeight()
     }
 
     // MARK: - Setup
@@ -110,10 +119,9 @@
         cardContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Layout.outerVerticalInset),
         cardContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
         cardContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
-        cardContainer.bottomAnchor.constraint(
-          lessThanOrEqualTo: contentView.bottomAnchor,
-          constant: -Layout.outerVerticalInset
-        ),
+        // Keep the card height anchored to the measured row height.
+        // Using <= here can collapse the container during cell reuse.
+        cardContainer.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Layout.outerVerticalInset),
 
         riskStrip.topAnchor.constraint(equalTo: cardContainer.topAnchor),
         riskStrip.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor),
@@ -216,8 +224,14 @@
       commandText.translatesAutoresizingMaskIntoConstraints = false
       commandText.font = UIFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
       commandText.textColor = UIColor(Color.textPrimary)
-      commandText.numberOfLines = 0
-      commandText.lineBreakMode = .byWordWrapping
+      commandText.backgroundColor = .clear
+      commandText.isEditable = false
+      commandText.isSelectable = true
+      commandText.isScrollEnabled = false
+      commandText.showsHorizontalScrollIndicator = false
+      commandText.showsVerticalScrollIndicator = false
+      commandText.textContainerInset = .zero
+      commandText.textContainer.lineFragmentPadding = 0
       commandContainer.addSubview(commandText)
 
       let pad = Layout.cardPadding
@@ -242,6 +256,9 @@
           constant: -Layout.commandHorizontalPadding
         ),
       ])
+
+      commandTextHeightConstraint = commandText.heightAnchor.constraint(equalToConstant: Layout.minCommandTextHeight)
+      commandTextHeightConstraint?.isActive = true
     }
 
     private func setupQuestionMode() {
@@ -417,9 +434,11 @@
     }
 
     private func configurePermission(_ model: ApprovalCardModel) {
+      let commandPreviewText = Self.commandPreviewText(for: model)
+
       // Show
       toolBadge.isHidden = false
-      commandContainer.isHidden = model.command == nil && model.filePath == nil
+      commandContainer.isHidden = commandPreviewText == nil
       actionDivider.isHidden = false
       buttonStack.isHidden = false
       actionHintLabel.isHidden = false
@@ -446,20 +465,12 @@
       }
 
       // Command preview
-      if let command = model.command {
-        commandText.text = command
-        commandAccentBar.backgroundColor = UIColor(model.risk.tintColor)
-        commandContainer.isHidden = false
-      } else if let filePath = model.filePath {
-        commandText.text = filePath
-        commandAccentBar.backgroundColor = UIColor(model.risk.tintColor)
-        commandContainer.isHidden = false
-      } else if let toolName = model.toolName {
-        // Generic fallback: show tool name so the card is never blank
-        commandText.text = "Approve \(toolName) action?"
+      if let commandPreviewText {
+        setCommandPreviewText(commandPreviewText)
         commandAccentBar.backgroundColor = UIColor(model.risk.tintColor)
         commandContainer.isHidden = false
       } else {
+        setCommandPreviewText(nil)
         commandContainer.isHidden = true
       }
 
@@ -494,6 +505,7 @@
       // Hide
       toolBadge.isHidden = true
       commandContainer.isHidden = true
+      setCommandPreviewText(nil)
       actionDivider.isHidden = true
       buttonStack.isHidden = true
       actionHintLabel.isHidden = true
@@ -529,6 +541,7 @@
 
       // Hide
       commandContainer.isHidden = true
+      setCommandPreviewText(nil)
       actionDivider.isHidden = true
       buttonStack.isHidden = true
       actionHintLabel.isHidden = true
@@ -637,6 +650,35 @@
       actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.sm)).isActive = true
     }
 
+    private func setCommandPreviewText(_ text: String?) {
+      commandPreviewTextForSizing = text
+      commandText.text = text ?? ""
+      commandText.setContentOffset(.zero, animated: false)
+      refreshCommandPreviewHeight()
+    }
+
+    private func refreshCommandPreviewHeight() {
+      guard !commandContainer.isHidden, let text = commandPreviewTextForSizing else {
+        commandTextHeightConstraint?.constant = Layout.minCommandTextHeight
+        commandText.isScrollEnabled = false
+        commandText.showsVerticalScrollIndicator = false
+        return
+      }
+
+      let availableWidth = max(bounds.width, 1)
+      let visibleHeight = Self.visibleCommandTextHeight(text, availableWidth: availableWidth)
+      commandTextHeightConstraint?.constant = visibleHeight
+
+      let fullHeight = Self.measureTextHeight(
+        text,
+        font: UIFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular),
+        width: Self.commandTextWidth(for: availableWidth)
+      )
+      let shouldScroll = fullHeight > visibleHeight + 0.5
+      commandText.isScrollEnabled = shouldScroll
+      commandText.showsVerticalScrollIndicator = shouldScroll
+    }
+
     // MARK: - Actions
 
     @objc private func denyButtonTapped() {
@@ -678,13 +720,11 @@
           h += Layout.headerIconSize // header
           h += CGFloat(Spacing.md) + 20 // tool badge
 
-          if model.command != nil || model.filePath != nil {
-            let text = model.command ?? model.filePath ?? ""
-            let commandFont = UIFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-            let textWidth = contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2
-            let textHeight = Self.measureTextHeight(text, font: commandFont, width: textWidth)
+          if let text = Self.commandPreviewText(for: model) {
             h += CGFloat(Spacing.sm) // spacing before command container
-            h += Layout.commandVerticalPadding + textHeight + Layout.commandVerticalPadding
+            h += Layout.commandVerticalPadding
+            h += Self.visibleCommandTextHeight(text, availableWidth: availableWidth)
+            h += Layout.commandVerticalPadding
           }
 
           if model.diff != nil { h += 120 }
@@ -733,6 +773,27 @@
         context: nil
       )
       return ceil(rect.height)
+    }
+
+    private static func commandPreviewText(for model: ApprovalCardModel) -> String? {
+      if let command = model.command, !command.isEmpty { return command }
+      if let filePath = model.filePath, !filePath.isEmpty { return filePath }
+      if let toolName = model.toolName, !toolName.isEmpty {
+        return "Approve \(toolName) action?"
+      }
+      return nil
+    }
+
+    private static func commandTextWidth(for availableWidth: CGFloat) -> CGFloat {
+      let contentWidth = availableWidth - ConversationLayout.laneHorizontalInset * 2 - Layout.cardPadding * 2
+      return max(1, contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2)
+    }
+
+    private static func visibleCommandTextHeight(_ text: String, availableWidth: CGFloat) -> CGFloat {
+      let font = UIFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+      let fullHeight = measureTextHeight(text, font: font, width: commandTextWidth(for: availableWidth))
+      let clampedHeight = min(fullHeight, Layout.maxCommandTextHeight)
+      return max(Layout.minCommandTextHeight, clampedHeight)
     }
   }
 
