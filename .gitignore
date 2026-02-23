@@ -35,3 +35,6 @@ node_modules/
 *.xcresult
 *.trace/
 .logs/
+
+# Whisper model (fetched locally for app bundling)
+OrbitDock/OrbitDock/WhisperModels/*.bin

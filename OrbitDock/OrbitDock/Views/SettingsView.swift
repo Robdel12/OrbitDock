@@ -134,6 +134,7 @@ struct SettingsSection<Content: View>: View {
 
 struct GeneralSettingsView: View {
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
+  @AppStorage("whisperDictationEnabled") private var whisperDictationEnabled = true
   @State private var openAiKey: String = ""
   @State private var openAiKeySaved = false
   @State private var openAiKeyStatus: OpenAiKeyStatus = .checking
@@ -141,6 +142,12 @@ struct GeneralSettingsView: View {
 
   private enum OpenAiKeyStatus {
     case checking, configured, notConfigured
+  }
+
+  private enum WhisperModelStatus {
+    case unavailable(message: String)
+    case missing
+    case ready
   }
 
   private let editors: [(id: String, name: String, icon: String)] = [
@@ -310,12 +317,85 @@ struct GeneralSettingsView: View {
             }
           }
         }
+
+        SettingsSection(title: "WHISPER DICTATION", icon: "waveform.badge.mic") {
+          VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+              Toggle(isOn: $whisperDictationEnabled) {
+                Text("Enable Local Dictation")
+                  .font(.system(size: 13))
+              }
+              .toggleStyle(.switch)
+              .tint(Color.accent)
+
+              Text("Transcribe microphone audio on-device using whisper.cpp.")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+            }
+
+            Divider()
+              .foregroundStyle(Color.panelBorder)
+
+            HStack(spacing: 8) {
+              switch whisperModelStatus {
+                case .ready:
+                  Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.statusSuccess)
+                  Text("Model ready")
+                    .font(.system(size: 13))
+                case .missing:
+                  Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(Color.statusPermission)
+                  Text("Model not found")
+                    .font(.system(size: 13))
+                case .unavailable:
+                  Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(Color.statusError)
+                  Text("Whisper unavailable in this build")
+                    .font(.system(size: 13))
+              }
+              Spacer()
+            }
+
+            switch whisperModelStatus {
+              case .missing:
+                Text(
+                  """
+                  OrbitDock checks for a bundled \(WhisperModelLocator.defaultModelFileName) first, \
+                  then falls back to Application Support.
+                  """
+                )
+                  .font(.system(size: 11))
+                  .foregroundStyle(.tertiary)
+              case let .unavailable(message):
+                Text(message)
+                  .font(.system(size: 11))
+                  .foregroundStyle(.tertiary)
+              case .ready:
+                Text("Local Whisper model is available and ready for dictation.")
+                  .font(.system(size: 11))
+                  .foregroundStyle(.tertiary)
+            }
+          }
+        }
       }
       .padding(20)
     }
     .onAppear {
       checkOpenAiKeyStatus()
     }
+  }
+
+  private var whisperModelStatus: WhisperModelStatus {
+    #if canImport(whisper) || canImport(Whisper)
+      let locator = WhisperModelLocator()
+      if (try? locator.resolveModelPath()) != nil {
+        return .ready
+      }
+      return .missing
+    #else
+      return .unavailable(message: "Whisper is not linked for this build target.")
+    #endif
   }
 
   private func saveOpenAiKey() {

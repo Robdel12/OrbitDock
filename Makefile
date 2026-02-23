@@ -21,7 +21,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint xcode-cache-dirs
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint whisper-model xcode-cache-dirs
 
 help:
 	@echo "make build      Build the macOS app"
@@ -41,6 +41,7 @@ help:
 	@echo "make rust-test  Run Rust workspace tests"
 	@echo "make rust-fmt   Format Rust with cargo fmt"
 	@echo "make rust-lint  Run cargo clippy for Rust workspace"
+	@echo "make whisper-model Download ggml-base.en.bin into app resources"
 
 build:
 	@$(MAKE) xcode-cache-dirs
@@ -96,6 +97,9 @@ rust-fmt:
 
 rust-lint:
 	cd $(RUST_WORKSPACE_DIR) && cargo clippy --workspace --all-targets
+
+whisper-model:
+	@./OrbitDock/Scripts/download-whisper-model.sh
 
 xcode-cache-dirs:
 	@mkdir -p $(XCODE_DERIVED_DATA_DIR) $(XCODE_PACKAGE_CACHE_DIR) $(XCODE_SOURCE_PACKAGES_DIR) $(XCODE_CLANG_MODULE_CACHE_DIR) $(XCODE_SWIFTPM_MODULECACHE_DIR)

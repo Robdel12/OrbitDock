@@ -22,6 +22,7 @@ struct DirectSessionComposer: View {
 
   @Environment(ServerAppState.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @AppStorage("whisperDictationEnabled") private var whisperDictationEnabled = true
 
   @State private var message = ""
   @State private var isSending = false
@@ -59,6 +60,9 @@ struct DirectSessionComposer: View {
   /// Input mode
   @State private var manualReviewMode = false
   @State private var manualShellMode = false
+  @State private var dictationController = WhisperDictationController()
+  @State private var dictationDraftBaseMessage: String?
+  @State private var dictationPreviewText = ""
 
   private var sessionId: String {
     session.id
@@ -362,10 +366,40 @@ struct DirectSessionComposer: View {
     !attachedImages.isEmpty || !attachedMentions.isEmpty
   }
 
+  private var isDictationActive: Bool {
+    dictationController.state == .recording ||
+      dictationController.state == .requestingPermission ||
+      dictationController.state == .transcribing
+  }
+
+  private var shouldShowDictation: Bool {
+    whisperDictationEnabled && dictationController.isSupported
+  }
+
+  private var composerErrorMessage: String? {
+    errorMessage ?? dictationController.errorMessage
+  }
+
   private var composerPlaceholder: String {
     if inputMode == .shell { return "Run a shell command..." }
     if isSessionWorking { return "Steer the current turn..." }
     return "Send a message..."
+  }
+
+  private var dictationStatusText: String {
+    switch dictationController.state {
+      case .recording:
+        if dictationPreviewText.isEmpty {
+          return "LISTENING"
+        }
+        return "LIVE"
+      case .requestingPermission:
+        return "AUTHORIZING"
+      case .transcribing:
+        return "TRANSCRIBING"
+      case .idle:
+        return "IDLE"
+    }
   }
 
   private var isCompactLayout: Bool {
@@ -508,7 +542,7 @@ struct DirectSessionComposer: View {
       }
 
       // ━━━ Error message ━━━
-      if let error = errorMessage {
+      if let error = composerErrorMessage {
         errorRow(error)
       }
 
@@ -559,6 +593,23 @@ struct DirectSessionComposer: View {
       guard session.isDirectClaude else { return }
       if selectedClaudeModel.isEmpty || !claudeModelOptions.contains(where: { $0.value == selectedClaudeModel }) {
         selectedClaudeModel = defaultClaudeModelSelection
+      }
+    }
+    .onChange(of: whisperDictationEnabled) { _, enabled in
+      guard !enabled else { return }
+      Task { @MainActor in
+        await dictationController.cancel()
+        clearDictationDraftState()
+      }
+    }
+    .onChange(of: dictationController.liveTranscript) { _, transcript in
+      guard dictationController.isRecording else { return }
+      applyDictationPreviewToComposer(transcript)
+    }
+    .onDisappear {
+      Task { @MainActor in
+        await dictationController.cancel()
+        clearDictationDraftState()
       }
     }
     #if os(iOS)
@@ -677,7 +728,7 @@ struct DirectSessionComposer: View {
           .textFieldStyle(.plain)
           .lineLimit(1 ... 5)
           .focused($isFocused)
-          .disabled(isSending)
+          .disabled(isSending || isDictationActive)
         #if os(iOS)
           .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -724,6 +775,28 @@ struct DirectSessionComposer: View {
               sendMessage()
             }
           }
+
+        if isDictationActive {
+          HStack(spacing: 6) {
+            if dictationController.state == .recording {
+              Circle()
+                .fill(Color.accent)
+                .frame(width: 6, height: 6)
+                .opacity(0.9)
+            } else {
+              ProgressView()
+                .controlSize(.mini)
+            }
+
+            Text(dictationStatusText)
+              .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
+              .foregroundStyle(Color.accent)
+              .lineLimit(1)
+          }
+          .padding(.horizontal, 8)
+          .padding(.vertical, 4)
+          .background(Color.accent.opacity(0.12), in: Capsule())
+        }
 
         // Override badges (inside border)
         if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude), !isCompactLayout {
@@ -959,6 +1032,43 @@ struct DirectSessionComposer: View {
     }
   }
 
+  private var dictationControlButton: some View {
+    Button {
+      toggleDictation()
+    } label: {
+      switch dictationController.state {
+        case .recording:
+          actionDockLabel(
+            icon: "stop.fill",
+            title: "Stop Dictation",
+            tint: .statusError,
+            isActive: true
+          )
+        case .requestingPermission, .transcribing:
+          HStack(spacing: 6) {
+            ProgressView()
+              .controlSize(.mini)
+            Text("Dictating")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+          .foregroundStyle(Color.accent)
+          .padding(.horizontal, isCompactLayout ? Spacing.sm : 6)
+          .padding(.vertical, isCompactLayout ? 5 : 4)
+          .background(Color.accent.opacity(0.10), in: Capsule())
+        case .idle:
+          actionDockLabel(
+            icon: "mic.fill",
+            title: "Dictate",
+            tint: .accent,
+            isActive: false
+          )
+      }
+    }
+    .buttonStyle(.plain)
+    .disabled(dictationController.isBusy)
+    .help("Local Whisper dictation")
+  }
+
   private var commandDeckControlButton: some View {
     Button {
       toggleCommandDeck()
@@ -1083,6 +1193,18 @@ struct DirectSessionComposer: View {
           Label("Attach Files", systemImage: "doc.badge.plus")
         }
 
+        if shouldShowDictation {
+          Button {
+            toggleDictation()
+          } label: {
+            Label(
+              dictationController.isRecording ? "Stop Dictation" : "Start Dictation",
+              systemImage: dictationController.isRecording ? "stop.fill" : "mic.fill"
+            )
+          }
+          .disabled(dictationController.isBusy)
+        }
+
         if hasSkillsPanel {
           Button {
             serverState.listSkills(sessionId: sessionId)
@@ -1161,6 +1283,18 @@ struct DirectSessionComposer: View {
 
     return Menu {
       Section("Compose") {
+        if shouldShowDictation {
+          Button {
+            toggleDictation()
+          } label: {
+            Label(
+              dictationController.isRecording ? "Stop Dictation" : "Start Dictation",
+              systemImage: dictationController.isRecording ? "stop.fill" : "mic.fill"
+            )
+          }
+          .disabled(dictationController.isBusy)
+        }
+
         if hasSkillsPanel {
           Button {
             serverState.listSkills(sessionId: sessionId)
@@ -1246,6 +1380,10 @@ struct DirectSessionComposer: View {
 
         fileMentionControlButton
 
+        if shouldShowDictation {
+          dictationControlButton
+        }
+
         if !isSessionWorking {
           commandDeckControlButton
         }
@@ -1285,6 +1423,10 @@ struct DirectSessionComposer: View {
 
           if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude) {
             providerModelControlButton
+          }
+
+          if shouldShowDictation {
+            dictationControlButton
           }
 
           if !isSessionWorking {
@@ -1741,8 +1883,20 @@ struct DirectSessionComposer: View {
         .font(.caption)
         .foregroundStyle(.secondary)
       Spacer()
+      if shouldShowOpenMicrophoneSettingsAction {
+        Button("Open Settings") {
+          _ = Platform.services.openMicrophonePrivacySettings()
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(Color.accent)
+      }
       Button("Dismiss") {
-        errorMessage = nil
+        if errorMessage != nil {
+          errorMessage = nil
+        } else {
+          dictationController.clearError()
+        }
       }
       .buttonStyle(.plain)
       .font(.caption)
@@ -1750,6 +1904,10 @@ struct DirectSessionComposer: View {
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.bottom, Spacing.sm)
+  }
+
+  private var shouldShowOpenMicrophoneSettingsAction: Bool {
+    errorMessage == nil && dictationController.isMicrophonePermissionDenied
   }
 
   // MARK: - Helpers
@@ -1800,6 +1958,7 @@ struct DirectSessionComposer: View {
   }
 
   private var canSend: Bool {
+    if isDictationActive { return false }
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     if inputMode == .shell { return !isSending && hasContent }
     if isSessionWorking { return !isSending && (hasContent || hasAttachments) }
@@ -1909,6 +2068,51 @@ struct DirectSessionComposer: View {
     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
       attachedImages = []
       attachedMentions = []
+    }
+  }
+
+  @MainActor
+  private func beginDictationDraftState() {
+    dictationDraftBaseMessage = message
+    dictationPreviewText = ""
+  }
+
+  @MainActor
+  private func clearDictationDraftState() {
+    dictationDraftBaseMessage = nil
+    dictationPreviewText = ""
+  }
+
+  @MainActor
+  private func applyDictationPreviewToComposer(_ transcript: String) {
+    guard let baseMessage = dictationDraftBaseMessage else { return }
+    let normalized = DictationTextFormatter.normalizeTranscription(transcript)
+    dictationPreviewText = normalized
+    let merged = DictationTextFormatter.merge(existing: baseMessage, dictated: normalized)
+    guard merged != message else { return }
+    message = merged
+  }
+
+  @MainActor
+  private func toggleDictation() {
+    guard shouldShowDictation else { return }
+    Task { @MainActor in
+      if dictationController.isRecording {
+        if let dictated = await dictationController.stop() {
+          if dictationDraftBaseMessage != nil {
+            applyDictationPreviewToComposer(dictated)
+          } else {
+            message = DictationTextFormatter.merge(existing: message, dictated: dictated)
+          }
+        }
+        clearDictationDraftState()
+      } else {
+        beginDictationDraftState()
+        await dictationController.start()
+        if !dictationController.isRecording {
+          clearDictationDraftState()
+        }
+      }
     }
   }
 

@@ -16,6 +16,9 @@ protocol PlatformServices {
   @discardableResult
   func revealInFileBrowser(_ path: String) -> Bool
 
+  @discardableResult
+  func openMicrophonePrivacySettings() -> Bool
+
   func copyToClipboard(_ text: String)
 }
 
@@ -54,6 +57,13 @@ enum Platform {
       return true
     }
 
+    @discardableResult
+    func openMicrophonePrivacySettings() -> Bool {
+      guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+      else { return false }
+      return NSWorkspace.shared.open(url)
+    }
+
     func copyToClipboard(_ text: String) {
       NSPasteboard.general.clearContents()
       NSPasteboard.general.setString(text, forType: .string)
@@ -78,6 +88,14 @@ enum Platform {
       return false
     }
 
+    @discardableResult
+    func openMicrophonePrivacySettings() -> Bool {
+      guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
+      guard UIApplication.shared.canOpenURL(url) else { return false }
+      UIApplication.shared.open(url, options: [:], completionHandler: nil)
+      return true
+    }
+
     func copyToClipboard(_ text: String) {
       UIPasteboard.general.string = text
     }
@@ -97,6 +115,11 @@ enum Platform {
     func revealInFileBrowser(_ path: String) -> Bool {
       _ = path
       return false
+    }
+
+    @discardableResult
+    func openMicrophonePrivacySettings() -> Bool {
+      false
     }
 
     func copyToClipboard(_ text: String) {

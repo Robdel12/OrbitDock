@@ -2,11 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Outbound connections: WebSocket to server, health checks, Claude/Codex usage APIs -->
-    <key>com.apple.security.network.client</key>
-    <true/>
-    <!-- Required for NSAppleScript iTerm2 integration (NSAppleEventsUsageDescription in Info.plist) -->
-    <key>com.apple.security.automation.apple-events</key>
-    <true/>
+	<!-- Outbound connections: WebSocket to server, health checks, provider APIs -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Required for microphone access on macOS with hardened runtime -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<!-- Required for NSAppleScript iTerm2 integration (NSAppleEventsUsageDescription in Info.plist) -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 </dict>
 </plist>
