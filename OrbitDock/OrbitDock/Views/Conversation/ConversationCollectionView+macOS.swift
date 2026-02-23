@@ -947,7 +947,12 @@ import SwiftUI
                 ?? self.serverState?.session(model.sessionId).pendingApproval?.id
                 ?? self.serverState?.sessions.first(where: { $0.id == model.sessionId })?.pendingApprovalId
               guard let requestId else { return }
-              self.serverState?.answerQuestion(sessionId: model.sessionId, requestId: requestId, answer: answer)
+              self.serverState?.answerQuestion(
+                sessionId: model.sessionId,
+                requestId: requestId,
+                answer: answer,
+                questionId: model.questionId
+              )
             }
             cell.onTakeOver = { [weak self] in
               guard let self else { return }
@@ -1097,6 +1102,9 @@ import SwiftUI
       guard row >= 0, row < currentRows.count else { return 1 }
       let timelineRow = currentRows[row]
       let width = availableRowWidth
+      let measurementWidth = width > 1
+        ? width
+        : max(lastKnownWidth, tableColumn.width, tableView.bounds.width, view.bounds.width)
 
       // ── Tier 1: Fixed-height rows (no measurement, no cache, no SwiftUI) ──
       switch timelineRow.kind {
@@ -1146,6 +1154,22 @@ import SwiftUI
         default: break
       }
 
+      // During early layout/rebuild passes NSTableView can ask for heights before
+      // the clip view has a valid width. Never cache these placeholder values.
+      if measurementWidth <= 1 {
+        logger
+          .info(
+            "heightOfRow[\(row)] \(timelineRow.id.rawValue) pending-width w=\(String(format: "%.0f", width)) defer"
+          )
+        return tableView.rowHeight
+      }
+      if width <= 1 {
+        logger
+          .info(
+            "heightOfRow[\(row)] \(timelineRow.id.rawValue) pending-width w=\(String(format: "%.0f", width)) using=\(String(format: "%.0f", measurementWidth))"
+          )
+      }
+
       // ── Tier 2: Measured rows (native message / expanded tool) ──
       guard let cacheKey = heightCacheKey(forRow: row) else { return 1 }
       if let cachedHeight = heightEngine.height(for: cacheKey) {
@@ -1155,11 +1179,12 @@ import SwiftUI
         return cachedHeight
       }
       signposter.emitEvent("timeline-height-cache-miss")
-      logger.info("heightOfRow[\(row)] \(timelineRow.id.rawValue) cache-miss w=\(String(format: "%.0f", width))")
+      logger
+        .info("heightOfRow[\(row)] \(timelineRow.id.rawValue) cache-miss w=\(String(format: "%.0f", measurementWidth))")
 
       // Tier 2a: Native rich message rows (ALL markdown + images, zero SwiftUI)
       if let richModel = nativeRichMessageRow(for: timelineRow) {
-        let measuredHeight = max(1, ceil(NativeRichMessageCellView.requiredHeight(for: width, model: richModel)))
+        let measuredHeight = max(1, ceil(NativeRichMessageCellView.requiredHeight(for: measurementWidth, model: richModel)))
         heightEngine.store(measuredHeight, for: cacheKey)
         logger.debug("heightOfRow[\(row)] T2-rich h=\(String(format: "%.1f", measuredHeight))")
         return measuredHeight
@@ -1167,7 +1192,10 @@ import SwiftUI
 
       // Tier 2b: Native expanded tool cards (deterministic line-count-based)
       if let expandedModel = nativeExpandedToolModel(for: timelineRow) {
-        let measuredHeight = max(1, ceil(NativeExpandedToolCellView.requiredHeight(for: width, model: expandedModel)))
+        let measuredHeight = max(
+          1,
+          ceil(NativeExpandedToolCellView.requiredHeight(for: measurementWidth, model: expandedModel))
+        )
         heightEngine.store(measuredHeight, for: cacheKey)
         logger.debug("heightOfRow[\(row)] T2-expandedTool h=\(String(format: "%.1f", measuredHeight))")
         return measuredHeight
@@ -1175,7 +1203,7 @@ import SwiftUI
 
       // Tier 2c: Legacy plain text native rows
       if let nativeModel = nativeMessageRow(for: timelineRow) {
-        let measuredHeight = max(1, ceil(nativeSizingCell.requiredHeight(for: width, model: nativeModel)))
+        let measuredHeight = max(1, ceil(nativeSizingCell.requiredHeight(for: measurementWidth, model: nativeModel)))
         heightEngine.store(measuredHeight, for: cacheKey)
         logger.debug("heightOfRow[\(row)] T2-native h=\(String(format: "%.1f", measuredHeight))")
         return measuredHeight
