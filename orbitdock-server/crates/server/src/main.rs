@@ -84,6 +84,10 @@ enum Command {
         /// Auth token (requests must include `Authorization: Bearer <token>`)
         #[arg(long, env = "ORBITDOCK_AUTH_TOKEN")]
         auth_token: Option<String>,
+
+        /// Run as a secondary endpoint (non-primary control plane for clients)
+        #[arg(long, env = "ORBITDOCK_SERVER_SECONDARY", default_value_t = false)]
+        secondary: bool,
     },
 
     /// Bootstrap a fresh machine (create dirs, run migrations, install hook script)
@@ -159,22 +163,28 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Resolve bind address: subcommand --bind > top-level --bind > default
-    let (bind_addr, auth_token) = match cli.command {
-        Some(Command::Start { bind, auth_token }) => (bind, auth_token),
+    let (bind_addr, auth_token, is_primary) = match cli.command {
+        Some(Command::Start {
+            bind,
+            auth_token,
+            secondary,
+        }) => (bind, auth_token, !secondary),
         _ => (
             cli.bind
                 .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
             None,
+            true,
         ),
     };
 
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async_main(bind_addr, auth_token, &data_dir))
+    runtime.block_on(async_main(bind_addr, auth_token, is_primary, &data_dir))
 }
 
 async fn async_main(
     bind_addr: SocketAddr,
     auth_token: Option<String>,
+    is_primary: bool,
     data_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
     // Ensure directories exist
@@ -199,6 +209,7 @@ async fn async_main(
         event = "server.starting",
         run_id = %run_id,
         version = VERSION,
+        is_primary = is_primary,
         pid = std::process::id(),
         data_dir = %data_dir.display(),
         binary_path = %binary_path,
@@ -259,7 +270,10 @@ async fn async_main(
     tokio::spawn(persistence_writer.run());
 
     // Create app state with persistence sender
-    let state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+    let state = Arc::new(SessionRegistry::new_with_primary(
+        persist_tx.clone(),
+        is_primary,
+    ));
 
     // Clean up sessions with stale permission/question state from a prior crash.
     // Must run before load_sessions_for_startup so restored sessions see clean state.

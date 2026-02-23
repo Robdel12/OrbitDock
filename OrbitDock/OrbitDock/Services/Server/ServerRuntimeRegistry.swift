@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 @Observable
 @MainActor
@@ -10,8 +10,12 @@ final class ServerRuntimeRegistry {
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
   private var statusSubscriptions: [UUID: AnyCancellable] = [:]
+  private var serverRoleSubscriptions: [UUID: AnyCancellable] = [:]
   private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
+  private(set) var serverPrimaryByEndpointId: [UUID: Bool] = [:]
   private(set) var activeEndpointId: UUID?
+  private(set) var primaryEndpointId: UUID?
+  private(set) var hasPrimaryEndpointConflict = false
 
   init() {
     endpointsProvider = { ServerEndpointSettings.endpoints }
@@ -27,12 +31,25 @@ final class ServerRuntimeRegistry {
   }
 
   var runtimes: [ServerRuntime] {
-    runtimesByEndpointId.values.sorted { $0.endpoint.name < $1.endpoint.name }
+    runtimesByEndpointId.values.sorted { lhs, rhs in
+      let lhsName = lhs.endpoint.name.lowercased()
+      let rhsName = rhs.endpoint.name.lowercased()
+      if lhsName != rhsName {
+        return lhsName < rhsName
+      }
+      return lhs.endpoint.id.uuidString < rhs.endpoint.id.uuidString
+    }
   }
 
   var activeRuntime: ServerRuntime? {
     guard let activeEndpointId else { return nil }
     return runtimesByEndpointId[activeEndpointId]
+  }
+
+  var primaryRuntime: ServerRuntime? {
+    ensureInitialized()
+    guard let primaryEndpointId else { return nil }
+    return runtimesByEndpointId[primaryEndpointId]
   }
 
   var activeConnection: ServerConnection {
@@ -49,6 +66,14 @@ final class ServerRuntimeRegistry {
       fatalError("ServerRuntimeRegistry has no active runtime")
     }
     return runtime.appState
+  }
+
+  var primaryConnection: ServerConnection? {
+    primaryRuntime?.connection
+  }
+
+  var controlPlaneConnection: ServerConnection? {
+    primaryConnection ?? activeRuntime?.connection
   }
 
   var connectedRuntimeCount: Int {
@@ -72,7 +97,10 @@ final class ServerRuntimeRegistry {
       runtimesByEndpointId[id] = nil
       statusSubscriptions[id]?.cancel()
       statusSubscriptions[id] = nil
+      serverRoleSubscriptions[id]?.cancel()
+      serverRoleSubscriptions[id] = nil
       connectionStatusByEndpointId[id] = nil
+      serverPrimaryByEndpointId[id] = nil
     }
 
     for endpoint in configuredEndpoints {
@@ -81,18 +109,30 @@ final class ServerRuntimeRegistry {
           existing.stop()
           statusSubscriptions[endpoint.id]?.cancel()
           statusSubscriptions[endpoint.id] = nil
+          serverRoleSubscriptions[endpoint.id]?.cancel()
+          serverRoleSubscriptions[endpoint.id] = nil
+          serverPrimaryByEndpointId[endpoint.id] = nil
+
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
-          observeConnectionStatus(for: replacement)
+          observeConnectionState(for: replacement)
         }
       } else {
         let runtime = runtimeFactory(endpoint)
         runtimesByEndpointId[endpoint.id] = runtime
-        observeConnectionStatus(for: runtime)
+        observeConnectionState(for: runtime)
       }
     }
 
-    activeEndpointId = Self.preferredActiveEndpointID(from: configuredEndpoints)
+    let preferredActiveEndpointId = Self.preferredActiveEndpointID(from: configuredEndpoints)
+    if let activeEndpointId,
+       configuredEndpoints.contains(where: { $0.id == activeEndpointId && $0.isEnabled })
+    {
+      self.activeEndpointId = activeEndpointId
+    } else {
+      self.activeEndpointId = preferredActiveEndpointId
+    }
+    recomputePrimaryEndpoint(from: configuredEndpoints)
 
     guard startEnabled else { return }
 
@@ -104,6 +144,7 @@ final class ServerRuntimeRegistry {
   func setActiveEndpoint(id: UUID) {
     guard runtimesByEndpointId[id] != nil else { return }
     activeEndpointId = id
+    recomputePrimaryEndpoint()
   }
 
   func reconnect(endpointId: UUID) {
@@ -150,6 +191,13 @@ final class ServerRuntimeRegistry {
     return runtime.appState
   }
 
+  func primaryAppState(fallback: ServerAppState) -> ServerAppState {
+    if let primaryRuntime {
+      return primaryRuntime.appState
+    }
+    return fallback
+  }
+
   func connection(for endpointId: UUID?) -> ServerConnection? {
     guard let endpointId else { return nil }
     return runtimesByEndpointId[endpointId]?.connection
@@ -164,32 +212,91 @@ final class ServerRuntimeRegistry {
       let endpoint = ServerEndpoint.localDefault(defaultPort: ServerEndpointSettings.defaultPort)
       let runtime = runtimeFactory(endpoint)
       runtimesByEndpointId[endpoint.id] = runtime
-      observeConnectionStatus(for: runtime)
+      observeConnectionState(for: runtime)
     }
 
     if activeEndpointId == nil {
       activeEndpointId = runtimesByEndpointId.keys.first
     }
+    recomputePrimaryEndpoint()
   }
 
-  private func observeConnectionStatus(for runtime: ServerRuntime) {
+  private func observeConnectionState(for runtime: ServerRuntime) {
     let endpointId = runtime.endpoint.id
     connectionStatusByEndpointId[endpointId] = runtime.connection.status
-    if statusSubscriptions[endpointId] != nil {
-      return
+    if let isPrimary = runtime.connection.serverIsPrimary {
+      serverPrimaryByEndpointId[endpointId] = isPrimary
+    } else {
+      serverPrimaryByEndpointId[endpointId] = nil
     }
 
-    statusSubscriptions[endpointId] = runtime.connection.$status.sink { [weak self] status in
-      guard let self else { return }
-      Task { @MainActor in
-        self.connectionStatusByEndpointId[endpointId] = status
+    if statusSubscriptions[endpointId] == nil {
+      statusSubscriptions[endpointId] = runtime.connection.$status.sink { [weak self] status in
+        guard let self else { return }
+        Task { @MainActor in
+          self.connectionStatusByEndpointId[endpointId] = status
+        }
       }
     }
+
+    if serverRoleSubscriptions[endpointId] == nil {
+      serverRoleSubscriptions[endpointId] = runtime.connection.$serverIsPrimary.sink { [weak self] isPrimary in
+        guard let self else { return }
+        Task { @MainActor in
+          if let isPrimary {
+            self.serverPrimaryByEndpointId[endpointId] = isPrimary
+          } else {
+            self.serverPrimaryByEndpointId[endpointId] = nil
+          }
+          self.recomputePrimaryEndpoint()
+        }
+      }
+    }
+  }
+
+  private func recomputePrimaryEndpoint(from endpoints: [ServerEndpoint]? = nil) {
+    let configuredEndpoints = endpoints ?? endpointsProvider()
+    let enabledEndpoints = configuredEndpoints.filter(\.isEnabled)
+    let declaredPrimaryCandidates = enabledEndpoints.filter { endpoint in
+      serverPrimaryByEndpointId[endpoint.id] == true
+    }
+
+    hasPrimaryEndpointConflict = declaredPrimaryCandidates.count > 1
+    let declaredPrimaryEndpointId = Self.preferredDeclaredPrimaryEndpointID(
+      from: declaredPrimaryCandidates,
+      activeEndpointId: activeEndpointId
+    )
+    primaryEndpointId = declaredPrimaryEndpointId
+      ?? Self.preferredActiveEndpointID(from: configuredEndpoints)
   }
 
   static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
     endpoints.first(where: { $0.isDefault && $0.isEnabled })?.id
       ?? endpoints.first(where: \.isEnabled)?.id
       ?? endpoints.first?.id
+  }
+
+  static func preferredDeclaredPrimaryEndpointID(
+    from endpoints: [ServerEndpoint],
+    activeEndpointId: UUID?
+  ) -> UUID? {
+    if let activeEndpointId,
+       endpoints.contains(where: { $0.id == activeEndpointId })
+    {
+      return activeEndpointId
+    }
+    if let fallbackEndpoint = endpoints.first(where: \.isDefault) {
+      return fallbackEndpoint.id
+    }
+    return endpoints
+      .sorted { lhs, rhs in
+        let lhsName = lhs.name.lowercased()
+        let rhsName = rhs.name.lowercased()
+        if lhsName != rhsName {
+          return lhsName < rhsName
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
+      }
+      .first?.id
   }
 }

@@ -45,10 +45,17 @@ pub struct SessionRegistry {
     /// Pending Claude sessions awaiting first actionable hook before materialization.
     /// Keyed by Claude SDK session_id from SessionStart.
     pending_claude_sessions: DashMap<String, PendingClaudeSession>,
+
+    /// True when this server should act as the primary control-plane endpoint.
+    is_primary: bool,
 }
 
 impl SessionRegistry {
     pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
+        Self::new_with_primary(persist_tx, true)
+    }
+
+    pub fn new_with_primary(persist_tx: mpsc::Sender<PersistCommand>, is_primary: bool) -> Self {
         let (list_tx, _) = broadcast::channel(64);
         let codex_auth = Arc::new(CodexAuthService::new(list_tx.clone()));
         Self {
@@ -62,7 +69,12 @@ impl SessionRegistry {
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),
+            is_primary,
         }
+    }
+
+    pub fn is_primary(&self) -> bool {
+        self.is_primary
     }
 
     /// Get persistence sender

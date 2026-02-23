@@ -1217,28 +1217,37 @@ struct QuickSwitcher: View {
   // MARK: - Quick Launch
 
   private func loadRecentProjects() {
+    guard let connection = runtimeRegistry.controlPlaneConnection else {
+      recentProjects = []
+      isLoadingProjects = false
+      return
+    }
+
     isLoadingProjects = true
-    let connection = ServerRuntimeRegistry.shared.activeConnection
     let endpointId = connection.endpointId
     let requestId = UUID()
     recentProjectsRequestId = requestId
 
     Task { @MainActor in
       defer {
-        if recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+        if recentProjectsRequestId == requestId, currentControlPlaneEndpointID() == endpointId {
           isLoadingProjects = false
         }
       }
 
       do {
         let projects = try await connection.listRecentProjects()
-        guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard recentProjectsRequestId == requestId, currentControlPlaneEndpointID() == endpointId else { return }
         recentProjects = projects
       } catch {
-        guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard recentProjectsRequestId == requestId, currentControlPlaneEndpointID() == endpointId else { return }
         recentProjects = []
       }
     }
+  }
+
+  private func currentControlPlaneEndpointID() -> UUID? {
+    runtimeRegistry.primaryEndpointId ?? runtimeRegistry.activeEndpointId
   }
 
   private func quickLaunchSession(path: String) {

@@ -3,6 +3,7 @@ import SwiftUI
 struct EndpointSelectorField: View {
   let endpoints: [ServerEndpoint]
   let statusByEndpointId: [UUID: ConnectionStatus]
+  let serverPrimaryByEndpointId: [UUID: Bool]
   @Binding var selectedEndpointId: UUID
   var onReconnect: ((UUID) -> Void)? = nil
 
@@ -64,7 +65,13 @@ struct EndpointSelectorField: View {
   }
 
   private func endpointLabel(_ endpoint: ServerEndpoint) -> String {
-    endpoint.isDefault ? "\(endpoint.name) (Default)" : endpoint.name
+    if serverPrimaryByEndpointId[endpoint.id] == true {
+      return "\(endpoint.name) (Primary)"
+    }
+    if endpoint.isDefault {
+      return "\(endpoint.name) (Fallback)"
+    }
+    return endpoint.name
   }
 
   private func statusColor(for status: ConnectionStatus) -> Color {

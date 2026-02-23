@@ -81,4 +81,15 @@ struct ServerProtocolRequestCorrelationTests {
       }
     }
   }
+
+  @Test func serverInfoMessageDecodesPrimaryFlag() throws {
+    let payload = #"{"type":"server_info","is_primary":false}"#
+    let message = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(payload.utf8))
+    switch message {
+      case let .serverInfo(isPrimary):
+        #expect(isPrimary == false)
+      default:
+        Issue.record("Expected server_info")
+    }
+  }
 }

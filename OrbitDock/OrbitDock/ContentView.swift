@@ -124,6 +124,13 @@ struct ContentView: View {
     .onChange(of: selectedSessionScopedID) { _, newId in
       toastManager.currentSessionId = newId
     }
+    .onChange(of: runtimeRegistry.activeEndpointId) { _, _ in
+      guard let selectedSessionScopedID else { return }
+      guard let selectedRef = unifiedSessionsStore.sessionRef(for: selectedSessionScopedID) else { return }
+      if runtimeRegistry.activeEndpointId != selectedRef.endpointId {
+        runtimeRegistry.setActiveEndpoint(id: selectedRef.endpointId)
+      }
+    }
     .onAppear {
       Task { await loadSessions() }
     }
@@ -392,13 +399,7 @@ struct ContentView: View {
   }
 
   private func creationAppState() -> ServerAppState {
-    let preferredEndpointId = ServerRuntimeRegistry.preferredActiveEndpointID(from: ServerEndpointSettings.endpoints)
-    if let preferredEndpointId,
-       let runtime = runtimeRegistry.runtimesByEndpointId[preferredEndpointId]
-    {
-      return runtime.appState
-    }
-    return serverState
+    runtimeRegistry.primaryAppState(fallback: serverState)
   }
 }
 

@@ -401,7 +401,8 @@ struct GeneralSettingsView: View {
   }
 
   private func saveOpenAiKey() {
-    runtimeRegistry.activeConnection.setOpenAiKey(openAiKey)
+    guard let connection = runtimeRegistry.controlPlaneConnection else { return }
+    connection.setOpenAiKey(openAiKey)
     openAiKeySaved = true
     openAiKey = ""
     isReplacingKey = false
@@ -409,8 +410,12 @@ struct GeneralSettingsView: View {
   }
 
   private func checkOpenAiKeyStatus() {
+    guard let connection = runtimeRegistry.controlPlaneConnection else {
+      openAiKeyStatus = .notConfigured
+      return
+    }
+
     openAiKeyStatus = .checking
-    let connection = runtimeRegistry.activeConnection
     let endpointId = connection.endpointId
     let requestId = UUID()
     openAiKeyStatusRequestId = requestId
@@ -418,10 +423,14 @@ struct GeneralSettingsView: View {
     Task { @MainActor in
       do {
         let configured = try await connection.checkOpenAiKeyStatus()
-        guard openAiKeyStatusRequestId == requestId, runtimeRegistry.activeEndpointId == endpointId else { return }
+        guard openAiKeyStatusRequestId == requestId,
+              runtimeRegistry.controlPlaneConnection?.endpointId == endpointId
+        else { return }
         openAiKeyStatus = configured ? .configured : .notConfigured
       } catch {
-        guard openAiKeyStatusRequestId == requestId, runtimeRegistry.activeEndpointId == endpointId else { return }
+        guard openAiKeyStatusRequestId == requestId,
+              runtimeRegistry.controlPlaneConnection?.endpointId == endpointId
+        else { return }
         openAiKeyStatus = .notConfigured
       }
     }

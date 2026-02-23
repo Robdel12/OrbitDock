@@ -475,6 +475,7 @@ import SwiftUI
 
     private func resolvedEndpointID() -> UUID? {
       endpointId
+        ?? runtimeRegistry.primaryEndpointId
         ?? runtimeRegistry.activeEndpointId
         ?? ServerRuntimeRegistry.preferredActiveEndpointID(from: ServerEndpointSettings.endpoints)
     }

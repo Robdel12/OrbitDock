@@ -237,6 +237,9 @@ pub enum ServerMessage {
         request_id: String,
         configured: bool,
     },
+    ServerInfo {
+        is_primary: bool,
+    },
 
     // Errors
     Error {
@@ -371,6 +374,19 @@ mod tests {
                 assert_eq!(failed[0].server, "server-b");
                 assert_eq!(failed[0].error, "timeout");
                 assert_eq!(cancelled, vec!["server-c"]);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_server_info() {
+        let msg = ServerMessage::ServerInfo { is_primary: false };
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::ServerInfo { is_primary } => {
+                assert!(!is_primary);
             }
             other => panic!("unexpected variant: {:?}", other),
         }

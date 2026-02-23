@@ -101,6 +101,11 @@ struct NewCodexSessionSheet: View {
     .frame(minWidth: 420, idealWidth: 500, maxWidth: 580)
     .background(Color.backgroundSecondary)
     .onAppear {
+      if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
+         selectableEndpoints.contains(where: { $0.id == primaryEndpointId })
+      {
+        selectedEndpointId = primaryEndpointId
+      }
       normalizeEndpointSelection()
       refreshEndpointData()
       if selectedModel.isEmpty {
@@ -215,6 +220,7 @@ struct NewCodexSessionSheet: View {
     EndpointSelectorField(
       endpoints: selectableEndpoints,
       statusByEndpointId: runtimeRegistry.connectionStatusByEndpointId,
+      serverPrimaryByEndpointId: runtimeRegistry.serverPrimaryByEndpointId,
       selectedEndpointId: $selectedEndpointId,
       onReconnect: { endpointId in
         runtimeRegistry.reconnect(endpointId: endpointId)
@@ -448,6 +454,12 @@ struct NewCodexSessionSheet: View {
   private func normalizeEndpointSelection() {
     guard !selectableEndpoints.isEmpty else { return }
     if selectableEndpoints.contains(where: { $0.id == selectedEndpointId }) {
+      return
+    }
+    if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
+       selectableEndpoints.contains(where: { $0.id == primaryEndpointId })
+    {
+      selectedEndpointId = primaryEndpointId
       return
     }
     selectedEndpointId = selectableEndpoints.first(where: \.isDefault)?.id

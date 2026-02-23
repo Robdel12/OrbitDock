@@ -1078,6 +1078,7 @@ enum ServerToClientMessage: Codable {
   case directoryListing(requestId: String, path: String, entries: [ServerDirectoryEntry])
   case recentProjectsList(requestId: String, projects: [ServerRecentProject])
   case openAiKeyStatus(requestId: String, configured: Bool)
+  case serverInfo(isPrimary: Bool)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1137,6 +1138,7 @@ enum ServerToClientMessage: Codable {
     case entries
     case projects
     case configured
+    case isPrimary = "is_primary"
   }
 
   init(from decoder: Decoder) throws {
@@ -1402,6 +1404,10 @@ enum ServerToClientMessage: Codable {
         let configured = try container.decode(Bool.self, forKey: .configured)
         self = .openAiKeyStatus(requestId: requestId, configured: configured)
 
+      case "server_info":
+        let isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
+        self = .serverInfo(isPrimary: isPrimary)
+
       case "error":
         let code = try container.decode(String.self, forKey: .code)
         let message = try container.decode(String.self, forKey: .message)
@@ -1649,6 +1655,10 @@ enum ServerToClientMessage: Codable {
         try container.encode("open_ai_key_status", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
         try container.encode(configured, forKey: .configured)
+
+      case let .serverInfo(isPrimary):
+        try container.encode("server_info", forKey: .type)
+        try container.encode(isPrimary, forKey: .isPrimary)
 
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)

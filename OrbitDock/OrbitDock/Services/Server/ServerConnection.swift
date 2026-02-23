@@ -43,6 +43,7 @@ class ServerConnection: ObservableObject {
 
   @Published private(set) var status: ConnectionStatus = .disconnected
   @Published private(set) var lastError: String?
+  @Published private(set) var serverIsPrimary: Bool?
 
   private var webSocket: URLSessionWebSocketTask?
   private var session: URLSession?
@@ -470,6 +471,9 @@ class ServerConnection: ObservableObject {
           continuation.resume(returning: configured)
         }
 
+      case let .serverInfo(isPrimary):
+        applyServerInfo(isPrimary: isPrimary)
+
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
         connLog(
@@ -480,6 +484,10 @@ class ServerConnection: ObservableObject {
         )
         onError?(code, errorMessage, sessionId)
     }
+  }
+
+  func applyServerInfo(isPrimary: Bool) {
+    serverIsPrimary = isPrimary
   }
 
   // MARK: - Sending Messages

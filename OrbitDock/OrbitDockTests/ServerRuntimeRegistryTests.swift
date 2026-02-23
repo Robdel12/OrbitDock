@@ -123,6 +123,54 @@ struct ServerRuntimeRegistryTests {
     #expect(registry.appState(for: nil, fallback: fallback).endpointId == fallback.endpointId)
   }
 
+  @Test func configurePreservesActiveEndpointWhenStillEnabled() {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: false
+    )
+
+    var endpoints = [endpointA, endpointB]
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { endpoints },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+    registry.setActiveEndpoint(id: endpointB.id)
+    #expect(registry.activeEndpointId == endpointB.id)
+
+    // Reconfigure with a changed default. Active endpoint should remain pinned to B.
+    endpoints = [
+      endpointA,
+      ServerEndpoint(
+        id: endpointB.id,
+        name: endpointB.name,
+        wsURL: endpointB.wsURL,
+        isLocalManaged: false,
+        isEnabled: true,
+        isDefault: false
+      ),
+    ]
+
+    registry.configureFromSettings(startEnabled: false)
+    #expect(registry.activeEndpointId == endpointB.id)
+  }
+
   @Test func startsOnlyEnabledEndpointsWhenConfiguredFromSettings() {
     let endpointA = ServerEndpoint(
       id: UUID(),
@@ -241,6 +289,83 @@ struct ServerRuntimeRegistryTests {
     let preferred = ServerRuntimeRegistry.preferredActiveEndpointID(from: [endpointA, endpointB])
 
     #expect(preferred == endpointB.id)
+  }
+
+  @Test func serverDeclaredPrimaryOverridesFallbackEndpoint() async {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "Fallback",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "Declared Primary",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: false
+    )
+
+    var spies: [UUID: SpyServerConnection] = [:]
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        spies[endpoint.id] = spy
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+    #expect(registry.primaryEndpointId == endpointA.id)
+
+    spies[endpointB.id]?.applyServerInfo(isPrimary: true)
+    await Task.yield()
+
+    #expect(registry.primaryEndpointId == endpointB.id)
+    #expect(registry.serverPrimaryByEndpointId[endpointB.id] == true)
+  }
+
+  @Test func multipleDeclaredPrimariesSetConflictFlag() async {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: false
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: true
+    )
+
+    var spies: [UUID: SpyServerConnection] = [:]
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        spies[endpoint.id] = spy
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+    registry.setActiveEndpoint(id: endpointB.id)
+
+    spies[endpointA.id]?.applyServerInfo(isPrimary: true)
+    spies[endpointB.id]?.applyServerInfo(isPrimary: true)
+    await Task.yield()
+
+    #expect(registry.hasPrimaryEndpointConflict)
+    #expect(registry.primaryEndpointId == endpointB.id)
   }
 }
 

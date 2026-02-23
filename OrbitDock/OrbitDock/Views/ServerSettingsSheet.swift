@@ -66,8 +66,13 @@ struct ServerSettingsSheet: View {
     }.count
   }
 
-  private var defaultEndpointName: String {
-    endpoints.first(where: { $0.isDefault && $0.isEnabled })?.name
+  private var primaryEndpointName: String {
+    if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
+       let endpoint = endpoints.first(where: { $0.id == primaryEndpointId })
+    {
+      return endpoint.name
+    }
+    return endpoints.first(where: { $0.isDefault && $0.isEnabled })?.name
       ?? endpoints.first(where: \.isEnabled)?.name
       ?? "None"
   }
@@ -175,15 +180,15 @@ struct ServerSettingsSheet: View {
         )
 
         statusMetric(
-          icon: "star.fill",
-          value: defaultEndpointName,
-          label: "Default",
+          icon: "crown.fill",
+          value: primaryEndpointName,
+          label: "Primary",
           color: Color.accent,
           monospaced: false
         )
       }
 
-      Text("MCP bridge requests are routed through the active endpoint for the selected session.")
+      Text("Primary endpoint comes from the connected server role. Fallback is used only when no server declares primary.")
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
     }
@@ -236,7 +241,11 @@ struct ServerSettingsSheet: View {
               .lineLimit(1)
 
             if endpoint.isDefault {
-              EndpointBadge(endpointName: "Default", isDefault: true)
+              EndpointBadge(endpointName: "Fallback")
+            }
+
+            if runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true {
+              EndpointBadge(endpointName: "Primary", isDefault: true)
             }
 
             if endpoint.isLocalManaged {
@@ -286,7 +295,7 @@ struct ServerSettingsSheet: View {
         }
 
         if !endpoint.isDefault {
-          Button("Set Default") {
+          Button("Set Fallback") {
             setDefaultEndpoint(endpoint.id)
           }
           .buttonStyle(.borderless)
@@ -360,7 +369,7 @@ struct ServerSettingsSheet: View {
 
         Section("Behavior") {
           Toggle("Enabled", isOn: $draftIsEnabled)
-          Toggle("Default endpoint", isOn: $draftIsDefault)
+          Toggle("Fallback endpoint", isOn: $draftIsDefault)
             .disabled(!draftIsEnabled)
         }
 

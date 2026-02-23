@@ -189,6 +189,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
     // Wrapper to send JSON messages (used by handle_client_message)
     let client_tx = outbound_tx.clone();
 
+    // Announce server role immediately so clients can derive control-plane routing.
+    send_json(
+        &outbound_tx,
+        ServerMessage::ServerInfo {
+            is_primary: state.is_primary(),
+        },
+    )
+    .await;
+
     // Handle incoming messages
     while let Some(result) = ws_rx.next().await {
         let msg = match result {
