@@ -52,6 +52,7 @@ pub struct SessionRegistry {
 }
 
 impl SessionRegistry {
+    #[cfg(test)]
     pub fn new(persist_tx: mpsc::Sender<PersistCommand>) -> Self {
         Self::new_with_primary(persist_tx, true)
     }

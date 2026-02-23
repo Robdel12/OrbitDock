@@ -188,6 +188,8 @@ class ServerConnection: ObservableObject {
     logger.info("Connecting to server (attempt \(self.connectAttempts)/\(self.maxConnectAttempts))...")
 
     // Clean up any previous connection
+    receiveTask?.cancel()
+    receiveTask = nil
     webSocket?.cancel()
     session?.invalidateAndCancel()
 
@@ -198,6 +200,7 @@ class ServerConnection: ObservableObject {
 
     webSocket = session?.webSocketTask(with: serverURL)
     webSocket?.resume()
+    startReceiving()
 
     // Verify connection with a ping
     connectTask = Task {
@@ -205,19 +208,17 @@ class ServerConnection: ObservableObject {
         try await ping()
 
         await MainActor.run {
-          self.status = .connected
-          self.connectAttempts = 0
-          logger.info("Connected to server")
-          connLog(.info, category: .lifecycle, "status → connected")
-          self.startReceiving()
-
-          // Auto-subscribe to session list
-          self.subscribeList()
-
-          // Notify observers (e.g. to re-subscribe to sessions)
-          self.onConnected?()
+          self.completeConnectionIfNeeded(trigger: "ping")
         }
       } catch {
+        guard !Task.isCancelled else { return }
+
+        let shouldRetry = await MainActor.run { () -> Bool in
+          if case .connecting = self.status { return true }
+          return false
+        }
+        guard shouldRetry else { return }
+
         logger.warning("Connect attempt \(self.connectAttempts) failed: \(error.localizedDescription)")
 
         // Exponential backoff: local caps at 10s, remote caps at 15s
@@ -232,6 +233,26 @@ class ServerConnection: ObservableObject {
         }
       }
     }
+  }
+
+  private func completeConnectionIfNeeded(trigger: String) {
+    guard case .connecting = status else { return }
+
+    if trigger != "ping" {
+      connectTask?.cancel()
+      connectTask = nil
+    }
+
+    status = .connected
+    connectAttempts = 0
+    logger.info("Connected to server")
+    connLog(.info, category: .lifecycle, "status → connected", data: ["trigger": trigger])
+
+    // Auto-subscribe to session list
+    subscribeList()
+
+    // Notify observers (e.g. to re-subscribe to sessions)
+    onConnected?()
   }
 
   /// Disconnect from the server
@@ -279,6 +300,21 @@ class ServerConnection: ObservableObject {
     while !Task.isCancelled {
       do {
         guard let message = try await webSocket?.receive() else {
+          connLog(.warning, category: .lifecycle, "Receive returned nil")
+
+          await MainActor.run {
+            switch self.status {
+              case .connected, .connecting:
+                self.failPendingRequests(with: ServerRequestError.connectionLost)
+                self.status = .disconnected
+                self.serverIsPrimary = nil
+                connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
+                self.onDisconnected?()
+                self.attemptConnect()
+              case .disconnected, .failed:
+                break
+            }
+          }
           break
         }
 
@@ -302,14 +338,16 @@ class ServerConnection: ObservableObject {
         )
 
         await MainActor.run {
-          // Connection lost - try to reconnect (with limits)
-          if case .connected = self.status {
-            self.failPendingRequests(with: ServerRequestError.connectionLost)
-            self.status = .disconnected
-            self.serverIsPrimary = nil
-            connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
-            self.onDisconnected?()
-            self.attemptConnect()
+          switch self.status {
+            case .connected, .connecting:
+              self.failPendingRequests(with: ServerRequestError.connectionLost)
+              self.status = .disconnected
+              self.serverIsPrimary = nil
+              connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
+              self.onDisconnected?()
+              self.attemptConnect()
+            case .disconnected, .failed:
+              break
           }
         }
         break
@@ -319,6 +357,7 @@ class ServerConnection: ObservableObject {
 
   private func handleMessage(_ text: String) {
     guard let data = text.data(using: .utf8) else { return }
+    completeConnectionIfNeeded(trigger: "first_frame")
 
     do {
       let message = try JSONDecoder().decode(ServerToClientMessage.self, from: data)

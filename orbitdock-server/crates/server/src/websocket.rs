@@ -118,6 +118,9 @@ fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::Work
 const CLAUDE_EMPTY_SHELL_TTL_SECS: u64 = 5 * 60;
 const SNAPSHOT_MAX_MESSAGES: usize = 200;
 const SNAPSHOT_MAX_CONTENT_CHARS: usize = 16_000;
+const SNAPSHOT_MIN_CONTENT_CHARS: usize = 250;
+const SNAPSHOT_MAX_TURN_DIFFS: usize = 80;
+const WS_MAX_TEXT_MESSAGE_BYTES: usize = 900 * 1024;
 
 /// Messages that can be sent through the WebSocket
 #[allow(clippy::large_enum_variant)]
@@ -157,20 +160,49 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
     let send_task = tokio::spawn(async move {
         while let Some(msg) = outbound_rx.recv().await {
             let result = match msg {
-                OutboundMessage::Json(server_msg) => match serde_json::to_string(&server_msg) {
-                    Ok(json) => ws_tx.send(Message::Text(json.into())).await,
-                    Err(e) => {
-                        error!(
+                OutboundMessage::Json(server_msg) => {
+                    let compacted = sanitize_server_message_for_transport(server_msg);
+                    match serde_json::to_string(&compacted) {
+                        Ok(json) => {
+                            if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {
+                                warn!(
+                                    component = "websocket",
+                                    event = "ws.send.message_dropped_oversize",
+                                    connection_id = conn_id,
+                                    bytes = json.len(),
+                                    max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
+                                    "Dropped oversized server message after compaction"
+                                );
+                                continue;
+                            }
+                            ws_tx.send(Message::Text(json.into())).await
+                        }
+                        Err(e) => {
+                            error!(
+                                component = "websocket",
+                                event = "ws.send.serialize_failed",
+                                connection_id = conn_id,
+                                error = %e,
+                                "Failed to serialize server message"
+                            );
+                            continue;
+                        }
+                    }
+                }
+                OutboundMessage::Raw(json) => {
+                    if json.len() > WS_MAX_TEXT_MESSAGE_BYTES {
+                        warn!(
                             component = "websocket",
-                            event = "ws.send.serialize_failed",
+                            event = "ws.send.raw_dropped_oversize",
                             connection_id = conn_id,
-                            error = %e,
-                            "Failed to serialize server message"
+                            bytes = json.len(),
+                            max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
+                            "Dropped oversized replay payload"
                         );
                         continue;
                     }
-                },
-                OutboundMessage::Raw(json) => ws_tx.send(Message::Text(json.into())).await,
+                    ws_tx.send(Message::Text(json.into())).await
+                }
                 OutboundMessage::Pong(data) => ws_tx.send(Message::Pong(data)).await,
             };
 
@@ -278,6 +310,75 @@ fn truncate_for_log(value: &str, max_chars: usize) -> String {
 /// Send a ServerMessage through the outbound channel
 async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
     let _ = tx.send(OutboundMessage::Json(msg)).await;
+}
+
+fn replay_has_oversize_event(events: &[String]) -> Option<usize> {
+    events
+        .iter()
+        .map(String::len)
+        .max()
+        .filter(|size| *size > WS_MAX_TEXT_MESSAGE_BYTES)
+}
+
+async fn send_snapshot_from_actor(
+    actor: &SessionActorHandle,
+    tx: &mpsc::Sender<OutboundMessage>,
+    session_id: &str,
+) {
+    let (state_tx, state_rx) = oneshot::channel();
+    actor
+        .send(SessionCommand::GetState { reply: state_tx })
+        .await;
+    match state_rx.await {
+        Ok(snapshot) => {
+            send_json(tx, ServerMessage::SessionSnapshot { session: snapshot }).await;
+        }
+        Err(err) => {
+            warn!(
+                component = "websocket",
+                event = "ws.subscribe.snapshot_fallback_failed",
+                session_id = %session_id,
+                error = %err,
+                "Failed to fetch fallback snapshot after replay overflow"
+            );
+            send_json(
+                tx,
+                ServerMessage::Error {
+                    code: "snapshot_unavailable".to_string(),
+                    message: "Session snapshot unavailable".to_string(),
+                    session_id: Some(session_id.to_string()),
+                },
+            )
+            .await;
+        }
+    }
+}
+
+async fn send_replay_or_snapshot_fallback(
+    actor: &SessionActorHandle,
+    tx: &mpsc::Sender<OutboundMessage>,
+    session_id: &str,
+    events: Vec<String>,
+    conn_id: u64,
+) {
+    if let Some(max_bytes) = replay_has_oversize_event(&events) {
+        warn!(
+            component = "websocket",
+            event = "ws.subscribe.replay_fallback_snapshot",
+            connection_id = conn_id,
+            session_id = %session_id,
+            replay_count = events.len(),
+            largest_event_bytes = max_bytes,
+            max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
+            "Replay payload exceeded transport limit, falling back to compact snapshot"
+        );
+        send_snapshot_from_actor(actor, tx, session_id).await;
+        return;
+    }
+
+    for json in events {
+        send_raw(tx, json).await;
+    }
 }
 
 /// Send a pre-serialized JSON string through the outbound channel (for replay)
@@ -445,32 +546,239 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
     format!("{truncated}\n\n[truncated]")
 }
 
-fn compact_snapshot_for_transport(mut snapshot: SessionState) -> SessionState {
-    if snapshot.messages.len() > SNAPSHOT_MAX_MESSAGES {
-        let keep_from = snapshot.messages.len() - SNAPSHOT_MAX_MESSAGES;
+fn truncate_string_in_place(value: &mut String, max_chars: usize) {
+    if value.chars().count() <= max_chars {
+        return;
+    }
+    let truncated = truncate_text(value, max_chars);
+    *value = truncated;
+}
+
+fn truncate_option_string_in_place(value: &mut Option<String>, max_chars: usize) {
+    if let Some(content) = value.as_mut() {
+        truncate_string_in_place(content, max_chars);
+    }
+}
+
+fn compact_approval_for_transport(
+    approval: &mut orbitdock_protocol::ApprovalRequest,
+    max_chars: usize,
+) {
+    truncate_option_string_in_place(&mut approval.tool_input, max_chars);
+    truncate_option_string_in_place(&mut approval.command, max_chars);
+    truncate_option_string_in_place(&mut approval.file_path, max_chars);
+    truncate_option_string_in_place(&mut approval.question, max_chars);
+    truncate_option_string_in_place(&mut approval.diff, max_chars.saturating_mul(2));
+
+    if let Some(amendment) = approval.proposed_amendment.as_mut() {
+        for line in amendment {
+            truncate_string_in_place(line, max_chars);
+        }
+    }
+}
+
+fn compact_message_for_transport(message: &mut orbitdock_protocol::Message, max_chars: usize) {
+    truncate_string_in_place(&mut message.content, max_chars);
+    truncate_option_string_in_place(&mut message.tool_input, max_chars);
+    truncate_option_string_in_place(&mut message.tool_output, max_chars);
+
+    // Safety net: strip any data URIs that failed disk extraction
+    message.images.retain(|img| img.value.len() <= 500);
+}
+
+fn compact_message_changes_for_transport(changes: &mut MessageChanges, max_chars: usize) {
+    truncate_option_string_in_place(&mut changes.content, max_chars);
+    truncate_option_string_in_place(&mut changes.tool_output, max_chars);
+}
+
+fn compact_state_changes_for_transport(changes: &mut StateChanges, max_chars: usize) {
+    if let Some(diff) = changes.current_diff.as_mut().and_then(Option::as_mut) {
+        truncate_string_in_place(diff, max_chars.saturating_mul(2));
+    }
+    if let Some(plan) = changes.current_plan.as_mut().and_then(Option::as_mut) {
+        truncate_string_in_place(plan, max_chars.saturating_mul(2));
+    }
+    if let Some(approval) = changes.pending_approval.as_mut().and_then(Option::as_mut) {
+        compact_approval_for_transport(approval, max_chars);
+    }
+}
+
+fn compact_snapshot_for_transport_with_limits(
+    mut snapshot: SessionState,
+    max_messages: usize,
+    max_content_chars: usize,
+) -> SessionState {
+    let max_messages = max_messages.min(SNAPSHOT_MAX_MESSAGES);
+    let max_content_chars = max_content_chars
+        .max(SNAPSHOT_MIN_CONTENT_CHARS)
+        .min(SNAPSHOT_MAX_CONTENT_CHARS);
+
+    if max_messages == 0 {
+        snapshot.messages.clear();
+    } else if snapshot.messages.len() > max_messages {
+        let keep_from = snapshot.messages.len() - max_messages;
         snapshot.messages = snapshot.messages.split_off(keep_from);
     }
 
     for message in &mut snapshot.messages {
-        if message.content.chars().count() > SNAPSHOT_MAX_CONTENT_CHARS {
-            message.content = truncate_text(&message.content, SNAPSHOT_MAX_CONTENT_CHARS);
-        }
-        if let Some(tool_input) = &message.tool_input {
-            if tool_input.chars().count() > SNAPSHOT_MAX_CONTENT_CHARS {
-                message.tool_input = Some(truncate_text(tool_input, SNAPSHOT_MAX_CONTENT_CHARS));
-            }
-        }
-        if let Some(tool_output) = &message.tool_output {
-            if tool_output.chars().count() > SNAPSHOT_MAX_CONTENT_CHARS {
-                message.tool_output = Some(truncate_text(tool_output, SNAPSHOT_MAX_CONTENT_CHARS));
-            }
-        }
+        compact_message_for_transport(message, max_content_chars);
+    }
 
-        // Safety net: strip any data URIs that failed disk extraction
-        message.images.retain(|img| img.value.len() <= 500);
+    // Avoid huge payload spikes from active turn context fields.
+    truncate_option_string_in_place(
+        &mut snapshot.current_diff,
+        max_content_chars.saturating_mul(2),
+    );
+    truncate_option_string_in_place(
+        &mut snapshot.current_plan,
+        max_content_chars.saturating_mul(2),
+    );
+    truncate_option_string_in_place(&mut snapshot.pending_tool_input, max_content_chars);
+    truncate_option_string_in_place(&mut snapshot.pending_question, max_content_chars);
+    if let Some(approval) = snapshot.pending_approval.as_mut() {
+        compact_approval_for_transport(approval, max_content_chars);
+    }
+
+    let max_turn_diffs = if max_messages == 0 {
+        0
+    } else {
+        SNAPSHOT_MAX_TURN_DIFFS.min(max_messages.saturating_mul(2))
+    };
+    if max_turn_diffs == 0 {
+        snapshot.turn_diffs.clear();
+    } else if snapshot.turn_diffs.len() > max_turn_diffs {
+        let keep_from = snapshot.turn_diffs.len() - max_turn_diffs;
+        snapshot.turn_diffs = snapshot.turn_diffs.split_off(keep_from);
+    }
+    for turn in &mut snapshot.turn_diffs {
+        truncate_string_in_place(&mut turn.diff, max_content_chars.saturating_mul(2));
     }
 
     snapshot
+}
+
+fn snapshot_transport_size_bytes(snapshot: &SessionState) -> Option<usize> {
+    serde_json::to_vec(&ServerMessage::SessionSnapshot {
+        session: snapshot.clone(),
+    })
+    .ok()
+    .map(|bytes| bytes.len())
+}
+
+fn compact_snapshot_to_transport_limit(snapshot: SessionState) -> SessionState {
+    let default_compacted = compact_snapshot_for_transport_with_limits(
+        snapshot.clone(),
+        SNAPSHOT_MAX_MESSAGES,
+        SNAPSHOT_MAX_CONTENT_CHARS,
+    );
+
+    if snapshot_transport_size_bytes(&default_compacted)
+        .is_some_and(|size| size <= WS_MAX_TEXT_MESSAGE_BYTES)
+    {
+        return default_compacted;
+    }
+
+    let message_caps = [160, 120, 96, 72, 48, 32, 24, 16, 8, 4, 2, 1, 0];
+    let content_caps = [
+        12_000,
+        8_000,
+        4_000,
+        2_000,
+        1_000,
+        500,
+        SNAPSHOT_MIN_CONTENT_CHARS,
+    ];
+    let mut smallest = default_compacted;
+    let mut smallest_size = snapshot_transport_size_bytes(&smallest).unwrap_or(usize::MAX);
+
+    for max_messages in message_caps {
+        for max_content_chars in content_caps {
+            let candidate = compact_snapshot_for_transport_with_limits(
+                snapshot.clone(),
+                max_messages,
+                max_content_chars,
+            );
+            let Some(size) = snapshot_transport_size_bytes(&candidate) else {
+                continue;
+            };
+            if size < smallest_size {
+                smallest_size = size;
+                smallest = candidate.clone();
+            }
+            if size <= WS_MAX_TEXT_MESSAGE_BYTES {
+                return candidate;
+            }
+        }
+    }
+
+    smallest
+}
+
+fn compact_snapshot_for_transport(snapshot: SessionState) -> SessionState {
+    compact_snapshot_for_transport_with_limits(
+        snapshot,
+        SNAPSHOT_MAX_MESSAGES,
+        SNAPSHOT_MAX_CONTENT_CHARS,
+    )
+}
+
+fn sanitize_server_message_for_transport(msg: ServerMessage) -> ServerMessage {
+    match msg {
+        ServerMessage::SessionSnapshot { session } => {
+            let before = snapshot_transport_size_bytes(&session);
+            let compacted = compact_snapshot_to_transport_limit(session);
+            let after = snapshot_transport_size_bytes(&compacted);
+
+            if let (Some(before), Some(after)) = (before, after) {
+                if before > WS_MAX_TEXT_MESSAGE_BYTES && after < before {
+                    warn!(
+                        component = "websocket",
+                        event = "ws.transport.snapshot_compacted",
+                        session_id = %compacted.id,
+                        before_bytes = before,
+                        after_bytes = after,
+                        max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
+                        "Compacted session snapshot to fit transport limits"
+                    );
+                }
+            }
+
+            ServerMessage::SessionSnapshot { session: compacted }
+        }
+        ServerMessage::MessageAppended {
+            session_id,
+            mut message,
+        } => {
+            compact_message_for_transport(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
+            ServerMessage::MessageAppended {
+                session_id,
+                message,
+            }
+        }
+        ServerMessage::MessageUpdated {
+            session_id,
+            message_id,
+            mut changes,
+        } => {
+            compact_message_changes_for_transport(&mut changes, SNAPSHOT_MAX_CONTENT_CHARS);
+            ServerMessage::MessageUpdated {
+                session_id,
+                message_id,
+                changes,
+            }
+        }
+        ServerMessage::SessionDelta {
+            session_id,
+            mut changes,
+        } => {
+            compact_state_changes_for_transport(&mut changes, SNAPSHOT_MAX_CONTENT_CHARS);
+            ServerMessage::SessionDelta {
+                session_id,
+                changes,
+            }
+        }
+        other => other,
+    }
 }
 
 /// Handle a client message
@@ -604,9 +912,14 @@ async fn handle_client_message(
                                         client_tx.clone(),
                                         Some(session_id.clone()),
                                     );
-                                    for json in events {
-                                        send_raw(client_tx, json).await;
-                                    }
+                                    send_replay_or_snapshot_fallback(
+                                        &actor,
+                                        client_tx,
+                                        &session_id,
+                                        events,
+                                        conn_id,
+                                    )
+                                    .await;
                                 }
                             }
                         }
@@ -890,9 +1203,14 @@ async fn handle_client_message(
                                             client_tx.clone(),
                                             Some(session_id.clone()),
                                         );
-                                        for json in events {
-                                            send_raw(client_tx, json).await;
-                                        }
+                                        send_replay_or_snapshot_fallback(
+                                            &new_actor,
+                                            client_tx,
+                                            &session_id,
+                                            events,
+                                            conn_id,
+                                        )
+                                        .await;
                                     }
                                 }
                             }
@@ -935,9 +1253,14 @@ async fn handle_client_message(
                                 client_tx.clone(),
                                 Some(session_id.clone()),
                             );
-                            for json in events {
-                                send_raw(client_tx, json).await;
-                            }
+                            send_replay_or_snapshot_fallback(
+                                &actor,
+                                client_tx,
+                                &session_id,
+                                events,
+                                conn_id,
+                            )
+                            .await;
                         }
                         SubscribeResult::Snapshot {
                             state: snapshot,
@@ -3493,9 +3816,14 @@ async fn handle_client_message(
                                     client_tx.clone(),
                                     Some(session_id.clone()),
                                 );
-                                for json in events {
-                                    send_raw(client_tx, json).await;
-                                }
+                                send_replay_or_snapshot_fallback(
+                                    &new_actor,
+                                    client_tx,
+                                    &session_id,
+                                    events,
+                                    conn_id,
+                                )
+                                .await;
                             }
                         }
                     }
@@ -4611,8 +4939,10 @@ fn resolve_claude_resume_cwd(project_path: &str, transcript_path: &str) -> Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        claude_transcript_path_from_cwd, direct_mode_activation_changes, handle_client_message,
-        work_status_for_approval_decision, OutboundMessage,
+        claude_transcript_path_from_cwd, compact_snapshot_to_transport_limit,
+        direct_mode_activation_changes, handle_client_message, replay_has_oversize_event,
+        snapshot_transport_size_bytes, work_status_for_approval_decision, OutboundMessage,
+        WS_MAX_TEXT_MESSAGE_BYTES,
     };
     use crate::claude_session::ClaudeAction;
     use crate::codex_session::CodexAction;
@@ -4621,7 +4951,7 @@ mod tests {
     use crate::state::SessionRegistry;
     use orbitdock_protocol::{
         ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput, MentionInput,
-        Provider, ServerMessage, SessionStatus, WorkStatus,
+        Message, MessageType, Provider, ServerMessage, SessionStatus, TurnDiff, WorkStatus,
     };
     use std::sync::{Arc, Once};
     use tokio::sync::mpsc;
@@ -4717,6 +5047,67 @@ mod tests {
             ),
             "unexpected transcript path: {}",
             value
+        );
+    }
+
+    #[test]
+    fn snapshot_compaction_fits_websocket_transport_limit() {
+        let mut snapshot = SessionHandle::new(
+            "oversized".to_string(),
+            Provider::Codex,
+            "/tmp/oversized".into(),
+        )
+        .state();
+
+        snapshot.messages = (0..80)
+            .map(|index| Message {
+                id: format!("m-{index}"),
+                session_id: snapshot.id.clone(),
+                message_type: MessageType::Assistant,
+                content: "A".repeat(60_000),
+                tool_name: Some("bash".to_string()),
+                tool_input: Some("B".repeat(20_000)),
+                tool_output: Some("C".repeat(20_000)),
+                is_error: false,
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                duration_ms: Some(123),
+                images: vec![],
+            })
+            .collect();
+
+        snapshot.current_diff = Some("D".repeat(120_000));
+        snapshot.current_plan = Some("E".repeat(120_000));
+        snapshot.pending_tool_input = Some("F".repeat(120_000));
+        snapshot.pending_question = Some("G".repeat(120_000));
+        snapshot.turn_diffs = (0..120)
+            .map(|idx| TurnDiff {
+                turn_id: format!("turn-{idx}"),
+                diff: "H".repeat(120_000),
+                token_usage: None,
+            })
+            .collect();
+
+        let compacted = compact_snapshot_to_transport_limit(snapshot);
+        let compacted_size =
+            snapshot_transport_size_bytes(&compacted).expect("compacted snapshot serialized");
+
+        assert!(
+            compacted_size <= WS_MAX_TEXT_MESSAGE_BYTES,
+            "expected compacted snapshot <= {} bytes, got {}",
+            WS_MAX_TEXT_MESSAGE_BYTES,
+            compacted_size
+        );
+    }
+
+    #[test]
+    fn detects_oversized_replay_payloads() {
+        let small = vec!["{}".to_string(), "{\"type\":\"ping\"}".to_string()];
+        assert_eq!(replay_has_oversize_event(&small), None);
+
+        let large = vec!["{}".to_string(), "X".repeat(WS_MAX_TEXT_MESSAGE_BYTES + 1)];
+        assert_eq!(
+            replay_has_oversize_event(&large),
+            Some(WS_MAX_TEXT_MESSAGE_BYTES + 1)
         );
     }
 
