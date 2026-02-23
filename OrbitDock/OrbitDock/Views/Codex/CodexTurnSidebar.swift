@@ -11,6 +11,7 @@ import SwiftUI
 
 struct CodexTurnSidebar: View {
   let sessionId: String
+  let sessionScopedId: String?
   let onClose: () -> Void
   @Binding var railPreset: RailPreset
   @Binding var selectedSkills: Set<String>
@@ -102,7 +103,7 @@ struct CodexTurnSidebar: View {
       // Attention strip for cross-session urgency
       AttentionStripView(
         events: attentionService.events,
-        currentSessionId: sessionId,
+        currentSessionId: sessionScopedId ?? sessionId,
         onNavigateToSession: onNavigateToSession
       )
 
@@ -781,6 +782,7 @@ private struct TokenTimelineView: View {
   @Previewable @State var selectedComments: Set<String> = []
   CodexTurnSidebar(
     sessionId: "test",
+    sessionScopedId: nil,
     onClose: {},
     railPreset: $preset,
     selectedSkills: $skills,
@@ -798,6 +800,7 @@ private struct TokenTimelineView: View {
   @Previewable @State var selectedComments: Set<String> = []
   CodexTurnSidebar(
     sessionId: "empty",
+    sessionScopedId: nil,
     onClose: {},
     railPreset: $preset,
     selectedSkills: $skills,

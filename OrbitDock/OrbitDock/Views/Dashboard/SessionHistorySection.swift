@@ -345,6 +345,10 @@ struct HistorySessionRow: View {
               .foregroundStyle(Color.textSecondary)
               .lineLimit(1)
 
+            if session.endpointName != nil {
+              EndpointBadge(endpointName: session.endpointName)
+            }
+
             if isForkedSession {
               ForkBadge()
             }

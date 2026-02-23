@@ -875,6 +875,13 @@ struct QuickSwitcher: View {
               .font(.system(size: 11, weight: .medium))
               .foregroundStyle(.secondary)
 
+            if session.endpointName != nil {
+              EndpointBadge(
+                endpointName: session.endpointName,
+                isDefault: session.endpointId == runtimeRegistry.activeEndpointId
+              )
+            }
+
             if let branch = session.branch {
               HStack(spacing: 3) {
                 Image(systemName: "arrow.triangle.branch")

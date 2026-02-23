@@ -893,6 +893,7 @@ struct DebugSettingsView: View {
   @StateObject private var serverManager = ServerManager.shared
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var showServerTest = false
+  @State private var showEndpointSettings = false
 
   private var activeConnectionStatus: ConnectionStatus {
     runtimeRegistry.activeConnectionStatus
@@ -934,6 +935,11 @@ struct DebugSettingsView: View {
               .font(.system(size: 13))
 
             Spacer()
+
+            Button("Endpoints") {
+              showEndpointSettings = true
+            }
+            .buttonStyle(.bordered)
 
             Button("Test View") {
               showServerTest = true
@@ -1008,6 +1014,10 @@ struct DebugSettingsView: View {
     }
     .sheet(isPresented: $showServerTest) {
       ServerTestView()
+    }
+    .sheet(isPresented: $showEndpointSettings) {
+      ServerSettingsSheet()
+        .environment(runtimeRegistry)
     }
   }
 

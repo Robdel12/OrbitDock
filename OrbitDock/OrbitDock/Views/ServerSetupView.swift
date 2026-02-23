@@ -136,10 +136,10 @@ struct ServerSetupView: View {
           .frame(width: 40)
 
         VStack(alignment: .leading, spacing: Spacing.xs) {
-          Text("Connect to Remote Server")
+          Text("Manage Server Endpoints")
             .font(.system(size: TypeScale.subhead, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
-          Text("Connect to a server running on another machine")
+          Text("Add one or more remote servers and connect in parallel")
             .font(.system(size: TypeScale.body))
             .foregroundStyle(Color.textTertiary)
         }

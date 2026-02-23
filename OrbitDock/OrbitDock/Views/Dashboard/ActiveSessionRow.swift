@@ -95,6 +95,10 @@ struct ActiveSessionRow: View {
               .foregroundStyle(.primary)
               .lineLimit(1)
 
+            if session.endpointName != nil {
+              EndpointBadge(endpointName: session.endpointName)
+            }
+
             if serverState.session(session.id).forkedFrom != nil {
               ForkBadge()
             }

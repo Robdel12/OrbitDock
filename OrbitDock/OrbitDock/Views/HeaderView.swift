@@ -90,6 +90,10 @@ struct HeaderView: View {
       // Model badge
       UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
 
+      if session.endpointName != nil {
+        EndpointBadge(endpointName: session.endpointName)
+      }
+
       // Capabilities
       ForEach(SessionCapability.capabilities(for: session)) { cap in
         CapabilityBadge(label: cap.label, icon: cap.icon, color: cap.color)
@@ -240,6 +244,10 @@ struct HeaderView: View {
       ScrollView(.horizontal) {
         HStack(spacing: Spacing.sm) {
           UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
+
+          if session.endpointName != nil {
+            EndpointBadge(endpointName: session.endpointName)
+          }
 
           if session.isActive {
             StatusPillCompact(workStatus: session.workStatus, currentTool: currentTool)

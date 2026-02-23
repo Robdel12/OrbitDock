@@ -83,6 +83,41 @@ struct ServerRuntimeRegistryTests {
     #expect(spies[endpointA.id]?.disconnectCount == 1)
   }
 
+  @Test func startsOnlyEnabledEndpointsWhenConfiguredFromSettings() {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "Enabled Endpoint",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "Disabled Endpoint",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: false,
+      isDefault: false
+    )
+
+    var spies: [UUID: SpyServerConnection] = [:]
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        spies[endpoint.id] = spy
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: true)
+
+    #expect(spies[endpointA.id]?.connectCalls == [endpointA.wsURL])
+    #expect(spies[endpointB.id]?.connectCalls.isEmpty == true)
+    #expect(registry.activeEndpointId == endpointA.id)
+  }
+
   @Test func requestStateIsNotSharedAcrossRuntimeConnections() async throws {
     let endpointA = ServerEndpoint(
       id: UUID(),

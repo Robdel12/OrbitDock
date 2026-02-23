@@ -138,8 +138,21 @@ struct ContentView: View {
     }
     .onReceive(NotificationCenter.default.publisher(for: .selectSession)) { notification in
       if let sessionID = notification.userInfo?["sessionId"] as? String {
+        let endpointFromNotification: UUID? = {
+          if let endpointId = notification.userInfo?["endpointId"] as? UUID {
+            return endpointId
+          }
+          if let endpointString = notification.userInfo?["endpointId"] as? String {
+            return UUID(uuidString: endpointString)
+          }
+          return nil
+        }()
+
         if let ref = unifiedSessionsStore.sessionRef(for: sessionID) {
           selectSession(scopedID: ref.scopedID)
+        } else if let endpointId = endpointFromNotification {
+          let scopedID = SessionRef(endpointId: endpointId, sessionId: sessionID).scopedID
+          selectSession(scopedID: scopedID)
         } else if let activeEndpointId = runtimeRegistry.activeEndpointId {
           let scopedID = SessionRef(endpointId: activeEndpointId, sessionId: sessionID).scopedID
           selectSession(scopedID: scopedID)
@@ -345,7 +358,7 @@ struct ContentView: View {
 
     // Check for new sessions needing attention
     for session in waitingSessions {
-      if !oldWaitingIds.contains(session.id) {
+      if !oldWaitingIds.contains(session.scopedID) {
         NotificationManager.shared.notifyNeedsAttention(session: session)
       }
     }

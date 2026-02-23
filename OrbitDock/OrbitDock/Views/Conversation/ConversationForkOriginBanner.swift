@@ -2,14 +2,25 @@ import SwiftUI
 
 struct ConversationForkOriginBanner: View {
   let sourceSessionId: String
+  let sourceEndpointId: UUID?
   let sourceName: String?
+
+  private var sourceScopedID: String {
+    if let scoped = SessionRef(scopedID: sourceSessionId)?.scopedID {
+      return scoped
+    }
+    guard let sourceEndpointId else {
+      return sourceSessionId
+    }
+    return SessionRef(endpointId: sourceEndpointId, sessionId: sourceSessionId).scopedID
+  }
 
   var body: some View {
     Button {
       NotificationCenter.default.post(
         name: .selectSession,
         object: nil,
-        userInfo: ["sessionId": sourceSessionId]
+        userInfo: ["sessionId": sourceScopedID]
       )
     } label: {
       HStack(spacing: 8) {

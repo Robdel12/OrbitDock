@@ -8,6 +8,7 @@ import SwiftUI
 
 struct ConversationView: View {
   let sessionId: String?
+  var endpointId: UUID? = nil
   var isSessionActive: Bool = false
   var workStatus: Session.WorkStatus = .unknown
   var currentTool: String?
@@ -82,6 +83,7 @@ struct ConversationView: View {
           if let sid = sessionId, let sourceId = serverState.session(sid).forkedFrom {
             ConversationForkOriginBanner(
               sourceSessionId: sourceId,
+              sourceEndpointId: endpointId,
               sourceName: serverState.sessions.first(where: { $0.id == sourceId })?.displayName
             )
             .padding(.horizontal, 16)

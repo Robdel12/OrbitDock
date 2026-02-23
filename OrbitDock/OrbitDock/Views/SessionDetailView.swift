@@ -100,6 +100,7 @@ struct SessionDetailView: View {
 
           CodexTurnSidebar(
             sessionId: session.id,
+            sessionScopedId: session.scopedID,
             onClose: {
               withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                 showTurnSidebar = false
@@ -114,10 +115,18 @@ struct SessionDetailView: View {
               }
             },
             onNavigateToSession: { id in
+              let normalizedID: String
+              if let scoped = SessionRef(scopedID: id)?.scopedID {
+                normalizedID = scoped
+              } else if let endpointId = session.endpointId {
+                normalizedID = SessionRef(endpointId: endpointId, sessionId: id).scopedID
+              } else {
+                normalizedID = id
+              }
               NotificationCenter.default.post(
                 name: .selectSession,
                 object: nil,
-                userInfo: ["sessionId": id]
+                userInfo: ["sessionId": normalizedID]
               )
             },
             onNavigateToComment: { comment in
@@ -575,6 +584,7 @@ struct SessionDetailView: View {
   private var conversationContent: some View {
     ConversationView(
       sessionId: session.id,
+      endpointId: session.endpointId,
       isSessionActive: session.isActive,
       workStatus: session.workStatus,
       currentTool: currentTool,

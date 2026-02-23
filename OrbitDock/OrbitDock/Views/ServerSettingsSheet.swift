@@ -2,8 +2,7 @@
 //  ServerSettingsSheet.swift
 //  OrbitDock
 //
-//  Configure remote server endpoint.
-//  User just enters an IP address — we handle the rest.
+//  Multi-endpoint server configuration and status.
 //
 
 import os.log
@@ -14,296 +13,558 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "server-settin
 struct ServerSettingsSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
-  @State private var hostText: String = ServerEndpointSettings
-    .remoteEndpoint
-    .flatMap { ServerEndpointSettings.hostInput(from: $0.wsURL) } ?? ""
-  @State private var testStatus: TestStatus = .idle
-  @State private var isSaved: Bool = ServerEndpointSettings.hasRemoteEndpoint
 
-  private enum TestStatus: Equatable {
-    case idle
-    case testing
-    case success
-    case failed(String)
+  @State private var endpoints: [ServerEndpoint] = ServerEndpointSettings.endpoints
+  @State private var showEditor = false
+  @State private var editingEndpointId: UUID?
+  @State private var draftName = ""
+  @State private var draftHostInput = ""
+  @State private var draftIsEnabled = true
+  @State private var draftIsDefault = false
+  @State private var draftIsLocalManaged = false
+  @State private var editorError: String?
+  @State private var endpointPendingDelete: ServerEndpoint?
+
+  private var orderedEndpoints: [ServerEndpoint] {
+    endpoints.sorted { lhs, rhs in
+      if lhs.isDefault != rhs.isDefault {
+        return lhs.isDefault && !rhs.isDefault
+      }
+      if lhs.isEnabled != rhs.isEnabled {
+        return lhs.isEnabled && !rhs.isEnabled
+      }
+      if lhs.isLocalManaged != rhs.isLocalManaged {
+        return lhs.isLocalManaged && !rhs.isLocalManaged
+      }
+      let nameOrder = lhs.name.localizedCaseInsensitiveCompare(rhs.name)
+      if nameOrder != .orderedSame {
+        return nameOrder == .orderedAscending
+      }
+      return lhs.id.uuidString < rhs.id.uuidString
+    }
   }
 
-  /// The full URL we'd connect to based on current input
-  private var resolvedURL: URL? {
-    ServerEndpointSettings.buildURL(from: hostText)
+  private var enabledCount: Int {
+    endpoints.filter(\.isEnabled).count
+  }
+
+  private var connectedCount: Int {
+    endpoints.filter { endpoint in
+      if case .connected = status(for: endpoint) {
+        return true
+      }
+      return false
+    }.count
+  }
+
+  private var failedCount: Int {
+    endpoints.filter { endpoint in
+      if case .failed = status(for: endpoint) {
+        return true
+      }
+      return false
+    }.count
+  }
+
+  private var defaultEndpointName: String {
+    endpoints.first(where: { $0.isDefault && $0.isEnabled })?.name
+      ?? endpoints.first(where: \.isEnabled)?.name
+      ?? "None"
   }
 
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(alignment: .leading, spacing: 20) {
-          serverHostSection
-          connectionStatusSection
-          actionButtons
+        VStack(alignment: .leading, spacing: 16) {
+          overviewCard
+
+          VStack(alignment: .leading, spacing: 10) {
+            HStack {
+              Text("Endpoints")
+                .font(.system(size: TypeScale.subhead, weight: .semibold))
+                .foregroundStyle(Color.textPrimary)
+
+              Spacer()
+
+              Button {
+                beginAddingEndpoint()
+              } label: {
+                HStack(spacing: 5) {
+                  Image(systemName: "plus")
+                  Text("Add Endpoint")
+                }
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
+              }
+              .buttonStyle(.plain)
+            }
+
+            ForEach(orderedEndpoints) { endpoint in
+              endpointCard(endpoint)
+            }
+          }
         }
         .padding(20)
       }
       .background(Color.backgroundPrimary)
-      .navigationTitle("Server")
+      .navigationTitle("Server Endpoints")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
       #endif
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Done") { dismiss() }
-              .foregroundStyle(Color.accent)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Done") {
+            dismiss()
+          }
+          .foregroundStyle(Color.accent)
+        }
+      }
+    }
+    .onAppear {
+      refreshFromSettings()
+    }
+    .sheet(isPresented: $showEditor) {
+      endpointEditorSheet
+    }
+    .alert(
+      "Remove Endpoint",
+      isPresented: Binding(
+        get: { endpointPendingDelete != nil },
+        set: { newValue in
+          if !newValue {
+            endpointPendingDelete = nil
           }
         }
+      ),
+      presenting: endpointPendingDelete
+    ) { endpoint in
+      Button("Cancel", role: .cancel) {
+        endpointPendingDelete = nil
+      }
+      Button("Remove", role: .destructive) {
+        removeEndpoint(endpoint)
+      }
+    } message: { endpoint in
+      Text("Remove \(endpoint.name)? Any active connection to this endpoint will be stopped.")
     }
     .presentationDetents([.medium, .large])
   }
 
-  // MARK: - Server Host
-
-  private var serverHostSection: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Text("Server Address")
+  private var overviewCard: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      Text("Status")
         .font(.system(size: TypeScale.subhead, weight: .semibold))
         .foregroundStyle(Color.textPrimary)
 
-      Text("IP address of the machine running orbitdock-server")
+      HStack(spacing: 10) {
+        statusMetric(
+          icon: "network",
+          value: "\(connectedCount)/\(enabledCount)",
+          label: "Connected",
+          color: connectedCount == enabledCount ? Color.statusWorking : Color.statusQuestion
+        )
+
+        statusMetric(
+          icon: "exclamationmark.triangle.fill",
+          value: "\(failedCount)",
+          label: "Failed",
+          color: failedCount == 0 ? Color.textTertiary : Color.statusPermission
+        )
+
+        statusMetric(
+          icon: "star.fill",
+          value: defaultEndpointName,
+          label: "Default",
+          color: Color.accent,
+          monospaced: false
+        )
+      }
+
+      Text("MCP bridge requests are routed through the active endpoint for the selected session.")
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
-
-      TextField("192.168.1.100", text: $hostText)
-        .textFieldStyle(.plain)
-        .font(.system(size: TypeScale.title, design: .monospaced))
-        .foregroundStyle(Color.textPrimary)
-        .padding(12)
-        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
-        .autocorrectionDisabled()
-      #if os(iOS)
-        .textInputAutocapitalization(.never)
-        .keyboardType(.numbersAndPunctuation)
-      #endif
-        .onChange(of: hostText) { _, _ in
-          testStatus = .idle
-        }
-
-      // Show resolved URL as feedback
-      if let url = resolvedURL, !hostText.isEmpty {
-        Text(url.absoluteString)
-          .font(.system(size: TypeScale.caption, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
-      }
     }
+    .padding(14)
+    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.panelBorder, lineWidth: 1)
+    )
   }
 
-  // MARK: - Connection Status
+  private func statusMetric(
+    icon: String,
+    value: String,
+    label: String,
+    color: Color,
+    monospaced: Bool = true
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+      HStack(spacing: 4) {
+        Image(systemName: icon)
+          .font(.system(size: 10, weight: .semibold))
+        Text(value)
+          .font(.system(size: TypeScale.caption, weight: .bold, design: monospaced ? .monospaced : .default))
+          .lineLimit(1)
+      }
+      .foregroundStyle(color)
 
-  @ViewBuilder
-  private var connectionStatusSection: some View {
-    let connStatus = runtimeRegistry.activeConnectionStatus
+      Text(label)
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background(Color.backgroundTertiary.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+  }
 
-    VStack(alignment: .leading, spacing: 8) {
-      Text("Connection")
-        .font(.system(size: TypeScale.subhead, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
+  private func endpointCard(_ endpoint: ServerEndpoint) -> some View {
+    let endpointStatus = status(for: endpoint)
+
+    return VStack(alignment: .leading, spacing: 10) {
+      HStack(alignment: .top, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(spacing: 6) {
+            Text(endpoint.name)
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(Color.textPrimary)
+              .lineLimit(1)
+
+            if endpoint.isDefault {
+              EndpointBadge(endpointName: "Default", isDefault: true)
+            }
+
+            if endpoint.isLocalManaged {
+              EndpointBadge(endpointName: "Local")
+            }
+
+            if !endpoint.isEnabled {
+              EndpointBadge(endpointName: "Disabled")
+            }
+          }
+
+          Text(endpoint.wsURL.absoluteString)
+            .font(.system(size: TypeScale.caption, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+        }
+
+        Spacer(minLength: 10)
+
+        connectionStatusChip(status: endpointStatus)
+      }
 
       HStack(spacing: 8) {
-        Circle()
-          .fill(statusColor(for: connStatus))
-          .frame(width: 8, height: 8)
-
-        Text(statusLabel(for: connStatus))
-          .font(.system(size: TypeScale.body))
-          .foregroundStyle(Color.textSecondary)
+        Toggle(
+          isOn: Binding(
+            get: { endpoint.isEnabled },
+            set: { isEnabled in
+              updateEndpointEnabled(endpoint.id, isEnabled: isEnabled)
+            }
+          )
+        ) {
+          Text("Enabled")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
+        }
+        .toggleStyle(.switch)
 
         Spacer()
 
-        if case .failed = connStatus {
-          Button("Reconnect") {
-            runtimeRegistry.activeConnection.connect()
+        if let action = connectionAction(for: endpointStatus), endpoint.isEnabled {
+          Button(action.label) {
+            action.handler(endpoint.id)
           }
-          .font(.system(size: TypeScale.body, weight: .medium))
+          .buttonStyle(.borderless)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.accent)
         }
-      }
-      .padding(12)
-      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
 
-      // Test result
-      switch testStatus {
-        case .idle:
-          EmptyView()
-        case .testing:
-          HStack(spacing: 6) {
-            ProgressView()
-              .controlSize(.mini)
-            Text("Testing connection...")
+        if !endpoint.isDefault {
+          Button("Set Default") {
+            setDefaultEndpoint(endpoint.id)
+          }
+          .buttonStyle(.borderless)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .disabled(!endpoint.isEnabled)
+        }
+
+        Button("Edit") {
+          beginEditing(endpoint)
+        }
+        .buttonStyle(.borderless)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+
+        if !endpoint.isLocalManaged {
+          Button("Remove", role: .destructive) {
+            endpointPendingDelete = endpoint
+          }
+          .buttonStyle(.borderless)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+        }
+      }
+    }
+    .padding(12)
+    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.panelBorder, lineWidth: 1)
+    )
+  }
+
+  private func connectionStatusChip(status: ConnectionStatus) -> some View {
+    HStack(spacing: 5) {
+      Circle()
+        .fill(statusColor(for: status))
+        .frame(width: 7, height: 7)
+      Text(statusLabel(for: status))
+        .font(.system(size: TypeScale.micro, weight: .semibold))
+        .foregroundStyle(Color.textSecondary)
+    }
+    .padding(.horizontal, 7)
+    .padding(.vertical, 4)
+    .background(Color.backgroundTertiary, in: Capsule())
+  }
+
+  private var endpointEditorSheet: some View {
+    NavigationStack {
+      Form {
+        Section("Details") {
+          TextField("Name", text: $draftName)
+            #if os(iOS)
+            .textInputAutocapitalization(.words)
+            #endif
+
+          TextField("Host", text: $draftHostInput)
+            #if os(iOS)
+            .textInputAutocapitalization(.never)
+            #endif
+            .autocorrectionDisabled()
+            .disabled(draftIsLocalManaged)
+
+          if draftIsLocalManaged {
+            Text("Local endpoint host is managed automatically.")
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textTertiary)
+          } else {
+            Text("Examples: 10.0.0.5 or 10.0.0.5:4100")
               .font(.system(size: TypeScale.caption))
               .foregroundStyle(Color.textTertiary)
           }
-        case .success:
-          HStack(spacing: 6) {
-            Image(systemName: "checkmark.circle.fill")
-              .foregroundStyle(Color.statusWorking)
-              .font(.system(size: 12))
-            Text("Server reachable")
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.statusWorking)
-          }
-        case let .failed(reason):
-          HStack(spacing: 6) {
-            Image(systemName: "xmark.circle.fill")
+        }
+
+        Section("Behavior") {
+          Toggle("Enabled", isOn: $draftIsEnabled)
+          Toggle("Default endpoint", isOn: $draftIsDefault)
+            .disabled(!draftIsEnabled)
+        }
+
+        if let editorError {
+          Section {
+            Text(editorError)
               .foregroundStyle(Color.statusPermission)
-              .font(.system(size: 12))
-            Text(reason)
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.statusPermission)
+              .font(.system(size: TypeScale.caption, weight: .medium))
           }
+        }
+      }
+      .navigationTitle(editingEndpointId == nil ? "Add Endpoint" : "Edit Endpoint")
+      #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+      #endif
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") {
+            closeEditor()
+          }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Save") {
+            saveEditor()
+          }
+          .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
       }
     }
   }
 
-  // MARK: - Actions
-
-  private var actionButtons: some View {
-    VStack(spacing: 10) {
-      // Test button
-      Button {
-        testConnection()
-      } label: {
-        HStack {
-          Spacer()
-          if testStatus == .testing {
-            ProgressView()
-              .controlSize(.small)
-              .tint(Color.accent)
-          } else {
-            Image(systemName: "antenna.radiowaves.left.and.right")
-            Text("Test Connection")
-          }
-          Spacer()
-        }
-        .font(.system(size: TypeScale.subhead, weight: .semibold))
-        .foregroundStyle(Color.accent)
-        .padding(.vertical, 12)
-        .background(
-          Color.accent.opacity(OpacityTier.light),
-          in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        )
-      }
-      .buttonStyle(.plain)
-      .disabled(resolvedURL == nil || testStatus == .testing)
-
-      // Save button
-      Button {
-        saveEndpoint()
-      } label: {
-        HStack {
-          Spacer()
-          Image(systemName: "checkmark")
-          Text(isSaved ? "Update & Connect" : "Save & Connect")
-          Spacer()
-        }
-        .font(.system(size: TypeScale.subhead, weight: .semibold))
-        .foregroundStyle(.white)
-        .padding(.vertical, 12)
-        .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-      }
-      .buttonStyle(.plain)
-      .disabled(resolvedURL == nil)
-
-      // Clear / disconnect
-      if isSaved {
-        Button {
-          clearEndpoint()
-        } label: {
-          HStack {
-            Spacer()
-            Text("Disconnect & Clear")
-            Spacer()
-          }
-          .font(.system(size: TypeScale.subhead, weight: .medium))
-          .foregroundStyle(Color.statusPermission)
-          .padding(.vertical, 12)
-        }
-        .buttonStyle(.plain)
-      }
+  private func status(for endpoint: ServerEndpoint) -> ConnectionStatus {
+    if !endpoint.isEnabled {
+      return .disconnected
     }
-  }
 
-  // MARK: - Helpers
-
-  private func statusColor(for status: ConnectionStatus) -> Color {
-    switch status {
-      case .connected: Color.statusWorking
-      case .connecting: Color.statusQuestion
-      case .disconnected: Color.textQuaternary
-      case .failed: Color.statusPermission
-    }
+    return runtimeRegistry.connectionStatusByEndpointId[endpoint.id]
+      ?? runtimeRegistry.runtimesByEndpointId[endpoint.id]?.connection.status
+      ?? .disconnected
   }
 
   private func statusLabel(for status: ConnectionStatus) -> String {
     switch status {
-      case .connected: "Connected"
-      case .connecting: "Connecting..."
-      case .disconnected: "Disconnected"
-      case let .failed(msg): "Failed: \(msg)"
+      case .connected:
+        "Connected"
+      case .connecting:
+        "Connecting"
+      case .disconnected:
+        "Disconnected"
+      case .failed:
+        "Failed"
     }
   }
 
-  private func testConnection() {
-    guard let url = resolvedURL else {
-      testStatus = .failed("Enter a valid IP address")
+  private func statusColor(for status: ConnectionStatus) -> Color {
+    switch status {
+      case .connected:
+        Color.statusWorking
+      case .connecting:
+        Color.statusQuestion
+      case .disconnected:
+        Color.textTertiary
+      case .failed:
+        Color.statusPermission
+    }
+  }
+
+  private func connectionAction(for status: ConnectionStatus) -> (label: String, handler: (UUID) -> Void)? {
+    switch status {
+      case .connected:
+        ("Disconnect", { endpointId in
+          runtimeRegistry.stop(endpointId: endpointId)
+        })
+      case .connecting:
+        ("Cancel", { endpointId in
+          runtimeRegistry.stop(endpointId: endpointId)
+        })
+      case .disconnected:
+        ("Connect", { endpointId in
+          runtimeRegistry.reconnect(endpointId: endpointId)
+        })
+      case .failed:
+        ("Reconnect", { endpointId in
+          runtimeRegistry.reconnect(endpointId: endpointId)
+        })
+    }
+  }
+
+  private func beginAddingEndpoint() {
+    editingEndpointId = nil
+    draftName = ""
+    draftHostInput = ""
+    draftIsEnabled = true
+    draftIsDefault = endpoints.first(where: \.isDefault) == nil
+    draftIsLocalManaged = false
+    editorError = nil
+    showEditor = true
+  }
+
+  private func beginEditing(_ endpoint: ServerEndpoint) {
+    editingEndpointId = endpoint.id
+    draftName = endpoint.name
+    draftHostInput = ServerEndpointSettings.hostInput(from: endpoint.wsURL) ?? endpoint.wsURL.host ?? ""
+    draftIsEnabled = endpoint.isEnabled
+    draftIsDefault = endpoint.isDefault
+    draftIsLocalManaged = endpoint.isLocalManaged
+    editorError = nil
+    showEditor = true
+  }
+
+  private func closeEditor() {
+    showEditor = false
+    editorError = nil
+  }
+
+  private func saveEditor() {
+    let trimmedName = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedName.isEmpty else {
+      editorError = "Endpoint name is required."
       return
     }
 
-    testStatus = .testing
+    let endpointId = editingEndpointId ?? UUID()
+    let existingEndpoint = endpoints.first(where: { $0.id == endpointId })
+    let isLocalManaged = existingEndpoint?.isLocalManaged ?? draftIsLocalManaged
 
-    Task {
-      let config = URLSessionConfiguration.ephemeral
-      config.timeoutIntervalForRequest = 5
-      let session = URLSession(configuration: config)
-      let wsTask = session.webSocketTask(with: url)
-      wsTask.resume()
-
-      do {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-          wsTask.sendPing { error in
-            if let error {
-              continuation.resume(throwing: error)
-            } else {
-              continuation.resume()
-            }
-          }
-        }
-
-        await MainActor.run {
-          testStatus = .success
-        }
-      } catch {
-        await MainActor.run {
-          testStatus = .failed("Could not reach server")
-        }
+    let resolvedURL: URL
+    if isLocalManaged {
+      resolvedURL = existingEndpoint?.wsURL ?? ServerEndpoint.localDefault(defaultPort: ServerEndpointSettings.defaultPort).wsURL
+    } else {
+      guard let built = ServerEndpointSettings.buildURL(from: draftHostInput) else {
+        editorError = "Enter a valid host (for example 10.0.0.5 or 10.0.0.5:4100)."
+        return
       }
-
-      wsTask.cancel(with: .goingAway, reason: nil)
-      session.invalidateAndCancel()
+      resolvedURL = built
     }
+
+    var updated = endpoints
+    let endpoint = ServerEndpoint(
+      id: endpointId,
+      name: trimmedName,
+      wsURL: resolvedURL,
+      isLocalManaged: isLocalManaged,
+      isEnabled: draftIsEnabled,
+      isDefault: draftIsEnabled && draftIsDefault
+    )
+
+    if let index = updated.firstIndex(where: { $0.id == endpointId }) {
+      updated[index] = endpoint
+    } else {
+      updated.append(endpoint)
+    }
+
+    if endpoint.isDefault {
+      for idx in updated.indices {
+        updated[idx].isDefault = updated[idx].id == endpoint.id
+      }
+    }
+
+    persistEndpoints(updated)
+    closeEditor()
+    logger.info("Saved endpoint: \(endpoint.name, privacy: .public)")
   }
 
-  private func saveEndpoint() {
-    guard let url = resolvedURL else { return }
-    ServerEndpointSettings.replaceRemoteEndpoint(hostInput: hostText)
-    isSaved = true
-    logger.info("Saved remote endpoint: \(url.absoluteString)")
-
-    runtimeRegistry.configureFromSettings(startEnabled: true)
+  private func removeEndpoint(_ endpoint: ServerEndpoint) {
+    endpointPendingDelete = nil
+    guard !endpoint.isLocalManaged else { return }
+    let updated = endpoints.filter { $0.id != endpoint.id }
+    persistEndpoints(updated)
+    logger.info("Removed endpoint: \(endpoint.name, privacy: .public)")
   }
 
-  private func clearEndpoint() {
-    ServerEndpointSettings.clearRemoteEndpoints()
-    isSaved = false
-    hostText = ""
-    logger.info("Cleared remote endpoint")
+  private func setDefaultEndpoint(_ endpointId: UUID) {
+    var updated = endpoints
+    guard let index = updated.firstIndex(where: { $0.id == endpointId }) else { return }
 
+    updated[index].isEnabled = true
+    for idx in updated.indices {
+      updated[idx].isDefault = updated[idx].id == endpointId
+    }
+
+    persistEndpoints(updated)
+  }
+
+  private func updateEndpointEnabled(_ endpointId: UUID, isEnabled: Bool) {
+    var updated = endpoints
+    guard let index = updated.firstIndex(where: { $0.id == endpointId }) else { return }
+
+    updated[index].isEnabled = isEnabled
+    if !isEnabled {
+      updated[index].isDefault = false
+    }
+
+    persistEndpoints(updated)
+  }
+
+  private func persistEndpoints(_ rawEndpoints: [ServerEndpoint]) {
+    ServerEndpointSettings.saveEndpoints(rawEndpoints)
     runtimeRegistry.configureFromSettings(startEnabled: true)
+    refreshFromSettings()
+  }
+
+  private func refreshFromSettings() {
+    endpoints = ServerEndpointSettings.endpoints
   }
 }
 

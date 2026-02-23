@@ -31,6 +31,34 @@ struct CommandStrip: View {
     runtimeRegistry.activeConnectionStatus
   }
 
+  private var endpointStatuses: [ConnectionStatus] {
+    runtimeRegistry.runtimes.map { runtime in
+      runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status
+    }
+  }
+
+  private var enabledEndpointCount: Int {
+    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+  }
+
+  private var connectedEndpointCount: Int {
+    endpointStatuses.filter {
+      if case .connected = $0 { return true }
+      return false
+    }.count
+  }
+
+  private var failedEndpointCount: Int {
+    endpointStatuses.filter {
+      if case .failed = $0 { return true }
+      return false
+    }.count
+  }
+
+  private var hasMultipleEndpoints: Bool {
+    runtimeRegistry.runtimes.count > 1
+  }
+
   private var workingCount: Int {
     sessions.filter { SessionDisplayStatus.from($0) == .working }.count
   }
@@ -85,6 +113,10 @@ struct CommandStrip: View {
         }
       }
 
+      if hasMultipleEndpoints {
+        endpointHealthPill
+      }
+
       Spacer()
 
       HStack(spacing: 12) {
@@ -134,6 +166,10 @@ struct CommandStrip: View {
               statusDot(count: readyCount, color: .statusReply, icon: "bubble.left.fill")
             }
           }
+        }
+
+        if hasMultipleEndpoints {
+          endpointHealthPill
         }
 
         Spacer()
@@ -226,6 +262,24 @@ struct CommandStrip: View {
     }
   }
 
+  private var endpointHealthPill: some View {
+    HStack(spacing: 5) {
+      Image(systemName: "network")
+        .font(.system(size: 9, weight: .semibold))
+      Text("\(connectedEndpointCount)/\(enabledEndpointCount)")
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+      if failedEndpointCount > 0 {
+        Text("!\(failedEndpointCount)")
+          .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
+      }
+    }
+    .foregroundStyle(endpointSummaryColor)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(endpointSummaryColor.opacity(0.14), in: Capsule())
+    .help("Connected endpoints: \(connectedEndpointCount) of \(enabledEndpointCount)")
+  }
+
   private var newClaudeButton: some View {
     Button(action: onNewClaude) {
       HStack(spacing: 5) {
@@ -300,12 +354,10 @@ struct CommandStrip: View {
   }
 
   private var serverSettingsIconColor: Color {
-    switch activeConnectionStatus {
-      case .connected: Color.statusWorking
-      case .connecting: Color.statusQuestion
-      case .failed: Color.statusPermission
-      case .disconnected: Color.textSecondary
+    if hasMultipleEndpoints {
+      return endpointSummaryColor
     }
+    return statusTint(for: activeConnectionStatus)
   }
 
   private var quickSwitchButton: some View {
@@ -323,27 +375,41 @@ struct CommandStrip: View {
   private var compactOverflowMenu: some View {
     Menu {
       Section("Server") {
-        switch activeConnectionStatus {
-          case .connected:
-            Label("Connected", systemImage: "checkmark.circle.fill")
-            Button("Disconnect", role: .destructive) {
-              activeConnection.disconnect()
-            }
-          case .connecting:
-            Label("Connecting...", systemImage: "antenna.radiowaves.left.and.right")
-            Button("Cancel") {
-              activeConnection.disconnect()
-            }
-          case .disconnected:
-            Label("Disconnected", systemImage: "bolt.slash.fill")
-            Button("Connect") {
-              activeConnection.connect()
-            }
-          case .failed:
-            Label("Connection Failed", systemImage: "exclamationmark.triangle.fill")
-            Button("Retry") {
-              activeConnection.connect()
-            }
+        if hasMultipleEndpoints {
+          Label(
+            "\(connectedEndpointCount) of \(enabledEndpointCount) connected",
+            systemImage: "network"
+          )
+          Button("Reconnect Failed Endpoints") {
+            reconnectFailedEndpoints()
+          }
+          .disabled(failedEndpointCount == 0)
+          Button("Disconnect Enabled Endpoints", role: .destructive) {
+            disconnectEnabledEndpoints()
+          }
+        } else {
+          switch activeConnectionStatus {
+            case .connected:
+              Label("Connected", systemImage: "checkmark.circle.fill")
+              Button("Disconnect", role: .destructive) {
+                activeConnection.disconnect()
+              }
+            case .connecting:
+              Label("Connecting...", systemImage: "antenna.radiowaves.left.and.right")
+              Button("Cancel") {
+                activeConnection.disconnect()
+              }
+            case .disconnected:
+              Label("Disconnected", systemImage: "bolt.slash.fill")
+              Button("Connect") {
+                activeConnection.connect()
+              }
+            case .failed:
+              Label("Connection Failed", systemImage: "exclamationmark.triangle.fill")
+              Button("Retry") {
+                activeConnection.connect()
+              }
+          }
         }
       }
 
@@ -379,34 +445,42 @@ struct CommandStrip: View {
 
   @ViewBuilder
   private var compactConnectionStatusPill: some View {
-    switch activeConnectionStatus {
-      case .connected:
-        EmptyView()
-      case .connecting:
-        HStack(spacing: 4) {
-          ProgressView()
-            .controlSize(.mini)
-            .tint(Color.statusQuestion)
+    if hasMultipleEndpoints {
+      compactConnectionPill(
+        text: "\(connectedEndpointCount)/\(enabledEndpointCount)",
+        icon: "network",
+        color: endpointSummaryColor
+      )
+    } else {
+      switch activeConnectionStatus {
+        case .connected:
+          EmptyView()
+        case .connecting:
+          HStack(spacing: 4) {
+            ProgressView()
+              .controlSize(.mini)
+              .tint(Color.statusQuestion)
 
-          Text("Connecting")
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(Color.statusQuestion)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(Color.statusQuestion.opacity(0.12), in: Capsule())
-      case .disconnected:
-        compactConnectionPill(
-          text: "Offline",
-          icon: "bolt.slash.fill",
-          color: .textTertiary
-        )
-      case .failed:
-        compactConnectionPill(
-          text: "Offline",
-          icon: "exclamationmark.triangle.fill",
-          color: .statusPermission
-        )
+            Text("Connecting")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(Color.statusQuestion)
+          }
+          .padding(.horizontal, 7)
+          .padding(.vertical, 3)
+          .background(Color.statusQuestion.opacity(0.12), in: Capsule())
+        case .disconnected:
+          compactConnectionPill(
+            text: "Offline",
+            icon: "bolt.slash.fill",
+            color: .textTertiary
+          )
+        case .failed:
+          compactConnectionPill(
+            text: "Offline",
+            icon: "exclamationmark.triangle.fill",
+            color: .statusPermission
+          )
+      }
     }
   }
 
@@ -423,12 +497,63 @@ struct CommandStrip: View {
     .background(color.opacity(0.12), in: Capsule())
   }
 
+  private var endpointSummaryColor: Color {
+    if enabledEndpointCount == 0 {
+      return Color.textTertiary
+    }
+    if failedEndpointCount > 0 {
+      return Color.statusPermission
+    }
+    if connectedEndpointCount == enabledEndpointCount {
+      return Color.statusWorking
+    }
+    if connectedEndpointCount > 0 {
+      return Color.statusQuestion
+    }
+    return Color.textTertiary
+  }
+
+  private func statusTint(for status: ConnectionStatus) -> Color {
+    switch status {
+      case .connected:
+        Color.statusWorking
+      case .connecting:
+        Color.statusQuestion
+      case .failed:
+        Color.statusPermission
+      case .disconnected:
+        Color.textSecondary
+    }
+  }
+
+  private func reconnectFailedEndpoints() {
+    for runtime in runtimeRegistry.runtimes where runtime.endpoint.isEnabled {
+      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status
+      if case .failed = status {
+        runtimeRegistry.reconnect(endpointId: runtime.endpoint.id)
+      }
+    }
+  }
+
+  private func disconnectEnabledEndpoints() {
+    for runtime in runtimeRegistry.runtimes where runtime.endpoint.isEnabled {
+      runtimeRegistry.stop(endpointId: runtime.endpoint.id)
+    }
+  }
+
   private var compactOverflowTintColor: Color {
+    if hasMultipleEndpoints {
+      return endpointSummaryColor
+    }
     switch activeConnectionStatus {
-      case .connected: Color.textSecondary
-      case .connecting: Color.statusQuestion
-      case .disconnected: Color.textTertiary
-      case .failed: Color.statusPermission
+      case .connected:
+        return Color.textSecondary
+      case .connecting:
+        return Color.statusQuestion
+      case .disconnected:
+        return Color.textTertiary
+      case .failed:
+        return Color.statusPermission
     }
   }
 
