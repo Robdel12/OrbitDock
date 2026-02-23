@@ -183,7 +183,6 @@ import SwiftUI
       category: "conversation-timeline"
     )
     private let logger = TimelineFileLogger.shared
-    private let nativeSizingCell = NativeMessageTableCellView(frame: .zero)
     private var needsInitialScroll = true
     /// Tracks which thinking message IDs have been expanded by the user.
     private var expandedThinkingIDs: Set<String> = []
@@ -758,71 +757,6 @@ import SwiftUI
       return false
     }
 
-    private func nativeMessageRow(for row: TimelineRow) -> NativeMessageRowModel? {
-      guard case let .message(id) = row.payload else { return nil }
-      guard sourceState.metadata.chatViewMode == .verbose else { return nil }
-      guard let message = messagesByID[id] else { return nil }
-      guard !message.isTool, !message.hasImage else { return nil }
-      guard !message.content.isEmpty else { return nil }
-
-      // Legacy guard: if content is structurally rich markdown, skip this plain-text
-      // fallback and let the native rich renderer handle it.
-      let hasRichMarkdownMarkers = message.content.contains("```")
-        || message.content.contains("# ")
-        || message.content.contains("\n#")
-        || message.content.contains("|")
-        || message.content.contains("- [")
-      guard !hasRichMarkdownMarkers else { return nil }
-
-      if message.isUser {
-        return NativeMessageRowModel(
-          speaker: "YOU",
-          body: message.content,
-          speakerColor: NSColor(calibratedRed: 0.47, green: 0.72, blue: 1.0, alpha: 1),
-          textColor: NSColor(calibratedWhite: 0.95, alpha: 1),
-          bubbleColor: NSColor(calibratedRed: 0.12, green: 0.18, blue: 0.28, alpha: 0.72)
-        )
-      }
-
-      if message.isThinking {
-        return NativeMessageRowModel(
-          speaker: "REASONING",
-          body: message.content,
-          speakerColor: NSColor(calibratedRed: 0.73, green: 0.68, blue: 0.9, alpha: 1),
-          textColor: NSColor(calibratedWhite: 0.82, alpha: 1),
-          bubbleColor: NSColor(calibratedRed: 0.17, green: 0.15, blue: 0.23, alpha: 0.7)
-        )
-      }
-
-      if message.isSteer {
-        return NativeMessageRowModel(
-          speaker: "STEER",
-          body: message.content,
-          speakerColor: NSColor(calibratedRed: 0.6, green: 0.8, blue: 1.0, alpha: 1),
-          textColor: NSColor(calibratedWhite: 0.9, alpha: 1),
-          bubbleColor: NSColor(calibratedRed: 0.14, green: 0.18, blue: 0.22, alpha: 0.7)
-        )
-      }
-
-      if message.isShell {
-        return NativeMessageRowModel(
-          speaker: "SHELL",
-          body: message.content,
-          speakerColor: NSColor(calibratedRed: 0.62, green: 0.9, blue: 0.62, alpha: 1),
-          textColor: NSColor(calibratedWhite: 0.92, alpha: 1),
-          bubbleColor: NSColor(calibratedRed: 0.13, green: 0.2, blue: 0.13, alpha: 0.72)
-        )
-      }
-
-      return NativeMessageRowModel(
-        speaker: "ASSISTANT",
-        body: message.content,
-        speakerColor: NSColor(calibratedWhite: 0.78, alpha: 1),
-        textColor: NSColor(calibratedWhite: 0.94, alpha: 1),
-        bubbleColor: NSColor(calibratedRed: 0.12, green: 0.12, blue: 0.13, alpha: 0.72)
-      )
-    }
-
     /// Build a NativeRichMessageRowModel for ANY .message row — no markdown filter.
     /// Returns nil only for tool rows or empty content.
     private func nativeRichMessageRow(for row: TimelineRow) -> NativeRichMessageRowModel? {
@@ -1070,18 +1004,6 @@ import SwiftUI
         return expandedCell
       }
 
-      // ── Legacy plain text native rows (fallback for verbose mode plain text) ──
-
-      if let nativeModel = nativeMessageRow(for: timelineRow) {
-        let nativeID = NativeMessageTableCellView.reuseIdentifier
-        let nativeCell = (tableView.makeView(withIdentifier: nativeID, owner: self) as? NativeMessageTableCellView)
-          ?? NativeMessageTableCellView(frame: .zero)
-        nativeCell.identifier = nativeID
-        nativeCell.configure(model: nativeModel)
-        logger.debug("viewFor[\(row)] \(timelineRow.id.rawValue) native-message w=\(String(format: "%.0f", width))")
-        return nativeCell
-      }
-
       let id = NativeSpacerCellView.reuseIdentifier
       let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeSpacerCellView)
         ?? NativeSpacerCellView(frame: .zero)
@@ -1170,7 +1092,7 @@ import SwiftUI
           )
       }
 
-      // ── Tier 2: Measured rows (native message / expanded tool) ──
+      // ── Tier 2: Measured rows (native rich message / expanded tool) ──
       guard let cacheKey = heightCacheKey(forRow: row) else { return 1 }
       if let cachedHeight = heightEngine.height(for: cacheKey) {
         signposter.emitEvent("timeline-height-cache-hit")
@@ -1198,14 +1120,6 @@ import SwiftUI
         )
         heightEngine.store(measuredHeight, for: cacheKey)
         logger.debug("heightOfRow[\(row)] T2-expandedTool h=\(String(format: "%.1f", measuredHeight))")
-        return measuredHeight
-      }
-
-      // Tier 2c: Legacy plain text native rows
-      if let nativeModel = nativeMessageRow(for: timelineRow) {
-        let measuredHeight = max(1, ceil(nativeSizingCell.requiredHeight(for: measurementWidth, model: nativeModel)))
-        heightEngine.store(measuredHeight, for: cacheKey)
-        logger.debug("heightOfRow[\(row)] T2-native h=\(String(format: "%.1f", measuredHeight))")
         return measuredHeight
       }
 

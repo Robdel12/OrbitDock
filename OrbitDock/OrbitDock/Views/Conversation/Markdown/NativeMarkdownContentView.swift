@@ -150,7 +150,11 @@ final class NativeMarkdownContentView: PlatformView {
         case let .table(headers, rows):
           yOffset += max(pendingMargin, Self.tableVerticalMargin)
           pendingMargin = 0
-          let tableHeight = NativeMarkdownTableView.requiredHeight(headerCount: headers.count, rowCount: rows.count)
+          let tableHeight = NativeMarkdownTableView.requiredHeight(
+            headers: headers,
+            rows: rows,
+            width: availableWidth
+          )
           let tableView = NativeMarkdownTableView(frame: CGRect(
             x: 0,
             y: yOffset,
@@ -213,7 +217,11 @@ final class NativeMarkdownContentView: PlatformView {
         case let .table(headers, rows):
           totalHeight += max(pendingMargin, tableVerticalMargin)
           pendingMargin = 0
-          totalHeight += NativeMarkdownTableView.requiredHeight(headerCount: headers.count, rowCount: rows.count)
+          totalHeight += NativeMarkdownTableView.requiredHeight(
+            headers: headers,
+            rows: rows,
+            width: width
+          )
           totalHeight += tableVerticalMargin
 
         case .thematicBreak:

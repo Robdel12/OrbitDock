@@ -52,6 +52,8 @@ pub enum ClientMessage {
         session_id: String,
         request_id: String,
         answer: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        question_id: Option<String>,
     },
     InterruptSession {
         session_id: String,

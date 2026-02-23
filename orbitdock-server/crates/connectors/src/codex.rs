@@ -747,11 +747,15 @@ impl CodexConnector {
 
             EventMsg::RequestUserInput(e) => {
                 let question_text = e.questions.first().map(|q| q.question.clone());
+                let tool_input = serde_json::to_string(&serde_json::json!({
+                    "questions": e.questions,
+                }))
+                .ok();
                 vec![ConnectorEvent::ApprovalRequested {
                     request_id: e.call_id,
                     approval_type: ApprovalType::Question,
                     tool_name: None,
-                    tool_input: None,
+                    tool_input,
                     command: None,
                     file_path: None,
                     diff: None,

@@ -2104,6 +2104,7 @@ async fn handle_client_message(
             session_id,
             request_id,
             answer,
+            question_id,
         } => {
             info!(
                 component = "approval",
@@ -2117,7 +2118,8 @@ async fn handle_client_message(
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let mut answers = std::collections::HashMap::new();
-                answers.insert("0".to_string(), answer);
+                let key = question_id.unwrap_or_else(|| "0".to_string());
+                answers.insert(key, answer);
                 let _ = tx
                     .send(CodexAction::AnswerQuestion {
                         request_id,

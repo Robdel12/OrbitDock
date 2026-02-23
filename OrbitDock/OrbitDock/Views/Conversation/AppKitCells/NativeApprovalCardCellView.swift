@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  macOS NSTableCellView for inline approval cards in the conversation timeline.
-//  Three modes: permission (tool approval), question (text input), takeover (passive session).
+//  Three modes: permission (tool approval), question (options or text input), takeover (passive session).
 //
 
 #if os(macOS)
@@ -50,6 +50,7 @@
 
     // Question mode
     private let questionTextLabel = NSTextField(wrappingLabelWithString: "")
+    private let questionOptionsStack = NSStackView()
     private let answerField = NSTextField()
     private let submitButton = NSButton()
 
@@ -82,6 +83,7 @@
     private var showDenyReason = false
     private var commandTextHeightConstraint: NSLayoutConstraint?
     private var commandPreviewTextForSizing: String?
+    private var questionOptionsTopConstraint: NSLayoutConstraint?
 
     private enum Layout {
       static let outerVerticalInset: CGFloat = 6
@@ -362,6 +364,15 @@
       questionTextLabel.preferredMaxLayoutWidth = 600
       cardContainer.addSubview(questionTextLabel)
 
+      questionOptionsStack.translatesAutoresizingMaskIntoConstraints = false
+      questionOptionsStack.orientation = .vertical
+      questionOptionsStack.spacing = CGFloat(Spacing.xs)
+      questionOptionsStack.alignment = .width
+      questionOptionsStack.distribution = .fill
+      questionOptionsStack.detachesHiddenViews = true
+      questionOptionsStack.isHidden = true
+      cardContainer.addSubview(questionOptionsStack)
+
       answerField.translatesAutoresizingMaskIntoConstraints = false
       answerField.placeholderString = "Your answer..."
       answerField.font = NSFont.systemFont(ofSize: TypeScale.body)
@@ -386,12 +397,19 @@
       cardContainer.addSubview(submitButton)
 
       let pad = Layout.cardPadding
+      let questionOptionsTop = questionOptionsStack.topAnchor
+        .constraint(equalTo: questionTextLabel.bottomAnchor, constant: 0)
+      questionOptionsTopConstraint = questionOptionsTop
       NSLayoutConstraint.activate([
         questionTextLabel.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         questionTextLabel.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         questionTextLabel.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
-        answerField.topAnchor.constraint(equalTo: questionTextLabel.bottomAnchor, constant: CGFloat(Spacing.md)),
+        questionOptionsTop,
+        questionOptionsStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        questionOptionsStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+
+        answerField.topAnchor.constraint(equalTo: questionOptionsStack.bottomAnchor, constant: CGFloat(Spacing.md)),
         answerField.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         answerField.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
         answerField.heightAnchor.constraint(greaterThanOrEqualToConstant: 26),
@@ -633,6 +651,9 @@
 
       // Hide other modes
       questionTextLabel.isHidden = true
+      questionOptionsTopConstraint?.constant = 0
+      questionOptionsStack.isHidden = true
+      configureQuestionOptions([])
       answerField.isHidden = true
       submitButton.isHidden = true
       takeoverDescription.isHidden = true
@@ -709,8 +730,12 @@
 
       // Show question views
       questionTextLabel.isHidden = false
-      answerField.isHidden = false
-      submitButton.isHidden = false
+      let hasOptions = !model.questionOptions.isEmpty
+      configureQuestionOptions(model.questionOptions)
+      questionOptionsTopConstraint?.constant = hasOptions ? CGFloat(Spacing.md) : 0
+      questionOptionsStack.isHidden = !hasOptions
+      answerField.isHidden = hasOptions
+      submitButton.isHidden = hasOptions
 
       // Hide other modes
       toolBadge.isHidden = true
@@ -731,7 +756,9 @@
       headerLabel.stringValue = "Question"
 
       questionTextLabel.stringValue = model.question ?? ""
-      answerField.stringValue = ""
+      if !hasOptions {
+        answerField.stringValue = ""
+      }
     }
 
     private func configureTakeoverMode(_ model: ApprovalCardModel) {
@@ -764,6 +791,9 @@
       secondaryRow.isHidden = true
       riskBadge.isHidden = true
       questionTextLabel.isHidden = true
+      questionOptionsTopConstraint?.constant = 0
+      questionOptionsStack.isHidden = true
+      configureQuestionOptions([])
       answerField.isHidden = true
       submitButton.isHidden = true
 
@@ -910,8 +940,52 @@
       answerFieldSubmitted()
     }
 
+    @objc private func questionOptionClicked(_ sender: NSButton) {
+      let label = sender.identifier?.rawValue ?? sender.title.components(separatedBy: "\n").first ?? sender.title
+      let answer = label.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !answer.isEmpty else { return }
+      onAnswer?(answer)
+    }
+
     @objc private func takeoverButtonClicked() {
       onTakeOver?()
+    }
+
+    private func configureQuestionOptions(_ options: [ApprovalQuestionOption]) {
+      questionOptionsStack.arrangedSubviews.forEach { view in
+        questionOptionsStack.removeArrangedSubview(view)
+        view.removeFromSuperview()
+      }
+
+      guard !options.isEmpty else { return }
+
+      for option in options {
+        let button = NSButton()
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.identifier = NSUserInterfaceItemIdentifier(option.label)
+        button.title = Self.questionOptionDisplayText(option)
+        button.setButtonType(.momentaryPushIn)
+        button.bezelStyle = .rounded
+        button.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+        button.contentTintColor = NSColor(Color.textPrimary)
+        button.alignment = .left
+        button.imagePosition = .noImage
+        button.wantsLayer = true
+        button.layer?.cornerRadius = CGFloat(Radius.md)
+        button.layer?.backgroundColor = NSColor(Color.backgroundPrimary).withAlphaComponent(0.8).cgColor
+        button.layer?.borderWidth = 1
+        button.layer?.borderColor = NSColor(Color.statusQuestion).withAlphaComponent(0.35).cgColor
+        button.target = self
+        button.action = #selector(questionOptionClicked(_:))
+        button.toolTip = option.description
+        if let cell = button.cell as? NSButtonCell {
+          cell.lineBreakMode = .byWordWrapping
+          cell.wraps = true
+          cell.usesSingleLineMode = false
+        }
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
+        questionOptionsStack.addArrangedSubview(button)
+      }
     }
 
     // MARK: - Height Calculation
@@ -963,8 +1037,18 @@
           } else {
             h += 20
           }
-          h += CGFloat(Spacing.md) + 26 // answer field
-          h += CGFloat(Spacing.md) + 28 // submit button
+          if model.questionOptions.isEmpty {
+            h += CGFloat(Spacing.md) + 26 // answer field
+            h += CGFloat(Spacing.md) + 28 // submit button
+          } else {
+            h += CGFloat(Spacing.md) // spacing before options
+            for (index, option) in model.questionOptions.enumerated() {
+              h += Self.questionOptionHeight(option, width: contentWidth)
+              if index < model.questionOptions.count - 1 {
+                h += CGFloat(Spacing.xs)
+              }
+            }
+          }
           h += pad + outerInset // card pad + cell pad
           return h
 
@@ -1000,6 +1084,23 @@
         return "Approve \(toolName) action?"
       }
       return nil
+    }
+
+    private static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
+      if let description = option.description, !description.isEmpty {
+        return "\(option.label)\n\(description)"
+      }
+      return option.label
+    }
+
+    private static func questionOptionHeight(_ option: ApprovalQuestionOption, width: CGFloat) -> CGFloat {
+      let text = questionOptionDisplayText(option)
+      let textHeight = measureTextHeight(
+        text,
+        font: NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
+        width: max(1, width - 20)
+      )
+      return max(30, textHeight + 16)
     }
 
     private static func commandTextWidth(for availableWidth: CGFloat) -> CGFloat {

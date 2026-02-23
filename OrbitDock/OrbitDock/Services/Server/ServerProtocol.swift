@@ -1686,7 +1686,7 @@ enum ClientToServerMessage: Codable {
     message: String? = nil,
     interrupt: Bool? = nil
   )
-  case answerQuestion(sessionId: String, requestId: String, answer: String)
+  case answerQuestion(sessionId: String, requestId: String, answer: String, questionId: String? = nil)
   case interruptSession(sessionId: String)
   case endSession(sessionId: String)
   case updateSessionConfig(
@@ -1774,6 +1774,7 @@ enum ClientToServerMessage: Codable {
     case sandboxMode = "sandbox_mode"
     case content
     case requestId = "request_id"
+    case questionId = "question_id"
     case decision
     case answer
     case name
@@ -1877,11 +1878,12 @@ enum ClientToServerMessage: Codable {
         try container.encodeIfPresent(message, forKey: .message)
         try container.encodeIfPresent(interrupt, forKey: .interrupt)
 
-      case let .answerQuestion(sessionId, requestId, answer):
+      case let .answerQuestion(sessionId, requestId, answer, questionId):
         try container.encode("answer_question", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(requestId, forKey: .requestId)
         try container.encode(answer, forKey: .answer)
+        try container.encodeIfPresent(questionId, forKey: .questionId)
 
       case let .interruptSession(sessionId):
         try container.encode("interrupt_session", forKey: .type)
@@ -2141,7 +2143,8 @@ enum ClientToServerMessage: Codable {
         self = try .answerQuestion(
           sessionId: container.decode(String.self, forKey: .sessionId),
           requestId: container.decode(String.self, forKey: .requestId),
-          answer: container.decode(String.self, forKey: .answer)
+          answer: container.decode(String.self, forKey: .answer),
+          questionId: container.decodeIfPresent(String.self, forKey: .questionId)
         )
       case "interrupt_session":
         self = try .interruptSession(sessionId: container.decode(String.self, forKey: .sessionId))

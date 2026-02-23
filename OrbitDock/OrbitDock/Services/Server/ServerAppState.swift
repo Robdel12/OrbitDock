@@ -622,10 +622,15 @@ final class ServerAppState {
   }
 
   /// Answer a question
-  func answerQuestion(sessionId: String, requestId: String, answer: String) {
+  func answerQuestion(sessionId: String, requestId: String, answer: String, questionId: String? = nil) {
     logger.info("Answering question \(requestId) in \(sessionId)")
     resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: "approved")
-    ServerConnection.shared.answerQuestion(sessionId: sessionId, requestId: requestId, answer: answer)
+    ServerConnection.shared.answerQuestion(
+      sessionId: sessionId,
+      requestId: requestId,
+      answer: answer,
+      questionId: questionId
+    )
     ServerConnection.shared.listApprovals(sessionId: sessionId, limit: 200)
     ServerConnection.shared.listApprovals(sessionId: nil, limit: 200)
   }

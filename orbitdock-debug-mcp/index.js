@@ -139,6 +139,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Answer for question approvals (required when type=question)",
             },
+            question_id: {
+              type: "string",
+              description: "Optional question ID for question approvals (defaults to pending question id when available)",
+            },
             message: {
               type: "string",
               description: "Custom deny reason (Claude sessions — sent back to the agent)",
@@ -382,41 +386,69 @@ async function handleInterruptTurn({ session_id }) {
   };
 }
 
-async function handleApprove({ session_id, request_id, approved, decision, type = "exec", answer, message, interrupt }) {
+async function handleApprove({ session_id, request_id, approved, decision, type, answer, question_id, message, interrupt }) {
   ensureOrbitDock();
-  await requireControllableSession(session_id);
+  let session = await requireControllableSession(session_id);
 
   let resolvedRequestId = request_id;
   if (!resolvedRequestId || resolvedRequestId === "pending") {
-    let session = await orbitdock.getSession(session_id);
     resolvedRequestId = session.pending_approval_id;
   }
   if (!resolvedRequestId) {
     throw new Error("No pending approval request_id available for this session.");
   }
 
+  let pendingQuestion = parseQuestionMetadata(session.pending_tool_input);
+  let resolvedType = type
+    || session.pending_approval_type
+    || (session.attention_reason === "awaitingQuestion" ? "question" : undefined)
+    || "exec";
+  if (!["exec", "patch", "question"].includes(resolvedType)) {
+    throw new Error(`Invalid approval type '${resolvedType}'. Expected one of: exec, patch, question.`);
+  }
+
   let resolvedDecision = decision;
   if (!resolvedDecision) {
-    if (typeof approved === "boolean") {
+    if (resolvedType === "question") {
+      resolvedDecision = typeof approved === "boolean" ? (approved ? "approved" : "denied") : "approved";
+    } else if (typeof approved === "boolean") {
       resolvedDecision = approved ? "approved" : "denied";
     } else {
       throw new Error("Missing decision. Provide 'decision' or legacy 'approved'.");
     }
   }
 
+  let normalizedAnswer = typeof answer === "string" ? answer.trim() : "";
+  let resolvedQuestionId = question_id || session.pending_question_id || pendingQuestion.questionId;
+  if (resolvedType === "question" && !normalizedAnswer) {
+    let options = Array.isArray(session.pending_question_options) && session.pending_question_options.length > 0
+      ? session.pending_question_options
+      : pendingQuestion.options;
+    let optionList = options
+      .map((opt) => {
+        let desc = opt.description ? `: ${opt.description}` : "";
+        return `"${opt.label}"${desc}`;
+      })
+      .join("; ");
+    let optionsHelp = optionList ? ` Available options: ${optionList}` : "";
+    throw new Error(`Question approvals require a non-empty 'answer'.${optionsHelp}`);
+  }
+
   await orbitdock.approve(session_id, resolvedRequestId, {
-    type,
+    type: resolvedType,
     decision: resolvedDecision,
-    answer,
+    answer: normalizedAnswer || undefined,
+    question_id: resolvedQuestionId,
     message,
     interrupt,
   });
 
+  let statusText = resolvedType === "question" ? "answered" : resolvedDecision;
   return {
     content: [
       {
         type: "text",
-        text: `${type} ${resolvedDecision} for ${session_id} (${resolvedRequestId})`,
+        text: `${resolvedType} ${statusText} for ${session_id} (${resolvedRequestId})`,
       },
     ],
   };
@@ -601,6 +633,46 @@ function ensureOrbitDock() {
 
 function isControllableSession(session) {
   return session.is_direct || (session.provider === "codex" && session.is_direct_codex) || (session.provider === "claude" && session.is_direct_claude);
+}
+
+function parseQuestionMetadata(toolInput) {
+  let empty = { questionId: undefined, question: undefined, options: [] };
+  if (!toolInput || typeof toolInput !== "string") {
+    return empty;
+  }
+
+  try {
+    let parsed = JSON.parse(toolInput);
+    let questionPayload = undefined;
+    if (Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+      questionPayload = parsed.questions[0];
+    } else if (parsed.question || Array.isArray(parsed.options)) {
+      questionPayload = parsed;
+    }
+    if (!questionPayload || typeof questionPayload !== "object") {
+      return empty;
+    }
+
+    let options = Array.isArray(questionPayload.options)
+      ? questionPayload.options
+        .map((opt) => {
+          if (!opt || typeof opt !== "object") return null;
+          let label = typeof opt.label === "string" ? opt.label.trim() : "";
+          if (!label) return null;
+          let description = typeof opt.description === "string" ? opt.description.trim() : "";
+          return description ? { label, description } : { label };
+        })
+        .filter(Boolean)
+      : [];
+
+    return {
+      questionId: typeof questionPayload.id === "string" ? questionPayload.id : undefined,
+      question: typeof questionPayload.question === "string" ? questionPayload.question : undefined,
+      options,
+    };
+  } catch {
+    return empty;
+  }
 }
 
 async function requireControllableSession(sessionId) {

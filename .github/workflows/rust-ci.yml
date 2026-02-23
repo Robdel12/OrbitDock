@@ -1,0 +1,48 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'orbitdock-server/**'
+      - '.github/workflows/rust-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'orbitdock-server/**'
+      - '.github/workflows/rust-ci.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  check:
+    name: Check, Lint & Test
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            orbitdock-server/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('orbitdock-server/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: cargo fmt
+        run: cd orbitdock-server && cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cd orbitdock-server && cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cd orbitdock-server && cargo test --workspace

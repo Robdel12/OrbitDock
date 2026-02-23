@@ -68,6 +68,49 @@ struct ApprovalCardModelTests {
     #expect(model?.mode == .permission)
   }
 
+  @Test func builderParsesQuestionOptionsFromPendingToolInput() {
+    let toolInput = """
+    {
+      "questions": [
+        {
+          "id": "speed",
+          "header": "Speed",
+          "question": "How do you want to launch?",
+          "options": [
+            { "label": "Open Sheet", "description": "Open full sheet first" },
+            { "label": "Quick Launch", "description": "Use defaults immediately" }
+          ]
+        }
+      ]
+    }
+    """
+
+    let session = Session(
+      id: "session-question-options",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingQuestion,
+      pendingToolInput: toolInput,
+      provider: .claude,
+      claudeIntegrationMode: .direct,
+      pendingApprovalId: "req-question"
+    )
+
+    let state = ServerAppState()
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: nil,
+      serverState: state
+    )
+
+    #expect(model?.mode == .question)
+    #expect(model?.questionId == "speed")
+    #expect(model?.question == "How do you want to launch?")
+    #expect(model?.questionOptions.count == 2)
+    #expect(model?.questionOptions.first?.label == "Open Sheet")
+  }
+
   private func makeDirectSession(
     id: String = "session-1",
     attentionReason: Session.AttentionReason,

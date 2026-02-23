@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  iOS UICollectionViewCell for inline approval cards in the conversation timeline.
-//  Three modes: permission (tool approval), question (text input), takeover (passive session).
+//  Three modes: permission (tool approval), question (options or text input), takeover (passive session).
 //  Uses UIMenu for secondary actions to provide 44pt+ touch targets.
 //
 
@@ -44,6 +44,7 @@
 
     // Question mode
     private let questionTextLabel = UILabel()
+    private let questionOptionsStack = UIStackView()
     private let answerField = UITextField()
     private let submitButton = UIButton(type: .system)
 
@@ -62,6 +63,7 @@
     private var currentModel: ApprovalCardModel?
     private var commandTextHeightConstraint: NSLayoutConstraint?
     private var commandPreviewTextForSizing: String?
+    private var questionOptionsTopConstraint: NSLayoutConstraint?
 
     private enum Layout {
       static let outerVerticalInset: CGFloat = 6
@@ -268,6 +270,14 @@
       questionTextLabel.numberOfLines = 0
       cardContainer.addSubview(questionTextLabel)
 
+      questionOptionsStack.translatesAutoresizingMaskIntoConstraints = false
+      questionOptionsStack.axis = .vertical
+      questionOptionsStack.spacing = CGFloat(Spacing.xs)
+      questionOptionsStack.alignment = .fill
+      questionOptionsStack.distribution = .fill
+      questionOptionsStack.isHidden = true
+      cardContainer.addSubview(questionOptionsStack)
+
       answerField.translatesAutoresizingMaskIntoConstraints = false
       answerField.placeholder = "Your answer..."
       answerField.font = UIFont.systemFont(ofSize: TypeScale.body)
@@ -288,12 +298,19 @@
       cardContainer.addSubview(submitButton)
 
       let pad = Layout.cardPadding
+      let questionOptionsTop = questionOptionsStack.topAnchor
+        .constraint(equalTo: questionTextLabel.bottomAnchor, constant: 0)
+      questionOptionsTopConstraint = questionOptionsTop
       NSLayoutConstraint.activate([
         questionTextLabel.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         questionTextLabel.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         questionTextLabel.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
-        answerField.topAnchor.constraint(equalTo: questionTextLabel.bottomAnchor, constant: CGFloat(Spacing.md)),
+        questionOptionsTop,
+        questionOptionsStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        questionOptionsStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+
+        answerField.topAnchor.constraint(equalTo: questionOptionsStack.bottomAnchor, constant: CGFloat(Spacing.md)),
         answerField.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         answerField.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
         answerField.heightAnchor.constraint(greaterThanOrEqualToConstant: 34),
@@ -447,6 +464,9 @@
 
       // Hide
       questionTextLabel.isHidden = true
+      questionOptionsTopConstraint?.constant = 0
+      questionOptionsStack.isHidden = true
+      configureQuestionOptions([])
       answerField.isHidden = true
       submitButton.isHidden = true
       takeoverDescription.isHidden = true
@@ -499,8 +519,12 @@
 
       // Show
       questionTextLabel.isHidden = false
-      answerField.isHidden = false
-      submitButton.isHidden = false
+      let hasOptions = !model.questionOptions.isEmpty
+      configureQuestionOptions(model.questionOptions)
+      questionOptionsTopConstraint?.constant = hasOptions ? CGFloat(Spacing.md) : 0
+      questionOptionsStack.isHidden = !hasOptions
+      answerField.isHidden = hasOptions
+      submitButton.isHidden = hasOptions
 
       // Hide
       toolBadge.isHidden = true
@@ -518,7 +542,9 @@
       headerIcon.tintColor = tint
       headerLabel.text = "Question"
       questionTextLabel.text = model.question ?? ""
-      answerField.text = ""
+      if !hasOptions {
+        answerField.text = ""
+      }
     }
 
     private func configureTakeover(_ model: ApprovalCardModel) {
@@ -548,6 +574,9 @@
       moreActionsButton.isHidden = true
       riskBadgeContainer.isHidden = true
       questionTextLabel.isHidden = true
+      questionOptionsTopConstraint?.constant = 0
+      questionOptionsStack.isHidden = true
+      configureQuestionOptions([])
       answerField.isHidden = true
       submitButton.isHidden = true
 
@@ -704,6 +733,41 @@
       onTakeOver?()
     }
 
+    private func configureQuestionOptions(_ options: [ApprovalQuestionOption]) {
+      questionOptionsStack.arrangedSubviews.forEach { view in
+        questionOptionsStack.removeArrangedSubview(view)
+        view.removeFromSuperview()
+      }
+
+      guard !options.isEmpty else { return }
+
+      for option in options {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle(Self.questionOptionDisplayText(option), for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+        button.titleLabel?.numberOfLines = 0
+        button.titleLabel?.lineBreakMode = .byWordWrapping
+        button.titleLabel?.textAlignment = .left
+        button.contentHorizontalAlignment = .leading
+        button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        button.setTitleColor(UIColor(Color.textPrimary), for: .normal)
+        button.backgroundColor = UIColor(Color.backgroundPrimary).withAlphaComponent(0.8)
+        button.layer.cornerRadius = CGFloat(Radius.md)
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor(Color.statusQuestion).withAlphaComponent(0.35).cgColor
+        button.accessibilityHint = option.description
+        button.addAction(
+          UIAction { [weak self] _ in
+            self?.onAnswer?(option.label)
+          },
+          for: .touchUpInside
+        )
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        questionOptionsStack.addArrangedSubview(button)
+      }
+    }
+
     // MARK: - Height
 
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
@@ -745,8 +809,18 @@
           } else {
             h += 20
           }
-          h += CGFloat(Spacing.md) + 34 // answer field
-          h += CGFloat(Spacing.md) + 42 // submit button
+          if model.questionOptions.isEmpty {
+            h += CGFloat(Spacing.md) + 34 // answer field
+            h += CGFloat(Spacing.md) + 42 // submit button
+          } else {
+            h += CGFloat(Spacing.md) // spacing before options
+            for (index, option) in model.questionOptions.enumerated() {
+              h += Self.questionOptionHeight(option, width: contentWidth)
+              if index < model.questionOptions.count - 1 {
+                h += CGFloat(Spacing.xs)
+              }
+            }
+          }
           h += pad + outerInset
           return h
 
@@ -782,6 +856,23 @@
         return "Approve \(toolName) action?"
       }
       return nil
+    }
+
+    private static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
+      if let description = option.description, !description.isEmpty {
+        return "\(option.label)\n\(description)"
+      }
+      return option.label
+    }
+
+    private static func questionOptionHeight(_ option: ApprovalQuestionOption, width: CGFloat) -> CGFloat {
+      let text = questionOptionDisplayText(option)
+      let textHeight = measureTextHeight(
+        text,
+        font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
+        width: max(1, width - 24)
+      )
+      return max(44, textHeight + 20)
     }
 
     private static func commandTextWidth(for availableWidth: CGFloat) -> CGFloat {

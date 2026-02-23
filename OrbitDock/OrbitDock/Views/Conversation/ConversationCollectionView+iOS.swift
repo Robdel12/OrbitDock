@@ -354,7 +354,12 @@ import SwiftUI
             ?? self.serverState?.session(model.sessionId).pendingApproval?.id
             ?? self.serverState?.sessions.first(where: { $0.id == model.sessionId })?.pendingApprovalId
           guard let requestId else { return }
-          self.serverState?.answerQuestion(sessionId: model.sessionId, requestId: requestId, answer: answer)
+          self.serverState?.answerQuestion(
+            sessionId: model.sessionId,
+            requestId: requestId,
+            answer: answer,
+            questionId: model.questionId
+          )
         }
         cell.onTakeOver = { [weak self] in
           guard let self else { return }

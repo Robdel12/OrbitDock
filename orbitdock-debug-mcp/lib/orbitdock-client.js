@@ -71,8 +71,10 @@ export class OrbitDockClient {
   async approve(sessionId, requestId, options = {}) {
     let body = {
       request_id: requestId,
-      type: options.type || "exec",
     };
+    if (options.type) {
+      body.type = options.type;
+    }
     if (options.decision) {
       body.decision = options.decision;
     } else if (typeof options.approved === "boolean") {
@@ -80,6 +82,9 @@ export class OrbitDockClient {
     }
     if (options.answer) {
       body.answer = options.answer;
+    }
+    if (options.question_id) {
+      body.question_id = options.question_id;
     }
     if (options.message) {
       body.message = options.message;

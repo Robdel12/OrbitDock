@@ -152,6 +152,11 @@ enum ServerInstallState: Equatable {
           let attrs: [FileAttributeKey: Any] = [.posixPermissions: 0o755]
           try FileManager.default.setAttributes(attrs, ofItemAtPath: destPath)
 
+          // Strip quarantine xattr — the app bundle inherits com.apple.quarantine
+          // when downloaded, and FileManager.copyItem propagates it to the copy.
+          // launchd refuses to load quarantined binaries.
+          removexattr(destPath, "com.apple.quarantine", 0)
+
           logger.info("Copied server binary to \(destPath)")
           binaryPath = destPath
         } catch {

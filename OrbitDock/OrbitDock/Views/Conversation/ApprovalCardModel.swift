@@ -8,6 +8,11 @@
 
 import Foundation
 
+struct ApprovalQuestionOption: Hashable, Sendable {
+  let label: String
+  let description: String?
+}
+
 struct ApprovalCardModel: Hashable, Sendable {
   let mode: ApprovalCardMode
   let toolName: String?
@@ -16,6 +21,9 @@ struct ApprovalCardModel: Hashable, Sendable {
   let risk: ApprovalRisk
   let diff: String?
   let question: String?
+  let questionId: String?
+  let questionHeader: String?
+  let questionOptions: [ApprovalQuestionOption]
   let hasAmendment: Bool
   let approvalType: ServerApprovalType?
   let projectPath: String
@@ -54,8 +62,61 @@ enum ApprovalCardModeResolver {
 }
 
 enum ApprovalCardModelBuilder {
+  private struct ParsedQuestionInput {
+    let id: String?
+    let header: String?
+    let question: String?
+    let options: [ApprovalQuestionOption]
+  }
+
   private static func unresolvedApproval(in history: [ServerApprovalHistoryItem]) -> ServerApprovalHistoryItem? {
     history.first { $0.decision == nil && $0.decidedAt == nil }
+  }
+
+  private static func parseQuestionOptions(_ rawOptions: Any?) -> [ApprovalQuestionOption] {
+    guard let options = rawOptions as? [[String: Any]] else { return [] }
+    return options.compactMap { optionDict in
+      let label = (optionDict["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        ?? (optionDict["value"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let label, !label.isEmpty else { return nil }
+      let description = (optionDict["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      return ApprovalQuestionOption(
+        label: label,
+        description: description?.isEmpty == true ? nil : description
+      )
+    }
+  }
+
+  private static func parseQuestionInput(from toolInput: [String: Any]?) -> ParsedQuestionInput {
+    guard let toolInput else {
+      return ParsedQuestionInput(id: nil, header: nil, question: nil, options: [])
+    }
+
+    if let questions = toolInput["questions"] as? [[String: Any]],
+       let first = questions.first
+    {
+      let questionText = (first["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let header = (first["header"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let id = (first["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let options = parseQuestionOptions(first["options"])
+      return ParsedQuestionInput(
+        id: id?.isEmpty == true ? nil : id,
+        header: header?.isEmpty == true ? nil : header,
+        question: questionText?.isEmpty == true ? nil : questionText,
+        options: options
+      )
+    }
+
+    let questionText = (toolInput["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let header = (toolInput["header"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let id = (toolInput["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let options = parseQuestionOptions(toolInput["options"])
+    return ParsedQuestionInput(
+      id: id?.isEmpty == true ? nil : id,
+      header: header?.isEmpty == true ? nil : header,
+      question: questionText?.isEmpty == true ? nil : questionText,
+      options: options
+    )
   }
 
   static func build(
@@ -118,9 +179,12 @@ enum ApprovalCardModelBuilder {
       guard let dict = inputDict else { return nil }
       return (dict["path"] as? String) ?? (dict["file_path"] as? String)
     }()
+
+    let parsedQuestionInput = parseQuestionInput(from: inputDict)
     let command = commandFromInput ?? pendingApproval?.command ?? pendingHistory?.command
     let filePath = filePathFromInput ?? pendingApproval?.filePath ?? pendingHistory?.filePath
     let toolName = session.pendingToolName ?? pendingApproval?.toolName ?? pendingHistory?.toolName
+    let question = parsedQuestionInput.question ?? session.pendingQuestion ?? pendingApproval?.question
 
     return ApprovalCardModel(
       mode: mode,
@@ -129,7 +193,10 @@ enum ApprovalCardModelBuilder {
       filePath: filePath,
       risk: risk,
       diff: pendingApproval?.diff,
-      question: session.pendingQuestion ?? pendingApproval?.question,
+      question: question,
+      questionId: parsedQuestionInput.id,
+      questionHeader: parsedQuestionInput.header,
+      questionOptions: parsedQuestionInput.options,
       hasAmendment: pendingApproval?.proposedAmendment != nil || pendingHistory?.proposedAmendment != nil,
       approvalType: approvalType,
       projectPath: session.projectPath,

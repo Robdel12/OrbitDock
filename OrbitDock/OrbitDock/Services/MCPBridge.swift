@@ -436,35 +436,93 @@ final class MCPBridge {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
+    guard let session = state.sessions.first(where: { $0.id == sessionId }) else {
+      return HTTPResponse(status: 404, body: ["error": "Session not found"])
+    }
+    let observable = state.session(sessionId)
+    let pendingApproval = observable.pendingApproval
+
     let requestIdFromBody = body["request_id"] as? String
     let requestId: String
     if let rid = requestIdFromBody, !rid.isEmpty, rid != "pending" {
       requestId = rid
-    } else if let pending = state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId {
+    } else if let pending = session.pendingApprovalId {
       requestId = pending
     } else {
       return HTTPResponse(status: 400, body: ["error": "Missing 'request_id' field and no pending approval found"])
     }
 
-    // Support both "decision" string and legacy "approved" bool
-    let decision: String
-    if let d = body["decision"] as? String {
-      decision = d
-    } else if let approved = body["approved"] as? Bool {
-      decision = approved ? "approved" : "denied"
-    } else {
-      return HTTPResponse(status: 400, body: ["error": "Missing 'approved' or 'decision' field"])
-    }
+    let typeFromBody = (body["type"] as? String)?.lowercased()
+    let typeFromState = pendingApproval?.type.rawValue
+      ?? (session.attentionReason == .awaitingQuestion || session.pendingQuestion != nil ? "question" : nil)
+    let approvalType = typeFromBody ?? typeFromState ?? "exec"
 
-    let approvalType = body["type"] as? String ?? "exec"
+    guard approvalType == "exec" || approvalType == "patch" || approvalType == "question" else {
+      return HTTPResponse(
+        status: 400,
+        body: ["error": "Invalid 'type' field '\(approvalType)'. Valid: exec, patch, question"]
+      )
+    }
 
     let denyMessage = body["message"] as? String
     let interrupt = body["interrupt"] as? Bool
 
     if approvalType == "question" {
-      let answer = body["answer"] as? String ?? ""
-      state.answerQuestion(sessionId: sessionId, requestId: requestId, answer: answer)
+      let answer = (body["answer"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !answer.isEmpty else {
+        var errorBody: [String: Any] = [
+          "error": "Missing 'answer' field for question approval",
+          "session_id": sessionId,
+          "request_id": requestId,
+        ]
+        let rawInput = pendingApproval?.toolInput ?? session.pendingToolInput
+        if let questionMeta = parseQuestionMetadata(from: rawInput) {
+          if let question = questionMeta.question {
+            errorBody["question"] = question
+          }
+          if let questionId = questionMeta.questionId {
+            errorBody["question_id"] = questionId
+          }
+          if !questionMeta.options.isEmpty {
+            errorBody["options"] = questionMeta.options
+          }
+        }
+        return HTTPResponse(status: 400, body: errorBody)
+      }
+
+      let questionIdFromBody = (body["question_id"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let questionId: String? = {
+        if let questionIdFromBody, !questionIdFromBody.isEmpty { return questionIdFromBody }
+        if let parsed = parseQuestionMetadata(from: pendingApproval?.toolInput ?? session.pendingToolInput) {
+          return parsed.questionId
+        }
+        return nil
+      }()
+
+      state.answerQuestion(
+        sessionId: sessionId,
+        requestId: requestId,
+        answer: answer,
+        questionId: questionId
+      )
+      return HTTPResponse(status: 200, body: [
+        "status": "answered",
+        "session_id": sessionId,
+        "request_id": requestId,
+        "question_id": questionId as Any,
+      ])
     } else {
+      // Support both "decision" string and legacy "approved" bool
+      let decision: String
+      if let d = body["decision"] as? String {
+        decision = d
+      } else if let approved = body["approved"] as? Bool {
+        decision = approved ? "approved" : "denied"
+      } else {
+        return HTTPResponse(status: 400, body: ["error": "Missing 'approved' or 'decision' field"])
+      }
+
       state.approveTool(
         sessionId: sessionId,
         requestId: requestId,
@@ -474,7 +532,12 @@ final class MCPBridge {
       )
     }
 
-    return HTTPResponse(status: 200, body: ["status": "approved", "session_id": sessionId, "request_id": requestId])
+    return HTTPResponse(status: 200, body: [
+      "status": "approved",
+      "session_id": sessionId,
+      "request_id": requestId,
+      "type": approvalType,
+    ])
   }
 
   private func handleListSessions() -> HTTPResponse {
@@ -499,6 +562,26 @@ final class MCPBridge {
       ]
       if let pendingApprovalId = session.pendingApprovalId {
         data["pending_approval_id"] = pendingApprovalId
+      }
+      let pendingApproval = state.session(session.id).pendingApproval
+      if let pendingApproval {
+        data["pending_approval_type"] = pendingApproval.type.rawValue
+      } else if session.attentionReason == .awaitingQuestion || session.pendingQuestion != nil {
+        data["pending_approval_type"] = "question"
+      }
+      if let pendingQuestion = pendingApproval?.question ?? session.pendingQuestion {
+        data["pending_question"] = pendingQuestion
+      }
+      if let pendingToolInput = pendingApproval?.toolInput ?? session.pendingToolInput {
+        data["pending_tool_input"] = pendingToolInput
+        if let questionMeta = parseQuestionMetadata(from: pendingToolInput) {
+          if let questionId = questionMeta.questionId {
+            data["pending_question_id"] = questionId
+          }
+          if !questionMeta.options.isEmpty {
+            data["pending_question_options"] = questionMeta.options
+          }
+        }
       }
       if session.isDirectClaude {
         data["permission_mode"] = state.session(session.id).permissionMode.rawValue
@@ -534,6 +617,27 @@ final class MCPBridge {
       sessionData["pending_approval_id"] = pendingApprovalId
     }
 
+    let pendingApproval = state.session(session.id).pendingApproval
+    if let pendingApproval {
+      sessionData["pending_approval_type"] = pendingApproval.type.rawValue
+    } else if session.attentionReason == .awaitingQuestion || session.pendingQuestion != nil {
+      sessionData["pending_approval_type"] = "question"
+    }
+    if let pendingQuestion = pendingApproval?.question ?? session.pendingQuestion {
+      sessionData["pending_question"] = pendingQuestion
+    }
+    if let pendingToolInput = pendingApproval?.toolInput ?? session.pendingToolInput {
+      sessionData["pending_tool_input"] = pendingToolInput
+      if let questionMeta = parseQuestionMetadata(from: pendingToolInput) {
+        if let questionId = questionMeta.questionId {
+          sessionData["pending_question_id"] = questionId
+        }
+        if !questionMeta.options.isEmpty {
+          sessionData["pending_question_options"] = questionMeta.options
+        }
+      }
+    }
+
     if session.isDirectClaude {
       sessionData["permission_mode"] = state.session(session.id).permissionMode.rawValue
     }
@@ -547,6 +651,44 @@ final class MCPBridge {
     }
 
     return HTTPResponse(status: 200, body: sessionData)
+  }
+
+  private func parseQuestionMetadata(from rawToolInput: String?) -> (questionId: String?, question: String?, options: [[String: String]])? {
+    guard let rawToolInput,
+          let data = rawToolInput.data(using: .utf8),
+          let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    else {
+      return nil
+    }
+
+    let questionPayload: [String: Any]
+    if let questions = payload["questions"] as? [[String: Any]], let first = questions.first {
+      questionPayload = first
+    } else if payload["question"] != nil || payload["options"] != nil {
+      questionPayload = payload
+    } else {
+      return nil
+    }
+
+    let questionId = (questionPayload["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let question = (questionPayload["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let options = ((questionPayload["options"] as? [[String: Any]]) ?? []).compactMap { option -> [String: String]? in
+      let label = (option["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard let label, !label.isEmpty else { return nil }
+      var serialized: [String: String] = ["label": label]
+      if let description = (option["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+         !description.isEmpty
+      {
+        serialized["description"] = description
+      }
+      return serialized
+    }
+
+    return (
+      questionId?.isEmpty == true ? nil : questionId,
+      question?.isEmpty == true ? nil : question,
+      options
+    )
   }
 }
 

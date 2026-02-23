@@ -55,8 +55,13 @@ enum ContentStyle: Hashable {
 // MARK: - Renderer
 
 enum MarkdownAttributedStringRenderer {
+  private struct ParseCacheKey: Hashable {
+    let markdown: String
+    let style: ContentStyle
+  }
+
   /// Parse cache — avoids re-parsing identical content.
-  private static var parseCache: [Int: [MarkdownBlock]] = [:]
+  private static var parseCache: [ParseCacheKey: [MarkdownBlock]] = [:]
   #if os(iOS)
     private static let maxCacheSize = 160
   #else
@@ -67,10 +72,10 @@ enum MarkdownAttributedStringRenderer {
   /// Safe because all rendering is @MainActor.
   private static var activeStyle: ContentStyle = .standard
 
-  /// Parse markdown text into blocks, with caching by content hash.
+  /// Parse markdown text into blocks, with caching by content/style key.
   static func parse(_ markdown: String, style: ContentStyle = .standard) -> [MarkdownBlock] {
-    let hash = markdown.hashValue &+ (style == .thinking ? 1 : 0)
-    if let cached = parseCache[hash] { return cached }
+    let key = ParseCacheKey(markdown: markdown, style: style)
+    if let cached = parseCache[key] { return cached }
 
     activeStyle = style
     let document = Document(parsing: markdown)
@@ -81,7 +86,7 @@ enum MarkdownAttributedStringRenderer {
     if parseCache.count >= maxCacheSize {
       parseCache.removeAll(keepingCapacity: true)
     }
-    parseCache[hash] = blocks
+    parseCache[key] = blocks
     return blocks
   }
 
@@ -144,11 +149,23 @@ enum MarkdownAttributedStringRenderer {
     }
   }
 
-  /// Line spacing — proportional to body font size.
-  /// Standard (14.5pt): 6.5pt → ~21pt total (1.45× ratio, approaching WCAG 1.5×).
-  /// Thinking (13pt): 4.5pt → ~17.5pt total (1.35× ratio, compact but readable).
+  /// Body copy leading tuned for dense chat transcripts.
+  /// Standard keeps multi-line passages open enough to scan.
+  /// Thinking stays compact but avoids cramped 3+ line blocks.
   static var textLineSpacing: CGFloat {
-    activeStyle == .thinking ? 4.5 : 6.5
+    activeStyle == .thinking ? 5.5 : 7.5
+  }
+
+  static var paragraphSpacing: CGFloat {
+    activeStyle == .thinking ? 10 : 16
+  }
+
+  static var listParagraphSpacingBefore: CGFloat {
+    activeStyle == .thinking ? 2 : 4
+  }
+
+  static var listParagraphSpacing: CGFloat {
+    activeStyle == .thinking ? 4 : 8
   }
 
   // MARK: - Thinking Font Scale
@@ -279,7 +296,13 @@ enum MarkdownAttributedStringRenderer {
                 baseFont: Fonts.blockquoteBody,
                 baseColor: Colors.blockquoteText
               )
-              let text = inlineVisitor.renderInlines(para.inlineChildren)
+              let text = NSMutableAttributedString(attributedString: inlineVisitor.renderInlines(para.inlineChildren))
+              let quoteStyle = NSMutableParagraphStyle()
+              quoteStyle.lineSpacing = textLineSpacing
+              quoteStyle.paragraphSpacing = activeStyle == .thinking ? 6 : 10
+              if text.length > 0 {
+                text.addAttribute(.paragraphStyle, value: quoteStyle, range: NSRange(location: 0, length: text.length))
+              }
               result.append(text)
             }
           }
@@ -300,7 +323,7 @@ enum MarkdownAttributedStringRenderer {
         case let htmlBlock as HTMLBlock:
           // Render HTML as plain text
           let para = NSMutableParagraphStyle()
-          para.paragraphSpacing = activeStyle == .thinking ? 8 : 12
+          para.paragraphSpacing = paragraphSpacing
           para.lineSpacing = textLineSpacing
           let attrStr = NSAttributedString(string: htmlBlock.rawHTML, attributes: [
             .font: Fonts.body,
@@ -330,7 +353,7 @@ enum MarkdownAttributedStringRenderer {
           (
             isThinking ? 18 : TypeScale.chatHeading1, .bold,
             isThinking ? PlatformColor(Color.textSecondary) : PlatformColor(Color.textPrimary),
-            isThinking ? 18 : 26, isThinking ? 8 : 14, isThinking ? 0 : 0.3
+            isThinking ? 16 : 22, isThinking ? 7 : 12, isThinking ? 0 : 0.2
           )
         case 2:
           (
@@ -338,13 +361,13 @@ enum MarkdownAttributedStringRenderer {
             isThinking
               ? PlatformColor(Color.textSecondary).withAlphaComponent(0.9)
               : PlatformColor(Color.textPrimary).withAlphaComponent(0.95),
-            isThinking ? 14 : 22, isThinking ? 6 : 10, isThinking ? 0 : 0.2
+            isThinking ? 12 : 18, isThinking ? 5 : 9, isThinking ? 0 : 0.15
           )
         default:
           (
             isThinking ? 13 : TypeScale.chatHeading3, .bold,
             isThinking ? PlatformColor(Color.textSecondary) : PlatformColor(Color.textPrimary).withAlphaComponent(0.88),
-            isThinking ? 10 : 16, isThinking ? 4 : 8, isThinking ? 0 : 0.5
+            isThinking ? 8 : 14, isThinking ? 3 : 7, isThinking ? 0 : 0.12
           )
       }
 
@@ -377,7 +400,7 @@ enum MarkdownAttributedStringRenderer {
       let result = NSMutableAttributedString(attributedString: inlineVisitor.renderInlines(paragraph.inlineChildren))
 
       let para = NSMutableParagraphStyle()
-      para.paragraphSpacing = activeStyle == .thinking ? 8 : 14
+      para.paragraphSpacing = paragraphSpacing
       para.lineSpacing = textLineSpacing
       if result.length > 0 {
         result.addAttribute(.paragraphStyle, value: para, range: NSRange(location: 0, length: result.length))
@@ -387,17 +410,17 @@ enum MarkdownAttributedStringRenderer {
 
     // MARK: Lists
 
-    private func renderOrderedList(_ list: OrderedList) -> NSAttributedString {
+    private func renderOrderedList(_ list: OrderedList, indentLevel: Int = 0) -> NSAttributedString {
       let result = NSMutableAttributedString()
       for (idx, item) in list.listItems.enumerated() {
         let number = Int(list.startIndex) + idx
         if result.length > 0 { result.append(newlineSpacer(2)) }
-        result.append(renderListItem(item, bullet: "\(number). "))
+        result.append(renderListItem(item, bullet: "\(number). ", indentLevel: indentLevel))
       }
       return result
     }
 
-    private func renderUnorderedList(_ list: UnorderedList) -> NSAttributedString {
+    private func renderUnorderedList(_ list: UnorderedList, indentLevel: Int = 0) -> NSAttributedString {
       let result = NSMutableAttributedString()
       for item in list.listItems {
         if result.length > 0 { result.append(newlineSpacer(2)) }
@@ -405,24 +428,26 @@ enum MarkdownAttributedStringRenderer {
         // Check for task list checkbox
         if let checkbox = item.checkbox {
           let marker = checkbox == .checked ? "\u{2611} " : "\u{2610} "
-          result.append(renderListItem(item, bullet: marker))
+          result.append(renderListItem(item, bullet: marker, indentLevel: indentLevel))
         } else {
-          result.append(renderListItem(item, bullet: "\u{2022} "))
+          result.append(renderListItem(item, bullet: "\u{2022} ", indentLevel: indentLevel))
         }
       }
       return result
     }
 
-    private func renderListItem(_ item: ListItem, bullet: String) -> NSAttributedString {
+    private func renderListItem(_ item: ListItem, bullet: String, indentLevel: Int) -> NSAttributedString {
       let result = NSMutableAttributedString()
 
       let para = NSMutableParagraphStyle()
-      let bulletWidth: CGFloat = 20
+      let indentStep: CGFloat = 18
+      let firstLineIndent = CGFloat(indentLevel) * indentStep
+      let bulletWidth: CGFloat = 24 + firstLineIndent
       para.headIndent = bulletWidth
-      para.firstLineHeadIndent = 0
+      para.firstLineHeadIndent = firstLineIndent
       para.tabStops = [NSTextTab(textAlignment: .left, location: bulletWidth)]
-      para.paragraphSpacingBefore = activeStyle == .thinking ? 1 : 3
-      para.paragraphSpacing = activeStyle == .thinking ? 2 : 5
+      para.paragraphSpacingBefore = listParagraphSpacingBefore
+      para.paragraphSpacing = listParagraphSpacing
       para.lineSpacing = textLineSpacing
 
       let bulletAttrs: [NSAttributedString.Key: Any] = [
@@ -433,8 +458,12 @@ enum MarkdownAttributedStringRenderer {
       result.append(NSAttributedString(string: "\t" + bullet, attributes: bulletAttrs))
 
       // Render list content. Support paragraphs, fenced code, and fallback plain text.
+      var didRenderPrimaryContent = false
       for child in item.children {
         if let paragraph = child as? Paragraph {
+          if didRenderPrimaryContent {
+            result.append(NSAttributedString(string: "\n"))
+          }
           var inlineVisitor = InlineAttributedStringVisitor(
             baseFont: Fonts.body,
             baseColor: Colors.text
@@ -447,7 +476,11 @@ enum MarkdownAttributedStringRenderer {
             range: NSRange(location: 0, length: inlineStr.length)
           )
           result.append(inlineStr)
+          didRenderPrimaryContent = true
         } else if let codeBlock = child as? CodeBlock {
+          if didRenderPrimaryContent {
+            result.append(NSAttributedString(string: "\n"))
+          }
           var code = codeBlock.code
           while code.hasSuffix("\n") {
             code = String(code.dropLast())
@@ -462,15 +495,32 @@ enum MarkdownAttributedStringRenderer {
             .paragraphStyle: codePara,
           ]
           result.append(NSAttributedString(string: "\n\(code)", attributes: codeAttrs))
+          didRenderPrimaryContent = true
+        } else if let nestedOrdered = child as? OrderedList {
+          if didRenderPrimaryContent {
+            result.append(NSAttributedString(string: "\n"))
+          }
+          result.append(renderOrderedList(nestedOrdered, indentLevel: indentLevel + 1))
+          didRenderPrimaryContent = true
+        } else if let nestedUnordered = child as? UnorderedList {
+          if didRenderPrimaryContent {
+            result.append(NSAttributedString(string: "\n"))
+          }
+          result.append(renderUnorderedList(nestedUnordered, indentLevel: indentLevel + 1))
+          didRenderPrimaryContent = true
         } else {
           let plain = child.format().trimmingCharacters(in: .whitespacesAndNewlines)
           guard !plain.isEmpty else { continue }
+          if didRenderPrimaryContent {
+            result.append(NSAttributedString(string: "\n"))
+          }
           let attrs: [NSAttributedString.Key: Any] = [
             .font: Fonts.body,
             .foregroundColor: Colors.text,
             .paragraphStyle: para,
           ]
           result.append(NSAttributedString(string: plain, attributes: attrs))
+          didRenderPrimaryContent = true
         }
       }
 
@@ -481,13 +531,13 @@ enum MarkdownAttributedStringRenderer {
 
     private func renderTable(_ table: Markdown.Table) -> MarkdownBlock {
       let headers: [String] = table.head.cells.map { cell in
-        cell.plainText.trimmingCharacters(in: .whitespaces)
+        cell.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
       }
 
       var rows: [[String]] = []
       for row in table.body.rows {
         let cells: [String] = row.cells.map { cell in
-          cell.plainText.trimmingCharacters(in: .whitespaces)
+          cell.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         // Pad or trim to match header count
         let padded = cells + Array(repeating: "", count: max(0, headers.count - cells.count))
