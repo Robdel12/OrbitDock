@@ -111,6 +111,60 @@ struct ApprovalCardModelTests {
     #expect(model?.questionOptions.first?.label == "Open Sheet")
   }
 
+  @Test func builderParsesMultipleQuestionPromptsFromPendingToolInput() {
+    let toolInput = """
+    {
+      "questions": [
+        {
+          "id": "speed",
+          "header": "Speed",
+          "question": "How do you want to launch?",
+          "options": [
+            { "label": "Open Sheet", "description": "Open full sheet first" },
+            { "label": "Quick Launch", "description": "Use defaults immediately" }
+          ]
+        },
+        {
+          "id": "confirm",
+          "header": "Confirm",
+          "question": "Apply this setup?",
+          "multiSelect": true,
+          "isOther": true,
+          "isSecret": false
+        }
+      ]
+    }
+    """
+
+    let session = Session(
+      id: "session-multi-question-options",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingQuestion,
+      pendingToolInput: toolInput,
+      provider: .claude,
+      claudeIntegrationMode: .direct,
+      pendingApprovalId: "req-question"
+    )
+
+    let state = ServerAppState()
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: nil,
+      serverState: state
+    )
+
+    #expect(model?.mode == .question)
+    #expect(model?.questions.count == 2)
+    #expect(model?.questions.first?.id == "speed")
+    #expect(model?.questions.first?.options.count == 2)
+    #expect(model?.questions.last?.id == "confirm")
+    #expect(model?.questions.last?.allowsMultipleSelection == true)
+    #expect(model?.questions.last?.allowsOther == true)
+    #expect(model?.questions.last?.isSecret == false)
+  }
+
   private func makeDirectSession(
     id: String = "session-1",
     attentionReason: Session.AttentionReason,

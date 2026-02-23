@@ -586,12 +586,19 @@ final class ServerConnection: ObservableObject {
   }
 
   /// Answer a question
-  func answerQuestion(sessionId: String, requestId: String, answer: String, questionId: String? = nil) {
+  func answerQuestion(
+    sessionId: String,
+    requestId: String,
+    answer: String,
+    questionId: String? = nil,
+    answers: [String: [String]]? = nil
+  ) {
     send(.answerQuestion(
       sessionId: sessionId,
       requestId: requestId,
       answer: answer,
-      questionId: questionId
+      questionId: questionId,
+      answers: answers
     ))
   }
 

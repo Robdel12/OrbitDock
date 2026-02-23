@@ -1469,12 +1469,12 @@ impl CodexConnector {
     pub async fn answer_question(
         &self,
         request_id: &str,
-        answers: HashMap<String, String>,
+        answers: HashMap<String, Vec<String>>,
     ) -> Result<(), ConnectorError> {
         let response = RequestUserInputResponse {
             answers: answers
                 .into_iter()
-                .map(|(k, v)| (k, RequestUserInputAnswer { answers: vec![v] }))
+                .map(|(k, v)| (k, RequestUserInputAnswer { answers: v }))
                 .collect(),
         };
 

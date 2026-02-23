@@ -13,6 +13,16 @@ struct ApprovalQuestionOption: Hashable, Sendable {
   let description: String?
 }
 
+struct ApprovalQuestionPrompt: Hashable, Sendable {
+  let id: String
+  let header: String?
+  let question: String
+  let options: [ApprovalQuestionOption]
+  let allowsMultipleSelection: Bool
+  let allowsOther: Bool
+  let isSecret: Bool
+}
+
 struct ApprovalCardModel: Hashable, Sendable {
   let mode: ApprovalCardMode
   let toolName: String?
@@ -24,6 +34,7 @@ struct ApprovalCardModel: Hashable, Sendable {
   let questionId: String?
   let questionHeader: String?
   let questionOptions: [ApprovalQuestionOption]
+  let questions: [ApprovalQuestionPrompt]
   let hasAmendment: Bool
   let approvalType: ServerApprovalType?
   let projectPath: String
@@ -63,10 +74,7 @@ enum ApprovalCardModeResolver {
 
 enum ApprovalCardModelBuilder {
   private struct ParsedQuestionInput {
-    let id: String?
-    let header: String?
-    let question: String?
-    let options: [ApprovalQuestionOption]
+    let prompts: [ApprovalQuestionPrompt]
   }
 
   private static func unresolvedApproval(in history: [ServerApprovalHistoryItem]) -> ServerApprovalHistoryItem? {
@@ -87,36 +95,67 @@ enum ApprovalCardModelBuilder {
     }
   }
 
+  private static func parseBoolean(_ value: Any?) -> Bool {
+    switch value {
+      case let b as Bool:
+        return b
+      case let n as NSNumber:
+        return n.boolValue
+      case let s as String:
+        let normalized = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "true" || normalized == "1" || normalized == "yes"
+      default:
+        return false
+    }
+  }
+
+  private static func parsePrompt(_ rawQuestion: [String: Any], fallbackId: String) -> ApprovalQuestionPrompt? {
+    let question = (rawQuestion["question"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let header = (rawQuestion["header"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let id = (rawQuestion["id"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    let options = parseQuestionOptions(rawQuestion["options"])
+
+    let resolvedQuestion = (question?.isEmpty == false ? question : nil) ?? "Question"
+    let resolvedId = (id?.isEmpty == false ? id : nil) ?? fallbackId
+
+    let allowsMultipleSelection = parseBoolean(rawQuestion["multiSelect"])
+      || parseBoolean(rawQuestion["multi_select"])
+    let allowsOther = parseBoolean(rawQuestion["isOther"])
+      || parseBoolean(rawQuestion["is_other"])
+    let isSecret = parseBoolean(rawQuestion["isSecret"])
+      || parseBoolean(rawQuestion["is_secret"])
+
+    return ApprovalQuestionPrompt(
+      id: resolvedId,
+      header: header?.isEmpty == true ? nil : header,
+      question: resolvedQuestion,
+      options: options,
+      allowsMultipleSelection: allowsMultipleSelection,
+      allowsOther: allowsOther,
+      isSecret: isSecret
+    )
+  }
+
   private static func parseQuestionInput(from toolInput: [String: Any]?) -> ParsedQuestionInput {
     guard let toolInput else {
-      return ParsedQuestionInput(id: nil, header: nil, question: nil, options: [])
+      return ParsedQuestionInput(prompts: [])
     }
 
-    if let questions = toolInput["questions"] as? [[String: Any]],
-       let first = questions.first
-    {
-      let questionText = (first["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-      let header = (first["header"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-      let id = (first["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-      let options = parseQuestionOptions(first["options"])
-      return ParsedQuestionInput(
-        id: id?.isEmpty == true ? nil : id,
-        header: header?.isEmpty == true ? nil : header,
-        question: questionText?.isEmpty == true ? nil : questionText,
-        options: options
-      )
+    if let questions = toolInput["questions"] as? [[String: Any]] {
+      let prompts = questions.enumerated().compactMap { index, rawQuestion in
+        parsePrompt(rawQuestion, fallbackId: String(index))
+      }
+      return ParsedQuestionInput(prompts: prompts)
     }
 
-    let questionText = (toolInput["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let header = (toolInput["header"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let id = (toolInput["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let options = parseQuestionOptions(toolInput["options"])
-    return ParsedQuestionInput(
-      id: id?.isEmpty == true ? nil : id,
-      header: header?.isEmpty == true ? nil : header,
-      question: questionText?.isEmpty == true ? nil : questionText,
-      options: options
-    )
+    if let prompt = parsePrompt(toolInput, fallbackId: "0") {
+      return ParsedQuestionInput(prompts: [prompt])
+    }
+
+    return ParsedQuestionInput(prompts: [])
   }
 
   static func build(
@@ -184,7 +223,26 @@ enum ApprovalCardModelBuilder {
     let command = commandFromInput ?? pendingApproval?.command ?? pendingHistory?.command
     let filePath = filePathFromInput ?? pendingApproval?.filePath ?? pendingHistory?.filePath
     let toolName = session.pendingToolName ?? pendingApproval?.toolName ?? pendingHistory?.toolName
-    let question = parsedQuestionInput.question ?? session.pendingQuestion ?? pendingApproval?.question
+
+    var prompts = parsedQuestionInput.prompts
+    if prompts.isEmpty,
+       let fallbackQuestion = (session.pendingQuestion ?? pendingApproval?.question)?
+       .trimmingCharacters(in: .whitespacesAndNewlines),
+       !fallbackQuestion.isEmpty
+    {
+      prompts = [
+        ApprovalQuestionPrompt(
+          id: "0",
+          header: nil,
+          question: fallbackQuestion,
+          options: [],
+          allowsMultipleSelection: false,
+          allowsOther: true,
+          isSecret: false
+        )
+      ]
+    }
+    let firstPrompt = prompts.first
 
     return ApprovalCardModel(
       mode: mode,
@@ -193,10 +251,11 @@ enum ApprovalCardModelBuilder {
       filePath: filePath,
       risk: risk,
       diff: pendingApproval?.diff,
-      question: question,
-      questionId: parsedQuestionInput.id,
-      questionHeader: parsedQuestionInput.header,
-      questionOptions: parsedQuestionInput.options,
+      question: firstPrompt?.question,
+      questionId: firstPrompt?.id,
+      questionHeader: firstPrompt?.header,
+      questionOptions: firstPrompt?.options ?? [],
+      questions: prompts,
       hasAmendment: pendingApproval?.proposedAmendment != nil || pendingHistory?.proposedAmendment != nil,
       approvalType: approvalType,
       projectPath: session.projectPath,

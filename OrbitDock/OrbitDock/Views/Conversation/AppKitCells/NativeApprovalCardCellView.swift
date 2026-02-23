@@ -18,7 +18,7 @@
 
     /// (decision, denyMessage, interrupt)
     var onDecision: ((String, String?, Bool?) -> Void)?
-    var onAnswer: ((String) -> Void)?
+    var onAnswer: (([String: [String]]) -> Void)?
     var onTakeOver: (() -> Void)?
 
     // MARK: - Subviews
@@ -84,6 +84,10 @@
     private var commandTextHeightConstraint: NSLayoutConstraint?
     private var commandPreviewTextForSizing: String?
     private var questionOptionsTopConstraint: NSLayoutConstraint?
+    private var selectedQuestionAnswers: [String: [String]] = [:]
+    private var questionTextFields: [String: NSTextField] = [:]
+    private var questionOptionButtons: [String: [NSButton]] = [:]
+    private var questionOptionPayloads: [ObjectIdentifier: (questionId: String, optionLabel: String)] = [:]
 
     private enum Layout {
       static let outerVerticalInset: CGFloat = 6
@@ -621,6 +625,7 @@
       showDenyReason = false
       denyReasonContainer.isHidden = true
       denyReasonField.stringValue = ""
+      clearQuestionFormState()
 
       let tint = NSColor(model.risk.tintColor)
       riskStrip.layer?.backgroundColor = tint.cgColor
@@ -654,6 +659,7 @@
       questionOptionsTopConstraint?.constant = 0
       questionOptionsStack.isHidden = true
       configureQuestionOptions([])
+      clearQuestionFormState()
       answerField.isHidden = true
       submitButton.isHidden = true
       takeoverDescription.isHidden = true
@@ -728,14 +734,28 @@
       cardContainer.layer?.backgroundColor = tint.withAlphaComponent(CGFloat(OpacityTier.light)).cgColor
       cardContainer.layer?.borderColor = tint.withAlphaComponent(CGFloat(OpacityTier.medium)).cgColor
 
+      let prompts = Self.questionPrompts(for: model)
+      let isMultiPrompt = prompts.count > 1
+      let primaryPrompt = prompts.first
+      let hasOptions = !(primaryPrompt?.options ?? []).isEmpty && !isMultiPrompt
+
       // Show question views
       questionTextLabel.isHidden = false
-      let hasOptions = !model.questionOptions.isEmpty
-      configureQuestionOptions(model.questionOptions)
-      questionOptionsTopConstraint?.constant = hasOptions ? CGFloat(Spacing.md) : 0
-      questionOptionsStack.isHidden = !hasOptions
-      answerField.isHidden = hasOptions
-      submitButton.isHidden = hasOptions
+      if isMultiPrompt {
+        configureQuestionPromptForm(prompts)
+        questionOptionsTopConstraint?.constant = CGFloat(Spacing.md)
+        questionOptionsStack.isHidden = false
+        answerField.isHidden = true
+        submitButton.isHidden = false
+        submitButton.title = "Submit Answers"
+      } else {
+        configureQuestionOptions(primaryPrompt?.options ?? [])
+        questionOptionsTopConstraint?.constant = hasOptions ? CGFloat(Spacing.md) : 0
+        questionOptionsStack.isHidden = !hasOptions
+        answerField.isHidden = hasOptions
+        submitButton.isHidden = hasOptions
+        submitButton.title = "Submit"
+      }
 
       // Hide other modes
       toolBadge.isHidden = true
@@ -755,8 +775,12 @@
       headerIcon.contentTintColor = tint
       headerLabel.stringValue = "Question"
 
-      questionTextLabel.stringValue = model.question ?? ""
-      if !hasOptions {
+      if isMultiPrompt {
+        questionTextLabel.stringValue = "Answer all questions to continue."
+      } else {
+        questionTextLabel.stringValue = primaryPrompt?.question ?? model.question ?? ""
+      }
+      if !hasOptions && !isMultiPrompt {
         answerField.stringValue = ""
       }
     }
@@ -794,6 +818,7 @@
       questionOptionsTopConstraint?.constant = 0
       questionOptionsStack.isHidden = true
       configureQuestionOptions([])
+      clearQuestionFormState()
       answerField.isHidden = true
       submitButton.isHidden = true
 
@@ -932,19 +957,44 @@
     @objc private func answerFieldSubmitted() {
       let answer = answerField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !answer.isEmpty else { return }
-      onAnswer?(answer)
+      let questionId = currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      onAnswer?([questionId: [answer]])
       answerField.stringValue = ""
     }
 
     @objc private func submitButtonClicked() {
+      if let model = currentModel, Self.questionPrompts(for: model).count > 1 {
+        let answers = collectQuestionAnswers()
+        guard !answers.isEmpty else { return }
+        onAnswer?(answers)
+        clearQuestionFormState()
+        configureQuestionPromptForm(Self.questionPrompts(for: model))
+        return
+      }
       answerFieldSubmitted()
     }
 
     @objc private func questionOptionClicked(_ sender: NSButton) {
-      let label = sender.identifier?.rawValue ?? sender.title.components(separatedBy: "\n").first ?? sender.title
+      let payload = questionOptionPayloads[ObjectIdentifier(sender)]
+      let questionId = payload?.questionId ?? currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      let label = payload?.optionLabel ?? sender.title.components(separatedBy: "\n").first ?? sender.title
       let answer = label.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !answer.isEmpty else { return }
-      onAnswer?(answer)
+      onAnswer?([questionId: [answer]])
+    }
+
+    @objc private func questionPromptOptionClicked(_ sender: NSButton) {
+      guard let payload = questionOptionPayloads[ObjectIdentifier(sender)] else { return }
+      let prompt = currentModel?
+        .questions
+        .first(where: { $0.id == payload.questionId })
+      let allowsMultipleSelection = prompt?.allowsMultipleSelection == true
+      toggleOptionAnswer(
+        questionId: payload.questionId,
+        optionLabel: payload.optionLabel,
+        allowsMultipleSelection: allowsMultipleSelection,
+        selectedButton: sender
+      )
     }
 
     @objc private func takeoverButtonClicked() {
@@ -956,9 +1006,13 @@
         questionOptionsStack.removeArrangedSubview(view)
         view.removeFromSuperview()
       }
+      questionOptionPayloads = [:]
+      questionOptionButtons = [:]
 
       guard !options.isEmpty else { return }
 
+      let questionId = currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      var buttons: [NSButton] = []
       for option in options {
         let button = NSButton()
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -978,6 +1032,7 @@
         button.target = self
         button.action = #selector(questionOptionClicked(_:))
         button.toolTip = option.description
+        questionOptionPayloads[ObjectIdentifier(button)] = (questionId: questionId, optionLabel: option.label)
         if let cell = button.cell as? NSButtonCell {
           cell.lineBreakMode = .byWordWrapping
           cell.wraps = true
@@ -985,7 +1040,183 @@
         }
         button.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
         questionOptionsStack.addArrangedSubview(button)
+        buttons.append(button)
       }
+      if !buttons.isEmpty {
+        questionOptionButtons[questionId] = buttons
+      }
+    }
+
+    private func clearQuestionFormState() {
+      selectedQuestionAnswers = [:]
+      questionTextFields = [:]
+      questionOptionButtons = [:]
+      questionOptionPayloads = [:]
+    }
+
+    private func configureQuestionPromptForm(_ prompts: [ApprovalQuestionPrompt]) {
+      questionOptionsStack.arrangedSubviews.forEach { view in
+        questionOptionsStack.removeArrangedSubview(view)
+        view.removeFromSuperview()
+      }
+      clearQuestionFormState()
+      guard !prompts.isEmpty else { return }
+
+      for (index, prompt) in prompts.enumerated() {
+        let section = NSStackView()
+        section.orientation = .vertical
+        section.spacing = 6
+        section.alignment = .width
+        section.distribution = .fill
+        section.translatesAutoresizingMaskIntoConstraints = false
+
+        if let header = prompt.header, !header.isEmpty {
+          let headerLabel = NSTextField(labelWithString: header.uppercased())
+          headerLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
+          headerLabel.textColor = NSColor(Color.textSecondary)
+          headerLabel.lineBreakMode = .byTruncatingTail
+          section.addArrangedSubview(headerLabel)
+        }
+
+        let questionLabel = NSTextField(wrappingLabelWithString: prompt.question)
+        questionLabel.font = NSFont.systemFont(ofSize: TypeScale.reading, weight: .medium)
+        questionLabel.textColor = NSColor(Color.textPrimary)
+        questionLabel.maximumNumberOfLines = 0
+        section.addArrangedSubview(questionLabel)
+
+        if !prompt.options.isEmpty {
+          let optionsStack = NSStackView()
+          optionsStack.orientation = .vertical
+          optionsStack.spacing = CGFloat(Spacing.xs)
+          optionsStack.alignment = .width
+          optionsStack.distribution = .fill
+          optionsStack.translatesAutoresizingMaskIntoConstraints = false
+          var buttons: [NSButton] = []
+
+          for option in prompt.options {
+            let button = NSButton()
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.identifier = NSUserInterfaceItemIdentifier(option.label)
+            button.title = Self.questionOptionDisplayText(option)
+            button.setButtonType(.momentaryPushIn)
+            button.bezelStyle = .rounded
+            button.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+            button.contentTintColor = NSColor(Color.textPrimary)
+            button.alignment = .left
+            button.imagePosition = .noImage
+            button.wantsLayer = true
+            button.layer?.cornerRadius = CGFloat(Radius.md)
+            button.layer?.backgroundColor = NSColor(Color.backgroundPrimary).withAlphaComponent(0.8).cgColor
+            button.layer?.borderWidth = 1
+            button.layer?.borderColor = NSColor(Color.statusQuestion).withAlphaComponent(0.35).cgColor
+            button.target = self
+            button.action = #selector(questionPromptOptionClicked(_:))
+            button.toolTip = option.description
+            questionOptionPayloads[ObjectIdentifier(button)] = (
+              questionId: prompt.id,
+              optionLabel: option.label
+            )
+            if let cell = button.cell as? NSButtonCell {
+              cell.lineBreakMode = .byWordWrapping
+              cell.wraps = true
+              cell.usesSingleLineMode = false
+            }
+            button.heightAnchor.constraint(greaterThanOrEqualToConstant: 30).isActive = true
+            optionsStack.addArrangedSubview(button)
+            buttons.append(button)
+          }
+
+          if !buttons.isEmpty {
+            questionOptionButtons[prompt.id] = buttons
+          }
+          section.addArrangedSubview(optionsStack)
+        }
+
+        if prompt.options.isEmpty || prompt.allowsOther {
+          let field: NSTextField = prompt.isSecret ? NSSecureTextField() : NSTextField()
+          field.translatesAutoresizingMaskIntoConstraints = false
+          field.placeholderString = prompt.isSecret ? "Enter secure answer..." : "Your answer..."
+          field.font = NSFont.systemFont(ofSize: TypeScale.body)
+          field.textColor = NSColor(Color.textPrimary)
+          field.backgroundColor = NSColor(Color.backgroundPrimary)
+          field.isBordered = true
+          field.bezelStyle = .roundedBezel
+          field.heightAnchor.constraint(greaterThanOrEqualToConstant: 26).isActive = true
+          questionTextFields[prompt.id] = field
+          section.addArrangedSubview(field)
+        }
+
+        questionOptionsStack.addArrangedSubview(section)
+        if index < prompts.count - 1 {
+          let spacer = NSView()
+          spacer.translatesAutoresizingMaskIntoConstraints = false
+          spacer.heightAnchor.constraint(equalToConstant: CGFloat(Spacing.sm)).isActive = true
+          questionOptionsStack.addArrangedSubview(spacer)
+        }
+      }
+    }
+
+    private func toggleOptionAnswer(
+      questionId: String,
+      optionLabel: String,
+      allowsMultipleSelection: Bool,
+      selectedButton: NSButton
+    ) {
+      var current = selectedQuestionAnswers[questionId] ?? []
+      if allowsMultipleSelection {
+        if let idx = current.firstIndex(of: optionLabel) {
+          current.remove(at: idx)
+        } else {
+          current.append(optionLabel)
+        }
+      } else {
+        current = [optionLabel]
+      }
+
+      if current.isEmpty {
+        selectedQuestionAnswers.removeValue(forKey: questionId)
+      } else {
+        selectedQuestionAnswers[questionId] = current
+      }
+
+      guard let buttons = questionOptionButtons[questionId] else { return }
+      for button in buttons {
+        let payload = questionOptionPayloads[ObjectIdentifier(button)]
+        let label = payload?.optionLabel
+          ?? button.title.components(separatedBy: "\n").first
+          ?? button.title
+        let isSelected = current.contains(label)
+        button.layer?.borderColor = isSelected
+          ? NSColor(Color.statusQuestion).withAlphaComponent(0.9).cgColor
+          : NSColor(Color.statusQuestion).withAlphaComponent(0.35).cgColor
+      }
+      if !allowsMultipleSelection {
+        selectedButton.layer?.borderColor = NSColor(Color.statusQuestion).withAlphaComponent(0.9).cgColor
+      }
+    }
+
+    private func collectQuestionAnswers() -> [String: [String]] {
+      guard let model = currentModel else { return [:] }
+      let prompts = Self.questionPrompts(for: model)
+      var answers: [String: [String]] = [:]
+
+      for prompt in prompts {
+        var values = selectedQuestionAnswers[prompt.id] ?? []
+        if let field = questionTextFields[prompt.id] {
+          let text = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !text.isEmpty {
+            if values.isEmpty {
+              values = [text]
+            } else if !values.contains(text) {
+              values.append(text)
+            }
+          }
+        }
+        if !values.isEmpty {
+          answers[prompt.id] = values
+        }
+      }
+      return answers
     }
 
     // MARK: - Height Calculation
@@ -1030,24 +1261,41 @@
         case .question:
           var h: CGFloat = outerInset + 2 + pad // cell pad + risk strip + card pad
           h += Layout.headerIconSize // header
-          h += CGFloat(Spacing.md) // spacing before question text
-          if let question = model.question {
-            let qFont = NSFont.systemFont(ofSize: TypeScale.reading, weight: .regular)
-            h += Self.measureTextHeight(question, font: qFont, width: contentWidth)
-          } else {
-            h += 20
-          }
-          if model.questionOptions.isEmpty {
-            h += CGFloat(Spacing.md) + 26 // answer field
-            h += CGFloat(Spacing.md) + 28 // submit button
-          } else {
-            h += CGFloat(Spacing.md) // spacing before options
-            for (index, option) in model.questionOptions.enumerated() {
-              h += Self.questionOptionHeight(option, width: contentWidth)
-              if index < model.questionOptions.count - 1 {
-                h += CGFloat(Spacing.xs)
+          h += CGFloat(Spacing.md)
+          let prompts = questionPrompts(for: model)
+          if prompts.count > 1 {
+            h += Self.measureTextHeight(
+              "Answer all questions to continue.",
+              font: NSFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
+              width: contentWidth
+            )
+            h += CGFloat(Spacing.md)
+            for (index, prompt) in prompts.enumerated() {
+              h += questionPromptHeight(prompt, width: contentWidth)
+              if index < prompts.count - 1 {
+                h += CGFloat(Spacing.sm)
               }
             }
+            h += CGFloat(Spacing.md) + 28
+          } else if let prompt = prompts.first {
+            let qFont = NSFont.systemFont(ofSize: TypeScale.reading, weight: .regular)
+            h += Self.measureTextHeight(prompt.question, font: qFont, width: contentWidth)
+            if prompt.options.isEmpty {
+              h += CGFloat(Spacing.md) + 26
+              h += CGFloat(Spacing.md) + 28
+            } else {
+              h += CGFloat(Spacing.md)
+              for (index, option) in prompt.options.enumerated() {
+                h += Self.questionOptionHeight(option, width: contentWidth)
+                if index < prompt.options.count - 1 {
+                  h += CGFloat(Spacing.xs)
+                }
+              }
+            }
+          } else {
+            h += 20
+            h += CGFloat(Spacing.md) + 26 // answer field
+            h += CGFloat(Spacing.md) + 28 // submit button
           }
           h += pad + outerInset // card pad + cell pad
           return h
@@ -1091,6 +1339,58 @@
         return "\(option.label)\n\(description)"
       }
       return option.label
+    }
+
+    private static func questionPrompts(for model: ApprovalCardModel) -> [ApprovalQuestionPrompt] {
+      if !model.questions.isEmpty { return model.questions }
+      if let question = model.question, !question.isEmpty {
+        return [
+          ApprovalQuestionPrompt(
+            id: model.questionId ?? "0",
+            header: model.questionHeader,
+            question: question,
+            options: model.questionOptions,
+            allowsMultipleSelection: false,
+            allowsOther: true,
+            isSecret: false
+          )
+        ]
+      }
+      return []
+    }
+
+    private static func questionPromptHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {
+      var height: CGFloat = 0
+      if let header = prompt.header, !header.isEmpty {
+        height += measureTextHeight(
+          header.uppercased(),
+          font: NSFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
+          width: width
+        )
+        height += 4
+      }
+
+      height += measureTextHeight(
+        prompt.question,
+        font: NSFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
+        width: width
+      )
+
+      if !prompt.options.isEmpty {
+        height += 6
+        for (index, option) in prompt.options.enumerated() {
+          height += questionOptionHeight(option, width: width)
+          if index < prompt.options.count - 1 {
+            height += CGFloat(Spacing.xs)
+          }
+        }
+      }
+
+      if prompt.options.isEmpty || prompt.allowsOther {
+        height += 6 + 26
+      }
+
+      return height
     }
 
     private static func questionOptionHeight(_ option: ApprovalQuestionOption, width: CGFloat) -> CGFloat {

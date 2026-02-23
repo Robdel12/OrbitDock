@@ -139,6 +139,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "Answer for question approvals (required when type=question)",
             },
+            answers: {
+              type: "object",
+              description: "Optional map of question IDs to answer arrays for multi-question prompts",
+              additionalProperties: {
+                type: "array",
+                items: { type: "string" },
+              },
+            },
             question_id: {
               type: "string",
               description: "Optional question ID for question approvals (defaults to pending question id when available)",
@@ -386,7 +394,18 @@ async function handleInterruptTurn({ session_id }) {
   };
 }
 
-async function handleApprove({ session_id, request_id, approved, decision, type, answer, question_id, message, interrupt }) {
+async function handleApprove({
+  session_id,
+  request_id,
+  approved,
+  decision,
+  type,
+  answer,
+  answers,
+  question_id,
+  message,
+  interrupt,
+}) {
   ensureOrbitDock();
   let session = await requireControllableSession(session_id);
 
@@ -419,8 +438,9 @@ async function handleApprove({ session_id, request_id, approved, decision, type,
   }
 
   let normalizedAnswer = typeof answer === "string" ? answer.trim() : "";
+  let normalizedAnswers = normalizeQuestionAnswersMap(answers);
   let resolvedQuestionId = question_id || session.pending_question_id || pendingQuestion.questionId;
-  if (resolvedType === "question" && !normalizedAnswer) {
+  if (resolvedType === "question" && Object.keys(normalizedAnswers).length === 0 && !normalizedAnswer) {
     let options = Array.isArray(session.pending_question_options) && session.pending_question_options.length > 0
       ? session.pending_question_options
       : pendingQuestion.options;
@@ -431,13 +451,29 @@ async function handleApprove({ session_id, request_id, approved, decision, type,
       })
       .join("; ");
     let optionsHelp = optionList ? ` Available options: ${optionList}` : "";
-    throw new Error(`Question approvals require a non-empty 'answer'.${optionsHelp}`);
+    throw new Error(`Question approvals require a non-empty 'answer' or 'answers'.${optionsHelp}`);
+  }
+
+  if (resolvedType === "question") {
+    if (Object.keys(normalizedAnswers).length === 0 && normalizedAnswer) {
+      normalizedAnswers[resolvedQuestionId || "0"] = [normalizedAnswer];
+    }
+
+    if (!normalizedAnswer) {
+      normalizedAnswer = firstQuestionAnswer(normalizedAnswers, resolvedQuestionId) || "";
+    }
+
+    if (!resolvedQuestionId) {
+      let keys = Object.keys(normalizedAnswers);
+      resolvedQuestionId = keys.length > 0 ? keys[0] : undefined;
+    }
   }
 
   await orbitdock.approve(session_id, resolvedRequestId, {
     type: resolvedType,
     decision: resolvedDecision,
     answer: normalizedAnswer || undefined,
+    answers: Object.keys(normalizedAnswers).length > 0 ? normalizedAnswers : undefined,
     question_id: resolvedQuestionId,
     message,
     interrupt,
@@ -633,6 +669,52 @@ function ensureOrbitDock() {
 
 function isControllableSession(session) {
   return session.is_direct || (session.provider === "codex" && session.is_direct_codex) || (session.provider === "claude" && session.is_direct_claude);
+}
+
+function normalizeQuestionAnswersMap(rawAnswers) {
+  if (!rawAnswers || typeof rawAnswers !== "object" || Array.isArray(rawAnswers)) {
+    return {};
+  }
+
+  let normalized = {};
+  for (let [rawQuestionId, rawValues] of Object.entries(rawAnswers)) {
+    let questionId = typeof rawQuestionId === "string" ? rawQuestionId.trim() : "";
+    if (!questionId) continue;
+
+    let values = [];
+    if (Array.isArray(rawValues)) {
+      values = rawValues
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter((value) => Boolean(value));
+    } else if (typeof rawValues === "string") {
+      let trimmed = rawValues.trim();
+      if (trimmed) values = [trimmed];
+    }
+
+    if (values.length > 0) {
+      normalized[questionId] = values;
+    }
+  }
+
+  return normalized;
+}
+
+function firstQuestionAnswer(answersMap, preferredQuestionId) {
+  if (!answersMap || typeof answersMap !== "object") return undefined;
+  if (preferredQuestionId
+    && Array.isArray(answersMap[preferredQuestionId])
+    && answersMap[preferredQuestionId].length > 0
+  ) {
+    return answersMap[preferredQuestionId][0];
+  }
+
+  for (let values of Object.values(answersMap)) {
+    if (Array.isArray(values) && values.length > 0 && values[0]) {
+      return values[0];
+    }
+  }
+
+  return undefined;
 }
 
 function parseQuestionMetadata(toolInput) {

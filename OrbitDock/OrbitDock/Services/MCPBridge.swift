@@ -469,9 +469,25 @@ final class MCPBridge {
 
     if approvalType == "question" {
       let answer = (body["answer"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-      guard !answer.isEmpty else {
+      let providedAnswers = parseQuestionAnswers(from: body["answers"])
+      let questionIdFromBody = (body["question_id"] as? String)?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      let questionId: String? = {
+        if let questionIdFromBody, !questionIdFromBody.isEmpty { return questionIdFromBody }
+        if let parsed = parseQuestionMetadata(from: pendingApproval?.toolInput ?? session.pendingToolInput) {
+          return parsed.questionId
+        }
+        return nil
+      }()
+
+      var answers = providedAnswers ?? [:]
+      if answers.isEmpty, !answer.isEmpty {
+        answers[questionId ?? "0"] = [answer]
+      }
+
+      guard !answers.isEmpty else {
         var errorBody: [String: Any] = [
-          "error": "Missing 'answer' field for question approval",
+          "error": "Missing question response. Provide non-empty 'answer' or 'answers'.",
           "session_id": sessionId,
           "request_id": requestId,
         ]
@@ -490,27 +506,41 @@ final class MCPBridge {
         return HTTPResponse(status: 400, body: errorBody)
       }
 
-      let questionIdFromBody = (body["question_id"] as? String)?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      let questionId: String? = {
-        if let questionIdFromBody, !questionIdFromBody.isEmpty { return questionIdFromBody }
-        if let parsed = parseQuestionMetadata(from: pendingApproval?.toolInput ?? session.pendingToolInput) {
-          return parsed.questionId
+      let primaryAnswer: String? = {
+        if let questionId,
+           let preferred = answers[questionId]?.first,
+           !preferred.isEmpty
+        {
+          return preferred
+        }
+        for value in answers.values {
+          if let first = value.first, !first.isEmpty {
+            return first
+          }
         }
         return nil
       }()
+      guard let primaryAnswer, !primaryAnswer.isEmpty else {
+        return HTTPResponse(status: 400, body: [
+          "error": "Answers payload does not contain any non-empty response values.",
+          "session_id": sessionId,
+          "request_id": requestId,
+        ])
+      }
 
       state.answerQuestion(
         sessionId: sessionId,
         requestId: requestId,
-        answer: answer,
-        questionId: questionId
+        answer: primaryAnswer,
+        questionId: questionId,
+        answers: answers
       )
       return HTTPResponse(status: 200, body: [
         "status": "answered",
         "session_id": sessionId,
         "request_id": requestId,
         "question_id": questionId as Any,
+        "answers": answers,
       ])
     } else {
       // Support both "decision" string and legacy "approved" bool
@@ -689,6 +719,35 @@ final class MCPBridge {
       question?.isEmpty == true ? nil : question,
       options
     )
+  }
+
+  private func parseQuestionAnswers(from rawAnswers: Any?) -> [String: [String]]? {
+    guard let rawAnswers = rawAnswers as? [String: Any] else { return nil }
+    var parsed: [String: [String]] = [:]
+
+    for (rawQuestionId, rawValue) in rawAnswers {
+      let questionId = rawQuestionId.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !questionId.isEmpty else { continue }
+
+      let values: [String]
+      if let rawArray = rawValue as? [Any] {
+        values = rawArray.compactMap { value in
+          guard let answer = value as? String else { return nil }
+          let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+          return trimmed.isEmpty ? nil : trimmed
+        }
+      } else if let answer = rawValue as? String {
+        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        values = trimmed.isEmpty ? [] : [trimmed]
+      } else {
+        values = []
+      }
+
+      guard !values.isEmpty else { continue }
+      parsed[questionId] = values
+    }
+
+    return parsed.isEmpty ? nil : parsed
   }
 }
 

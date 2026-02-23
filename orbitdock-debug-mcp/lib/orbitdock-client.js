@@ -83,6 +83,9 @@ export class OrbitDockClient {
     if (options.answer) {
       body.answer = options.answer;
     }
+    if (options.answers && typeof options.answers === "object") {
+      body.answers = options.answers;
+    }
     if (options.question_id) {
       body.question_id = options.question_id;
     }

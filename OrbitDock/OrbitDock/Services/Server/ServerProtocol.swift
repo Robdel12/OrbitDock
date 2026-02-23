@@ -1686,7 +1686,13 @@ enum ClientToServerMessage: Codable {
     message: String? = nil,
     interrupt: Bool? = nil
   )
-  case answerQuestion(sessionId: String, requestId: String, answer: String, questionId: String? = nil)
+  case answerQuestion(
+    sessionId: String,
+    requestId: String,
+    answer: String,
+    questionId: String? = nil,
+    answers: [String: [String]]? = nil
+  )
   case interruptSession(sessionId: String)
   case endSession(sessionId: String)
   case updateSessionConfig(
@@ -1777,6 +1783,7 @@ enum ClientToServerMessage: Codable {
     case questionId = "question_id"
     case decision
     case answer
+    case answers
     case name
     case effort
     case limit
@@ -1878,12 +1885,13 @@ enum ClientToServerMessage: Codable {
         try container.encodeIfPresent(message, forKey: .message)
         try container.encodeIfPresent(interrupt, forKey: .interrupt)
 
-      case let .answerQuestion(sessionId, requestId, answer, questionId):
+      case let .answerQuestion(sessionId, requestId, answer, questionId, answers):
         try container.encode("answer_question", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(requestId, forKey: .requestId)
         try container.encode(answer, forKey: .answer)
         try container.encodeIfPresent(questionId, forKey: .questionId)
+        try container.encodeIfPresent(answers, forKey: .answers)
 
       case let .interruptSession(sessionId):
         try container.encode("interrupt_session", forKey: .type)
@@ -2144,7 +2152,8 @@ enum ClientToServerMessage: Codable {
           sessionId: container.decode(String.self, forKey: .sessionId),
           requestId: container.decode(String.self, forKey: .requestId),
           answer: container.decode(String.self, forKey: .answer),
-          questionId: container.decodeIfPresent(String.self, forKey: .questionId)
+          questionId: container.decodeIfPresent(String.self, forKey: .questionId),
+          answers: container.decodeIfPresent([String: [String]].self, forKey: .answers)
         )
       case "interrupt_session":
         self = try .interruptSession(sessionId: container.decode(String.self, forKey: .sessionId))

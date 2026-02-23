@@ -653,7 +653,7 @@ pub enum CodexAction {
     },
     AnswerQuestion {
         request_id: String,
-        answers: HashMap<String, String>,
+        answers: HashMap<String, Vec<String>>,
     },
     UpdateConfig {
         approval_policy: Option<String>,

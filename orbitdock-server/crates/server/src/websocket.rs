@@ -1,5 +1,6 @@
 //! WebSocket handling
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -56,6 +57,52 @@ fn is_provider_placeholder_model(model: &str) -> bool {
 
 fn normalize_model_override(value: Option<String>) -> Option<String> {
     normalize_non_empty(value).filter(|model| !is_provider_placeholder_model(model))
+}
+
+fn normalize_question_answers(
+    raw_answers: Option<HashMap<String, Vec<String>>>,
+) -> HashMap<String, Vec<String>> {
+    let Some(raw_answers) = raw_answers else {
+        return HashMap::new();
+    };
+
+    let mut normalized = HashMap::new();
+    for (raw_question_id, raw_values) in raw_answers {
+        let question_id = raw_question_id.trim();
+        if question_id.is_empty() {
+            continue;
+        }
+
+        let values: Vec<String> = raw_values
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect();
+        if values.is_empty() {
+            continue;
+        }
+
+        normalized.insert(question_id.to_string(), values);
+    }
+
+    normalized
+}
+
+fn select_primary_answer(
+    answers: &HashMap<String, Vec<String>>,
+    preferred_question_id: Option<&str>,
+) -> Option<String> {
+    if let Some(question_id) = preferred_question_id {
+        if let Some(values) = answers.get(question_id) {
+            if let Some(first) = values.first() {
+                return Some(first.clone());
+            }
+        }
+    }
+
+    answers
+        .values()
+        .find_map(|values| values.first().cloned())
 }
 
 fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::WorkStatus {
@@ -2105,30 +2152,76 @@ async fn handle_client_message(
             request_id,
             answer,
             question_id,
+            answers,
         } => {
+            let mut normalized_answers = normalize_question_answers(answers);
+            let trimmed_answer = answer.trim().to_string();
+            if normalized_answers.is_empty() && !trimmed_answer.is_empty() {
+                let key = question_id.clone().unwrap_or_else(|| "0".to_string());
+                normalized_answers.insert(key, vec![trimmed_answer.clone()]);
+            }
+
             info!(
                 component = "approval",
                 event = "approval.answer.submitted",
                 connection_id = conn_id,
                 session_id = %session_id,
                 request_id = %request_id,
-                answer_chars = answer.chars().count(),
+                answer_chars = trimmed_answer.chars().count(),
+                answer_questions = normalized_answers.len(),
                 "Answer submitted for question approval"
             );
+            if normalized_answers.is_empty() {
+                warn!(
+                    component = "approval",
+                    event = "approval.answer.missing_payload",
+                    connection_id = conn_id,
+                    session_id = %session_id,
+                    request_id = %request_id,
+                    "Question answer request had no usable answer payload"
+                );
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "invalid_answer_payload".into(),
+                        message: "Question approvals require a non-empty answer or answers map".into(),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+                return;
+            }
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                let mut answers = std::collections::HashMap::new();
-                let key = question_id.unwrap_or_else(|| "0".to_string());
-                answers.insert(key, answer);
                 let _ = tx
                     .send(CodexAction::AnswerQuestion {
                         request_id,
-                        answers,
+                        answers: normalized_answers,
                     })
                     .await;
             } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let claude_answer = if trimmed_answer.is_empty() {
+                    select_primary_answer(&normalized_answers, question_id.as_deref())
+                        .unwrap_or_default()
+                } else {
+                    trimmed_answer
+                };
+                if claude_answer.is_empty() {
+                    warn!(
+                        component = "approval",
+                        event = "approval.answer.missing_payload",
+                        connection_id = conn_id,
+                        session_id = %session_id,
+                        request_id = %request_id,
+                        "Question answer request had no usable answer payload"
+                    );
+                    return;
+                }
                 let _ = tx
-                    .send(ClaudeAction::AnswerQuestion { request_id, answer })
+                    .send(ClaudeAction::AnswerQuestion {
+                        request_id,
+                        answer: claude_answer,
+                    })
                     .await;
             }
         }

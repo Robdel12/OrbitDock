@@ -348,17 +348,43 @@ import SwiftUI
             interrupt: interrupt
           )
         }
-        cell.onAnswer = { [weak self] answer in
+        cell.onAnswer = { [weak self] answers in
           guard let self else { return }
           let requestId = model.approvalId
             ?? self.serverState?.session(model.sessionId).pendingApproval?.id
             ?? self.serverState?.sessions.first(where: { $0.id == model.sessionId })?.pendingApprovalId
           guard let requestId else { return }
+          let normalizedAnswers = answers.reduce(into: [String: [String]]()) { partialResult, entry in
+            let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { return }
+            let values = entry.value
+              .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+              .filter { !$0.isEmpty }
+            guard !values.isEmpty else { return }
+            partialResult[key] = values
+          }
+          guard !normalizedAnswers.isEmpty else { return }
+          let preferredQuestionId = model.questionId ?? model.questions.first?.id
+          let primaryAnswer: String? = {
+            if let preferredQuestionId,
+               let answer = normalizedAnswers[preferredQuestionId]?.first
+            {
+              return answer
+            }
+            for prompt in model.questions {
+              if let answer = normalizedAnswers[prompt.id]?.first {
+                return answer
+              }
+            }
+            return normalizedAnswers.values.first?.first
+          }()
+          guard let primaryAnswer, !primaryAnswer.isEmpty else { return }
           self.serverState?.answerQuestion(
             sessionId: model.sessionId,
             requestId: requestId,
-            answer: answer,
-            questionId: model.questionId
+            answer: primaryAnswer,
+            questionId: preferredQuestionId,
+            answers: normalizedAnswers
           )
         }
         cell.onTakeOver = { [weak self] in
