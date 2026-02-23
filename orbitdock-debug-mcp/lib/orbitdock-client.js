@@ -114,9 +114,15 @@ export class OrbitDockClient {
 
   /**
    * Steer the active turn with additional guidance
+   * @param {Object} [options]
+   * @param {Array} [options.images] - Images to attach ({input_type, value})
+   * @param {Array} [options.mentions] - File mentions to attach ({name, path})
    */
-  async steerTurn(sessionId, content) {
-    let response = await this.request("POST", `/api/sessions/${sessionId}/steer`, { content });
+  async steerTurn(sessionId, content, options = {}) {
+    let body = { content };
+    if (options.images && options.images.length > 0) body.images = options.images;
+    if (options.mentions && options.mentions.length > 0) body.mentions = options.mentions;
+    let response = await this.request("POST", `/api/sessions/${sessionId}/steer`, body);
     return response;
   }
 

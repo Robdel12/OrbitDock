@@ -101,8 +101,17 @@ impl CodexSession {
                     // Handle actions from WebSocket
                     Some(action) = action_rx.recv() => {
                         match action {
-                            CodexAction::SteerTurn { content, message_id } => {
-                                let status = match self.connector.steer_turn(&content).await {
+                            CodexAction::SteerTurn {
+                                content,
+                                message_id,
+                                images,
+                                mentions,
+                            } => {
+                                let status = match self
+                                    .connector
+                                    .steer_turn(&content, &images, &mentions)
+                                    .await
+                                {
                                     Ok(SteerOutcome::Accepted) => "delivered",
                                     Ok(SteerOutcome::FellBackToNewTurn) => "fallback",
                                     Err(e) => {
@@ -621,6 +630,8 @@ pub enum CodexAction {
     SteerTurn {
         content: String,
         message_id: String,
+        images: Vec<orbitdock_protocol::ImageInput>,
+        mentions: Vec<orbitdock_protocol::MentionInput>,
     },
     Interrupt,
     ListSkills {
@@ -692,10 +703,14 @@ impl std::fmt::Debug for CodexAction {
             Self::SteerTurn {
                 content,
                 message_id,
+                images,
+                mentions,
             } => f
                 .debug_struct("SteerTurn")
                 .field("content_len", &content.len())
                 .field("message_id", message_id)
+                .field("images_count", &images.len())
+                .field("mentions_count", &mentions.len())
                 .finish(),
             Self::Interrupt => write!(f, "Interrupt"),
             Self::ListSkills { cwds, force_reload } => f

@@ -64,7 +64,9 @@ enum ImageSource {
         data: String,
     },
     #[serde(rename = "url")]
-    Url { url: String },
+    Url {
+        url: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -92,15 +94,21 @@ enum ControlResponsePayload {
 /// Transform ImageInput to Anthropic's image content block format.
 /// - URL images: pass through as-is
 /// - Path images: read file, convert to base64
-fn transform_image(
-    image: &orbitdock_protocol::ImageInput,
-) -> Result<UserContentBlock, String> {
+fn transform_image(image: &orbitdock_protocol::ImageInput) -> Result<UserContentBlock, String> {
     match image.input_type.as_str() {
-        "url" => Ok(UserContentBlock::Image {
-            source: ImageSource::Url {
-                url: image.value.clone(),
-            },
-        }),
+        "url" => {
+            if let Some((media_type, data)) = parse_data_uri_base64(&image.value) {
+                Ok(UserContentBlock::Image {
+                    source: ImageSource::Base64 { media_type, data },
+                })
+            } else {
+                Ok(UserContentBlock::Image {
+                    source: ImageSource::Url {
+                        url: image.value.clone(),
+                    },
+                })
+            }
+        }
         "path" => {
             // Read file from disk
             let bytes = std::fs::read(&image.value)
@@ -118,6 +126,34 @@ fn transform_image(
         }
         other => Err(format!("Unknown image input_type: {}", other)),
     }
+}
+
+/// Parse a `data:*;base64,...` URI into `(media_type, base64_data)`.
+fn parse_data_uri_base64(uri: &str) -> Option<(String, String)> {
+    let without_scheme = uri.strip_prefix("data:")?;
+    let comma_pos = without_scheme.find(',')?;
+    let meta = &without_scheme[..comma_pos];
+    if !meta.ends_with(";base64") {
+        return None;
+    }
+
+    let media_type = &meta[..meta.len() - 7];
+    let normalized_media_type = if media_type.is_empty() {
+        "image/png"
+    } else {
+        media_type
+    };
+
+    let raw_data = &without_scheme[comma_pos + 1..];
+    let normalized_data: String = raw_data
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    if normalized_data.is_empty() {
+        return None;
+    }
+
+    Some((normalized_media_type.to_string(), normalized_data))
 }
 
 /// Infer MIME type from file path extension.
@@ -1439,9 +1475,7 @@ impl ClaudeConnector {
             "CLI requesting tool approval"
         );
 
-        let tool_input_json = input
-            .as_ref()
-            .and_then(|i| serde_json::to_string(i).ok());
+        let tool_input_json = input.as_ref().and_then(|i| serde_json::to_string(i).ok());
 
         vec![ConnectorEvent::ApprovalRequested {
             request_id,
@@ -1614,4 +1648,50 @@ fn resolve_claude_binary() -> Result<String, ConnectorError> {
     Err(ConnectorError::ProviderError(
         "Claude CLI binary not found. Install Claude Code or set CLAUDE_BIN.".to_string(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_data_uri_base64, transform_image, ImageSource, UserContentBlock};
+
+    #[test]
+    fn parse_data_uri_base64_extracts_media_type_and_payload() {
+        let uri = "data:image/png;base64,aGVs\nbG8=";
+        let parsed = parse_data_uri_base64(uri).expect("expected valid data uri");
+        assert_eq!(parsed.0, "image/png");
+        assert_eq!(parsed.1, "aGVsbG8=");
+    }
+
+    #[test]
+    fn transform_image_converts_data_uri_url_to_base64_source() {
+        let input = orbitdock_protocol::ImageInput {
+            input_type: "url".to_string(),
+            value: "data:image/png;base64,aGVsbG8=".to_string(),
+        };
+        let block = transform_image(&input).expect("transform should succeed");
+        match block {
+            UserContentBlock::Image {
+                source: ImageSource::Base64 { media_type, data },
+            } => {
+                assert_eq!(media_type, "image/png");
+                assert_eq!(data, "aGVsbG8=");
+            }
+            other => panic!("expected base64 image source, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn transform_image_keeps_http_url_as_url_source() {
+        let input = orbitdock_protocol::ImageInput {
+            input_type: "url".to_string(),
+            value: "https://example.com/image.png".to_string(),
+        };
+        let block = transform_image(&input).expect("transform should succeed");
+        match block {
+            UserContentBlock::Image {
+                source: ImageSource::Url { url },
+            } => assert_eq!(url, "https://example.com/image.png"),
+            other => panic!("expected url image source, got {:?}", other),
+        }
+    }
 }

@@ -43,6 +43,11 @@ final class ServerConnection: ObservableObject {
     return host != "127.0.0.1" && host != "localhost" && host != "::1"
   }
 
+  /// Public read-only view of remote/local endpoint classification.
+  var isRemoteConnection: Bool {
+    isRemote
+  }
+
   /// Remote gets more attempts since network can be flaky; local fails faster
   private var maxConnectAttempts: Int {
     isRemote ? 20 : 10
@@ -714,8 +719,13 @@ final class ServerConnection: ObservableObject {
   }
 
   /// Steer the active turn with additional guidance
-  func steerTurn(sessionId: String, content: String) {
-    send(.steerTurn(sessionId: sessionId, content: content))
+  func steerTurn(
+    sessionId: String,
+    content: String,
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) {
+    send(.steerTurn(sessionId: sessionId, content: content, images: images, mentions: mentions))
   }
 
   /// Compact (summarize) the conversation context

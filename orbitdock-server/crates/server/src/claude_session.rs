@@ -59,6 +59,7 @@ pub enum ClaudeAction {
     SteerTurn {
         content: String,
         message_id: String,
+        images: Vec<orbitdock_protocol::ImageInput>,
     },
     EndSession,
 }
@@ -115,10 +116,12 @@ impl std::fmt::Debug for ClaudeAction {
             Self::SteerTurn {
                 content,
                 message_id,
+                images,
             } => f
                 .debug_struct("SteerTurn")
                 .field("content_len", &content.len())
                 .field("message_id", message_id)
+                .field("images_count", &images.len())
                 .finish(),
             Self::EndSession => write!(f, "EndSession"),
         }
@@ -459,11 +462,13 @@ impl ClaudeSession {
             ClaudeAction::SetPermissionMode { mode } => {
                 connector.set_permission_mode(&mode).await?;
             }
-            ClaudeAction::SteerTurn { content, .. } => {
+            ClaudeAction::SteerTurn {
+                content, images, ..
+            } => {
                 // Claude SDK has no native steer_input — interrupt the active
                 // turn and resend the guidance as a new user message.
                 connector.interrupt().await?;
-                connector.send_message(&content, None, None, &[]).await?;
+                connector.send_message(&content, None, None, &images).await?;
             }
             ClaudeAction::EndSession => {
                 connector.shutdown().await?;

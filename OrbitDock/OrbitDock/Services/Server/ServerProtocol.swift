@@ -1694,7 +1694,12 @@ enum ClientToServerMessage: Codable {
   case downloadRemoteSkill(sessionId: String, hazelnutId: String)
   case listMcpTools(sessionId: String)
   case refreshMcpServers(sessionId: String)
-  case steerTurn(sessionId: String, content: String)
+  case steerTurn(
+    sessionId: String,
+    content: String,
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  )
   case compactContext(sessionId: String)
   case undoLastTurn(sessionId: String)
   case rollbackTurns(sessionId: String, numTurns: UInt32)
@@ -1957,10 +1962,16 @@ enum ClientToServerMessage: Codable {
         try container.encode("refresh_mcp_servers", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
 
-      case let .steerTurn(sessionId, content):
+      case let .steerTurn(sessionId, content, images, mentions):
         try container.encode("steer_turn", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(content, forKey: .content)
+        if !images.isEmpty {
+          try container.encode(images, forKey: .images)
+        }
+        if !mentions.isEmpty {
+          try container.encode(mentions, forKey: .mentions)
+        }
 
       case let .compactContext(sessionId):
         try container.encode("compact_context", forKey: .type)
@@ -2178,7 +2189,9 @@ enum ClientToServerMessage: Codable {
       case "steer_turn":
         self = try .steerTurn(
           sessionId: container.decode(String.self, forKey: .sessionId),
-          content: container.decode(String.self, forKey: .content)
+          content: container.decode(String.self, forKey: .content),
+          images: container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? [],
+          mentions: container.decodeIfPresent([ServerMentionInput].self, forKey: .mentions) ?? []
         )
       case "compact_context":
         self = try .compactContext(sessionId: container.decode(String.self, forKey: .sessionId))

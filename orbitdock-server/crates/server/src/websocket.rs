@@ -1632,6 +1632,8 @@ async fn handle_client_message(
         ClientMessage::SteerTurn {
             session_id,
             content,
+            images,
+            mentions,
         } => {
             info!(
                 component = "session",
@@ -1639,6 +1641,8 @@ async fn handle_client_message(
                 connection_id = conn_id,
                 session_id = %session_id,
                 content_chars = content.chars().count(),
+                images_count = images.len(),
+                mentions_count = mentions.len(),
                 "Steering active turn"
             );
 
@@ -1653,6 +1657,9 @@ async fn handle_client_message(
                     .unwrap_or_default()
                     .as_millis();
                 let steer_msg_id = format!("steer-ws-{}-{}", ts_millis, conn_id);
+                let extracted_images =
+                    crate::images::extract_images_to_disk(&images, &session_id, &steer_msg_id);
+                let connector_images = extracted_images.clone();
                 let steer_msg = orbitdock_protocol::Message {
                     id: steer_msg_id.clone(),
                     session_id: session_id.clone(),
@@ -1664,7 +1671,7 @@ async fn handle_client_message(
                     is_error: false,
                     timestamp: iso_timestamp(ts_millis),
                     duration_ms: None,
-                    images: vec![],
+                    images: extracted_images,
                 };
 
                 if let Some(actor) = state.get_session(&session_id) {
@@ -1685,6 +1692,8 @@ async fn handle_client_message(
                         .send(CodexAction::SteerTurn {
                             content,
                             message_id: steer_msg_id,
+                            images: connector_images.clone(),
+                            mentions,
                         })
                         .await;
                 } else if let Some(tx) = claude_tx {
@@ -1692,6 +1701,7 @@ async fn handle_client_message(
                         .send(ClaudeAction::SteerTurn {
                             content,
                             message_id: steer_msg_id,
+                            images: connector_images,
                         })
                         .await;
                 }
@@ -4448,8 +4458,8 @@ mod tests {
     use crate::session_naming::name_from_first_prompt;
     use crate::state::SessionRegistry;
     use orbitdock_protocol::{
-        ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput, Provider,
-        SessionStatus, WorkStatus,
+        ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput, MentionInput,
+        Provider, SessionStatus, WorkStatus,
     };
     use std::sync::{Arc, Once};
     use tokio::sync::mpsc;
@@ -4882,6 +4892,100 @@ mod tests {
                 assert!(images[0].value.ends_with(".png"));
             }
             other => panic!("expected SendMessage action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn steer_turn_dispatches_extracted_images_and_mentions_to_codex_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "steer-turn-images-codex".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        {
+            state.add_session(SessionHandle::new(
+                session_id.clone(),
+                Provider::Codex,
+                "/Users/tester/repo".to_string(),
+            ));
+            state.set_codex_action_tx(&session_id, action_tx);
+        }
+
+        handle_client_message(
+            ClientMessage::SteerTurn {
+                session_id,
+                content: "consider this".to_string(),
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                }],
+                mentions: vec![MentionInput {
+                    name: "main.rs".to_string(),
+                    path: "/project/src/main.rs".to_string(),
+                }],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let action = action_rx.recv().await.expect("expected codex action");
+        match action {
+            CodexAction::SteerTurn {
+                images, mentions, ..
+            } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+                assert_eq!(mentions.len(), 1);
+                assert_eq!(mentions[0].name, "main.rs");
+                assert_eq!(mentions[0].path, "/project/src/main.rs");
+            }
+            other => panic!("expected SteerTurn action, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn steer_turn_dispatches_extracted_images_to_claude_connector() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "steer-turn-images-claude".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        {
+            state.add_session(SessionHandle::new(
+                session_id.clone(),
+                Provider::Claude,
+                "/Users/tester/repo".to_string(),
+            ));
+            state.set_claude_action_tx(&session_id, action_tx);
+        }
+
+        handle_client_message(
+            ClientMessage::SteerTurn {
+                session_id,
+                content: "consider this".to_string(),
+                images: vec![ImageInput {
+                    input_type: "url".to_string(),
+                    value: "data:image/png;base64,aGVsbG8=".to_string(),
+                }],
+                mentions: vec![],
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let action = action_rx.recv().await.expect("expected claude action");
+        match action {
+            ClaudeAction::SteerTurn { images, .. } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(images[0].input_type, "path");
+                assert!(images[0].value.ends_with(".png"));
+            }
+            other => panic!("expected SteerTurn action, got {:?}", other),
         }
     }
 

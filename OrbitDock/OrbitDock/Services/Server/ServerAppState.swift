@@ -631,9 +631,19 @@ final class ServerAppState {
   }
 
   /// Steer the active turn with additional guidance
-  func steerTurn(sessionId: String, content: String) {
+  func steerTurn(
+    sessionId: String,
+    content: String,
+    images: [ServerImageInput] = [],
+    mentions: [ServerMentionInput] = []
+  ) {
     logger.info("Steering turn for \(sessionId)")
-    ServerConnection.shared.steerTurn(sessionId: sessionId, content: content)
+    ServerConnection.shared.steerTurn(
+      sessionId: sessionId,
+      content: content,
+      images: images,
+      mentions: mentions
+    )
   }
 
   /// Compact (summarize) the conversation context

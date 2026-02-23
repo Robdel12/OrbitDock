@@ -355,11 +355,39 @@ final class MCPBridge {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
-    guard let content = body["content"] as? String, !content.isEmpty else {
-      return HTTPResponse(status: 400, body: ["error": "Missing 'content' field"])
+    let content = (body["content"] as? String) ?? ""
+
+    var images: [ServerImageInput] = []
+    if let rawImages = body["images"] as? [[String: Any]] {
+      for raw in rawImages {
+        if let inputType = raw["input_type"] as? String, let value = raw["value"] as? String {
+          images.append(ServerImageInput(inputType: inputType, value: value))
+        }
+      }
     }
 
-    state.steerTurn(sessionId: sessionId, content: content)
+    var mentions: [ServerMentionInput] = []
+    if let rawMentions = body["mentions"] as? [[String: Any]] {
+      for raw in rawMentions {
+        if let name = raw["name"] as? String, let path = raw["path"] as? String {
+          mentions.append(ServerMentionInput(name: name, path: path))
+        }
+      }
+    }
+
+    if content.isEmpty && images.isEmpty && mentions.isEmpty {
+      return HTTPResponse(
+        status: 400,
+        body: ["error": "Missing steer input: provide 'content', 'images', or 'mentions'"]
+      )
+    }
+
+    state.steerTurn(
+      sessionId: sessionId,
+      content: content,
+      images: images,
+      mentions: mentions
+    )
     return HTTPResponse(status: 200, body: ["status": "steered", "session_id": sessionId])
   }
 

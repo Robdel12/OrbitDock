@@ -164,10 +164,47 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             content: {
               type: "string",
-              description: "Steering guidance to inject into the active turn",
+              description: "Optional steering guidance text to inject into the active turn",
+            },
+            images: {
+              type: "array",
+              description: "Optional images to attach (data URIs or local file paths)",
+              items: {
+                type: "object",
+                properties: {
+                  input_type: {
+                    type: "string",
+                    enum: ["url", "path"],
+                    description: "'url' for data URI, 'path' for local file",
+                  },
+                  value: {
+                    type: "string",
+                    description: "Data URI string or local file path",
+                  },
+                },
+                required: ["input_type", "value"],
+              },
+            },
+            mentions: {
+              type: "array",
+              description: "Optional file/resource mentions to attach",
+              items: {
+                type: "object",
+                properties: {
+                  name: {
+                    type: "string",
+                    description: "Display name of the mentioned file/resource",
+                  },
+                  path: {
+                    type: "string",
+                    description: "Path or URI of the mentioned file/resource",
+                  },
+                },
+                required: ["name", "path"],
+              },
             },
           },
-          required: ["session_id", "content"],
+          required: ["session_id"],
         },
       },
       {
@@ -385,17 +422,23 @@ async function handleApprove({ session_id, request_id, approved, decision, type 
   };
 }
 
-async function handleSteerTurn({ session_id, content }) {
+async function handleSteerTurn({ session_id, content, images, mentions }) {
   ensureOrbitDock();
   await requireControllableSession(session_id);
 
-  await orbitdock.steerTurn(session_id, content);
+  await orbitdock.steerTurn(session_id, content, { images, mentions });
+
+  let parts = [
+    `Steering guidance sent to ${session_id}. If a turn was active, it received the input. Otherwise, a new turn was started.`,
+  ];
+  if (images && images.length > 0) parts.push(`Attached ${images.length} image(s).`);
+  if (mentions && mentions.length > 0) parts.push(`Attached ${mentions.length} mention(s).`);
 
   return {
     content: [
       {
         type: "text",
-        text: `Steering guidance sent to ${session_id}. If a turn was active, it received the input. Otherwise, a new turn was started.`,
+        text: parts.join(" "),
       },
     ],
   };

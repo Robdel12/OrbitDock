@@ -1246,7 +1246,7 @@ struct DirectSessionComposer: View {
   private var canSend: Bool {
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     if inputMode == .shell { return !isSending && hasContent }
-    if isSessionWorking { return !isSending && hasContent }
+    if isSessionWorking { return !isSending && (hasContent || hasAttachments) }
     let hasModel = session.isDirectCodex ? !selectedModel.isEmpty : session.model != nil
     return !isSending && (hasContent || hasAttachments) && hasModel
   }
@@ -1272,10 +1272,26 @@ struct DirectSessionComposer: View {
       return
     }
 
+    var expandedContent = trimmed
+    for mention in attachedMentions {
+      expandedContent = expandedContent.replacingOccurrences(of: "@\(mention.name)", with: mention.path)
+    }
+    let mentionInputs = attachedMentions.map { ServerMentionInput(name: $0.name, path: $0.path) }
+    let imageInputs = attachedImages.map(\.serverInput)
+
     if isSessionWorking {
-      guard !trimmed.isEmpty else { return }
-      serverState.steerTurn(sessionId: sessionId, content: trimmed)
+      guard !expandedContent.isEmpty || !imageInputs.isEmpty || !mentionInputs.isEmpty else { return }
+      serverState.steerTurn(
+        sessionId: sessionId,
+        content: expandedContent,
+        images: imageInputs,
+        mentions: mentionInputs
+      )
       message = ""
+      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        attachedImages = []
+        attachedMentions = []
+      }
       return
     }
 
@@ -1292,11 +1308,6 @@ struct DirectSessionComposer: View {
 
     let effort = selectedEffort.serialized
 
-    var expandedContent = trimmed
-    for mention in attachedMentions {
-      expandedContent = expandedContent.replacingOccurrences(of: "@\(mention.name)", with: mention.path)
-    }
-
     let inlineSkillNames = extractInlineSkillNames(from: expandedContent)
 
     var skillPaths = selectedSkills
@@ -1310,8 +1321,6 @@ struct DirectSessionComposer: View {
       return ServerSkillInput(name: skill.name, path: skill.path)
     }
 
-    let imageInputs = attachedImages.map(\.serverInput)
-
     // Prepend any pending shell context
     let obs = serverState.session(sessionId)
     if let shellContext = obs.consumeShellContext() {
@@ -1324,7 +1333,8 @@ struct DirectSessionComposer: View {
       model: effectiveModel,
       effort: effort,
       skills: skillInputs,
-      images: imageInputs
+      images: imageInputs,
+      mentions: mentionInputs
     )
     message = ""
     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {

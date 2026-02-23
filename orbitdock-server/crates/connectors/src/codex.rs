@@ -1251,11 +1251,45 @@ impl CodexConnector {
 
     /// Steer the active turn with additional user input.
     /// If no turn is active (race condition), falls back to starting a new turn.
-    pub async fn steer_turn(&self, content: &str) -> Result<SteerOutcome, ConnectorError> {
-        let items = vec![UserInput::Text {
-            text: content.to_string(),
-            text_elements: Vec::new(),
-        }];
+    pub async fn steer_turn(
+        &self,
+        content: &str,
+        images: &[orbitdock_protocol::ImageInput],
+        mentions: &[orbitdock_protocol::MentionInput],
+    ) -> Result<SteerOutcome, ConnectorError> {
+        let mut items: Vec<UserInput> = Vec::new();
+
+        if !content.is_empty() {
+            items.push(UserInput::Text {
+                text: content.to_string(),
+                text_elements: Vec::new(),
+            });
+        }
+
+        for image in images {
+            match image.input_type.as_str() {
+                "url" => items.push(UserInput::Image {
+                    image_url: image.value.clone(),
+                }),
+                "path" => items.push(UserInput::LocalImage {
+                    path: PathBuf::from(&image.value),
+                }),
+                other => {
+                    warn!("Unknown image input_type: {}, treating as url", other);
+                    items.push(UserInput::Image {
+                        image_url: image.value.clone(),
+                    });
+                }
+            }
+        }
+
+        for mention in mentions {
+            items.push(UserInput::Mention {
+                name: mention.name.clone(),
+                path: mention.path.clone(),
+            });
+        }
+
         match self.thread.steer_input(items, None).await {
             Ok(turn_id) => {
                 info!("Steered active turn: {}", turn_id);

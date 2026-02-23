@@ -242,7 +242,7 @@ ws://127.0.0.1:4000/ws?token=<your-token>
 { "type": "resume_session", "session_id": "..." }
 { "type": "fork_session", "source_session_id": "...", "nth_user_message": 3 }
 { "type": "send_message", "session_id": "...", "content": "..." }
-{ "type": "steer_turn", "session_id": "...", "content": "use postgres instead" }
+{ "type": "steer_turn", "session_id": "...", "content": "use postgres instead", "images": [], "mentions": [] }
 { "type": "approve_tool", "session_id": "...", "request_id": "...", "decision": "approved" }
 { "type": "answer_question", "session_id": "...", "request_id": "...", "answer": "yes" }
 { "type": "interrupt_session", "session_id": "..." }

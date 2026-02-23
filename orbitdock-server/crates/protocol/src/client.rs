@@ -186,6 +186,10 @@ pub enum ClientMessage {
     SteerTurn {
         session_id: String,
         content: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageInput>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mentions: Vec<MentionInput>,
     },
 
     // Context management
@@ -618,14 +622,59 @@ mod tests {
             ClientMessage::SteerTurn {
                 session_id,
                 content,
+                images,
+                mentions,
             } => {
                 assert_eq!(session_id, "sess-s1");
                 assert_eq!(content, "use postgres instead");
+                assert!(images.is_empty());
+                assert!(mentions.is_empty());
             }
             other => panic!("unexpected variant: {:?}", other),
         }
         let serialized = serde_json::to_string(&parsed).expect("serialize");
         let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_steer_turn_with_mixed_inputs() {
+        let json = r#"{
+          "type":"steer_turn",
+          "session_id":"sess-s2",
+          "content":"take this into account",
+          "images":[{"input_type":"url","value":"data:image/png;base64,iVBOR"}],
+          "mentions":[{"name":"main.rs","path":"/project/src/main.rs"}]
+        }"#;
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse steer_turn with mixed inputs");
+        match &parsed {
+            ClientMessage::SteerTurn {
+                session_id,
+                content,
+                images,
+                mentions,
+            } => {
+                assert_eq!(session_id, "sess-s2");
+                assert_eq!(content, "take this into account");
+                assert_eq!(images.len(), 1);
+                assert_eq!(mentions.len(), 1);
+                assert_eq!(images[0].input_type, "url");
+                assert_eq!(mentions[0].name, "main.rs");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::SteerTurn {
+                images, mentions, ..
+            } => {
+                assert_eq!(images.len(), 1);
+                assert_eq!(mentions.len(), 1);
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
     }
 
     #[test]
