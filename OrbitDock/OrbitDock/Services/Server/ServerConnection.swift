@@ -21,6 +21,20 @@ enum ConnectionStatus: Equatable {
   case failed(String) // Connection failed, not retrying
 }
 
+enum ServerRequestError: LocalizedError {
+  case notConnected
+  case connectionLost
+
+  var errorDescription: String? {
+    switch self {
+      case .notConnected:
+        "Server is not connected."
+      case .connectionLost:
+        "Server connection was lost before the request completed."
+    }
+  }
+}
+
 /// WebSocket connection to OrbitDock server
 @MainActor
 class ServerConnection: ObservableObject {
@@ -37,6 +51,10 @@ class ServerConnection: ObservableObject {
 
   private var serverURL: URL
   private var connectAttempts = 0
+
+  private var pendingDirectoryListingContinuations: [CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>] = []
+  private var pendingRecentProjectsContinuations: [CheckedContinuation<[ServerRecentProject], Error>] = []
+  private var pendingOpenAiKeyStatusContinuations: [CheckedContinuation<Bool, Error>] = []
 
   /// Whether we're connecting to a non-localhost server
   private var isRemote: Bool {
@@ -107,9 +125,6 @@ class ServerConnection: ObservableObject {
   var onShellStarted: ((String, String, String) -> Void)? // sessionId, requestId, command
   var onShellOutput: ((String, String, String, String, Int32?, UInt64)
     -> Void)? // sessionId, requestId, stdout, stderr, exitCode, durationMs
-  var onDirectoryListing: ((String, [ServerDirectoryEntry]) -> Void)? // path, entries
-  var onRecentProjectsList: (([ServerRecentProject]) -> Void)?
-  var onOpenAiKeyStatus: ((Bool) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
   var onDisconnected: (() -> Void)?
@@ -218,6 +233,8 @@ class ServerConnection: ObservableObject {
 
   /// Disconnect from the server
   func disconnect() {
+    failPendingRequests(with: ServerRequestError.connectionLost)
+
     connectTask?.cancel()
     connectTask = nil
     receiveTask?.cancel()
@@ -283,6 +300,7 @@ class ServerConnection: ObservableObject {
         await MainActor.run {
           // Connection lost - try to reconnect (with limits)
           if case .connected = self.status {
+            self.failPendingRequests(with: ServerRequestError.connectionLost)
             self.status = .disconnected
             connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
             self.onDisconnected?()
@@ -438,13 +456,19 @@ class ServerConnection: ObservableObject {
         onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs)
 
       case let .directoryListing(path, entries):
-        onDirectoryListing?(path, entries)
+        if let continuation = dequeueDirectoryListingContinuation() {
+          continuation.resume(returning: (path, entries))
+        }
 
       case let .recentProjectsList(projects):
-        onRecentProjectsList?(projects)
+        if let continuation = dequeueRecentProjectsContinuation() {
+          continuation.resume(returning: projects)
+        }
 
       case let .openAiKeyStatus(configured):
-        onOpenAiKeyStatus?(configured)
+        if let continuation = dequeueOpenAiKeyStatusContinuation() {
+          continuation.resume(returning: configured)
+        }
 
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
@@ -642,9 +666,40 @@ class ServerConnection: ObservableObject {
     send(.setOpenAiKey(key: key))
   }
 
-  /// Check if an OpenAI API key is configured on the server
-  func checkOpenAiKey() {
-    send(.checkOpenAiKey)
+  /// Request OpenAI key status for this endpoint as a one-shot response.
+  func checkOpenAiKeyStatus() async throws -> Bool {
+    guard case .connected = status else {
+      throw ServerRequestError.notConnected
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+      pendingOpenAiKeyStatusContinuations.append(continuation)
+      send(.checkOpenAiKey)
+    }
+  }
+
+  /// Request recent projects for this endpoint as a one-shot response.
+  func listRecentProjects() async throws -> [ServerRecentProject] {
+    guard case .connected = status else {
+      throw ServerRequestError.notConnected
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+      pendingRecentProjectsContinuations.append(continuation)
+      send(.listRecentProjects)
+    }
+  }
+
+  /// Request a directory listing as a one-shot response.
+  func browseDirectory(path: String? = nil) async throws -> (path: String, entries: [ServerDirectoryEntry]) {
+    guard case .connected = status else {
+      throw ServerRequestError.notConnected
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+      pendingDirectoryListingContinuations.append(continuation)
+      send(.browseDirectory(path: path))
+    }
   }
 
   /// Resume an ended session
@@ -834,5 +889,42 @@ class ServerConnection: ObservableObject {
       allowedTools: allowedTools,
       disallowedTools: disallowedTools
     ))
+  }
+
+  private func dequeueDirectoryListingContinuation()
+    -> CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>?
+  {
+    guard !pendingDirectoryListingContinuations.isEmpty else { return nil }
+    return pendingDirectoryListingContinuations.removeFirst()
+  }
+
+  private func dequeueRecentProjectsContinuation() -> CheckedContinuation<[ServerRecentProject], Error>? {
+    guard !pendingRecentProjectsContinuations.isEmpty else { return nil }
+    return pendingRecentProjectsContinuations.removeFirst()
+  }
+
+  private func dequeueOpenAiKeyStatusContinuation() -> CheckedContinuation<Bool, Error>? {
+    guard !pendingOpenAiKeyStatusContinuations.isEmpty else { return nil }
+    return pendingOpenAiKeyStatusContinuations.removeFirst()
+  }
+
+  private func failPendingRequests(with error: Error) {
+    let pendingDirectory = pendingDirectoryListingContinuations
+    pendingDirectoryListingContinuations.removeAll()
+    for continuation in pendingDirectory {
+      continuation.resume(throwing: error)
+    }
+
+    let pendingProjects = pendingRecentProjectsContinuations
+    pendingRecentProjectsContinuations.removeAll()
+    for continuation in pendingProjects {
+      continuation.resume(throwing: error)
+    }
+
+    let pendingOpenAi = pendingOpenAiKeyStatusContinuations
+    pendingOpenAiKeyStatusContinuations.removeAll()
+    for continuation in pendingOpenAi {
+      continuation.resume(throwing: error)
+    }
   }
 }

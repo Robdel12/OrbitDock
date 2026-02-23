@@ -140,6 +140,7 @@ struct GeneralSettingsView: View {
   @State private var openAiKeySaved = false
   @State private var openAiKeyStatus: OpenAiKeyStatus = .checking
   @State private var isReplacingKey = false
+  @State private var openAiKeyStatusRequestId = UUID()
 
   private enum OpenAiKeyStatus {
     case checking, configured, notConfigured
@@ -408,10 +409,21 @@ struct GeneralSettingsView: View {
 
   private func checkOpenAiKeyStatus() {
     openAiKeyStatus = .checking
-    runtimeRegistry.activeConnection.onOpenAiKeyStatus = { configured in
-      openAiKeyStatus = configured ? .configured : .notConfigured
+    let connection = runtimeRegistry.activeConnection
+    let endpointId = connection.endpointId
+    let requestId = UUID()
+    openAiKeyStatusRequestId = requestId
+
+    Task { @MainActor in
+      do {
+        let configured = try await connection.checkOpenAiKeyStatus()
+        guard openAiKeyStatusRequestId == requestId, runtimeRegistry.activeEndpointId == endpointId else { return }
+        openAiKeyStatus = configured ? .configured : .notConfigured
+      } catch {
+        guard openAiKeyStatusRequestId == requestId, runtimeRegistry.activeEndpointId == endpointId else { return }
+        openAiKeyStatus = .notConfigured
+      }
     }
-    runtimeRegistry.activeConnection.checkOpenAiKey()
   }
 }
 

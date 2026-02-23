@@ -130,6 +130,7 @@ struct QuickSwitcher: View {
   @State private var quickLaunchMode: QuickLaunchProvider?
   @State private var recentProjects: [ServerRecentProject] = []
   @State private var isLoadingProjects = false
+  @State private var recentProjectsRequestId = UUID()
 
   /// The session currently being viewed (for commands to act on)
   private var currentSession: Session? {
@@ -1202,15 +1203,26 @@ struct QuickSwitcher: View {
   private func loadRecentProjects() {
     isLoadingProjects = true
     let connection = ServerRuntimeRegistry.shared.activeConnection
+    let endpointId = connection.endpointId
+    let requestId = UUID()
+    recentProjectsRequestId = requestId
 
-    connection.onRecentProjectsList = { projects in
-      Task { @MainActor in
-        self.recentProjects = projects
-        self.isLoadingProjects = false
+    Task { @MainActor in
+      defer {
+        if recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+          isLoadingProjects = false
+        }
+      }
+
+      do {
+        let projects = try await connection.listRecentProjects()
+        guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        recentProjects = projects
+      } catch {
+        guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        recentProjects = []
       }
     }
-
-    connection.send(.listRecentProjects)
   }
 
   private func quickLaunchSession(path: String) {

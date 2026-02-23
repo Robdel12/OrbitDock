@@ -22,6 +22,8 @@ import SwiftUI
     @State private var isLoadingDirectory = false
     @State private var activeTab: PickerTab = .recent
     @State private var browseHistory: [String] = []
+    @State private var recentProjectsRequestId = UUID()
+    @State private var browseRequestId = UUID()
 
     private enum PickerTab: String, CaseIterable {
       case recent = "Recent"
@@ -358,50 +360,89 @@ import SwiftUI
     private func loadRecentProjects() {
       isLoadingRecent = true
       let connection = ServerRuntimeRegistry.shared.activeConnection
+      let endpointId = connection.endpointId
+      let requestId = UUID()
+      recentProjectsRequestId = requestId
 
-      connection.onRecentProjectsList = { projects in
-        Task { @MainActor in
-          self.recentProjects = projects
-          self.isLoadingRecent = false
+      Task { @MainActor in
+        defer {
+          if recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+            isLoadingRecent = false
+          }
+        }
+
+        do {
+          let projects = try await connection.listRecentProjects()
+          guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+          recentProjects = projects
+        } catch {
+          logger.error("Failed to load recent projects: \(error.localizedDescription)")
+          guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+          recentProjects = []
         }
       }
-
-      connection.send(.listRecentProjects)
     }
 
     private func browseDirectory(_ path: String?) {
       isLoadingDirectory = true
       let connection = ServerRuntimeRegistry.shared.activeConnection
+      let endpointId = connection.endpointId
+      let requestId = UUID()
+      let historyEntry = currentBrowsePath
+      browseRequestId = requestId
 
-      if let path, !path.isEmpty {
-        browseHistory.append(currentBrowsePath)
-      }
+      Task { @MainActor in
+        defer {
+          if browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+            isLoadingDirectory = false
+          }
+        }
 
-      connection.onDirectoryListing = { resolvedPath, entries in
-        Task { @MainActor in
-          self.currentBrowsePath = resolvedPath
-          self.directoryEntries = entries
-          self.isLoadingDirectory = false
+        do {
+          let listing = try await connection.browseDirectory(path: path)
+          guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+
+          if let path, !path.isEmpty {
+            browseHistory.append(historyEntry)
+          }
+          currentBrowsePath = listing.path
+          directoryEntries = listing.entries
+        } catch {
+          logger.error("Failed to browse directory: \(error.localizedDescription)")
+          guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+          directoryEntries = []
         }
       }
-
-      connection.send(.browseDirectory(path: path))
     }
 
     private func navigateBack() {
-      guard let previous = browseHistory.popLast() else { return }
+      guard let previous = browseHistory.last else { return }
       isLoadingDirectory = true
       let connection = ServerRuntimeRegistry.shared.activeConnection
+      let endpointId = connection.endpointId
+      let requestId = UUID()
+      browseRequestId = requestId
 
-      connection.onDirectoryListing = { resolvedPath, entries in
-        Task { @MainActor in
-          self.currentBrowsePath = resolvedPath
-          self.directoryEntries = entries
-          self.isLoadingDirectory = false
+      Task { @MainActor in
+        defer {
+          if browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+            isLoadingDirectory = false
+          }
+        }
+
+        do {
+          let listing = try await connection.browseDirectory(path: previous.isEmpty ? nil : previous)
+          guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+
+          _ = browseHistory.popLast()
+          currentBrowsePath = listing.path
+          directoryEntries = listing.entries
+        } catch {
+          logger.error("Failed to navigate back in directory browser: \(error.localizedDescription)")
+          guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+          directoryEntries = []
         }
       }
-
-      connection.send(.browseDirectory(path: previous.isEmpty ? nil : previous))
     }
   }
 

@@ -83,7 +83,7 @@ struct ServerRuntimeRegistryTests {
     #expect(spies[endpointA.id]?.disconnectCount == 1)
   }
 
-  @Test func callbackStateIsNotSharedAcrossRuntimeConnections() {
+  @Test func requestStateIsNotSharedAcrossRuntimeConnections() async throws {
     let endpointA = ServerEndpoint(
       id: UUID(),
       name: "A",
@@ -101,24 +101,25 @@ struct ServerRuntimeRegistryTests {
       isDefault: false
     )
 
-    let runtimeA = ServerRuntime(endpoint: endpointA, connection: SpyServerConnection(endpoint: endpointA))
-    let runtimeB = ServerRuntime(endpoint: endpointB, connection: SpyServerConnection(endpoint: endpointB))
+    let spyA = SpyServerConnection(endpoint: endpointA)
+    let spyB = SpyServerConnection(endpoint: endpointB)
+    spyA.recentProjectsResponse = [
+      ServerRecentProject(path: "/Users/alice/ProjectA", sessionCount: 2, lastActive: "2026-02-23T10:00:00Z")
+    ]
+    spyB.recentProjectsResponse = [
+      ServerRecentProject(path: "/Users/alice/ProjectB", sessionCount: 5, lastActive: "2026-02-23T11:00:00Z")
+    ]
 
-    var invokedA = false
-    var invokedB = false
+    let runtimeA = ServerRuntime(endpoint: endpointA, connection: spyA)
+    let runtimeB = ServerRuntime(endpoint: endpointB, connection: spyB)
 
-    runtimeA.connection.onOpenAiKeyStatus = { _ in invokedA = true }
-    runtimeB.connection.onOpenAiKeyStatus = { _ in invokedB = true }
+    let projectsA = try await runtimeA.connection.listRecentProjects()
+    let projectsB = try await runtimeB.connection.listRecentProjects()
 
-    runtimeA.connection.onOpenAiKeyStatus?(true)
-
-    #expect(invokedA)
-    #expect(!invokedB)
-
-    runtimeB.connection.onOpenAiKeyStatus?(false)
-
-    #expect(invokedA)
-    #expect(invokedB)
+    #expect(projectsA.map(\.path) == ["/Users/alice/ProjectA"])
+    #expect(projectsB.map(\.path) == ["/Users/alice/ProjectB"])
+    #expect(spyA.listRecentProjectsCallCount == 1)
+    #expect(spyB.listRecentProjectsCallCount == 1)
   }
 
   @Test func preferredActiveEndpointDeterministicallyUsesDefaultEnabled() {
@@ -172,6 +173,8 @@ struct ServerRuntimeRegistryTests {
 private final class SpyServerConnection: ServerConnection {
   var connectCalls: [URL] = []
   var disconnectCount = 0
+  var recentProjectsResponse: [ServerRecentProject] = []
+  var listRecentProjectsCallCount = 0
 
   override func connect(to url: URL) {
     connectCalls.append(url)
@@ -179,5 +182,10 @@ private final class SpyServerConnection: ServerConnection {
 
   override func disconnect() {
     disconnectCount += 1
+  }
+
+  override func listRecentProjects() async throws -> [ServerRecentProject] {
+    listRecentProjectsCallCount += 1
+    return recentProjectsResponse
   }
 }
