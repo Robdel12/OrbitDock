@@ -56,8 +56,20 @@
     private let buttonStack = UIStackView()
     private let denyButton = UIButton(type: .system)
     private let approveButton = UIButton(type: .system)
+    private let actionHintLabel = UILabel()
+    private let moreActionsButton = UIButton(type: .system)
 
     private var currentModel: ApprovalCardModel?
+
+    private enum Layout {
+      static let outerVerticalInset: CGFloat = 6
+      static let cardPadding: CGFloat = 14
+      static let headerIconSize: CGFloat = 15
+      static let commandVerticalPadding: CGFloat = 6
+      static let commandHorizontalPadding: CGFloat = 10
+      static let primaryButtonHeight: CGFloat = 44
+      static let actionFooterHeight: CGFloat = 24
+    }
 
     // MARK: - Init
 
@@ -77,7 +89,7 @@
       backgroundColor = .clear
       contentView.backgroundColor = .clear
 
-      cardContainer.layer.cornerRadius = CGFloat(Radius.xl)
+      cardContainer.layer.cornerRadius = CGFloat(Radius.lg)
       cardContainer.layer.masksToBounds = true
       cardContainer.layer.borderWidth = 1
       cardContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -95,10 +107,13 @@
 
       let inset = ConversationLayout.laneHorizontalInset
       NSLayoutConstraint.activate([
-        cardContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+        cardContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Layout.outerVerticalInset),
         cardContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
         cardContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
-        cardContainer.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+        cardContainer.bottomAnchor.constraint(
+          lessThanOrEqualTo: contentView.bottomAnchor,
+          constant: -Layout.outerVerticalInset
+        ),
 
         riskStrip.topAnchor.constraint(equalTo: cardContainer.topAnchor),
         riskStrip.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor),
@@ -114,16 +129,16 @@
       cardContainer.addSubview(headerIcon)
 
       headerLabel.translatesAutoresizingMaskIntoConstraints = false
-      headerLabel.font = UIFont.systemFont(ofSize: TypeScale.title, weight: .semibold)
+      headerLabel.font = UIFont.systemFont(ofSize: TypeScale.subhead, weight: .semibold)
       headerLabel.textColor = UIColor(Color.textPrimary)
       cardContainer.addSubview(headerLabel)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         headerIcon.topAnchor.constraint(equalTo: riskStrip.bottomAnchor, constant: pad),
         headerIcon.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        headerIcon.widthAnchor.constraint(equalToConstant: 16),
-        headerIcon.heightAnchor.constraint(equalToConstant: 16),
+        headerIcon.widthAnchor.constraint(equalToConstant: Layout.headerIconSize),
+        headerIcon.heightAnchor.constraint(equalToConstant: Layout.headerIconSize),
 
         headerLabel.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
         headerLabel.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: CGFloat(Spacing.sm)),
@@ -132,7 +147,7 @@
     }
 
     private func setupToolBadge() {
-      toolBadge.layer.cornerRadius = 10
+      toolBadge.layer.cornerRadius = 9
       toolBadge.backgroundColor = UIColor(Color.backgroundTertiary)
       toolBadge.translatesAutoresizingMaskIntoConstraints = false
       cardContainer.addSubview(toolBadge)
@@ -143,11 +158,11 @@
       toolBadge.addSubview(toolIcon)
 
       toolNameLabel.translatesAutoresizingMaskIntoConstraints = false
-      toolNameLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .bold)
+      toolNameLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
       toolNameLabel.textColor = UIColor(Color.textSecondary)
       toolBadge.addSubview(toolNameLabel)
 
-      riskBadgeContainer.layer.cornerRadius = 8
+      riskBadgeContainer.layer.cornerRadius = 7
       riskBadgeContainer.backgroundColor = UIColor(Color.statusError)
       riskBadgeContainer.translatesAutoresizingMaskIntoConstraints = false
       cardContainer.addSubview(riskBadgeContainer)
@@ -158,7 +173,7 @@
       riskBadgeLabel.text = "DESTRUCTIVE"
       riskBadgeContainer.addSubview(riskBadgeLabel)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         toolBadge.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         toolBadge.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -199,13 +214,13 @@
       commandContainer.addSubview(commandAccentBar)
 
       commandText.translatesAutoresizingMaskIntoConstraints = false
-      commandText.font = UIFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
+      commandText.font = UIFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
       commandText.textColor = UIColor(Color.textPrimary)
       commandText.numberOfLines = 0
       commandText.lineBreakMode = .byWordWrapping
       commandContainer.addSubview(commandText)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         commandContainer.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.sm)),
         commandContainer.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -216,10 +231,16 @@
         commandAccentBar.leadingAnchor.constraint(equalTo: commandContainer.leadingAnchor),
         commandAccentBar.widthAnchor.constraint(equalToConstant: EdgeBar.width),
 
-        commandText.topAnchor.constraint(equalTo: commandContainer.topAnchor, constant: CGFloat(Spacing.sm)),
-        commandText.bottomAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: -CGFloat(Spacing.sm)),
-        commandText.leadingAnchor.constraint(equalTo: commandAccentBar.trailingAnchor, constant: CGFloat(Spacing.md)),
-        commandText.trailingAnchor.constraint(equalTo: commandContainer.trailingAnchor, constant: -CGFloat(Spacing.md)),
+        commandText.topAnchor.constraint(equalTo: commandContainer.topAnchor, constant: Layout.commandVerticalPadding),
+        commandText.bottomAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: -Layout.commandVerticalPadding),
+        commandText.leadingAnchor.constraint(
+          equalTo: commandAccentBar.trailingAnchor,
+          constant: Layout.commandHorizontalPadding
+        ),
+        commandText.trailingAnchor.constraint(
+          equalTo: commandContainer.trailingAnchor,
+          constant: -Layout.commandHorizontalPadding
+        ),
       ])
     }
 
@@ -232,7 +253,7 @@
 
       answerField.translatesAutoresizingMaskIntoConstraints = false
       answerField.placeholder = "Your answer..."
-      answerField.font = UIFont.systemFont(ofSize: TypeScale.code)
+      answerField.font = UIFont.systemFont(ofSize: TypeScale.body)
       answerField.textColor = UIColor(Color.textPrimary)
       answerField.backgroundColor = UIColor(Color.backgroundPrimary)
       answerField.borderStyle = .roundedRect
@@ -242,14 +263,14 @@
 
       submitButton.translatesAutoresizingMaskIntoConstraints = false
       submitButton.setTitle("Submit", for: .normal)
-      submitButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      submitButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       submitButton.setTitleColor(.white, for: .normal)
       submitButton.backgroundColor = UIColor(Color.statusQuestion).withAlphaComponent(0.75)
       submitButton.layer.cornerRadius = CGFloat(Radius.lg)
       submitButton.addTarget(self, action: #selector(submitButtonTapped), for: .touchUpInside)
       cardContainer.addSubview(submitButton)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         questionTextLabel.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         questionTextLabel.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -258,12 +279,12 @@
         answerField.topAnchor.constraint(equalTo: questionTextLabel.bottomAnchor, constant: CGFloat(Spacing.md)),
         answerField.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         answerField.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        answerField.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
+        answerField.heightAnchor.constraint(greaterThanOrEqualToConstant: 34),
 
         submitButton.topAnchor.constraint(equalTo: answerField.bottomAnchor, constant: CGFloat(Spacing.md)),
         submitButton.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         submitButton.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        submitButton.heightAnchor.constraint(equalToConstant: 44),
+        submitButton.heightAnchor.constraint(equalToConstant: 42),
       ])
     }
 
@@ -276,13 +297,13 @@
 
       takeoverButton.translatesAutoresizingMaskIntoConstraints = false
       takeoverButton.setTitle("Take Over & Review", for: .normal)
-      takeoverButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      takeoverButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       takeoverButton.setTitleColor(.white, for: .normal)
       takeoverButton.layer.cornerRadius = CGFloat(Radius.lg)
       takeoverButton.addTarget(self, action: #selector(takeoverButtonTapped), for: .touchUpInside)
       cardContainer.addSubview(takeoverButton)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         takeoverDescription.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.md)),
         takeoverDescription.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -291,7 +312,7 @@
         takeoverButton.topAnchor.constraint(equalTo: takeoverDescription.bottomAnchor, constant: CGFloat(Spacing.md)),
         takeoverButton.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         takeoverButton.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        takeoverButton.heightAnchor.constraint(equalToConstant: 44),
+        takeoverButton.heightAnchor.constraint(equalToConstant: 42),
       ])
     }
 
@@ -301,39 +322,75 @@
       cardContainer.addSubview(actionDivider)
 
       buttonStack.axis = .horizontal
-      buttonStack.spacing = CGFloat(Spacing.sm)
+      buttonStack.spacing = CGFloat(Spacing.xs)
       buttonStack.distribution = .fillEqually
       buttonStack.translatesAutoresizingMaskIntoConstraints = false
       cardContainer.addSubview(buttonStack)
 
       // Deny button with context menu
       denyButton.setTitle("Deny", for: .normal)
-      denyButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      denyButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       denyButton.setTitleColor(UIColor(Color.statusError), for: .normal)
       denyButton.backgroundColor = UIColor(Color.statusError).withAlphaComponent(CGFloat(OpacityTier.light))
-      denyButton.layer.cornerRadius = CGFloat(Radius.lg)
+      denyButton.layer.cornerRadius = CGFloat(Radius.md)
+      denyButton.accessibilityHint = "Press and hold for deny reason or stop turn options"
       denyButton.addTarget(self, action: #selector(denyButtonTapped), for: .touchUpInside)
       buttonStack.addArrangedSubview(denyButton)
 
       // Approve button with context menu
-      approveButton.setTitle("Approve", for: .normal)
-      approveButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      approveButton.setTitle("Approve Once", for: .normal)
+      approveButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       approveButton.setTitleColor(.white, for: .normal)
       approveButton.backgroundColor = UIColor(Color.accent).withAlphaComponent(0.75)
-      approveButton.layer.cornerRadius = CGFloat(Radius.lg)
+      approveButton.layer.cornerRadius = CGFloat(Radius.md)
+      approveButton.accessibilityHint = "Press and hold for session or always allow options"
       approveButton.addTarget(self, action: #selector(approveButtonTapped), for: .touchUpInside)
       buttonStack.addArrangedSubview(approveButton)
 
-      let pad = CGFloat(Spacing.lg)
+      actionHintLabel.translatesAutoresizingMaskIntoConstraints = false
+      actionHintLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
+      actionHintLabel.textColor = UIColor(Color.textQuaternary)
+      actionHintLabel.text = "Press and hold buttons for session, always, and deny-reason options"
+      actionHintLabel.numberOfLines = 1
+      actionHintLabel.lineBreakMode = .byTruncatingTail
+      actionHintLabel.adjustsFontSizeToFitWidth = true
+      actionHintLabel.minimumScaleFactor = 0.85
+      actionHintLabel.isHidden = true
+      cardContainer.addSubview(actionHintLabel)
+
+      moreActionsButton.translatesAutoresizingMaskIntoConstraints = false
+      moreActionsButton.setTitle("More", for: .normal)
+      moreActionsButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
+      moreActionsButton.setTitleColor(UIColor(Color.textSecondary), for: .normal)
+      moreActionsButton.backgroundColor = UIColor(Color.backgroundTertiary).withAlphaComponent(0.7)
+      moreActionsButton.layer.cornerRadius = CGFloat(Radius.sm)
+      moreActionsButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
+      moreActionsButton.showsMenuAsPrimaryAction = true
+      moreActionsButton.isHidden = true
+      cardContainer.addSubview(moreActionsButton)
+
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         actionDivider.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         actionDivider.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
         actionDivider.heightAnchor.constraint(equalToConstant: 1),
 
-        buttonStack.topAnchor.constraint(equalTo: actionDivider.bottomAnchor, constant: CGFloat(Spacing.md)),
+        buttonStack.topAnchor.constraint(equalTo: actionDivider.bottomAnchor, constant: CGFloat(Spacing.sm)),
         buttonStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         buttonStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        buttonStack.heightAnchor.constraint(equalToConstant: 44),
+        buttonStack.heightAnchor.constraint(equalToConstant: Layout.primaryButtonHeight),
+
+        actionHintLabel.topAnchor.constraint(equalTo: buttonStack.bottomAnchor, constant: CGFloat(Spacing.xs)),
+        actionHintLabel.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        actionHintLabel.trailingAnchor.constraint(
+          lessThanOrEqualTo: moreActionsButton.leadingAnchor,
+          constant: -CGFloat(Spacing.sm)
+        ),
+        actionHintLabel.heightAnchor.constraint(equalToConstant: Layout.actionFooterHeight),
+
+        moreActionsButton.centerYAnchor.constraint(equalTo: actionHintLabel.centerYAnchor),
+        moreActionsButton.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+        moreActionsButton.heightAnchor.constraint(equalToConstant: Layout.actionFooterHeight),
       ])
     }
 
@@ -365,6 +422,8 @@
       commandContainer.isHidden = model.command == nil && model.filePath == nil
       actionDivider.isHidden = false
       buttonStack.isHidden = false
+      actionHintLabel.isHidden = false
+      moreActionsButton.isHidden = false
       riskBadgeContainer.isHidden = model.risk != .high
 
       // Hide
@@ -407,6 +466,15 @@
       // Configure context menus on buttons
       configureDenyMenu(model)
       configureApproveMenu(model)
+      configureMoreActionsMenu(model)
+      let hasAlwaysAllow = model.approvalType == .exec && model.hasAmendment
+      actionHintLabel.text = hasAlwaysAllow
+        ? "Long-press buttons, or use More, for session/always/deny-reason actions"
+        : "Long-press buttons, or use More, for session/deny-reason actions"
+      approveButton.accessibilityHint = hasAlwaysAllow
+        ? "Press and hold for session or always allow options"
+        : "Press and hold for allow-for-session options"
+      moreActionsButton.accessibilityHint = "Opens all approval and denial actions"
 
       // Position divider
       updateDividerPosition(model)
@@ -428,6 +496,8 @@
       commandContainer.isHidden = true
       actionDivider.isHidden = true
       buttonStack.isHidden = true
+      actionHintLabel.isHidden = true
+      moreActionsButton.isHidden = true
       riskBadgeContainer.isHidden = true
       takeoverDescription.isHidden = true
       takeoverButton.isHidden = true
@@ -461,6 +531,8 @@
       commandContainer.isHidden = true
       actionDivider.isHidden = true
       buttonStack.isHidden = true
+      actionHintLabel.isHidden = true
+      moreActionsButton.isHidden = true
       riskBadgeContainer.isHidden = true
       questionTextLabel.isHidden = true
       answerField.isHidden = true
@@ -476,6 +548,30 @@
     }
 
     private func configureDenyMenu(_ model: ApprovalCardModel) {
+      denyButton.menu = UIMenu(children: denyMenuActions(model))
+      denyButton.showsMenuAsPrimaryAction = false
+    }
+
+    private func configureApproveMenu(_ model: ApprovalCardModel) {
+      approveButton.menu = UIMenu(children: approveMenuActions(model))
+      approveButton.showsMenuAsPrimaryAction = false
+    }
+
+    private func configureMoreActionsMenu(_ model: ApprovalCardModel) {
+      let approveInline = UIMenu(
+        title: "Approve",
+        options: .displayInline,
+        children: approveMenuActions(model)
+      )
+      let denyInline = UIMenu(
+        title: "Deny",
+        options: .displayInline,
+        children: denyMenuActions(model)
+      )
+      moreActionsButton.menu = UIMenu(children: [approveInline, denyInline])
+    }
+
+    private func denyMenuActions(_ _: ApprovalCardModel) -> [UIAction] {
       let denyAction = UIAction(
         title: "Deny",
         image: UIImage(systemName: "xmark"),
@@ -500,18 +596,17 @@
         vc.present(alert, animated: true)
       }
       let denyStopAction = UIAction(
-        title: "Deny & Stop Turn",
+        title: "Deny & Stop",
         image: UIImage(systemName: "stop.fill"),
         attributes: .destructive
       ) { [weak self] _ in
         self?.onDecision?("abort", nil, nil)
       }
 
-      denyButton.menu = UIMenu(children: [denyAction, denyReasonAction, denyStopAction])
-      denyButton.showsMenuAsPrimaryAction = false
+      return [denyAction, denyReasonAction, denyStopAction]
     }
 
-    private func configureApproveMenu(_ model: ApprovalCardModel) {
+    private func approveMenuActions(_ model: ApprovalCardModel) -> [UIAction] {
       var children: [UIAction] = []
       children.append(UIAction(title: "Approve Once", image: UIImage(systemName: "checkmark")) { [weak self] _ in
         self?.onDecision?("approved", nil, nil)
@@ -527,8 +622,7 @@
           })
       }
 
-      approveButton.menu = UIMenu(children: children)
-      approveButton.showsMenuAsPrimaryAction = false
+      return children
     }
 
     private func updateDividerPosition(_ model: ApprovalCardModel) {
@@ -540,7 +634,7 @@
       }
 
       let anchor: UIView = commandContainer.isHidden ? toolBadge : commandContainer
-      actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.md)).isActive = true
+      actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.sm)).isActive = true
     }
 
     // MARK: - Actions
@@ -573,35 +667,37 @@
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
       guard let model else { return 180 }
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
+      let outerInset = Layout.outerVerticalInset
       let laneInset = ConversationLayout.laneHorizontalInset
       let contentWidth = availableWidth - laneInset * 2 - pad * 2
 
       switch model.mode {
         case .permission:
-          var h: CGFloat = 8 + 2 + pad // cell pad + risk strip + card pad
-          h += 16 // header
+          var h: CGFloat = outerInset + 2 + pad // cell pad + risk strip + card pad
+          h += Layout.headerIconSize // header
           h += CGFloat(Spacing.md) + 20 // tool badge
 
           if model.command != nil || model.filePath != nil {
             let text = model.command ?? model.filePath ?? ""
-            let commandFont = UIFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
-            let textWidth = contentWidth - CGFloat(EdgeBar.width) - CGFloat(Spacing.md) * 2
+            let commandFont = UIFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+            let textWidth = contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2
             let textHeight = Self.measureTextHeight(text, font: commandFont, width: textWidth)
             h += CGFloat(Spacing.sm) // spacing before command container
-            h += CGFloat(Spacing.sm) + textHeight + CGFloat(Spacing.sm)
+            h += Layout.commandVerticalPadding + textHeight + Layout.commandVerticalPadding
           }
 
           if model.diff != nil { h += 120 }
 
-          h += CGFloat(Spacing.md) + 1 // divider
-          h += CGFloat(Spacing.md) + 44 // primary buttons (44pt touch targets)
-          h += pad + 8 // card pad + cell pad
+          h += CGFloat(Spacing.sm) + 1 // divider
+          h += CGFloat(Spacing.sm) + Layout.primaryButtonHeight // primary buttons (44pt touch targets)
+          h += CGFloat(Spacing.xs) + Layout.actionFooterHeight
+          h += pad + outerInset // card pad + cell pad
           return h
 
         case .question:
-          var h: CGFloat = 8 + 2 + pad
-          h += 16 // header
+          var h: CGFloat = outerInset + 2 + pad
+          h += Layout.headerIconSize // header
           h += CGFloat(Spacing.md)
           if let question = model.question {
             let qFont = UIFont.systemFont(ofSize: TypeScale.reading)
@@ -609,18 +705,18 @@
           } else {
             h += 20
           }
-          h += CGFloat(Spacing.md) + 36 // answer field
-          h += CGFloat(Spacing.md) + 44 // submit button
-          h += pad + 8
+          h += CGFloat(Spacing.md) + 34 // answer field
+          h += CGFloat(Spacing.md) + 42 // submit button
+          h += pad + outerInset
           return h
 
         case .takeover:
-          var h: CGFloat = 8 + 2 + pad
-          h += 16 // header
+          var h: CGFloat = outerInset + 2 + pad
+          h += Layout.headerIconSize // header
           h += CGFloat(Spacing.md) + 20 // tool badge
           h += CGFloat(Spacing.md) + 20 // description
-          h += CGFloat(Spacing.md) + 44 // button
-          h += pad + 8
+          h += CGFloat(Spacing.md) + 42 // button
+          h += pad + outerInset
           return h
 
         case .none:

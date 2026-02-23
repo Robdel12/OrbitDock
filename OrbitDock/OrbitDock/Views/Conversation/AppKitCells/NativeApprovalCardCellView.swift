@@ -80,6 +80,16 @@
     private var currentModel: ApprovalCardModel?
     private var showDenyReason = false
 
+    private enum Layout {
+      static let outerVerticalInset: CGFloat = 6
+      static let cardPadding: CGFloat = 12
+      static let headerIconSize: CGFloat = 14
+      static let commandVerticalPadding: CGFloat = 6
+      static let commandHorizontalPadding: CGFloat = 10
+      static let primaryButtonHeight: CGFloat = 28
+      static let secondaryRowHeight: CGFloat = 14
+    }
+
     // MARK: - Init
 
     override init(frame frameRect: NSRect) {
@@ -99,7 +109,7 @@
       layer?.backgroundColor = NSColor.clear.cgColor
 
       cardContainer.wantsLayer = true
-      cardContainer.layer?.cornerRadius = CGFloat(Radius.xl)
+      cardContainer.layer?.cornerRadius = CGFloat(Radius.lg)
       cardContainer.layer?.masksToBounds = true
       cardContainer.layer?.borderWidth = 1
       cardContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -119,10 +129,10 @@
 
       let inset = ConversationLayout.laneHorizontalInset
       NSLayoutConstraint.activate([
-        cardContainer.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+        cardContainer.topAnchor.constraint(equalTo: topAnchor, constant: Layout.outerVerticalInset),
         cardContainer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
         cardContainer.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-        cardContainer.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8),
+        cardContainer.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -Layout.outerVerticalInset),
 
         riskStrip.topAnchor.constraint(equalTo: cardContainer.topAnchor),
         riskStrip.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor),
@@ -138,7 +148,7 @@
       cardContainer.addSubview(headerIcon)
 
       headerLabel.translatesAutoresizingMaskIntoConstraints = false
-      headerLabel.font = NSFont.systemFont(ofSize: TypeScale.title, weight: .semibold)
+      headerLabel.font = NSFont.systemFont(ofSize: TypeScale.subhead, weight: .semibold)
       headerLabel.textColor = NSColor(Color.textPrimary)
       headerLabel.lineBreakMode = .byTruncatingTail
       headerLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -150,12 +160,12 @@
       spinnerView.isHidden = true
       cardContainer.addSubview(spinnerView)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         headerIcon.topAnchor.constraint(equalTo: riskStrip.bottomAnchor, constant: pad),
         headerIcon.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        headerIcon.widthAnchor.constraint(equalToConstant: 16),
-        headerIcon.heightAnchor.constraint(equalToConstant: 16),
+        headerIcon.widthAnchor.constraint(equalToConstant: Layout.headerIconSize),
+        headerIcon.heightAnchor.constraint(equalToConstant: Layout.headerIconSize),
 
         headerLabel.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
         headerLabel.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: CGFloat(Spacing.sm)),
@@ -168,7 +178,7 @@
 
     private func setupToolBadge() {
       toolBadge.wantsLayer = true
-      toolBadge.layer?.cornerRadius = 10
+      toolBadge.layer?.cornerRadius = 9
       toolBadge.layer?.backgroundColor = NSColor(Color.backgroundTertiary).cgColor
       toolBadge.translatesAutoresizingMaskIntoConstraints = false
       cardContainer.addSubview(toolBadge)
@@ -178,12 +188,12 @@
       toolBadge.addSubview(toolIcon)
 
       toolNameLabel.translatesAutoresizingMaskIntoConstraints = false
-      toolNameLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .bold)
+      toolNameLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
       toolNameLabel.textColor = NSColor(Color.textSecondary)
       toolBadge.addSubview(toolNameLabel)
 
       riskBadge.wantsLayer = true
-      riskBadge.layer?.cornerRadius = 8
+      riskBadge.layer?.cornerRadius = 7
       riskBadge.layer?.backgroundColor = NSColor(Color.statusError).cgColor
       riskBadge.translatesAutoresizingMaskIntoConstraints = false
       cardContainer.addSubview(riskBadge)
@@ -197,7 +207,7 @@
       riskBadgeLabel.textColor = .white
       riskBadge.addSubview(riskBadgeLabel)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         toolBadge.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         toolBadge.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -239,7 +249,7 @@
       commandContainer.addSubview(commandAccentBar)
 
       commandText.translatesAutoresizingMaskIntoConstraints = false
-      commandText.font = NSFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
+      commandText.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
       commandText.textColor = NSColor(Color.textPrimary)
       commandText.lineBreakMode = .byWordWrapping
       commandText.maximumNumberOfLines = 0
@@ -257,12 +267,12 @@
       projectPathRow.addSubview(projectPathIcon)
 
       projectPathLabel.translatesAutoresizingMaskIntoConstraints = false
-      projectPathLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.caption, weight: .regular)
+      projectPathLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
       projectPathLabel.textColor = NSColor(Color.textTertiary)
       projectPathLabel.lineBreakMode = .byTruncatingMiddle
       projectPathRow.addSubview(projectPathLabel)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         commandContainer.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.sm)),
         commandContainer.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -273,19 +283,25 @@
         commandAccentBar.leadingAnchor.constraint(equalTo: commandContainer.leadingAnchor),
         commandAccentBar.widthAnchor.constraint(equalToConstant: EdgeBar.width),
 
-        commandText.topAnchor.constraint(equalTo: commandContainer.topAnchor, constant: CGFloat(Spacing.sm)),
-        commandText.bottomAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: -CGFloat(Spacing.sm)),
-        commandText.leadingAnchor.constraint(equalTo: commandAccentBar.trailingAnchor, constant: CGFloat(Spacing.md)),
-        commandText.trailingAnchor.constraint(equalTo: commandContainer.trailingAnchor, constant: -CGFloat(Spacing.md)),
+        commandText.topAnchor.constraint(equalTo: commandContainer.topAnchor, constant: Layout.commandVerticalPadding),
+        commandText.bottomAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: -Layout.commandVerticalPadding),
+        commandText.leadingAnchor.constraint(
+          equalTo: commandAccentBar.trailingAnchor,
+          constant: Layout.commandHorizontalPadding
+        ),
+        commandText.trailingAnchor.constraint(
+          equalTo: commandContainer.trailingAnchor,
+          constant: -Layout.commandHorizontalPadding
+        ),
 
-        projectPathRow.topAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: CGFloat(Spacing.sm)),
+        projectPathRow.topAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: Layout.commandVerticalPadding),
         projectPathRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         projectPathRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
         projectPathIcon.leadingAnchor.constraint(equalTo: projectPathRow.leadingAnchor),
         projectPathIcon.centerYAnchor.constraint(equalTo: projectPathRow.centerYAnchor),
-        projectPathIcon.widthAnchor.constraint(equalToConstant: 12),
-        projectPathIcon.heightAnchor.constraint(equalToConstant: 12),
+        projectPathIcon.widthAnchor.constraint(equalToConstant: 11),
+        projectPathIcon.heightAnchor.constraint(equalToConstant: 11),
 
         projectPathLabel.leadingAnchor.constraint(
           equalTo: projectPathIcon.trailingAnchor,
@@ -307,7 +323,7 @@
 
       answerField.translatesAutoresizingMaskIntoConstraints = false
       answerField.placeholderString = "Your answer..."
-      answerField.font = NSFont.systemFont(ofSize: TypeScale.code)
+      answerField.font = NSFont.systemFont(ofSize: TypeScale.body)
       answerField.textColor = NSColor(Color.textPrimary)
       answerField.backgroundColor = NSColor(Color.backgroundPrimary)
       answerField.isBordered = true
@@ -319,7 +335,7 @@
       submitButton.translatesAutoresizingMaskIntoConstraints = false
       submitButton.title = "Submit"
       submitButton.bezelStyle = .rounded
-      submitButton.font = NSFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      submitButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       submitButton.contentTintColor = .white
       submitButton.wantsLayer = true
       submitButton.layer?.cornerRadius = CGFloat(Radius.lg)
@@ -328,7 +344,7 @@
       submitButton.action = #selector(submitButtonClicked)
       cardContainer.addSubview(submitButton)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         questionTextLabel.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         questionTextLabel.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -337,12 +353,12 @@
         answerField.topAnchor.constraint(equalTo: questionTextLabel.bottomAnchor, constant: CGFloat(Spacing.md)),
         answerField.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         answerField.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        answerField.heightAnchor.constraint(greaterThanOrEqualToConstant: 28),
+        answerField.heightAnchor.constraint(greaterThanOrEqualToConstant: 26),
 
         submitButton.topAnchor.constraint(equalTo: answerField.bottomAnchor, constant: CGFloat(Spacing.md)),
         submitButton.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         submitButton.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        submitButton.heightAnchor.constraint(equalToConstant: 30),
+        submitButton.heightAnchor.constraint(equalToConstant: 28),
       ])
     }
 
@@ -356,7 +372,7 @@
       takeoverButton.translatesAutoresizingMaskIntoConstraints = false
       takeoverButton.title = "Take Over & Review"
       takeoverButton.bezelStyle = .rounded
-      takeoverButton.font = NSFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      takeoverButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       takeoverButton.contentTintColor = .white
       takeoverButton.wantsLayer = true
       takeoverButton.layer?.cornerRadius = CGFloat(Radius.lg)
@@ -364,7 +380,7 @@
       takeoverButton.action = #selector(takeoverButtonClicked)
       cardContainer.addSubview(takeoverButton)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         takeoverDescription.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.md)),
         takeoverDescription.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -373,7 +389,7 @@
         takeoverButton.topAnchor.constraint(equalTo: takeoverDescription.bottomAnchor, constant: CGFloat(Spacing.md)),
         takeoverButton.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         takeoverButton.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        takeoverButton.heightAnchor.constraint(equalToConstant: 32),
+        takeoverButton.heightAnchor.constraint(equalToConstant: 30),
       ])
     }
 
@@ -387,12 +403,12 @@
       cardContainer.addSubview(buttonRow)
 
       denyButton.translatesAutoresizingMaskIntoConstraints = false
-      denyButton.title = "  Deny  n"
+      denyButton.title = "Deny n"
       denyButton.bezelStyle = .rounded
-      denyButton.font = NSFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      denyButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       denyButton.contentTintColor = NSColor(Color.statusError)
       denyButton.wantsLayer = true
-      denyButton.layer?.cornerRadius = CGFloat(Radius.lg)
+      denyButton.layer?.cornerRadius = CGFloat(Radius.md)
       denyButton.layer?.backgroundColor = NSColor(Color.statusError).withAlphaComponent(CGFloat(OpacityTier.light))
         .cgColor
       denyButton.target = self
@@ -400,12 +416,12 @@
       buttonRow.addSubview(denyButton)
 
       approveButton.translatesAutoresizingMaskIntoConstraints = false
-      approveButton.title = "  Approve  y"
+      approveButton.title = "Approve Once y"
       approveButton.bezelStyle = .rounded
-      approveButton.font = NSFont.systemFont(ofSize: TypeScale.code, weight: .semibold)
+      approveButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       approveButton.contentTintColor = .white
       approveButton.wantsLayer = true
-      approveButton.layer?.cornerRadius = CGFloat(Radius.lg)
+      approveButton.layer?.cornerRadius = CGFloat(Radius.md)
       approveButton.layer?.backgroundColor = NSColor(Color.accent).withAlphaComponent(0.75).cgColor
       approveButton.target = self
       approveButton.action = #selector(approveButtonClicked)
@@ -414,32 +430,33 @@
       // Secondary actions row
       secondaryRow.translatesAutoresizingMaskIntoConstraints = false
       secondaryRow.orientation = .horizontal
-      secondaryRow.spacing = CGFloat(Spacing.md)
+      secondaryRow.spacing = CGFloat(Spacing.sm)
       secondaryRow.alignment = .centerY
+      secondaryRow.detachesHiddenViews = true
       cardContainer.addSubview(secondaryRow)
 
       sessionAllowButton.translatesAutoresizingMaskIntoConstraints = false
-      sessionAllowButton.title = "Allow Session Y"
+      sessionAllowButton.title = "Allow for Session Y"
       sessionAllowButton.isBordered = false
-      sessionAllowButton.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+      sessionAllowButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       sessionAllowButton.contentTintColor = NSColor(Color.textSecondary)
       sessionAllowButton.target = self
       sessionAllowButton.action = #selector(sessionAllowClicked)
       secondaryRow.addArrangedSubview(sessionAllowButton)
 
       alwaysAllowButton.translatesAutoresizingMaskIntoConstraints = false
-      alwaysAllowButton.title = "Always !"
+      alwaysAllowButton.title = "Always Allow !"
       alwaysAllowButton.isBordered = false
-      alwaysAllowButton.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+      alwaysAllowButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       alwaysAllowButton.contentTintColor = NSColor(Color.accent)
       alwaysAllowButton.target = self
       alwaysAllowButton.action = #selector(alwaysAllowClicked)
       secondaryRow.addArrangedSubview(alwaysAllowButton)
 
       denyReasonButton.translatesAutoresizingMaskIntoConstraints = false
-      denyReasonButton.title = "Deny+Reason d"
+      denyReasonButton.title = "Deny with Reason d"
       denyReasonButton.isBordered = false
-      denyReasonButton.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+      denyReasonButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       denyReasonButton.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)
       denyReasonButton.target = self
       denyReasonButton.action = #selector(denyReasonClicked)
@@ -453,22 +470,22 @@
       denyStopButton.translatesAutoresizingMaskIntoConstraints = false
       denyStopButton.title = "Deny & Stop N"
       denyStopButton.isBordered = false
-      denyStopButton.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .medium)
+      denyStopButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       denyStopButton.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)
       denyStopButton.target = self
       denyStopButton.action = #selector(denyStopClicked)
       secondaryRow.addArrangedSubview(denyStopButton)
 
-      let pad = CGFloat(Spacing.lg)
+      let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
         actionDivider.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         actionDivider.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
         actionDivider.heightAnchor.constraint(equalToConstant: 1),
 
-        buttonRow.topAnchor.constraint(equalTo: actionDivider.bottomAnchor, constant: CGFloat(Spacing.md)),
+        buttonRow.topAnchor.constraint(equalTo: actionDivider.bottomAnchor, constant: CGFloat(Spacing.sm)),
         buttonRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         buttonRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        buttonRow.heightAnchor.constraint(equalToConstant: 30),
+        buttonRow.heightAnchor.constraint(equalToConstant: Layout.primaryButtonHeight),
 
         denyButton.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor),
         denyButton.topAnchor.constraint(equalTo: buttonRow.topAnchor),
@@ -478,9 +495,9 @@
         approveButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor),
         approveButton.topAnchor.constraint(equalTo: buttonRow.topAnchor),
         approveButton.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
-        approveButton.widthAnchor.constraint(equalTo: buttonRow.widthAnchor, multiplier: 0.48),
+        approveButton.widthAnchor.constraint(equalTo: buttonRow.widthAnchor, multiplier: 0.485),
 
-        secondaryRow.topAnchor.constraint(equalTo: buttonRow.bottomAnchor, constant: CGFloat(Spacing.sm)),
+        secondaryRow.topAnchor.constraint(equalTo: buttonRow.bottomAnchor, constant: CGFloat(Spacing.xs)),
         secondaryRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         secondaryRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
       ])
@@ -496,7 +513,7 @@
 
       denyReasonField.translatesAutoresizingMaskIntoConstraints = false
       denyReasonField.placeholderString = "Reason for denial..."
-      denyReasonField.font = NSFont.systemFont(ofSize: TypeScale.code)
+      denyReasonField.font = NSFont.systemFont(ofSize: TypeScale.body)
       denyReasonField.textColor = NSColor(Color.textPrimary)
       denyReasonField.backgroundColor = NSColor(Color.backgroundPrimary)
       denyReasonField.isBordered = true
@@ -506,25 +523,25 @@
       sendDenialButton.translatesAutoresizingMaskIntoConstraints = false
       sendDenialButton.title = "Send Denial"
       sendDenialButton.bezelStyle = .rounded
-      sendDenialButton.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
+      sendDenialButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
       sendDenialButton.contentTintColor = .white
       sendDenialButton.wantsLayer = true
-      sendDenialButton.layer?.cornerRadius = 10
+      sendDenialButton.layer?.cornerRadius = CGFloat(Radius.md)
       sendDenialButton.layer?.backgroundColor = NSColor(Color.statusError).withAlphaComponent(0.75).cgColor
       sendDenialButton.target = self
       sendDenialButton.action = #selector(sendDenialClicked)
       denyReasonContainer.addSubview(sendDenialButton)
 
-      let pad = CGFloat(Spacing.sm)
+      let pad = CGFloat(Spacing.xs)
       NSLayoutConstraint.activate([
-        denyReasonContainer.topAnchor.constraint(equalTo: secondaryRow.bottomAnchor, constant: CGFloat(Spacing.sm)),
+        denyReasonContainer.topAnchor.constraint(equalTo: secondaryRow.bottomAnchor, constant: CGFloat(Spacing.xs)),
         denyReasonContainer.leadingAnchor.constraint(
           equalTo: cardContainer.leadingAnchor,
-          constant: CGFloat(Spacing.lg)
+          constant: Layout.cardPadding
         ),
         denyReasonContainer.trailingAnchor.constraint(
           equalTo: cardContainer.trailingAnchor,
-          constant: -CGFloat(Spacing.lg)
+          constant: -Layout.cardPadding
         ),
 
         denyReasonField.topAnchor.constraint(equalTo: denyReasonContainer.topAnchor, constant: pad),
@@ -534,7 +551,7 @@
         sendDenialButton.topAnchor.constraint(equalTo: denyReasonField.bottomAnchor, constant: pad),
         sendDenialButton.trailingAnchor.constraint(equalTo: denyReasonContainer.trailingAnchor, constant: -pad),
         sendDenialButton.bottomAnchor.constraint(equalTo: denyReasonContainer.bottomAnchor, constant: -pad),
-        sendDenialButton.heightAnchor.constraint(equalToConstant: 24),
+        sendDenialButton.heightAnchor.constraint(equalToConstant: 22),
       ])
     }
 
@@ -610,6 +627,7 @@
       if let command = model.command {
         commandText.stringValue = command
         commandAccentBar.layer?.backgroundColor = NSColor(model.risk.tintColor).cgColor
+        projectPathIcon.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
         projectPathLabel.stringValue = model.projectPath
         commandContainer.isHidden = false
         projectPathRow.isHidden = false
@@ -731,7 +749,7 @@
         toolBadge
       }
 
-      actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.md)).isActive = true
+      actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.sm)).isActive = true
     }
 
     // MARK: - Keyboard Shortcuts
@@ -830,45 +848,46 @@
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
       guard let model else { return 160 }
 
-      let pad = CGFloat(Spacing.lg) // 16
+      let pad = Layout.cardPadding
+      let outerInset = Layout.outerVerticalInset
       let laneInset = ConversationLayout.laneHorizontalInset
       // Inner content width: table width → card insets → card padding
       let contentWidth = availableWidth - laneInset * 2 - pad * 2
 
       switch model.mode {
         case .permission:
-          var h: CGFloat = 8 // top cell padding
+          var h: CGFloat = outerInset
           h += 2 // risk strip
           h += pad // top card padding
-          h += 16 // header row (icon + label)
+          h += Layout.headerIconSize // header row (icon + label)
           h += CGFloat(Spacing.md) + 20 // tool badge row
 
           if model.command != nil || model.filePath != nil {
             let text = model.command ?? model.filePath ?? ""
-            let commandFont = NSFont.monospacedSystemFont(ofSize: TypeScale.code, weight: .regular)
+            let commandFont = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
             // Subtract accent bar width + inner padding from content width
-            let textWidth = contentWidth - CGFloat(EdgeBar.width) - CGFloat(Spacing.md) * 2
+            let textWidth = contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2
             let textHeight = Self.measureTextHeight(text, font: commandFont, width: textWidth)
             h += CGFloat(Spacing.sm) // spacing before command container
-            h += CGFloat(Spacing.sm) + textHeight + CGFloat(Spacing.sm) // command container padding + text + padding
+            h += Layout.commandVerticalPadding + textHeight + Layout.commandVerticalPadding
 
             if model.command != nil {
-              h += CGFloat(Spacing.sm) + 14 // project path row
+              h += Layout.commandVerticalPadding + 12 // project path row
             }
           }
 
           if model.diff != nil { h += 120 }
 
-          h += CGFloat(Spacing.md) + 1 // divider
-          h += CGFloat(Spacing.md) + 30 // primary buttons
-          h += CGFloat(Spacing.sm) + 16 // secondary row
+          h += CGFloat(Spacing.sm) + 1 // divider
+          h += CGFloat(Spacing.sm) + Layout.primaryButtonHeight // primary buttons
+          h += CGFloat(Spacing.xs) + Layout.secondaryRowHeight // secondary row
           h += pad // bottom card padding
-          h += 8 // bottom cell padding
+          h += outerInset // bottom cell padding
           return h
 
         case .question:
-          var h: CGFloat = 8 + 2 + pad // cell pad + risk strip + card pad
-          h += 16 // header
+          var h: CGFloat = outerInset + 2 + pad // cell pad + risk strip + card pad
+          h += Layout.headerIconSize // header
           h += CGFloat(Spacing.md) // spacing before question text
           if let question = model.question {
             let qFont = NSFont.systemFont(ofSize: TypeScale.reading, weight: .regular)
@@ -876,18 +895,18 @@
           } else {
             h += 20
           }
-          h += CGFloat(Spacing.md) + 28 // answer field
-          h += CGFloat(Spacing.md) + 30 // submit button
-          h += pad + 8 // card pad + cell pad
+          h += CGFloat(Spacing.md) + 26 // answer field
+          h += CGFloat(Spacing.md) + 28 // submit button
+          h += pad + outerInset // card pad + cell pad
           return h
 
         case .takeover:
-          var h: CGFloat = 8 + 2 + pad
-          h += 16 // header
+          var h: CGFloat = outerInset + 2 + pad
+          h += Layout.headerIconSize // header
           h += CGFloat(Spacing.md) + 20 // tool badge (if visible)
           h += CGFloat(Spacing.md) + 20 // description
-          h += CGFloat(Spacing.md) + 32 // button
-          h += pad + 8
+          h += CGFloat(Spacing.md) + 30 // button
+          h += pad + outerInset
           return h
 
         case .none:

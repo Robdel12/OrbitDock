@@ -23,6 +23,28 @@ struct ApprovalCardModel: Hashable, Sendable {
   let sessionId: String
 }
 
+enum ApprovalCardModeResolver {
+  static func resolve(for session: Session) -> ApprovalCardMode {
+    if session.canApprove { return .permission }
+    if session.canAnswer { return .question }
+    if session.canTakeOver { return .takeover }
+
+    guard session.needsApprovalOverlay else { return .none }
+
+    // Safety fallback: if state flags are inconsistent but the session is still
+    // blocked on an approval/question, surface a takeover path instead of
+    // hiding the approval card and trapping the user.
+    switch session.attentionReason {
+      case .awaitingPermission:
+        return session.canSendInput ? .permission : .takeover
+      case .awaitingQuestion:
+        return session.canSendInput ? .question : .takeover
+      case .none, .awaitingReply:
+        return .none
+    }
+  }
+}
+
 enum ApprovalCardModelBuilder {
   static func build(
     session: Session,
@@ -31,16 +53,8 @@ enum ApprovalCardModelBuilder {
   ) -> ApprovalCardModel? {
     guard session.needsApprovalOverlay else { return nil }
 
-    let mode: ApprovalCardMode
-    if session.canApprove {
-      mode = .permission
-    } else if session.canAnswer {
-      mode = .question
-    } else if session.canTakeOver {
-      mode = .takeover
-    } else {
-      return nil
-    }
+    let mode = ApprovalCardModeResolver.resolve(for: session)
+    guard mode != .none else { return nil }
 
     let risk: ApprovalRisk = if let approval = pendingApproval {
       classifyApprovalRisk(type: approval.type, command: approval.command)

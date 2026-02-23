@@ -454,10 +454,7 @@ import SwiftUI
       let needsApproval = session?.needsApprovalOverlay ?? false
       let approvalMode: ApprovalCardMode = {
         guard let s = session else { return .none }
-        if s.canApprove { return .permission }
-        if s.canAnswer { return .question }
-        if s.canTakeOver { return .takeover }
-        return .none
+        return ApprovalCardModeResolver.resolve(for: s)
       }()
 
       let metadata = ConversationSourceState.SessionMetadata(
@@ -922,7 +919,11 @@ import SwiftUI
             cell.identifier = id
             cell.configure(model: model)
             cell.onDecision = { [weak self] decision, message, interrupt in
-              guard let self, let requestId = model.approvalId else { return }
+              guard let self else { return }
+              let requestId = model.approvalId
+                ?? self.serverState?.session(model.sessionId).pendingApproval?.id
+                ?? self.serverState?.sessions.first(where: { $0.id == model.sessionId })?.pendingApprovalId
+              guard let requestId else { return }
               self.serverState?.approveTool(
                 sessionId: model.sessionId,
                 requestId: requestId,
@@ -932,7 +933,11 @@ import SwiftUI
               )
             }
             cell.onAnswer = { [weak self] answer in
-              guard let self, let requestId = model.approvalId else { return }
+              guard let self else { return }
+              let requestId = model.approvalId
+                ?? self.serverState?.session(model.sessionId).pendingApproval?.id
+                ?? self.serverState?.sessions.first(where: { $0.id == model.sessionId })?.pendingApprovalId
+              guard let requestId else { return }
               self.serverState?.answerQuestion(sessionId: model.sessionId, requestId: requestId, answer: answer)
             }
             cell.onTakeOver = { [weak self] in
