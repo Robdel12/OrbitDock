@@ -436,9 +436,13 @@ enum MarkdownAttributedStringRenderer {
       return result
     }
 
-    private func renderListItem(_ item: ListItem, bullet: String, indentLevel: Int) -> NSAttributedString {
-      let result = NSMutableAttributedString()
+    private enum ListContinuationLine {
+      case plain(String)
+      case unordered(String)
+      case ordered(number: String, text: String)
+    }
 
+    private func makeListParagraphStyle(indentLevel: Int) -> NSMutableParagraphStyle {
       let para = NSMutableParagraphStyle()
       let indentStep: CGFloat = 18
       let firstLineIndent = CGFloat(indentLevel) * indentStep
@@ -449,12 +453,158 @@ enum MarkdownAttributedStringRenderer {
       para.paragraphSpacingBefore = listParagraphSpacingBefore
       para.paragraphSpacing = listParagraphSpacing
       para.lineSpacing = textLineSpacing
+      return para
+    }
 
-      let bulletAttrs: [NSAttributedString.Key: Any] = [
+    private func listBulletAttributes(_ paragraphStyle: NSParagraphStyle) -> [NSAttributedString.Key: Any] {
+      [
         .font: Fonts.body,
         .foregroundColor: PlatformColor(Color.textSecondary),
-        .paragraphStyle: para,
+        .paragraphStyle: paragraphStyle,
       ]
+    }
+
+    private func parseListContinuation(_ paragraph: Paragraph) -> (firstLine: String, lines: [ListContinuationLine])? {
+      let raw = paragraph.format()
+      let split = raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+      guard split.count > 1 else { return nil }
+
+      var parsed: [ListContinuationLine] = []
+      var foundMarker = false
+
+      for line in split.dropFirst() {
+        let normalized = line.trimmingCharacters(in: .whitespaces)
+        guard !normalized.isEmpty else {
+          parsed.append(.plain(""))
+          continue
+        }
+
+        if normalized.hasPrefix("- ") || normalized.hasPrefix("* ") || normalized.hasPrefix("+ ") {
+          let content = String(normalized.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+          parsed.append(.unordered(content))
+          foundMarker = true
+          continue
+        }
+
+        var cursor = normalized.startIndex
+        while cursor < normalized.endIndex && normalized[cursor].isNumber {
+          cursor = normalized.index(after: cursor)
+        }
+
+        if cursor > normalized.startIndex, cursor < normalized.endIndex {
+          let marker = normalized[cursor]
+          let spaceIndex = normalized.index(after: cursor)
+          if (marker == "." || marker == ")"),
+             spaceIndex < normalized.endIndex,
+             normalized[spaceIndex] == " "
+          {
+            let number = String(normalized[..<cursor])
+            let textStart = normalized.index(after: spaceIndex)
+            let text = String(normalized[textStart...]).trimmingCharacters(in: .whitespaces)
+            parsed.append(.ordered(number: number, text: text))
+            foundMarker = true
+            continue
+          }
+        }
+
+        parsed.append(.plain(normalized))
+      }
+
+      guard foundMarker else { return nil }
+      return (split[0].trimmingCharacters(in: .whitespacesAndNewlines), parsed)
+    }
+
+    private func renderInlineMarkdownLine(
+      _ markdown: String,
+      paragraphStyle: NSParagraphStyle,
+      softBreakAsNewline: Bool
+    ) -> NSAttributedString {
+      let trimmed = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return NSAttributedString(string: "") }
+
+      let lineDocument = Document(parsing: trimmed)
+      if let paragraph = lineDocument.children.first(where: { $0 is Paragraph }) as? Paragraph {
+        var inlineVisitor = InlineAttributedStringVisitor(
+          baseFont: Fonts.body,
+          baseColor: Colors.text,
+          softBreakAsNewline: softBreakAsNewline
+        )
+        let inline = NSMutableAttributedString(attributedString: inlineVisitor.renderInlines(paragraph.inlineChildren))
+        if inline.length > 0 {
+          inline.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: inline.length))
+        }
+        return inline
+      }
+
+      return NSAttributedString(string: trimmed, attributes: [
+        .font: Fonts.body,
+        .foregroundColor: Colors.text,
+        .paragraphStyle: paragraphStyle,
+      ])
+    }
+
+    private func renderListParagraph(
+      _ paragraph: Paragraph,
+      indentLevel: Int,
+      paragraphStyle: NSMutableParagraphStyle
+    ) -> NSAttributedString {
+      if let continuation = parseListContinuation(paragraph) {
+        let result = NSMutableAttributedString()
+        if !continuation.firstLine.isEmpty {
+          result.append(renderInlineMarkdownLine(
+            continuation.firstLine,
+            paragraphStyle: paragraphStyle,
+            softBreakAsNewline: true
+          ))
+        }
+
+        for line in continuation.lines {
+          if result.length > 0 {
+            result.append(NSAttributedString(string: "\n"))
+          }
+
+          switch line {
+            case let .plain(text):
+              if !text.isEmpty {
+                result.append(renderInlineMarkdownLine(text, paragraphStyle: paragraphStyle, softBreakAsNewline: true))
+              }
+            case let .unordered(text):
+              let nestedStyle = makeListParagraphStyle(indentLevel: indentLevel + 1)
+              result.append(NSAttributedString(
+                string: "\t\u{2022} ",
+                attributes: listBulletAttributes(nestedStyle)
+              ))
+              result.append(renderInlineMarkdownLine(text, paragraphStyle: nestedStyle, softBreakAsNewline: true))
+            case let .ordered(number, text):
+              let nestedStyle = makeListParagraphStyle(indentLevel: indentLevel + 1)
+              result.append(NSAttributedString(
+                string: "\t\(number). ",
+                attributes: listBulletAttributes(nestedStyle)
+              ))
+              result.append(renderInlineMarkdownLine(text, paragraphStyle: nestedStyle, softBreakAsNewline: true))
+          }
+        }
+
+        return result
+      }
+
+      var inlineVisitor = InlineAttributedStringVisitor(
+        baseFont: Fonts.body,
+        baseColor: Colors.text,
+        softBreakAsNewline: true
+      )
+      let inline = NSMutableAttributedString(attributedString: inlineVisitor.renderInlines(paragraph.inlineChildren))
+      if inline.length > 0 {
+        inline.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: inline.length))
+      }
+      return inline
+    }
+
+    private func renderListItem(_ item: ListItem, bullet: String, indentLevel: Int) -> NSAttributedString {
+      let result = NSMutableAttributedString()
+
+      let para = makeListParagraphStyle(indentLevel: indentLevel)
+      let bulletAttrs = listBulletAttributes(para)
       result.append(NSAttributedString(string: "\t" + bullet, attributes: bulletAttrs))
 
       // Render list content. Support paragraphs, fenced code, and fallback plain text.
@@ -464,18 +614,7 @@ enum MarkdownAttributedStringRenderer {
           if didRenderPrimaryContent {
             result.append(NSAttributedString(string: "\n"))
           }
-          var inlineVisitor = InlineAttributedStringVisitor(
-            baseFont: Fonts.body,
-            baseColor: Colors.text
-          )
-          let inlineStr = NSMutableAttributedString(attributedString: inlineVisitor
-            .renderInlines(paragraph.inlineChildren))
-          inlineStr.addAttribute(
-            .paragraphStyle,
-            value: para,
-            range: NSRange(location: 0, length: inlineStr.length)
-          )
-          result.append(inlineStr)
+          result.append(renderListParagraph(paragraph, indentLevel: indentLevel, paragraphStyle: para))
           didRenderPrimaryContent = true
         } else if let codeBlock = child as? CodeBlock {
           if didRenderPrimaryContent {
@@ -555,14 +694,16 @@ enum MarkdownAttributedStringRenderer {
   private struct InlineAttributedStringVisitor {
     let baseFont: PlatformFont
     let baseColor: PlatformColor
+    let softBreakAsNewline: Bool
     private var isBold = false
     private var isItalic = false
     private var activeLinkURL: URL?
     private var isInsideMarkdownLink = false
 
-    init(baseFont: PlatformFont, baseColor: PlatformColor) {
+    init(baseFont: PlatformFont, baseColor: PlatformColor, softBreakAsNewline: Bool = false) {
       self.baseFont = baseFont
       self.baseColor = baseColor
+      self.softBreakAsNewline = softBreakAsNewline
     }
 
     private func resolveFont() -> PlatformFont {
@@ -720,7 +861,7 @@ enum MarkdownAttributedStringRenderer {
           }
 
         case is SoftBreak:
-          appendText(" ", attributes: [
+          appendText(softBreakAsNewline ? "\n" : " ", attributes: [
             .font: resolveFont(),
             .foregroundColor: baseColor,
           ], into: result, detectInlineLinks: false)

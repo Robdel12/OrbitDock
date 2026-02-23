@@ -43,6 +43,8 @@ final class NativeCodeBlockView: PlatformView {
   private var code: String = ""
   private var lines: [String] = []
   private var isExpanded = false
+  private var codeScrollHeightConstraint: NSLayoutConstraint?
+  private var expandButtonHeightConstraint: NSLayoutConstraint?
 
   // MARK: - Subviews
 
@@ -204,6 +206,11 @@ final class NativeCodeBlockView: PlatformView {
       addSubview(expandButton)
     #endif
 
+    let codeScrollHeightConstraint = codeScrollView.heightAnchor.constraint(equalToConstant: 0)
+    let expandButtonHeightConstraint = expandButton.heightAnchor.constraint(equalToConstant: 0)
+    self.codeScrollHeightConstraint = codeScrollHeightConstraint
+    self.expandButtonHeightConstraint = expandButtonHeightConstraint
+
     NSLayoutConstraint.activate([
       headerContainer.topAnchor.constraint(equalTo: topAnchor),
       headerContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -239,8 +246,9 @@ final class NativeCodeBlockView: PlatformView {
       expandButton.topAnchor.constraint(equalTo: codeScrollView.bottomAnchor),
       expandButton.leadingAnchor.constraint(equalTo: leadingAnchor),
       expandButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-      expandButton.heightAnchor.constraint(equalToConstant: Self.expandButtonHeight),
+      expandButtonHeightConstraint,
       expandButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+      codeScrollHeightConstraint,
     ])
   }
 
@@ -278,6 +286,7 @@ final class NativeCodeBlockView: PlatformView {
 
     let shouldCollapse = lines.count > Self.collapseThreshold
     expandButton.isHidden = !shouldCollapse
+    expandButtonHeightConstraint?.constant = shouldCollapse ? Self.expandButtonHeight : 0
     updateExpandButtonTitle()
     rebuildCodeContent()
   }
@@ -361,12 +370,8 @@ final class NativeCodeBlockView: PlatformView {
       codeScrollView.contentSize = codeContainer.frame.size
     #endif
 
-    // Update scroll view height constraint
-    let codeHeight = yOffset
-    for constraint in codeScrollView.constraints where constraint.firstAttribute == .height {
-      constraint.isActive = false
-    }
-    codeScrollView.heightAnchor.constraint(equalToConstant: codeHeight).isActive = true
+    // Keep one height constraint instance to avoid accumulation during reuse/reconfigure.
+    codeScrollHeightConstraint?.constant = yOffset
 
     // Line number background
     let lineNumBg = PlatformView(frame: CGRect(

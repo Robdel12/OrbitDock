@@ -58,6 +58,43 @@ struct MarkdownParsingTests {
     #expect((paragraphStyle?.paragraphSpacing ?? 0) >= 16)
   }
 
+  @Test func listContinuationLinesRenderAsNestedBullets() {
+    let markdown = """
+      **What changed**
+      - Question answers now carry `questionId` through the app -> websocket protocol path:
+        - UI callsites: `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+iOS.swift:357`, `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+macOS.swift:884`
+        - app state + connection: `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift:625`, `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift:589`
+        - Swift wire protocol: `OrbitDock/OrbitDock/Services/Server/ServerProtocol.swift:1689`
+        - Rust protocol + websocket handling: `orbitdock-server/crates/protocol/src/client.rs:51`, `orbitdock-server/crates/server/src/websocket.rs:2103`.
+      """
+
+    let blocks = MarkdownAttributedStringRenderer.parse(markdown)
+    let target = blocks.compactMap { block -> NSAttributedString? in
+      if case let .text(text) = block, text.string.contains("Question answers now carry") {
+        return text
+      }
+      return nil
+    }.first
+
+    #expect(target != nil)
+    #expect(target?.string.contains("path: - UI callsites") == false)
+    #expect(target?.string.contains("\n\t\u{2022} UI callsites") == true)
+
+    if let target {
+      let nsText = target.string as NSString
+      let parentLocation = nsText.range(of: "Question answers now carry").location
+      let nestedLocation = nsText.range(of: "UI callsites").location
+      #expect(parentLocation != NSNotFound)
+      #expect(nestedLocation != NSNotFound)
+
+      if parentLocation != NSNotFound, nestedLocation != NSNotFound {
+        let parentStyle = target.attribute(.paragraphStyle, at: parentLocation, effectiveRange: nil) as? NSParagraphStyle
+        let nestedStyle = target.attribute(.paragraphStyle, at: nestedLocation, effectiveRange: nil) as? NSParagraphStyle
+        #expect((nestedStyle?.headIndent ?? 0) > (parentStyle?.headIndent ?? 0))
+      }
+    }
+  }
+
   #if os(macOS)
     @MainActor
     @Test func nativeMarkdownTableViewUsesFlippedCoordinates() {
