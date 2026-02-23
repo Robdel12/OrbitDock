@@ -27,8 +27,15 @@ struct DirectSessionComposer: View {
   @State private var isSending = false
   @State private var errorMessage: String?
   @State private var selectedModel: String = ""
+  @State private var selectedClaudeModel: String = ""
   @State private var selectedEffort: EffortLevel = .default
   @State private var showModelEffortPopover = false
+  @State private var showClaudeModelPopover = false
+  @State private var showFilePickerPopover = false
+  @State private var filePickerQuery = ""
+  @State private var commandDeckActive = false
+  @State private var commandDeckQuery = ""
+  @State private var commandDeckIndex = 0
   @State private var completionActive = false
   @State private var completionQuery = ""
   @State private var completionIndex = 0
@@ -82,7 +89,13 @@ struct DirectSessionComposer: View {
   }
 
   private var hasOverrides: Bool {
-    selectedEffort != .default || selectedModel != defaultModelSelection
+    if session.isDirectCodex {
+      return selectedEffort != .default || selectedModel != defaultCodexModelSelection
+    }
+    if session.isDirectClaude {
+      return !selectedClaudeModel.isEmpty && selectedClaudeModel != defaultClaudeModelSelection
+    }
+    return false
   }
 
   private var availableSkills: [ServerSkillMetadata] {
@@ -106,20 +119,43 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private var modelOptions: [ServerCodexModelOption] {
+  private var codexModelOptions: [ServerCodexModelOption] {
     serverState.codexModels
   }
 
-  private var defaultModelSelection: String {
+  private var claudeModelOptions: [ServerClaudeModelOption] {
+    serverState.claudeModels
+  }
+
+  private var defaultCodexModelSelection: String {
     if let current = session.model,
-       modelOptions.contains(where: { $0.model == current })
+       codexModelOptions.contains(where: { $0.model == current })
     {
       return current
     }
-    if let model = modelOptions.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {
+    if let model = codexModelOptions.first(where: { $0.isDefault && !$0.model.isEmpty })?.model {
       return model
     }
-    return modelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
+    return codexModelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
+  }
+
+  private var defaultClaudeModelSelection: String {
+    if let current = session.model,
+       claudeModelOptions.contains(where: { $0.value == current })
+    {
+      return current
+    }
+    return claudeModelOptions.first?.value ?? session.model ?? ""
+  }
+
+  private var effectiveClaudeModel: String {
+    if !selectedClaudeModel.isEmpty {
+      return selectedClaudeModel
+    }
+    if let sessionModel = session.model, !sessionModel.isEmpty {
+      return sessionModel
+    }
+    return defaultClaudeModelSelection
   }
 
   private var projectPath: String? {
@@ -133,6 +169,193 @@ struct DirectSessionComposer: View {
 
   private var shouldShowMentionCompletion: Bool {
     mentionActive && !filteredFiles.isEmpty
+  }
+
+  private var shouldShowCommandDeck: Bool {
+    commandDeckActive && !commandDeckItems.isEmpty
+  }
+
+  private var hasSkillsPanel: Bool {
+    session.isDirectCodex || serverState.session(sessionId).hasClaudeSkills
+  }
+
+  private var hasMcpData: Bool {
+    serverState.session(sessionId).hasMcpData
+  }
+
+  private var mcpToolEntries: [ComposerMcpToolEntry] {
+    serverState.session(sessionId).mcpTools.compactMap { key, tool in
+      guard let server = extractMcpServerName(from: key) else { return nil }
+      return ComposerMcpToolEntry(id: key, server: server, tool: tool)
+    }
+    .sorted {
+      if $0.server == $1.server {
+        return $0.tool.name < $1.tool.name
+      }
+      return $0.server < $1.server
+    }
+  }
+
+  private var mcpResourceEntries: [ComposerMcpResourceEntry] {
+    serverState.session(sessionId).mcpResources.flatMap { server, resources in
+      resources.map { resource in
+        ComposerMcpResourceEntry(id: "\(server)|\(resource.uri)", server: server, resource: resource)
+      }
+    }
+    .sorted {
+      if $0.server == $1.server {
+        return $0.resource.uri < $1.resource.uri
+      }
+      return $0.server < $1.server
+    }
+  }
+
+  private var commandDeckItems: [ComposerCommandDeckItem] {
+    let trimmedQuery = commandDeckQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    let query = trimmedQuery.lowercased()
+
+    func matches(_ values: [String]) -> Bool {
+      guard !query.isEmpty else { return true }
+      return values.contains { $0.lowercased().contains(query) }
+    }
+
+    var items: [ComposerCommandDeckItem] = []
+
+    if matches(["file", "files", "mention", "attach", "project"]) {
+      items.append(ComposerCommandDeckItem(
+        id: "action:file-picker",
+        section: "Actions",
+        icon: "paperclip",
+        title: "Attach Project Files",
+        subtitle: "Browse project files and add @mentions",
+        tint: .composerPrompt,
+        kind: .openFilePicker
+      ))
+    }
+
+    if hasSkillsPanel, matches(["skill", "skills", "agent", "attach"]) {
+      items.append(ComposerCommandDeckItem(
+        id: "action:skills",
+        section: "Actions",
+        icon: "bolt.fill",
+        title: "Attach Skills",
+        subtitle: "Pick enabled skills for this turn",
+        tint: .toolSkill,
+        kind: .openSkillsPanel
+      ))
+    }
+
+    if matches(["shell", "terminal", "command", "run"]) {
+      items.append(ComposerCommandDeckItem(
+        id: "action:shell-mode",
+        section: "Actions",
+        icon: "terminal",
+        title: manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
+        subtitle: "Switch composer into command execution mode",
+        tint: .shellAccent,
+        kind: .toggleShellMode
+      ))
+      items.append(ComposerCommandDeckItem(
+        id: "action:shell-prefix",
+        section: "Actions",
+        icon: "exclamationmark.bubble",
+        title: "Insert ! Shell Prefix",
+        subtitle: "Type !<command> to run shell directly",
+        tint: .shellAccent,
+        kind: .insertText("!")
+      ))
+    }
+
+    if hasMcpData, matches(["mcp", "server", "tools", "refresh"]) {
+      items.append(ComposerCommandDeckItem(
+        id: "action:mcp-refresh",
+        section: "Actions",
+        icon: "arrow.clockwise",
+        title: "Refresh MCP Servers",
+        subtitle: "Reload MCP tools and auth status",
+        tint: .toolMcp,
+        kind: .refreshMcp
+      ))
+    }
+
+    if let path = projectPath {
+      let files = if query.isEmpty {
+        Array(fileIndex.files(for: path).prefix(7))
+      } else {
+        Array(fileIndex.search(query, in: path).prefix(9))
+      }
+      for file in files {
+        items.append(ComposerCommandDeckItem(
+          id: "file:\(file.id)",
+          section: "Files",
+          icon: "doc.text",
+          title: file.name,
+          subtitle: file.relativePath,
+          tint: .composerPrompt,
+          kind: .attachFile(file)
+        ))
+      }
+    }
+
+    let matchingSkills = availableSkills.filter { skill in
+      query.isEmpty || matches([skill.name, skill.shortDescription ?? "", skill.description])
+    }
+    for skill in matchingSkills.prefix(8) {
+      items.append(ComposerCommandDeckItem(
+        id: "skill:\(skill.path)",
+        section: "Skills",
+        icon: "bolt.fill",
+        title: "$\(skill.name)",
+        subtitle: skill.shortDescription ?? skill.description,
+        tint: .toolSkill,
+        kind: .attachSkill(skill)
+      ))
+    }
+
+    for entry in mcpToolEntries where query.isEmpty || matches([
+      entry.server,
+      entry.tool.name,
+      entry.tool.title ?? "",
+      entry.tool.description ?? "",
+    ]) {
+      items.append(ComposerCommandDeckItem(
+        id: "mcp-tool:\(entry.id)",
+        section: "MCP Tools",
+        icon: "square.stack.3d.up.fill",
+        title: "\(entry.server).\(entry.tool.name)",
+        subtitle: entry.tool.description ?? "Insert MCP tool reference",
+        tint: .toolMcp,
+        kind: .insertMcpTool(server: entry.server, tool: entry.tool)
+      ))
+    }
+
+    for entry in mcpResourceEntries where query.isEmpty || matches([
+      entry.server,
+      entry.resource.name,
+      entry.resource.uri,
+      entry.resource.description ?? "",
+    ]) {
+      items.append(ComposerCommandDeckItem(
+        id: "mcp-resource:\(entry.id)",
+        section: "MCP Resources",
+        icon: "tray.full.fill",
+        title: "\(entry.server): \(entry.resource.name)",
+        subtitle: entry.resource.uri,
+        tint: .toolMcp,
+        kind: .insertMcpResource(server: entry.server, resource: entry.resource)
+      ))
+    }
+
+    return items.prefix(18).map { $0 }
+  }
+
+  private var filePickerResults: [ProjectFileIndex.ProjectFile] {
+    guard let path = projectPath else { return [] }
+    let trimmed = filePickerQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty {
+      return Array(fileIndex.files(for: path).prefix(220))
+    }
+    return Array(fileIndex.search(trimmed, in: path).prefix(300))
   }
 
   private var hasAttachments: Bool {
@@ -156,6 +379,8 @@ struct DirectSessionComposer: View {
       // ━━━ Token Progress Strip (2px full-width) ━━━
       if session.hasTokenUsage {
         tokenStrip
+          .padding(.horizontal, isCompactLayout ? 0 : Spacing.lg)
+          .padding(.top, isCompactLayout ? 0 : 6)
       }
 
       // ━━━ Review notes indicator (only for review mode) ━━━
@@ -225,8 +450,21 @@ struct DirectSessionComposer: View {
         .background(Color.backgroundTertiary)
       }
 
-      // ━━━ Skill completion ━━━
-      if shouldShowCompletion, !isSessionWorking {
+      // ━━━ Command Deck (/ trigger) ━━━
+      if shouldShowCommandDeck, !isSessionWorking {
+        ComposerCommandDeckList(
+          items: commandDeckItems,
+          selectedIndex: commandDeckIndex,
+          query: commandDeckQuery,
+          onSelect: acceptCommandDeckItem
+        )
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.xs)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
+      // ━━━ Skill completion ($ trigger) ━━━
+      if shouldShowCompletion, !isSessionWorking, !shouldShowCommandDeck {
         SkillCompletionList(
           skills: filteredSkills,
           selectedIndex: completionIndex,
@@ -238,8 +476,8 @@ struct DirectSessionComposer: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      // ━━━ Mention completion ━━━
-      if shouldShowMentionCompletion, !isSessionWorking {
+      // ━━━ Mention completion (@ trigger) ━━━
+      if shouldShowMentionCompletion, !isSessionWorking, !shouldShowCommandDeck {
         MentionCompletionList(
           files: filteredFiles,
           selectedIndex: mentionIndex,
@@ -255,6 +493,10 @@ struct DirectSessionComposer: View {
       if hasAttachments {
         AttachmentBar(images: $attachedImages, mentions: $attachedMentions)
           .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
+      if isSessionActive {
+        workflowActionDock
       }
 
       // ━━━ Composer area ━━━
@@ -275,7 +517,7 @@ struct DirectSessionComposer: View {
         instrumentStrip
       }
     }
-    .background(Color.backgroundSecondary)
+    .background(isCompactLayout ? Color.backgroundSecondary : Color.clear)
     #if os(iOS)
       .photosPicker(
         isPresented: $isPhotoPickerPresented,
@@ -291,11 +533,16 @@ struct DirectSessionComposer: View {
       if session.isDirectCodex {
         serverState.refreshCodexModels()
         if selectedModel.isEmpty {
-          selectedModel = defaultModelSelection
+          selectedModel = defaultCodexModelSelection
         }
         // Restore persisted effort level from server state
         if let saved = session.effort, let level = EffortLevel(rawValue: saved) {
           selectedEffort = level
+        }
+      } else if session.isDirectClaude {
+        serverState.refreshClaudeModels()
+        if selectedClaudeModel.isEmpty {
+          selectedClaudeModel = defaultClaudeModelSelection
         }
       }
       if let path = projectPath {
@@ -304,8 +551,14 @@ struct DirectSessionComposer: View {
     }
     .onChange(of: serverState.codexModels.count) { _, _ in
       guard session.isDirectCodex else { return }
-      if selectedModel.isEmpty || !modelOptions.contains(where: { $0.model == selectedModel }) {
-        selectedModel = defaultModelSelection
+      if selectedModel.isEmpty || !codexModelOptions.contains(where: { $0.model == selectedModel }) {
+        selectedModel = defaultCodexModelSelection
+      }
+    }
+    .onChange(of: serverState.claudeModels.count) { _, _ in
+      guard session.isDirectClaude else { return }
+      if selectedClaudeModel.isEmpty || !claudeModelOptions.contains(where: { $0.value == selectedClaudeModel }) {
+        selectedClaudeModel = defaultClaudeModelSelection
       }
     }
     #if os(iOS)
@@ -337,10 +590,11 @@ struct DirectSessionComposer: View {
             )
           )
           .frame(width: geo.size.width * pct)
-          .shadow(color: color.opacity(0.6), radius: 4, y: 0)
+          .shadow(color: color.opacity(isCompactLayout ? 0.55 : 0.22), radius: isCompactLayout ? 4 : 1.5, y: 0)
       }
     }
-    .frame(height: 3)
+    .frame(height: isCompactLayout ? 3 : 2)
+    .clipShape(RoundedRectangle(cornerRadius: isCompactLayout ? 0 : 2, style: .continuous))
     .help(tokenTooltipText)
   }
 
@@ -393,7 +647,7 @@ struct DirectSessionComposer: View {
   // MARK: - Composer Row
 
   private var composerRow: some View {
-    HStack(spacing: isCompactLayout ? Spacing.xs : Spacing.sm) {
+    HStack(spacing: isCompactLayout ? Spacing.xs : 8) {
       // Text field inside bordered container with mode tint
       HStack(spacing: Spacing.sm) {
         // Mode badge embedded in the composer
@@ -435,6 +689,7 @@ struct DirectSessionComposer: View {
         #endif
           .onChange(of: message) { _, newValue in
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              updateCommandDeckCompletion(newValue)
               updateSkillCompletion(newValue)
               updateMentionCompletion(newValue)
             }
@@ -471,7 +726,7 @@ struct DirectSessionComposer: View {
           }
 
         // Override badges (inside border)
-        if !isSessionWorking, session.isDirectCodex {
+        if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude), !isCompactLayout {
           if hasOverrides {
             overrideBadge
           }
@@ -486,16 +741,28 @@ struct DirectSessionComposer: View {
           }
         }
       }
-      .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.md)
-      .padding(.vertical, 10)
+      .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.sm)
+      .padding(.vertical, isCompactLayout ? 8 : 7)
       .background(
         RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-          .fill(composerBorderColor.opacity(0.04))
+          .fill(
+            isCompactLayout
+              ? composerBorderColor.opacity(0.04)
+              : Color.backgroundTertiary.opacity(0.17)
+          )
       )
       .overlay(
-        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-          .strokeBorder(composerBorderColor.opacity(0.35), lineWidth: 1.5)
+        Group {
+          if isCompactLayout {
+            RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+              .strokeBorder(composerBorderColor.opacity(0.35), lineWidth: 1.5)
+          } else {
+            RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+              .strokeBorder(Color.surfaceBorder.opacity(canSend ? 0.34 : 0.18), lineWidth: 1)
+          }
+        }
       )
+      .shadow(color: .clear, radius: 0, y: 0)
 
       // Send button — larger, with glow when active
       Button(action: sendMessage) {
@@ -509,7 +776,7 @@ struct DirectSessionComposer: View {
               .foregroundStyle(.white)
           }
         }
-        .frame(width: isCompactLayout ? 34 : 30, height: isCompactLayout ? 34 : 30)
+        .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
         .background(
           Circle().fill(canSend ? composerBorderColor : Color.surfaceHover)
         )
@@ -520,37 +787,53 @@ struct DirectSessionComposer: View {
       .keyboardShortcut(.return, modifiers: .command)
     }
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-    .padding(.vertical, isCompactLayout ? Spacing.xs : Spacing.sm)
+    .padding(.vertical, isCompactLayout ? Spacing.sm : 7)
   }
 
   // MARK: - Composer Action Button
 
   private var modelEffortControlButton: some View {
-    Button {
+    let compactEffortLabel = selectedEffort == .default ? "AUTO" : selectedEffort.displayName.uppercased()
+
+    return Button {
       showModelEffortPopover.toggle()
     } label: {
-      HStack(spacing: 6) {
+      HStack(spacing: isCompactLayout ? 5 : 6) {
         Image(systemName: "slider.horizontal.3")
           .font(.system(size: 13, weight: .semibold))
 
-        Text("Model")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
+        if isCompactLayout {
+          Text(compactEffortLabel)
+            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+              (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
+              in: Capsule()
+            )
+        } else {
+          Text("Model")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
 
-        Text(selectedEffort.displayName.uppercased())
-          .font(.system(size: 8, weight: .bold, design: .monospaced))
-          .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
-          .padding(.horizontal, 5)
-          .padding(.vertical, 1)
-          .background(
-            (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
-            in: Capsule()
-          )
+          Text(selectedEffort.displayName.uppercased())
+            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+              (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
+              in: Capsule()
+            )
+        }
       }
       .foregroundStyle(hasOverrides ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, Spacing.sm)
-      .frame(height: 28)
+      .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
+      .frame(height: isCompactLayout ? 26 : 26)
       .background(
-        hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
+        isCompactLayout
+          ? (hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover)
+          : (hasOverrides ? Color.accent.opacity(0.10) : Color.clear),
         in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
       )
     }
@@ -562,7 +845,7 @@ struct DirectSessionComposer: View {
         ModelEffortPopover(
           selectedModel: $selectedModel,
           selectedEffort: $selectedEffort,
-          models: modelOptions
+          models: codexModelOptions
         )
         .ifIOS { view in
           view.toolbar {
@@ -575,25 +858,514 @@ struct DirectSessionComposer: View {
     }
   }
 
-  private func composerActionButton(
+  private var claudeModelControlButton: some View {
+    let hasOverride = hasOverrides
+    let modelLabel = effectiveClaudeModel.isEmpty ? "Auto" : shortModelName(effectiveClaudeModel)
+    let compactModelLabel = modelLabel.uppercased()
+
+    return Button {
+      showClaudeModelPopover.toggle()
+    } label: {
+      HStack(spacing: isCompactLayout ? 5 : 6) {
+        Image(systemName: "slider.horizontal.3")
+          .font(.system(size: 13, weight: .semibold))
+        if isCompactLayout {
+          Text(compactModelLabel)
+            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.providerClaude)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color.providerClaude.opacity(0.14), in: Capsule())
+        } else {
+          Text("Model")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+          Text(modelLabel)
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundStyle(Color.providerClaude)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.providerClaude.opacity(0.14), in: Capsule())
+        }
+      }
+      .foregroundStyle(hasOverride ? Color.providerClaude : Color.textSecondary)
+      .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
+      .frame(height: isCompactLayout ? 26 : 26)
+      .background(
+        isCompactLayout
+          ? (hasOverride ? Color.providerClaude.opacity(OpacityTier.light) : Color.surfaceHover)
+          : (hasOverride ? Color.providerClaude.opacity(0.10) : Color.clear),
+        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+      )
+    }
+    .buttonStyle(.plain)
+    .fixedSize()
+    .help("Claude model override")
+    .platformPopover(isPresented: $showClaudeModelPopover) {
+      NavigationStack {
+        ComposerClaudeModelPopover(
+          selectedModel: $selectedClaudeModel,
+          models: claudeModelOptions
+        )
+        .ifIOS { view in
+          view.toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") { showClaudeModelPopover = false }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var providerModelControlButton: some View {
+    if session.isDirectCodex {
+      modelEffortControlButton
+    } else if session.isDirectClaude {
+      claudeModelControlButton
+    }
+  }
+
+  private var fileMentionControlButton: some View {
+    Button {
+      openFilePicker()
+    } label: {
+      actionDockLabel(
+        icon: "doc.badge.plus",
+        title: attachedMentions.isEmpty ? "Files" : "Files \(attachedMentions.count)",
+        tint: .composerPrompt,
+        isActive: !attachedMentions.isEmpty
+      )
+    }
+    .buttonStyle(.plain)
+    .help("Attach project files")
+    .platformPopover(isPresented: $showFilePickerPopover) {
+      NavigationStack {
+        ComposerFilePickerPopover(
+          query: $filePickerQuery,
+          files: filePickerResults,
+          onSelect: attachMentionFromPicker
+        )
+        .navigationTitle("Project Files")
+        .ifIOS { view in
+          view.toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+              Button("Close") { showFilePickerPopover = false }
+            }
+          }
+        }
+      }
+      .frame(minWidth: 340, minHeight: 320)
+    }
+  }
+
+  private var commandDeckControlButton: some View {
+    Button {
+      toggleCommandDeck()
+    } label: {
+      actionDockLabel(
+        icon: "slash.circle",
+        title: isCompactLayout
+          ? (shouldShowCommandDeck ? "Cmds On" : "Cmds")
+          : (shouldShowCommandDeck ? "Cmds On" : "Cmds"),
+        tint: .accent,
+        isActive: shouldShowCommandDeck
+      )
+    }
+    .buttonStyle(.plain)
+    .help("Command deck (/)")
+  }
+
+  @ViewBuilder
+  private var imageAttachmentDockControl: some View {
+    #if os(macOS)
+      Button {
+        pickImages()
+      } label: {
+        actionDockLabel(
+          icon: "paperclip",
+          title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
+          tint: .accent,
+          isActive: !attachedImages.isEmpty
+        )
+      }
+      .buttonStyle(.plain)
+      .help("Attach images")
+      .contextMenu {
+        Button {
+          _ = pasteImageFromClipboard()
+        } label: {
+          Label("Paste Image", systemImage: "doc.on.clipboard")
+        }
+        .disabled(!canPasteImageFromClipboard)
+      }
+    #else
+      Menu {
+        Button {
+          pickImages()
+        } label: {
+          Label("Choose Photos", systemImage: "photo.on.rectangle")
+        }
+
+        Button {
+          _ = pasteImageFromClipboard()
+        } label: {
+          Label("Paste Image", systemImage: "doc.on.clipboard")
+        }
+        .disabled(!canPasteImageFromClipboard)
+      } label: {
+        actionDockLabel(
+          icon: "paperclip",
+          title: attachedImages.isEmpty ? "Images" : "Images \(attachedImages.count)",
+          tint: .accent,
+          isActive: !attachedImages.isEmpty
+        )
+      }
+      .buttonStyle(.plain)
+      .help("Attach images")
+    #endif
+  }
+
+  private var turnActionsDockMenu: some View {
+    Menu {
+      turnActionsMenuContent
+    } label: {
+      actionDockLabel(icon: "ellipsis.circle", title: "Turn", tint: Color.textTertiary)
+    }
+    .buttonStyle(.plain)
+    .help("Turn actions")
+  }
+
+  @ViewBuilder
+  private var turnActionsMenuContent: some View {
+    if session.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
+      Button {
+        serverState.undoLastTurn(sessionId: sessionId)
+      } label: {
+        Label("Undo Last Turn", systemImage: "arrow.uturn.backward")
+      }
+      .disabled(serverState.session(sessionId).undoInProgress)
+    }
+
+    Button {
+      serverState.forkSession(sessionId: sessionId)
+    } label: {
+      Label("Fork Conversation", systemImage: "arrow.triangle.branch")
+    }
+    .disabled(serverState.session(sessionId).forkInProgress)
+
+    if session.hasTokenUsage {
+      Button {
+        serverState.compactContext(sessionId: sessionId)
+      } label: {
+        Label("Compact Context", systemImage: "arrow.triangle.2.circlepath")
+      }
+    }
+
+    if hasMcpData {
+      Divider()
+      Button {
+        serverState.refreshMcpServers(sessionId: sessionId)
+      } label: {
+        Label("Refresh MCP Servers", systemImage: "arrow.clockwise")
+      }
+    }
+  }
+
+  private var compactWorkflowOverflowMenu: some View {
+    let attachmentCount = attachedImages.count + attachedMentions.count + selectedSkills.count
+
+    return Menu {
+      Section("Compose") {
+        Button {
+          openFilePicker()
+        } label: {
+          Label("Attach Files", systemImage: "doc.badge.plus")
+        }
+
+        if hasSkillsPanel {
+          Button {
+            serverState.listSkills(sessionId: sessionId)
+            onOpenSkills?()
+          } label: {
+            Label("Attach Skills", systemImage: "bolt.fill")
+          }
+        }
+
+        if !isSessionWorking {
+          Button {
+            pickImages()
+          } label: {
+            Label("Attach Images", systemImage: "photo")
+          }
+
+          Button {
+            _ = pasteImageFromClipboard()
+          } label: {
+            Label("Paste Image", systemImage: "doc.on.clipboard")
+          }
+          .disabled(!canPasteImageFromClipboard)
+        }
+
+        if hasMcpData {
+          Button {
+            activateCommandDeck(prefill: "mcp")
+          } label: {
+            Label("Browse MCP", systemImage: "square.stack.3d.up.fill")
+          }
+        }
+
+        if !isSessionWorking {
+          Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              manualShellMode.toggle()
+              if manualShellMode { manualReviewMode = false }
+            }
+          } label: {
+            Label(
+              manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
+              systemImage: "terminal"
+            )
+          }
+        }
+      }
+
+      Section("Turn") {
+        turnActionsMenuContent
+      }
+    } label: {
+      actionDockLabel(
+        icon: "ellipsis.circle",
+        title: "More",
+        tint: Color.textTertiary,
+        isActive: attachmentCount > 0
+      )
+      .overlay(alignment: .topTrailing) {
+        if attachmentCount > 0 {
+          Text("\(min(attachmentCount, 9))")
+            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(Color.accent, in: Capsule())
+            .offset(x: 6, y: -5)
+        }
+      }
+    }
+    .buttonStyle(.plain)
+    .help("More actions")
+  }
+
+  private var desktopWorkflowOverflowMenu: some View {
+    let hasActiveState = !selectedSkills.isEmpty || !attachedImages.isEmpty || !attachedMentions.isEmpty || manualShellMode
+
+    return Menu {
+      Section("Compose") {
+        if hasSkillsPanel {
+          Button {
+            serverState.listSkills(sessionId: sessionId)
+            onOpenSkills?()
+          } label: {
+            Label("Attach Skills", systemImage: "bolt.fill")
+          }
+        }
+
+        if !isSessionWorking {
+          Button {
+            pickImages()
+          } label: {
+            Label("Attach Images", systemImage: "photo")
+          }
+
+          Button {
+            _ = pasteImageFromClipboard()
+          } label: {
+            Label("Paste Image", systemImage: "doc.on.clipboard")
+          }
+          .disabled(!canPasteImageFromClipboard)
+        }
+
+        if hasMcpData {
+          Button {
+            activateCommandDeck(prefill: "mcp")
+          } label: {
+            Label("Browse MCP", systemImage: "square.stack.3d.up.fill")
+          }
+        }
+
+        if !isSessionWorking {
+          Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              manualShellMode.toggle()
+              if manualShellMode { manualReviewMode = false }
+            }
+          } label: {
+            Label(
+              manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
+              systemImage: "terminal"
+            )
+          }
+        }
+      }
+
+      Section("Turn") {
+        turnActionsMenuContent
+      }
+    } label: {
+      actionDockLabel(
+        icon: "ellipsis.circle",
+        title: "More",
+        tint: Color.textTertiary,
+        isActive: hasActiveState
+      )
+    }
+    .buttonStyle(.plain)
+    .help("More actions")
+  }
+
+  private var workflowActionDock: some View {
+    Group {
+      if isCompactLayout {
+        compactWorkflowActionDock
+      } else {
+        regularWorkflowActionDock
+      }
+    }
+  }
+
+  private var regularWorkflowActionDock: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 10) {
+        if session.workStatus == .working {
+          CodexInterruptButton(sessionId: sessionId)
+        }
+
+        if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude) {
+          providerModelControlButton
+        }
+
+        fileMentionControlButton
+
+        if !isSessionWorking {
+          commandDeckControlButton
+        }
+
+        if manualShellMode, !isSessionWorking {
+          intentChip(
+            icon: "terminal",
+            title: "Shell",
+            tint: .shellAccent,
+            isActive: true
+          ) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              manualShellMode = false
+            }
+          }
+        }
+
+        if !isSessionWorking {
+          desktopWorkflowOverflowMenu
+        }
+      }
+      .padding(.horizontal, 2)
+      .padding(.vertical, 1)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.top, 10)
+    .padding(.bottom, 4)
+  }
+
+  private var compactWorkflowActionDock: some View {
+    HStack(spacing: Spacing.xs) {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: Spacing.xs) {
+          if session.workStatus == .working {
+            CodexInterruptButton(sessionId: sessionId)
+          }
+
+          if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude) {
+            providerModelControlButton
+          }
+
+          if !isSessionWorking {
+            commandDeckControlButton
+          }
+
+          if manualShellMode, !isSessionWorking {
+            intentChip(
+              icon: "terminal",
+              title: "Shell",
+              tint: .shellAccent,
+              isActive: true
+            ) {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                manualShellMode = false
+              }
+            }
+          }
+        }
+        .padding(.horizontal, Spacing.xs)
+        .padding(.vertical, Spacing.xs)
+      }
+      .scrollIndicators(.hidden)
+
+      compactWorkflowOverflowMenu
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.top, Spacing.xs)
+    .padding(.bottom, 4)
+  }
+
+  private func actionDockLabel(
     icon: String,
-    isActive: Bool,
-    activeColor: Color = .accent,
-    help: String,
+    title: String,
+    tint: Color,
+    isActive: Bool = false
+  ) -> some View {
+    let activeFill = isCompactLayout ? tint.opacity(OpacityTier.light) : tint.opacity(0.10)
+    let inactiveFill: Color = isCompactLayout
+      ? Color.backgroundTertiary.opacity(0.7)
+      : .clear
+
+    return HStack(spacing: 6) {
+      Image(systemName: icon)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+      Text(title)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+    }
+    .foregroundStyle(
+      isActive
+        ? tint
+        : (isCompactLayout ? Color.textTertiary : Color.textSecondary.opacity(0.84))
+    )
+    .padding(.horizontal, isCompactLayout ? Spacing.sm : 6)
+    .padding(.vertical, isCompactLayout ? 5 : 4)
+    .background(
+      (isCompactLayout || isActive) ? (isActive ? activeFill : inactiveFill) : .clear,
+      in: Capsule()
+    )
+    .overlay {
+      if isCompactLayout || isActive {
+        Capsule()
+          .strokeBorder(
+            isActive ? tint.opacity(isCompactLayout ? 0.3 : 0.35) : Color.surfaceBorder.opacity(isCompactLayout ? 1 : 0.22),
+            lineWidth: 1
+          )
+      }
+    }
+  }
+
+  private func intentChip(
+    icon: String,
+    title: String,
+    tint: Color,
+    isActive: Bool = false,
     action: @escaping () -> Void
   ) -> some View {
     Button(action: action) {
-      Image(systemName: icon)
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(isActive ? activeColor : .secondary)
-        .frame(width: 28, height: 28)
-        .background(
-          isActive ? activeColor.opacity(OpacityTier.light) : Color.surfaceHover,
-          in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        )
+      actionDockLabel(icon: icon, title: title, tint: tint, isActive: isActive)
     }
     .buttonStyle(.plain)
-    .help(help)
   }
 
   // MARK: - Instrument Strip
@@ -610,121 +1382,7 @@ struct DirectSessionComposer: View {
 
   private var regularInstrumentStrip: some View {
     HStack(spacing: 0) {
-      // ━━━ Left segment: Interrupt + Actions ━━━
-      HStack(spacing: Spacing.sm) {
-        if !isSessionWorking {
-          if session.isDirectCodex {
-            modelEffortControlButton
-          }
-
-          if session.isDirectCodex || serverState.session(sessionId).hasClaudeSkills {
-            composerActionButton(
-              icon: "bolt.fill",
-              isActive: !selectedSkills.isEmpty || hasInlineSkills,
-              help: "Attach skills"
-            ) {
-              if session.isDirectCodex {
-                serverState.listSkills(sessionId: sessionId)
-              }
-              onOpenSkills?()
-            }
-          }
-
-          #if os(macOS)
-            composerActionButton(
-              icon: "paperclip",
-              isActive: !attachedImages.isEmpty,
-              help: "Attach images"
-            ) {
-              pickImages()
-            }
-            .contextMenu {
-              Button {
-                _ = pasteImageFromClipboard()
-              } label: {
-                Label("Paste Image", systemImage: "doc.on.clipboard")
-              }
-              .disabled(!canPasteImageFromClipboard)
-            }
-          #else
-            Menu {
-              Button {
-                pickImages()
-              } label: {
-                Label("Choose Photos", systemImage: "photo.on.rectangle")
-              }
-
-              Button {
-                _ = pasteImageFromClipboard()
-              } label: {
-                Label("Paste Image", systemImage: "doc.on.clipboard")
-              }
-              .disabled(!canPasteImageFromClipboard)
-            } label: {
-              Image(systemName: "paperclip")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(!attachedImages.isEmpty ? Color.accent : .secondary)
-                .frame(width: 28, height: 28)
-                .background(
-                  !attachedImages.isEmpty ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
-                  in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Attach images")
-          #endif
-
-          composerActionButton(
-            icon: "terminal",
-            isActive: manualShellMode,
-            activeColor: .shellAccent,
-            help: "Shell mode (\u{2318}\u{21E7}T)"
-          ) {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              manualShellMode.toggle()
-              if manualShellMode { manualReviewMode = false }
-            }
-          }
-
-          Color.panelBorder.frame(width: 1, height: 16)
-        }
-
-        // Interrupt button (prominent when working)
-        if session.workStatus == .working {
-          CodexInterruptButton(sessionId: sessionId)
-        }
-
-        // Action buttons — individual, not cramped
-        if session.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
-          stripButton(
-            icon: "arrow.uturn.backward",
-            help: "Undo last turn",
-            disabled: serverState.session(sessionId).undoInProgress
-          ) {
-            serverState.undoLastTurn(sessionId: sessionId)
-          }
-        }
-
-        stripButton(
-          icon: "arrow.triangle.branch",
-          help: "Fork conversation",
-          disabled: serverState.session(sessionId).forkInProgress
-        ) {
-          serverState.forkSession(sessionId: sessionId)
-        }
-
-        if session.hasTokenUsage {
-          stripButton(icon: "arrow.triangle.2.circlepath", help: "Compact context") {
-            serverState.compactContext(sessionId: sessionId)
-          }
-        }
-      }
-      .padding(.horizontal, Spacing.md)
-
-      // Segment divider
-      Color.panelBorder.frame(width: 1, height: 16)
-
-      // ━━━ Center segment: Permission Control ━━━
+      // ━━━ Status segment: Permission/Autonomy ━━━
       HStack(spacing: Spacing.sm) {
         if session.isDirectCodex {
           AutonomyPill(sessionId: sessionId)
@@ -732,13 +1390,12 @@ struct DirectSessionComposer: View {
           ClaudePermissionPill(sessionId: sessionId)
         }
       }
-      .padding(.horizontal, Spacing.md)
-
-      // Segment divider
-      Color.panelBorder.frame(width: 1, height: 16)
+      .padding(.horizontal, Spacing.sm)
 
       // ━━━ Token summary + model (inline) ━━━
       if session.hasTokenUsage {
+        Color.panelBorder.opacity(0.38).frame(width: 1, height: 14)
+
         HStack(spacing: 6) {
           let pct = Int(tokenContextPercentage * 100)
           let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
@@ -767,7 +1424,7 @@ struct DirectSessionComposer: View {
             .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
           }
         }
-        .padding(.horizontal, Spacing.md)
+        .padding(.horizontal, Spacing.sm)
         .help(tokenTooltipText)
 
         if session.isDirectCodex, !selectedModel.isEmpty {
@@ -787,21 +1444,21 @@ struct DirectSessionComposer: View {
                 in: Capsule()
               )
           }
-          .padding(.horizontal, Spacing.sm)
+          .padding(.horizontal, Spacing.xs)
           .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
-        } else if session.isDirectClaude, let model = session.model {
-          Text(shortModelName(model))
+        } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
+          Text(shortModelName(effectiveClaudeModel))
             .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
-            .padding(.horizontal, Spacing.sm)
+            .padding(.horizontal, Spacing.xs)
         }
-
-        Color.panelBorder.frame(width: 1, height: 16)
       }
 
       // ━━━ Branch info ━━━
       if let branch = session.branch, !branch.isEmpty {
+        Color.panelBorder.opacity(0.38).frame(width: 1, height: 14)
+
         HStack(spacing: Spacing.xs) {
           Image(systemName: "arrow.triangle.branch")
             .font(.system(size: TypeScale.caption, weight: .medium))
@@ -810,10 +1467,8 @@ struct DirectSessionComposer: View {
             .lineLimit(1)
         }
         .foregroundStyle(Color.gitBranch.opacity(0.75))
-        .padding(.horizontal, Spacing.sm)
+        .padding(.horizontal, Spacing.xs)
         .help(branch)
-
-        Color.panelBorder.frame(width: 1, height: 16)
       }
 
       // ━━━ CWD (when different from project root) ━━━
@@ -821,6 +1476,8 @@ struct DirectSessionComposer: View {
          !cwd.isEmpty,
          cwd != session.projectPath
       {
+        Color.panelBorder.opacity(0.38).frame(width: 1, height: 14)
+
         let displayCwd = cwd.hasPrefix(session.projectPath + "/")
           ? "./" + cwd.dropFirst(session.projectPath.count + 1)
           : cwd
@@ -833,10 +1490,8 @@ struct DirectSessionComposer: View {
             .lineLimit(1)
         }
         .foregroundStyle(Color.textTertiary)
-        .padding(.horizontal, Spacing.sm)
+        .padding(.horizontal, Spacing.xs)
         .help(cwd)
-
-        Color.panelBorder.frame(width: 1, height: 16)
       }
 
       Spacer()
@@ -889,23 +1544,20 @@ struct DirectSessionComposer: View {
         .buttonStyle(.plain)
 
       }
-      .padding(.horizontal, Spacing.md)
+      .padding(.horizontal, Spacing.sm)
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
     }
-    .frame(height: 32)
-    .padding(.bottom, Spacing.sm)
-    .background(Color.backgroundTertiary.opacity(0.5))
+    .frame(height: 24)
+    .padding(.horizontal, Spacing.sm)
+    .padding(.horizontal, Spacing.lg)
+    .padding(.top, 8)
+    .padding(.bottom, 10)
   }
 
   private var compactInstrumentStrip: some View {
     HStack(spacing: 6) {
-      // ━━━ Interrupt — left-anchored when working ━━━
-      if session.workStatus == .working {
-        CodexInterruptButton(sessionId: sessionId)
-      }
-
-      // ━━━ Single scrollable ribbon: all chips + overflow menu ━━━
+      // ━━━ Status-only ribbon ━━━
       ScrollView(.horizontal) {
         HStack(spacing: 6) {
           if session.isDirectCodex {
@@ -914,29 +1566,13 @@ struct DirectSessionComposer: View {
             ClaudePermissionPill(sessionId: sessionId)
           }
 
-          if !isSessionWorking, session.isDirectCodex {
-            modelEffortControlButton
-          }
-
           if session.hasTokenUsage {
             compactTokenSummaryChip
           }
 
-          if session.isDirectClaude, let model = session.model {
-            compactMetaChip(icon: nil, text: shortModelName(model), color: Color.textTertiary)
-          }
-
-          if let branch = session.branch, !branch.isEmpty {
-            compactMetaChip(
-              icon: "arrow.triangle.branch",
-              text: compactStripBranchLabel(branch),
-              color: Color.gitBranch.opacity(0.8)
-            )
-            .help(branch)
-          }
-
-          if !isSessionWorking {
-            compactMoreActionsMenu
+          if let meta = compactSessionMetaLabel {
+            compactMetaChip(icon: "ellipsis", text: meta, color: Color.textTertiary)
+              .help(meta)
           }
         }
         .padding(.trailing, Spacing.xs)
@@ -984,93 +1620,31 @@ struct DirectSessionComposer: View {
     }
     .padding(.horizontal, Spacing.md)
     .padding(.top, Spacing.xs)
-    .padding(.bottom, Spacing.sm)
+    .padding(.bottom, Spacing.xs)
     .background(Color.backgroundTertiary.opacity(0.5))
     .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
     .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
   }
 
-  private var compactMoreActionsMenu: some View {
-    Menu {
-      // ━━━ Turn actions ━━━
-      if session.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
-        Button {
-          serverState.undoLastTurn(sessionId: sessionId)
-        } label: {
-          Label("Undo Last Turn", systemImage: "arrow.uturn.backward")
-        }
-        .disabled(serverState.session(sessionId).undoInProgress)
+  private var compactSessionMetaLabel: String? {
+    var parts: [String] = []
+
+    if session.isDirectCodex, !selectedModel.isEmpty {
+      parts.append(shortModelName(selectedModel))
+      if selectedEffort != .default {
+        parts.append(selectedEffort.displayName.uppercased())
       }
-
-      Button {
-        serverState.forkSession(sessionId: sessionId)
-      } label: {
-        Label("Fork Conversation", systemImage: "arrow.triangle.branch")
-      }
-      .disabled(serverState.session(sessionId).forkInProgress)
-
-      Divider()
-
-      // ━━━ Input helpers ━━━
-      if session.isDirectCodex || serverState.session(sessionId).hasClaudeSkills {
-        Button {
-          if session.isDirectCodex {
-            serverState.listSkills(sessionId: sessionId)
-          }
-          onOpenSkills?()
-        } label: {
-          Label("Attach Skills", systemImage: "bolt.fill")
-        }
-      }
-
-      #if os(macOS)
-        Button {
-          pickImages()
-        } label: {
-          Label("Attach Images", systemImage: "paperclip")
-        }
-      #else
-        Button {
-          pickImages()
-        } label: {
-          Label("Attach Images", systemImage: "paperclip")
-        }
-      #endif
-
-      Button {
-        _ = pasteImageFromClipboard()
-      } label: {
-        Label("Paste Image", systemImage: "doc.on.clipboard")
-      }
-      .disabled(!canPasteImageFromClipboard)
-
-      Button {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-          manualShellMode.toggle()
-          if manualShellMode { manualReviewMode = false }
-        }
-      } label: {
-        Label(manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode", systemImage: "terminal")
-      }
-
-      if session.hasTokenUsage {
-        Divider()
-
-        Button {
-          serverState.compactContext(sessionId: sessionId)
-        } label: {
-          Label("Compact Context", systemImage: "arrow.triangle.2.circlepath")
-        }
-      }
-    } label: {
-      Image(systemName: "ellipsis")
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(Color.textTertiary)
-        .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, 6)
-        .background(Color.surfaceHover, in: Capsule())
+    } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
+      parts.append(shortModelName(effectiveClaudeModel))
+    } else if session.isDirectClaude, let model = session.model {
+      parts.append(shortModelName(model))
     }
-    .help("More actions")
+
+    if let branch = session.branch, !branch.isEmpty {
+      parts.append(compactStripBranchLabel(branch))
+    }
+
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
   private var compactTokenSummaryChip: some View {
@@ -1119,36 +1693,6 @@ struct DirectSessionComposer: View {
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, 4)
     .background(Color.surfaceHover, in: Capsule())
-  }
-
-  // MARK: - Strip Button
-
-  @State private var stripHover: String?
-
-  private func stripButton(
-    icon: String,
-    help: String,
-    disabled: Bool = false,
-    action: @escaping () -> Void
-  ) -> some View {
-    let size: CGFloat = isCompactLayout ? 36 : 26
-    return Button(action: action) {
-      Image(systemName: icon)
-        .font(.system(size: TypeScale.code, weight: .medium))
-        .foregroundStyle(disabled ? AnyShapeStyle(.quaternary) : stripHover == icon ? AnyShapeStyle(Color.accent) :
-          AnyShapeStyle(.secondary))
-        .frame(width: size, height: size)
-        .background(
-          stripHover == icon ? Color.surfaceHover : Color.clear,
-          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-        )
-    }
-    .buttonStyle(.plain)
-    .disabled(disabled)
-    .help(help)
-    .platformHover { hovering in
-      stripHover = hovering ? icon : (stripHover == icon ? nil : stripHover)
-    }
   }
 
   // MARK: - Resume Row (ended session)
@@ -1210,6 +1754,17 @@ struct DirectSessionComposer: View {
 
   // MARK: - Helpers
 
+  private func extractMcpServerName(from toolKey: String) -> String? {
+    let parts = toolKey.split(separator: "__")
+    if parts.count >= 2, parts[0] == "mcp" {
+      return String(parts[1])
+    }
+    if parts.count >= 2 {
+      return String(parts[0])
+    }
+    return nil
+  }
+
   private func shortModelName(_ model: String) -> String {
     // Strip common prefixes to get a compact display name
     let name = model
@@ -1228,8 +1783,9 @@ struct DirectSessionComposer: View {
   @ViewBuilder
   private var overrideBadge: some View {
     let parts = [
-      selectedModel != defaultModelSelection ? shortModelName(selectedModel) : nil,
-      selectedEffort != .default ? selectedEffort.displayName : nil,
+      session.isDirectCodex && selectedModel != defaultCodexModelSelection ? shortModelName(selectedModel) : nil,
+      session.isDirectClaude && selectedClaudeModel != defaultClaudeModelSelection ? shortModelName(selectedClaudeModel) : nil,
+      session.isDirectCodex && selectedEffort != .default ? selectedEffort.displayName : nil,
     ].compactMap { $0 }
 
     if !parts.isEmpty {
@@ -1247,7 +1803,14 @@ struct DirectSessionComposer: View {
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     if inputMode == .shell { return !isSending && hasContent }
     if isSessionWorking { return !isSending && (hasContent || hasAttachments) }
-    let hasModel = session.isDirectCodex ? !selectedModel.isEmpty : session.model != nil
+    let hasModel: Bool
+    if session.isDirectCodex {
+      hasModel = !selectedModel.isEmpty
+    } else if session.isDirectClaude {
+      hasModel = !effectiveClaudeModel.isEmpty
+    } else {
+      hasModel = session.model != nil
+    }
     return !isSending && (hasContent || hasAttachments) && hasModel
   }
 
@@ -1302,6 +1865,12 @@ struct DirectSessionComposer: View {
         return
       }
       effectiveModel = selectedModel
+    } else if session.isDirectClaude {
+      guard !effectiveClaudeModel.isEmpty else {
+        errorMessage = "No Claude model available yet. Wait for model list to load."
+        return
+      }
+      effectiveModel = effectiveClaudeModel
     } else {
       effectiveModel = session.model ?? ""
     }
@@ -1450,6 +2019,10 @@ struct DirectSessionComposer: View {
     mentionIndex = 0
     isFocused = true
 
+    addMentionAttachment(file)
+  }
+
+  private func addMentionAttachment(_ file: ProjectFileIndex.ProjectFile) {
     guard !attachedMentions.contains(where: { $0.id == file.id }) else { return }
     let absolutePath = if let base = projectPath {
       (base as NSString).appendingPathComponent(file.relativePath)
@@ -1461,10 +2034,200 @@ struct DirectSessionComposer: View {
     }
   }
 
+  private func attachMentionFromPicker(_ file: ProjectFileIndex.ProjectFile) {
+    replaceTrailingCommandDeckToken(with: "@\(file.name)")
+    addMentionAttachment(file)
+    showFilePickerPopover = false
+    clearCommandDeckState()
+    isFocused = true
+  }
+
+  private func openFilePicker() {
+    guard projectPath != nil else {
+      errorMessage = "No project path available for this session."
+      return
+    }
+    filePickerQuery = ""
+    if let path = projectPath {
+      Task { await fileIndex.loadIfNeeded(path) }
+    }
+    showFilePickerPopover = true
+  }
+
+  // MARK: - Command Deck
+
+  private func isCommandDeckTokenStart(_ index: String.Index, in text: String) -> Bool {
+    if index == text.startIndex {
+      return true
+    }
+    return text[text.index(before: index)].isWhitespace
+  }
+
+  private func updateCommandDeckCompletion(_ text: String) {
+    guard let slashIdx = text.lastIndex(of: "/") else {
+      commandDeckActive = false
+      commandDeckQuery = ""
+      commandDeckIndex = 0
+      return
+    }
+
+    guard isCommandDeckTokenStart(slashIdx, in: text) else {
+      commandDeckActive = false
+      return
+    }
+
+    let afterSlash = text[text.index(after: slashIdx)...]
+    if afterSlash.contains(where: \.isWhitespace) {
+      commandDeckActive = false
+      return
+    }
+
+    commandDeckQuery = String(afterSlash)
+    commandDeckIndex = 0
+    commandDeckActive = true
+
+    if hasSkillsPanel, availableSkills.isEmpty {
+      serverState.listSkills(sessionId: sessionId)
+    }
+    if serverState.session(sessionId).mcpTools.isEmpty {
+      serverState.listMcpTools(sessionId: sessionId)
+    }
+    if let path = projectPath {
+      Task { await fileIndex.loadIfNeeded(path) }
+    }
+  }
+
+  private func toggleCommandDeck() {
+    if shouldShowCommandDeck {
+      clearCommandDeckState()
+      removeTrailingCommandDeckToken()
+      return
+    }
+    activateCommandDeck()
+  }
+
+  private func activateCommandDeck(prefill: String? = nil) {
+    let token = "/" + (prefill ?? "")
+    if let slashIdx = message.lastIndex(of: "/") {
+      let afterSlash = message[message.index(after: slashIdx)...]
+      if isCommandDeckTokenStart(slashIdx, in: message), !afterSlash.contains(where: \.isWhitespace) {
+        let prefix = String(message[..<slashIdx])
+        message = prefix + token
+      } else if message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n") {
+        message += token
+      } else {
+        message += " " + token
+      }
+    } else if message.isEmpty || message.hasSuffix(" ") || message.hasSuffix("\n") {
+      message += token
+    } else {
+      message += " " + token
+    }
+    updateCommandDeckCompletion(message)
+    isFocused = true
+  }
+
+  private func clearCommandDeckState() {
+    commandDeckActive = false
+    commandDeckQuery = ""
+    commandDeckIndex = 0
+  }
+
+  private func removeTrailingCommandDeckToken() {
+    guard let slashIdx = message.lastIndex(of: "/") else { return }
+    guard isCommandDeckTokenStart(slashIdx, in: message) else { return }
+    let afterSlash = message[message.index(after: slashIdx)...]
+    guard !afterSlash.contains(where: \.isWhitespace) else { return }
+    message = String(message[..<slashIdx]).trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func replaceTrailingCommandDeckToken(with replacement: String, appendSpace: Bool = true) {
+    guard let slashIdx = message.lastIndex(of: "/"),
+          isCommandDeckTokenStart(slashIdx, in: message)
+    else {
+      if message.isEmpty {
+        message = replacement + (appendSpace ? " " : "")
+      } else {
+        let spacer = message.hasSuffix(" ") || message.hasSuffix("\n") ? "" : " "
+        message += spacer + replacement + (appendSpace ? " " : "")
+      }
+      return
+    }
+    let afterSlash = message[message.index(after: slashIdx)...]
+    guard !afterSlash.contains(where: \.isWhitespace) else {
+      let spacer = message.hasSuffix(" ") || message.hasSuffix("\n") ? "" : " "
+      message += spacer + replacement + (appendSpace ? " " : "")
+      return
+    }
+
+    let prefix = String(message[..<slashIdx])
+    let suffix = appendSpace ? " " : ""
+    message = prefix + replacement + suffix
+  }
+
+  private func acceptCommandDeckItem(_ item: ComposerCommandDeckItem) {
+    switch item.kind {
+      case .openFilePicker:
+        clearCommandDeckState()
+        removeTrailingCommandDeckToken()
+        openFilePicker()
+
+      case .openSkillsPanel:
+        clearCommandDeckState()
+        removeTrailingCommandDeckToken()
+        if hasSkillsPanel {
+          serverState.listSkills(sessionId: sessionId)
+        }
+        onOpenSkills?()
+
+      case .toggleShellMode:
+        clearCommandDeckState()
+        removeTrailingCommandDeckToken()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          manualShellMode.toggle()
+          if manualShellMode { manualReviewMode = false }
+        }
+
+      case .insertText(let text):
+        clearCommandDeckState()
+        replaceTrailingCommandDeckToken(with: text, appendSpace: false)
+
+      case .refreshMcp:
+        clearCommandDeckState()
+        removeTrailingCommandDeckToken()
+        serverState.refreshMcpServers(sessionId: sessionId)
+
+      case .attachFile(let file):
+        clearCommandDeckState()
+        attachMentionFromPicker(file)
+
+      case .attachSkill(let skill):
+        selectedSkills.insert(skill.path)
+        clearCommandDeckState()
+        replaceTrailingCommandDeckToken(with: "$\(skill.name)")
+
+      case let .insertMcpTool(server, tool):
+        clearCommandDeckState()
+        let snippet = "Use MCP tool \(server).\(tool.name)"
+        replaceTrailingCommandDeckToken(with: snippet)
+
+      case let .insertMcpResource(server, resource):
+        clearCommandDeckState()
+        let snippet = "Use MCP resource \(server):\(resource.uri)"
+        replaceTrailingCommandDeckToken(with: snippet)
+    }
+    isFocused = true
+  }
+
   // MARK: - Keyboard Navigation
 
   private func handleCompletionKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
     if keyPress.key == .escape {
+      if shouldShowCommandDeck {
+        clearCommandDeckState()
+        removeTrailingCommandDeckToken()
+        return .handled
+      }
       if mentionActive {
         mentionActive = false
         return .handled
@@ -1472,6 +2235,10 @@ struct DirectSessionComposer: View {
       guard completionActive else { return .ignored }
       completionActive = false
       return .handled
+    }
+
+    if shouldShowCommandDeck {
+      return handleCommandDeckKeyPress(keyPress)
     }
 
     if shouldShowMentionCompletion {
@@ -1500,6 +2267,38 @@ struct DirectSessionComposer: View {
 
     if keyPress.key == .return || keyPress.key == .tab {
       acceptSkillCompletion(filteredSkills[completionIndex])
+      return .handled
+    }
+
+    return .ignored
+  }
+
+  private func handleCommandDeckKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+    let maxIndex = commandDeckItems.count - 1
+    guard maxIndex >= 0 else { return .ignored }
+
+    if keyPress.key == .upArrow {
+      commandDeckIndex = max(0, commandDeckIndex - 1)
+      return .handled
+    } else if keyPress.key == .downArrow {
+      commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
+      return .handled
+    }
+
+    if keyPress.modifiers.contains(.control) {
+      if keyPress.key == KeyEquivalent("n") {
+        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
+        return .handled
+      } else if keyPress.key == KeyEquivalent("p") {
+        commandDeckIndex = max(0, commandDeckIndex - 1)
+        return .handled
+      }
+    }
+
+    if keyPress.key == .return || keyPress.key == .tab {
+      if commandDeckIndex < commandDeckItems.count {
+        acceptCommandDeckItem(commandDeckItems[commandDeckIndex])
+      }
       return .handled
     }
 
@@ -1566,7 +2365,7 @@ struct CodexInterruptButton: View {
       }
       .foregroundStyle(Color.statusError)
       .padding(.horizontal, Spacing.md)
-      .padding(.vertical, 5)
+      .padding(.vertical, 4)
       .background(Color.statusError.opacity(isHovering ? OpacityTier.medium : OpacityTier.light), in: Capsule())
       .shadow(color: Color.statusError.opacity(isHovering ? 0.3 : 0), radius: 6, y: 0)
     }
@@ -1648,6 +2447,277 @@ private struct SkillCompletionList: View {
       Text(name)
         .font(.callout.weight(.medium))
     }
+  }
+}
+
+private struct ComposerMcpToolEntry: Identifiable {
+  let id: String
+  let server: String
+  let tool: ServerMcpTool
+}
+
+private struct ComposerMcpResourceEntry: Identifiable {
+  let id: String
+  let server: String
+  let resource: ServerMcpResource
+}
+
+private struct ComposerCommandDeckItem: Identifiable {
+  enum Kind {
+    case openFilePicker
+    case openSkillsPanel
+    case toggleShellMode
+    case insertText(String)
+    case refreshMcp
+    case attachFile(ProjectFileIndex.ProjectFile)
+    case attachSkill(ServerSkillMetadata)
+    case insertMcpTool(server: String, tool: ServerMcpTool)
+    case insertMcpResource(server: String, resource: ServerMcpResource)
+  }
+
+  let id: String
+  let section: String
+  let icon: String
+  let title: String
+  let subtitle: String?
+  let tint: Color
+  let kind: Kind
+}
+
+private struct ComposerCommandDeckList: View {
+  let items: [ComposerCommandDeckItem]
+  let selectedIndex: Int
+  let query: String
+  let onSelect: (ComposerCommandDeckItem) -> Void
+
+  var body: some View {
+    ScrollViewReader { proxy in
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+            if index == 0 || items[index - 1].section != item.section {
+              Text(item.section)
+                .font(.system(size: TypeScale.caption, weight: .bold))
+                .foregroundStyle(Color.textQuaternary)
+                .padding(.horizontal, 10)
+                .padding(.top, index == 0 ? 8 : 10)
+                .padding(.bottom, 4)
+            }
+
+            Button {
+              onSelect(item)
+            } label: {
+              HStack(spacing: 8) {
+                Image(systemName: item.icon)
+                  .font(.system(size: TypeScale.caption, weight: .semibold))
+                  .foregroundStyle(item.tint)
+                  .frame(width: 14)
+
+                VStack(alignment: .leading, spacing: 1) {
+                  highlighted(item.title)
+                    .font(.system(size: TypeScale.subhead, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
+
+                  if let subtitle = item.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                      .font(.system(size: TypeScale.caption))
+                      .foregroundStyle(Color.textTertiary)
+                      .lineLimit(1)
+                  }
+                }
+
+                Spacer()
+              }
+              .padding(.horizontal, 10)
+              .padding(.vertical, 7)
+              .background(
+                index == selectedIndex ? item.tint.opacity(0.18) : Color.clear,
+                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              )
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .id(index)
+          }
+        }
+      }
+      .scrollIndicators(.hidden)
+      .onChange(of: selectedIndex) { _, newIndex in
+        proxy.scrollTo(newIndex, anchor: .center)
+      }
+    }
+    .frame(maxHeight: 290)
+    .background(Color.backgroundPrimary)
+    .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+    .shadow(color: .black.opacity(0.3), radius: 8, y: -2)
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg)
+        .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+    )
+  }
+
+  private func highlighted(_ text: String) -> Text {
+    guard !query.isEmpty, let stringRange = text.range(of: query, options: .caseInsensitive) else {
+      return Text(text)
+    }
+    var attributed = AttributedString(text)
+    if let attributedRange = Range(stringRange, in: attributed) {
+      attributed[attributedRange].foregroundColor = .accent
+    }
+    return Text(attributed)
+  }
+}
+
+private struct ComposerFilePickerPopover: View {
+  @Binding var query: String
+  let files: [ProjectFileIndex.ProjectFile]
+  let onSelect: (ProjectFileIndex.ProjectFile) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      TextField("Search files…", text: $query)
+        .textFieldStyle(.roundedBorder)
+        .font(.system(size: TypeScale.subhead))
+
+      if files.isEmpty {
+        VStack(spacing: 6) {
+          Image(systemName: "doc.text.magnifyingglass")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+          Text("No files found")
+            .font(.system(size: TypeScale.subhead, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(files) { file in
+              Button {
+                onSelect(file)
+              } label: {
+                HStack(spacing: 8) {
+                  Image(systemName: fileIcon(for: file.name))
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
+                    .foregroundStyle(Color.composerPrompt)
+                    .frame(width: 14)
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(file.name)
+                      .font(.system(size: TypeScale.subhead, weight: .semibold))
+                      .foregroundStyle(Color.textPrimary)
+                    Text(file.relativePath)
+                      .font(.system(size: TypeScale.caption, design: .monospaced))
+                      .foregroundStyle(Color.textTertiary)
+                      .lineLimit(1)
+                  }
+                  Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+        .scrollIndicators(.hidden)
+      }
+    }
+    .padding(Spacing.md)
+    .background(Color.backgroundSecondary)
+  }
+
+  private func fileIcon(for name: String) -> String {
+    let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
+    switch ext {
+      case "swift": return "swift"
+      case "rs": return "gearshape.2"
+      case "js", "ts", "jsx", "tsx": return "curlybraces"
+      case "py": return "chevron.left.forwardslash.chevron.right"
+      case "sh", "bash", "zsh": return "terminal"
+      case "json", "yaml", "yml", "toml": return "doc.text"
+      case "md", "txt": return "doc.plaintext"
+      case "html", "css": return "globe"
+      default: return "doc"
+    }
+  }
+}
+
+private struct ComposerClaudeModelPopover: View {
+  @Binding var selectedModel: String
+  let models: [ServerClaudeModelOption]
+
+  @State private var query = ""
+
+  private var filteredModels: [ServerClaudeModelOption] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return models }
+    let lower = trimmed.lowercased()
+    return models.filter { option in
+      option.displayName.lowercased().contains(lower) ||
+        option.value.lowercased().contains(lower) ||
+        option.description.lowercased().contains(lower)
+    }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: Spacing.sm) {
+      TextField("Search Claude models", text: $query)
+        .textFieldStyle(.roundedBorder)
+        .font(.system(size: TypeScale.subhead))
+
+      if filteredModels.isEmpty {
+        VStack(spacing: 6) {
+          Image(systemName: "cpu")
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(Color.textQuaternary)
+          Text("No Claude models available")
+            .font(.system(size: TypeScale.subhead, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(filteredModels) { model in
+              let isSelected = model.value == selectedModel
+              Button {
+                selectedModel = model.value
+              } label: {
+                HStack(spacing: 8) {
+                  Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: TypeScale.caption, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.providerClaude : Color.textQuaternary)
+                    .frame(width: 14)
+
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(model.displayName)
+                      .font(.system(size: TypeScale.subhead, weight: .semibold))
+                      .foregroundStyle(Color.textPrimary)
+                    Text(model.value)
+                      .font(.system(size: TypeScale.caption, design: .monospaced))
+                      .foregroundStyle(Color.textTertiary)
+                      .lineLimit(1)
+                  }
+                  Spacer()
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                  isSelected ? Color.providerClaude.opacity(0.14) : Color.clear,
+                  in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                )
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+        .scrollIndicators(.hidden)
+      }
+    }
+    .padding(Spacing.md)
+    .background(Color.backgroundSecondary)
   }
 }
 

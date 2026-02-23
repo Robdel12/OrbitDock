@@ -28,12 +28,12 @@
     }
 
     private func configureForHorizontalPan() {
-      directionalLockEnabled = true
+      isDirectionalLockEnabled = true
       alwaysBounceVertical = false
       panGestureRecognizer.delegate = self
     }
 
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
       guard gestureRecognizer === panGestureRecognizer,
             let panGesture = gestureRecognizer as? UIPanGestureRecognizer
       else {

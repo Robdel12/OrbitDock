@@ -282,7 +282,7 @@ struct Session: Identifiable, Hashable, Sendable {
   /// Covers both direct sessions (can approve inline) and passive sessions
   /// with a pending approval (need takeover first).
   var needsApprovalOverlay: Bool {
-    guard isActive, pendingApprovalId != nil else { return false }
+    guard isActive else { return false }
     return attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion
   }
 

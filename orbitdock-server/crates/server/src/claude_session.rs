@@ -468,7 +468,9 @@ impl ClaudeSession {
                 // Claude SDK has no native steer_input — interrupt the active
                 // turn and resend the guidance as a new user message.
                 connector.interrupt().await?;
-                connector.send_message(&content, None, None, &images).await?;
+                connector
+                    .send_message(&content, None, None, &images)
+                    .await?;
             }
             ClaudeAction::EndSession => {
                 connector.shutdown().await?;

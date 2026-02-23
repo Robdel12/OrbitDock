@@ -845,12 +845,22 @@ final class ServerAppState {
       return summary.toSession()
     }
 
-    for summary in summaries where summary.provider == .codex {
-      setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
-      session(summary.id).autonomy = AutonomyLevel.from(
-        approvalPolicy: summary.approvalPolicy,
-        sandboxMode: summary.sandboxMode
-      )
+    for summary in summaries {
+      if summary.provider == .codex {
+        setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
+        session(summary.id).autonomy = AutonomyLevel.from(
+          approvalPolicy: summary.approvalPolicy,
+          sandboxMode: summary.sandboxMode
+        )
+      } else if summary.provider == .claude {
+        if let pm = summary.permissionMode {
+          permissionModes[summary.id] = pm
+        } else {
+          permissionModes.removeValue(forKey: summary.id)
+        }
+        session(summary.id).permissionMode =
+          ClaudePermissionMode(rawValue: permissionModes[summary.id] ?? "default") ?? .default
+      }
     }
 
     // Clean up observables for sessions that disappeared from the server
@@ -941,13 +951,12 @@ final class ServerAppState {
       )
     }
 
-    // Hydrate permission mode from snapshot (stored in approvalPolicy for Claude sessions)
+    // Hydrate permission mode from snapshot for Claude direct sessions.
     if state.provider == .claude, state.claudeIntegrationMode == .direct {
-      // The server may report permission_mode in the session state — for now, keep
-      // whatever the local cache knows, or default.
-      if let pm = permissionModes[state.id] {
-        obs.permissionMode = ClaudePermissionMode(rawValue: pm) ?? .default
+      if let pm = state.permissionMode {
+        permissionModes[state.id] = pm
       }
+      obs.permissionMode = ClaudePermissionMode(rawValue: permissionModes[state.id] ?? "default") ?? .default
     }
 
     if let diff = state.currentDiff {
@@ -1452,6 +1461,9 @@ final class ServerAppState {
         approvalPolicy: summary.approvalPolicy,
         sandboxMode: summary.sandboxMode
       )
+    } else if summary.provider == .claude, let pm = summary.permissionMode {
+      permissionModes[summary.id] = pm
+      session(summary.id).permissionMode = ClaudePermissionMode(rawValue: pm) ?? .default
     }
 
     subscribeToSession(summary.id)

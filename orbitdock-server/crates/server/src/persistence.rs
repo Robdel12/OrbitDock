@@ -1620,10 +1620,14 @@ pub struct RestoredSession {
     pub last_activity_at: Option<String>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
+    pub permission_mode: Option<String>,
     pub input_tokens: i64,
     pub output_tokens: i64,
     pub cached_tokens: i64,
     pub context_window: i64,
+    pub pending_tool_name: Option<String>,
+    pub pending_tool_input: Option<String>,
+    pub pending_question: Option<String>,
     pub messages: Vec<Message>,
     pub forked_from_session_id: Option<String>,
     pub current_diff: Option<String>,
@@ -2380,7 +2384,8 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         // Restore recent sessions into runtime for active + history UI continuity.
         // Only load: active sessions, server-shutdown sessions (need resume), and recent 7-day history.
         let mut stmt = conn.prepare(
-            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, permission_mode,
+                    pending_tool_name, pending_tool_input, pending_question,
                     COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
                     COALESCE(cached_tokens, 0), COALESCE(context_window, 0)
              FROM sessions
@@ -2394,7 +2399,33 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         )?;
 
         #[allow(clippy::type_complexity)]
-        let session_rows: Vec<(String, String, String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, i64, i64, i64, i64)> = stmt
+        let session_rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            i64,
+        )> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -2418,6 +2449,10 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     row.get(18)?,
                     row.get(19)?,
                     row.get(20)?,
+                    row.get(21)?,
+                    row.get(22)?,
+                    row.get(23)?,
+                    row.get(24)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -2425,7 +2460,34 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
 
         let mut sessions = Vec::new();
 
-        for (id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, _summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, input_tokens, output_tokens, cached_tokens, context_window) in session_rows {
+        for (
+            id,
+            provider,
+            status,
+            work_status,
+            project_path,
+            transcript_path,
+            project_name,
+            model,
+            custom_name,
+            first_prompt,
+            _summary,
+            codex_integration_mode,
+            codex_thread_id,
+            started_at,
+            last_activity_at,
+            approval_policy,
+            sandbox_mode,
+            permission_mode,
+            pending_tool_name,
+            pending_tool_input,
+            pending_question,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            context_window,
+        ) in session_rows
+        {
             // Skip message loading for ended history sessions (not server_shutdown).
             // Messages load lazily when a client subscribes.
             let end_reason_val: Option<String> = conn
@@ -2584,10 +2646,14 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 last_activity_at,
                 approval_policy,
                 sandbox_mode,
+                permission_mode,
                 input_tokens,
                 output_tokens,
                 cached_tokens,
                 context_window,
+                pending_tool_name,
+                pending_tool_input,
+                pending_question,
                 messages,
                 forked_from_session_id,
                 current_diff,
@@ -2628,7 +2694,8 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         )?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode,
+            "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, permission_mode,
+                    pending_tool_name, pending_tool_input, pending_question,
                     COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
                     COALESCE(cached_tokens, 0), COALESCE(context_window, 0),
                     provider, codex_integration_mode, claude_integration_mode,
@@ -2653,23 +2720,56 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     row.get::<_, Option<String>>(9)?,
                     row.get::<_, Option<String>>(10)?,
                     row.get::<_, Option<String>>(11)?,
-                    row.get::<_, i64>(12)?,
-                    row.get::<_, i64>(13)?,
-                    row.get::<_, i64>(14)?,
-                    row.get::<_, i64>(15)?,
-                    row.get::<_, String>(16)?,
-                    row.get::<_, Option<String>>(17)?,
-                    row.get::<_, Option<String>>(18)?,
-                    row.get::<_, Option<String>>(19)?,
-                    row.get::<_, Option<String>>(20)?,
+                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, Option<String>>(13)?,
+                    row.get::<_, Option<String>>(14)?,
+                    row.get::<_, Option<String>>(15)?,
+                    row.get::<_, i64>(16)?,
+                    row.get::<_, i64>(17)?,
+                    row.get::<_, i64>(18)?,
+                    row.get::<_, i64>(19)?,
+                    row.get::<_, String>(20)?,
                     row.get::<_, Option<String>>(21)?,
                     row.get::<_, Option<String>>(22)?,
                     row.get::<_, Option<String>>(23)?,
+                    row.get::<_, Option<String>>(24)?,
+                    row.get::<_, Option<String>>(25)?,
+                    row.get::<_, Option<String>>(26)?,
+                    row.get::<_, Option<String>>(27)?,
                 ))
             })
             .optional()?;
 
-        let Some((id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, input_tokens, output_tokens, cached_tokens, context_window, provider, codex_integration_mode, claude_integration_mode, claude_sdk_session_id, codex_thread_id, end_reason, terminal_session_id, terminal_app)) = row else {
+        let Some((
+            id,
+            project_path,
+            transcript_path,
+            project_name,
+            model,
+            custom_name,
+            first_prompt,
+            summary,
+            started_at,
+            last_activity_at,
+            approval_policy,
+            sandbox_mode,
+            permission_mode,
+            pending_tool_name,
+            pending_tool_input,
+            pending_question,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            context_window,
+            provider,
+            codex_integration_mode,
+            claude_integration_mode,
+            claude_sdk_session_id,
+            codex_thread_id,
+            end_reason,
+            terminal_session_id,
+            terminal_app,
+        )) = row else {
             return Ok(None);
         };
 
@@ -2743,10 +2843,14 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             last_activity_at,
             approval_policy,
             sandbox_mode,
+            permission_mode,
             input_tokens,
             output_tokens,
             cached_tokens,
             context_window,
+            pending_tool_name,
+            pending_tool_input,
+            pending_question,
             messages,
             forked_from_session_id: None,
             current_diff,

@@ -54,12 +54,8 @@ class ProjectFileIndex {
   }
 
   private func runGitLsFiles(in directory: String) async -> [ProjectFile] {
-    #if !os(macOS)
-      // TODO(server-extract): Project indexing should be provided by the server.
-      _ = directory
-      return []
-    #else
-      await withCheckedContinuation { continuation in
+    #if os(macOS)
+      let gitFiles: [ProjectFile] = await withCheckedContinuation { continuation in
         DispatchQueue.global(qos: .userInitiated).async {
           let task = Process()
           task.currentDirectoryURL = URL(fileURLWithPath: directory)
@@ -97,6 +93,63 @@ class ProjectFileIndex {
           }
         }
       }
+
+      if !gitFiles.isEmpty {
+        return gitFiles
+      }
     #endif
+
+    return await scanWithFileManager(in: directory)
+  }
+
+  private func scanWithFileManager(in directory: String) async -> [ProjectFile] {
+    await withCheckedContinuation { continuation in
+      DispatchQueue.global(qos: .userInitiated).async {
+        let rootURL = URL(fileURLWithPath: directory, isDirectory: true)
+        let fm = FileManager.default
+
+        guard let enumerator = fm.enumerator(
+          at: rootURL,
+          includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+          options: [.skipsHiddenFiles, .skipsPackageDescendants],
+          errorHandler: nil
+        ) else {
+          continuation.resume(returning: [])
+          return
+        }
+
+        let excludedDirectoryNames: Set<String> = [
+          ".git", ".build", "node_modules", "Pods", "DerivedData",
+        ]
+        let maxFiles = 6000
+        var files: [ProjectFile] = []
+        files.reserveCapacity(1500)
+
+        for case let fileURL as URL in enumerator {
+          if files.count >= maxFiles {
+            break
+          }
+
+          let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+          if resourceValues?.isDirectory == true {
+            if excludedDirectoryNames.contains(fileURL.lastPathComponent) {
+              enumerator.skipDescendants()
+            }
+            continue
+          }
+
+          guard resourceValues?.isRegularFile == true else { continue }
+          guard fileURL.path.hasPrefix(rootURL.path) else { continue }
+
+          let relativePath = String(fileURL.path.dropFirst(rootURL.path.count + 1))
+          guard !relativePath.isEmpty else { continue }
+          let name = fileURL.lastPathComponent
+          files.append(ProjectFile(id: relativePath, name: name, relativePath: relativePath))
+        }
+
+        files.sort { $0.relativePath < $1.relativePath }
+        continuation.resume(returning: files)
+      }
+    }
   }
 }

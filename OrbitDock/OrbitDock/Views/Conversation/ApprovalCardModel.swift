@@ -24,12 +24,17 @@ struct ApprovalCardModel: Hashable, Sendable {
 }
 
 enum ApprovalCardModeResolver {
-  static func resolve(for session: Session) -> ApprovalCardMode {
+  static func resolve(
+    for session: Session,
+    pendingApprovalId: String? = nil,
+    approvalType: ServerApprovalType? = nil
+  ) -> ApprovalCardMode {
     if session.canApprove { return .permission }
     if session.canAnswer { return .question }
     if session.canTakeOver { return .takeover }
 
-    guard session.needsApprovalOverlay else { return .none }
+    let hasPendingApproval = pendingApprovalId != nil
+    guard session.needsApprovalOverlay || hasPendingApproval else { return .none }
 
     // Safety fallback: if state flags are inconsistent but the session is still
     // blocked on an approval/question, surface a takeover path instead of
@@ -40,38 +45,54 @@ enum ApprovalCardModeResolver {
       case .awaitingQuestion:
         return session.canSendInput ? .question : .takeover
       case .none, .awaitingReply:
-        return .none
+        if approvalType == .question {
+          return session.canSendInput ? .question : .takeover
+        }
+        return session.canSendInput ? .permission : .takeover
     }
   }
 }
 
 enum ApprovalCardModelBuilder {
+  private static func unresolvedApproval(in history: [ServerApprovalHistoryItem]) -> ServerApprovalHistoryItem? {
+    history.first { $0.decision == nil && $0.decidedAt == nil }
+  }
+
   static func build(
     session: Session,
     pendingApproval: ServerApprovalRequest?,
     serverState: ServerAppState
   ) -> ApprovalCardModel? {
-    guard session.needsApprovalOverlay else { return nil }
+    let pendingHistory = unresolvedApproval(in: serverState.session(session.id).approvalHistory)
+    let approvalId = session.pendingApprovalId ?? pendingApproval?.id ?? pendingHistory?.requestId
+    let approvalType = pendingApproval?.type ?? pendingHistory?.approvalType
 
-    let mode = ApprovalCardModeResolver.resolve(for: session)
+    let mode = ApprovalCardModeResolver.resolve(
+      for: session,
+      pendingApprovalId: approvalId,
+      approvalType: approvalType
+    )
     guard mode != .none else { return nil }
 
     let risk: ApprovalRisk = if let approval = pendingApproval {
       classifyApprovalRisk(type: approval.type, command: approval.command)
+    } else if let pendingHistory {
+      classifyApprovalRisk(type: pendingHistory.approvalType, command: pendingHistory.command)
     } else {
       .normal
     }
 
     // Parse toolInput once for both command and filePath extraction
+    let rawToolInput = session.pendingToolInput ?? pendingApproval?.toolInputForDisplay
     let inputDict: [String: Any]? = {
-      guard let json = session.pendingToolInput,
+      guard let json = rawToolInput,
             let data = json.data(using: .utf8)
       else { return nil }
       return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }()
 
     // Tool-aware content extraction: try multiple fields to find preview content
-    let command: String? = {
+    let commandFromInput: String? = {
       guard let dict = inputDict else { return nil }
       // 1. Shell command (Bash)
       if let cmd = String.shellCommandDisplay(from: dict["command"]) { return cmd }
@@ -93,23 +114,26 @@ enum ApprovalCardModelBuilder {
       return nil
     }()
 
-    let filePath: String? = {
+    let filePathFromInput: String? = {
       guard let dict = inputDict else { return nil }
       return (dict["path"] as? String) ?? (dict["file_path"] as? String)
     }()
+    let command = commandFromInput ?? pendingApproval?.command ?? pendingHistory?.command
+    let filePath = filePathFromInput ?? pendingApproval?.filePath ?? pendingHistory?.filePath
+    let toolName = session.pendingToolName ?? pendingApproval?.toolName ?? pendingHistory?.toolName
 
     return ApprovalCardModel(
       mode: mode,
-      toolName: session.pendingToolName,
+      toolName: toolName,
       command: command,
       filePath: filePath,
       risk: risk,
       diff: pendingApproval?.diff,
-      question: session.pendingQuestion,
-      hasAmendment: pendingApproval?.proposedAmendment != nil,
-      approvalType: pendingApproval?.type,
+      question: session.pendingQuestion ?? pendingApproval?.question,
+      hasAmendment: pendingApproval?.proposedAmendment != nil || pendingHistory?.proposedAmendment != nil,
+      approvalType: approvalType,
       projectPath: session.projectPath,
-      approvalId: session.pendingApprovalId,
+      approvalId: approvalId,
       sessionId: session.id
     )
   }

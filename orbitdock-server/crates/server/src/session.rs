@@ -29,6 +29,44 @@ fn is_list_relevant(msg: &ServerMessage) -> bool {
     )
 }
 
+fn fallback_tool_name(approval: &ApprovalRequest) -> Option<String> {
+    if let Some(name) = approval.tool_name.as_ref().filter(|name| !name.is_empty()) {
+        return Some(name.clone());
+    }
+
+    match approval.approval_type {
+        ApprovalType::Exec => Some("Bash".to_string()),
+        ApprovalType::Patch => Some("Edit".to_string()),
+        ApprovalType::Question => None,
+    }
+}
+
+fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
+    if let Some(input) = approval.tool_input.as_ref().filter(|input| !input.is_empty()) {
+        return Some(input.clone());
+    }
+
+    let mut payload = serde_json::Map::new();
+    if let Some(command) = approval.command.as_ref().filter(|cmd| !cmd.is_empty()) {
+        payload.insert(
+            "command".to_string(),
+            serde_json::Value::String(command.clone()),
+        );
+    }
+    if let Some(path) = approval.file_path.as_ref().filter(|path| !path.is_empty()) {
+        payload.insert(
+            "file_path".to_string(),
+            serde_json::Value::String(path.clone()),
+        );
+    }
+
+    if payload.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(payload).to_string())
+    }
+}
+
 /// Lightweight, lock-free snapshot of session metadata.
 /// Used by `ArcSwap` so list subscribers and snapshot readers never block
 /// the actor.
@@ -51,6 +89,11 @@ pub struct SessionSnapshot {
     pub claude_integration_mode: Option<ClaudeIntegrationMode>,
     pub approval_policy: Option<String>,
     pub sandbox_mode: Option<String>,
+    pub permission_mode: Option<String>,
+    pub has_pending_approval: bool,
+    pub pending_tool_name: Option<String>,
+    pub pending_tool_input: Option<String>,
+    pub pending_question: Option<String>,
     pub message_count: usize,
     pub token_usage: TokenUsage,
     pub started_at: Option<String>,
@@ -104,6 +147,10 @@ pub struct SessionHandle {
     terminal_app: Option<String>,
     subagents: Vec<SubagentInfo>,
     pending_approval: Option<ApprovalRequest>,
+    permission_mode: Option<String>,
+    pending_tool_name: Option<String>,
+    pending_tool_input: Option<String>,
+    pending_question: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -141,6 +188,11 @@ impl SessionHandle {
             claude_integration_mode: None,
             approval_policy: None,
             sandbox_mode: None,
+            permission_mode: None,
+            has_pending_approval: false,
+            pending_tool_name: None,
+            pending_tool_input: None,
+            pending_question: None,
             message_count: 0,
             token_usage: TokenUsage::default(),
             started_at: Some(now.clone()),
@@ -189,6 +241,10 @@ impl SessionHandle {
             terminal_app: None,
             subagents: Vec::new(),
             pending_approval: None,
+            permission_mode: None,
+            pending_tool_name: None,
+            pending_tool_input: None,
+            pending_question: None,
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -214,6 +270,7 @@ impl SessionHandle {
         work_status: WorkStatus,
         approval_policy: Option<String>,
         sandbox_mode: Option<String>,
+        permission_mode: Option<String>,
         token_usage: TokenUsage,
         started_at: Option<String>,
         last_activity_at: Option<String>,
@@ -226,6 +283,9 @@ impl SessionHandle {
         current_cwd: Option<String>,
         first_prompt: Option<String>,
         last_message: Option<String>,
+        pending_tool_name: Option<String>,
+        pending_tool_input: Option<String>,
+        pending_question: Option<String>,
         effort: Option<String>,
         terminal_session_id: Option<String>,
         terminal_app: Option<String>,
@@ -246,6 +306,11 @@ impl SessionHandle {
             claude_integration_mode: None,
             approval_policy: approval_policy.clone(),
             sandbox_mode: sandbox_mode.clone(),
+            permission_mode: permission_mode.clone(),
+            has_pending_approval: pending_tool_name.is_some() || pending_question.is_some(),
+            pending_tool_name: pending_tool_name.clone(),
+            pending_tool_input: pending_tool_input.clone(),
+            pending_question: pending_question.clone(),
             message_count: messages.len(),
             token_usage: token_usage.clone(),
             started_at: started_at.clone(),
@@ -296,6 +361,10 @@ impl SessionHandle {
             terminal_app,
             subagents: Vec::new(),
             pending_approval: None,
+            permission_mode,
+            pending_tool_name,
+            pending_tool_input,
+            pending_question,
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -340,11 +409,17 @@ impl SessionHandle {
             status: self.status,
             work_status: self.work_status,
             token_usage: self.token_usage.clone(),
-            has_pending_approval: self.pending_approval.is_some(),
+            has_pending_approval: self.pending_approval.is_some()
+                || self.pending_tool_name.is_some()
+                || self.pending_question.is_some(),
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
+            permission_mode: self.permission_mode.clone(),
+            pending_tool_name: self.pending_tool_name.clone(),
+            pending_tool_input: self.pending_tool_input.clone(),
+            pending_question: self.pending_question.clone(),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             git_branch: self.git_branch.clone(),
@@ -371,6 +446,10 @@ impl SessionHandle {
             work_status: self.work_status,
             messages: self.messages.clone(),
             pending_approval: self.pending_approval.clone(),
+            permission_mode: self.permission_mode.clone(),
+            pending_tool_name: self.pending_tool_name.clone(),
+            pending_tool_input: self.pending_tool_input.clone(),
+            pending_question: self.pending_question.clone(),
             token_usage: self.token_usage.clone(),
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
@@ -621,6 +700,25 @@ impl SessionHandle {
         }
         if let Some(work_status) = changes.work_status {
             self.work_status = work_status;
+            if !matches!(work_status, WorkStatus::Permission | WorkStatus::Question)
+                && changes.pending_approval.is_none()
+            {
+                self.pending_tool_name = None;
+                self.pending_tool_input = None;
+                self.pending_question = None;
+            }
+        }
+        if let Some(ref pending_approval) = changes.pending_approval {
+            self.pending_approval = pending_approval.clone();
+            if let Some(approval) = pending_approval.as_ref() {
+                self.pending_tool_name = fallback_tool_name(approval);
+                self.pending_tool_input = fallback_tool_input(approval);
+                self.pending_question = approval.question.clone();
+            } else {
+                self.pending_tool_name = None;
+                self.pending_tool_input = None;
+                self.pending_question = None;
+            }
         }
         if let Some(ref custom_name) = changes.custom_name {
             self.custom_name = custom_name.clone();
@@ -636,6 +734,9 @@ impl SessionHandle {
         }
         if let Some(ref sandbox_mode) = changes.sandbox_mode {
             self.sandbox_mode = sandbox_mode.clone();
+        }
+        if let Some(ref permission_mode) = changes.permission_mode {
+            self.permission_mode = permission_mode.clone();
         }
         if let Some(ref codex_integration_mode) = changes.codex_integration_mode {
             self.codex_integration_mode = *codex_integration_mode;
@@ -698,6 +799,13 @@ impl SessionHandle {
             claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
             sandbox_mode: self.sandbox_mode.clone(),
+            permission_mode: self.permission_mode.clone(),
+            has_pending_approval: self.pending_approval.is_some()
+                || self.pending_tool_name.is_some()
+                || self.pending_question.is_some(),
+            pending_tool_name: self.pending_tool_name.clone(),
+            pending_tool_input: self.pending_tool_input.clone(),
+            pending_question: self.pending_question.clone(),
             message_count: self.messages.len(),
             token_usage: self.token_usage.clone(),
             started_at: self.started_at.clone(),
@@ -828,6 +936,15 @@ impl SessionHandle {
         self.git_sha = state.git_sha;
         self.current_cwd = state.current_cwd;
         self.pending_approval = state.pending_approval;
+        if let Some(approval) = self.pending_approval.as_ref() {
+            self.pending_tool_name = fallback_tool_name(approval);
+            self.pending_tool_input = fallback_tool_input(approval);
+            self.pending_question = approval.question.clone();
+        } else if !matches!(self.work_status, WorkStatus::Permission | WorkStatus::Question) {
+            self.pending_tool_name = None;
+            self.pending_tool_input = None;
+            self.pending_question = None;
+        }
 
         // Sync pending approval tracking from phase
         if let WorkPhase::AwaitingApproval {

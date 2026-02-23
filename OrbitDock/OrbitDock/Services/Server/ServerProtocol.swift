@@ -231,6 +231,10 @@ struct ServerSessionSummary: Codable, Identifiable {
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let approvalPolicy: String?
   let sandboxMode: String?
+  let permissionMode: String?
+  let pendingToolName: String?
+  let pendingToolInput: String?
+  let pendingQuestion: String?
   let startedAt: String?
   let lastActivityAt: String?
   let gitBranch: String?
@@ -257,6 +261,10 @@ struct ServerSessionSummary: Codable, Identifiable {
     case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
+    case permissionMode = "permission_mode"
+    case pendingToolName = "pending_tool_name"
+    case pendingToolInput = "pending_tool_input"
+    case pendingQuestion = "pending_question"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
     case gitBranch = "git_branch"
@@ -447,6 +455,10 @@ struct ServerSessionState: Codable, Identifiable {
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
   let approvalPolicy: String?
   let sandboxMode: String?
+  let permissionMode: String?
+  let pendingToolName: String?
+  let pendingToolInput: String?
+  let pendingQuestion: String?
   let startedAt: String?
   let lastActivityAt: String?
   let forkedFromSessionId: String?
@@ -484,6 +496,10 @@ struct ServerSessionState: Codable, Identifiable {
     case claudeIntegrationMode = "claude_integration_mode"
     case approvalPolicy = "approval_policy"
     case sandboxMode = "sandbox_mode"
+    case permissionMode = "permission_mode"
+    case pendingToolName = "pending_tool_name"
+    case pendingToolInput = "pending_tool_input"
+    case pendingQuestion = "pending_question"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
     case forkedFromSessionId = "forked_from_session_id"
@@ -526,6 +542,10 @@ struct ServerSessionState: Codable, Identifiable {
     )
     approvalPolicy = try container.decodeIfPresent(String.self, forKey: .approvalPolicy)
     sandboxMode = try container.decodeIfPresent(String.self, forKey: .sandboxMode)
+    permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+    pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
+    pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
+    pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
     startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
     lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
     forkedFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkedFromSessionId)

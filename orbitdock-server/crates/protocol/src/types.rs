@@ -189,6 +189,14 @@ pub struct SessionSummary {
     pub approval_policy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_tool_input: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_question: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -253,6 +261,14 @@ pub struct SessionState {
     pub work_status: WorkStatus,
     pub messages: Vec<Message>,
     pub pending_approval: Option<ApprovalRequest>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_tool_input: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_question: Option<String>,
     pub token_usage: TokenUsage,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,

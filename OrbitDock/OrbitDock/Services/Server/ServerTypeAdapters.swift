@@ -38,6 +38,9 @@ extension ServerSessionSummary {
       totalTokens: tokenUsage.map { Int($0.inputTokens + $0.outputTokens) } ?? 0,
       lastActivityAt: parseServerTimestamp(lastActivityAt),
       attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
+      pendingToolName: pendingToolName,
+      pendingToolInput: pendingToolInput,
+      pendingQuestion: pendingQuestion,
       provider: provider == .codex ? .codex : .claude,
       codexIntegrationMode: codexMode,
       claudeIntegrationMode: claudeMode,
@@ -71,6 +74,12 @@ extension ServerSessionState {
     } else {
       nil
     }
+    let effectivePendingToolName = pendingApproval?.toolNameForDisplay ?? pendingToolName
+    let effectivePendingToolInput = pendingApproval?.toolInputForDisplay ?? pendingToolInput
+    let effectivePendingQuestion = pendingApproval?.question ?? pendingQuestion
+    let hasPendingApproval = pendingApproval != nil
+      || effectivePendingToolName != nil
+      || effectivePendingQuestion != nil
 
     var session = Session(
       id: id,
@@ -85,10 +94,10 @@ extension ServerSessionState {
       startedAt: parseServerTimestamp(startedAt),
       totalTokens: Int(tokenUsage.inputTokens + tokenUsage.outputTokens),
       lastActivityAt: parseServerTimestamp(lastActivityAt),
-      attentionReason: workStatus.toAttentionReason(hasPendingApproval: pendingApproval != nil),
-      pendingToolName: pendingApproval?.toolNameForDisplay,
-      pendingToolInput: pendingApproval?.toolInputForDisplay,
-      pendingQuestion: pendingApproval?.question,
+      attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
+      pendingToolName: effectivePendingToolName,
+      pendingToolInput: effectivePendingToolInput,
+      pendingQuestion: effectivePendingQuestion,
       provider: provider == .codex ? .codex : .claude,
       codexIntegrationMode: codexMode,
       claudeIntegrationMode: claudeMode,

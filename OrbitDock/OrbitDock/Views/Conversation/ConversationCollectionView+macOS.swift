@@ -451,27 +451,36 @@ import SwiftUI
 
       // Derive approval state directly from serverState (source of truth)
       let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
+      let observable = sessionId.flatMap { serverState?.session($0) }
+      let pendingHistory = observable?.approvalHistory.first { $0.decision == nil && $0.decidedAt == nil }
+      let resolvedApprovalId = session?.pendingApprovalId ?? observable?.pendingApproval?.id ?? pendingHistory?.requestId
+      let resolvedApprovalType = observable?.pendingApproval?.type ?? pendingHistory?.approvalType
       let needsApproval = session?.needsApprovalOverlay ?? false
       let approvalMode: ApprovalCardMode = {
         guard let s = session else { return .none }
-        return ApprovalCardModeResolver.resolve(for: s)
+        return ApprovalCardModeResolver.resolve(
+          for: s,
+          pendingApprovalId: resolvedApprovalId,
+          approvalType: resolvedApprovalType
+        )
       }()
+      let shouldShowApprovalCard = approvalMode != .none || needsApproval
 
       let metadata = ConversationSourceState.SessionMetadata(
         chatViewMode: chatViewMode,
         isSessionActive: isSessionActive,
         workStatus: workStatus,
-        currentTool: currentTool,
-        pendingToolName: pendingToolName,
-        pendingToolInput: pendingToolInput,
+        currentTool: session?.lastTool ?? currentTool,
+        pendingToolName: session?.pendingToolName ?? pendingToolName,
+        pendingToolInput: session?.pendingToolInput ?? pendingToolInput,
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
         hasMoreMessages: hasMoreMessages,
-        needsApprovalCard: needsApproval,
+        needsApprovalCard: shouldShowApprovalCard,
         approvalMode: approvalMode,
-        pendingQuestion: session?.pendingQuestion,
-        pendingApprovalId: session?.pendingApprovalId,
+        pendingQuestion: session?.pendingQuestion ?? observable?.pendingApproval?.question,
+        pendingApprovalId: resolvedApprovalId,
         isDirectSession: session?.isDirect ?? false,
         sessionId: self.sessionId,
         projectPath: session?.projectPath

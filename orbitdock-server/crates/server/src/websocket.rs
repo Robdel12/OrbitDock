@@ -1008,6 +1008,10 @@ async fn handle_client_message(
                             work_status,
                             messages: restored.messages,
                             pending_approval: None,
+                            permission_mode: restored.permission_mode,
+                            pending_tool_name: restored.pending_tool_name,
+                            pending_tool_input: restored.pending_tool_input,
+                            pending_question: restored.pending_question,
                             token_usage: TokenUsage {
                                 input_tokens: restored.input_tokens as u64,
                                 output_tokens: restored.output_tokens as u64,
@@ -2433,6 +2437,7 @@ async fn handle_client_message(
                 orbitdock_protocol::WorkStatus::Waiting,
                 restored.approval_policy.clone(),
                 restored.sandbox_mode.clone(),
+                restored.permission_mode.clone(),
                 TokenUsage {
                     input_tokens: restored.input_tokens.max(0) as u64,
                     output_tokens: restored.output_tokens.max(0) as u64,
@@ -2480,6 +2485,9 @@ async fn handle_client_message(
                 restored.current_cwd,
                 restored.first_prompt,
                 restored.last_message,
+                restored.pending_tool_name,
+                restored.pending_tool_input,
+                restored.pending_question,
                 restored.effort,
                 restored.terminal_session_id,
                 restored.terminal_app,
