@@ -83,6 +83,46 @@ struct ServerRuntimeRegistryTests {
     #expect(spies[endpointA.id]?.disconnectCount == 1)
   }
 
+  @Test func endpointLookupReturnsScopedConnectionAndAppState() {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: false
+    )
+
+    let fallback = ServerAppState()
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+
+    let appStateA = registry.appState(for: endpointA.id, fallback: fallback)
+    let appStateB = registry.appState(for: endpointB.id, fallback: fallback)
+
+    #expect(appStateA.endpointId == endpointA.id)
+    #expect(appStateB.endpointId == endpointB.id)
+    #expect(registry.connection(for: endpointA.id)?.endpointId == endpointA.id)
+    #expect(registry.connection(for: endpointB.id)?.endpointId == endpointB.id)
+    #expect(registry.connection(for: nil) == nil)
+    #expect(registry.appState(for: nil, fallback: fallback).endpointId == fallback.endpointId)
+  }
+
   @Test func startsOnlyEnabledEndpointsWhenConfiguredFromSettings() {
     let endpointA = ServerEndpoint(
       id: UUID(),

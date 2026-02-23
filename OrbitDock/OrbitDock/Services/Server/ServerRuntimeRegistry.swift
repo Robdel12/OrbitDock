@@ -141,6 +141,20 @@ final class ServerRuntimeRegistry {
     sessionObservable(for: session, fallback: fallback).forkedFrom != nil
   }
 
+  func appState(for endpointId: UUID?, fallback: ServerAppState) -> ServerAppState {
+    guard let endpointId,
+          let runtime = runtimesByEndpointId[endpointId]
+    else {
+      return fallback
+    }
+    return runtime.appState
+  }
+
+  func connection(for endpointId: UUID?) -> ServerConnection? {
+    guard let endpointId else { return nil }
+    return runtimesByEndpointId[endpointId]?.connection
+  }
+
   private func ensureInitialized() {
     if runtimesByEndpointId.isEmpty {
       configureFromSettings(startEnabled: false)

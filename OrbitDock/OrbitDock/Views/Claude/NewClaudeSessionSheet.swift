@@ -11,8 +11,10 @@ import SwiftUI
 struct NewClaudeSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   @State private var selectedPath: String = ""
+  @State private var selectedEndpointId: UUID = ServerEndpointSettings.defaultEndpoint.id
   @State private var selectedModelId: String = ""
   @State private var customModelInput: String = ""
   @State private var useCustomModel = false
@@ -24,11 +26,11 @@ struct NewClaudeSessionSheet: View {
   @State private var selectedEffort: String? = nil
 
   private var canCreateSession: Bool {
-    !selectedPath.isEmpty && !isCreating
+    !selectedPath.isEmpty && !isCreating && isEndpointConnected
   }
 
   private var availableModels: [ServerClaudeModelOption] {
-    serverState.claudeModels
+    endpointAppState.claudeModels
   }
 
   private var resolvedModel: String? {
@@ -37,6 +39,28 @@ struct NewClaudeSessionSheet: View {
       return trimmed.isEmpty ? nil : trimmed
     }
     return selectedModelId.isEmpty ? nil : selectedModelId
+  }
+
+  private var selectableEndpoints: [ServerEndpoint] {
+    let enabled = ServerEndpointSettings.endpoints.filter(\.isEnabled)
+    return enabled.isEmpty ? ServerEndpointSettings.endpoints : enabled
+  }
+
+  private var endpointAppState: ServerAppState {
+    runtimeRegistry.appState(for: selectedEndpointId, fallback: serverState)
+  }
+
+  private var endpointStatus: ConnectionStatus {
+    runtimeRegistry.connectionStatusByEndpointId[selectedEndpointId]
+      ?? runtimeRegistry.connection(for: selectedEndpointId)?.status
+      ?? .disconnected
+  }
+
+  private var isEndpointConnected: Bool {
+    if case .connected = endpointStatus {
+      return true
+    }
+    return false
   }
 
   var body: some View {
@@ -48,6 +72,7 @@ struct NewClaudeSessionSheet: View {
 
       // Form content
       VStack(alignment: .leading, spacing: Spacing.xl) {
+        endpointSection
         directorySection
         configurationCard
         toolRestrictionsCard
@@ -64,6 +89,21 @@ struct NewClaudeSessionSheet: View {
     .frame(minWidth: 420, idealWidth: 500, maxWidth: 580)
     .background(Color.backgroundSecondary)
     .onAppear {
+      normalizeEndpointSelection()
+      endpointAppState.refreshClaudeModels()
+      if availableModels.isEmpty {
+        useCustomModel = true
+      } else if selectedModelId.isEmpty, let firstModel = availableModels.first {
+        selectedModelId = firstModel.value
+      }
+    }
+    .onChange(of: selectedEndpointId) { _, _ in
+      selectedPath = ""
+      selectedModelId = ""
+      customModelInput = ""
+      useCustomModel = false
+      normalizeEndpointSelection()
+      endpointAppState.refreshClaudeModels()
       if availableModels.isEmpty {
         useCustomModel = true
       } else if selectedModelId.isEmpty, let firstModel = availableModels.first {
@@ -101,11 +141,22 @@ struct NewClaudeSessionSheet: View {
 
   // MARK: - Directory
 
+  private var endpointSection: some View {
+    EndpointSelectorField(
+      endpoints: selectableEndpoints,
+      statusByEndpointId: runtimeRegistry.connectionStatusByEndpointId,
+      selectedEndpointId: $selectedEndpointId,
+      onReconnect: { endpointId in
+        runtimeRegistry.reconnect(endpointId: endpointId)
+      }
+    )
+  }
+
   private var directorySection: some View {
     #if os(iOS)
-      RemoteProjectPicker(selectedPath: $selectedPath)
+      RemoteProjectPicker(selectedPath: $selectedPath, endpointId: selectedEndpointId)
     #else
-      ProjectPicker(selectedPath: $selectedPath)
+      ProjectPicker(selectedPath: $selectedPath, endpointId: selectedEndpointId)
     #endif
   }
 
@@ -326,9 +377,19 @@ struct NewClaudeSessionSheet: View {
       .filter { !$0.isEmpty }
   }
 
+  private func normalizeEndpointSelection() {
+    guard !selectableEndpoints.isEmpty else { return }
+    if selectableEndpoints.contains(where: { $0.id == selectedEndpointId }) {
+      return
+    }
+    selectedEndpointId = selectableEndpoints.first(where: \.isDefault)?.id
+      ?? selectableEndpoints.first?.id
+      ?? selectedEndpointId
+  }
+
   private func createSession() {
     guard !selectedPath.isEmpty else { return }
-    serverState.createClaudeSession(
+    endpointAppState.createClaudeSession(
       cwd: selectedPath,
       model: resolvedModel,
       permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
@@ -420,4 +481,5 @@ private struct CompactClaudePermissionSelector: View {
 #Preview {
   NewClaudeSessionSheet()
     .environment(ServerAppState())
+    .environment(ServerRuntimeRegistry.shared)
 }

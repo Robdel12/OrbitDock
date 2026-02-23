@@ -13,6 +13,8 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "remote-projec
 
 struct RemoteProjectPicker: View {
   @Binding var selectedPath: String
+  let endpointId: UUID?
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var recentProjects: [ServerRecentProject] = []
   @State private var directoryEntries: [ServerDirectoryEntry] = []
   @State private var currentBrowsePath: String = ""
@@ -23,6 +25,11 @@ struct RemoteProjectPicker: View {
   @State private var browseHistory: [String] = []
   @State private var recentProjectsRequestId = UUID()
   @State private var browseRequestId = UUID()
+
+  init(selectedPath: Binding<String>, endpointId: UUID? = nil) {
+    _selectedPath = selectedPath
+    self.endpointId = endpointId
+  }
 
   private enum PickerTab: String, CaseIterable {
     case recent = "Recent"
@@ -55,6 +62,9 @@ struct RemoteProjectPicker: View {
     }
     .onAppear {
       loadRecentProjects()
+    }
+    .onChange(of: endpointId) { _, _ in
+      resetEndpointScopedState()
     }
   }
 
@@ -356,49 +366,61 @@ struct RemoteProjectPicker: View {
   // MARK: - Server Communication
 
   private func loadRecentProjects() {
+    guard let requestEndpointId = resolvedEndpointID(),
+          let connection = runtimeRegistry.connection(for: requestEndpointId)
+    else {
+      recentProjects = []
+      isLoadingRecent = false
+      return
+    }
+
     isLoadingRecent = true
-    let connection = ServerRuntimeRegistry.shared.activeConnection
-    let endpointId = connection.endpointId
     let requestId = UUID()
     recentProjectsRequestId = requestId
 
     Task { @MainActor in
       defer {
-        if recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+        if recentProjectsRequestId == requestId, resolvedEndpointID() == requestEndpointId {
           isLoadingRecent = false
         }
       }
 
       do {
         let projects = try await connection.listRecentProjects()
-        guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard recentProjectsRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
         recentProjects = projects
       } catch {
         logger.error("Failed to load recent projects: \(error.localizedDescription)")
-        guard recentProjectsRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard recentProjectsRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
         recentProjects = []
       }
     }
   }
 
   private func browseDirectory(_ path: String?) {
+    guard let requestEndpointId = resolvedEndpointID(),
+          let connection = runtimeRegistry.connection(for: requestEndpointId)
+    else {
+      directoryEntries = []
+      isLoadingDirectory = false
+      return
+    }
+
     isLoadingDirectory = true
-    let connection = ServerRuntimeRegistry.shared.activeConnection
-    let endpointId = connection.endpointId
     let requestId = UUID()
     let historyEntry = currentBrowsePath
     browseRequestId = requestId
 
     Task { @MainActor in
       defer {
-        if browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+        if browseRequestId == requestId, resolvedEndpointID() == requestEndpointId {
           isLoadingDirectory = false
         }
       }
 
       do {
         let listing = try await connection.browseDirectory(path: path)
-        guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
 
         if let path, !path.isEmpty {
           browseHistory.append(historyEntry)
@@ -407,7 +429,7 @@ struct RemoteProjectPicker: View {
         directoryEntries = listing.entries
       } catch {
         logger.error("Failed to browse directory: \(error.localizedDescription)")
-        guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
         directoryEntries = []
       }
     }
@@ -415,38 +437,61 @@ struct RemoteProjectPicker: View {
 
   private func navigateBack() {
     guard let previous = browseHistory.last else { return }
+    guard let requestEndpointId = resolvedEndpointID(),
+          let connection = runtimeRegistry.connection(for: requestEndpointId)
+    else {
+      directoryEntries = []
+      isLoadingDirectory = false
+      return
+    }
+
     isLoadingDirectory = true
-    let connection = ServerRuntimeRegistry.shared.activeConnection
-    let endpointId = connection.endpointId
     let requestId = UUID()
     browseRequestId = requestId
 
     Task { @MainActor in
       defer {
-        if browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId {
+        if browseRequestId == requestId, resolvedEndpointID() == requestEndpointId {
           isLoadingDirectory = false
         }
       }
 
       do {
         let listing = try await connection.browseDirectory(path: previous.isEmpty ? nil : previous)
-        guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
 
         _ = browseHistory.popLast()
         currentBrowsePath = listing.path
         directoryEntries = listing.entries
       } catch {
         logger.error("Failed to navigate back in directory browser: \(error.localizedDescription)")
-        guard browseRequestId == requestId, ServerRuntimeRegistry.shared.activeEndpointId == endpointId else { return }
+        guard browseRequestId == requestId, resolvedEndpointID() == requestEndpointId else { return }
         directoryEntries = []
       }
     }
   }
+
+  private func resolvedEndpointID() -> UUID? {
+    endpointId
+      ?? runtimeRegistry.activeEndpointId
+      ?? ServerRuntimeRegistry.preferredActiveEndpointID(from: ServerEndpointSettings.endpoints)
+  }
+
+  private func resetEndpointScopedState() {
+    selectedPath = ""
+    recentProjects = []
+    directoryEntries = []
+    currentBrowsePath = ""
+    browseHistory = []
+    manualPathText = ""
+    loadRecentProjects()
+  }
 }
 
 #Preview {
-  RemoteProjectPicker(selectedPath: .constant(""))
+  RemoteProjectPicker(selectedPath: .constant(""), endpointId: nil)
     .padding()
     .frame(width: 400)
     .background(Color.backgroundSecondary)
+    .environment(ServerRuntimeRegistry.shared)
 }

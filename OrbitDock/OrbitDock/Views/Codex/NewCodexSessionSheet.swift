@@ -11,23 +11,25 @@ import SwiftUI
 struct NewCodexSessionSheet: View {
   @Environment(\.dismiss) private var dismiss
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   @State private var selectedPath: String = ""
   @State private var selectedModel: String = ""
   @State private var selectedAutonomy: AutonomyLevel = .autonomous
+  @State private var selectedEndpointId: UUID = ServerEndpointSettings.defaultEndpoint.id
   @State private var isCreating = false
   @State private var errorMessage: String?
 
   private var modelOptions: [ServerCodexModelOption] {
-    serverState.codexModels
+    endpointAppState.codexModels
   }
 
   private var requiresLogin: Bool {
-    serverState.codexRequiresOpenAIAuth && serverState.codexAccount == nil
+    endpointAppState.codexRequiresOpenAIAuth && endpointAppState.codexAccount == nil
   }
 
   private var canCreateSession: Bool {
-    !selectedPath.isEmpty && !selectedModel.isEmpty && !isCreating && !requiresLogin
+    !selectedPath.isEmpty && !selectedModel.isEmpty && !isCreating && !requiresLogin && isEndpointConnected
   }
 
   private var defaultModelSelection: String {
@@ -35,6 +37,28 @@ struct NewCodexSessionSheet: View {
       return model
     }
     return modelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
+  }
+
+  private var selectableEndpoints: [ServerEndpoint] {
+    let enabled = ServerEndpointSettings.endpoints.filter(\.isEnabled)
+    return enabled.isEmpty ? ServerEndpointSettings.endpoints : enabled
+  }
+
+  private var endpointAppState: ServerAppState {
+    runtimeRegistry.appState(for: selectedEndpointId, fallback: serverState)
+  }
+
+  private var endpointStatus: ConnectionStatus {
+    runtimeRegistry.connectionStatusByEndpointId[selectedEndpointId]
+      ?? runtimeRegistry.connection(for: selectedEndpointId)?.status
+      ?? .disconnected
+  }
+
+  private var isEndpointConnected: Bool {
+    if case .connected = endpointStatus {
+      return true
+    }
+    return false
   }
 
   var body: some View {
@@ -48,9 +72,11 @@ struct NewCodexSessionSheet: View {
       // Form content
       VStack(alignment: .leading, spacing: Spacing.xl) {
         // Auth gate — only shows when not connected
-        if serverState.codexAccount == nil {
+        if endpointAppState.codexAccount == nil {
           authGateSection
         }
+
+        endpointSection
 
         directorySection
 
@@ -75,13 +101,19 @@ struct NewCodexSessionSheet: View {
     .frame(minWidth: 420, idealWidth: 500, maxWidth: 580)
     .background(Color.backgroundSecondary)
     .onAppear {
-      serverState.refreshCodexModels()
-      serverState.refreshCodexAccount()
+      normalizeEndpointSelection()
+      refreshEndpointData()
       if selectedModel.isEmpty {
         selectedModel = defaultModelSelection
       }
     }
-    .onChange(of: serverState.codexModels.count) { _, _ in
+    .onChange(of: selectedEndpointId) { _, _ in
+      selectedPath = ""
+      selectedModel = ""
+      normalizeEndpointSelection()
+      refreshEndpointData()
+    }
+    .onChange(of: endpointAppState.codexModels.count) { _, _ in
       if selectedModel.isEmpty || !modelOptions.contains(where: { $0.model == selectedModel }) {
         selectedModel = defaultModelSelection
       }
@@ -103,7 +135,7 @@ struct NewCodexSessionSheet: View {
       Spacer()
 
       // Inline auth status when connected
-      if let account = serverState.codexAccount {
+      if let account = endpointAppState.codexAccount {
         connectedBadge(account)
       }
 
@@ -135,9 +167,9 @@ struct NewCodexSessionSheet: View {
       }
 
       HStack(spacing: Spacing.sm) {
-        if serverState.codexLoginInProgress {
+        if endpointAppState.codexLoginInProgress {
           Button {
-            serverState.cancelCodexChatgptLogin()
+            endpointAppState.cancelCodexChatgptLogin()
           } label: {
             Label("Cancel", systemImage: "xmark.circle")
               .font(.system(size: TypeScale.body, weight: .semibold))
@@ -153,7 +185,7 @@ struct NewCodexSessionSheet: View {
           }
         } else {
           Button {
-            serverState.startCodexChatgptLogin()
+            endpointAppState.startCodexChatgptLogin()
           } label: {
             Label("Sign in with ChatGPT", systemImage: "sparkles")
               .font(.system(size: TypeScale.body, weight: .semibold))
@@ -163,7 +195,7 @@ struct NewCodexSessionSheet: View {
         }
       }
 
-      if let authError = serverState.codexAuthError, !authError.isEmpty {
+      if let authError = endpointAppState.codexAuthError, !authError.isEmpty {
         Text(authError)
           .font(.system(size: TypeScale.caption))
           .foregroundStyle(Color.statusPermission)
@@ -179,11 +211,22 @@ struct NewCodexSessionSheet: View {
 
   // MARK: - Directory
 
+  private var endpointSection: some View {
+    EndpointSelectorField(
+      endpoints: selectableEndpoints,
+      statusByEndpointId: runtimeRegistry.connectionStatusByEndpointId,
+      selectedEndpointId: $selectedEndpointId,
+      onReconnect: { endpointId in
+        runtimeRegistry.reconnect(endpointId: endpointId)
+      }
+    )
+  }
+
   private var directorySection: some View {
     #if os(iOS)
-      RemoteProjectPicker(selectedPath: $selectedPath)
+      RemoteProjectPicker(selectedPath: $selectedPath, endpointId: selectedEndpointId)
     #else
-      ProjectPicker(selectedPath: $selectedPath)
+      ProjectPicker(selectedPath: $selectedPath, endpointId: selectedEndpointId)
     #endif
   }
 
@@ -306,9 +349,9 @@ struct NewCodexSessionSheet: View {
   private var footer: some View {
     HStack(spacing: Spacing.md) {
       // Sign out (subtle, in footer when connected)
-      if serverState.codexAccount != nil {
+      if endpointAppState.codexAccount != nil {
         Button {
-          serverState.logoutCodexAccount()
+          endpointAppState.logoutCodexAccount()
         } label: {
           Text("Sign Out")
             .font(.system(size: TypeScale.caption, weight: .medium))
@@ -402,10 +445,25 @@ struct NewCodexSessionSheet: View {
 
   // MARK: - Actions
 
+  private func normalizeEndpointSelection() {
+    guard !selectableEndpoints.isEmpty else { return }
+    if selectableEndpoints.contains(where: { $0.id == selectedEndpointId }) {
+      return
+    }
+    selectedEndpointId = selectableEndpoints.first(where: \.isDefault)?.id
+      ?? selectableEndpoints.first?.id
+      ?? selectedEndpointId
+  }
+
+  private func refreshEndpointData() {
+    endpointAppState.refreshCodexModels()
+    endpointAppState.refreshCodexAccount()
+  }
+
   private func createSession() {
     guard !selectedPath.isEmpty, !selectedModel.isEmpty else { return }
 
-    serverState.createSession(
+    endpointAppState.createSession(
       cwd: selectedPath,
       model: selectedModel,
       approvalPolicy: selectedAutonomy.approvalPolicy,
@@ -496,4 +554,5 @@ private struct CompactAutonomySelector: View {
 #Preview {
   NewCodexSessionSheet()
     .environment(ServerAppState())
+    .environment(ServerRuntimeRegistry.shared)
 }

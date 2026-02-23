@@ -308,7 +308,7 @@ struct ContentView: View {
           }
         },
         onQuickLaunchClaude: { path in
-          serverState.createClaudeSession(
+          creationAppState().createClaudeSession(
             cwd: path,
             model: nil,
             permissionMode: nil,
@@ -318,9 +318,10 @@ struct ContentView: View {
           )
         },
         onQuickLaunchCodex: { path in
-          let defaultModel = serverState.codexModels.first(where: { $0.isDefault })?.model
-            ?? serverState.codexModels.first?.model ?? ""
-          serverState.createSession(
+          let targetState = creationAppState()
+          let defaultModel = targetState.codexModels.first(where: { $0.isDefault })?.model
+            ?? targetState.codexModels.first?.model ?? ""
+          targetState.createSession(
             cwd: path,
             model: defaultModel,
             approvalPolicy: "on-request",
@@ -388,6 +389,16 @@ struct ContentView: View {
     }
     runtimeRegistry.setActiveEndpoint(id: ref.endpointId)
     selectedSessionScopedID = ref.scopedID
+  }
+
+  private func creationAppState() -> ServerAppState {
+    let preferredEndpointId = ServerRuntimeRegistry.preferredActiveEndpointID(from: ServerEndpointSettings.endpoints)
+    if let preferredEndpointId,
+       let runtime = runtimeRegistry.runtimesByEndpointId[preferredEndpointId]
+    {
+      return runtime.appState
+    }
+    return serverState
   }
 }
 
