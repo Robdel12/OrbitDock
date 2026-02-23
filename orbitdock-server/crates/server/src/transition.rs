@@ -1019,8 +1019,36 @@ pub fn transition(
             })));
         }
 
-        // -- Pass-through (broadcast only, no state change) -------------------
+        // -- Context management -----------------------------------------------
         Input::ContextCompacted => {
+            state.last_activity_at = Some(now.to_string());
+
+            // Record compaction as a first-class transcript event so it is visible
+            // in chat history and persisted in SQLite for reloads.
+            let compact_msg = Message {
+                id: format!("context-compacted-{}", uuid::Uuid::new_v4()),
+                session_id: sid.clone(),
+                message_type: MessageType::Assistant,
+                content: "Context compacted to keep this session within the model context window."
+                    .to_string(),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: false,
+                timestamp: now.to_string(),
+                duration_ms: None,
+                images: vec![],
+            };
+            state.messages.push(compact_msg.clone());
+
+            effects.push(Effect::Persist(Box::new(PersistOp::MessageAppend {
+                session_id: sid.clone(),
+                message: compact_msg.clone(),
+            })));
+            effects.push(Effect::Emit(Box::new(ServerMessage::MessageAppended {
+                session_id: sid.clone(),
+                message: compact_msg,
+            })));
             effects.push(Effect::Emit(Box::new(ServerMessage::ContextCompacted {
                 session_id: sid,
             })));
@@ -1344,13 +1372,29 @@ mod tests {
     }
 
     #[test]
-    fn pass_through_events_only_emit() {
+    fn context_compacted_appends_message_and_emits_event() {
         let state = test_state();
 
         let (new_state, effects) = transition(state.clone(), Input::ContextCompacted, NOW);
         assert_eq!(new_state.phase, state.phase);
-        assert_eq!(effects.len(), 1);
-        assert!(matches!(effects[0], Effect::Emit(_)));
+        assert_eq!(effects.len(), 3);
+        assert!(matches!(effects[0], Effect::Persist(_)));
+        assert!(matches!(effects[1], Effect::Emit(_)));
+        assert!(matches!(effects[2], Effect::Emit(_)));
+        let last_msg = new_state
+            .messages
+            .last()
+            .expect("expected compaction message");
+        assert_eq!(last_msg.message_type, MessageType::Assistant);
+        assert_eq!(
+            last_msg.content,
+            "Context compacted to keep this session within the model context window."
+        );
+    }
+
+    #[test]
+    fn pass_through_events_only_emit() {
+        let state = test_state();
 
         let (_, effects) = transition(state, Input::SkillsUpdateAvailable, NOW);
         assert_eq!(effects.len(), 1);
