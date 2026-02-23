@@ -124,11 +124,7 @@
     }
 
     private static func roundedFont(size: CGFloat, weight: UIFont.Weight) -> UIFont {
-      let base = UIFont.systemFont(ofSize: size, weight: weight)
-      if let rounded = base.fontDescriptor.withDesign(.rounded) {
-        return UIFont(descriptor: rounded, size: size)
-      }
-      return base
+      UIFont.systemFont(ofSize: size, weight: weight)
     }
 
     private func statusInfo(for status: TurnStatus) -> (String, UIColor) {

@@ -315,14 +315,17 @@ enum SharedModelBuilders {
     isThinkingExpanded: Bool
   ) -> NativeRichMessageRowModel? {
     guard !message.isTool else { return nil }
-    guard !message.content.isEmpty else { return nil }
 
     let displayContent: String
     if message.isUser {
       displayContent = preprocessUserContent(message.content)
-      guard !displayContent.isEmpty else { return nil }
     } else {
       displayContent = message.content
+    }
+
+    let hasRenderableBody = !displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    if !hasRenderableBody, message.images.isEmpty {
+      return nil
     }
 
     let messageType: NativeRichMessageRowModel.MessageType

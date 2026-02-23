@@ -135,11 +135,7 @@
     }
 
     private static func roundedFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-      let base = NSFont.systemFont(ofSize: size, weight: weight)
-      if let rounded = base.fontDescriptor.withDesign(.rounded) {
-        return NSFont(descriptor: rounded, size: size) ?? base
-      }
-      return base
+      NSFont.systemFont(ofSize: size, weight: weight)
     }
 
     private func statusInfo(for status: TurnStatus) -> (String, NSColor) {
@@ -512,6 +508,193 @@
 
     func configure(displayedCount: Int, totalCount: Int) {
       label.stringValue = "Showing \(displayedCount) of \(totalCount) messages"
+    }
+  }
+
+  // MARK: - Live Indicator Cell
+
+  final class NativeLiveIndicatorCellView: NSTableCellView {
+    static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeLiveIndicatorCell")
+
+    private static let dotSize: CGFloat = 6
+    private static let statusColumnWidth: CGFloat = 20
+
+    private let dotView = NSView()
+    private let iconView = NSImageView()
+    private let primaryLabel = NSTextField(labelWithString: "")
+    private let separatorLabel = NSTextField(labelWithString: "\u{00B7}")
+    private let detailLabel = NSTextField(labelWithString: "")
+    private let toolLabel = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+      super.init(frame: frameRect)
+      setup()
+    }
+
+    required init?(coder: NSCoder) {
+      super.init(coder: coder)
+      setup()
+    }
+
+    private func setup() {
+      wantsLayer = true
+      layer?.backgroundColor = NSColor.clear.cgColor
+
+      dotView.wantsLayer = true
+      dotView.layer?.cornerRadius = Self.dotSize / 2
+      dotView.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(dotView)
+
+      iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+      iconView.contentTintColor = NSColor(Color.statusPermission)
+      iconView.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(iconView)
+
+      primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
+      primaryLabel.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(primaryLabel)
+
+      separatorLabel.font = NSFont.systemFont(ofSize: TypeScale.body)
+      separatorLabel.textColor = NSColor(Color.textQuaternary)
+      separatorLabel.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(separatorLabel)
+
+      detailLabel.font = NSFont.systemFont(ofSize: TypeScale.body)
+      detailLabel.textColor = NSColor(Color.textTertiary)
+      detailLabel.lineBreakMode = .byTruncatingTail
+      detailLabel.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(detailLabel)
+
+      toolLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .bold)
+      toolLabel.textColor = NSColor(Color.textPrimary)
+      toolLabel.lineBreakMode = .byTruncatingTail
+      toolLabel.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(toolLabel)
+
+      let inset = ConversationLayout.metadataHorizontalInset
+      NSLayoutConstraint.activate([
+        dotView.leadingAnchor.constraint(
+          equalTo: leadingAnchor,
+          constant: inset + (Self.statusColumnWidth - Self.dotSize) / 2
+        ),
+        dotView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        dotView.widthAnchor.constraint(equalToConstant: Self.dotSize),
+        dotView.heightAnchor.constraint(equalToConstant: Self.dotSize),
+
+        iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+        iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
+        iconView.widthAnchor.constraint(equalToConstant: Self.statusColumnWidth),
+
+        primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + Self.statusColumnWidth + Spacing.xs),
+        primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+        separatorLabel.leadingAnchor.constraint(equalTo: primaryLabel.trailingAnchor, constant: Spacing.xs),
+        separatorLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+        toolLabel.leadingAnchor.constraint(equalTo: separatorLabel.trailingAnchor, constant: Spacing.xs),
+        toolLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+        detailLabel.leadingAnchor.constraint(equalTo: toolLabel.trailingAnchor, constant: Spacing.xs),
+        detailLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -inset),
+      ])
+    }
+
+    func configure(
+      workStatus: Session.WorkStatus,
+      currentTool: String?,
+      pendingToolName: String?,
+      pendingToolInput: String?,
+      provider: Provider
+    ) {
+      dotView.isHidden = true
+      iconView.isHidden = true
+      separatorLabel.isHidden = true
+      detailLabel.isHidden = true
+      toolLabel.isHidden = true
+      primaryLabel.stringValue = ""
+      detailLabel.stringValue = ""
+      toolLabel.stringValue = ""
+      detailLabel.font = NSFont.systemFont(ofSize: TypeScale.body)
+      detailLabel.textColor = NSColor(Color.textTertiary)
+
+      switch workStatus {
+        case .working:
+          dotView.isHidden = false
+          dotView.layer?.backgroundColor = NSColor(Color.statusWorking).cgColor
+
+          primaryLabel.stringValue = "Working"
+          primaryLabel.textColor = NSColor(Color.statusWorking)
+
+          if let tool = currentTool, !tool.isEmpty {
+            separatorLabel.isHidden = false
+            detailLabel.isHidden = false
+            toolLabel.isHidden = true
+            detailLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+            detailLabel.stringValue = tool
+          }
+
+        case .waiting:
+          dotView.isHidden = false
+          dotView.layer?.backgroundColor = NSColor(Color.statusReply).cgColor
+
+          primaryLabel.stringValue = "Your turn"
+          primaryLabel.textColor = NSColor(Color.statusReply)
+
+          separatorLabel.isHidden = false
+          detailLabel.isHidden = false
+          detailLabel.stringValue = provider == .codex ? "Send a message below" : "Respond in terminal"
+
+        case .permission:
+          iconView.isHidden = false
+          iconView.image = NSImage(
+            systemSymbolName: "exclamationmark.triangle.fill",
+            accessibilityDescription: nil
+          )
+          iconView.contentTintColor = NSColor(Color.statusPermission)
+
+          primaryLabel.stringValue = "Permission"
+          primaryLabel.textColor = NSColor(Color.statusPermission)
+
+          if let toolName = pendingToolName, !toolName.isEmpty {
+            separatorLabel.isHidden = false
+            toolLabel.isHidden = false
+            toolLabel.stringValue = toolName
+          }
+
+          if let detail = permissionDetail(toolName: pendingToolName, toolInput: pendingToolInput) {
+            detailLabel.isHidden = false
+            detailLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+            detailLabel.textColor = NSColor(Color.textSecondary)
+            detailLabel.stringValue = detail
+          }
+
+        case .unknown:
+          primaryLabel.stringValue = ""
+      }
+    }
+
+    private func permissionDetail(toolName: String?, toolInput: String?) -> String? {
+      guard let inputJson = toolInput,
+            let data = inputJson.data(using: .utf8),
+            let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+      else { return nil }
+
+      switch toolName ?? "" {
+        case "Bash":
+          if let cmd = String.shellCommandDisplay(from: input["command"])
+            ?? String.shellCommandDisplay(from: input["cmd"])
+          {
+            return cmd.count > 50 ? String(cmd.prefix(47)) + "\u{2026}" : cmd
+          }
+        case "Edit", "Write", "Read":
+          if let path = input["file_path"] as? String {
+            return (path as NSString).lastPathComponent
+          }
+        default:
+          break
+      }
+      return nil
     }
   }
 

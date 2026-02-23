@@ -349,14 +349,7 @@ struct NativeRichMessageRowModel {
       let fontWeight: NSFont.Weight = isThinking ? .medium : .semibold
       let kern: CGFloat = isThinking ? 0.3 : 0.5
 
-      if let roundedFont = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
-        .fontDescriptor.withDesign(.rounded)
-      {
-        speakerLabel.font = NSFont(descriptor: roundedFont, size: fontSize)
-          ?? NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
-      } else {
-        speakerLabel.font = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
-      }
+      speakerLabel.font = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
 
       // Glyph size: smaller for thinking
       glyphImage.symbolConfiguration = NSImage.SymbolConfiguration(

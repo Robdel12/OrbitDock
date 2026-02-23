@@ -260,6 +260,7 @@ final class NativeMarkdownContentView: PlatformView {
       textView.textContainer?.widthTracksTextView = true
       textView.isVerticallyResizable = false
       textView.isHorizontallyResizable = false
+      textView.delegate = self
       textView.textStorage?.setAttributedString(attrStr)
       // Enable link clicking
       textView.isAutomaticLinkDetectionEnabled = false
@@ -279,6 +280,7 @@ final class NativeMarkdownContentView: PlatformView {
       textView.isScrollEnabled = false
       textView.textContainerInset = .zero
       textView.textContainer.lineFragmentPadding = 0
+      textView.delegate = self
       textView.attributedText = attrStr
       textView.linkTextAttributes = [
         .foregroundColor: PlatformColor.calibrated(red: 0.5, green: 0.72, blue: 0.95, alpha: 1),
@@ -288,6 +290,36 @@ final class NativeMarkdownContentView: PlatformView {
     }
   #endif
 }
+
+#if os(macOS)
+  extension NativeMarkdownContentView: NSTextViewDelegate {
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+      let url: URL?
+      if let value = link as? URL {
+        url = value
+      } else if let value = link as? String {
+        url = URL(string: value)
+      } else {
+        url = nil
+      }
+
+      guard let url else { return false }
+      return Platform.services.openURL(url)
+    }
+  }
+#else
+  extension NativeMarkdownContentView: UITextViewDelegate {
+    func textView(
+      _ textView: UITextView,
+      shouldInteractWith url: URL,
+      in characterRange: NSRange,
+      interaction: UITextItemInteraction
+    ) -> Bool {
+      _ = Platform.services.openURL(url)
+      return false
+    }
+  }
+#endif
 
 // MARK: - Thematic Break View (three dots)
 

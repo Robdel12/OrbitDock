@@ -248,13 +248,7 @@
       let fontWeight: PlatformFont.Weight = isThinking ? .medium : .semibold
       let kern: CGFloat = isThinking ? 0.3 : 0.5
 
-      let font: PlatformFont = if let roundedDesc = PlatformFont.systemFont(ofSize: fontSize, weight: fontWeight)
-        .fontDescriptor.withDesign(.rounded)
-      {
-        UIFont(descriptor: roundedDesc, size: fontSize)
-      } else {
-        PlatformFont.systemFont(ofSize: fontSize, weight: fontWeight)
-      }
+      let font = PlatformFont.systemFont(ofSize: fontSize, weight: fontWeight)
 
       let attrs: [NSAttributedString.Key: Any] = [
         .kern: kern,

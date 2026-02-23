@@ -610,9 +610,9 @@ private func headingFont(level: Int, style: MarkdownStyle) -> Font {
   let isThinking = style == .thinking
   switch level {
     case 1:
-      return .system(size: isThinking ? TypeScale.subhead : TypeScale.chatHeading1, weight: .bold, design: .serif)
+      return .system(size: isThinking ? TypeScale.subhead : TypeScale.chatHeading1, weight: .bold)
     case 2:
-      return .system(size: isThinking ? TypeScale.body : TypeScale.chatHeading2, weight: .semibold, design: .serif)
+      return .system(size: isThinking ? TypeScale.body : TypeScale.chatHeading2, weight: .semibold)
     default:
       return .system(size: isThinking ? TypeScale.code : TypeScale.chatHeading3, weight: .bold)
   }

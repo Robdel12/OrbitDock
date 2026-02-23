@@ -90,6 +90,44 @@ enum MarkdownAttributedStringRenderer {
     parseCache.removeAll(keepingCapacity: true)
   }
 
+  private static let linkDetector: NSDataDetector? = try? NSDataDetector(
+    types: NSTextCheckingResult.CheckingType.link.rawValue
+  )
+
+  private static let allowedLinkSchemes: Set<String> = [
+    "http", "https", "mailto", "tel",
+  ]
+
+  private static func isAllowedURL(_ url: URL) -> Bool {
+    guard let scheme = url.scheme?.lowercased() else { return false }
+    return allowedLinkSchemes.contains(scheme)
+  }
+
+  private static func normalizedURL(_ raw: String) -> URL? {
+    let trimmed = raw
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+    guard !trimmed.isEmpty else { return nil }
+
+    if let url = URL(string: trimmed),
+       isAllowedURL(url)
+    {
+      return url
+    }
+
+    if trimmed.contains("://") {
+      return nil
+    }
+
+    if let https = URL(string: "https://\(trimmed)"),
+       isAllowedURL(https)
+    {
+      return https
+    }
+
+    return nil
+  }
+
   // MARK: - Normalize Language
 
   private static func normalizeLanguage(_ lang: String) -> String {
@@ -285,24 +323,18 @@ enum MarkdownAttributedStringRenderer {
       let level = min(heading.level, 3)
       let isThinking = activeStyle == .thinking
 
-      #if os(macOS)
-        typealias FontDesign = NSFontDescriptor.SystemDesign
-      #else
-        typealias FontDesign = UIFontDescriptor.SystemDesign
-      #endif
-
-      let (fontSize, weight, design, color, topMargin, bottomMargin, kern): (
-        CGFloat, PlatformFont.Weight, FontDesign?, PlatformColor, CGFloat, CGFloat, CGFloat
+      let (fontSize, weight, color, topMargin, bottomMargin, kern): (
+        CGFloat, PlatformFont.Weight, PlatformColor, CGFloat, CGFloat, CGFloat
       ) = switch level {
         case 1:
           (
-            isThinking ? 18 : TypeScale.chatHeading1, .bold, .serif,
+            isThinking ? 18 : TypeScale.chatHeading1, .bold,
             isThinking ? PlatformColor(Color.textSecondary) : PlatformColor(Color.textPrimary),
             isThinking ? 18 : 26, isThinking ? 8 : 14, isThinking ? 0 : 0.3
           )
         case 2:
           (
-            isThinking ? 15 : TypeScale.chatHeading2, .semibold, .serif,
+            isThinking ? 15 : TypeScale.chatHeading2, .semibold,
             isThinking
               ? PlatformColor(Color.textSecondary).withAlphaComponent(0.9)
               : PlatformColor(Color.textPrimary).withAlphaComponent(0.95),
@@ -310,16 +342,13 @@ enum MarkdownAttributedStringRenderer {
           )
         default:
           (
-            isThinking ? 13 : TypeScale.chatHeading3, .bold, nil,
+            isThinking ? 13 : TypeScale.chatHeading3, .bold,
             isThinking ? PlatformColor(Color.textSecondary) : PlatformColor(Color.textPrimary).withAlphaComponent(0.88),
             isThinking ? 10 : 16, isThinking ? 4 : 8, isThinking ? 0 : 0.5
           )
       }
 
-      var font = PlatformFont.systemFont(ofSize: fontSize, weight: weight)
-      if let design, let styled = font.withDesign(design) {
-        font = styled
-      }
+      let font = PlatformFont.systemFont(ofSize: fontSize, weight: weight)
 
       let para = NSMutableParagraphStyle()
       para.paragraphSpacingBefore = topMargin
@@ -403,7 +432,7 @@ enum MarkdownAttributedStringRenderer {
       ]
       result.append(NSAttributedString(string: "\t" + bullet, attributes: bulletAttrs))
 
-      // Render inline content from paragraph children
+      // Render list content. Support paragraphs, fenced code, and fallback plain text.
       for child in item.children {
         if let paragraph = child as? Paragraph {
           var inlineVisitor = InlineAttributedStringVisitor(
@@ -418,6 +447,30 @@ enum MarkdownAttributedStringRenderer {
             range: NSRange(location: 0, length: inlineStr.length)
           )
           result.append(inlineStr)
+        } else if let codeBlock = child as? CodeBlock {
+          var code = codeBlock.code
+          while code.hasSuffix("\n") {
+            code = String(code.dropLast())
+          }
+          guard !code.isEmpty else { continue }
+          let codePara = para.mutableCopy() as! NSMutableParagraphStyle
+          codePara.paragraphSpacingBefore = max(2, para.paragraphSpacingBefore)
+          let codeAttrs: [NSAttributedString.Key: Any] = [
+            .font: Fonts.inlineCode,
+            .foregroundColor: Colors.text,
+            .backgroundColor: Colors.inlineCodeBg,
+            .paragraphStyle: codePara,
+          ]
+          result.append(NSAttributedString(string: "\n\(code)", attributes: codeAttrs))
+        } else {
+          let plain = child.format().trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !plain.isEmpty else { continue }
+          let attrs: [NSAttributedString.Key: Any] = [
+            .font: Fonts.body,
+            .foregroundColor: Colors.text,
+            .paragraphStyle: para,
+          ]
+          result.append(NSAttributedString(string: plain, attributes: attrs))
         }
       }
 
@@ -454,6 +507,8 @@ enum MarkdownAttributedStringRenderer {
     let baseColor: PlatformColor
     private var isBold = false
     private var isItalic = false
+    private var activeLinkURL: URL?
+    private var isInsideMarkdownLink = false
 
     init(baseFont: PlatformFont, baseColor: PlatformColor) {
       self.baseFont = baseFont
@@ -475,13 +530,82 @@ enum MarkdownAttributedStringRenderer {
       return result
     }
 
+    private func applyLinkStyleIfNeeded(
+      to attributes: [NSAttributedString.Key: Any],
+      explicitLink: URL?
+    ) -> [NSAttributedString.Key: Any] {
+      let shouldStyleAsLink = isInsideMarkdownLink || explicitLink != nil
+      guard shouldStyleAsLink else { return attributes }
+
+      var merged = attributes
+      merged[.foregroundColor] = Colors.link
+      merged[.underlineStyle] = NSUnderlineStyle.single.rawValue
+      if let explicitLink {
+        merged[.link] = explicitLink
+      }
+      return merged
+    }
+
+    private mutating func appendText(
+      _ text: String,
+      attributes baseAttributes: [NSAttributedString.Key: Any],
+      into result: NSMutableAttributedString,
+      detectInlineLinks: Bool = true
+    ) {
+      guard !text.isEmpty else { return }
+
+      // Inside explicit markdown link: preserve nested styles, apply link treatment.
+      if isInsideMarkdownLink {
+        let styled = applyLinkStyleIfNeeded(to: baseAttributes, explicitLink: activeLinkURL)
+        result.append(NSAttributedString(string: text, attributes: styled))
+        return
+      }
+
+      // Outside markdown links: auto-link bare URLs in plain text.
+      guard detectInlineLinks, let detector = MarkdownAttributedStringRenderer.linkDetector else {
+        result.append(NSAttributedString(string: text, attributes: baseAttributes))
+        return
+      }
+
+      let nsText = text as NSString
+      let fullRange = NSRange(location: 0, length: nsText.length)
+      let matches = detector.matches(in: text, options: [], range: fullRange)
+      guard !matches.isEmpty else {
+        result.append(NSAttributedString(string: text, attributes: baseAttributes))
+        return
+      }
+
+      var cursor = 0
+      for match in matches where match.resultType == .link {
+        let range = match.range
+        guard range.location >= cursor else { continue }
+
+        if range.location > cursor {
+          let prefix = nsText.substring(with: NSRange(location: cursor, length: range.location - cursor))
+          result.append(NSAttributedString(string: prefix, attributes: baseAttributes))
+        }
+
+        let token = nsText.substring(with: range)
+        let linkedURL = match.url.flatMap { MarkdownAttributedStringRenderer.isAllowedURL($0) ? $0 : nil }
+          ?? MarkdownAttributedStringRenderer.normalizedURL(token)
+        let attrs = applyLinkStyleIfNeeded(to: baseAttributes, explicitLink: linkedURL)
+        result.append(NSAttributedString(string: token, attributes: attrs))
+        cursor = range.location + range.length
+      }
+
+      if cursor < nsText.length {
+        let suffix = nsText.substring(from: cursor)
+        result.append(NSAttributedString(string: suffix, attributes: baseAttributes))
+      }
+    }
+
     private mutating func renderInline(_ markup: any InlineMarkup, into result: NSMutableAttributedString) {
       switch markup {
         case let text as Markdown.Text:
-          result.append(NSAttributedString(string: text.string, attributes: [
+          appendText(text.string, attributes: [
             .font: resolveFont(),
             .foregroundColor: baseColor,
-          ]))
+          ], into: result)
 
         case let strong as Strong:
           let wasBold = isBold
@@ -500,48 +624,38 @@ enum MarkdownAttributedStringRenderer {
           isItalic = wasItalic
 
         case let code as InlineCode:
-          result.append(NSAttributedString(string: code.code, attributes: [
+          appendText(code.code, attributes: [
             .font: Fonts.inlineCode,
             .foregroundColor: Colors.inlineCode,
             .backgroundColor: Colors.inlineCodeBg,
-          ]))
+          ], into: result, detectInlineLinks: false)
 
         case let link as Markdown.Link:
-          var attrs: [NSAttributedString.Key: Any] = [
-            .font: resolveFont(),
-            .foregroundColor: Colors.link,
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-          ]
-          if let dest = link.destination, let nsURL = URL(string: dest) {
-            attrs[.link] = nsURL
-          }
-          // Render link's inline children (may contain bold/italic/code)
+          let previousURL = activeLinkURL
+          let previousInsideLink = isInsideMarkdownLink
+          activeLinkURL = link.destination.flatMap { MarkdownAttributedStringRenderer.normalizedURL($0) }
+          isInsideMarkdownLink = true
           for child in link.inlineChildren {
-            switch child {
-              case let text as Markdown.Text:
-                result.append(NSAttributedString(string: text.string, attributes: attrs))
-              default:
-                renderInline(child, into: result)
-            }
+            renderInline(child, into: result)
           }
+          activeLinkURL = previousURL
+          isInsideMarkdownLink = previousInsideLink
 
         case let image as Markdown.Image:
-          // Render as link-style text with alt text
-          let altText = image.plainText
-          if !altText.isEmpty {
-            var attrs: [NSAttributedString.Key: Any] = [
-              .font: resolveFont(),
-              .foregroundColor: Colors.link,
-              .underlineStyle: NSUnderlineStyle.single.rawValue,
-            ]
-            if let src = image.source, let nsURL = URL(string: src) {
-              attrs[.link] = nsURL
-            }
-            result.append(NSAttributedString(string: altText, attributes: attrs))
-          }
+          let altText = image.plainText.isEmpty ? (image.source ?? "image") : image.plainText
+          guard !altText.isEmpty else { return }
+          let previousURL = activeLinkURL
+          let previousInsideLink = isInsideMarkdownLink
+          activeLinkURL = image.source.flatMap { MarkdownAttributedStringRenderer.normalizedURL($0) }
+          isInsideMarkdownLink = true
+          appendText(altText, attributes: [
+            .font: resolveFont(),
+            .foregroundColor: baseColor,
+          ], into: result, detectInlineLinks: false)
+          activeLinkURL = previousURL
+          isInsideMarkdownLink = previousInsideLink
 
-        case is Markdown.Strikethrough:
-          let strikethrough = markup as! Markdown.Strikethrough
+        case let strikethrough as Markdown.Strikethrough:
           for child in strikethrough.inlineChildren {
             let before = result.length
             renderInline(child, into: result)
@@ -556,23 +670,23 @@ enum MarkdownAttributedStringRenderer {
           }
 
         case is SoftBreak:
-          result.append(NSAttributedString(string: " ", attributes: [
+          appendText(" ", attributes: [
             .font: resolveFont(),
             .foregroundColor: baseColor,
-          ]))
+          ], into: result, detectInlineLinks: false)
 
         case is LineBreak:
-          result.append(NSAttributedString(string: "\n", attributes: [
+          appendText("\n", attributes: [
             .font: resolveFont(),
             .foregroundColor: baseColor,
-          ]))
+          ], into: result, detectInlineLinks: false)
 
         case let html as InlineHTML:
           // Render raw HTML as plain text
-          result.append(NSAttributedString(string: html.rawHTML, attributes: [
+          appendText(html.rawHTML, attributes: [
             .font: resolveFont(),
             .foregroundColor: baseColor,
-          ]))
+          ], into: result, detectInlineLinks: false)
 
         default:
           // Unknown inline — try children, else render plain text
@@ -584,10 +698,10 @@ enum MarkdownAttributedStringRenderer {
               }
             }
           } else {
-            result.append(NSAttributedString(string: markup.plainText, attributes: [
+            appendText(markup.plainText, attributes: [
               .font: resolveFont(),
               .foregroundColor: baseColor,
-            ]))
+            ], into: result)
           }
       }
     }

@@ -183,14 +183,7 @@ import SwiftUI
       category: "conversation-timeline"
     )
     private let logger = TimelineFileLogger.shared
-    private var pendingLayoutInvalidationRowIDs: Set<TimelineRowID> = []
-    private var pendingIntrinsicHeightsByRowID: [TimelineRowID: CGFloat] = [:]
-    private var hasPendingLayoutInvalidationFlush = false
-    private var shouldRepinAfterLayoutInvalidation = false
-    private let sizingCell = HostingTableCellView(frame: .zero)
     private let nativeSizingCell = NativeMessageTableCellView(frame: .zero)
-    private let richSizingCell = NativeRichMessageCellView(frame: .zero)
-    private var lastMeasuredRowContent: (rowID: TimelineRowID, content: AnyView)?
     private var needsInitialScroll = true
     /// Tracks which thinking message IDs have been expanded by the user.
     private var expandedThinkingIDs: Set<String> = []
@@ -356,68 +349,6 @@ import SwiftUI
       }
     }
 
-    private func enqueueLayoutInvalidation(
-      for rowID: TimelineRowID,
-      intrinsicHeight: CGFloat?,
-      keepPinnedAnchor: Bool
-    ) {
-      if let intrinsicHeight {
-        pendingIntrinsicHeightsByRowID[rowID] = intrinsicHeight
-      }
-      pendingLayoutInvalidationRowIDs.insert(rowID)
-      if keepPinnedAnchor, isPinnedToBottom {
-        shouldRepinAfterLayoutInvalidation = true
-      }
-      guard !hasPendingLayoutInvalidationFlush else { return }
-
-      hasPendingLayoutInvalidationFlush = true
-      DispatchQueue.main.async { [weak self] in
-        self?.flushPendingLayoutInvalidation()
-      }
-    }
-
-    private func flushPendingLayoutInvalidation() {
-      hasPendingLayoutInvalidationFlush = false
-      let shouldRepin = shouldRepinAfterLayoutInvalidation
-      shouldRepinAfterLayoutInvalidation = false
-
-      guard !pendingLayoutInvalidationRowIDs.isEmpty else { return }
-
-      let rowIDs = pendingLayoutInvalidationRowIDs
-      pendingLayoutInvalidationRowIDs.removeAll()
-
-      var validRows = IndexSet()
-      for rowID in rowIDs {
-        defer { pendingIntrinsicHeightsByRowID.removeValue(forKey: rowID) }
-        guard let row = rowIndexByTimelineRowID[rowID], row >= 0, row < currentRows.count else {
-          heightEngine.invalidate(rowID: rowID)
-          continue
-        }
-        if let intrinsicHeight = pendingIntrinsicHeightsByRowID[rowID], intrinsicHeight > 1 {
-          if let key = heightCacheKey(forRow: row) {
-            let accepted = heightEngine.storeCorrection(max(1, ceil(intrinsicHeight)), for: key)
-            if !accepted {
-              logger
-                .debug(
-                  "  correction REJECTED (already corrected) row \(rowID.rawValue) intrinsic=\(String(format: "%.1f", intrinsicHeight))"
-                )
-              continue
-            }
-          }
-        } else {
-          heightEngine.invalidate(rowID: rowID)
-        }
-        validRows.insert(row)
-      }
-
-      guard !validRows.isEmpty else { return }
-      noteHeightChangesWithScrollCompensation(rows: validRows)
-
-      if shouldRepin {
-        requestPinnedScroll()
-      }
-    }
-
     private func noteHeightChangesWithScrollCompensation(rows: IndexSet) {
       guard !rows.isEmpty else { return }
 
@@ -572,7 +503,6 @@ import SwiftUI
     }
 
     func rebuildSnapshot(animated: Bool = false) {
-      lastMeasuredRowContent = nil
       let previousProjection = projectionResult
       projectionResult = makeProjectionResult(previous: previousProjection)
       currentRows = projectionResult.rows
@@ -647,7 +577,6 @@ import SwiftUI
       newRows: [TimelineRow],
       preserveAnchor: Bool = false
     ) {
-      lastMeasuredRowContent = nil
       let applyState = signposter.beginInterval("timeline-apply-structural")
       defer {
         signposter.endInterval("timeline-apply-structural", applyState)
@@ -830,9 +759,8 @@ import SwiftUI
       guard !message.isTool, !message.hasImage else { return nil }
       guard !message.content.isEmpty else { return nil }
 
-      // Keep structurally complex markdown on the SwiftUI renderer.
-      // Inline code (single `) and simple bullet lists (` * `) are handled natively
-      // with attributed strings — this covers the majority of assistant messages.
+      // Legacy guard: if content is structurally rich markdown, skip this plain-text
+      // fallback and let the native rich renderer handle it.
       let hasRichMarkdownMarkers = message.content.contains("```")
         || message.content.contains("# ")
         || message.content.contains("\n#")
@@ -1058,6 +986,21 @@ import SwiftUI
           cell.configure(displayedCount: sourceState.messages.count, totalCount: sourceState.metadata.messageCount)
           return cell
 
+        case .liveIndicator:
+          let id = NativeLiveIndicatorCellView.reuseIdentifier
+          let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeLiveIndicatorCellView)
+            ?? NativeLiveIndicatorCellView(frame: .zero)
+          cell.identifier = id
+          let meta = sourceState.metadata
+          cell.configure(
+            workStatus: meta.workStatus,
+            currentTool: meta.currentTool,
+            pendingToolName: meta.pendingToolName,
+            pendingToolInput: meta.pendingToolInput,
+            provider: provider
+          )
+          return cell
+
         case .tool:
           if let toolModel = nativeCompactToolRow(for: timelineRow) {
             let id = NativeCompactToolCellView.reuseIdentifier
@@ -1120,28 +1063,11 @@ import SwiftUI
         return nativeCell
       }
 
-      // ── SwiftUI fallback (images, live indicator) ──
-
-      let identifier = HostingTableCellView.reuseIdentifier
-      let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? HostingTableCellView)
-        ?? HostingTableCellView(frame: .zero)
-      cell.identifier = identifier
-      let rowID = timelineRow.id
-      cell.onContentHeightDidChange = { [weak self] intrinsicHeight in
-        guard let self else { return }
-        self.logger
-          .debug("  correction row[\(row)] \(rowID.rawValue) intrinsic=\(String(format: "%.1f", intrinsicHeight))")
-        self.enqueueLayoutInvalidation(for: rowID, intrinsicHeight: intrinsicHeight, keepPinnedAnchor: true)
-      }
-      let content: AnyView
-      if let cached = lastMeasuredRowContent, cached.rowID == timelineRow.id {
-        content = cached.content
-        lastMeasuredRowContent = nil
-      } else {
-        content = AnyView(rowContent(for: timelineRow).id(timelineRow.id.rawValue))
-      }
-      cell.configure(with: content, maxWidth: width)
-      logger.debug("viewFor[\(row)] \(timelineRow.id.rawValue) swiftui w=\(String(format: "%.0f", width))")
+      let id = NativeSpacerCellView.reuseIdentifier
+      let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NativeSpacerCellView)
+        ?? NativeSpacerCellView(frame: .zero)
+      cell.identifier = id
+      logger.debug("viewFor[\(row)] \(timelineRow.id.rawValue) clear-fallback")
       return cell
     }
 
@@ -1180,6 +1106,8 @@ import SwiftUI
           logger
             .debug("heightOfRow[\(row)] \(timelineRow.id.rawValue) T1-approvalCard h=\(String(format: "%.1f", h))")
           return h
+        case .liveIndicator:
+          return ConversationLayout.liveIndicatorHeight
         case .tool:
           if case let .tool(id) = timelineRow.payload, !uiState.expandedToolCards.contains(id) {
             let compactH: CGFloat
@@ -1204,7 +1132,7 @@ import SwiftUI
         default: break
       }
 
-      // ── Tier 2+3: Measured rows (native text or SwiftUI fallback) ──
+      // ── Tier 2: Measured rows (native message / expanded tool) ──
       guard let cacheKey = heightCacheKey(forRow: row) else { return 1 }
       if let cachedHeight = heightEngine.height(for: cacheKey) {
         signposter.emitEvent("timeline-height-cache-hit")
@@ -1239,106 +1167,10 @@ import SwiftUI
         return measuredHeight
       }
 
-      // Tier 3: SwiftUI fallback (images, live indicator)
-      let content = AnyView(rowContent(for: timelineRow).id(timelineRow.id.rawValue))
-      lastMeasuredRowContent = (rowID: timelineRow.id, content: content)
-      sizingCell.configure(with: content, maxWidth: width)
-      let measuredHeight = max(1, ceil(sizingCell.requiredHeight(for: width)))
-      heightEngine.store(measuredHeight, for: cacheKey)
-      sizingCell.clearContent()
-      logger.debug("heightOfRow[\(row)] T3-swiftui h=\(String(format: "%.1f", measuredHeight))")
-      return measuredHeight
-    }
-
-    /// SwiftUI content for Tier 3 rows only.
-    /// Structural rows (loadMore, messageCount, turnHeader, rollupSummary, bottomSpacer)
-    /// and compact tool rows are rendered natively and never reach this path.
-    private func rowContent(for row: TimelineRow) -> AnyView {
-      switch row.kind {
-        case .message, .tool:
-          guard let messageID = timelineMessageID(for: row) else {
-            return AnyView(Color.clear.frame(height: 1))
-          }
-          return messageContent(row: row, messageID: messageID)
-
-        case .liveIndicator:
-          let meta = sourceState.metadata
-          return AnyView(
-            WorkStreamLiveIndicator(
-              workStatus: meta.workStatus,
-              currentTool: meta.currentTool,
-              currentPrompt: meta.currentPrompt,
-              pendingToolName: meta.pendingToolName,
-              pendingToolInput: meta.pendingToolInput,
-              provider: provider
-            )
-          )
-
-        // Native rows — should never reach SwiftUI, but provide minimal fallback
-        case .loadMore, .messageCount, .turnHeader, .rollupSummary, .approvalCard, .bottomSpacer:
-          return AnyView(Color.clear.frame(height: 1))
-      }
-    }
-
-    private func timelineMessageID(for row: TimelineRow) -> String? {
-      switch row.payload {
-        case let .message(id):
-          id
-        case let .tool(id):
-          id
-        default:
-          nil
-      }
-    }
-
-    private func messageContent(row: TimelineRow, messageID: String) -> AnyView {
-      guard let message = messagesByID[messageID] else {
-        return AnyView(Color.clear.frame(height: 1))
-      }
-
-      let meta = messageMeta[messageID]
-      let turnsAfter = meta?.turnsAfter
-      let nthUser = meta?.nthUserMessage
-      let serverState = self.serverState
-      let sid = self.sessionId
-      let provider = self.provider
-      let model = self.model
-      let onNavigateToReviewFile = self.onNavigateToReviewFile
-      let openFileInReview = self.openFileInReview
-      let isToolRow = row.kind == .tool
-      let toolExpanded = isToolRow ? uiState.expandedToolCards.contains(messageID) : nil
-      let onExpandedChange: ((Bool) -> Void)? = isToolRow ? { [weak self] expanded in
-        self?.setToolRowExpansion(messageID: messageID, expanded: expanded)
-      } : nil
-
-      let content = WorkStreamEntry(
-        message: message,
-        provider: provider,
-        model: model,
-        sessionId: sid,
-        rollbackTurns: turnsAfter,
-        nthUserMessage: nthUser,
-        onRollback: turnsAfter != nil ? {
-          if let sid, let turns = turnsAfter {
-            serverState?.rollbackTurns(sessionId: sid, numTurns: UInt32(turns))
-          }
-        } : nil,
-        onFork: nthUser != nil ? {
-          if let sid, let nth = nthUser {
-            serverState?.forkSession(sessionId: sid, nthUserMessage: UInt32(nth))
-          }
-        } : nil,
-        onNavigateToReviewFile: onNavigateToReviewFile,
-        externallyExpanded: toolExpanded,
-        onExpandedChange: onExpandedChange
-      )
-      .environment(\.openFileInReview, openFileInReview)
-
-      if let serverState {
-        return AnyView(content.environment(serverState))
-      } else {
-        return AnyView(content)
-      }
+      // Should be unreachable now that message/tool/live indicator rows are native.
+      heightEngine.store(1, for: cacheKey)
+      logger.debug("heightOfRow[\(row)] fallback h=1")
+      return 1
     }
 
     private func setToolRowExpansion(messageID: String, expanded: Bool) {

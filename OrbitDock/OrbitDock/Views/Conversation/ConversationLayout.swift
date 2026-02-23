@@ -65,6 +65,9 @@ enum ConversationLayout {
   /// "Showing N of M messages" label
   static let messageCountHeight: CGFloat = 24
 
+  /// Bottom status row ("Working", "Your turn", "Permission")
+  static let liveIndicatorHeight: CGFloat = 40
+
   /// Bottom spacer below last row
   static let bottomSpacerHeight: CGFloat = 32
 
