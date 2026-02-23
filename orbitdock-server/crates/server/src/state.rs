@@ -127,6 +127,7 @@ impl SessionRegistry {
                     pending_tool_name: snap.pending_tool_name.clone(),
                     pending_tool_input: snap.pending_tool_input.clone(),
                     pending_question: snap.pending_question.clone(),
+                    pending_approval_id: snap.pending_approval_id.clone(),
                     started_at: snap.started_at.clone(),
                     last_activity_at: snap.last_activity_at.clone(),
                     git_branch: snap.git_branch.clone(),

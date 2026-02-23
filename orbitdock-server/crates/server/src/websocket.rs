@@ -1012,6 +1012,7 @@ async fn handle_client_message(
                             pending_tool_name: restored.pending_tool_name,
                             pending_tool_input: restored.pending_tool_input,
                             pending_question: restored.pending_question,
+                            pending_approval_id: restored.pending_approval_id,
                             token_usage: TokenUsage {
                                 input_tokens: restored.input_tokens as u64,
                                 output_tokens: restored.output_tokens as u64,
@@ -2488,6 +2489,7 @@ async fn handle_client_message(
                 restored.pending_tool_name,
                 restored.pending_tool_input,
                 restored.pending_question,
+                restored.pending_approval_id,
                 restored.effort,
                 restored.terminal_session_id,
                 restored.terminal_app,

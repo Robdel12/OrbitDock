@@ -514,6 +514,18 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 WorkStatus::Ended => "ended",
             });
 
+            // When work_status transitions away from permission/question, clear stale
+            // pending state that may have been written by the hook path. Without this,
+            // a Claude process crash (no Stop hook) leaves the DB with work_status=waiting
+            // but pending_tool_name/attention_reason still set from the PermissionRequest hook.
+            let clears_pending = matches!(
+                work_status,
+                Some(WorkStatus::Working)
+                    | Some(WorkStatus::Waiting)
+                    | Some(WorkStatus::Reply)
+                    | Some(WorkStatus::Ended)
+            );
+
             // Build dynamic update
             let mut updates = Vec::new();
             let mut params_vec: Vec<&dyn rusqlite::ToSql> = Vec::new();
@@ -529,6 +541,18 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             if let Some(ref la) = last_activity_at {
                 updates.push("last_activity_at = ?");
                 params_vec.push(la);
+            }
+            if clears_pending {
+                updates.push("pending_tool_name = NULL");
+                updates.push("pending_tool_input = NULL");
+                updates.push("pending_question = NULL");
+                updates.push("pending_approval_id = NULL");
+                updates.push(
+                    "attention_reason = CASE \
+                        WHEN attention_reason IN ('awaitingPermission', 'awaitingQuestion') THEN 'awaitingReply' \
+                        ELSE attention_reason \
+                     END",
+                );
             }
 
             if !updates.is_empty() {
@@ -736,7 +760,8 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                      attention_reason = 'none',
                      pending_tool_name = NULL,
                      pending_tool_input = NULL,
-                     pending_question = NULL
+                     pending_question = NULL,
+                     pending_approval_id = NULL
                  WHERE id = ?3
                    AND (codex_integration_mode IS NULL OR codex_integration_mode != 'direct')",
                 params![now, reason, thread_id],
@@ -767,7 +792,8 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                      attention_reason = 'none',
                      pending_tool_name = NULL,
                      pending_tool_input = NULL,
-                     pending_question = NULL
+                     pending_question = NULL,
+                     pending_approval_id = NULL
                  WHERE id = ?3
                    AND (claude_integration_mode IS NULL OR claude_integration_mode != 'direct')",
                 params![now, reason, claude_sdk_session_id],
@@ -975,6 +1001,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                      pending_tool_name = NULL,
                      pending_tool_input = NULL,
                      pending_question = NULL,
+                     pending_approval_id = NULL,
                      active_subagent_id = NULL,
                      active_subagent_type = NULL,
                      last_activity_at = ?1
@@ -1335,6 +1362,13 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     now
                 ],
             )?;
+            // Persist the request_id so it survives a server restart.
+            // Without this, clicking "Allow" after a restart fails silently because
+            // the request_id only existed in-memory.
+            conn.execute(
+                "UPDATE sessions SET pending_approval_id = ?1 WHERE id = ?2",
+                params![request_id, session_id],
+            )?;
         }
 
         PersistCommand::ApprovalDecision {
@@ -1356,6 +1390,11 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                    LIMIT 1
                  )",
                 params![decision, now, session_id, request_id],
+            )?;
+            // Clear the persisted approval_id once a decision is made.
+            conn.execute(
+                "UPDATE sessions SET pending_approval_id = NULL WHERE id = ?1 AND pending_approval_id = ?2",
+                params![session_id, request_id],
             )?;
         }
 
@@ -1628,6 +1667,7 @@ pub struct RestoredSession {
     pub pending_tool_name: Option<String>,
     pub pending_tool_input: Option<String>,
     pub pending_question: Option<String>,
+    pub pending_approval_id: Option<String>,
     pub messages: Vec<Message>,
     pub forked_from_session_id: Option<String>,
     pub current_diff: Option<String>,
@@ -2601,6 +2641,15 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or((None, None));
 
+            // Query pending_approval_id (added in migration 005)
+            let pending_approval_id: Option<String> = conn
+                .query_row(
+                    "SELECT pending_approval_id FROM sessions WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+
             // end_reason already queried above for message-skip logic
             let end_reason = end_reason_val;
 
@@ -2654,6 +2703,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 pending_tool_name,
                 pending_tool_input,
                 pending_question,
+                pending_approval_id,
                 messages,
                 forked_from_session_id,
                 current_diff,
@@ -2824,6 +2874,15 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             )
             .unwrap_or(None);
 
+        // Query pending_approval_id (added in migration 005)
+        let pending_approval_id: Option<String> = conn
+            .query_row(
+                "SELECT pending_approval_id FROM sessions WHERE id = ?1",
+                params![&id],
+                |row| row.get(0),
+            )
+            .unwrap_or(None);
+
         Ok(Some(RestoredSession {
             id,
             provider,
@@ -2851,6 +2910,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             pending_tool_name,
             pending_tool_input,
             pending_question,
+            pending_approval_id,
             messages,
             forked_from_session_id: None,
             current_diff,
@@ -2907,6 +2967,65 @@ pub async fn load_session_permission_mode(id: &str) -> Result<Option<String>, an
 pub fn create_persistence_channel() -> (mpsc::Sender<PersistCommand>, mpsc::Receiver<PersistCommand>)
 {
     mpsc::channel(1000)
+}
+
+/// Clean up sessions where the DB has stale awaitingPermission/awaitingQuestion state
+/// but the work_status has already moved on (e.g. Claude process crashed without a Stop hook).
+///
+/// This runs at server startup to repair any sessions left in an inconsistent state
+/// from a previous run.
+pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
+    let db_path = crate::paths::db_path();
+
+    let count = tokio::task::spawn_blocking(move || -> Result<u64, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(0);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        // Clear pending state for active sessions whose work_status is NOT permission/question
+        // but whose hook-managed columns still claim an approval is pending. This happens when
+        // Claude crashes without firing the Stop hook — the connector emits SessionUpdate
+        // (work_status → waiting) but the hook columns stay stale.
+        let rows = conn.execute(
+            "UPDATE sessions
+             SET pending_tool_name = NULL,
+                 pending_tool_input = NULL,
+                 pending_question = NULL,
+                 pending_approval_id = NULL,
+                 attention_reason = CASE
+                     WHEN attention_reason IN ('awaitingPermission', 'awaitingQuestion') THEN 'awaitingReply'
+                     ELSE attention_reason
+                 END
+             WHERE status = 'active'
+               AND work_status NOT IN ('permission', 'question')
+               AND (
+                   pending_tool_name IS NOT NULL
+                   OR pending_question IS NOT NULL
+                   OR attention_reason IN ('awaitingPermission', 'awaitingQuestion')
+               )",
+            [],
+        )?;
+
+        Ok(rows as u64)
+    })
+    .await??;
+
+    if count > 0 {
+        info!(
+            component = "startup",
+            event = "startup.stale_permission_cleanup",
+            sessions_fixed = count,
+            "Cleared stale pending permission/question state from prior crash"
+        );
+    }
+
+    Ok(count)
 }
 
 /// List approval history, optionally scoped to a session

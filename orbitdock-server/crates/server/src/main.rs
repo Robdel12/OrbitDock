@@ -120,7 +120,8 @@ enum Command {
 
 use crate::logging::init_logging;
 use crate::persistence::{
-    create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
+    cleanup_stale_permission_state, create_persistence_channel, load_sessions_for_startup,
+    PersistCommand, PersistenceWriter,
 };
 use crate::session::SessionHandle;
 use crate::state::SessionRegistry;
@@ -260,6 +261,12 @@ async fn async_main(
     // Create app state with persistence sender
     let state = Arc::new(SessionRegistry::new(persist_tx.clone()));
 
+    // Clean up sessions with stale permission/question state from a prior crash.
+    // Must run before load_sessions_for_startup so restored sessions see clean state.
+    if let Err(e) = cleanup_stale_permission_state().await {
+        warn!(component = "startup", error = %e, "Failed to run stale permission cleanup");
+    }
+
     // Restore sessions from database — all registered as passive (no connectors).
     // Connectors are created lazily when a client subscribes to a session.
     match load_sessions_for_startup().await {
@@ -302,6 +309,7 @@ async fn async_main(
                     pending_tool_name,
                     pending_tool_input,
                     pending_question,
+                    pending_approval_id,
                     messages,
                     forked_from_session_id,
                     current_diff,
@@ -404,6 +412,7 @@ async fn async_main(
                     pending_tool_name,
                     pending_tool_input,
                     pending_question,
+                    pending_approval_id,
                     effort,
                     terminal_session_id,
                     terminal_app,

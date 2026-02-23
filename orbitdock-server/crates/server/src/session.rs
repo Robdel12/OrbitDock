@@ -94,6 +94,7 @@ pub struct SessionSnapshot {
     pub pending_tool_name: Option<String>,
     pub pending_tool_input: Option<String>,
     pub pending_question: Option<String>,
+    pub pending_approval_id: Option<String>,
     pub message_count: usize,
     pub token_usage: TokenUsage,
     pub started_at: Option<String>,
@@ -151,6 +152,9 @@ pub struct SessionHandle {
     pending_tool_name: Option<String>,
     pending_tool_input: Option<String>,
     pending_question: Option<String>,
+    /// Persisted connector-path request_id for the current pending approval.
+    /// Loaded from DB on restore so approval routing works after server restart.
+    pending_approval_id: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -193,6 +197,7 @@ impl SessionHandle {
             pending_tool_name: None,
             pending_tool_input: None,
             pending_question: None,
+            pending_approval_id: None,
             message_count: 0,
             token_usage: TokenUsage::default(),
             started_at: Some(now.clone()),
@@ -245,6 +250,7 @@ impl SessionHandle {
             pending_tool_name: None,
             pending_tool_input: None,
             pending_question: None,
+            pending_approval_id: None,
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -286,6 +292,7 @@ impl SessionHandle {
         pending_tool_name: Option<String>,
         pending_tool_input: Option<String>,
         pending_question: Option<String>,
+        pending_approval_id: Option<String>,
         effort: Option<String>,
         terminal_session_id: Option<String>,
         terminal_app: Option<String>,
@@ -307,10 +314,13 @@ impl SessionHandle {
             approval_policy: approval_policy.clone(),
             sandbox_mode: sandbox_mode.clone(),
             permission_mode: permission_mode.clone(),
-            has_pending_approval: pending_tool_name.is_some() || pending_question.is_some(),
+            has_pending_approval: pending_tool_name.is_some()
+                || pending_question.is_some()
+                || pending_approval_id.is_some(),
             pending_tool_name: pending_tool_name.clone(),
             pending_tool_input: pending_tool_input.clone(),
             pending_question: pending_question.clone(),
+            pending_approval_id: pending_approval_id.clone(),
             message_count: messages.len(),
             token_usage: token_usage.clone(),
             started_at: started_at.clone(),
@@ -365,6 +375,7 @@ impl SessionHandle {
             pending_tool_name,
             pending_tool_input,
             pending_question,
+            pending_approval_id,
             broadcast_tx,
             list_tx: None,
             pending_approval_types: HashMap::new(),
@@ -411,7 +422,8 @@ impl SessionHandle {
             token_usage: self.token_usage.clone(),
             has_pending_approval: self.pending_approval.is_some()
                 || self.pending_tool_name.is_some()
-                || self.pending_question.is_some(),
+                || self.pending_question.is_some()
+                || self.pending_approval_id.is_some(),
             codex_integration_mode: self.codex_integration_mode,
             claude_integration_mode: self.claude_integration_mode,
             approval_policy: self.approval_policy.clone(),
@@ -420,6 +432,8 @@ impl SessionHandle {
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
+            pending_approval_id: self.pending_approval_id.clone()
+                .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             git_branch: self.git_branch.clone(),
@@ -450,6 +464,8 @@ impl SessionHandle {
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
+            pending_approval_id: self.pending_approval_id.clone()
+                .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             token_usage: self.token_usage.clone(),
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
@@ -706,6 +722,7 @@ impl SessionHandle {
                 self.pending_tool_name = None;
                 self.pending_tool_input = None;
                 self.pending_question = None;
+                self.pending_approval_id = None;
             }
         }
         if let Some(ref pending_approval) = changes.pending_approval {
@@ -714,10 +731,12 @@ impl SessionHandle {
                 self.pending_tool_name = fallback_tool_name(approval);
                 self.pending_tool_input = fallback_tool_input(approval);
                 self.pending_question = approval.question.clone();
+                self.pending_approval_id = Some(approval.id.clone());
             } else {
                 self.pending_tool_name = None;
                 self.pending_tool_input = None;
                 self.pending_question = None;
+                self.pending_approval_id = None;
             }
         }
         if let Some(ref custom_name) = changes.custom_name {
@@ -802,10 +821,13 @@ impl SessionHandle {
             permission_mode: self.permission_mode.clone(),
             has_pending_approval: self.pending_approval.is_some()
                 || self.pending_tool_name.is_some()
-                || self.pending_question.is_some(),
+                || self.pending_question.is_some()
+                || self.pending_approval_id.is_some(),
             pending_tool_name: self.pending_tool_name.clone(),
             pending_tool_input: self.pending_tool_input.clone(),
             pending_question: self.pending_question.clone(),
+            pending_approval_id: self.pending_approval_id.clone()
+                .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             message_count: self.messages.len(),
             token_usage: self.token_usage.clone(),
             started_at: self.started_at.clone(),

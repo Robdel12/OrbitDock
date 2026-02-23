@@ -197,6 +197,11 @@ pub struct SessionSummary {
     pub pending_tool_input: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_question: Option<String>,
+    /// The connector-path request_id for the pending approval, persisted to DB so it
+    /// survives server restarts. When set, clicking Allow/Deny will route correctly
+    /// even after a server restart broke the in-memory channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_approval_id: Option<String>,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -269,6 +274,8 @@ pub struct SessionState {
     pub pending_tool_input: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_question: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_approval_id: Option<String>,
     pub token_usage: TokenUsage,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,

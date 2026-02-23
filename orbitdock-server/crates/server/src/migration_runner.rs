@@ -30,6 +30,11 @@ const EMBEDDED_MIGRATIONS: &[(i64, &str, &str)] = &[
         "004_claude_models",
         include_str!("../../../../migrations/004_claude_models.sql"),
     ),
+    (
+        5,
+        "005_pending_approval_id",
+        include_str!("../../../../migrations/005_pending_approval_id.sql"),
+    ),
 ];
 
 /// Run all pending migrations against the given connection.

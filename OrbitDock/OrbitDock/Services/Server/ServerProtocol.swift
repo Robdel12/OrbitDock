@@ -235,6 +235,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let pendingToolName: String?
   let pendingToolInput: String?
   let pendingQuestion: String?
+  let pendingApprovalId: String?
   let startedAt: String?
   let lastActivityAt: String?
   let gitBranch: String?
@@ -265,6 +266,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case pendingToolName = "pending_tool_name"
     case pendingToolInput = "pending_tool_input"
     case pendingQuestion = "pending_question"
+    case pendingApprovalId = "pending_approval_id"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
     case gitBranch = "git_branch"
@@ -459,6 +461,7 @@ struct ServerSessionState: Codable, Identifiable {
   let pendingToolName: String?
   let pendingToolInput: String?
   let pendingQuestion: String?
+  let pendingApprovalId: String?
   let startedAt: String?
   let lastActivityAt: String?
   let forkedFromSessionId: String?
@@ -500,6 +503,7 @@ struct ServerSessionState: Codable, Identifiable {
     case pendingToolName = "pending_tool_name"
     case pendingToolInput = "pending_tool_input"
     case pendingQuestion = "pending_question"
+    case pendingApprovalId = "pending_approval_id"
     case startedAt = "started_at"
     case lastActivityAt = "last_activity_at"
     case forkedFromSessionId = "forked_from_session_id"
@@ -546,6 +550,7 @@ struct ServerSessionState: Codable, Identifiable {
     pendingToolName = try container.decodeIfPresent(String.self, forKey: .pendingToolName)
     pendingToolInput = try container.decodeIfPresent(String.self, forKey: .pendingToolInput)
     pendingQuestion = try container.decodeIfPresent(String.self, forKey: .pendingQuestion)
+    pendingApprovalId = try container.decodeIfPresent(String.self, forKey: .pendingApprovalId)
     startedAt = try container.decodeIfPresent(String.self, forKey: .startedAt)
     lastActivityAt = try container.decodeIfPresent(String.self, forKey: .lastActivityAt)
     forkedFromSessionId = try container.decodeIfPresent(String.self, forKey: .forkedFromSessionId)
