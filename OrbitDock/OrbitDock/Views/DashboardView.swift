@@ -9,6 +9,7 @@ import SwiftUI
 
 struct DashboardView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let sessions: [Session]
   let isInitialLoading: Bool
@@ -19,7 +20,6 @@ struct DashboardView: View {
   let onNewClaude: () -> Void
   let onNewCodex: () -> Void
 
-  @StateObject private var connection = ServerRuntimeRegistry.shared.activeConnection
   @State private var selectedIndex = 0
   @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
   @State private var activeSort: ActiveSessionSort = .status
@@ -250,7 +250,7 @@ struct DashboardView: View {
 
   @ViewBuilder
   private var connectionBanner: some View {
-    switch connection.status {
+    switch runtimeRegistry.activeConnectionStatus {
       case .connected:
         EmptyView()
       case .connecting:
@@ -265,14 +265,14 @@ struct DashboardView: View {
           icon: "bolt.slash.fill",
           color: Color.textTertiary,
           message: "Disconnected",
-          action: ("Connect", { ServerRuntimeRegistry.shared.activeConnection.connect() })
+          action: ("Connect", { runtimeRegistry.activeConnection.connect() })
         )
       case let .failed(reason):
         connectionBannerRow(
           icon: "exclamationmark.triangle.fill",
           color: Color.statusPermission,
           message: reason,
-          action: ("Retry", { ServerRuntimeRegistry.shared.activeConnection.connect() })
+          action: ("Retry", { runtimeRegistry.activeConnection.connect() })
         )
     }
   }
@@ -355,4 +355,5 @@ struct DashboardView: View {
     onNewCodex: {}
   )
   .frame(width: 900, height: 500)
+  .environment(ServerRuntimeRegistry.shared)
 }

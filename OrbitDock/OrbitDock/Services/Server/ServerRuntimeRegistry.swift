@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 @Observable
 @MainActor
@@ -8,6 +9,8 @@ final class ServerRuntimeRegistry {
   private let endpointsProvider: () -> [ServerEndpoint]
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
+  private var statusSubscriptions: [UUID: AnyCancellable] = [:]
+  private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
   private(set) var activeEndpointId: UUID?
 
   init() {
@@ -50,9 +53,14 @@ final class ServerRuntimeRegistry {
 
   var connectedRuntimeCount: Int {
     runtimes.filter {
-      if case .connected = $0.connection.status { return true }
+      if case .connected = connectionStatusByEndpointId[$0.endpoint.id] ?? $0.connection.status { return true }
       return false
     }.count
+  }
+
+  var activeConnectionStatus: ConnectionStatus {
+    guard let activeEndpointId else { return .disconnected }
+    return connectionStatusByEndpointId[activeEndpointId] ?? .disconnected
   }
 
   func configureFromSettings(startEnabled: Bool) {
@@ -62,29 +70,29 @@ final class ServerRuntimeRegistry {
     for (id, runtime) in runtimesByEndpointId where !configuredIds.contains(id) {
       runtime.stop()
       runtimesByEndpointId[id] = nil
+      statusSubscriptions[id]?.cancel()
+      statusSubscriptions[id] = nil
+      connectionStatusByEndpointId[id] = nil
     }
 
     for endpoint in configuredEndpoints {
       if let existing = runtimesByEndpointId[endpoint.id] {
         if existing.endpoint != endpoint {
           existing.stop()
+          statusSubscriptions[endpoint.id]?.cancel()
+          statusSubscriptions[endpoint.id] = nil
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
+          observeConnectionStatus(for: replacement)
         }
       } else {
-        runtimesByEndpointId[endpoint.id] = runtimeFactory(endpoint)
+        let runtime = runtimeFactory(endpoint)
+        runtimesByEndpointId[endpoint.id] = runtime
+        observeConnectionStatus(for: runtime)
       }
     }
 
-    if let activeEndpointId, runtimesByEndpointId[activeEndpointId] == nil {
-      self.activeEndpointId = nil
-    }
-
-    if self.activeEndpointId == nil {
-      self.activeEndpointId = configuredEndpoints.first(where: { $0.isDefault && $0.isEnabled })?.id
-        ?? configuredEndpoints.first(where: \.isEnabled)?.id
-        ?? configuredEndpoints.first?.id
-    }
+    activeEndpointId = Self.preferredActiveEndpointID(from: configuredEndpoints)
 
     guard startEnabled else { return }
 
@@ -125,10 +133,32 @@ final class ServerRuntimeRegistry {
       let endpoint = ServerEndpoint.localDefault(defaultPort: ServerEndpointSettings.defaultPort)
       let runtime = runtimeFactory(endpoint)
       runtimesByEndpointId[endpoint.id] = runtime
+      observeConnectionStatus(for: runtime)
     }
 
     if activeEndpointId == nil {
       activeEndpointId = runtimesByEndpointId.keys.first
     }
+  }
+
+  private func observeConnectionStatus(for runtime: ServerRuntime) {
+    let endpointId = runtime.endpoint.id
+    connectionStatusByEndpointId[endpointId] = runtime.connection.status
+    if statusSubscriptions[endpointId] != nil {
+      return
+    }
+
+    statusSubscriptions[endpointId] = runtime.connection.$status.sink { [weak self] status in
+      guard let self else { return }
+      Task { @MainActor in
+        self.connectionStatusByEndpointId[endpointId] = status
+      }
+    }
+  }
+
+  static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
+    endpoints.first(where: { $0.isDefault && $0.isEnabled })?.id
+      ?? endpoints.first(where: \.isEnabled)?.id
+      ?? endpoints.first?.id
   }
 }

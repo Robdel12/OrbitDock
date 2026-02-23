@@ -29,6 +29,7 @@ struct OrbitDockApp: App {
   private var mainRootView: some View {
     ContentView()
       .environment(serverAppState)
+      .environment(runtimeRegistry)
       .environment(attentionService)
       .preferredColorScheme(.dark)
     #if os(iOS)
@@ -74,6 +75,7 @@ struct OrbitDockApp: App {
       Settings {
         SettingsView()
           .environment(serverAppState)
+          .environment(runtimeRegistry)
           .environment(attentionService)
           .preferredColorScheme(.dark)
       }
@@ -82,6 +84,7 @@ struct OrbitDockApp: App {
       MenuBarExtra {
         MenuBarView()
           .environment(serverAppState)
+          .environment(runtimeRegistry)
           .environment(attentionService)
           .environment(\.colorScheme, .dark)
           .preferredColorScheme(.dark)

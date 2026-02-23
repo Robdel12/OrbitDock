@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ContentView: View {
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AttentionService.self) private var attentionService
   @StateObject private var serverManager = ServerManager.shared
   @State private var sessions: [Session] = []
@@ -39,7 +40,7 @@ struct ContentView: View {
 
   /// Show setup view when server is not configured and not connected
   private var shouldShowSetup: Bool {
-    if case .connected = ServerRuntimeRegistry.shared.activeConnection.status { return false }
+    if case .connected = runtimeRegistry.activeConnectionStatus { return false }
     if case .notConfigured = serverManager.installState { return true }
     return false
   }
@@ -334,6 +335,7 @@ struct ContentView: View {
 #Preview {
   ContentView()
     .environment(ServerAppState())
+    .environment(ServerRuntimeRegistry.shared)
     .environment(AttentionService())
     .frame(width: 1_000, height: 700)
 }

@@ -13,6 +13,7 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "server-settin
 
 struct ServerSettingsSheet: View {
   @Environment(\.dismiss) private var dismiss
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var hostText: String = ServerEndpointSettings
     .remoteEndpoint
     .flatMap { ServerEndpointSettings.hostInput(from: $0.wsURL) } ?? ""
@@ -96,7 +97,7 @@ struct ServerSettingsSheet: View {
 
   @ViewBuilder
   private var connectionStatusSection: some View {
-    let connStatus = ServerRuntimeRegistry.shared.activeConnection.status
+    let connStatus = runtimeRegistry.activeConnectionStatus
 
     VStack(alignment: .leading, spacing: 8) {
       Text("Connection")
@@ -116,7 +117,7 @@ struct ServerSettingsSheet: View {
 
         if case .failed = connStatus {
           Button("Reconnect") {
-            ServerRuntimeRegistry.shared.activeConnection.connect()
+            runtimeRegistry.activeConnection.connect()
           }
           .font(.system(size: TypeScale.body, weight: .medium))
           .foregroundStyle(Color.accent)
@@ -293,7 +294,7 @@ struct ServerSettingsSheet: View {
     isSaved = true
     logger.info("Saved remote endpoint: \(url.absoluteString)")
 
-    ServerRuntimeRegistry.shared.configureFromSettings(startEnabled: true)
+    runtimeRegistry.configureFromSettings(startEnabled: true)
   }
 
   private func clearEndpoint() {
@@ -302,11 +303,12 @@ struct ServerSettingsSheet: View {
     hostText = ""
     logger.info("Cleared remote endpoint")
 
-    ServerRuntimeRegistry.shared.configureFromSettings(startEnabled: true)
+    runtimeRegistry.configureFromSettings(startEnabled: true)
   }
 }
 
 #Preview {
   ServerSettingsSheet()
+    .environment(ServerRuntimeRegistry.shared)
     .preferredColorScheme(.dark)
 }

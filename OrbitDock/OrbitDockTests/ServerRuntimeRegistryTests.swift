@@ -120,6 +120,52 @@ struct ServerRuntimeRegistryTests {
     #expect(invokedA)
     #expect(invokedB)
   }
+
+  @Test func preferredActiveEndpointDeterministicallyUsesDefaultEnabled() {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: false
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: true
+    )
+
+    let preferred = ServerRuntimeRegistry.preferredActiveEndpointID(from: [endpointA, endpointB])
+
+    #expect(preferred == endpointB.id)
+  }
+
+  @Test func preferredActiveEndpointFallsBackToFirstEnabled() {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: false,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: false
+    )
+
+    let preferred = ServerRuntimeRegistry.preferredActiveEndpointID(from: [endpointA, endpointB])
+
+    #expect(preferred == endpointB.id)
+  }
 }
 
 @MainActor

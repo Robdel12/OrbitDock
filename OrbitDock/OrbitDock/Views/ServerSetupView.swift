@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct ServerSetupView: View {
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @StateObject private var serverManager = ServerManager.shared
   @State private var showRemoteSheet = false
 
@@ -73,7 +74,7 @@ struct ServerSetupView: View {
         Task {
           try? await serverManager.install()
           if serverManager.installState == .running {
-            ServerRuntimeRegistry.shared.startEnabledRuntimes()
+            runtimeRegistry.startEnabledRuntimes()
           }
         }
       } label: {
@@ -165,6 +166,7 @@ struct ServerSetupView: View {
 
 #Preview {
   ServerSetupView()
+    .environment(ServerRuntimeRegistry.shared)
     .frame(width: 600, height: 500)
     .preferredColorScheme(.dark)
 }

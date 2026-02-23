@@ -16,13 +16,26 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "server-app-st
 @Observable
 @MainActor
 final class ServerAppState {
-  private static let codexModelsCacheKey = "orbitdock.server.codex_models_cache.v1"
-  private static let sessionsCacheKey = "orbitdock.server.sessions_cache.v1"
+  nonisolated static func codexModelsCacheKey(endpointId: UUID) -> String {
+    "orbitdock.server.codex_models_cache.v2.\(endpointId.uuidString)"
+  }
+
+  nonisolated static func sessionsCacheKey(endpointId: UUID) -> String {
+    "orbitdock.server.sessions_cache.v2.\(endpointId.uuidString)"
+  }
 
   @ObservationIgnored
   let connection: ServerConnection
 
   let endpointId: UUID
+
+  private var codexModelsCacheKey: String {
+    Self.codexModelsCacheKey(endpointId: endpointId)
+  }
+
+  private var sessionsCacheKey: String {
+    Self.sessionsCacheKey(endpointId: endpointId)
+  }
 
   // MARK: - Observable State (global, not per-session)
 
@@ -100,7 +113,7 @@ final class ServerAppState {
       logger.info("Loaded cached sessions list: \(cached.summaries.count) sessions")
     }
 
-    if let data = UserDefaults.standard.data(forKey: Self.codexModelsCacheKey),
+    if let data = UserDefaults.standard.data(forKey: codexModelsCacheKey),
        let models = try? JSONDecoder().decode([ServerCodexModelOption].self, from: data)
     {
       codexModels = models
@@ -561,17 +574,17 @@ final class ServerAppState {
 
   private func persistCodexModelsCache(_ models: [ServerCodexModelOption]) {
     if let data = try? JSONEncoder().encode(models) {
-      UserDefaults.standard.set(data, forKey: Self.codexModelsCacheKey)
+      UserDefaults.standard.set(data, forKey: codexModelsCacheKey)
     }
   }
 
   private func loadSessionsCache() -> SessionsCachePayload? {
-    guard let data = UserDefaults.standard.data(forKey: Self.sessionsCacheKey) else {
+    guard let data = UserDefaults.standard.data(forKey: sessionsCacheKey) else {
       return nil
     }
 
     guard let cached = try? JSONDecoder().decode(SessionsCachePayload.self, from: data) else {
-      UserDefaults.standard.removeObject(forKey: Self.sessionsCacheKey)
+      UserDefaults.standard.removeObject(forKey: sessionsCacheKey)
       return nil
     }
 
@@ -581,7 +594,7 @@ final class ServerAppState {
   private func persistSessionsCache(_ summaries: [ServerSessionSummary]) {
     let payload = SessionsCachePayload(cachedAt: Date(), summaries: summaries)
     if let data = try? JSONEncoder().encode(payload) {
-      UserDefaults.standard.set(data, forKey: Self.sessionsCacheKey)
+      UserDefaults.standard.set(data, forKey: sessionsCacheKey)
     }
   }
 

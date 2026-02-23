@@ -9,11 +9,15 @@
 import SwiftUI
 
 struct ServerTestView: View {
-  @StateObject private var connection = ServerRuntimeRegistry.shared.activeConnection
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var sessions: [ServerSessionSummary] = []
   @State private var selectedSession: ServerSessionState?
   @State private var logMessages: [LogMessage] = []
   @State private var newSessionPath = "/tmp/test"
+
+  private var connection: ServerConnection {
+    runtimeRegistry.activeConnection
+  }
 
   struct LogMessage: Identifiable {
     let id = UUID()
@@ -39,6 +43,11 @@ struct ServerTestView: View {
       #endif
     }
     .onAppear {
+      setupCallbacks()
+    }
+    .onChange(of: runtimeRegistry.activeEndpointId) { _, _ in
+      sessions = []
+      selectedSession = nil
       setupCallbacks()
     }
   }
@@ -260,4 +269,5 @@ struct ServerTestView: View {
 
 #Preview {
   ServerTestView()
+    .environment(ServerRuntimeRegistry.shared)
 }

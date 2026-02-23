@@ -10,6 +10,7 @@ import SwiftUI
 
 struct CommandStrip: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let sessions: [Session]
   let isInitialLoading: Bool
@@ -19,9 +20,16 @@ struct CommandStrip: View {
   let onNewClaude: () -> Void
   let onNewCodex: () -> Void
 
-  @StateObject private var connection = ServerRuntimeRegistry.shared.activeConnection
   @State private var showServerSettings = false
   private let registry = UsageServiceRegistry.shared
+
+  private var activeConnection: ServerConnection {
+    runtimeRegistry.activeConnection
+  }
+
+  private var activeConnectionStatus: ConnectionStatus {
+    runtimeRegistry.activeConnectionStatus
+  }
 
   private var workingCount: Int {
     sessions.filter { SessionDisplayStatus.from($0) == .working }.count
@@ -292,7 +300,7 @@ struct CommandStrip: View {
   }
 
   private var serverSettingsIconColor: Color {
-    switch connection.status {
+    switch activeConnectionStatus {
       case .connected: Color.statusWorking
       case .connecting: Color.statusQuestion
       case .failed: Color.statusPermission
@@ -315,26 +323,26 @@ struct CommandStrip: View {
   private var compactOverflowMenu: some View {
     Menu {
       Section("Server") {
-        switch connection.status {
+        switch activeConnectionStatus {
           case .connected:
             Label("Connected", systemImage: "checkmark.circle.fill")
             Button("Disconnect", role: .destructive) {
-              connection.disconnect()
+              activeConnection.disconnect()
             }
           case .connecting:
             Label("Connecting...", systemImage: "antenna.radiowaves.left.and.right")
             Button("Cancel") {
-              connection.disconnect()
+              activeConnection.disconnect()
             }
           case .disconnected:
             Label("Disconnected", systemImage: "bolt.slash.fill")
             Button("Connect") {
-              connection.connect()
+              activeConnection.connect()
             }
           case .failed:
             Label("Connection Failed", systemImage: "exclamationmark.triangle.fill")
             Button("Retry") {
-              connection.connect()
+              activeConnection.connect()
             }
         }
       }
@@ -371,7 +379,7 @@ struct CommandStrip: View {
 
   @ViewBuilder
   private var compactConnectionStatusPill: some View {
-    switch connection.status {
+    switch activeConnectionStatus {
       case .connected:
         EmptyView()
       case .connecting:
@@ -416,7 +424,7 @@ struct CommandStrip: View {
   }
 
   private var compactOverflowTintColor: Color {
-    switch connection.status {
+    switch activeConnectionStatus {
       case .connected: Color.textSecondary
       case .connecting: Color.statusQuestion
       case .disconnected: Color.textTertiary
@@ -500,4 +508,5 @@ struct CommandStrip: View {
       .frame(height: 200)
   }
   .frame(width: 900)
+  .environment(ServerRuntimeRegistry.shared)
 }

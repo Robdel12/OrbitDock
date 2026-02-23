@@ -133,6 +133,7 @@ struct SettingsSection<Content: View>: View {
 // MARK: - General Settings
 
 struct GeneralSettingsView: View {
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
   @AppStorage("whisperDictationEnabled") private var whisperDictationEnabled = true
   @State private var openAiKey: String = ""
@@ -399,7 +400,7 @@ struct GeneralSettingsView: View {
   }
 
   private func saveOpenAiKey() {
-    ServerRuntimeRegistry.shared.activeConnection.setOpenAiKey(openAiKey)
+    runtimeRegistry.activeConnection.setOpenAiKey(openAiKey)
     openAiKeySaved = true
     openAiKey = ""
     isReplacingKey = false
@@ -407,10 +408,10 @@ struct GeneralSettingsView: View {
 
   private func checkOpenAiKeyStatus() {
     openAiKeyStatus = .checking
-    ServerRuntimeRegistry.shared.activeConnection.onOpenAiKeyStatus = { configured in
+    runtimeRegistry.activeConnection.onOpenAiKeyStatus = { configured in
       openAiKeyStatus = configured ? .configured : .notConfigured
     }
-    ServerRuntimeRegistry.shared.activeConnection.checkOpenAiKey()
+    runtimeRegistry.activeConnection.checkOpenAiKey()
   }
 }
 
@@ -877,8 +878,12 @@ struct SetupSettingsView: View {
 
 struct DebugSettingsView: View {
   @StateObject private var serverManager = ServerManager.shared
-  @StateObject private var serverConnection = ServerRuntimeRegistry.shared.activeConnection
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var showServerTest = false
+
+  private var activeConnectionStatus: ConnectionStatus {
+    runtimeRegistry.activeConnectionStatus
+  }
 
   var body: some View {
     ScrollView {
@@ -1037,7 +1042,7 @@ struct DebugSettingsView: View {
           Task {
             try? await serverManager.startService()
             if serverManager.installState == .running {
-              ServerRuntimeRegistry.shared.startEnabledRuntimes()
+              runtimeRegistry.startEnabledRuntimes()
             }
           }
         }
@@ -1049,7 +1054,7 @@ struct DebugSettingsView: View {
           Task {
             try? await serverManager.install()
             if serverManager.installState == .running {
-              ServerRuntimeRegistry.shared.startEnabledRuntimes()
+              runtimeRegistry.startEnabledRuntimes()
             }
           }
         }
@@ -1064,7 +1069,7 @@ struct DebugSettingsView: View {
   }
 
   private var connectionColor: Color {
-    switch serverConnection.status {
+    switch activeConnectionStatus {
       case .connected:
         .statusSuccess
       case .connecting:
@@ -1077,7 +1082,7 @@ struct DebugSettingsView: View {
   }
 
   private var connectionText: String {
-    switch serverConnection.status {
+    switch activeConnectionStatus {
       case .connected:
         "Connected"
       case .connecting:
@@ -1094,5 +1099,6 @@ struct DebugSettingsView: View {
 
 #Preview {
   SettingsView()
+    .environment(ServerRuntimeRegistry.shared)
     .preferredColorScheme(.dark)
 }
