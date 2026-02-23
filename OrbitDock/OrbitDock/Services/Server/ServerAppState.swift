@@ -399,9 +399,9 @@ final class ServerAppState {
       }
     }
 
-    conn.onContextCompacted = { sessionId in
+    conn.onContextCompacted = { [weak self] sessionId in
       Task { @MainActor in
-        logger.info("Context compacted for \(sessionId)")
+        self?.handleContextCompacted(sessionId)
       }
     }
 
@@ -1451,6 +1451,33 @@ final class ServerAppState {
       sessions[idx].outputTokens = Int(usage.outputTokens)
       sessions[idx].cachedTokens = Int(usage.cachedTokens)
       sessions[idx].contextWindow = Int(usage.contextWindow)
+    }
+  }
+
+  private func handleContextCompacted(_ sessionId: String) {
+    logger.info("Context compacted for \(sessionId)")
+
+    let obs = session(sessionId)
+    let sessionIndex = sessions.firstIndex(where: { $0.id == sessionId })
+    let sessionOutput = sessionIndex.flatMap { sessions[$0].outputTokens } ?? 0
+    let sessionWindow = sessionIndex.flatMap { sessions[$0].contextWindow } ?? 0
+    let outputTokens = obs.tokenUsage?.outputTokens ?? UInt64(max(sessionOutput, 0))
+    let contextWindow = obs.tokenUsage?.contextWindow ?? UInt64(max(sessionWindow, 0))
+
+    let resetUsage = ServerTokenUsage(
+      inputTokens: 0,
+      outputTokens: outputTokens,
+      cachedTokens: 0,
+      contextWindow: contextWindow
+    )
+    obs.tokenUsage = resetUsage
+
+    if let idx = sessionIndex {
+      sessions[idx].totalTokens = Int(outputTokens)
+      sessions[idx].inputTokens = 0
+      sessions[idx].outputTokens = Int(outputTokens)
+      sessions[idx].cachedTokens = 0
+      sessions[idx].contextWindow = Int(contextWindow)
     }
   }
 

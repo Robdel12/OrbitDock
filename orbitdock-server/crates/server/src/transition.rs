@@ -1022,6 +1022,22 @@ pub fn transition(
         // -- Context management -----------------------------------------------
         Input::ContextCompacted => {
             state.last_activity_at = Some(now.to_string());
+            let compacted_usage = TokenUsage {
+                input_tokens: 0,
+                output_tokens: state.token_usage.output_tokens,
+                cached_tokens: 0,
+                context_window: state.token_usage.context_window,
+            };
+            state.token_usage = compacted_usage.clone();
+
+            effects.push(Effect::Persist(Box::new(PersistOp::TokensUpdate {
+                session_id: sid.clone(),
+                usage: compacted_usage.clone(),
+            })));
+            effects.push(Effect::Emit(Box::new(ServerMessage::TokensUpdated {
+                session_id: sid.clone(),
+                usage: compacted_usage,
+            })));
 
             // Record compaction as a first-class transcript event so it is visible
             // in chat history and persisted in SQLite for reloads.
@@ -1373,14 +1389,37 @@ mod tests {
 
     #[test]
     fn context_compacted_appends_message_and_emits_event() {
-        let state = test_state();
+        let mut state = test_state();
+        state.token_usage = TokenUsage {
+            input_tokens: 120_000,
+            output_tokens: 9_500,
+            cached_tokens: 2_400,
+            context_window: 200_000,
+        };
 
         let (new_state, effects) = transition(state.clone(), Input::ContextCompacted, NOW);
         assert_eq!(new_state.phase, state.phase);
-        assert_eq!(effects.len(), 3);
+        assert_eq!(new_state.token_usage.input_tokens, 0);
+        assert_eq!(new_state.token_usage.cached_tokens, 0);
+        assert_eq!(new_state.token_usage.output_tokens, 9_500);
+        assert_eq!(new_state.token_usage.context_window, 200_000);
+        assert_eq!(effects.len(), 5);
         assert!(matches!(effects[0], Effect::Persist(_)));
         assert!(matches!(effects[1], Effect::Emit(_)));
-        assert!(matches!(effects[2], Effect::Emit(_)));
+        assert!(matches!(effects[2], Effect::Persist(_)));
+        assert!(matches!(effects[3], Effect::Emit(_)));
+        assert!(matches!(effects[4], Effect::Emit(_)));
+        if let Effect::Emit(message) = &effects[1] {
+            match message.as_ref() {
+                ServerMessage::TokensUpdated { usage, .. } => {
+                    assert_eq!(usage.input_tokens, 0);
+                    assert_eq!(usage.cached_tokens, 0);
+                    assert_eq!(usage.output_tokens, 9_500);
+                    assert_eq!(usage.context_window, 200_000);
+                }
+                other => panic!("expected tokens_updated effect, got {:?}", other),
+            }
+        }
         let last_msg = new_state
             .messages
             .last()
