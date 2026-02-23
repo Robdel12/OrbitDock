@@ -68,9 +68,9 @@ PASSIVE CODEX:
 ### Creation
 
 1. Swift app sends `CreateSession { provider: Claude, cwd, model }` over WebSocket
-2. Server generates OrbitDock session ID, creates `SessionHandle` — `websocket.rs:953-1048`
+2. Server generates OrbitDock session ID, creates `SessionHandle` — `websocket.rs:1086`
 3. `PersistCommand::SessionCreate` sent to batch writer (async, not immediate)
-4. Spawns `ClaudeConnector` which starts the `claude` CLI subprocess — `claude.rs:166-348`
+4. Spawns `ClaudeConnector` which starts the `claude` CLI subprocess — `claude.rs:167`
 
 ### Claude CLI Subprocess
 
@@ -81,14 +81,14 @@ claude --output-format stream-json --verbose --input-format stream-json \
   --permission-prompt-tool stdio --model <model> --permission-mode <mode>
 ```
 
-Three async tasks start immediately — `claude.rs:261-333`:
+Three async tasks start immediately — `claude.rs:264-341`:
 1. **stderr reader + exit watcher** — captures stderr, detects process death
 2. **stdin writer** — receives messages from the session actor, writes to CLI stdin
 3. **stdout reader (event_loop)** — reads NDJSON from CLI stdout, produces `ConnectorEvent`s
 
 ### Initialization Handshake
 
-After spawning, the connector sends an `Initialize` control request — `claude.rs:346`:
+After spawning, the connector sends an `Initialize` control request — `claude.rs:580`:
 
 ```
 OrbitDock → stdin:  {"type":"control","command":{"type":"Initialize",...}}
@@ -102,7 +102,7 @@ The `init` event is **critical** — it provides:
 - Slash commands and skills discovery
 - Confirmation that the CLI is ready for prompts
 
-**30-second timeout** on the Initialize response — `claude.rs:554`. If the CLI doesn't respond, connector creation fails.
+**30-second timeout** on the Initialize response — `claude.rs:600`. If the CLI doesn't respond, connector creation fails.
 
 ### Message Flow
 
@@ -116,11 +116,11 @@ CLI stdout → event_loop reads line → dispatch_stdout_message()
 ```
 
 Key code paths:
-- stdout reading: `claude.rs:619-727`
-- Event dispatch: `claude.rs:744+`
-- Session event loop: `claude_session.rs:191-330`
-- Transition: `claude_session.rs:351-355`
-- Effect application: `claude_session.rs:370-380`
+- stdout reading (event_loop): `claude.rs:665`
+- Event dispatch (dispatch_stdout_message): `claude.rs:779`
+- Session event loop: `claude_session.rs:168` (start_event_loop)
+- Transition: `claude_session.rs:347` (handle_event_direct), call at `358`
+- Effect application: `claude_session.rs:375`
 
 ### Session ID Mapping
 
@@ -132,13 +132,13 @@ A direct Claude session has **three** IDs:
 | Claude SDK session ID | From `claude.init` event | `6831cfb3-8572-...` |
 | Hook session ID | From `hook_started` event | `9de9ecda-155b-...` |
 
-The hook session ID gets registered as a "managed thread" so that if hooks arrive via HTTP POST for this same CLI session, they're routed to the existing direct session instead of creating a duplicate passive session — `claude_session.rs:185`.
+The hook session ID gets registered as a "managed thread" so that if hooks arrive via HTTP POST for this same CLI session, they're routed to the existing direct session instead of creating a duplicate passive session — `claude_session.rs:201`.
 
 ### Resume Flow
 
 When resuming an ended direct Claude session:
 1. Swift app sends `ResumeSession { session_id }` over WebSocket
-2. Server spawns new `ClaudeConnector` with `--resume <claude_sdk_session_id>` — `claude.rs:139`
+2. Server spawns new `ClaudeConnector` with `--resume <claude_sdk_session_id>` — `claude.rs:191`
 3. CLI restores its conversation context and emits `init` again
 4. Event loop restarts, new messages flow through the same pipeline
 
@@ -149,8 +149,8 @@ When resuming an ended direct Claude session:
 ### Creation
 
 1. Swift app sends `CreateSession { provider: Codex, cwd, model }` over WebSocket
-2. Server generates session ID, creates `SessionHandle` — `websocket.rs:953-1048`
-3. Spawns `CodexConnector` which creates a codex-core thread — `codex.rs:68-104`:
+2. Server generates session ID, creates `SessionHandle` — `websocket.rs:1086`
+3. Spawns `CodexConnector` which creates a codex-core thread — `codex.rs:68`:
    - Creates `ThreadManager` with `SessionSource::Mcp`
    - Calls `thread_manager.start_thread(config)` → creates rollout file at `~/.codex/sessions/`
    - Gets back `CodexThread` handle
@@ -192,8 +192,8 @@ On resume, `CodexConnector::resume()` — `codex.rs:107-160`:
 
 Claude hooks arrive via HTTP POST to `/api/hook` — `hook_handler.rs`:
 
-1. `SessionStart` hook → **deferred** in `PendingClaudeSession` cache (not materialized yet) — `hook_handler.rs:81-188`
-2. First actionable hook (`StatusEvent` or `ToolEvent`) → `materialize_claude_session()` — `hook_handler.rs:1126-1226`
+1. `SessionStart` hook → **deferred** in `PendingClaudeSession` cache (not materialized yet) — `hook_handler.rs:81`
+2. First actionable hook (`StatusEvent` or `ToolEvent`) → `materialize_claude_session()` — `hook_handler.rs:1126`
 3. Session created with `claude_integration_mode = Passive`
 
 Deferred creation prevents ghost sessions from `claude -c` bootstrap processes that start but never do anything.
@@ -202,10 +202,10 @@ Deferred creation prevents ghost sessions from `claude -c` bootstrap processes t
 
 Passive Claude sessions do **NOT** persist messages to SQLite. Instead:
 
-1. Each hook event triggers `sync_transcript_messages()` — `websocket.rs:3983-4035`
+1. Each hook event triggers `sync_transcript_messages()` — `websocket.rs:4236`
 2. This reads the Claude transcript file at `~/.claude/projects/-{cwd_normalized}/{session_id}.jsonl`
 3. Compares message count: if new messages exist, they're broadcast to subscribers
-4. Messages are parsed from JSONL with tool_use/tool_result pairing — `persistence.rs:1915-1996`
+4. Messages are parsed from JSONL with tool_use/tool_result pairing — `persistence.rs:1932`
 
 ### Transcript Path
 
@@ -239,13 +239,13 @@ This path is stored in the `transcript_path` column and used as the message sour
 
 ### Batch Writer
 
-All DB writes go through `PersistenceWriter` — `persistence.rs:311-439`:
+All DB writes go through `PersistenceWriter` — `persistence.rs:316`:
 
 ```rust
 PersistenceWriter {
     batch: Vec<PersistCommand>,
     batch_size: 50,           // flush after 50 commands
-    flush_interval: 500ms,    // OR flush after 500ms
+    flush_interval: 100ms,    // OR flush after 100ms
 }
 ```
 
@@ -265,7 +265,7 @@ Whichever threshold hits first triggers a flush. The flush opens a single SQLite
         │
         ▼
     Sits in batch buffer
-    (up to 500ms / 50 cmds)
+    (up to 100ms / 50 cmds)
         │
         ▼
     flush_batch() → SQLite transaction
@@ -280,13 +280,15 @@ This affects **direct sessions** most severely because they have no external tra
 
 ## Server Restart & Session Restoration
 
-### Startup Flow — `main.rs:265-447`
+### Startup Flow — `main.rs:265`
+
+All session restoration happens in `load_sessions_for_startup()` — `persistence.rs:2295`:
 
 1. Run migrations
-2. **Cleanup stale sessions** — `persistence.rs:2270-2305`:
+2. **Cleanup stale sessions** (within `load_sessions_for_startup`):
    - End stale passive Codex sessions (idle >15min, not awaiting approval)
    - End empty Claude shells (0 prompts, 0 tools, no messages)
-3. **Load sessions** — `persistence.rs:2307-2551`:
+3. **Load sessions**:
    - Query: active sessions, OR ended by server_shutdown, OR active in last 7 days
    - For each session:
      - Load messages from `messages` table
@@ -360,6 +362,8 @@ The Claude CLI does write transcripts at `~/.claude/projects/{hash}/{sdk_session
 | `codex.rs` | codex-core embedded connector |
 | `claude_session.rs` | Claude session actor (event loop, actions) |
 | `codex_session.rs` | Codex session actor (event loop, actions) |
+| `session_actor.rs` | `SessionActorHandle` — lock-free snapshot reads via ArcSwap, command dispatch |
+| `session_command.rs` | `SessionCommand` — typed commands sent to session actors |
 | `transition.rs` | Pure state machine transitions |
 | `persistence.rs` | SQLite batch writer, session restoration, transcript loading |
 | `hook_handler.rs` | HTTP POST hook processing, passive Claude sessions |
