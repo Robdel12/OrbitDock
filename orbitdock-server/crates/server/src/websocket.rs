@@ -17,7 +17,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
-use orbitdock_connectors::discover_models;
+use orbitdock_connectors::{discover_claude_models, discover_models};
 use orbitdock_protocol::{
     new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, MessageChanges,
     MessageType, Provider, ServerMessage, SessionState, SessionStatus, StateChanges, TokenUsage,
@@ -459,6 +459,36 @@ async fn mark_session_working_after_send(state: &Arc<SessionRegistry>, session_i
                 work_status: Some(WorkStatus::Working),
                 last_activity_at: Some(now),
             }),
+        })
+        .await;
+}
+
+async fn claim_codex_thread_for_direct_session(
+    state: &Arc<SessionRegistry>,
+    persist_tx: &mpsc::Sender<PersistCommand>,
+    session_id: &str,
+    thread_id: &str,
+    cleanup_reason: &str,
+) {
+    let _ = persist_tx
+        .send(PersistCommand::SetThreadId {
+            session_id: session_id.to_string(),
+            thread_id: thread_id.to_string(),
+        })
+        .await;
+    state.register_codex_thread(session_id, thread_id);
+
+    if thread_id != session_id && state.remove_session(thread_id).is_some() {
+        state.broadcast_to_list(ServerMessage::SessionEnded {
+            session_id: thread_id.to_string(),
+            reason: "direct_session_thread_claimed".into(),
+        });
+    }
+
+    let _ = persist_tx
+        .send(PersistCommand::CleanupThreadShadowSession {
+            thread_id: thread_id.to_string(),
+            reason: cleanup_reason.to_string(),
         })
         .await;
 }
@@ -1036,13 +1066,14 @@ async fn handle_client_message(
                             {
                                 Ok(Ok(Ok(codex))) => {
                                     let new_thread_id = codex.thread_id().to_string();
-                                    let _ = persist_tx
-                                        .send(PersistCommand::SetThreadId {
-                                            session_id: session_id.clone(),
-                                            thread_id: new_thread_id.clone(),
-                                        })
-                                        .await;
-                                    state.register_codex_thread(&session_id, &new_thread_id);
+                                    claim_codex_thread_for_direct_session(
+                                        state,
+                                        &persist_tx,
+                                        &session_id,
+                                        &new_thread_id,
+                                        "legacy_codex_thread_row_cleanup",
+                                    )
+                                    .await;
                                     let (actor_handle, action_tx) =
                                         codex.start_event_loop(handle, persist_tx);
                                     state.add_session_actor(actor_handle);
@@ -1611,26 +1642,14 @@ async fn handle_client_message(
                 match codex_start {
                     Ok(codex_session) => {
                         let thread_id = codex_session.thread_id().to_string();
-                        let _ = persist_tx
-                            .send(PersistCommand::SetThreadId {
-                                session_id: session_id.clone(),
-                                thread_id: thread_id.clone(),
-                            })
-                            .await;
-                        state.register_codex_thread(&session_id, codex_session.thread_id());
-
-                        if state.remove_session(&thread_id).is_some() {
-                            state.broadcast_to_list(ServerMessage::SessionEnded {
-                                session_id: thread_id.clone(),
-                                reason: "direct_session_thread_claimed".into(),
-                            });
-                        }
-                        let _ = persist_tx
-                            .send(PersistCommand::CleanupThreadShadowSession {
-                                thread_id,
-                                reason: "legacy_codex_thread_row_cleanup".into(),
-                            })
-                            .await;
+                        claim_codex_thread_for_direct_session(
+                            state,
+                            &persist_tx,
+                            &session_id,
+                            &thread_id,
+                            "legacy_codex_thread_row_cleanup",
+                        )
+                        .await;
 
                         handle.set_list_tx(state.list_tx());
                         let (actor_handle, action_tx) =
@@ -2308,6 +2327,31 @@ async fn handle_client_message(
         ClientMessage::ListClaudeModels => {
             let models = crate::persistence::load_cached_claude_models();
             send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
+        }
+
+        ClientMessage::DiscoverClaudeModels => {
+            match discover_claude_models().await {
+                Ok(models) => {
+                    // Cache the discovered models for future use
+                    if !models.is_empty() {
+                        let persist_tx = state.persist().clone();
+                        let _ = persist_tx.send(PersistCommand::SaveClaudeModels {
+                            models: models.clone(),
+                        });
+                    }
+                    send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
+                }
+                Err(e) => {
+                    warn!(
+                        event = "claude.discover.failed",
+                        error = %e,
+                        "Failed to discover Claude models, falling back to cached"
+                    );
+                    // Fall back to cached models
+                    let models = crate::persistence::load_cached_claude_models();
+                    send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
+                }
+            }
         }
 
         ClientMessage::CodexAccountRead { refresh_token } => {
@@ -3305,25 +3349,14 @@ async fn handle_client_message(
                 match codex_start {
                     Ok(codex_session) => {
                         let new_thread_id = codex_session.thread_id().to_string();
-                        let _ = persist_tx
-                            .send(PersistCommand::SetThreadId {
-                                session_id: session_id.clone(),
-                                thread_id: new_thread_id.clone(),
-                            })
-                            .await;
-                        state.register_codex_thread(&session_id, &new_thread_id);
-                        if state.remove_session(&new_thread_id).is_some() {
-                            state.broadcast_to_list(ServerMessage::SessionEnded {
-                                session_id: new_thread_id.clone(),
-                                reason: "direct_session_thread_claimed".into(),
-                            });
-                        }
-                        let _ = persist_tx
-                            .send(PersistCommand::CleanupThreadShadowSession {
-                                thread_id: new_thread_id.clone(),
-                                reason: "legacy_codex_thread_row_cleanup".into(),
-                            })
-                            .await;
+                        claim_codex_thread_for_direct_session(
+                            state,
+                            &persist_tx,
+                            &session_id,
+                            &new_thread_id,
+                            "legacy_codex_thread_row_cleanup",
+                        )
+                        .await;
 
                         handle.set_list_tx(state.list_tx());
                         let (actor_handle, action_tx) =
@@ -3573,26 +3606,14 @@ async fn handle_client_message(
                 match tokio::time::timeout(connector_timeout, &mut connector_task).await {
                     Ok(Ok(Ok(codex))) => {
                         let new_thread_id = codex.thread_id().to_string();
-                        let _ = persist_tx
-                            .send(PersistCommand::SetThreadId {
-                                session_id: session_id.clone(),
-                                thread_id: new_thread_id.clone(),
-                            })
-                            .await;
-                        state.register_codex_thread(&session_id, &new_thread_id);
-
-                        if state.remove_session(&new_thread_id).is_some() {
-                            state.broadcast_to_list(ServerMessage::SessionEnded {
-                                session_id: new_thread_id.clone(),
-                                reason: "direct_session_thread_claimed".into(),
-                            });
-                        }
-                        let _ = persist_tx
-                            .send(PersistCommand::CleanupThreadShadowSession {
-                                thread_id: new_thread_id,
-                                reason: "takeover_thread_cleanup".into(),
-                            })
-                            .await;
+                        claim_codex_thread_for_direct_session(
+                            state,
+                            &persist_tx,
+                            &session_id,
+                            &new_thread_id,
+                            "takeover_thread_cleanup",
+                        )
+                        .await;
 
                         let (actor_handle, action_tx) =
                             codex.start_event_loop(handle, persist_tx.clone());
@@ -4345,26 +4366,14 @@ async fn handle_client_message(
                             .await;
                     }
 
-                    let _ = persist_tx
-                        .send(PersistCommand::SetThreadId {
-                            session_id: new_id.clone(),
-                            thread_id: new_thread_id.clone(),
-                        })
-                        .await;
-                    state.register_codex_thread(&new_id, &new_thread_id);
-
-                    if state.remove_session(&new_thread_id).is_some() {
-                        state.broadcast_to_list(ServerMessage::SessionEnded {
-                            session_id: new_thread_id.clone(),
-                            reason: "direct_session_thread_claimed".into(),
-                        });
-                    }
-                    let _ = persist_tx
-                        .send(PersistCommand::CleanupThreadShadowSession {
-                            thread_id: new_thread_id.clone(),
-                            reason: "legacy_codex_thread_row_cleanup".into(),
-                        })
-                        .await;
+                    claim_codex_thread_for_direct_session(
+                        state,
+                        &persist_tx,
+                        &new_id,
+                        &new_thread_id,
+                        "legacy_codex_thread_row_cleanup",
+                    )
+                    .await;
 
                     let codex_session = CodexSession {
                         session_id: new_id.clone(),
@@ -5050,13 +5059,14 @@ fn resolve_claude_resume_cwd(project_path: &str, transcript_path: &str) -> Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        claude_transcript_path_from_cwd, compact_snapshot_to_transport_limit,
-        direct_mode_activation_changes, handle_client_message, replay_has_oversize_event,
-        snapshot_transport_size_bytes, work_status_for_approval_decision, OutboundMessage,
-        WS_MAX_TEXT_MESSAGE_BYTES,
+        claim_codex_thread_for_direct_session, claude_transcript_path_from_cwd,
+        compact_snapshot_to_transport_limit, direct_mode_activation_changes, handle_client_message,
+        replay_has_oversize_event, snapshot_transport_size_bytes,
+        work_status_for_approval_decision, OutboundMessage, WS_MAX_TEXT_MESSAGE_BYTES,
     };
     use crate::claude_session::ClaudeAction;
     use crate::codex_session::CodexAction;
+    use crate::persistence::PersistCommand;
     use crate::session::SessionHandle;
     use crate::session_naming::name_from_first_prompt;
     use crate::state::SessionRegistry;
@@ -5259,6 +5269,84 @@ mod tests {
         ensure_test_data_dir();
         let (persist_tx, _persist_rx) = mpsc::channel(128);
         Arc::new(SessionRegistry::new(persist_tx))
+    }
+
+    #[tokio::test]
+    async fn claim_codex_thread_ends_shadow_runtime_session_and_persists_cleanup() {
+        ensure_test_data_dir();
+        let (persist_tx, mut persist_rx) = mpsc::channel(16);
+        let state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        let mut list_rx = state.subscribe_list();
+        let direct_session_id = "od-direct-session".to_string();
+        let shadow_thread_id = "019-shadow-thread".to_string();
+
+        let mut direct = SessionHandle::new(
+            direct_session_id.clone(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        direct.set_codex_integration_mode(Some(CodexIntegrationMode::Direct));
+        state.add_session(direct);
+
+        let mut shadow = SessionHandle::new(
+            shadow_thread_id.clone(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        shadow.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
+        state.add_session(shadow);
+
+        claim_codex_thread_for_direct_session(
+            &state,
+            &persist_tx,
+            &direct_session_id,
+            &shadow_thread_id,
+            "test_shadow_cleanup",
+        )
+        .await;
+
+        assert_eq!(
+            state.codex_thread_for_session(&direct_session_id),
+            Some(shadow_thread_id.clone())
+        );
+        assert!(
+            state.get_session(&shadow_thread_id).is_none(),
+            "shadow runtime session should be removed"
+        );
+
+        match list_rx.recv().await.expect("expected list broadcast") {
+            ServerMessage::SessionEnded { session_id, reason } => {
+                assert_eq!(session_id, shadow_thread_id);
+                assert_eq!(reason, "direct_session_thread_claimed");
+            }
+            other => panic!("expected SessionEnded broadcast, got {:?}", other),
+        }
+
+        match persist_rx
+            .recv()
+            .await
+            .expect("expected SetThreadId command")
+        {
+            PersistCommand::SetThreadId {
+                session_id,
+                thread_id,
+            } => {
+                assert_eq!(session_id, direct_session_id);
+                assert_eq!(thread_id, "019-shadow-thread");
+            }
+            other => panic!("expected SetThreadId command, got {:?}", other),
+        }
+        match persist_rx
+            .recv()
+            .await
+            .expect("expected CleanupThreadShadowSession command")
+        {
+            PersistCommand::CleanupThreadShadowSession { thread_id, reason } => {
+                assert_eq!(thread_id, "019-shadow-thread");
+                assert_eq!(reason, "test_shadow_cleanup");
+            }
+            other => panic!("expected CleanupThreadShadowSession, got {:?}", other),
+        }
     }
 
     async fn recv_json(client_rx: &mut mpsc::Receiver<OutboundMessage>) -> ServerMessage {

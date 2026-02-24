@@ -492,6 +492,37 @@ impl WatcherRuntime {
             return;
         }
 
+        // Direct Codex sessions emit rollout files with source="mcp".
+        // Ignore them here so the passive watcher never materializes shadow sessions.
+        if payload
+            .get("source")
+            .and_then(|v| v.as_str())
+            .is_some_and(|source| source.eq_ignore_ascii_case("mcp"))
+        {
+            if self.app_state.remove_session(&session_id).is_some() {
+                self.app_state
+                    .broadcast_to_list(ServerMessage::SessionEnded {
+                        session_id: session_id.clone(),
+                        reason: "direct_session_thread_claimed".into(),
+                    });
+            }
+
+            let _ = self
+                .persist_tx
+                .send(PersistCommand::CleanupThreadShadowSession {
+                    thread_id: session_id.clone(),
+                    reason: "mcp_shadow_session_ignored".into(),
+                })
+                .await;
+
+            if let Some(state) = self.file_states.get_mut(path) {
+                state.session_id = None;
+                state.project_path = Some(cwd);
+                state.model_provider = None;
+            }
+            return;
+        }
+
         let model_provider = payload
             .get("model_provider")
             .and_then(|v| v.as_str())
@@ -1796,10 +1827,20 @@ mod tests {
     use std::collections::HashMap;
     use std::io::Write;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::{Arc, Once};
     use std::time::{Duration, SystemTime};
     use tokio::sync::mpsc;
     use tokio::time::timeout;
+
+    static INIT_TEST_DATA_DIR: Once = Once::new();
+
+    fn ensure_test_data_dir() {
+        INIT_TEST_DATA_DIR.call_once(|| {
+            let dir = std::env::temp_dir().join("orbitdock-rollout-tests");
+            std::fs::create_dir_all(&dir).expect("create rollout test data dir");
+            crate::paths::init_data_dir(Some(&dir));
+        });
+    }
 
     #[test]
     fn extracts_text_from_response_item_content_array() {
@@ -1818,7 +1859,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mcp_session_meta_is_ignored_for_passive_materialization() {
+        ensure_test_data_dir();
+        let session_id = format!("mcp-direct-{}", std::process::id());
+        let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-mcp-{}", session_id));
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
+        let path = tmp_dir.join("rollout.jsonl");
+        std::fs::write(&path, "").expect("create rollout placeholder");
+        let path_string = path.to_string_lossy().to_string();
+
+        let (persist_tx, mut persist_rx) = mpsc::channel(16);
+        let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
+        let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
+
+        let mut runtime = WatcherRuntime {
+            app_state: app_state.clone(),
+            persist_tx,
+            tx: watcher_tx,
+            state_path: tmp_dir.join("state.json"),
+            watcher_started_at: SystemTime::now(),
+            file_states: HashMap::from([(
+                path_string.clone(),
+                FileState {
+                    offset: 0,
+                    tail: String::new(),
+                    session_id: Some(session_id.clone()),
+                    project_path: None,
+                    model_provider: None,
+                    ignore_existing: false,
+                    pending_tool_calls: HashMap::new(),
+                    next_message_seq: 0,
+                    saw_user_event: false,
+                    saw_agent_event: false,
+                },
+            )]),
+            persisted_state: PersistedState::default(),
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+        };
+
+        runtime
+            .handle_session_meta(
+                json!({
+                    "id": session_id.clone(),
+                    "cwd": "/tmp/repo",
+                    "source": "mcp",
+                    "originator": "codex_cli_rs",
+                }),
+                &path_string,
+            )
+            .await;
+
+        assert!(
+            app_state.get_session(&session_id).is_none(),
+            "mcp session_meta should not create passive runtime sessions"
+        );
+
+        let state = runtime
+            .file_states
+            .get(&path_string)
+            .expect("file state should be tracked");
+        assert!(
+            state.session_id.is_none(),
+            "mcp rollout file should not bind to a passive session id"
+        );
+
+        match persist_rx.recv().await.expect("expected cleanup command") {
+            PersistCommand::CleanupThreadShadowSession { thread_id, reason } => {
+                assert_eq!(thread_id, session_id);
+                assert_eq!(reason, "mcp_shadow_session_ignored");
+            }
+            other => panic!("expected CleanupThreadShadowSession, got {:?}", other),
+        }
+        assert!(
+            persist_rx.try_recv().is_err(),
+            "should not enqueue passive rollout upserts for mcp source"
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(tmp_dir.join("state.json"));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[tokio::test]
     async fn rollout_activity_reactivates_ended_passive_session_in_memory() {
+        ensure_test_data_dir();
         let session_id = format!("passive-reactivate-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
@@ -1940,6 +2065,7 @@ mod tests {
 
     #[tokio::test]
     async fn rollout_activity_reactivates_closed_passive_session_in_memory_and_db() {
+        ensure_test_data_dir();
         let session_id = format!("passive-reactivate-db-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-db-{}", session_id));
         std::fs::create_dir_all(tmp_dir.join(".orbitdock")).expect("create .orbitdock dir");
@@ -2073,6 +2199,7 @@ mod tests {
 
     #[tokio::test]
     async fn close_then_append_rollout_event_reactivates_via_watcher_event_queue() {
+        ensure_test_data_dir();
         let session_id = format!("passive-close-reopen-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-close-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
@@ -2176,6 +2303,7 @@ mod tests {
 
     #[tokio::test]
     async fn catchup_sweep_processes_appended_lines_without_fs_event() {
+        ensure_test_data_dir();
         let session_id = format!("passive-sweep-reactivate-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-sweep-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
@@ -2256,6 +2384,7 @@ mod tests {
 
     #[tokio::test]
     async fn response_item_message_line_appends_passive_chat_message() {
+        ensure_test_data_dir();
         let session_id = format!("passive-msg-append-{}", std::process::id());
         let tmp_dir = std::env::temp_dir().join(format!("orbitdock-rollout-msg-{}", session_id));
         std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
