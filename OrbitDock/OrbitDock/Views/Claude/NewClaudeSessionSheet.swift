@@ -63,6 +63,10 @@ struct NewClaudeSessionSheet: View {
     return false
   }
 
+  private var shouldShowEndpointSection: Bool {
+    selectableEndpoints.count > 1 || !isEndpointConnected
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       header
@@ -72,7 +76,9 @@ struct NewClaudeSessionSheet: View {
 
       // Form content
       VStack(alignment: .leading, spacing: Spacing.xl) {
-        endpointSection
+        if shouldShowEndpointSection {
+          endpointSection
+        }
         directorySection
         configurationCard
         toolRestrictionsCard

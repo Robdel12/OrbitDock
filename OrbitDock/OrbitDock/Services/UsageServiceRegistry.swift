@@ -22,13 +22,22 @@ final class UsageServiceRegistry {
   var activeProviders: [Provider] {
     var providers: [Provider] = []
 
-    // Claude is always available if logged in
-    if claude.usage != nil || claude.isLoading {
+    // Show Claude whenever we have data, are loading, or have an actionable error.
+    if Self.shouldShowProvider(
+      hasUsage: claude.usage != nil,
+      isLoading: claude.isLoading,
+      hasError: claude.error != nil
+    ) {
       providers.append(.claude)
     }
 
-    // Codex is available if installed (even API key mode shows as available)
-    if codex.usage != nil || codex.isLoading || isCodexApiKeyMode {
+    // Show Codex whenever we have data, are loading, have an error, or are in API key mode.
+    if Self.shouldShowProvider(
+      hasUsage: codex.usage != nil,
+      isLoading: codex.isLoading,
+      hasError: codex.error != nil,
+      isApiKeyMode: isCodexApiKeyMode
+    ) {
       providers.append(.codex)
     }
 
@@ -44,6 +53,15 @@ final class UsageServiceRegistry {
   private var isCodexApiKeyMode: Bool {
     guard let error = codex.error else { return false }
     return error.localizedDescription.contains("API key")
+  }
+
+  nonisolated static func shouldShowProvider(
+    hasUsage: Bool,
+    isLoading: Bool,
+    hasError: Bool,
+    isApiKeyMode: Bool = false
+  ) -> Bool {
+    hasUsage || isLoading || hasError || isApiKeyMode
   }
 
   /// Refresh all services

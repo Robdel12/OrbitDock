@@ -61,6 +61,10 @@ struct NewCodexSessionSheet: View {
     return false
   }
 
+  private var shouldShowEndpointSection: Bool {
+    selectableEndpoints.count > 1 || !isEndpointConnected
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       // Header — title + auth status in one line
@@ -76,7 +80,9 @@ struct NewCodexSessionSheet: View {
           authGateSection
         }
 
-        endpointSection
+        if shouldShowEndpointSection {
+          endpointSection
+        }
 
         directorySection
 
