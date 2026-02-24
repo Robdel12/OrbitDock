@@ -152,6 +152,95 @@ struct ConversationTimelinePipelineTests {
     #expect(expanded.dirtyRowIDs.contains(.tool("t1")))
   }
 
+  @Test func projectorSuppressesRedundantEscalatedApprovalNarrationWhenCardIsVisible() {
+    let pendingWrapped = "/bin/zsh -lc xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations"
+    let narration = """
+    # Requesting escalated command execution
+
+    ```bash
+    xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations
+    ```
+    """
+    let followup = makeMessage(id: "a2", type: .assistant, content: "Waiting for approval.")
+    let metadata = ConversationSourceState.SessionMetadata(
+      chatViewMode: .verbose,
+      isSessionActive: true,
+      workStatus: .permission,
+      currentTool: nil,
+      pendingToolName: "Bash",
+      pendingToolInput: #"{ "command": "\#(pendingWrapped)" }"#,
+      currentPrompt: nil,
+      messageCount: 2,
+      remainingLoadCount: 0,
+      hasMoreMessages: false,
+      needsApprovalCard: true,
+      approvalMode: .permission,
+      pendingQuestion: nil,
+      pendingApprovalId: "req-1",
+      isDirectSession: true,
+      sessionId: "session-1",
+      projectPath: "/tmp/project"
+    )
+
+    let source = ConversationSourceState(
+      messages: [
+        makeMessage(id: "a1", type: .assistant, content: narration),
+        followup,
+      ],
+      turns: [],
+      metadata: metadata
+    )
+
+    let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
+    let rowIDs = projected.rows.map(\.id)
+
+    #expect(!rowIDs.contains(.message("a1")))
+    #expect(rowIDs.contains(.message("a2")))
+    #expect(rowIDs.contains(.approvalCard))
+  }
+
+  @Test func projectorSuppressesDuplicatePendingBashToolRowWhenApprovalCardIsVisible() {
+    let wrappedCommand = "/bin/zsh -lc xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations"
+    let pendingTool = TranscriptMessage(
+      id: "t-approval",
+      type: .tool,
+      content: wrappedCommand,
+      timestamp: Date(timeIntervalSince1970: 1),
+      toolName: "Bash",
+      toolInput: ["command": wrappedCommand],
+      toolOutput: nil,
+      toolDuration: nil,
+      inputTokens: nil,
+      outputTokens: nil
+    )
+    let metadata = ConversationSourceState.SessionMetadata(
+      chatViewMode: .verbose,
+      isSessionActive: true,
+      workStatus: .permission,
+      currentTool: nil,
+      pendingToolName: "Bash",
+      pendingToolInput: #"{"command":"/bin/zsh -lc xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations"}"#,
+      currentPrompt: nil,
+      messageCount: 1,
+      remainingLoadCount: 0,
+      hasMoreMessages: false,
+      needsApprovalCard: true,
+      approvalMode: .permission,
+      pendingQuestion: nil,
+      pendingApprovalId: "req-2",
+      isDirectSession: true,
+      sessionId: "session-1",
+      projectPath: "/tmp/project"
+    )
+    let source = ConversationSourceState(messages: [pendingTool], turns: [], metadata: metadata)
+
+    let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
+    let rowIDs = projected.rows.map(\.id)
+
+    #expect(!rowIDs.contains(.tool("t-approval")))
+    #expect(rowIDs.contains(.approvalCard))
+  }
+
   @Test func heightCacheKeyHashesDeterministically() {
     let keyA = HeightCacheKey(rowID: .message("m1"), widthBucket: 8, layoutHash: 111)
     let keyB = HeightCacheKey(rowID: .message("m1"), widthBucket: 8, layoutHash: 111)

@@ -220,7 +220,9 @@ enum ApprovalCardModelBuilder {
     }()
 
     let parsedQuestionInput = parseQuestionInput(from: inputDict)
-    let command = commandFromInput ?? pendingApproval?.command ?? pendingHistory?.command
+    let command = commandFromInput
+      ?? String.shellCommandDisplay(from: pendingApproval?.command)
+      ?? String.shellCommandDisplay(from: pendingHistory?.command)
     let filePath = filePathFromInput ?? pendingApproval?.filePath ?? pendingHistory?.filePath
     let toolName = session.pendingToolName ?? pendingApproval?.toolName ?? pendingHistory?.toolName
 

@@ -164,6 +164,9 @@ nonisolated enum ConversationTimelineProjector {
     if message.type == .user, message.content.contains("<local-command-caveat>") {
       return
     }
+    if shouldHideRedundantApprovalPrompt(message, metadata: context.source.metadata) {
+      return
+    }
 
     let isToolRow = toolRowsEnabled && message.type == .tool
     rows.append(
@@ -174,6 +177,167 @@ nonisolated enum ConversationTimelineProjector {
         context: context
       )
     )
+  }
+
+  private static func shouldHideRedundantApprovalPrompt(
+    _ message: TranscriptMessage,
+    metadata: ConversationSourceState.SessionMetadata
+  ) -> Bool {
+    guard metadata.needsApprovalCard, metadata.approvalMode == .permission else { return false }
+    guard let pendingCommand = pendingApprovalCommand(from: metadata) else { return false }
+
+    if message.type == .tool {
+      guard (message.toolName?.lowercased() ?? "") == "bash" else { return false }
+      let hasOutput = !(message.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+      guard !hasOutput else { return false }
+      let messageCommand = commandFromToolMessage(message)
+      return commandsLikelyMatch(messageCommand, pendingCommand)
+    }
+
+    if message.type == .assistant {
+      let lower = message.content.lowercased()
+      guard lower.contains("requesting escalated command execution") else { return false }
+      return commandMentioned(message.content, pendingCommand: pendingCommand)
+    }
+
+    return false
+  }
+
+  private static func pendingApprovalCommand(from metadata: ConversationSourceState.SessionMetadata) -> String? {
+    guard let rawInput = metadata.pendingToolInput, !rawInput.isEmpty else { return nil }
+    if let data = rawInput.data(using: .utf8),
+       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    {
+      if let command = extractDisplayCommand(from: dict["command"])
+        ?? extractDisplayCommand(from: dict["cmd"])
+      {
+        return command
+      }
+    }
+    return extractDisplayCommand(from: rawInput)
+  }
+
+  private static func commandFromToolMessage(_ message: TranscriptMessage) -> String {
+    return stripKnownShellWrapperPrefix(message.content)
+  }
+
+  private static func extractDisplayCommand(from value: Any?) -> String? {
+    guard let value else { return nil }
+
+    if let command = value as? String {
+      let cleaned = stripKnownShellWrapperPrefix(command)
+      return cleaned.isEmpty ? nil : cleaned
+    }
+
+    if let commandParts = value as? [String] {
+      return displayCommand(fromParts: commandParts)
+    }
+
+    if let commandParts = value as? [Any] {
+      let parts = commandParts.compactMap { $0 as? String }
+      guard parts.count == commandParts.count else { return nil }
+      return displayCommand(fromParts: parts)
+    }
+
+    return nil
+  }
+
+  private static func displayCommand(fromParts parts: [String]) -> String? {
+    let tokens = parts
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+    guard !tokens.isEmpty else { return nil }
+
+    let switches = Set(["-lc", "-c", "-ic", "-ilc", "/c", "/C", "-Command"])
+    let shells = Set([
+      "sh", "bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh",
+      "pwsh", "pwsh.exe", "powershell", "powershell.exe",
+      "cmd", "cmd.exe",
+    ])
+
+    func executableName(_ token: String) -> String {
+      (token as NSString).lastPathComponent.lowercased()
+    }
+
+    var shellIndex = 0
+    if executableName(tokens[0]) == "env", tokens.count > 1 {
+      shellIndex = 1
+    }
+
+    if shellIndex < tokens.count, shells.contains(executableName(tokens[shellIndex])) {
+      var optionIndex = shellIndex + 1
+      while optionIndex < tokens.count {
+        let option = tokens[optionIndex]
+        if switches.contains(option) {
+          let commandTokens = Array(tokens[(optionIndex + 1)...])
+          if !commandTokens.isEmpty {
+            let command = stripKnownShellWrapperPrefix(commandTokens.joined(separator: " "))
+            return command.isEmpty ? nil : command
+          }
+        }
+        if !option.hasPrefix("-") && !option.hasPrefix("/") {
+          break
+        }
+        optionIndex += 1
+      }
+    }
+
+    let joined = stripKnownShellWrapperPrefix(tokens.joined(separator: " "))
+    return joined.isEmpty ? nil : joined
+  }
+
+  private static func stripKnownShellWrapperPrefix(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return trimmed }
+
+    let pattern =
+      #"^(?:/usr/bin/env\s+)?(?:\S+\/)?(?:sh|bash|zsh|fish|ksh|dash|csh|tcsh|pwsh(?:\.exe)?|powershell(?:\.exe)?|cmd(?:\.exe)?)\s+(?:-ilc|-lc|-ic|-c|/c|/C|-Command)\s+"#
+    if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+      let range = NSRange(trimmed.startIndex ..< trimmed.endIndex, in: trimmed)
+      if let match = regex.firstMatch(in: trimmed, options: [], range: range),
+         match.range.location == 0,
+         let prefixRange = Range(match.range, in: trimmed)
+      {
+        let command = String(trimmed[prefixRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimOuterQuotes(command)
+      }
+    }
+
+    return trimOuterQuotes(trimmed)
+  }
+
+  private static func trimOuterQuotes(_ value: String) -> String {
+    guard value.count >= 2 else { return value }
+    if value.hasPrefix("\""), value.hasSuffix("\"") {
+      return String(value.dropFirst().dropLast())
+    }
+    if value.hasPrefix("'"), value.hasSuffix("'") {
+      return String(value.dropFirst().dropLast())
+    }
+    return value
+  }
+
+  private static func commandMentioned(_ content: String, pendingCommand: String) -> Bool {
+    let normalizedContent = normalizeCommandText(content)
+    let normalizedCommand = normalizeCommandText(pendingCommand)
+    guard !normalizedCommand.isEmpty else { return false }
+    return normalizedContent.contains(normalizedCommand)
+  }
+
+  private static func commandsLikelyMatch(_ lhs: String, _ rhs: String) -> Bool {
+    let normalizedLHS = normalizeCommandText(lhs)
+    let normalizedRHS = normalizeCommandText(rhs)
+    guard !normalizedLHS.isEmpty, !normalizedRHS.isEmpty else { return false }
+    return normalizedLHS == normalizedRHS
+      || normalizedLHS.contains(normalizedRHS)
+      || normalizedRHS.contains(normalizedLHS)
+  }
+
+  private static func normalizeCommandText(_ value: String) -> String {
+    stripKnownShellWrapperPrefix(value)
+      .lowercased()
+      .split(whereSeparator: \.isWhitespace)
+      .joined(separator: " ")
   }
 
   private static func splitFocusedTurnMessages(_ messages: [TranscriptMessage]) -> FocusedTurnSplit {

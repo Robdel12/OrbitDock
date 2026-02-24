@@ -68,6 +68,36 @@ struct ApprovalCardModelTests {
     #expect(model?.mode == .permission)
   }
 
+  @Test func builderNormalizesShellWrapperWhenUsingPendingApprovalCommandFallback() {
+    let session = makeDirectSession(
+      id: "session-command-fallback",
+      attentionReason: .awaitingPermission,
+      pendingApprovalId: "req-zsh"
+    )
+
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-zsh",
+      sessionId: session.id,
+      type: .exec,
+      toolName: "Bash",
+      toolInput: nil,
+      command: "/bin/zsh -lc xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations",
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      proposedAmendment: nil
+    )
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: pendingApproval,
+      serverState: ServerAppState()
+    )
+
+    #expect(model?.mode == .permission)
+    #expect(model?.command == "xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations")
+  }
+
   @Test func builderParsesQuestionOptionsFromPendingToolInput() {
     let toolInput = """
     {
