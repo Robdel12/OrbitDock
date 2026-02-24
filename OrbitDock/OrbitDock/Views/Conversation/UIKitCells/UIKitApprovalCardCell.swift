@@ -251,7 +251,10 @@
         commandAccentBar.widthAnchor.constraint(equalToConstant: EdgeBar.width),
 
         commandText.topAnchor.constraint(equalTo: commandContainer.topAnchor, constant: Layout.commandVerticalPadding),
-        commandText.bottomAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: -Layout.commandVerticalPadding),
+        commandText.bottomAnchor.constraint(
+          equalTo: commandContainer.bottomAnchor,
+          constant: -Layout.commandVerticalPadding
+        ),
         commandText.leadingAnchor.constraint(
           equalTo: commandAccentBar.trailingAnchor,
           constant: Layout.commandHorizontalPadding
@@ -396,12 +399,14 @@
       cardContainer.addSubview(actionHintLabel)
 
       moreActionsButton.translatesAutoresizingMaskIntoConstraints = false
-      moreActionsButton.setTitle("More", for: .normal)
+      var moreConfig = UIButton.Configuration.plain()
+      moreConfig.title = "More"
+      moreConfig.baseForegroundColor = UIColor(Color.textSecondary)
+      moreConfig.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8)
+      moreActionsButton.configuration = moreConfig
       moreActionsButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
-      moreActionsButton.setTitleColor(UIColor(Color.textSecondary), for: .normal)
       moreActionsButton.backgroundColor = UIColor(Color.backgroundTertiary).withAlphaComponent(0.7)
       moreActionsButton.layer.cornerRadius = CGFloat(Radius.sm)
-      moreActionsButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
       moreActionsButton.showsMenuAsPrimaryAction = true
       moreActionsButton.isHidden = true
       cardContainer.addSubview(moreActionsButton)
@@ -565,7 +570,7 @@
       } else {
         questionTextLabel.text = primaryPrompt?.question ?? model.question ?? ""
       }
-      if !hasOptions && !isMultiPrompt {
+      if !hasOptions, !isMultiPrompt {
         answerField.text = ""
       }
     }
@@ -767,7 +772,7 @@
     }
 
     private func configureQuestionOptions(_ options: [ApprovalQuestionOption]) {
-      questionOptionsStack.arrangedSubviews.forEach { view in
+      for view in questionOptionsStack.arrangedSubviews {
         questionOptionsStack.removeArrangedSubview(view)
         view.removeFromSuperview()
       }
@@ -778,14 +783,15 @@
       for option in options {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.setTitle(Self.questionOptionDisplayText(option), for: .normal)
+        var config = UIButton.Configuration.plain()
+        config.title = Self.questionOptionDisplayText(option)
+        config.baseForegroundColor = UIColor(Color.textPrimary)
+        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
+        config.titleLineBreakMode = .byWordWrapping
+        button.configuration = config
         button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
         button.titleLabel?.numberOfLines = 0
-        button.titleLabel?.lineBreakMode = .byWordWrapping
-        button.titleLabel?.textAlignment = .left
         button.contentHorizontalAlignment = .leading
-        button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
-        button.setTitleColor(UIColor(Color.textPrimary), for: .normal)
         button.backgroundColor = UIColor(Color.backgroundPrimary).withAlphaComponent(0.8)
         button.layer.cornerRadius = CGFloat(Radius.md)
         button.layer.borderWidth = 1
@@ -809,7 +815,7 @@
     }
 
     private func configureQuestionPromptForm(_ prompts: [ApprovalQuestionPrompt]) {
-      questionOptionsStack.arrangedSubviews.forEach { view in
+      for view in questionOptionsStack.arrangedSubviews {
         questionOptionsStack.removeArrangedSubview(view)
         view.removeFromSuperview()
       }
@@ -847,14 +853,15 @@
           for option in prompt.options {
             let button = UIButton(type: .system)
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.setTitle(Self.questionOptionDisplayText(option), for: .normal)
+            var config = UIButton.Configuration.plain()
+            config.title = Self.questionOptionDisplayText(option)
+            config.baseForegroundColor = UIColor(Color.textPrimary)
+            config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
+            config.titleLineBreakMode = .byWordWrapping
+            button.configuration = config
             button.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
             button.titleLabel?.numberOfLines = 0
-            button.titleLabel?.lineBreakMode = .byWordWrapping
-            button.titleLabel?.textAlignment = .left
             button.contentHorizontalAlignment = .leading
-            button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
-            button.setTitleColor(UIColor(Color.textPrimary), for: .normal)
             button.backgroundColor = UIColor(Color.backgroundPrimary).withAlphaComponent(0.8)
             button.layer.cornerRadius = CGFloat(Radius.md)
             button.layer.borderWidth = 1
@@ -1105,7 +1112,7 @@
             allowsMultipleSelection: false,
             allowsOther: true,
             isSecret: false
-          )
+          ),
         ]
       }
       return []

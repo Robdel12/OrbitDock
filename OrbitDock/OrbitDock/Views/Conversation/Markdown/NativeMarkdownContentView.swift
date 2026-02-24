@@ -302,13 +302,12 @@ final class NativeMarkdownContentView: PlatformView {
 #if os(macOS)
   extension NativeMarkdownContentView: NSTextViewDelegate {
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
-      let url: URL?
-      if let value = link as? URL {
-        url = value
+      let url: URL? = if let value = link as? URL {
+        value
       } else if let value = link as? String {
-        url = URL(string: value)
+        URL(string: value)
       } else {
-        url = nil
+        nil
       }
 
       guard let url else { return false }
@@ -319,12 +318,13 @@ final class NativeMarkdownContentView: PlatformView {
   extension NativeMarkdownContentView: UITextViewDelegate {
     func textView(
       _ textView: UITextView,
-      shouldInteractWith url: URL,
-      in characterRange: NSRange,
-      interaction: UITextItemInteraction
-    ) -> Bool {
-      _ = Platform.services.openURL(url)
-      return false
+      primaryActionFor textItem: UITextItem,
+      defaultAction: UIAction
+    ) -> UIAction? {
+      guard case let .link(url) = textItem.content else { return defaultAction }
+      return UIAction { _ in
+        _ = Platform.services.openURL(url)
+      }
     }
   }
 #endif
