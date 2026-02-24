@@ -119,78 +119,31 @@ struct FlatSessionRow: View {
     return branch
   }
 
+  private var activityRecency: String? {
+    let activity = session.lastActivityAt ?? session.startedAt
+    guard let activity else { return nil }
+    let interval = Date().timeIntervalSince(activity)
+
+    if interval < 60 {
+      return "just now"
+    }
+    if interval < 3_600 {
+      return "\(Int(interval / 60))m"
+    }
+    if interval < 86_400 {
+      let hours = Int(interval / 3_600)
+      return "\(hours)h"
+    }
+    return "\(Int(interval / 86_400))d"
+  }
+
   var body: some View {
     Button(action: onSelect) {
-      HStack(spacing: 10) {
-        // Status dot
-        SessionStatusDot(status: displayStatus, size: 8, showGlow: displayStatus.needsAttention)
-          .frame(width: 14)
-
-        // Main content — two lines
-        VStack(alignment: .leading, spacing: 1) {
-          // Line 1: name + branch + attention pill
-          HStack(spacing: 5) {
-            Text(agentLabel)
-              .font(.system(
-                size: hasRealName ? TypeScale.subhead : TypeScale.code,
-                weight: hasRealName ? .semibold : .regular
-              ))
-              .foregroundStyle(hasRealName ? .primary : Color.textSecondary)
-              .lineLimit(1)
-
-            if session.endpointName != nil {
-              EndpointBadge(endpointName: session.endpointName)
-            }
-
-            if serverState.session(session.id).forkedFrom != nil {
-              ForkBadge()
-            }
-
-            // Branch badge — subtle, after the name
-            if let branch = inlineBranch {
-              Text(branch)
-                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.gitBranch.opacity(0.7))
-                .lineLimit(1)
-            }
-
-            // Attention context (inline pill)
-            if displayStatus == .permission, let tool = session.pendingToolName {
-              attentionPill(icon: "lock.fill", text: tool, color: .statusPermission)
-            } else if displayStatus == .question {
-              attentionPill(icon: "questionmark.bubble", text: "Question", color: .statusQuestion)
-            }
-          }
-
-          // Line 2: context snippet (if available)
-          if let context = contextLine {
-            Text(context)
-              .font(.system(size: TypeScale.caption, weight: .regular))
-              .foregroundStyle(Color.textQuaternary)
-              .lineLimit(1)
-          }
-        }
-
-        Spacer()
-
-        // Right side: model + direct + tokens
+      Group {
         if isPhoneCompact {
-          compactMeta
+          compactRowContent
         } else {
-          HStack(spacing: 6) {
-            UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
-
-            if session.isDirect {
-              Text("direct")
-                .font(.system(size: TypeScale.micro, weight: .semibold))
-                .foregroundStyle(Color.accent.opacity(0.55))
-            }
-
-            Text(formatTokens(session.totalTokens))
-              .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
-              .foregroundStyle(Color.textQuaternary)
-              .frame(width: 44, alignment: .trailing)
-          }
+          regularRowContent
         }
       }
       .padding(.vertical, 7)
@@ -215,19 +168,188 @@ struct FlatSessionRow: View {
     }
   }
 
-  // MARK: - Attention Pill
+  private var regularRowContent: some View {
+    HStack(spacing: 10) {
+      // Status dot
+      SessionStatusDot(status: displayStatus, size: 8, showGlow: displayStatus.needsAttention)
+        .frame(width: 14)
 
-  private var compactMeta: some View {
-    HStack(spacing: 4) {
-      UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+      // Main content — two lines
+      VStack(alignment: .leading, spacing: 1) {
+        // Line 1: name + branch + attention pill
+        HStack(spacing: 5) {
+          Text(agentLabel)
+            .font(.system(
+              size: hasRealName ? TypeScale.subhead : TypeScale.code,
+              weight: hasRealName ? .semibold : .regular
+            ))
+            .foregroundStyle(hasRealName ? .primary : Color.textSecondary)
+            .lineLimit(1)
 
-      if session.isDirect {
-        Circle()
-          .fill(Color.accent.opacity(0.7))
-          .frame(width: 5, height: 5)
+          if session.endpointName != nil {
+            EndpointBadge(endpointName: session.endpointName)
+          }
+
+          if serverState.session(session.id).forkedFrom != nil {
+            ForkBadge()
+          }
+
+          // Branch badge — subtle, after the name
+          if let branch = inlineBranch {
+            Text(branch)
+              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+              .foregroundStyle(Color.gitBranch.opacity(0.7))
+              .lineLimit(1)
+          }
+
+          // Attention context (inline pill)
+          if displayStatus == .permission, let tool = session.pendingToolName {
+            attentionPill(icon: "lock.fill", text: tool, color: .statusPermission)
+          } else if displayStatus == .question {
+            attentionPill(icon: "questionmark.bubble", text: "Question", color: .statusQuestion)
+          }
+        }
+
+        // Line 2: context snippet (if available)
+        if let context = contextLine {
+          Text(context)
+            .font(.system(size: TypeScale.caption, weight: .regular))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+        }
+      }
+
+      Spacer()
+
+      HStack(spacing: 6) {
+        SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
+
+        if let activityRecency {
+          recencyBadge(activityRecency)
+        }
+
+        UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+
+        if session.isDirect {
+          directPill
+        }
+
+        Text(formatTokens(session.totalTokens))
+          .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+          .frame(width: 44, alignment: .trailing)
       }
     }
   }
+
+  private var compactRowContent: some View {
+    HStack(alignment: .top, spacing: 8) {
+      SessionStatusDot(status: displayStatus, size: 7, showGlow: displayStatus.needsAttention)
+        .frame(width: 12)
+        .padding(.top, 2)
+
+      VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 5) {
+          Text(agentLabel)
+            .font(.system(size: TypeScale.subhead, weight: .semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+
+          if displayStatus == .permission, let tool = session.pendingToolName {
+            attentionPill(icon: "lock.fill", text: tool, color: .statusPermission)
+          } else if displayStatus == .question {
+            attentionPill(icon: "questionmark.bubble", text: "Question", color: .statusQuestion)
+          }
+        }
+
+        if let context = contextLine {
+          Text(context)
+            .font(.system(size: TypeScale.caption, weight: .regular))
+            .foregroundStyle(Color.textQuaternary)
+            .lineLimit(1)
+        }
+
+        compactPrimaryMetaRow
+
+        if hasCompactSecondaryMeta {
+          compactSecondaryMetaRow
+        }
+      }
+
+      Spacer(minLength: 0)
+    }
+  }
+
+  private var compactPrimaryMetaRow: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 4) {
+        SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
+        UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+        if session.isDirect {
+          directPill
+        }
+        if let activityRecency {
+          recencyBadge(activityRecency)
+        }
+      }
+
+      HStack(spacing: 4) {
+        SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
+        UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+        if session.isDirect {
+          directPill
+        }
+      }
+
+      HStack(spacing: 4) {
+        SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
+        UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+      }
+    }
+  }
+
+  private var hasCompactSecondaryMeta: Bool {
+    session.endpointName != nil || serverState.session(session.id).forkedFrom != nil || inlineBranch != nil
+  }
+
+  private var compactSecondaryMetaRow: some View {
+    HStack(spacing: 4) {
+      if session.endpointName != nil {
+        EndpointBadge(endpointName: session.endpointName)
+      }
+
+      if serverState.session(session.id).forkedFrom != nil {
+        ForkBadge()
+      }
+
+      if let branch = inlineBranch {
+        Text(branch)
+          .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+          .foregroundStyle(Color.gitBranch.opacity(0.72))
+          .lineLimit(1)
+      }
+    }
+  }
+
+  private var directPill: some View {
+    Text("direct")
+      .font(.system(size: TypeScale.micro, weight: .semibold))
+      .foregroundStyle(Color.accent.opacity(0.65))
+      .padding(.horizontal, 5)
+      .padding(.vertical, 2)
+      .background(Color.accent.opacity(0.10), in: Capsule())
+  }
+
+  private func recencyBadge(_ value: String) -> some View {
+    Text(value)
+      .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+      .foregroundStyle(Color.textQuaternary)
+      .padding(.horizontal, 5)
+      .padding(.vertical, 2)
+      .background(Color.surfaceHover.opacity(0.32), in: Capsule())
+  }
+
+  // MARK: - Attention Pill
 
   private func attentionPill(icon: String, text: String, color: Color) -> some View {
     HStack(spacing: 3) {
@@ -245,9 +367,16 @@ struct FlatSessionRow: View {
   // MARK: - Background
 
   private var rowBackground: some View {
-    ZStack(alignment: .leading) {
+    return ZStack(alignment: .leading) {
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(isSelected ? Color.accent.opacity(OpacityTier.light) : (isHovering ? Color.surfaceHover : Color.clear))
+        .fill(isSelected ? Color.surfaceSelected : (isHovering ? Color.surfaceHover : Color.clear))
+        .overlay(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .stroke(
+              Color.surfaceBorder.opacity(isSelected ? OpacityTier.strong : (isHovering ? OpacityTier.medium : OpacityTier.subtle)),
+              lineWidth: 1
+            )
+        )
 
       // Cyan edge bar when selected
       if isSelected {

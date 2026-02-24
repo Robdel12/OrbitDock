@@ -43,6 +43,38 @@ struct ProjectStreamSection: View {
     allActiveSessions.filter(\.isDirect).count
   }
 
+  private var passiveCount: Int {
+    max(0, allActiveSessions.count - directCount)
+  }
+
+  private var claudeCount: Int {
+    allActiveSessions.filter { $0.provider == .claude }.count
+  }
+
+  private var codexCount: Int {
+    allActiveSessions.filter { $0.provider == .codex }.count
+  }
+
+  private var attentionSessions: [Session] {
+    allActiveSessions.filter { SessionDisplayStatus.from($0).needsAttention }
+  }
+
+  private var runningSessions: [Session] {
+    allActiveSessions.filter { SessionDisplayStatus.from($0) == .working }
+  }
+
+  private var readySessions: [Session] {
+    allActiveSessions.filter { SessionDisplayStatus.from($0) == .reply }
+  }
+
+  private var oldestAttentionSession: Session? {
+    attentionSessions.min { Self.sortDate($0) < Self.sortDate($1) }
+  }
+
+  private var oldestReadySession: Session? {
+    readySessions.min { Self.sortDate($0) < Self.sortDate($1) }
+  }
+
   private var layoutMode: DashboardLayoutMode {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
@@ -96,34 +128,42 @@ struct ProjectStreamSection: View {
 
   private var regularSectionHeader: some View {
     VStack(alignment: .leading, spacing: 12) {
-      // Line 1: Title
-      HStack(spacing: 8) {
-        Text("Active Agents")
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text("Conversation Operations")
           .font(.system(size: TypeScale.headline, weight: .bold))
           .foregroundStyle(.primary)
-          .tracking(-0.3)
+          .tracking(-0.35)
 
         Text("\(orderedSessions.count)")
-          .font(.system(size: TypeScale.subhead, weight: .medium, design: .rounded))
-          .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, 7)
-          .padding(.vertical, 2)
-          .background(Color.surfaceHover.opacity(0.6), in: Capsule())
+          .font(.system(size: TypeScale.subhead, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.textSecondary)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 3)
+          .background(Color.surfaceHover.opacity(0.7), in: Capsule())
+
+        if let pulse = operationsPulse {
+          HStack(spacing: 4) {
+            Circle()
+              .fill(pulse.color)
+              .frame(width: 6, height: 6)
+            Text(pulse.label)
+              .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
+          }
+          .foregroundStyle(pulse.color)
+          .padding(.horizontal, 9)
+          .padding(.vertical, 4)
+          .background(pulse.color.opacity(0.12), in: Capsule())
+        }
       }
 
-      // Line 2: Toolbar — sort + provider + state chips
+      statusOverviewBoard
+
       HStack(spacing: 0) {
-        // Sort picker
         sortPicker
-
         thinSeparator
-
-        // Provider filter
         providerToggle
-
         thinSeparator
 
-        // State filter chips
         HStack(spacing: 4) {
           if directCount > 0 || filter == .direct {
             filterChip(
@@ -164,7 +204,6 @@ struct ProjectStreamSection: View {
 
         Spacer()
 
-        // Clear all filters
         if filter != .all || providerFilter != .all {
           Button {
             filter = .all
@@ -220,74 +259,50 @@ struct ProjectStreamSection: View {
       }
 
       if shouldShowCompactSignalRow {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 8) {
-            if counts.attention > 0 {
-              compactSignalIndicator(
-                icon: "exclamationmark.circle.fill",
-                label: "Needs review",
-                count: counts.attention,
-                color: .statusPermission
-              )
-            }
+        LazyVGrid(columns: compactSignalColumns, spacing: 6) {
+          if counts.attention > 0 || filter == .attention {
+            compactSignalFilterChip(
+              target: .attention,
+              icon: "exclamationmark.circle.fill",
+              title: "Needs review",
+              count: counts.attention,
+              color: .statusPermission
+            )
+          }
 
-            if counts.running > 0 {
-              compactSignalIndicator(
-                icon: "bolt.fill",
-                label: "Running",
-                count: counts.running,
-                color: .statusWorking
-              )
-            }
+          if counts.running > 0 || filter == .running {
+            compactSignalFilterChip(
+              target: .running,
+              icon: "bolt.fill",
+              title: "Running",
+              count: counts.running,
+              color: .statusWorking
+            )
+          }
 
-            if counts.ready > 0 {
-              compactSignalIndicator(
-                icon: "bubble.left.fill",
-                label: "Ready",
-                count: counts.ready,
-                color: .statusReply
-              )
-            }
+          if counts.ready > 0 || filter == .ready {
+            compactSignalFilterChip(
+              target: .ready,
+              icon: "bubble.left.fill",
+              title: "Ready",
+              count: counts.ready,
+              color: .statusReply
+            )
+          }
 
-            if filter == .direct {
-              compactStateChip(
-                target: .direct,
-                icon: "chevron.left.forwardslash.chevron.right",
-                title: "Direct",
-                color: .providerCodex
-              )
-            }
+          if directCount > 0 || filter == .direct {
+            compactSignalFilterChip(
+              target: .direct,
+              icon: "chevron.left.forwardslash.chevron.right",
+              title: "Direct",
+              count: directCount,
+              color: .providerCodex
+            )
+          }
 
-            if filter == .attention {
-              compactStateChip(
-                target: .attention,
-                icon: "exclamationmark.circle.fill",
-                title: "Needs review",
-                color: .statusPermission
-              )
-            }
-
-            if filter == .running {
-              compactStateChip(
-                target: .running,
-                icon: "bolt.fill",
-                title: "Running",
-                color: .statusWorking
-              )
-            }
-
-            if filter == .ready {
-              compactStateChip(
-                target: .ready,
-                icon: "bubble.left.fill",
-                title: "Ready",
-                color: .statusReply
-              )
-            }
-
-            if providerFilter != .all {
-              compactProviderChip
-            }
+          if providerFilter != .all {
+            compactProviderChip
+              .gridCellColumns(2)
           }
         }
       }
@@ -296,8 +311,310 @@ struct ProjectStreamSection: View {
     .padding(.horizontal, 2)
   }
 
+  private var compactSignalColumns: [GridItem] {
+    [
+      GridItem(.flexible(minimum: 120), spacing: 6),
+      GridItem(.flexible(minimum: 120), spacing: 6),
+    ]
+  }
+
   private var shouldShowCompactSignalRow: Bool {
-    counts.attention > 0 || counts.running > 0 || counts.ready > 0 || filter != .all || providerFilter != .all
+    counts.attention > 0 || counts.running > 0 || counts.ready > 0 || directCount > 0 || filter != .all || providerFilter != .all
+  }
+
+  private var operationsPulse: (label: String, color: Color)? {
+    guard !orderedSessions.isEmpty else { return nil }
+    if counts.attention >= 3 {
+      return ("Intervene", .statusPermission)
+    }
+    if counts.attention > 0 {
+      return ("Watch", .statusQuestion)
+    }
+    if counts.running > 0 {
+      return ("Flowing", .statusWorking)
+    }
+    if counts.ready > 0 {
+      return ("Awaiting Input", .statusReply)
+    }
+    return ("Quiet", .textTertiary)
+  }
+
+  private var statusOverviewBoard: some View {
+    HStack(spacing: 10) {
+      statusSignalCard(
+        target: .attention,
+        icon: "exclamationmark.circle.fill",
+        title: "Needs Attention",
+        count: counts.attention,
+        subtitle: attentionNarrative,
+        accent: .statusPermission
+      )
+
+      statusSignalCard(
+        target: .running,
+        icon: "bolt.fill",
+        title: "Currently Working",
+        count: counts.running,
+        subtitle: runningNarrative,
+        accent: .statusWorking
+      )
+
+      statusSignalCard(
+        target: .ready,
+        icon: "bubble.left.fill",
+        title: "Ready For Reply",
+        count: counts.ready,
+        subtitle: readyNarrative,
+        accent: .statusReply
+      )
+
+      controlSignalCard
+    }
+  }
+
+  private func statusSignalCard(
+    target: ActiveSessionWorkbenchFilter,
+    icon: String,
+    title: String,
+    count: Int,
+    subtitle: String,
+    accent: Color
+  ) -> some View {
+    let isActive = filter == target
+
+    return Button {
+      filter = isActive ? .all : target
+    } label: {
+      VStack(alignment: .leading, spacing: 7) {
+        HStack(spacing: 6) {
+          Image(systemName: icon)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(accent)
+
+          Text(title)
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+
+          Spacer(minLength: 4)
+
+          Text("\(count)")
+            .font(.system(size: TypeScale.title + 6, weight: .heavy, design: .rounded))
+            .foregroundStyle(accent)
+        }
+
+        Text(subtitle)
+          .font(.system(size: TypeScale.body, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+          .lineLimit(2)
+          .frame(minHeight: 24, alignment: .topLeading)
+
+        signalMeter(active: count, total: allActiveSessions.count, color: accent)
+
+        Text(shareLabel(for: count))
+          .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textQuaternary)
+      }
+      .padding(.horizontal, 11)
+      .padding(.vertical, 10)
+      .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
+      .background(statusCardBackground(accent: accent, isActive: isActive))
+    }
+    .buttonStyle(.plain)
+  }
+
+  private var controlSignalCard: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack(spacing: 6) {
+        Image(systemName: "slider.horizontal.3")
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(Color.providerCodex)
+
+        Text("Control Mode")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+
+        Spacer(minLength: 4)
+
+        Button {
+          filter = filter == .direct ? .all : .direct
+        } label: {
+          Text("\(directCount) direct")
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+            .foregroundStyle(filter == .direct ? .providerCodex : Color.textTertiary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+              Capsule()
+                .fill((filter == .direct ? Color.providerCodex : Color.surfaceHover).opacity(0.22))
+            )
+        }
+        .buttonStyle(.plain)
+      }
+
+      Text("\(passiveCount) passive sessions waiting for takeover")
+        .font(.system(size: TypeScale.body, weight: .medium))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(2)
+        .frame(minHeight: 24, alignment: .topLeading)
+
+      signalMeter(active: directCount, total: allActiveSessions.count, color: .providerCodex)
+
+      HStack(spacing: 6) {
+        providerSignalPill(
+          target: .claude,
+          icon: ActiveSessionProviderFilter.claude.icon,
+          label: "Claude",
+          count: claudeCount,
+          color: .accent
+        )
+        providerSignalPill(
+          target: .codex,
+          icon: ActiveSessionProviderFilter.codex.icon,
+          label: "Codex",
+          count: codexCount,
+          color: .providerCodex
+        )
+      }
+    }
+    .padding(.horizontal, 11)
+    .padding(.vertical, 10)
+    .frame(width: 230)
+    .frame(minHeight: 108, alignment: .topLeading)
+    .background(statusCardBackground(accent: .providerCodex, isActive: filter == .direct))
+  }
+
+  private func providerSignalPill(
+    target: ActiveSessionProviderFilter,
+    icon: String,
+    label: String,
+    count: Int,
+    color: Color
+  ) -> some View {
+    let isActive = providerFilter == target
+
+    return Button {
+      providerFilter = isActive ? .all : target
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: icon)
+          .font(.system(size: 8, weight: .bold))
+        Text("\(label) \(count)")
+          .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+      }
+      .foregroundStyle(isActive ? color : Color.textTertiary)
+      .padding(.horizontal, 7)
+      .padding(.vertical, 4)
+      .background(
+        Capsule()
+          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.40))
+      )
+    }
+    .buttonStyle(.plain)
+  }
+
+  private func statusCardBackground(accent: Color, isActive: Bool) -> some View {
+    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+      .fill(
+        LinearGradient(
+          colors: [
+            accent.opacity(isActive ? 0.20 : 0.10),
+            Color.backgroundTertiary.opacity(0.80),
+          ],
+          startPoint: .topLeading,
+          endPoint: .bottomTrailing
+        )
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+          .stroke(accent.opacity(isActive ? 0.40 : 0.16), lineWidth: isActive ? 1.3 : 1)
+      )
+      .shadow(color: accent.opacity(isActive ? 0.12 : 0.06), radius: isActive ? 12 : 6, y: 2)
+  }
+
+  private func signalMeter(active: Int, total: Int, color: Color) -> some View {
+    let safeTotal = max(total, 1)
+    let ratio = max(0, min(1, Double(active) / Double(safeTotal)))
+
+    return GeometryReader { geo in
+      ZStack(alignment: .leading) {
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+          .fill(Color.surfaceHover.opacity(0.55))
+
+        RoundedRectangle(cornerRadius: 3, style: .continuous)
+          .fill(color.opacity(0.8))
+          .frame(width: geo.size.width * ratio)
+      }
+    }
+    .frame(height: 6)
+  }
+
+  private func shareLabel(for value: Int) -> String {
+    guard !allActiveSessions.isEmpty else { return "0%" }
+    let ratio = (Double(value) / Double(allActiveSessions.count)) * 100
+    return "\(Int(ratio.rounded()))%"
+  }
+
+  private var attentionNarrative: String {
+    guard let session = oldestAttentionSession else {
+      return "No blocked conversations."
+    }
+
+    let project = sessionProjectName(session)
+    let age = relativeTimestamp(for: session)
+    let status = SessionDisplayStatus.from(session)
+
+    if status == .permission, let tool = session.pendingToolName, !tool.isEmpty {
+      return "\(project) waiting on \(tool.lowercased()) for \(age)."
+    }
+    return "\(project) waiting for input for \(age)."
+  }
+
+  private var runningNarrative: String {
+    guard !runningSessions.isEmpty else {
+      return "No sessions executing right now."
+    }
+
+    let grouped = Dictionary(grouping: runningSessions, by: sessionProjectName)
+    if let top = grouped.max(by: { $0.value.count < $1.value.count }) {
+      let noun = top.value.count == 1 ? "agent" : "agents"
+      return "\(top.key) has \(top.value.count) \(noun) in motion."
+    }
+
+    return "\(runningSessions.count) active sessions in progress."
+  }
+
+  private var readyNarrative: String {
+    guard let session = oldestReadySession else {
+      return "No reply backlog."
+    }
+
+    return "\(sessionProjectName(session)) has been ready for \(relativeTimestamp(for: session))."
+  }
+
+  private func sessionProjectName(_ session: Session) -> String {
+    session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
+  }
+
+  private func relativeTimestamp(for session: Session) -> String {
+    let activity = session.lastActivityAt ?? session.startedAt ?? .distantPast
+    let interval = Date().timeIntervalSince(activity)
+
+    if interval < 60 {
+      return "under a minute"
+    }
+    if interval < 3_600 {
+      let minutes = Int(interval / 60)
+      return "\(minutes)m"
+    }
+    if interval < 86_400 {
+      let hours = Int(interval / 3_600)
+      let minutes = Int(interval.truncatingRemainder(dividingBy: 3_600) / 60)
+      return "\(hours)h \(minutes)m"
+    }
+    let days = Int(interval / 86_400)
+    return "\(days)d"
   }
 
   // MARK: - Sort Picker
@@ -423,64 +740,72 @@ struct ProjectStreamSection: View {
   }
 
   private var compactProviderChip: some View {
-    Button {
-      providerFilter = .all
+    let color = providerFilter.color
+    let isActive = providerFilter != .all
+
+    return Button {
+      providerFilter = isActive ? .all : providerFilter
     } label: {
-      HStack(spacing: 3) {
+      HStack(spacing: 5) {
         Image(systemName: providerFilter.icon)
-          .font(.system(size: 8, weight: .bold))
+          .font(.system(size: 9, weight: .bold))
         Text(providerFilter.label)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: 10, weight: .semibold))
+        Spacer(minLength: 0)
+        Text("filtered")
+          .font(.system(size: TypeScale.micro, weight: .semibold, design: .rounded))
       }
-      .foregroundStyle(providerFilter.color)
+      .foregroundStyle(isActive ? color : Color.textTertiary)
       .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(providerFilter.color.opacity(OpacityTier.light), in: Capsule())
+      .padding(.vertical, 6)
+      .background(
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.18 : 0.5))
+          .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+              .stroke(color.opacity(isActive ? 0.25 : 0.0), lineWidth: 1)
+          )
+      )
     }
     .buttonStyle(.plain)
     .help("Provider filter active")
   }
 
-  private func compactSignalIndicator(
-    icon: String,
-    label: String,
-    count: Int,
-    color: Color
-  ) -> some View {
-    HStack(spacing: 4) {
-      Image(systemName: icon)
-        .font(.system(size: 8, weight: .bold))
-      Text("\(count) \(label)")
-        .font(.system(size: 10, weight: .semibold, design: .rounded))
-    }
-    .foregroundStyle(color)
-    .padding(.horizontal, 8)
-    .padding(.vertical, 4)
-    .background(color.opacity(0.10), in: Capsule())
-  }
-
-  private func compactStateChip(
+  private func compactSignalFilterChip(
     target: ActiveSessionWorkbenchFilter,
     icon: String,
     title: String,
+    count: Int,
     color: Color
   ) -> some View {
-    Button {
-      filter = .all
+    let isActive = filter == target
+
+    return Button {
+      filter = isActive ? .all : target
     } label: {
-      HStack(spacing: 4) {
+      HStack(spacing: 5) {
         Image(systemName: icon)
-          .font(.system(size: 8, weight: .bold))
-        Text(title)
-          .font(.system(size: 10, weight: .bold))
+          .font(.system(size: 9, weight: .bold))
+
+        VStack(alignment: .leading, spacing: 1) {
+          Text(title)
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+          Text("\(count)")
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+        }
+
+        Spacer(minLength: 0)
       }
-      .foregroundStyle(color)
+      .foregroundStyle(isActive ? color : color.opacity(0.78))
       .padding(.horizontal, 8)
-      .padding(.vertical, 4)
-      .background(color.opacity(0.16), in: Capsule())
-      .overlay(
-        Capsule()
-          .stroke(color.opacity(0.3), lineWidth: 1)
+      .padding(.vertical, 6)
+      .background(
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+          .fill(isActive ? color.opacity(0.18) : color.opacity(0.10))
+          .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+              .stroke(color.opacity(isActive ? 0.30 : 0.0), lineWidth: 1)
+          )
       )
     }
     .buttonStyle(.plain)
@@ -531,6 +856,7 @@ struct ProjectStreamSection: View {
 
   private func projectSection(_ group: ProjectGroup) -> some View {
     let sharedBranch = group.sharedBranch
+    let projectSignals = projectSignalCounts(for: group.sessions)
 
     return VStack(alignment: .leading, spacing: 0) {
       // Project divider rule
@@ -541,28 +867,123 @@ struct ProjectStreamSection: View {
         .padding(.top, 10)
 
       // Project header
-      HStack(spacing: 8) {
-        Text(group.projectName)
-          .font(.system(size: isPhoneCompact ? TypeScale.subhead : TypeScale.large, weight: .bold))
-          .foregroundStyle(.primary)
+      Group {
+        if isPhoneCompact {
+          VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+              Text(group.projectName)
+                .font(.system(size: TypeScale.subhead, weight: .bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
 
-        // Shared branch — shown here when all sessions are on the same branch
-        if let branch = sharedBranch {
-          Text(branch.count > 28 ? String(branch.prefix(26)) + "…" : branch)
-            .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.gitBranch.opacity(0.7))
-        }
+              // Shared branch — shown here when all sessions are on the same branch
+              if let branch = sharedBranch {
+                Text(branch.count > 22 ? String(branch.prefix(20)) + "…" : branch)
+                  .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+                  .foregroundStyle(Color.gitBranch.opacity(0.7))
+                  .lineLimit(1)
+              }
 
-        Text("\(group.sessions.count) \(group.sessions.count == 1 ? "agent" : "agents")")
-          .font(.system(size: 10, weight: .medium, design: .rounded))
-          .foregroundStyle(Color.textQuaternary)
+              Text("\(group.sessions.count) \(group.sessions.count == 1 ? "agent" : "agents")")
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.textQuaternary)
 
-        Spacer()
+              Spacer()
+            }
 
-        if !isPhoneCompact, group.totalTokens > 0 {
-          Text(formatTokens(group.totalTokens))
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
+            if projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals.ready > 0 || projectSignals.direct > 0 {
+              HStack(spacing: 5) {
+                if projectSignals.attention > 0 {
+                  projectSignalChip(
+                    icon: "exclamationmark.circle.fill",
+                    count: projectSignals.attention,
+                    color: .statusPermission
+                  )
+                }
+
+                if projectSignals.running > 0 {
+                  projectSignalChip(
+                    icon: "bolt.fill",
+                    count: projectSignals.running,
+                    color: .statusWorking
+                  )
+                }
+
+                if projectSignals.ready > 0 {
+                  projectSignalChip(
+                    icon: "bubble.left.fill",
+                    count: projectSignals.ready,
+                    color: .statusReply
+                  )
+                }
+
+                if projectSignals.direct > 0 {
+                  projectSignalChip(
+                    icon: "chevron.left.forwardslash.chevron.right",
+                    count: projectSignals.direct,
+                    color: .providerCodex
+                  )
+                }
+              }
+            }
+          }
+        } else {
+          HStack(spacing: 8) {
+            Text(group.projectName)
+              .font(.system(size: TypeScale.large, weight: .bold))
+              .foregroundStyle(.primary)
+
+            // Shared branch — shown here when all sessions are on the same branch
+            if let branch = sharedBranch {
+              Text(branch.count > 28 ? String(branch.prefix(26)) + "…" : branch)
+                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.gitBranch.opacity(0.7))
+            }
+
+            Text("\(group.sessions.count) \(group.sessions.count == 1 ? "agent" : "agents")")
+              .font(.system(size: 10, weight: .medium, design: .rounded))
+              .foregroundStyle(Color.textQuaternary)
+
+            if projectSignals.attention > 0 {
+              projectSignalChip(
+                icon: "exclamationmark.circle.fill",
+                count: projectSignals.attention,
+                color: .statusPermission
+              )
+            }
+
+            if projectSignals.running > 0 {
+              projectSignalChip(
+                icon: "bolt.fill",
+                count: projectSignals.running,
+                color: .statusWorking
+              )
+            }
+
+            if projectSignals.ready > 0 {
+              projectSignalChip(
+                icon: "bubble.left.fill",
+                count: projectSignals.ready,
+                color: .statusReply
+              )
+            }
+
+            if projectSignals.direct > 0 {
+              projectSignalChip(
+                icon: "chevron.left.forwardslash.chevron.right",
+                count: projectSignals.direct,
+                color: .providerCodex
+              )
+            }
+
+            Spacer()
+
+            if group.totalTokens > 0 {
+              Text(formatTokens(group.totalTokens))
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.textQuaternary)
+            }
+          }
         }
       }
       .padding(.horizontal, 10)
@@ -585,6 +1006,40 @@ struct ProjectStreamSection: View {
         }
       }
     }
+  }
+
+  private func projectSignalCounts(for sessions: [Session]) -> ProjectStatusCounts {
+    var counts = ProjectStatusCounts()
+    for session in sessions {
+      let status = SessionDisplayStatus.from(session)
+      switch status {
+        case .permission, .question:
+          counts.attention += 1
+        case .working:
+          counts.running += 1
+        case .reply:
+          counts.ready += 1
+        case .ended:
+          break
+      }
+      if session.isDirect {
+        counts.direct += 1
+      }
+    }
+    return counts
+  }
+
+  private func projectSignalChip(icon: String, count: Int, color: Color) -> some View {
+    HStack(spacing: 3) {
+      Image(systemName: icon)
+        .font(.system(size: 8, weight: .bold))
+      Text("\(count)")
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+    }
+    .foregroundStyle(color)
+    .padding(.horizontal, 6)
+    .padding(.vertical, 3)
+    .background(color.opacity(0.10), in: Capsule())
   }
 
   // MARK: - Empty State
@@ -808,6 +1263,13 @@ struct ProjectGroup: Identifiable {
 }
 
 // MARK: - Triage Counts (reusable)
+
+private struct ProjectStatusCounts {
+  var attention = 0
+  var running = 0
+  var ready = 0
+  var direct = 0
+}
 
 private struct ProjectStreamTriageCounts {
   var attention = 0
