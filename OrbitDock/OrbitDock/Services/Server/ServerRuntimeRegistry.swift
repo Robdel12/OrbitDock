@@ -276,6 +276,7 @@ final class ServerRuntimeRegistry {
   private func recomputePrimaryEndpoint(from endpoints: [ServerEndpoint]? = nil) {
     let configuredEndpoints = endpoints ?? endpointsProvider()
     let enabledEndpoints = configuredEndpoints.filter(\.isEnabled)
+    let previousPrimaryEndpointId = primaryEndpointId
     let declaredPrimaryCandidates = enabledEndpoints.filter { endpoint in
       serverPrimaryByEndpointId[endpoint.id] == true
     }
@@ -287,6 +288,14 @@ final class ServerRuntimeRegistry {
     )
     primaryEndpointId = declaredPrimaryEndpointId
       ?? Self.preferredActiveEndpointID(from: configuredEndpoints)
+
+    if previousPrimaryEndpointId != primaryEndpointId {
+      NotificationCenter.default.post(
+        name: .serverPrimaryEndpointDidChange,
+        object: nil,
+        userInfo: ["endpointId": primaryEndpointId as Any]
+      )
+    }
   }
 
   static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {

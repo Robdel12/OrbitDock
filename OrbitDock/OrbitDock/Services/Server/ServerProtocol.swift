@@ -1006,6 +1006,63 @@ struct ServerRecentProject: Codable, Identifiable {
   }
 }
 
+struct ServerUsageErrorInfo: Codable {
+  let code: String
+  let message: String
+}
+
+struct ServerCodexRateLimitWindow: Codable {
+  let usedPercent: Double
+  let windowDurationMins: UInt32
+  let resetsAtUnix: Double
+
+  enum CodingKeys: String, CodingKey {
+    case usedPercent = "used_percent"
+    case windowDurationMins = "window_duration_mins"
+    case resetsAtUnix = "resets_at_unix"
+  }
+}
+
+struct ServerCodexUsageSnapshot: Codable {
+  let primary: ServerCodexRateLimitWindow?
+  let secondary: ServerCodexRateLimitWindow?
+  let fetchedAtUnix: Double
+
+  enum CodingKeys: String, CodingKey {
+    case primary
+    case secondary
+    case fetchedAtUnix = "fetched_at_unix"
+  }
+}
+
+struct ServerClaudeUsageWindow: Codable {
+  let utilization: Double
+  let resetsAt: String?
+
+  enum CodingKeys: String, CodingKey {
+    case utilization
+    case resetsAt = "resets_at"
+  }
+}
+
+struct ServerClaudeUsageSnapshot: Codable {
+  let fiveHour: ServerClaudeUsageWindow
+  let sevenDay: ServerClaudeUsageWindow?
+  let sevenDaySonnet: ServerClaudeUsageWindow?
+  let sevenDayOpus: ServerClaudeUsageWindow?
+  let rateLimitTier: String?
+  let fetchedAtUnix: Double
+
+  enum CodingKeys: String, CodingKey {
+    case fiveHour = "five_hour"
+    case sevenDay = "seven_day"
+    case sevenDaySonnet = "seven_day_sonnet"
+    case sevenDayOpus = "seven_day_opus"
+    case rateLimitTier = "rate_limit_tier"
+    case fetchedAtUnix = "fetched_at_unix"
+  }
+}
+
 // MARK: - Server → Client Messages
 
 enum ServerToClientMessage: Codable {
@@ -1077,6 +1134,8 @@ enum ServerToClientMessage: Codable {
   )
   case directoryListing(requestId: String, path: String, entries: [ServerDirectoryEntry])
   case recentProjectsList(requestId: String, projects: [ServerRecentProject])
+  case codexUsageResult(requestId: String, usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?)
+  case claudeUsageResult(requestId: String, usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?)
   case openAiKeyStatus(requestId: String, configured: Bool)
   case serverInfo(isPrimary: Bool)
   case error(code: String, message: String, sessionId: String?)
@@ -1094,6 +1153,7 @@ enum ServerToClientMessage: Codable {
     case reason
     case code
     case error
+    case errorInfo = "error_info"
     case approvals
     case approvalId = "approval_id"
     case models
@@ -1399,6 +1459,18 @@ enum ServerToClientMessage: Codable {
         let projects = try container.decode([ServerRecentProject].self, forKey: .projects)
         self = .recentProjectsList(requestId: requestId, projects: projects)
 
+      case "codex_usage_result":
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let usage = try container.decodeIfPresent(ServerCodexUsageSnapshot.self, forKey: .usage)
+        let errorInfo = try container.decodeIfPresent(ServerUsageErrorInfo.self, forKey: .errorInfo)
+        self = .codexUsageResult(requestId: requestId, usage: usage, errorInfo: errorInfo)
+
+      case "claude_usage_result":
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let usage = try container.decodeIfPresent(ServerClaudeUsageSnapshot.self, forKey: .usage)
+        let errorInfo = try container.decodeIfPresent(ServerUsageErrorInfo.self, forKey: .errorInfo)
+        self = .claudeUsageResult(requestId: requestId, usage: usage, errorInfo: errorInfo)
+
       case "open_ai_key_status":
         let requestId = try container.decode(String.self, forKey: .requestId)
         let configured = try container.decode(Bool.self, forKey: .configured)
@@ -1651,6 +1723,18 @@ enum ServerToClientMessage: Codable {
         try container.encode(requestId, forKey: .requestId)
         try container.encode(projects, forKey: .projects)
 
+      case let .codexUsageResult(requestId, usage, errorInfo):
+        try container.encode("codex_usage_result", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encodeIfPresent(usage, forKey: .usage)
+        try container.encodeIfPresent(errorInfo, forKey: .errorInfo)
+
+      case let .claudeUsageResult(requestId, usage, errorInfo):
+        try container.encode("claude_usage_result", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encodeIfPresent(usage, forKey: .usage)
+        try container.encodeIfPresent(errorInfo, forKey: .errorInfo)
+
       case let .openAiKeyStatus(requestId, configured):
         try container.encode("open_ai_key_status", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
@@ -1782,6 +1866,8 @@ enum ClientToServerMessage: Codable {
   case setServerRole(isPrimary: Bool)
   case setOpenAiKey(key: String)
   case checkOpenAiKey(requestId: String)
+  case fetchCodexUsage(requestId: String)
+  case fetchClaudeUsage(requestId: String)
   case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
   case browseDirectory(path: String? = nil, requestId: String)
   case listRecentProjects(requestId: String)
@@ -2108,6 +2194,14 @@ enum ClientToServerMessage: Codable {
         try container.encode("check_open_ai_key", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
 
+      case let .fetchCodexUsage(requestId):
+        try container.encode("fetch_codex_usage", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+
+      case let .fetchClaudeUsage(requestId):
+        try container.encode("fetch_claude_usage", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+
       case let .executeShell(sessionId, command, cwd, timeoutSecs):
         try container.encode("execute_shell", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
@@ -2315,6 +2409,14 @@ enum ClientToServerMessage: Codable {
         )
       case "check_open_ai_key":
         self = try .checkOpenAiKey(
+          requestId: container.decode(String.self, forKey: .requestId)
+        )
+      case "fetch_codex_usage":
+        self = try .fetchCodexUsage(
+          requestId: container.decode(String.self, forKey: .requestId)
+        )
+      case "fetch_claude_usage":
+        self = try .fetchClaudeUsage(
           requestId: container.decode(String.self, forKey: .requestId)
         )
       case "execute_shell":

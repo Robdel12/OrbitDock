@@ -7,6 +7,8 @@ struct ServerProtocolRequestCorrelationTests {
   @Test func clientRequestMessagesEncodeRequestId() throws {
     let messages: [ClientToServerMessage] = [
       .checkOpenAiKey(requestId: "req-openai"),
+      .fetchCodexUsage(requestId: "req-codex-usage"),
+      .fetchClaudeUsage(requestId: "req-claude-usage"),
       .listRecentProjects(requestId: "req-projects"),
       .browseDirectory(path: "/tmp", requestId: "req-browse"),
     ]
@@ -23,10 +25,16 @@ struct ServerProtocolRequestCorrelationTests {
     let directoryJson = #"{"type":"directory_listing","request_id":"req-dir","path":"/tmp","entries":[]}"#
     let projectsJson = #"{"type":"recent_projects_list","request_id":"req-projects","projects":[]}"#
     let keyStatusJson = #"{"type":"open_ai_key_status","request_id":"req-key","configured":true}"#
+    let codexUsageJson =
+      #"{"type":"codex_usage_result","request_id":"req-codex-usage","error_info":{"code":"not_installed","message":"Codex CLI not installed"}}"#
+    let claudeUsageJson =
+      #"{"type":"claude_usage_result","request_id":"req-claude-usage","error_info":{"code":"no_credentials","message":"No Claude credentials found"}}"#
 
     let directoryMessage = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(directoryJson.utf8))
     let projectsMessage = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(projectsJson.utf8))
     let keyStatusMessage = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(keyStatusJson.utf8))
+    let codexUsageMessage = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(codexUsageJson.utf8))
+    let claudeUsageMessage = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(claudeUsageJson.utf8))
 
     switch directoryMessage {
       case let .directoryListing(requestId, path, entries):
@@ -52,11 +60,31 @@ struct ServerProtocolRequestCorrelationTests {
       default:
         Issue.record("Expected open_ai_key_status")
     }
+
+    switch codexUsageMessage {
+      case let .codexUsageResult(requestId, usage, errorInfo):
+        #expect(requestId == "req-codex-usage")
+        #expect(usage == nil)
+        #expect(errorInfo?.code == "not_installed")
+      default:
+        Issue.record("Expected codex_usage_result")
+    }
+
+    switch claudeUsageMessage {
+      case let .claudeUsageResult(requestId, usage, errorInfo):
+        #expect(requestId == "req-claude-usage")
+        #expect(usage == nil)
+        #expect(errorInfo?.code == "no_credentials")
+      default:
+        Issue.record("Expected claude_usage_result")
+    }
   }
 
   @Test func clientRequestMessagesRejectMissingRequestId() {
     let missingRequestIdPayloads = [
       #"{"type":"check_open_ai_key"}"#,
+      #"{"type":"fetch_codex_usage"}"#,
+      #"{"type":"fetch_claude_usage"}"#,
       #"{"type":"list_recent_projects"}"#,
       #"{"type":"browse_directory","path":"/tmp"}"#,
     ]
@@ -73,6 +101,8 @@ struct ServerProtocolRequestCorrelationTests {
       #"{"type":"directory_listing","path":"/tmp","entries":[]}"#,
       #"{"type":"recent_projects_list","projects":[]}"#,
       #"{"type":"open_ai_key_status","configured":true}"#,
+      #"{"type":"codex_usage_result","usage":null}"#,
+      #"{"type":"claude_usage_result","usage":null}"#,
     ]
 
     for payload in missingRequestIdPayloads {

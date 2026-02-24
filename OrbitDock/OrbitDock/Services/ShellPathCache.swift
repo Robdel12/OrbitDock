@@ -129,7 +129,7 @@ final class ShellPathCache {
 
   private static func runShellCommand(shell: String, args: [String]) -> String? {
     #if !os(macOS)
-      // TODO(server-extract): Shell/PATH resolution should be server-owned.
+      // GUI shell probing is macOS-specific. Endpoint runtime probing happens server-side.
       _ = shell
       _ = args
       return nil

@@ -2,8 +2,7 @@
 //  CodexUsageService.swift
 //  OrbitDock
 //
-//  Fetches Codex/ChatGPT usage via the codex app-server JSON-RPC protocol.
-//  Spawns process on-demand, fetches usage, then terminates.
+//  Fetches Codex/ChatGPT usage from the selected control-plane server endpoint.
 //
 
 import Foundation
@@ -156,31 +155,25 @@ final class CodexUsageService {
 
   private let refreshInterval: TimeInterval = 300 // 5 minutes
   private let staleThreshold: TimeInterval = 600 // 10 minutes
-  private let cacheValidDuration: TimeInterval = 180 // 3 minutes - use cached data without fetching
+  private let cacheValidDuration: TimeInterval = 180 // 3 minutes
   private var refreshTask: Task<Void, Never>?
-
-  /// Disk cache for usage data
-  private nonisolated static let cacheURL: URL = {
-    let cacheDir = PlatformPaths.orbitDockCacheDirectory
-    try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-    return cacheDir.appendingPathComponent("codex-usage.json")
-  }()
+  private var endpointObserver: NSObjectProtocol?
+  private var activeEndpointId: UUID?
 
   private var isTestMode: Bool {
     ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
   }
 
   private init() {
-    // Load cached data first
-    loadCachedUsage()
+    observeControlPlaneEndpointChanges()
 
-    // Skip API calls in test mode
+    if let context = controlPlaneContext() {
+      switchActiveEndpointIfNeeded(context.endpointId)
+    }
+
     guard !isTestMode else { return }
-
     startAutoRefresh()
   }
-
-  // Note: Singleton lives for app lifetime, no deinit needed
 
   var isStale: Bool {
     guard let fetched = usage?.fetchedAt else { return true }
@@ -189,35 +182,97 @@ final class CodexUsageService {
 
   func refresh() async {
     guard !isLoading else { return }
+
+    guard let context = controlPlaneContext() else {
+      error = .requestFailed("No control-plane server configured")
+      return
+    }
+
+    switchActiveEndpointIfNeeded(context.endpointId)
+
     isLoading = true
-    logger.info("refresh: starting")
+    logger.info("refresh: starting endpoint=\(context.endpointId.uuidString, privacy: .public)")
 
-    let result = await Task.detached(priority: .utility) {
-      Self.fetchUsageSync()
-    }.value
-
-    switch result {
-      case let .success(newUsage):
+    do {
+      let response = try await context.connection.fetchCodexUsage()
+      if let errorInfo = response.errorInfo {
+        error = mapServerError(errorInfo)
+        logger.error("refresh: failed - \(errorInfo.message, privacy: .public)")
+      } else if let snapshot = response.usage {
+        let newUsage = Self.mapSnapshot(snapshot)
         usage = newUsage
         error = nil
-        saveCachedUsage()
+        saveCachedUsage(for: context.endpointId)
         logger.info("refresh: success, primary=\(newUsage.primary?.usedPercent ?? -1)%")
-      case let .failure(err):
-        error = err
-        logger.error("refresh: failed - \(err.localizedDescription)")
+      } else {
+        error = .requestFailed("No Codex usage data returned")
+      }
+    } catch {
+      self.error = .requestFailed(error.localizedDescription)
+      logger.error("refresh: transport failed - \(error.localizedDescription, privacy: .public)")
     }
 
     isLoading = false
   }
 
-  // MARK: - Disk Cache
+  private func observeControlPlaneEndpointChanges() {
+    endpointObserver = NotificationCenter.default.addObserver(
+      forName: .serverPrimaryEndpointDidChange,
+      object: nil,
+      queue: nil
+    ) { [weak self] _ in
+      Task { @MainActor in
+        await self?.refresh()
+      }
+    }
+  }
 
-  private func loadCachedUsage() {
-    guard let data = try? Data(contentsOf: Self.cacheURL),
+  private func startAutoRefresh() {
+    refreshTask = Task { [weak self] in
+      guard let self else { return }
+      if self.isCacheValid != true {
+        await self.refresh()
+      }
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(self.refreshInterval))
+        await self.refresh()
+      }
+    }
+  }
+
+  private var isCacheValid: Bool {
+    guard let fetchedAt = usage?.fetchedAt else { return false }
+    return Date().timeIntervalSince(fetchedAt) < cacheValidDuration
+  }
+
+  private func controlPlaneContext() -> (endpointId: UUID, connection: ServerConnection)? {
+    let runtimeRegistry = ServerRuntimeRegistry.shared
+    guard let connection = runtimeRegistry.controlPlaneConnection else {
+      return nil
+    }
+    return (connection.endpointId, connection)
+  }
+
+  private func switchActiveEndpointIfNeeded(_ endpointId: UUID) {
+    guard activeEndpointId != endpointId else { return }
+    activeEndpointId = endpointId
+    usage = loadCachedUsage(for: endpointId)
+    error = nil
+  }
+
+  private func cacheURL(for endpointId: UUID) -> URL {
+    let cacheDir = PlatformPaths.orbitDockCacheDirectory
+    try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+    return cacheDir.appendingPathComponent("codex-usage-\(endpointId.uuidString).json")
+  }
+
+  private func loadCachedUsage(for endpointId: UUID) -> CodexUsage? {
+    let url = cacheURL(for: endpointId)
+    guard let data = try? Data(contentsOf: url),
           let cached = try? JSONDecoder().decode(CachedCodexUsage.self, from: data)
-    else { return }
+    else { return nil }
 
-    usage = CodexUsage(
+    return CodexUsage(
       primary: cached.primaryUsedPercent.map {
         .init(
           usedPercent: $0,
@@ -236,7 +291,7 @@ final class CodexUsageService {
     )
   }
 
-  private func saveCachedUsage() {
+  private func saveCachedUsage(for endpointId: UUID) {
     guard let usage else { return }
 
     let cached = CachedCodexUsage(
@@ -250,8 +305,43 @@ final class CodexUsageService {
     )
 
     if let data = try? JSONEncoder().encode(cached) {
-      try? data.write(to: Self.cacheURL)
+      try? data.write(to: cacheURL(for: endpointId))
     }
+  }
+
+  private func mapServerError(_ errorInfo: ServerUsageErrorInfo) -> CodexUsageError {
+    switch errorInfo.code {
+      case "not_installed":
+        .notInstalled
+      case "not_logged_in":
+        .notLoggedIn
+      case "api_key_mode":
+        .apiKeyMode
+      default:
+        .requestFailed(errorInfo.message)
+    }
+  }
+
+  private nonisolated static func mapSnapshot(_ snapshot: ServerCodexUsageSnapshot) -> CodexUsage {
+    func toRateLimit(_ limit: ServerCodexRateLimitWindow?) -> CodexUsage.RateLimit? {
+      guard let limit else { return nil }
+      let unix = normalizedUnixTime(limit.resetsAtUnix)
+      return CodexUsage.RateLimit(
+        usedPercent: limit.usedPercent,
+        windowDurationMins: Int(limit.windowDurationMins),
+        resetsAt: Date(timeIntervalSince1970: unix)
+      )
+    }
+
+    return CodexUsage(
+      primary: toRateLimit(snapshot.primary),
+      secondary: toRateLimit(snapshot.secondary),
+      fetchedAt: Date(timeIntervalSince1970: normalizedUnixTime(snapshot.fetchedAtUnix))
+    )
+  }
+
+  private nonisolated static func normalizedUnixTime(_ value: Double) -> TimeInterval {
+    value > 4_102_444_800 ? value / 1_000 : value
   }
 
   private struct CachedCodexUsage: Codable {
@@ -262,198 +352,5 @@ final class CodexUsageService {
     let secondaryWindowMins: Int?
     let secondaryResetsAt: Date?
     let fetchedAt: Date
-  }
-
-  private var isCacheValid: Bool {
-    guard let fetchedAt = usage?.fetchedAt else { return false }
-    return Date().timeIntervalSince(fetchedAt) < cacheValidDuration
-  }
-
-  private func startAutoRefresh() {
-    refreshTask = Task { [weak self] in
-      // Skip initial fetch if cache is still valid
-      if self?.isCacheValid != true {
-        await self?.refresh()
-      }
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(self?.refreshInterval ?? 300))
-        await self?.refresh()
-      }
-    }
-  }
-
-  // MARK: - Synchronous Fetch (runs on background thread)
-
-  private nonisolated static func fetchUsageSync() -> Result<CodexUsage, CodexUsageError> {
-    #if !os(macOS)
-      // TODO(server-extract): Move Codex usage collection behind server endpoint.
-      return .failure(.notInstalled)
-    #else
-      guard let codexPath = findCodexBinary() else {
-        return .failure(.notInstalled)
-      }
-
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: codexPath)
-      process.arguments = ["app-server"]
-      process.currentDirectoryURL = PlatformPaths.homeDirectory
-
-      // Set up environment
-      var env = ProcessInfo.processInfo.environment
-      let nodeBinDir = (codexPath as NSString).deletingLastPathComponent
-      env["PATH"] = "\(nodeBinDir):\(env["PATH"] ?? "")"
-      process.environment = env
-
-      let stdinPipe = Pipe()
-      let stdoutPipe = Pipe()
-      process.standardInput = stdinPipe
-      process.standardOutput = stdoutPipe
-      process.standardError = FileHandle.nullDevice
-
-      do {
-        try process.run()
-      } catch {
-        return .failure(.requestFailed("Failed to start: \(error.localizedDescription)"))
-      }
-
-      defer {
-        process.terminate()
-        process.waitUntilExit()
-      }
-
-      let stdin = stdinPipe.fileHandleForWriting
-      let stdout = stdoutPipe.fileHandleForReading
-
-      /// Helper to send JSON-RPC
-      func send(_ dict: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict),
-              var str = String(data: data, encoding: .utf8)
-        else { return }
-        str += "\n"
-        try? stdin.write(contentsOf: Data(str.utf8))
-      }
-
-      /// Helper to read JSON-RPC response
-      func readResponse() -> [String: Any]? {
-        let data = stdout.availableData
-        guard !data.isEmpty,
-              let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let jsonData = text.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
-        else { return nil }
-        return json
-      }
-
-      // 1. Initialize
-      send([
-        "method": "initialize",
-        "id": 1,
-        "params": ["clientInfo": ["name": "orbitdock", "title": "OrbitDock", "version": "1.0.0"]],
-      ])
-
-      guard let initResponse = readResponse(),
-            initResponse["error"] == nil
-      else {
-        return .failure(.requestFailed("Initialize failed"))
-      }
-
-      // 2. Send initialized notification
-      send(["method": "initialized", "params": [:] as [String: Any]])
-
-      // 3. Check auth state
-      send(["method": "account/read", "id": 2, "params": ["refreshToken": false]])
-
-      guard let authResponse = readResponse(),
-            let authResult = authResponse["result"] as? [String: Any]
-      else {
-        return .failure(.requestFailed("Auth check failed"))
-      }
-
-      // Check auth type
-      if let account = authResult["account"] as? [String: Any],
-         let authType = account["type"] as? String
-      {
-        if authType == "apiKey" {
-          return .failure(.apiKeyMode)
-        }
-      } else if authResult["account"] == nil || authResult["account"] is NSNull {
-        return .failure(.notLoggedIn)
-      }
-
-      // 4. Fetch rate limits
-      send(["method": "account/rateLimits/read", "id": 3])
-
-      guard let limitsResponse = readResponse(),
-            let limitsResult = limitsResponse["result"] as? [String: Any],
-            let rateLimits = limitsResult["rateLimits"] as? [String: Any]
-      else {
-        return .failure(.requestFailed("Rate limits fetch failed"))
-      }
-
-      /// Parse rate limits
-      func parseLimit(_ dict: [String: Any]?) -> CodexUsage.RateLimit? {
-        guard let dict,
-              let usedPercent = dict["usedPercent"] as? Double,
-              let windowMins = dict["windowDurationMins"] as? Int,
-              let resetsAt = dict["resetsAt"] as? Double
-        else { return nil }
-
-        return CodexUsage.RateLimit(
-          usedPercent: usedPercent,
-          windowDurationMins: windowMins,
-          resetsAt: Date(timeIntervalSince1970: resetsAt)
-        )
-      }
-
-      let usage = CodexUsage(
-        primary: parseLimit(rateLimits["primary"] as? [String: Any]),
-        secondary: parseLimit(rateLimits["secondary"] as? [String: Any]),
-        fetchedAt: Date()
-      )
-
-      return .success(usage)
-    #endif
-  }
-
-  private nonisolated static func findCodexBinary() -> String? {
-    #if !os(macOS)
-      // TODO(server-extract): Binary discovery should be server-owned.
-      return nil
-    #else
-      let paths = [
-        "/usr/local/bin/codex",
-        "/opt/homebrew/bin/codex",
-        "\(PlatformPaths.homeDirectory.path)/.nvm/versions/node/v24.12.0/bin/codex",
-      ]
-
-      for path in paths {
-        if FileManager.default.isExecutableFile(atPath: path) {
-          return path
-        }
-      }
-
-      // Try which
-      let proc = Process()
-      proc.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-      proc.arguments = ["codex"]
-      let pipe = Pipe()
-      proc.standardOutput = pipe
-      proc.standardError = FileHandle.nullDevice
-
-      do {
-        try proc.run()
-        proc.waitUntilExit()
-        if proc.terminationStatus == 0 {
-          let data = pipe.fileHandleForReading.readDataToEndOfFile()
-          if let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-             !path.isEmpty
-          {
-            return path
-          }
-        }
-      } catch {}
-
-      return nil
-    #endif
   }
 }

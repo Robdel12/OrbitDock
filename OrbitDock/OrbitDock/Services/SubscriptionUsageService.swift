@@ -2,12 +2,10 @@
 //  SubscriptionUsageService.swift
 //  OrbitDock
 //
-//  Fetches Claude subscription usage from Anthropic's OAuth API.
-//  Caches credentials in app's keychain to avoid repeated password prompts.
+//  Fetches Claude subscription usage from the selected control-plane server endpoint.
 //
 
 import Foundation
-import Security
 
 // MARK: - Models
 
@@ -147,6 +145,7 @@ enum SubscriptionUsageError: LocalizedError {
   case networkError(Error)
   case invalidResponse
   case missingScope
+  case requestFailed(String)
 
   var errorDescription: String? {
     switch self {
@@ -156,6 +155,7 @@ enum SubscriptionUsageError: LocalizedError {
       case let .networkError(e): "Network error: \(e.localizedDescription)"
       case .invalidResponse: "Invalid API response"
       case .missingScope: "Token missing user:profile scope"
+      case let .requestFailed(message): message
     }
   }
 }
@@ -163,6 +163,7 @@ enum SubscriptionUsageError: LocalizedError {
 // MARK: - Service
 
 @Observable
+@MainActor
 final class SubscriptionUsageService {
   static let shared = SubscriptionUsageService()
 
@@ -171,66 +172,57 @@ final class SubscriptionUsageService {
   private(set) var isLoading = false
   private(set) var lastFetchAttempt: Date?
 
-  // Cache token in our app's keychain
-  private let appKeychainService = "com.orbitdock.claude-token"
-  private let appKeychainAccount = "oauth"
-
-  /// Claude's keychain
-  private let claudeKeychainService = "Claude Code-credentials"
-
   // Refresh interval
   private let refreshInterval: TimeInterval = 60 // 1 minute
   private let staleThreshold: TimeInterval = 300 // 5 minutes before showing stale
-  private let cacheValidDuration: TimeInterval = 120 // 2 minutes - use cached data without fetching
+  private let cacheValidDuration: TimeInterval = 120 // 2 minutes
 
   private var refreshTask: Task<Void, Never>?
-
-  /// Disk cache for usage data
-  private let cacheURL: URL = {
-    let cacheDir = PlatformPaths.orbitDockCacheDirectory
-    try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-    return cacheDir.appendingPathComponent("claude-usage.json")
-  }()
+  private var endpointObserver: NSObjectProtocol?
+  private var activeEndpointId: UUID?
 
   private var isTestMode: Bool {
     ProcessInfo.processInfo.environment["ORBITDOCK_TEST_DB"] != nil
   }
 
   private init() {
-    // Load cached data first
-    loadCachedUsage()
+    observeControlPlaneEndpointChanges()
 
-    // Skip API calls in test mode
+    if let context = controlPlaneContext() {
+      switchActiveEndpointIfNeeded(context.endpointId)
+    }
+
     guard !isTestMode else { return }
-
-    // Start background refresh
     startAutoRefresh()
-  }
-
-  deinit {
-    refreshTask?.cancel()
   }
 
   // MARK: - Public API
 
   func refresh() async {
     guard !isLoading else { return }
+    guard let context = controlPlaneContext() else {
+      error = .requestFailed("No control-plane server configured")
+      return
+    }
+
+    switchActiveEndpointIfNeeded(context.endpointId)
 
     isLoading = true
     lastFetchAttempt = Date()
 
     do {
-      let token = try getAccessToken()
-      let response = try await fetchUsage(token: token)
-      let tier = try? getCachedRateLimitTier()
-
-      usage = parseResponse(response, rateLimitTier: tier)
-      error = nil
-      saveCachedUsage()
-    } catch let e as SubscriptionUsageError {
-      error = e
+      let response = try await context.connection.fetchClaudeUsage()
+      if let errorInfo = response.errorInfo {
+        error = mapServerError(errorInfo)
+      } else if let snapshot = response.usage {
+        usage = Self.mapSnapshot(snapshot)
+        error = nil
+        saveCachedUsage(for: context.endpointId)
+      } else {
+        error = .requestFailed("No Claude usage data returned")
+      }
     } catch {
-      self.error = .networkError(error)
+      self.error = .requestFailed(error.localizedDescription)
     }
 
     isLoading = false
@@ -241,15 +233,50 @@ final class SubscriptionUsageService {
     return Date().timeIntervalSince(fetched) > staleThreshold
   }
 
+  // MARK: - Control Plane Endpoint
+
+  private func observeControlPlaneEndpointChanges() {
+    endpointObserver = NotificationCenter.default.addObserver(
+      forName: .serverPrimaryEndpointDidChange,
+      object: nil,
+      queue: nil
+    ) { [weak self] _ in
+      Task { @MainActor in
+        await self?.refresh()
+      }
+    }
+  }
+
+  private func controlPlaneContext() -> (endpointId: UUID, connection: ServerConnection)? {
+    let runtimeRegistry = ServerRuntimeRegistry.shared
+    guard let connection = runtimeRegistry.controlPlaneConnection else {
+      return nil
+    }
+    return (connection.endpointId, connection)
+  }
+
+  private func switchActiveEndpointIfNeeded(_ endpointId: UUID) {
+    guard activeEndpointId != endpointId else { return }
+    activeEndpointId = endpointId
+    usage = loadCachedUsage(for: endpointId)
+    error = nil
+  }
+
   // MARK: - Disk Cache
 
-  private func loadCachedUsage() {
-    guard let data = try? Data(contentsOf: cacheURL),
-          let cached = try? JSONDecoder().decode(CachedUsage.self, from: data)
-    else { return }
+  private func cacheURL(for endpointId: UUID) -> URL {
+    let cacheDir = PlatformPaths.orbitDockCacheDirectory
+    try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+    return cacheDir.appendingPathComponent("claude-usage-\(endpointId.uuidString).json")
+  }
 
-    // Reconstruct usage from cache
-    usage = SubscriptionUsage(
+  private func loadCachedUsage(for endpointId: UUID) -> SubscriptionUsage? {
+    let url = cacheURL(for: endpointId)
+    guard let data = try? Data(contentsOf: url),
+          let cached = try? JSONDecoder().decode(CachedUsage.self, from: data)
+    else { return nil }
+
+    return SubscriptionUsage(
       fiveHour: .init(
         utilization: cached.fiveHourUtilization,
         resetsAt: cached.fiveHourResetsAt,
@@ -265,7 +292,7 @@ final class SubscriptionUsageService {
     )
   }
 
-  private func saveCachedUsage() {
+  private func saveCachedUsage(for endpointId: UUID) {
     guard let usage else { return }
 
     let cached = CachedUsage(
@@ -278,7 +305,7 @@ final class SubscriptionUsageService {
     )
 
     if let data = try? JSONEncoder().encode(cached) {
-      try? data.write(to: cacheURL)
+      try? data.write(to: cacheURL(for: endpointId))
     }
   }
 
@@ -300,249 +327,80 @@ final class SubscriptionUsageService {
 
   private func startAutoRefresh() {
     refreshTask = Task { [weak self] in
-      // Skip initial fetch if cache is still valid
-      if self?.isCacheValid != true {
-        await self?.refresh()
+      guard let self else { return }
+      if self.isCacheValid != true {
+        await self.refresh()
       }
 
-      // Periodic refresh
       while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(self?.refreshInterval ?? 60))
-        await self?.refresh()
+        try? await Task.sleep(for: .seconds(self.refreshInterval))
+        await self.refresh()
       }
     }
   }
 
-  // MARK: - Token Management
+  // MARK: - Mapping
 
-  private func getAccessToken() throws -> String {
-    // First, try our cached token
-    if let cached = try? loadFromAppKeychain() {
-      return cached.token
-    }
-
-    // Fall back to Claude's keychain (may prompt once)
-    let credentials = try loadFromClaudeKeychain()
-
-    // Cache it in our keychain for future use
-    try? saveToAppKeychain(credentials)
-
-    return credentials.token
-  }
-
-  private struct CachedCredentials {
-    let token: String
-    let expiresAt: Date?
-    let rateLimitTier: String?
-    let scopes: [String]
-  }
-
-  private func loadFromAppKeychain() throws -> CachedCredentials {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: appKeychainService,
-      kSecAttrAccount as String: appKeychainAccount,
-      kSecReturnData as String: true,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-    ]
-
-    var result: AnyObject?
-    let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-    guard status == errSecSuccess,
-          let data = result as? Data,
-          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let token = json["token"] as? String
-    else {
-      throw SubscriptionUsageError.noCredentials
-    }
-
-    // Check expiration
-    if let expiresAtMs = json["expiresAt"] as? Double {
-      let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1_000)
-      if Date() >= expiresAt {
-        // Token expired, clear cache and throw
-        clearAppKeychain()
-        throw SubscriptionUsageError.tokenExpired
-      }
-    }
-
-    // Check scope
-    let scopes = json["scopes"] as? [String] ?? []
-    if !scopes.contains("user:profile") {
-      throw SubscriptionUsageError.missingScope
-    }
-
-    let expiresAt = (json["expiresAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1_000) }
-    let tier = json["rateLimitTier"] as? String
-
-    return CachedCredentials(token: token, expiresAt: expiresAt, rateLimitTier: tier, scopes: scopes)
-  }
-
-  private func saveToAppKeychain(_ credentials: CachedCredentials) throws {
-    let json: [String: Any] = [
-      "token": credentials.token,
-      "expiresAt": credentials.expiresAt.map { $0.timeIntervalSince1970 * 1_000 } as Any,
-      "rateLimitTier": credentials.rateLimitTier as Any,
-      "scopes": credentials.scopes,
-    ]
-
-    guard let data = try? JSONSerialization.data(withJSONObject: json) else { return }
-
-    // Delete existing
-    clearAppKeychain()
-
-    // Add new with unrestricted access for our app
-    let addQuery: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: appKeychainService,
-      kSecAttrAccount as String: appKeychainAccount,
-      kSecValueData as String: data,
-      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
-    ]
-
-    SecItemAdd(addQuery as CFDictionary, nil)
-  }
-
-  private func clearAppKeychain() {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: appKeychainService,
-      kSecAttrAccount as String: appKeychainAccount,
-    ]
-    SecItemDelete(query as CFDictionary)
-  }
-
-  private func loadFromClaudeKeychain() throws -> CachedCredentials {
-    #if !os(macOS)
-      // TODO(server-extract): Move Claude credential probing behind server endpoint.
-      throw SubscriptionUsageError.noCredentials
-    #else
-      // Use security CLI to bypass partition_id restrictions
-      // (SecItemCopyMatching gets blocked by Anthropic's teamid partition)
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-      process.arguments = ["find-generic-password", "-s", claudeKeychainService, "-w"]
-
-      let pipe = Pipe()
-      process.standardOutput = pipe
-      process.standardError = FileHandle.nullDevice
-
-      do {
-        try process.run()
-        process.waitUntilExit()
-      } catch {
-        throw SubscriptionUsageError.noCredentials
-      }
-
-      guard process.terminationStatus == 0 else {
-        throw SubscriptionUsageError.noCredentials
-      }
-
-      let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-      guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let oauth = json["claudeAiOauth"] as? [String: Any],
-            let token = oauth["accessToken"] as? String
-      else {
-        throw SubscriptionUsageError.noCredentials
-      }
-
-      // Check expiration
-      let expiresAt: Date?
-      if let expiresAtMs = oauth["expiresAt"] as? Double {
-        expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1_000)
-        if Date() >= expiresAt! {
-          throw SubscriptionUsageError.tokenExpired
-        }
-      } else {
-        expiresAt = nil
-      }
-
-      // Check scope
-      let scopes = oauth["scopes"] as? [String] ?? []
-      if !scopes.contains("user:profile") {
-        throw SubscriptionUsageError.missingScope
-      }
-
-      let tier = oauth["rateLimitTier"] as? String
-
-      return CachedCredentials(token: token, expiresAt: expiresAt, rateLimitTier: tier, scopes: scopes)
-    #endif
-  }
-
-  private func getCachedRateLimitTier() throws -> String? {
-    if let cached = try? loadFromAppKeychain() {
-      return cached.rateLimitTier
-    }
-    return nil
-  }
-
-  // MARK: - API
-
-  private func fetchUsage(token: String) async throws -> [String: Any] {
-    let url = URL(string: "https://api.anthropic.com/api/oauth/usage")!
-
-    var request = URLRequest(url: url)
-    request.httpMethod = "GET"
-    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    request.setValue("application/json", forHTTPHeaderField: "Accept")
-    request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-    request.setValue("OrbitDock/1.0", forHTTPHeaderField: "User-Agent")
-    request.timeoutInterval = 15
-
-    let (data, response) = try await URLSession.shared.data(for: request)
-
-    guard let http = response as? HTTPURLResponse else {
-      throw SubscriptionUsageError.invalidResponse
-    }
-
-    switch http.statusCode {
-      case 200:
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-          throw SubscriptionUsageError.invalidResponse
-        }
-        return json
-      case 401:
-        // Clear cached token and retry from Claude keychain next time
-        clearAppKeychain()
-        throw SubscriptionUsageError.unauthorized
+  private func mapServerError(_ errorInfo: ServerUsageErrorInfo) -> SubscriptionUsageError {
+    switch errorInfo.code {
+      case "no_credentials":
+        .noCredentials
+      case "token_expired":
+        .tokenExpired
+      case "unauthorized":
+        .unauthorized
+      case "missing_scope":
+        .missingScope
+      case "network_error":
+        .requestFailed(errorInfo.message)
+      case "invalid_response":
+        .invalidResponse
       default:
-        throw SubscriptionUsageError.invalidResponse
+        .requestFailed(errorInfo.message)
     }
   }
 
-  private func parseResponse(_ json: [String: Any], rateLimitTier: String?) -> SubscriptionUsage {
-    let fiveHourDuration: TimeInterval = 5 * 3_600 // 5 hours
-    let sevenDayDuration: TimeInterval = 7 * 24 * 3_600 // 7 days
+  private nonisolated static func mapSnapshot(_ snapshot: ServerClaudeUsageSnapshot) -> SubscriptionUsage {
+    let fiveHourDuration: TimeInterval = 5 * 3_600
+    let sevenDayDuration: TimeInterval = 7 * 24 * 3_600
 
-    // ISO8601 formatter with fractional seconds support
-    let isoFormatter = ISO8601DateFormatter()
-    isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-    func parseWindow(_ dict: [String: Any]?, duration: TimeInterval) -> SubscriptionUsage.Window? {
-      guard let dict,
-            let utilization = dict["utilization"] as? Double else { return nil }
-
-      let resetsAt: Date? = if let resetsAtStr = dict["resets_at"] as? String {
-        isoFormatter.date(from: resetsAtStr)
-      } else {
-        nil
-      }
-
-      return SubscriptionUsage.Window(utilization: utilization, resetsAt: resetsAt, windowDuration: duration)
+    func parseWindow(_ window: ServerClaudeUsageWindow?, duration: TimeInterval) -> SubscriptionUsage.Window? {
+      guard let window else { return nil }
+      return SubscriptionUsage.Window(
+        utilization: window.utilization,
+        resetsAt: parseISODate(window.resetsAt),
+        windowDuration: duration
+      )
     }
 
-    let fiveHour = parseWindow(json["five_hour"] as? [String: Any], duration: fiveHourDuration)
+    let fiveHour = parseWindow(snapshot.fiveHour, duration: fiveHourDuration)
       ?? SubscriptionUsage.Window(utilization: 0, resetsAt: nil, windowDuration: fiveHourDuration)
 
     return SubscriptionUsage(
       fiveHour: fiveHour,
-      sevenDay: parseWindow(json["seven_day"] as? [String: Any], duration: sevenDayDuration),
-      sevenDaySonnet: parseWindow(json["seven_day_sonnet"] as? [String: Any], duration: sevenDayDuration),
-      sevenDayOpus: parseWindow(json["seven_day_opus"] as? [String: Any], duration: sevenDayDuration),
-      fetchedAt: Date(),
-      rateLimitTier: rateLimitTier
+      sevenDay: parseWindow(snapshot.sevenDay, duration: sevenDayDuration),
+      sevenDaySonnet: parseWindow(snapshot.sevenDaySonnet, duration: sevenDayDuration),
+      sevenDayOpus: parseWindow(snapshot.sevenDayOpus, duration: sevenDayDuration),
+      fetchedAt: Date(timeIntervalSince1970: normalizedUnixTime(snapshot.fetchedAtUnix)),
+      rateLimitTier: snapshot.rateLimitTier
     )
+  }
+
+  private nonisolated static func parseISODate(_ value: String?) -> Date? {
+    guard let value else { return nil }
+
+    let withFractional = ISO8601DateFormatter()
+    withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = withFractional.date(from: value) {
+      return date
+    }
+
+    let basic = ISO8601DateFormatter()
+    basic.formatOptions = [.withInternetDateTime]
+    return basic.date(from: value)
+  }
+
+  private nonisolated static func normalizedUnixTime(_ value: Double) -> TimeInterval {
+    value > 4_102_444_800 ? value / 1_000 : value
   }
 }

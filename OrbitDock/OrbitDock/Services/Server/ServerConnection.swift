@@ -56,6 +56,8 @@ class ServerConnection: ObservableObject {
   private var pendingDirectoryListingContinuations: [String: CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>] = [:]
   private var pendingRecentProjectsContinuations: [String: CheckedContinuation<[ServerRecentProject], Error>] = [:]
   private var pendingOpenAiKeyStatusContinuations: [String: CheckedContinuation<Bool, Error>] = [:]
+  private var pendingCodexUsageContinuations: [String: CheckedContinuation<(usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?), Error>] = [:]
+  private var pendingClaudeUsageContinuations: [String: CheckedContinuation<(usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?), Error>] = [:]
 
   /// Whether we're connecting to a non-localhost server
   private var isRemote: Bool {
@@ -514,6 +516,16 @@ class ServerConnection: ObservableObject {
           continuation.resume(returning: configured)
         }
 
+      case let .codexUsageResult(requestId, usage, errorInfo):
+        if let continuation = pendingCodexUsageContinuations.removeValue(forKey: requestId) {
+          continuation.resume(returning: (usage: usage, errorInfo: errorInfo))
+        }
+
+      case let .claudeUsageResult(requestId, usage, errorInfo):
+        if let continuation = pendingClaudeUsageContinuations.removeValue(forKey: requestId) {
+          continuation.resume(returning: (usage: usage, errorInfo: errorInfo))
+        }
+
       case let .serverInfo(isPrimary):
         applyServerInfo(isPrimary: isPrimary)
 
@@ -732,6 +744,32 @@ class ServerConnection: ObservableObject {
       let requestId = UUID().uuidString
       pendingOpenAiKeyStatusContinuations[requestId] = continuation
       send(.checkOpenAiKey(requestId: requestId))
+    }
+  }
+
+  /// Fetch Codex rate-limit usage from this endpoint.
+  func fetchCodexUsage() async throws -> (usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?) {
+    guard case .connected = status else {
+      throw ServerRequestError.notConnected
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+      let requestId = UUID().uuidString
+      pendingCodexUsageContinuations[requestId] = continuation
+      send(.fetchCodexUsage(requestId: requestId))
+    }
+  }
+
+  /// Fetch Claude subscription usage from this endpoint.
+  func fetchClaudeUsage() async throws -> (usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?) {
+    guard case .connected = status else {
+      throw ServerRequestError.notConnected
+    }
+
+    return try await withCheckedThrowingContinuation { continuation in
+      let requestId = UUID().uuidString
+      pendingClaudeUsageContinuations[requestId] = continuation
+      send(.fetchClaudeUsage(requestId: requestId))
     }
   }
 
@@ -966,6 +1004,18 @@ class ServerConnection: ObservableObject {
     let pendingOpenAi = Array(pendingOpenAiKeyStatusContinuations.values)
     pendingOpenAiKeyStatusContinuations.removeAll()
     for continuation in pendingOpenAi {
+      continuation.resume(throwing: error)
+    }
+
+    let pendingCodexUsage = Array(pendingCodexUsageContinuations.values)
+    pendingCodexUsageContinuations.removeAll()
+    for continuation in pendingCodexUsage {
+      continuation.resume(throwing: error)
+    }
+
+    let pendingClaudeUsage = Array(pendingClaudeUsageContinuations.values)
+    pendingClaudeUsageContinuations.removeAll()
+    for continuation in pendingClaudeUsage {
       continuation.resume(throwing: error)
     }
   }

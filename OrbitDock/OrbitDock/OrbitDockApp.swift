@@ -192,4 +192,5 @@ struct OrbitDockApp: App {
 extension Notification.Name {
   static let selectSession = Notification.Name("selectSession")
   static let serverSessionsDidChange = Notification.Name("serverSessionsDidChange")
+  static let serverPrimaryEndpointDidChange = Notification.Name("serverPrimaryEndpointDidChange")
 }
