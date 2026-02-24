@@ -44,6 +44,12 @@ struct DashboardView: View {
     DashboardLayoutMode.current(horizontalSizeClass: horizontalSizeClass)
   }
 
+  private var enabledEndpointHealth: [UnifiedEndpointHealth] {
+    endpointHealth.filter { endpoint in
+      runtimeRegistry.runtimesByEndpointId[endpoint.endpointId]?.endpoint.isEnabled ?? false
+    }
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       CommandStrip(
@@ -251,7 +257,7 @@ struct DashboardView: View {
 
   @ViewBuilder
   private var connectionBanner: some View {
-    if endpointHealth.count > 1 {
+    if enabledEndpointHealth.count > 1 {
       multiEndpointConnectionBanner
     } else {
       singleEndpointConnectionBanner
@@ -300,13 +306,13 @@ struct DashboardView: View {
 
         Spacer()
 
-        Text("\(endpointHealth.count) connected targets")
+        Text("\(enabledEndpointHealth.count) connected targets")
           .font(.system(size: TypeScale.micro, weight: .medium))
           .foregroundStyle(Color.textTertiary)
       }
 
       HStack(spacing: 8) {
-        ForEach(endpointHealth) { endpoint in
+        ForEach(enabledEndpointHealth) { endpoint in
           endpointHealthChip(endpoint)
         }
       }

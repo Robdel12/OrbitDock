@@ -48,12 +48,16 @@ struct ContentView: View {
     sessions.filter(\.needsAttention)
   }
 
+  private var enabledRuntimes: [ServerRuntime] {
+    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
+  }
+
   private var isAnyInitialLoading: Bool {
-    runtimeRegistry.runtimes.contains { $0.appState.isLoadingInitialSessions }
+    enabledRuntimes.contains { $0.appState.isLoadingInitialSessions }
   }
 
   private var isAnyRefreshingCachedSessions: Bool {
-    runtimeRegistry.runtimes.contains { $0.appState.isRefreshingCachedSessions }
+    enabledRuntimes.contains { $0.appState.isRefreshingCachedSessions }
   }
 
   /// Show setup view when server is not configured and not connected

@@ -21,6 +21,7 @@ struct CommandStrip: View {
   let onNewCodex: () -> Void
 
   @State private var showServerSettings = false
+  @State private var showAppSettings = false
   private let registry = UsageServiceRegistry.shared
 
   private var activeConnection: ServerConnection {
@@ -31,14 +32,18 @@ struct CommandStrip: View {
     runtimeRegistry.activeConnectionStatus
   }
 
+  private var enabledRuntimes: [ServerRuntime] {
+    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled)
+  }
+
   private var endpointStatuses: [ConnectionStatus] {
-    runtimeRegistry.runtimes.map { runtime in
+    enabledRuntimes.map { runtime in
       runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status
     }
   }
 
   private var enabledEndpointCount: Int {
-    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+    enabledRuntimes.count
   }
 
   private var connectedEndpointCount: Int {
@@ -56,7 +61,7 @@ struct CommandStrip: View {
   }
 
   private var hasMultipleEndpoints: Bool {
-    runtimeRegistry.runtimes.count > 1
+    enabledEndpointCount > 1
   }
 
   private var workingCount: Int {
@@ -86,6 +91,9 @@ struct CommandStrip: View {
     .background(Color.backgroundSecondary)
     .sheet(isPresented: $showServerSettings) {
       ServerSettingsSheet()
+    }
+    .sheet(isPresented: $showAppSettings) {
+      SettingsView(showsCloseButton: true)
     }
   }
 
@@ -177,6 +185,7 @@ struct CommandStrip: View {
         newClaudeButton
         newCodexButton
         quickSwitchButton
+        settingsButton
         serverSettingsButton
       }
 
@@ -353,6 +362,17 @@ struct CommandStrip: View {
     .buttonStyle(.plain)
   }
 
+  private var settingsButton: some View {
+    Button(action: { showAppSettings = true }) {
+      Image(systemName: "slider.horizontal.3")
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(Color.textSecondary)
+        .frame(width: 28, height: 28)
+        .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+    .buttonStyle(.plain)
+  }
+
   private var serverSettingsIconColor: Color {
     if hasMultipleEndpoints {
       return endpointSummaryColor
@@ -417,6 +437,12 @@ struct CommandStrip: View {
         showServerSettings = true
       } label: {
         Label("Server Settings", systemImage: "server.rack")
+      }
+
+      Button {
+        showAppSettings = true
+      } label: {
+        Label("Settings", systemImage: "slider.horizontal.3")
       }
 
       if !registry.activeProviders.isEmpty {
