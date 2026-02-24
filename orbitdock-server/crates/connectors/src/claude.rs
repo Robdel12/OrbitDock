@@ -728,6 +728,7 @@ impl ClaudeConnector {
         // Per-call input/cached tokens from the latest assistant message (for accurate context fill)
         let mut last_turn_input: Option<(u64, u64)> = None;
         let mut cumulative_output: u64 = 0;
+        let mut last_context_window: u64 = 200_000;
 
         let mut line_count: u64 = 0;
 
@@ -776,6 +777,7 @@ impl ClaudeConnector {
                         &mut in_turn,
                         &mut last_turn_input,
                         &mut cumulative_output,
+                        &mut last_context_window,
                         &models,
                     )
                     .await;
@@ -836,6 +838,7 @@ impl ClaudeConnector {
         in_turn: &mut bool,
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
+        last_context_window: &mut u64,
         models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -879,6 +882,7 @@ impl ClaudeConnector {
                 streaming_msg_id,
                 last_turn_input,
                 cumulative_output,
+                last_context_window,
             ),
 
             "user" => Self::handle_user_message(raw, &session_id, msg_counter),
@@ -899,6 +903,7 @@ impl ClaudeConnector {
                     streaming_msg_id,
                     last_turn_input,
                     cumulative_output,
+                    last_context_window,
                 )
             }
 
@@ -1053,6 +1058,7 @@ impl ClaudeConnector {
         streaming_msg_id: &mut Option<String>,
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
+        last_context_window: &mut u64,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
@@ -1182,6 +1188,16 @@ impl ClaudeConnector {
                 + value_to_u64(usage.get("cache_creation_input_tokens"));
             *last_turn_input = Some((input, cached));
             *cumulative_output += value_to_u64(usage.get("output_tokens"));
+
+            // Emit live token progress during turns (not just on final `result`).
+            // Claude tool/thinking blocks are nested inside assistant messages.
+            let live_usage = orbitdock_protocol::TokenUsage {
+                input_tokens: input,
+                output_tokens: *cumulative_output,
+                cached_tokens: cached,
+                context_window: *last_context_window,
+            };
+            events.push(ConnectorEvent::TokensUpdated(live_usage));
         }
 
         events
@@ -1330,6 +1346,7 @@ impl ClaudeConnector {
         streaming_msg_id: &mut Option<String>,
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
+        last_context_window: &mut u64,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
 
@@ -1365,6 +1382,7 @@ impl ClaudeConnector {
         };
 
         if let Some(tu) = token_usage {
+            *last_context_window = tu.context_window.max(1);
             events.push(ConnectorEvent::TokensUpdated(tu));
         }
 
