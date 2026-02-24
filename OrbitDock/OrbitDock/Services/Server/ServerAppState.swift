@@ -1021,7 +1021,7 @@ final class ServerAppState {
     // Turn tracking
     obs.currentTurnId = state.currentTurnId
     obs.turnCount = state.turnCount
-    obs.turnDiffs = state.turnDiffs
+    obs.turnDiffs = normalizedTurnDiffs(state.turnDiffs, sessionId: state.id, source: "snapshot")
 
     // Subagents
     obs.subagents = state.subagents
@@ -1377,6 +1377,37 @@ final class ServerAppState {
     return normalized
   }
 
+  private func normalizedTurnDiffs(
+    _ incoming: [ServerTurnDiff],
+    sessionId: String,
+    source: String
+  ) -> [ServerTurnDiff] {
+    guard !incoming.isEmpty else { return [] }
+
+    var byTurnId: [String: ServerTurnDiff] = [:]
+    var orderedTurnIds: [String] = []
+    byTurnId.reserveCapacity(incoming.count)
+    orderedTurnIds.reserveCapacity(incoming.count)
+    var duplicateCount = 0
+
+    for turnDiff in incoming {
+      if byTurnId[turnDiff.turnId] == nil {
+        orderedTurnIds.append(turnDiff.turnId)
+      } else {
+        duplicateCount += 1
+      }
+      byTurnId[turnDiff.turnId] = turnDiff
+    }
+
+    let normalized = orderedTurnIds.compactMap { byTurnId[$0] }
+    if duplicateCount > 0 {
+      logger.warning(
+        "Normalized turn diffs for \(sessionId, privacy: .public) source=\(source, privacy: .public) in=\(incoming.count, privacy: .public) out=\(normalized.count, privacy: .public) duplicates=\(duplicateCount, privacy: .public)"
+      )
+    }
+    return normalized
+  }
+
   private func handleMessageAppended(_ sessionId: String, _ message: ServerMessage) {
     logger.debug("Message event for \(sessionId): id=\(message.id, privacy: .public) type=\(message.type.rawValue)")
     guard let transcriptMsg = normalizedTranscriptMessages(
@@ -1634,11 +1665,9 @@ final class ServerAppState {
       cachedTokens: cachedTokens,
       contextWindow: contextWindow
     )
-    if let idx = obs.turnDiffs.firstIndex(where: { $0.turnId == turnId }) {
-      obs.turnDiffs[idx] = newDiff
-    } else {
-      obs.turnDiffs.append(newDiff)
-    }
+    var turnDiffs = obs.turnDiffs
+    turnDiffs.append(newDiff)
+    obs.turnDiffs = normalizedTurnDiffs(turnDiffs, sessionId: sessionId, source: "delta")
   }
 
   // MARK: - Review Comment Handlers

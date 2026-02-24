@@ -34,6 +34,25 @@ struct TurnSummary: Identifiable {
 // MARK: - Turn Builder
 
 enum TurnBuilder {
+  private static func diffByTurnId(_ serverTurnDiffs: [ServerTurnDiff]) -> [String: String] {
+    var byTurnId: [String: String] = [:]
+    byTurnId.reserveCapacity(serverTurnDiffs.count)
+    for turnDiff in serverTurnDiffs {
+      byTurnId[turnDiff.turnId] = turnDiff.diff
+    }
+    return byTurnId
+  }
+
+  private static func tokensByTurnId(_ serverTurnDiffs: [ServerTurnDiff]) -> [String: ServerTokenUsage] {
+    var byTurnId: [String: ServerTokenUsage] = [:]
+    byTurnId.reserveCapacity(serverTurnDiffs.count)
+    for turnDiff in serverTurnDiffs {
+      guard let usage = turnDiff.tokenUsage else { continue }
+      byTurnId[turnDiff.turnId] = usage
+    }
+    return byTurnId
+  }
+
   /// Group a flat list of TranscriptMessages into TurnSummaries.
   ///
   /// A turn boundary is a `.user` or `.steer` message. All messages from one boundary
@@ -63,15 +82,10 @@ enum TurnBuilder {
       groups.append(currentGroup)
     }
 
-    // Build lookups from server turn diffs
-    let diffByTurnId = Dictionary(uniqueKeysWithValues: serverTurnDiffs.map { ($0.turnId, $0.diff) })
-    let tokensByTurnId = Dictionary(uniqueKeysWithValues: serverTurnDiffs.compactMap { td -> (
-      String,
-      ServerTokenUsage
-    )? in
-      guard let usage = td.tokenUsage else { return nil }
-      return (td.turnId, usage)
-    })
+    // Build lookups from server turn diffs. Duplicate turn IDs may appear
+    // in snapshots after reconnects; keep the latest value per turn ID.
+    let diffByTurnId = diffByTurnId(serverTurnDiffs)
+    let tokensByTurnId = tokensByTurnId(serverTurnDiffs)
 
     // Also build a token lookup from server turn diffs by index for delta computation
     let orderedTokens: [ServerTokenUsage?] = (0 ..< groups.count).map { index in

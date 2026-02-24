@@ -1,6 +1,6 @@
 //! WebSocket handling
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -603,6 +603,23 @@ fn compact_state_changes_for_transport(changes: &mut StateChanges, max_chars: us
     }
 }
 
+fn dedupe_turn_diffs_keep_latest(turn_diffs: &mut Vec<orbitdock_protocol::TurnDiff>) {
+    if turn_diffs.len() < 2 {
+        return;
+    }
+
+    let mut seen = HashSet::new();
+    let mut deduped_reversed = Vec::with_capacity(turn_diffs.len());
+    for turn in turn_diffs.iter().rev() {
+        if seen.insert(turn.turn_id.clone()) {
+            deduped_reversed.push(turn.clone());
+        }
+    }
+
+    deduped_reversed.reverse();
+    *turn_diffs = deduped_reversed;
+}
+
 fn compact_snapshot_for_transport_with_limits(
     mut snapshot: SessionState,
     max_messages: usize,
@@ -638,6 +655,8 @@ fn compact_snapshot_for_transport_with_limits(
     if let Some(approval) = snapshot.pending_approval.as_mut() {
         compact_approval_for_transport(approval, max_content_chars);
     }
+
+    dedupe_turn_diffs_keep_latest(&mut snapshot.turn_diffs);
 
     let max_turn_diffs = if max_messages == 0 {
         0
@@ -5109,6 +5128,39 @@ mod tests {
             replay_has_oversize_event(&large),
             Some(WS_MAX_TEXT_MESSAGE_BYTES + 1)
         );
+    }
+
+    #[test]
+    fn snapshot_compaction_dedupes_duplicate_turn_ids() {
+        let mut snapshot = SessionHandle::new(
+            "dupe-turns".to_string(),
+            Provider::Codex,
+            "/tmp/dupe-turns".into(),
+        )
+        .state();
+        snapshot.turn_diffs = vec![
+            TurnDiff {
+                turn_id: "turn-20".to_string(),
+                diff: "old".to_string(),
+                token_usage: None,
+            },
+            TurnDiff {
+                turn_id: "turn-21".to_string(),
+                diff: "next".to_string(),
+                token_usage: None,
+            },
+            TurnDiff {
+                turn_id: "turn-20".to_string(),
+                diff: "new".to_string(),
+                token_usage: None,
+            },
+        ];
+
+        let compacted = compact_snapshot_to_transport_limit(snapshot);
+        assert_eq!(compacted.turn_diffs.len(), 2);
+        assert_eq!(compacted.turn_diffs[0].turn_id, "turn-21");
+        assert_eq!(compacted.turn_diffs[1].turn_id, "turn-20");
+        assert_eq!(compacted.turn_diffs[1].diff, "new");
     }
 
     fn new_test_state() -> Arc<SessionRegistry> {
