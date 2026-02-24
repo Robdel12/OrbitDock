@@ -127,9 +127,15 @@ struct NewClaudeSessionSheet: View {
 
   private var header: some View {
     HStack(spacing: Spacing.md) {
-      Image(systemName: "plus.circle.fill")
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(Color.providerClaude)
+      // Claude brand icon
+      Circle()
+        .fill(Color.providerClaude.opacity(OpacityTier.light))
+        .frame(width: 32, height: 32)
+        .overlay(
+          Image(systemName: "plus.circle.fill")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Color.providerClaude)
+        )
 
       Text("New Claude Session")
         .font(.system(size: TypeScale.title, weight: .semibold))
@@ -141,10 +147,19 @@ struct NewClaudeSessionSheet: View {
         dismiss()
       } label: {
         Image(systemName: "xmark.circle.fill")
-          .font(.system(size: 16))
+          .font(.system(size: 18))
           .foregroundStyle(Color.textQuaternary)
       }
       .buttonStyle(.plain)
+      #if !os(iOS)
+        .onHover { hovering in
+          if hovering {
+            NSCursor.pointingHand.push()
+          } else {
+            NSCursor.pop()
+          }
+        }
+      #endif
     }
     .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.lg)
@@ -223,8 +238,8 @@ struct NewClaudeSessionSheet: View {
       Divider()
         .padding(.horizontal, Spacing.lg)
 
-      // Permission mode row — selector + detail integrated
-      VStack(alignment: .leading, spacing: Spacing.md) {
+      // Permission mode row — unified selector design
+      VStack(alignment: .leading, spacing: Spacing.sm) {
         HStack {
           HStack(spacing: Spacing.sm) {
             Image(systemName: selectedPermissionMode.icon)
@@ -240,11 +255,13 @@ struct NewClaudeSessionSheet: View {
           CompactClaudePermissionSelector(selection: $selectedPermissionMode)
         }
 
-        // Selected mode detail
-        HStack(spacing: Spacing.sm) {
-          RoundedRectangle(cornerRadius: 1.5)
-            .fill(selectedPermissionMode.color)
-            .frame(width: 2)
+        // Inline description — flows naturally from selector
+        HStack(alignment: .top, spacing: Spacing.sm) {
+          // Subtle indicator line
+          Capsule()
+            .fill(selectedPermissionMode.color.opacity(0.4))
+            .frame(width: 2, height: 20)
+            .padding(.top, 2)
 
           VStack(alignment: .leading, spacing: Spacing.xxs) {
             HStack(spacing: Spacing.sm) {
@@ -255,31 +272,29 @@ struct NewClaudeSessionSheet: View {
               if selectedPermissionMode.isDefault {
                 Text("DEFAULT")
                   .font(.system(size: 7, weight: .bold, design: .rounded))
-                  .foregroundStyle(selectedPermissionMode.color)
-                  .padding(.horizontal, 4)
+                  .foregroundStyle(Color.textSecondary)
+                  .padding(.horizontal, 5)
                   .padding(.vertical, 1.5)
-                  .background(selectedPermissionMode.color.opacity(OpacityTier.light), in: Capsule())
+                  .background(Color.textSecondary.opacity(OpacityTier.light), in: Capsule())
               }
             }
 
             Text(selectedPermissionMode.description)
               .font(.system(size: TypeScale.caption))
               .foregroundStyle(Color.textTertiary)
+              .fixedSize(horizontal: false, vertical: true)
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(Spacing.sm)
-        .background(
-          selectedPermissionMode.color.opacity(OpacityTier.tint),
-          in: RoundedRectangle(cornerRadius: Radius.md)
-        )
-        .animation(.easeOut(duration: 0.15), value: selectedPermissionMode)
+        .padding(.leading, Spacing.lg)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedPermissionMode)
       }
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md)
     }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg))
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
   }
@@ -289,17 +304,30 @@ struct NewClaudeSessionSheet: View {
   private var toolRestrictionsCard: some View {
     VStack(alignment: .leading, spacing: 0) {
       Button {
-        withAnimation(.easeOut(duration: 0.15)) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
           showToolConfig.toggle()
         }
       } label: {
         HStack(spacing: Spacing.sm) {
-          Image(systemName: "wrench.and.screwdriver")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Color.textTertiary)
+          Circle()
+            .fill(Color.textQuaternary.opacity(OpacityTier.light))
+            .frame(width: 20, height: 20)
+            .overlay(
+              Image(systemName: "wrench.and.screwdriver")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+            )
+
           Text("Tool Restrictions")
             .font(.system(size: TypeScale.body, weight: .medium))
             .foregroundStyle(Color.textSecondary)
+
+          Text("OPTIONAL")
+            .font(.system(size: 7, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1.5)
+            .background(Color.textTertiary.opacity(OpacityTier.light), in: Capsule())
 
           Spacer()
 
@@ -313,6 +341,15 @@ struct NewClaudeSessionSheet: View {
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
+      #if !os(iOS)
+        .onHover { hovering in
+          if hovering {
+            NSCursor.pointingHand.push()
+          } else {
+            NSCursor.pop()
+          }
+        }
+      #endif
 
       if showToolConfig {
         Divider()
@@ -320,30 +357,47 @@ struct NewClaudeSessionSheet: View {
 
         VStack(alignment: .leading, spacing: Spacing.md) {
           VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Allowed Tools")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
+            HStack(spacing: Spacing.xs) {
+              Text("Allowed Tools")
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+                .foregroundStyle(Color.textSecondary)
+              Text("•")
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(Color.textQuaternary)
+              Text("Comma-separated list")
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(Color.textTertiary)
+            }
             TextField("e.g. Read, Glob, Bash(git:*)", text: $allowedToolsText)
               .textFieldStyle(.roundedBorder)
-              .font(.system(size: TypeScale.body, design: .monospaced))
+              .font(.system(size: TypeScale.caption, design: .monospaced))
           }
 
           VStack(alignment: .leading, spacing: Spacing.xs) {
-            Text("Disallowed Tools")
-              .font(.system(size: TypeScale.caption, weight: .medium))
-              .foregroundStyle(Color.textTertiary)
+            HStack(spacing: Spacing.xs) {
+              Text("Disallowed Tools")
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+                .foregroundStyle(Color.textSecondary)
+              Text("•")
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(Color.textQuaternary)
+              Text("Comma-separated list")
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(Color.textTertiary)
+            }
             TextField("e.g. Write, Edit", text: $disallowedToolsText)
               .textFieldStyle(.roundedBorder)
-              .font(.system(size: TypeScale.body, design: .monospaced))
+              .font(.system(size: TypeScale.caption, design: .monospaced))
           }
         }
         .padding(.horizontal, Spacing.lg)
         .padding(.vertical, Spacing.md)
+        .transition(.opacity.combined(with: .move(edge: .top)))
       }
     }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg))
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
   }
@@ -357,19 +411,29 @@ struct NewClaudeSessionSheet: View {
       Button("Cancel") {
         dismiss()
       }
+      .buttonStyle(.bordered)
+      .tint(Color.textTertiary)
       .keyboardShortcut(.escape, modifiers: [])
 
       Button {
         createSession()
       } label: {
         if isCreating {
-          ProgressView()
-            .controlSize(.small)
-            .frame(width: 70)
+          HStack(spacing: Spacing.sm) {
+            ProgressView()
+              .controlSize(.small)
+            Text("Launch")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+          }
+          .frame(minWidth: 90)
         } else {
-          Label("Launch", systemImage: "paperplane.fill")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .frame(width: 70)
+          HStack(spacing: Spacing.sm) {
+            Image(systemName: "paperplane.fill")
+              .font(.system(size: 12, weight: .semibold))
+            Text("Launch")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+          }
+          .frame(minWidth: 90)
         }
       }
       .buttonStyle(.borderedProminent)
@@ -422,7 +486,7 @@ struct NewClaudeSessionSheet: View {
 // MARK: - Compact Permission Selector
 
 /// Horizontal pill selector for Claude permission modes.
-/// Mirrors the CompactAutonomySelector pattern from Codex.
+/// Refined circular buttons with smooth interactions.
 private struct CompactClaudePermissionSelector: View {
   @Binding var selection: ClaudePermissionMode
   @State private var hoveredMode: ClaudePermissionMode?
@@ -430,69 +494,96 @@ private struct CompactClaudePermissionSelector: View {
   private let modes = ClaudePermissionMode.allCases
 
   var body: some View {
-    HStack(spacing: Spacing.xs) {
+    HStack(spacing: Spacing.sm) {
       ForEach(modes) { mode in
-        let isActive = mode == selection
-        let isHovered = hoveredMode == mode && !isActive
-
-        Button {
-          selection = mode
-        } label: {
-          Image(systemName: mode.icon)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(
-              isActive
-                ? Color.backgroundSecondary
-                : isHovered
-                ? mode.color
-                : mode.color.opacity(0.5)
-            )
-            .frame(width: 28, height: 28)
-            .background(
-              Circle()
-                .fill(
-                  isActive
-                    ? mode.color
-                    : isHovered
-                    ? mode.color.opacity(OpacityTier.light)
-                    : Color.clear
-                )
-            )
-            .overlay(
-              Circle()
-                .stroke(
-                  isActive
-                    ? Color.clear
-                    : isHovered
-                    ? mode.color.opacity(OpacityTier.strong)
-                    : mode.color.opacity(OpacityTier.medium),
-                  lineWidth: 1
-                )
-            )
-            .shadow(color: isActive ? mode.color.opacity(0.3) : .clear, radius: 4)
-        }
-        .buttonStyle(.plain)
-        #if !os(iOS)
-          .onHover { hovering in
+        PermissionModeButton(
+          mode: mode,
+          isActive: mode == selection,
+          isHovered: hoveredMode == mode && mode != selection,
+          onTap: {
+            selection = mode
+            #if os(macOS)
+              NSHapticFeedbackManager.defaultPerformer.perform(
+                .alignment,
+                performanceTime: .default
+              )
+            #endif
+          },
+          onHover: { hovering in
             hoveredMode = hovering ? mode : nil
           }
-          .help(mode.displayName)
-        #endif
-          .contentShape(Circle())
+        )
       }
     }
     #if !os(iOS)
-    .onHover { hovering in
-      if hovering {
-        NSCursor.pointingHand.push()
-      } else {
-        NSCursor.pop()
-        hoveredMode = nil
+      .onHover { hovering in
+        if hovering {
+          NSCursor.pointingHand.push()
+        } else {
+          NSCursor.pop()
+          hoveredMode = nil
+        }
       }
-    }
     #endif
-    .animation(.easeOut(duration: 0.12), value: hoveredMode)
-    .animation(.easeOut(duration: 0.15), value: selection)
+      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredMode)
+      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
+  }
+}
+
+// MARK: - Permission Mode Button
+
+private struct PermissionModeButton: View {
+  let mode: ClaudePermissionMode
+  let isActive: Bool
+  let isHovered: Bool
+  let onTap: () -> Void
+  let onHover: (Bool) -> Void
+
+  var body: some View {
+    Button(action: onTap) {
+      buttonContent
+    }
+    .buttonStyle(.plain)
+    #if !os(iOS)
+      .onHover(perform: onHover)
+      .help(mode.displayName)
+    #endif
+      .contentShape(Circle())
+  }
+
+  @ViewBuilder
+  private var buttonContent: some View {
+    let iconColor = isActive ? Color.backgroundSecondary : (isHovered ? mode.color : mode.color.opacity(0.6))
+    let shadowColor = isActive ? mode.color.opacity(0.4) : Color.clear
+    let scale = isActive ? 1.05 : 1.0
+
+    Image(systemName: mode.icon)
+      .font(.system(size: 11, weight: .semibold))
+      .foregroundStyle(iconColor)
+      .frame(width: 30, height: 30)
+      .background(backgroundCircle)
+      .overlay(strokeCircle)
+      .shadow(color: shadowColor, radius: 6, y: 2)
+      .scaleEffect(scale)
+  }
+
+  @ViewBuilder
+  private var backgroundCircle: some View {
+    if isActive {
+      Circle().fill(mode.color.gradient)
+    } else if isHovered {
+      Circle().fill(mode.color.opacity(OpacityTier.light))
+    } else {
+      Circle().fill(Color.clear)
+    }
+  }
+
+  @ViewBuilder
+  private var strokeCircle: some View {
+    let strokeColor = isActive ? Color.clear : (isHovered ? mode.color.opacity(OpacityTier.strong) : mode.color.opacity(0.3))
+    let strokeWidth: CGFloat = isActive ? 0 : (isHovered ? 1.5 : 1)
+
+    Circle().stroke(strokeColor, lineWidth: strokeWidth)
   }
 }
 

@@ -135,9 +135,15 @@ struct NewCodexSessionSheet: View {
 
   private var header: some View {
     HStack(spacing: Spacing.md) {
-      Image(systemName: "plus.circle.fill")
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(Color.providerCodex)
+      // Codex brand icon
+      Circle()
+        .fill(Color.providerCodex.opacity(OpacityTier.light))
+        .frame(width: 32, height: 32)
+        .overlay(
+          Image(systemName: "plus.circle.fill")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Color.providerCodex)
+        )
 
       Text("New Codex Session")
         .font(.system(size: TypeScale.title, weight: .semibold))
@@ -154,10 +160,19 @@ struct NewCodexSessionSheet: View {
         dismiss()
       } label: {
         Image(systemName: "xmark.circle.fill")
-          .font(.system(size: 16))
+          .font(.system(size: 18))
           .foregroundStyle(Color.textQuaternary)
       }
       .buttonStyle(.plain)
+      #if !os(iOS)
+        .onHover { hovering in
+          if hovering {
+            NSCursor.pointingHand.push()
+          } else {
+            NSCursor.pop()
+          }
+        }
+      #endif
     }
     .padding(.horizontal, Spacing.xl)
     .padding(.vertical, Spacing.lg)
@@ -213,9 +228,9 @@ struct NewCodexSessionSheet: View {
       }
     }
     .padding(Spacing.lg)
-    .background(Color.statusPermission.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.lg))
+    .background(Color.statusPermission.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.statusPermission.opacity(OpacityTier.light), lineWidth: 1)
     )
   }
@@ -279,8 +294,8 @@ struct NewCodexSessionSheet: View {
       Divider()
         .padding(.horizontal, Spacing.lg)
 
-      // Autonomy row — selector + detail integrated
-      VStack(alignment: .leading, spacing: Spacing.md) {
+      // Autonomy row — unified selector design
+      VStack(alignment: .leading, spacing: Spacing.sm) {
         HStack {
           HStack(spacing: Spacing.sm) {
             Image(systemName: selectedAutonomy.icon)
@@ -296,11 +311,13 @@ struct NewCodexSessionSheet: View {
           CompactAutonomySelector(selection: $selectedAutonomy)
         }
 
-        // Selected level detail
-        HStack(spacing: Spacing.sm) {
-          RoundedRectangle(cornerRadius: 1.5)
-            .fill(selectedAutonomy.color)
-            .frame(width: 2)
+        // Inline description — flows naturally from selector
+        HStack(alignment: .top, spacing: Spacing.sm) {
+          // Subtle indicator line
+          Capsule()
+            .fill(selectedAutonomy.color.opacity(0.4))
+            .frame(width: 2, height: 20)
+            .padding(.top, 2)
 
           VStack(alignment: .leading, spacing: Spacing.xxs) {
             HStack(spacing: Spacing.sm) {
@@ -311,18 +328,20 @@ struct NewCodexSessionSheet: View {
               if selectedAutonomy.isDefault {
                 Text("DEFAULT")
                   .font(.system(size: 7, weight: .bold, design: .rounded))
-                  .foregroundStyle(Color.autonomyAutonomous)
-                  .padding(.horizontal, 4)
+                  .foregroundStyle(Color.textSecondary)
+                  .padding(.horizontal, 5)
                   .padding(.vertical, 1.5)
-                  .background(Color.autonomyAutonomous.opacity(OpacityTier.light), in: Capsule())
+                  .background(Color.textSecondary.opacity(OpacityTier.light), in: Capsule())
               }
             }
 
             Text(selectedAutonomy.description)
               .font(.system(size: TypeScale.caption))
               .foregroundStyle(Color.textTertiary)
+              .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: Spacing.md) {
+            // Metadata badges
+            HStack(spacing: Spacing.sm) {
               HStack(spacing: Spacing.xxs) {
                 Image(systemName: selectedAutonomy.approvalBehavior
                   .contains("Never") ? "hand.raised.slash" : "hand.raised.fill")
@@ -340,18 +359,19 @@ struct NewCodexSessionSheet: View {
               .foregroundStyle(selectedAutonomy.isSandboxed ? Color.textQuaternary : Color.autonomyOpen.opacity(0.7))
             }
             .foregroundStyle(Color.textQuaternary)
+            .padding(.top, Spacing.xxs)
           }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(Spacing.sm)
-        .background(selectedAutonomy.color.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.md))
-        .animation(.easeOut(duration: 0.15), value: selectedAutonomy)
+        .padding(.leading, Spacing.lg)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selectedAutonomy)
       }
       .padding(.horizontal, Spacing.lg)
       .padding(.vertical, Spacing.md)
     }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg))
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg)
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
   }
@@ -370,6 +390,15 @@ struct NewCodexSessionSheet: View {
             .foregroundStyle(Color.textQuaternary)
         }
         .buttonStyle(.plain)
+        #if !os(iOS)
+          .onHover { hovering in
+            if hovering {
+              NSCursor.pointingHand.push()
+            } else {
+              NSCursor.pop()
+            }
+          }
+        #endif
       }
 
       Spacer()
@@ -377,19 +406,29 @@ struct NewCodexSessionSheet: View {
       Button("Cancel") {
         dismiss()
       }
+      .buttonStyle(.bordered)
+      .tint(Color.textTertiary)
       .keyboardShortcut(.escape, modifiers: [])
 
       Button {
         createSession()
       } label: {
         if isCreating {
-          ProgressView()
-            .controlSize(.small)
-            .frame(width: 70)
+          HStack(spacing: Spacing.sm) {
+            ProgressView()
+              .controlSize(.small)
+            Text("Launch")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+          }
+          .frame(minWidth: 90)
         } else {
-          Label("Launch", systemImage: "paperplane.fill")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .frame(width: 70)
+          HStack(spacing: Spacing.sm) {
+            Image(systemName: "paperplane.fill")
+              .font(.system(size: 12, weight: .semibold))
+            Text("Launch")
+              .font(.system(size: TypeScale.body, weight: .semibold))
+          }
+          .frame(minWidth: 90)
         }
       }
       .buttonStyle(.borderedProminent)
@@ -494,8 +533,7 @@ struct NewCodexSessionSheet: View {
 // MARK: - Compact Autonomy Selector
 
 /// Horizontal pill selector for autonomy levels.
-/// Shows level icons as tappable pills with a color-coded active state.
-/// Pair with the `autonomyDetail` section to show the selected level's info.
+/// Refined circular buttons with smooth interactions.
 private struct CompactAutonomySelector: View {
   @Binding var selection: AutonomyLevel
   @State private var hoveredLevel: AutonomyLevel?
@@ -503,69 +541,96 @@ private struct CompactAutonomySelector: View {
   private let levels = AutonomyLevel.allCases
 
   var body: some View {
-    HStack(spacing: Spacing.xs) {
+    HStack(spacing: Spacing.sm) {
       ForEach(levels) { level in
-        let isActive = level == selection
-        let isHovered = hoveredLevel == level && !isActive
-
-        Button {
-          selection = level
-        } label: {
-          Image(systemName: level.icon)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(
-              isActive
-                ? Color.backgroundSecondary
-                : isHovered
-                ? level.color
-                : level.color.opacity(0.5)
-            )
-            .frame(width: 28, height: 28)
-            .background(
-              Circle()
-                .fill(
-                  isActive
-                    ? level.color
-                    : isHovered
-                    ? level.color.opacity(OpacityTier.light)
-                    : Color.clear
-                )
-            )
-            .overlay(
-              Circle()
-                .stroke(
-                  isActive
-                    ? Color.clear
-                    : isHovered
-                    ? level.color.opacity(OpacityTier.strong)
-                    : level.color.opacity(OpacityTier.medium),
-                  lineWidth: 1
-                )
-            )
-            .shadow(color: isActive ? level.color.opacity(0.3) : .clear, radius: 4)
-        }
-        .buttonStyle(.plain)
-        #if !os(iOS)
-          .onHover { hovering in
+        AutonomyLevelButton(
+          level: level,
+          isActive: level == selection,
+          isHovered: hoveredLevel == level && level != selection,
+          onTap: {
+            selection = level
+            #if os(macOS)
+              NSHapticFeedbackManager.defaultPerformer.perform(
+                .alignment,
+                performanceTime: .default
+              )
+            #endif
+          },
+          onHover: { hovering in
             hoveredLevel = hovering ? level : nil
           }
-          .help(level.displayName)
-        #endif
-          .contentShape(Circle())
+        )
       }
     }
     #if !os(iOS)
-    .onHover { hovering in
-      if hovering {
-        NSCursor.pointingHand.push()
-      } else {
-        NSCursor.pop()
-        hoveredLevel = nil
+      .onHover { hovering in
+        if hovering {
+          NSCursor.pointingHand.push()
+        } else {
+          NSCursor.pop()
+          hoveredLevel = nil
+        }
       }
-    }
     #endif
-    .animation(.easeOut(duration: 0.12), value: hoveredLevel)
-    .animation(.easeOut(duration: 0.15), value: selection)
+      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredLevel)
+      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
+  }
+}
+
+// MARK: - Autonomy Level Button
+
+private struct AutonomyLevelButton: View {
+  let level: AutonomyLevel
+  let isActive: Bool
+  let isHovered: Bool
+  let onTap: () -> Void
+  let onHover: (Bool) -> Void
+
+  var body: some View {
+    Button(action: onTap) {
+      buttonContent
+    }
+    .buttonStyle(.plain)
+    #if !os(iOS)
+      .onHover(perform: onHover)
+      .help(level.displayName)
+    #endif
+      .contentShape(Circle())
+  }
+
+  @ViewBuilder
+  private var buttonContent: some View {
+    let iconColor = isActive ? Color.backgroundSecondary : (isHovered ? level.color : level.color.opacity(0.6))
+    let shadowColor = isActive ? level.color.opacity(0.4) : Color.clear
+    let scale = isActive ? 1.05 : 1.0
+
+    Image(systemName: level.icon)
+      .font(.system(size: 11, weight: .semibold))
+      .foregroundStyle(iconColor)
+      .frame(width: 30, height: 30)
+      .background(backgroundCircle)
+      .overlay(strokeCircle)
+      .shadow(color: shadowColor, radius: 6, y: 2)
+      .scaleEffect(scale)
+  }
+
+  @ViewBuilder
+  private var backgroundCircle: some View {
+    if isActive {
+      Circle().fill(level.color.gradient)
+    } else if isHovered {
+      Circle().fill(level.color.opacity(OpacityTier.light))
+    } else {
+      Circle().fill(Color.clear)
+    }
+  }
+
+  @ViewBuilder
+  private var strokeCircle: some View {
+    let strokeColor = isActive ? Color.clear : (isHovered ? level.color.opacity(OpacityTier.strong) : level.color.opacity(0.3))
+    let strokeWidth: CGFloat = isActive ? 0 : (isHovered ? 1.5 : 1)
+
+    Circle().stroke(strokeColor, lineWidth: strokeWidth)
   }
 }
 
