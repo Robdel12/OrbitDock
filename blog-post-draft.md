@@ -32,7 +32,7 @@ AI coding agents need to run somewhere that has access to your codebase — usua
 
 With OrbitDock, the server lives next to your agents. The app lives wherever you are. That gap is WebSocket — fast, persistent, real-time.
 
-Right now, the most common setup is the server running locally on a Mac via launchd, with the macOS app connecting to it. But the remote setup is a first-class option. Point the app at any host and port, and you're connected. The setup screen gives you exactly two choices: install locally, or enter a remote host.
+Right now, the most common setup is a local server running on a Mac via launchd. But remote setup is first-class too. You can connect one or many endpoints at the same time (local machine, laptop, Pi, cloud), pick a default endpoint per device for create flows, and keep a unified dashboard across all connected servers.
 
 Running your agents on a beefier machine, a VPS with the right API keys, or a home server that stays on 24/7? That's the whole point.
 

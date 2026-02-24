@@ -2,7 +2,7 @@
 
 The Rust backend behind OrbitDock. Handles real-time session management over WebSocket, runs Codex sessions directly via codex-core, and keeps all business logic in a pure state machine.
 
-Runs two ways: embedded in OrbitDock.app, or as a **standalone binary** you can drop on any macOS or Linux box.
+Runs as a **standalone binary** you can drop on any macOS or Linux box. OrbitDock macOS and iOS clients connect over WebSocket and may connect to multiple servers at once.
 
 ## Getting Started
 
@@ -43,18 +43,16 @@ orbitdock-server install-service --enable --bind 0.0.0.0:4000
 
 This generates a launchd plist on macOS or a systemd unit on Linux.
 
-### Embedded in the macOS App
+### OrbitDock Client Connectivity
 
-When running inside OrbitDock.app, `ServerManager.swift` launches the binary from the app bundle:
+Clients connect over WebSocket (default local endpoint: `ws://127.0.0.1:4000/ws`) and can keep multiple endpoints connected simultaneously.
 
-```swift
-let serverPath = Bundle.main.path(forResource: "orbitdock-server", ofType: nil)!
-let process = Process()
-process.executableURL = URL(fileURLWithPath: serverPath)
-try process.run()
-```
+The server also accepts control-plane metadata from clients:
 
-The app connects via WebSocket at `ws://127.0.0.1:4000/ws`.
+- `set_server_role` - mark this server as primary/secondary server metadata
+- `set_client_primary_claim` - register whether a specific client device currently treats this server as its control plane
+
+Provider usage probes are gated by client claims. If a client that does not hold the control-plane claim calls usage RPCs, the server returns `not_control_plane_for_client`.
 
 ## CLI Reference
 

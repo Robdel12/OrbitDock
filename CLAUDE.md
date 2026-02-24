@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-OrbitDock is a native macOS SwiftUI app — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and serves real-time updates to the SwiftUI app over WebSocket.
+OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and serves real-time updates to clients over WebSocket.
 
 ## Tech Stack
 
@@ -76,11 +76,13 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 
 ## Server Setup Flow
 
-The app doesn't embed the server — it connects over WebSocket. On launch, `ServerManager` checks if the server is reachable:
+The app doesn't embed the server — it connects over WebSocket. Endpoint configuration is multi-server and persisted in `ServerEndpointSettings`/`ServerEndpointStore`.
+
+On launch, `ServerManager` still checks local install state for onboarding, while `ServerRuntimeRegistry` manages active endpoint runtimes and connection state:
 
 1. **Health check** `localhost:4000/health` → `.running` (covers `cargo run`, brew, launchd)
 2. **Launchd plist** at `~/Library/LaunchAgents/com.orbitdock.server.plist` → `.installed` (stopped)
-3. **Remote host** in `ServerEndpointSettings` → `.remote`
+3. **Configured endpoints** in `ServerEndpointSettings` are loaded and connected by runtime registry
 4. Otherwise → `.notConfigured` (shows `ServerSetupView`)
 
 `ServerManager` shells out to the server's own CLI for install/service management — no custom plist generation in Swift.
@@ -88,7 +90,9 @@ The app doesn't embed the server — it connects over WebSocket. On launch, `Ser
 ### Key Files
 - `Services/Server/ServerManager.swift` — Install state detection, CLI wrapper (refreshState, install, startService, stopService)
 - `Views/ServerSetupView.swift` — First-launch onboarding (Install Locally / Connect to Remote)
-- `Services/Server/ServerEndpointSettings.swift` — Persisted remote host config
+- `Services/Server/ServerEndpointSettings.swift` — Multi-endpoint settings façade
+- `Services/Server/ServerEndpointStore.swift` — Endpoint persistence + legacy migration
+- `Services/Server/ServerRuntimeRegistry.swift` — Endpoint-scoped runtime orchestration + control-plane selection
 - `Platform/PlatformPaths.swift` — `orbitDockBinDirectory` (`~/.orbitdock/bin/`)
 
 ### Install Flow (triggered from ServerSetupView or Settings)
@@ -409,22 +413,26 @@ Sensitive values in the `config` table (like the OpenAI API key) are encrypted a
 
 ### Multi-Provider Usage APIs
 
+Usage is fetched through orbitdock-server over WebSocket RPCs and is scoped to the current control-plane endpoint selected on each client device.
+
 **Claude** (`SubscriptionUsageService.swift`):
-- Fetches from `api.anthropic.com/api/oauth/usage`
-- Reads OAuth token from Claude CLI keychain (`Claude Code-credentials`)
-- Caches token in app's own keychain (`com.orbitdock.claude-token`) to avoid prompts
+- Calls `fetch_claude_usage` on the selected control-plane endpoint
 - Auto-refreshes every 60 seconds
 - Tracks: 5h session window, 7d rolling window
 
 **Codex** (`CodexUsageService.swift`):
-- Fetches from Codex app server API
-- Primary and secondary rate limit windows
-- Token-based usage tracking
+- Calls `fetch_codex_usage` on the selected control-plane endpoint
+- Tracks primary and secondary rate-limit windows
+
+**Server-side usage RPCs**:
+- Implemented in `orbitdock-server/crates/server/src/websocket.rs`
+- Returned as `claude_usage_result` / `codex_usage_result`
+- Requests from non-primary client claims are rejected with `not_control_plane_for_client`
 
 **Unified Access** (`UsageServiceRegistry.swift`):
-- Coordinates all provider services
-- `activeProviders` returns providers with valid data
-- `windows(for: .claude)` or `windows(for: .codex)` for rate limit windows
+- Coordinates provider services
+- Keeps provider cards visible even when usage requests fail, so auth/transport errors remain visible in UI
+- `windows(for: .claude)` / `windows(for: .codex)` expose normalized rate-limit windows
 
 Key UI files:
 - `Views/Usage/` - Provider usage gauges, bars, and badges

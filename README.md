@@ -1,8 +1,9 @@
 # OrbitDock
 
-Mission control for AI coding agents. A native macOS app that monitors all your Claude Code and Codex sessions from one dashboard — live status, conversations, code review, approvals, and usage tracking.
+Mission control for AI coding agents. Native macOS and iOS clients that monitor your Claude Code and Codex sessions from one dashboard — live status, conversations, code review, approvals, and usage tracking.
 
 ![macOS](https://img.shields.io/badge/macOS-14.0+-blue)
+![iOS](https://img.shields.io/badge/iOS-17.0+-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.9+-orange)
 ![Rust](https://img.shields.io/badge/Rust-1.75+-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -21,6 +22,7 @@ OrbitDock is how I wrangle all that. One dashboard to track every session across
 ## Features
 
 - **Multi-Provider** — Claude Code and Codex sessions in one place
+- **Multi-Server** — Connect to multiple `orbitdock-server` endpoints at once (local, laptop, Pi, cloud)
 - **Live Monitoring** — Watch conversations unfold with real-time status (Working, Permission, Question, Reply, Ended)
 - **Review Canvas** — Magit-style code review with inline comments that steer the agent
 - **Approval Oversight** — Diff previews, risk cues, keyboard triage (y/n/!/N)
@@ -84,6 +86,8 @@ orbitdock-server start --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-
 
 In the app, use "Connect to Remote Server" and enter the IP address.
 
+Usage polling is routed through the control-plane endpoint selected on each device. If that endpoint reports an auth error (for example expired Claude token), OrbitDock keeps the usage card visible and shows the error state directly in UI.
+
 See [orbitdock-server/README.md](orbitdock-server/README.md) for the full CLI reference.
 
 ### Hook Setup
@@ -114,7 +118,7 @@ Codex sessions are picked up automatically — no hook config needed.
 
 ## Architecture
 
-Two main pieces: a **SwiftUI macOS app** and a **Rust WebSocket server**. The server runs standalone — as a launchd service, via `cargo run`, or on a remote machine. The app connects over WebSocket.
+Two main pieces: **SwiftUI clients** (macOS + iOS) and a **Rust WebSocket server**. The server runs standalone — as a launchd/systemd service, via `cargo run`, or on a remote machine. Clients connect over WebSocket to one or many configured endpoints.
 
 ```
 ┌─────────────────────────────────────────────────────────┐

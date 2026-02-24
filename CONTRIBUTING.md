@@ -1,6 +1,6 @@
 # Contributing to OrbitDock
 
-Thanks for your interest in contributing! OrbitDock has two main codebases — a SwiftUI macOS app and a Rust WebSocket server — so this guide covers both.
+Thanks for your interest in contributing. OrbitDock has two main codebases: SwiftUI clients (macOS + iOS) and a Rust WebSocket server.
 
 ## Prerequisites
 
@@ -16,13 +16,13 @@ git clone https://github.com/Robdel12/OrbitDock.git
 cd OrbitDock
 ```
 
-### SwiftUI App
+### SwiftUI Clients
 
 ```bash
 open OrbitDock/OrbitDock.xcodeproj
 ```
 
-Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team) and hit ⌘R. The Rust server binary and CLI are embedded in the app bundle automatically.
+Select your team in **Signing & Capabilities** (or "Sign to Run Locally" for a personal team), then run either the `OrbitDock` macOS scheme or `OrbitDock iOS`. The clients can connect to one or many `orbitdock-server` endpoints.
 
 ### Rust Server
 
@@ -32,7 +32,7 @@ cargo build
 cargo test
 ```
 
-The server runs on `ws://127.0.0.1:4000/ws`. For development you can run it standalone — the Swift app will connect to it on launch.
+By default the server listens on `ws://127.0.0.1:4000/ws`. For development, run it standalone and add it as an endpoint in app settings.
 
 ### CLI (standalone)
 
@@ -79,9 +79,9 @@ echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-s
 
 ### Swift App
 
-**State management** — Use `@State private var cache: [String: T] = [:]` dictionaries keyed by session ID to prevent state bleeding between sessions. Always guard async callbacks with `guard currentId == targetId`.
+**State management** — Keep state endpoint-scoped. Cache values by scoped session identity (endpoint + session ID) to prevent cross-server bleeding. Always guard async callbacks with a current scoped-id check.
 
-**Per-session observation** — `SessionObservable` is a per-session `@Observable` class. Access via `serverState.session(id)`. Views observe only the session they display — no cascading re-renders.
+**Per-session observation** — `SessionObservable` is a per-session `@Observable` class. Access via `serverState.session(scopedId)`. Views observe only the session they display.
 
 **Theme colors** — Always use the cosmic palette from `Theme.swift`. Never use system colors (`.blue`, `.green`, `.purple`). Never use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead. See the full design system in `CLAUDE.md`.
 

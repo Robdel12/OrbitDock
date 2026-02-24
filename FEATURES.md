@@ -16,6 +16,8 @@ Everything OrbitDock can do, organized by area.
 ## Dashboard
 
 - **Project-grouped sessions** — Active agents grouped by project directory
+- **Multi-server merge** — Sessions from multiple connected endpoints are merged into one dashboard view
+- **Endpoint-safe identity** — Duplicate session IDs across servers are isolated by endpoint-scoped IDs
 - **Attention banner** — Sessions needing action surfaced at the top
 - **Session history** — Browse ended sessions grouped by project
 - **Live filters** — Filter by provider (All / Claude / Codex), sort active sessions, workbench filter
@@ -116,10 +118,19 @@ Side panel for direct sessions with multiple tabs:
 
 ## Usage Monitoring
 
+- **Control-plane routed usage** — Usage requests run through the endpoint selected as control plane on this device
 - **Claude rate limits** — 5-hour and 7-day window tracking via OAuth API
 - **Codex rate limits** — Primary and secondary rate windows
+- **Visible error states** — Usage cards stay visible and show auth/transport errors instead of disappearing
 - **Menu bar gauges** — Quick usage check without opening the app
 - **Auto-refresh** — Updates every 60 seconds
+
+## Server Endpoints
+
+- **Multiple active connections** — Connect to local, LAN, and remote servers at the same time
+- **Default endpoint per device** — Session creation defaults to the endpoint selected on that client
+- **Server role metadata** — Endpoints can publish primary/secondary role and per-device primary claims
+- **Single-endpoint simplification** — Create-session sheets hide endpoint pickers when only one endpoint is configured
 
 ## Terminal Integration
 
