@@ -824,8 +824,6 @@ struct DirectSessionComposer: View {
   // MARK: - Composer Action Button
 
   private var modelEffortControlButton: some View {
-    let controlTint: Color = selectedEffort == .default ? .accent : selectedEffort.color
-
     return Button {
       showModelEffortPopover.toggle()
     } label: {
@@ -833,22 +831,16 @@ struct DirectSessionComposer: View {
         Image(systemName: "slider.horizontal.3")
           .font(.system(size: 13, weight: .semibold))
 
-        if isCompactLayout {
-          selectedEffortBadge(compact: true)
-        } else {
-          Text("Model")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-
-          selectedEffortBadge(compact: false)
-        }
+        Text("Model")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
       }
-      .foregroundStyle(hasOverrides ? controlTint : Color.textSecondary)
+      .foregroundStyle(hasOverrides ? Color.accent : Color.textSecondary)
       .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
       .frame(height: isCompactLayout ? 26 : 26)
       .background(
         isCompactLayout
-          ? (hasOverrides ? controlTint.opacity(OpacityTier.light) : Color.surfaceHover)
-          : (hasOverrides ? controlTint.opacity(0.10) : Color.clear),
+          ? (hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover)
+          : (hasOverrides ? Color.accent.opacity(0.10) : Color.clear),
         in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
       )
     }
@@ -1494,14 +1486,10 @@ struct DirectSessionComposer: View {
         .help(tokenTooltipText)
 
         if session.isDirectCodex, !selectedModel.isEmpty {
-          HStack(spacing: 6) {
-            Text(shortModelName(selectedModel))
-              .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.textTertiary)
-              .lineLimit(1)
-
-            selectedEffortBadge(compact: false)
-          }
+          Text(shortModelName(selectedModel))
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
           .padding(.horizontal, Spacing.xs)
           .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
         } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
@@ -1690,9 +1678,6 @@ struct DirectSessionComposer: View {
 
     if session.isDirectCodex, !selectedModel.isEmpty {
       parts.append(shortModelName(selectedModel))
-      if selectedEffort != .default {
-        parts.append(selectedEffort.displayName.uppercased())
-      }
     } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
       parts.append(shortModelName(effectiveClaudeModel))
     } else if session.isDirectClaude, let model = session.model {
@@ -1752,29 +1737,6 @@ struct DirectSessionComposer: View {
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, 4)
     .background(Color.surfaceHover, in: Capsule())
-  }
-
-  private var selectedEffortLabel: String {
-    selectedEffort == .default ? "AUTO" : selectedEffort.displayName.uppercased()
-  }
-
-  private var selectedEffortTint: Color {
-    selectedEffort == .default ? Color.accent : selectedEffort.color
-  }
-
-  private func selectedEffortBadge(compact: Bool) -> some View {
-    Text(selectedEffortLabel)
-      .font(.system(size: compact ? 8 : 8.5, weight: .bold, design: .monospaced))
-      .tracking(0.25)
-      .lineLimit(1)
-      .foregroundStyle(selectedEffortTint)
-      .padding(.horizontal, compact ? 6 : 7)
-      .padding(.vertical, compact ? 1.5 : 2.5)
-      .background(selectedEffortTint.opacity(0.14), in: Capsule())
-      .overlay {
-        Capsule()
-          .strokeBorder(selectedEffortTint.opacity(0.35), lineWidth: 1)
-      }
   }
 
   // MARK: - Resume Row (ended session)
@@ -1885,7 +1847,6 @@ struct DirectSessionComposer: View {
       session
         .isDirectClaude && selectedClaudeModel != defaultClaudeModelSelection ? shortModelName(selectedClaudeModel) :
         nil,
-      session.isDirectCodex && selectedEffort != .default ? selectedEffort.displayName : nil,
     ].compactMap { $0 }
 
     if !parts.isEmpty {
