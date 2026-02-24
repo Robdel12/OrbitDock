@@ -1596,16 +1596,9 @@ struct DirectSessionComposer: View {
           .padding(.horizontal, Spacing.sm)
           .padding(.vertical, Spacing.xs)
           .background(
-            isPinned ? Color.surfaceHover.opacity(0.25) : Color.statusReply.opacity(OpacityTier.light),
+            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
             in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
           )
-          .overlay {
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              .strokeBorder(
-                isPinned ? Color.surfaceBorder.opacity(0.25) : Color.statusReply.opacity(0.35),
-                lineWidth: 1
-              )
-          }
         }
         .buttonStyle(.plain)
 
@@ -1678,16 +1671,9 @@ struct DirectSessionComposer: View {
           .foregroundStyle(isPinned ? Color.textTertiary : Color.statusReply)
           .frame(width: 32, height: 32)
           .background(
-            isPinned ? Color.surfaceHover.opacity(0.25) : Color.statusReply.opacity(OpacityTier.light),
-            in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
+            in: Circle()
           )
-          .overlay {
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              .strokeBorder(
-                isPinned ? Color.surfaceBorder.opacity(0.25) : Color.statusReply.opacity(0.35),
-                lineWidth: 1
-              )
-          }
       }
       .buttonStyle(.plain)
     }
