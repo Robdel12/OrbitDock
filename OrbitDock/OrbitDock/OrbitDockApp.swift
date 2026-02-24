@@ -41,9 +41,9 @@ struct OrbitDockApp: App {
     #endif
       .task {
         runtimeRegistry.configureFromSettings(startEnabled: false)
-      #if os(macOS)
-        AppDelegate.serverAppState = runtimeRegistry.activeAppState
-      #endif
+        #if os(macOS)
+          AppDelegate.serverAppState = runtimeRegistry.activeAppState
+        #endif
 
         if runtimeMode.shouldStartMcpBridge {
           MCPBridge.shared.start(serverAppState: runtimeRegistry.activeAppState)
@@ -67,6 +67,7 @@ struct OrbitDockApp: App {
       // Main window
       WindowGroup {
         mainRootView
+          .frame(minWidth: 1_000, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
       }
       .windowStyle(.automatic)
       .defaultSize(width: 1_000, height: 700)

@@ -41,7 +41,7 @@ struct DirectSessionComposer: View {
   @State private var completionQuery = ""
   @State private var completionIndex = 0
   @State private var isFocused = false
-  @State private var composerInputHeight: CGFloat = 38
+  @State private var composerInputHeight: CGFloat = 30
 
   /// Attachments
   @State private var fileIndex = ProjectFileIndex()
@@ -63,7 +63,6 @@ struct DirectSessionComposer: View {
   @State private var manualShellMode = false
   @State private var dictationController = WhisperDictationController()
   @State private var dictationDraftBaseMessage: String?
-  @State private var dictationPreviewText = ""
 
   private var sessionId: String {
     session.id
@@ -395,20 +394,8 @@ struct DirectSessionComposer: View {
     return "Send a message..."
   }
 
-  private var dictationStatusText: String {
-    switch dictationController.state {
-      case .recording:
-        if dictationPreviewText.isEmpty {
-          return "LISTENING"
-        }
-        return "LIVE"
-      case .requestingPermission:
-        return "AUTHORIZING"
-      case .transcribing:
-        return "TRANSCRIBING"
-      case .idle:
-        return "IDLE"
-    }
+  private var dictationButtonWidth: CGFloat {
+    isCompactLayout ? 96 : 120
   }
 
   private var isCompactLayout: Bool {
@@ -572,7 +559,7 @@ struct DirectSessionComposer: View {
       .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
         handleDrop(providers)
       }
-      .onAppear {
+      .task(id: sessionId) {
         if session.isDirectCodex {
           serverState.refreshCodexModels()
           if selectedModel.isEmpty {
@@ -589,7 +576,7 @@ struct DirectSessionComposer: View {
           }
         }
         if let path = projectPath {
-          Task { await fileIndex.loadIfNeeded(path) }
+          await fileIndex.loadIfNeeded(path)
         }
       }
       .onChange(of: codexModelOptionsSignature) { _, _ in
@@ -613,7 +600,7 @@ struct DirectSessionComposer: View {
       }
       .onChange(of: dictationController.liveTranscript) { _, transcript in
         guard dictationController.isRecording else { return }
-        applyDictationPreviewToComposer(transcript)
+        updateDictationLivePreview(transcript)
       }
       .onDisappear {
         Task { @MainActor in
@@ -711,9 +698,9 @@ struct DirectSessionComposer: View {
       placeholder: composerPlaceholder,
       isFocused: $isFocused,
       measuredHeight: $composerInputHeight,
-      isEnabled: !(isSending || isDictationActive),
+      isEnabled: !isSending,
       minLines: 2,
-      maxLines: 5,
+      maxLines: 4,
       onPasteImage: { pasteImageFromClipboard() },
       canPasteImage: { canPasteImageFromClipboard },
       onKeyCommand: handleComposerTextAreaKeyCommand
@@ -731,11 +718,10 @@ struct DirectSessionComposer: View {
       }
     #endif
       .onChange(of: message) { _, newValue in
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-          updateCommandDeckCompletion(newValue)
-          updateSkillCompletion(newValue)
-          updateMentionCompletion(newValue)
-        }
+        if isDictationActive { return }
+        updateCommandDeckCompletion(newValue)
+        updateSkillCompletion(newValue)
+        updateMentionCompletion(newValue)
       }
   }
 
@@ -770,28 +756,6 @@ struct DirectSessionComposer: View {
 
         composerTextInput
 
-        if isDictationActive {
-          HStack(spacing: 6) {
-            if dictationController.state == .recording {
-              Circle()
-                .fill(Color.accent)
-                .frame(width: 6, height: 6)
-                .opacity(0.9)
-            } else {
-              ProgressView()
-                .controlSize(.mini)
-            }
-
-            Text(dictationStatusText)
-              .font(.system(size: TypeScale.micro, weight: .bold, design: .monospaced))
-              .foregroundStyle(Color.accent)
-              .lineLimit(1)
-          }
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(Color.accent.opacity(0.12), in: Capsule())
-        }
-
         // Override badges (inside border)
         if !isSessionWorking, session.isDirectCodex || session.isDirectClaude, !isCompactLayout {
           if hasOverrides {
@@ -809,7 +773,7 @@ struct DirectSessionComposer: View {
         }
       }
       .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.sm)
-      .padding(.vertical, isCompactLayout ? 8 : 7)
+      .padding(.vertical, isCompactLayout ? 6 : 4)
       .background(
         RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
           .fill(
@@ -854,13 +818,13 @@ struct DirectSessionComposer: View {
       .keyboardShortcut(.return, modifiers: .command)
     }
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-    .padding(.vertical, isCompactLayout ? Spacing.sm : 7)
+    .padding(.vertical, isCompactLayout ? Spacing.xs : 4)
   }
 
   // MARK: - Composer Action Button
 
   private var modelEffortControlButton: some View {
-    let compactEffortLabel = selectedEffort == .default ? "AUTO" : selectedEffort.displayName.uppercased()
+    let controlTint: Color = selectedEffort == .default ? .accent : selectedEffort.color
 
     return Button {
       showModelEffortPopover.toggle()
@@ -870,37 +834,21 @@ struct DirectSessionComposer: View {
           .font(.system(size: 13, weight: .semibold))
 
         if isCompactLayout {
-          Text(compactEffortLabel)
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
-            .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-              (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
-              in: Capsule()
-            )
+          selectedEffortBadge(compact: true)
         } else {
           Text("Model")
             .font(.system(size: TypeScale.caption, weight: .semibold))
 
-          Text(selectedEffort.displayName.uppercased())
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
-            .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(
-              (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
-              in: Capsule()
-            )
+          selectedEffortBadge(compact: false)
         }
       }
-      .foregroundStyle(hasOverrides ? Color.accent : Color.textSecondary)
+      .foregroundStyle(hasOverrides ? controlTint : Color.textSecondary)
       .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
       .frame(height: isCompactLayout ? 26 : 26)
       .background(
         isCompactLayout
-          ? (hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover)
-          : (hasOverrides ? Color.accent.opacity(0.10) : Color.clear),
+          ? (hasOverrides ? controlTint.opacity(OpacityTier.light) : Color.surfaceHover)
+          : (hasOverrides ? controlTint.opacity(0.10) : Color.clear),
         in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
       )
     }
@@ -1030,33 +978,13 @@ struct DirectSessionComposer: View {
     Button {
       toggleDictation()
     } label: {
-      switch dictationController.state {
-        case .recording:
-          actionDockLabel(
-            icon: "stop.fill",
-            title: "Stop Dictation",
-            tint: .statusError,
-            isActive: true
-          )
-        case .requestingPermission, .transcribing:
-          HStack(spacing: 6) {
-            ProgressView()
-              .controlSize(.mini)
-            Text("Dictating")
-              .font(.system(size: TypeScale.caption, weight: .semibold))
-          }
-          .foregroundStyle(Color.accent)
-          .padding(.horizontal, isCompactLayout ? Spacing.sm : 6)
-          .padding(.vertical, isCompactLayout ? 5 : 4)
-          .background(Color.accent.opacity(0.10), in: Capsule())
-        case .idle:
-          actionDockLabel(
-            icon: "mic.fill",
-            title: "Dictate",
-            tint: .accent,
-            isActive: false
-          )
-      }
+      actionDockLabel(
+        icon: dictationController.isRecording ? "stop.fill" : "mic.fill",
+        title: dictationController.isRecording ? "Stop Dictation" : "Dictate",
+        tint: dictationController.isRecording ? .statusError : .accent,
+        isActive: dictationController.isRecording
+      )
+      .frame(width: dictationButtonWidth, alignment: .leading)
     }
     .buttonStyle(.plain)
     .disabled(dictationController.isBusy)
@@ -1572,15 +1500,7 @@ struct DirectSessionComposer: View {
               .foregroundStyle(Color.textTertiary)
               .lineLimit(1)
 
-            Text(selectedEffort.displayName.uppercased())
-              .font(.system(size: 8, weight: .bold, design: .monospaced))
-              .foregroundStyle(selectedEffort == .default ? Color.accent : selectedEffort.color)
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
-              .background(
-                (selectedEffort == .default ? Color.accent : selectedEffort.color).opacity(0.15),
-                in: Capsule()
-              )
+            selectedEffortBadge(compact: false)
           }
           .padding(.horizontal, Spacing.xs)
           .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
@@ -1665,19 +1585,27 @@ struct DirectSessionComposer: View {
             scrollToBottomTrigger += 1
           }
         } label: {
+          let followTint = isPinned ? Color.textTertiary : Color.statusReply
           HStack(spacing: 4) {
             Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
               .font(.system(size: TypeScale.body, weight: .semibold))
             Text(isPinned ? "Following" : "Paused")
               .font(.system(size: TypeScale.body, weight: .medium))
           }
-          .foregroundStyle(isPinned ? AnyShapeStyle(.quaternary) : AnyShapeStyle(Color.statusReply))
+          .foregroundStyle(followTint)
           .padding(.horizontal, Spacing.sm)
           .padding(.vertical, Spacing.xs)
           .background(
-            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
+            isPinned ? Color.surfaceHover.opacity(0.25) : Color.statusReply.opacity(OpacityTier.light),
             in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
           )
+          .overlay {
+            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              .strokeBorder(
+                isPinned ? Color.surfaceBorder.opacity(0.25) : Color.statusReply.opacity(0.35),
+                lineWidth: 1
+              )
+          }
         }
         .buttonStyle(.plain)
 
@@ -1747,12 +1675,19 @@ struct DirectSessionComposer: View {
       } label: {
         Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
           .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(isPinned ? Color.textQuaternary : Color.statusReply)
+          .foregroundStyle(isPinned ? Color.textTertiary : Color.statusReply)
           .frame(width: 32, height: 32)
           .background(
-            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
-            in: Circle()
+            isPinned ? Color.surfaceHover.opacity(0.25) : Color.statusReply.opacity(OpacityTier.light),
+            in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
           )
+          .overlay {
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              .strokeBorder(
+                isPinned ? Color.surfaceBorder.opacity(0.25) : Color.statusReply.opacity(0.35),
+                lineWidth: 1
+              )
+          }
       }
       .buttonStyle(.plain)
     }
@@ -1831,6 +1766,29 @@ struct DirectSessionComposer: View {
     .padding(.horizontal, Spacing.sm)
     .padding(.vertical, 4)
     .background(Color.surfaceHover, in: Capsule())
+  }
+
+  private var selectedEffortLabel: String {
+    selectedEffort == .default ? "AUTO" : selectedEffort.displayName.uppercased()
+  }
+
+  private var selectedEffortTint: Color {
+    selectedEffort == .default ? Color.accent : selectedEffort.color
+  }
+
+  private func selectedEffortBadge(compact: Bool) -> some View {
+    Text(selectedEffortLabel)
+      .font(.system(size: compact ? 8 : 8.5, weight: .bold, design: .monospaced))
+      .tracking(0.25)
+      .lineLimit(1)
+      .foregroundStyle(selectedEffortTint)
+      .padding(.horizontal, compact ? 6 : 7)
+      .padding(.vertical, compact ? 1.5 : 2.5)
+      .background(selectedEffortTint.opacity(0.14), in: Capsule())
+      .overlay {
+        Capsule()
+          .strokeBorder(selectedEffortTint.opacity(0.35), lineWidth: 1)
+      }
   }
 
   // MARK: - Resume Row (ended session)
@@ -2071,20 +2029,26 @@ struct DirectSessionComposer: View {
   @MainActor
   private func beginDictationDraftState() {
     dictationDraftBaseMessage = message
-    dictationPreviewText = ""
   }
 
   @MainActor
   private func clearDictationDraftState() {
     dictationDraftBaseMessage = nil
-    dictationPreviewText = ""
+  }
+
+  @MainActor
+  private func updateDictationLivePreview(_ transcript: String) {
+    guard let baseMessage = dictationDraftBaseMessage else { return }
+    let normalized = DictationTextFormatter.normalizeTranscription(transcript)
+    let merged = DictationTextFormatter.merge(existing: baseMessage, dictated: normalized)
+    guard merged != message else { return }
+    message = merged
   }
 
   @MainActor
   private func applyDictationPreviewToComposer(_ transcript: String) {
     guard let baseMessage = dictationDraftBaseMessage else { return }
     let normalized = DictationTextFormatter.normalizeTranscription(transcript)
-    dictationPreviewText = normalized
     let merged = DictationTextFormatter.merge(existing: baseMessage, dictated: normalized)
     guard merged != message else { return }
     message = merged

@@ -61,7 +61,7 @@ struct ComposerTextArea: View {
         Text(placeholder)
           .font(.system(size: TypeScale.body))
           .foregroundStyle(Color.textTertiary)
-          .padding(.top, 6)
+          .padding(.top, 2)
           .padding(.leading, 2)
           .allowsHitTesting(false)
       }
@@ -114,7 +114,7 @@ struct ComposerTextArea: View {
       textView.textContainer.widthTracksTextView = true
       textView.textContainer.lineBreakMode = .byWordWrapping
       textView.textContainer.lineFragmentPadding = 0
-      textView.textContainerInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
+      textView.textContainerInset = UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 0)
       textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
       textView.isScrollEnabled = false
@@ -135,8 +135,6 @@ struct ComposerTextArea: View {
       uiView.canPasteImage = canPasteImage
       uiView.onKeyCommand = onKeyCommand
 
-      uiView.setNeedsLayout()
-      uiView.layoutIfNeeded()
       context.coordinator.recalculateHeight(for: uiView)
 
       if isFocused {
@@ -157,14 +155,14 @@ struct ComposerTextArea: View {
 
       func textViewDidBeginEditing(_ textView: UITextView) {
         guard !parent.isFocused else { return }
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
           self?.parent.isFocused = true
         }
       }
 
       func textViewDidEndEditing(_ textView: UITextView) {
         guard parent.isFocused else { return }
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
           self?.parent.isFocused = false
         }
       }
@@ -188,8 +186,10 @@ struct ComposerTextArea: View {
         let shouldScroll = fittingSize.height > maxHeight + 0.5
 
         if abs(parent.measuredHeight - clamped) > 0.5 {
-          DispatchQueue.main.async { [weak self] in
-            self?.parent.measuredHeight = clamped
+          Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard abs(self.parent.measuredHeight - clamped) > 0.5 else { return }
+            self.parent.measuredHeight = clamped
           }
         }
         if textView.isScrollEnabled != shouldScroll {
@@ -257,6 +257,7 @@ struct ComposerTextArea: View {
       scrollView.hasVerticalScroller = false
       scrollView.hasHorizontalScroller = false
       scrollView.autohidesScrollers = true
+      scrollView.verticalScrollElasticity = .none
 
       let textView = ComposerNSTextView(frame: .zero)
       textView.delegate = context.coordinator
@@ -271,15 +272,22 @@ struct ComposerTextArea: View {
       textView.isAutomaticDashSubstitutionEnabled = true
       textView.isVerticallyResizable = true
       textView.isHorizontallyResizable = false
+      textView.minSize = NSSize(width: 0, height: 0)
+      textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+      textView.autoresizingMask = [.width]
+      textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
+      textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
       textView.textContainer?.widthTracksTextView = true
       textView.textContainer?.lineFragmentPadding = 0
-      textView.textContainerInset = NSSize(width: 0, height: 6)
+      textView.textContainerInset = NSSize(width: 0, height: 2)
       textView.onPasteImage = onPasteImage
       textView.canPasteImage = canPasteImage
       textView.onKeyCommand = onKeyCommand
 
       scrollView.documentView = textView
       context.coordinator.textView = textView
+      context.coordinator.needsInitialMeasurement = true
       return scrollView
     }
 
@@ -287,47 +295,67 @@ struct ComposerTextArea: View {
       context.coordinator.parent = self
       guard let textView = context.coordinator.textView else { return }
 
-      if textView.string != text {
+      let didUpdateText = textView.string != text
+      if didUpdateText {
         textView.string = text
       }
 
-      textView.isEditable = isEnabled
-      textView.isSelectable = isEnabled
+      if textView.isEditable != isEnabled {
+        textView.isEditable = isEnabled
+      }
+      if !textView.isSelectable {
+        textView.isSelectable = true
+      }
       textView.onPasteImage = onPasteImage
       textView.canPasteImage = canPasteImage
       textView.onKeyCommand = onKeyCommand
 
-      context.coordinator.recalculateHeight(for: textView)
-
-      if isFocused {
-        if nsView.window?.firstResponder !== textView {
-          nsView.window?.makeFirstResponder(textView)
-        }
-      } else if nsView.window?.firstResponder === textView {
-        nsView.window?.makeFirstResponder(nil)
+      let widthChanged = context.coordinator.captureMeasuredWidth(max(textView.bounds.width, 1))
+      if didUpdateText || widthChanged || context.coordinator.needsInitialMeasurement {
+        context.coordinator.scheduleHeightMeasurement(for: textView)
       }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
       var parent: ComposerTextAreaMacOS
       weak var textView: ComposerNSTextView?
+      private var heightMeasurementTask: Task<Void, Never>?
+      private var lastMeasuredWidth: CGFloat = 0
+      var needsInitialMeasurement = false
 
       init(parent: ComposerTextAreaMacOS) {
         self.parent = parent
       }
 
-      func textDidBeginEditing(_ notification: Notification) {
-        guard !parent.isFocused else { return }
-        DispatchQueue.main.async { [weak self] in
-          self?.parent.isFocused = true
+      deinit {
+        heightMeasurementTask?.cancel()
+      }
+
+      func captureMeasuredWidth(_ width: CGFloat) -> Bool {
+        guard width > 1 else { return false }
+        if abs(lastMeasuredWidth - width) > 0.5 {
+          lastMeasuredWidth = width
+          return true
+        }
+        return false
+      }
+
+      func scheduleHeightMeasurement(for textView: NSTextView) {
+        heightMeasurementTask?.cancel()
+        heightMeasurementTask = Task { @MainActor [weak self, weak textView] in
+          guard let self, let textView else { return }
+          defer { self.heightMeasurementTask = nil }
+          await Task.yield()
+          guard !Task.isCancelled else { return }
+          self.recalculateHeight(for: textView)
+          self.needsInitialMeasurement = false
         }
       }
 
+      func textDidBeginEditing(_ notification: Notification) {
+      }
+
       func textDidEndEditing(_ notification: Notification) {
-        guard parent.isFocused else { return }
-        DispatchQueue.main.async { [weak self] in
-          self?.parent.isFocused = false
-        }
       }
 
       func textDidChange(_ notification: Notification) {
@@ -336,7 +364,7 @@ struct ComposerTextArea: View {
         if parent.text != updated {
           parent.text = updated
         }
-        recalculateHeight(for: textView)
+        scheduleHeightMeasurement(for: textView)
       }
 
       func recalculateHeight(for textView: NSTextView) {
@@ -344,10 +372,11 @@ struct ComposerTextArea: View {
               let textContainer = textView.textContainer
         else { return }
 
-        textContainer.containerSize = NSSize(
-          width: max(textView.bounds.width, 1),
-          height: .greatestFiniteMagnitude
-        )
+        let width = max(textView.bounds.width, 1)
+        guard width > 1 else { return }
+        if abs(textContainer.containerSize.width - width) > 0.5 {
+          textContainer.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        }
         layoutManager.ensureLayout(for: textContainer)
 
         let usedHeight = layoutManager.usedRect(for: textContainer).height
@@ -358,15 +387,10 @@ struct ComposerTextArea: View {
         let maxHeight = ceil(lineHeight * CGFloat(parent.maxLines) + verticalInsets)
         let fitting = ceil(max(usedHeight + verticalInsets, minHeight))
         let clamped = min(fitting, maxHeight)
-        let shouldScroll = fitting > maxHeight + 0.5
 
         if abs(parent.measuredHeight - clamped) > 0.5 {
-          DispatchQueue.main.async { [weak self] in
-            self?.parent.measuredHeight = clamped
-          }
+          parent.measuredHeight = clamped
         }
-
-        textView.enclosingScrollView?.hasVerticalScroller = shouldScroll
       }
     }
   }

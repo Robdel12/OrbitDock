@@ -22,4 +22,15 @@ struct DictationTextFormatterTests {
     let merged = DictationTextFormatter.merge(existing: "  ", dictated: "new message")
     #expect(merged == "new message")
   }
+
+  @Test func normalizeTranscriptionRemovesBlankAudioTokens() {
+    let input = "[BLANK_AUDIO] hello <|BLANK_AUDIO|> world [NOISE]"
+    let normalized = DictationTextFormatter.normalizeTranscription(input)
+    #expect(normalized == "hello world")
+  }
+
+  @Test func mergeIgnoresBlankAudioOnlyPayload() {
+    let merged = DictationTextFormatter.merge(existing: "Existing", dictated: "[BLANK_AUDIO]")
+    #expect(merged == "Existing")
+  }
 }
