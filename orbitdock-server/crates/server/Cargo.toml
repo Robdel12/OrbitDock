@@ -18,7 +18,6 @@ codex-core = { workspace = true }
 codex-login = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
-tower = { workspace = true }
 tower-http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
