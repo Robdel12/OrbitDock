@@ -172,6 +172,12 @@ final class ServerRuntimeRegistry {
     configureFromSettings(startEnabled: true)
   }
 
+  func handleMemoryPressure() {
+    for runtime in runtimesByEndpointId.values {
+      runtime.appState.handleMemoryPressure()
+    }
+  }
+
   func stopAllRuntimes() {
     for runtime in runtimesByEndpointId.values {
       runtime.stop()

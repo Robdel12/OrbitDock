@@ -814,14 +814,13 @@ final class ServerAppState {
     logger.debug("Unsubscribed from session \(sessionId)")
   }
 
-  /// Called by app lifecycle when iOS signals memory pressure.
+  /// Called by app lifecycle when memory pressure is signaled.
+  /// Trims heavy payloads for sessions that are not currently subscribed.
   func handleMemoryPressure() {
-    #if os(iOS)
-      let inactiveSessionIds = _sessionObservables.keys.filter { !subscribedSessions.contains($0) }
-      for sessionId in inactiveSessionIds {
-        trimInactiveSessionPayload(sessionId, reason: "memory-pressure")
-      }
-    #endif
+    let inactiveSessionIds = _sessionObservables.keys.filter { !subscribedSessions.contains($0) }
+    for sessionId in inactiveSessionIds {
+      trimInactiveSessionPayload(sessionId, reason: "memory-pressure")
+    }
   }
 
   /// Check if a session ID belongs to a server-managed session

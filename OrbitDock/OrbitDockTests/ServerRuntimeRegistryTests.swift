@@ -402,6 +402,67 @@ struct ServerRuntimeRegistryTests {
     #expect(spies[endpointA.id]?.setServerRoleCalls == [false])
     #expect(spies[endpointB.id]?.setServerRoleCalls == [true])
   }
+
+  @Test func memoryPressureTrimsInactivePayloadsAcrossAllRuntimes() {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: false
+    )
+
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+
+    let appStateA = registry.appState(for: endpointA.id, fallback: ServerAppState())
+    let appStateB = registry.appState(for: endpointB.id, fallback: ServerAppState())
+    let sessionA = appStateA.session("session-a")
+    let sessionB = appStateB.session("session-b")
+
+    sessionA.messages = [makeMessage(id: "a-1", content: "a")]
+    sessionB.messages = [makeMessage(id: "b-1", content: "b")]
+    #expect(sessionA.messagesRevision == 0)
+    #expect(sessionB.messagesRevision == 0)
+
+    registry.handleMemoryPressure()
+
+    #expect(sessionA.messages.isEmpty)
+    #expect(sessionB.messages.isEmpty)
+    #expect(sessionA.messagesRevision == 1)
+    #expect(sessionB.messagesRevision == 1)
+  }
+
+  private func makeMessage(id: String, content: String) -> TranscriptMessage {
+    TranscriptMessage(
+      id: id,
+      type: .assistant,
+      content: content,
+      timestamp: Date(timeIntervalSince1970: 1),
+      toolName: nil,
+      toolInput: nil,
+      toolOutput: nil,
+      toolDuration: nil,
+      inputTokens: nil,
+      outputTokens: nil
+    )
+  }
 }
 
 @MainActor

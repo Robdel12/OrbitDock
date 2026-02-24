@@ -34,7 +34,7 @@ struct OrbitDockApp: App {
       .preferredColorScheme(.dark)
     #if os(iOS)
       .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-        serverAppState.handleMemoryPressure()
+        runtimeRegistry.handleMemoryPressure()
         MarkdownAttributedStringRenderer.clearCache()
         NativeSyntaxHighlighter.clearCache()
       }
