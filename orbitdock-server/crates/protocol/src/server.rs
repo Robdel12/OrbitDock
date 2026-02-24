@@ -231,6 +231,20 @@ pub enum ServerMessage {
         request_id: String,
         projects: Vec<RecentProject>,
     },
+    CodexUsageResult {
+        request_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        usage: Option<CodexUsageSnapshot>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_info: Option<UsageErrorInfo>,
+    },
+    ClaudeUsageResult {
+        request_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        usage: Option<ClaudeUsageSnapshot>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error_info: Option<UsageErrorInfo>,
+    },
 
     // Server config
     OpenAiKeyStatus {
@@ -608,10 +622,29 @@ mod tests {
             request_id: "req-key".to_string(),
             configured: true,
         };
+        let codex_usage = ServerMessage::CodexUsageResult {
+            request_id: "req-codex".to_string(),
+            usage: None,
+            error_info: Some(UsageErrorInfo {
+                code: "not_installed".to_string(),
+                message: "Codex CLI not installed".to_string(),
+            }),
+        };
+        let claude_usage = ServerMessage::ClaudeUsageResult {
+            request_id: "req-claude".to_string(),
+            usage: None,
+            error_info: Some(UsageErrorInfo {
+                code: "no_credentials".to_string(),
+                message: "No Claude credentials found".to_string(),
+            }),
+        };
 
         let directory_json = serde_json::to_string(&directory).expect("serialize directory");
         let projects_json = serde_json::to_string(&projects).expect("serialize projects");
         let key_json = serde_json::to_string(&key_status).expect("serialize key status");
+        let codex_usage_json = serde_json::to_string(&codex_usage).expect("serialize codex usage");
+        let claude_usage_json =
+            serde_json::to_string(&claude_usage).expect("serialize claude usage");
 
         match serde_json::from_str::<ServerMessage>(&directory_json).expect("deserialize directory")
         {
@@ -648,6 +681,42 @@ mod tests {
             }
             other => panic!("unexpected key status variant: {:?}", other),
         }
+
+        match serde_json::from_str::<ServerMessage>(&codex_usage_json)
+            .expect("deserialize codex usage")
+        {
+            ServerMessage::CodexUsageResult {
+                request_id,
+                usage,
+                error_info,
+            } => {
+                assert_eq!(request_id, "req-codex");
+                assert!(usage.is_none());
+                assert_eq!(
+                    error_info.as_ref().map(|v| v.code.as_str()),
+                    Some("not_installed")
+                );
+            }
+            other => panic!("unexpected codex usage variant: {:?}", other),
+        }
+
+        match serde_json::from_str::<ServerMessage>(&claude_usage_json)
+            .expect("deserialize claude usage")
+        {
+            ServerMessage::ClaudeUsageResult {
+                request_id,
+                usage,
+                error_info,
+            } => {
+                assert_eq!(request_id, "req-claude");
+                assert!(usage.is_none());
+                assert_eq!(
+                    error_info.as_ref().map(|v| v.code.as_str()),
+                    Some("no_credentials")
+                );
+            }
+            other => panic!("unexpected claude usage variant: {:?}", other),
+        }
     }
 
     #[test]
@@ -656,6 +725,8 @@ mod tests {
             r#"{"type":"directory_listing","path":"/tmp","entries":[]}"#,
             r#"{"type":"recent_projects_list","projects":[]}"#,
             r#"{"type":"open_ai_key_status","configured":true}"#,
+            r#"{"type":"codex_usage_result","usage":null}"#,
+            r#"{"type":"claude_usage_result","usage":null}"#,
         ];
 
         for payload in missing_request_id_payloads {

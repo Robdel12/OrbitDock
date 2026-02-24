@@ -192,6 +192,12 @@ pub enum ClientMessage {
     CheckOpenAiKey {
         request_id: String,
     },
+    FetchCodexUsage {
+        request_id: String,
+    },
+    FetchClaudeUsage {
+        request_id: String,
+    },
 
     // Turn steering
     SteerTurn {
@@ -1021,6 +1027,12 @@ mod tests {
         let check = ClientMessage::CheckOpenAiKey {
             request_id: "req-check".to_string(),
         };
+        let codex_usage = ClientMessage::FetchCodexUsage {
+            request_id: "req-codex-usage".to_string(),
+        };
+        let claude_usage = ClientMessage::FetchClaudeUsage {
+            request_id: "req-claude-usage".to_string(),
+        };
         let list = ClientMessage::ListRecentProjects {
             request_id: "req-projects".to_string(),
         };
@@ -1030,6 +1042,9 @@ mod tests {
         };
 
         let check_json = serde_json::to_string(&check).expect("serialize check");
+        let codex_usage_json = serde_json::to_string(&codex_usage).expect("serialize codex usage");
+        let claude_usage_json =
+            serde_json::to_string(&claude_usage).expect("serialize claude usage");
         let list_json = serde_json::to_string(&list).expect("serialize list");
         let browse_json = serde_json::to_string(&browse).expect("serialize browse");
 
@@ -1038,6 +1053,24 @@ mod tests {
                 assert_eq!(request_id, "req-check");
             }
             other => panic!("unexpected variant for check: {:?}", other),
+        }
+
+        match serde_json::from_str::<ClientMessage>(&codex_usage_json)
+            .expect("deserialize codex usage")
+        {
+            ClientMessage::FetchCodexUsage { request_id } => {
+                assert_eq!(request_id, "req-codex-usage");
+            }
+            other => panic!("unexpected variant for codex usage: {:?}", other),
+        }
+
+        match serde_json::from_str::<ClientMessage>(&claude_usage_json)
+            .expect("deserialize claude usage")
+        {
+            ClientMessage::FetchClaudeUsage { request_id } => {
+                assert_eq!(request_id, "req-claude-usage");
+            }
+            other => panic!("unexpected variant for claude usage: {:?}", other),
         }
 
         match serde_json::from_str::<ClientMessage>(&list_json).expect("deserialize list") {
@@ -1060,6 +1093,8 @@ mod tests {
     fn correlated_utility_requests_require_request_id() {
         let missing_request_id_payloads = [
             r#"{"type":"check_open_ai_key"}"#,
+            r#"{"type":"fetch_codex_usage"}"#,
+            r#"{"type":"fetch_claude_usage"}"#,
             r#"{"type":"list_recent_projects"}"#,
             r#"{"type":"browse_directory","path":"/tmp"}"#,
         ];

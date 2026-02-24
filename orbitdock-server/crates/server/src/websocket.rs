@@ -2812,6 +2812,38 @@ async fn handle_client_message(
             .await;
         }
 
+        ClientMessage::FetchCodexUsage { request_id } => {
+            let (usage, error_info) = match crate::usage_probe::fetch_codex_usage().await {
+                Ok(usage) => (Some(usage), None),
+                Err(err) => (None, Some(err.to_info())),
+            };
+            send_json(
+                client_tx,
+                ServerMessage::CodexUsageResult {
+                    request_id,
+                    usage,
+                    error_info,
+                },
+            )
+            .await;
+        }
+
+        ClientMessage::FetchClaudeUsage { request_id } => {
+            let (usage, error_info) = match crate::usage_probe::fetch_claude_usage().await {
+                Ok(usage) => (Some(usage), None),
+                Err(err) => (None, Some(err.to_info())),
+            };
+            send_json(
+                client_tx,
+                ServerMessage::ClaudeUsageResult {
+                    request_id,
+                    usage,
+                    error_info,
+                },
+            )
+            .await;
+        }
+
         ClientMessage::ResumeSession { session_id } => {
             info!(
                 component = "session",

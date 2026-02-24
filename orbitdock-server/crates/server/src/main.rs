@@ -29,6 +29,7 @@ mod shell;
 mod state;
 mod subagent_parser;
 mod transition;
+mod usage_probe;
 mod websocket;
 
 use std::net::SocketAddr;

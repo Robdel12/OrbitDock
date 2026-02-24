@@ -589,6 +589,56 @@ pub struct CodexAccountStatus {
     pub active_login_id: Option<String>,
 }
 
+// MARK: - Provider Usage Types
+
+/// Error payload for provider usage probe responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageErrorInfo {
+    pub code: String,
+    pub message: String,
+}
+
+/// Codex rate-limit window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexRateLimitWindow {
+    pub used_percent: f64,
+    pub window_duration_mins: u32,
+    pub resets_at_unix: f64,
+}
+
+/// Endpoint-scoped Codex usage snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexUsageSnapshot {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub primary: Option<CodexRateLimitWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary: Option<CodexRateLimitWindow>,
+    pub fetched_at_unix: f64,
+}
+
+/// Claude subscription usage window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeUsageWindow {
+    pub utilization: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<String>,
+}
+
+/// Endpoint-scoped Claude subscription usage snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeUsageSnapshot {
+    pub five_hour: ClaudeUsageWindow,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seven_day: Option<ClaudeUsageWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seven_day_sonnet: Option<ClaudeUsageWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seven_day_opus: Option<ClaudeUsageWindow>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_tier: Option<String>,
+    pub fetched_at_unix: f64,
+}
+
 // MARK: - Review Comment Types
 
 /// Tag for a review comment
