@@ -312,7 +312,9 @@ struct QuickSwitcher: View {
 
         if query.hasPrefix("new c") || query.hasPrefix("claude") || query == "nc" {
           quickLaunchMode = .claude
-        } else if query.hasPrefix("new o") || query.hasPrefix("new codex") || query.hasPrefix("codex") || query == "no" {
+        } else if query.hasPrefix("new o") || query.hasPrefix("new codex") || query
+          .hasPrefix("codex") || query == "no"
+        {
           quickLaunchMode = .codex
         } else if query.hasPrefix("new") || query == "n" {
           // Just "new" - show both options, not quick launch mode
@@ -360,67 +362,91 @@ struct QuickSwitcher: View {
       }
     }
     .frame(maxWidth: isCompactLayout ? .infinity : 720)
-    .padding(.horizontal, isCompactLayout ? 12 : 0)
-    .background(Color.panelBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: 16, style: .continuous)
-        .strokeBorder(Color.panelBorder, lineWidth: 1)
+    .padding(.horizontal, isCompactLayout ? 0 : 0)
+    .background {
+      if isCompactLayout {
+        Color.panelBackground
+          .ignoresSafeArea(.container, edges: .bottom)
+      } else {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .fill(Color.panelBackground)
+      }
+    }
+    .overlay {
+      if !isCompactLayout {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+          .strokeBorder(Color.panelBorder, lineWidth: 1)
+      }
+    }
+    .clipShape(
+      isCompactLayout
+        ? AnyShape(RoundedRectangle(cornerRadius: Radius.xl, style: .continuous))
+        : AnyShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     )
-    .shadow(color: .black.opacity(0.5), radius: 40, x: 0, y: 20)
+    .shadow(
+      color: .black.opacity(isCompactLayout ? 0.3 : 0.5),
+      radius: isCompactLayout ? 20 : 40,
+      x: 0,
+      y: isCompactLayout ? 10 : 20
+    )
+    .padding(.horizontal, isCompactLayout ? 6 : 0)
   }
 
   private func commandRow(command: QuickCommand, index: Int) -> some View {
-    Button {
+    let iconSize: CGFloat = isCompactLayout ? 28 : 32
+
+    return Button {
       executeCommand(command)
     } label: {
-      HStack(spacing: 14) {
+      HStack(spacing: isCompactLayout ? 10 : 14) {
         // Icon in colored container
         ZStack {
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
+          RoundedRectangle(cornerRadius: isCompactLayout ? 7 : 8, style: .continuous)
             .fill(Color.accent.opacity(0.1))
-            .frame(width: 32, height: 32)
+            .frame(width: iconSize, height: iconSize)
 
           Image(systemName: command.icon)
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: isCompactLayout ? 13 : 14, weight: .medium))
             .foregroundStyle(Color.accent.opacity(0.8))
         }
 
         VStack(alignment: .leading, spacing: 2) {
           Text(command.name)
-            .font(.system(size: 14, weight: .medium))
+            .font(.system(size: isCompactLayout ? 15 : 14, weight: .medium))
             .foregroundStyle(.primary)
 
           if command.requiresSession {
             Text("Applies to selected session")
-              .font(.system(size: 11))
-              .foregroundStyle(.tertiary)
+              .font(.system(size: isCompactLayout ? 12 : 11))
+              .foregroundStyle(Color.textTertiary)
           }
         }
 
         Spacer()
 
-        if let shortcut = command.shortcut {
+        if !isCompactLayout, let shortcut = command.shortcut {
           Text(shortcut)
             .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textQuaternary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
         }
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
+      .padding(.horizontal, isCompactLayout ? 12 : 16)
+      .padding(.vertical, isCompactLayout ? 10 : 12)
       .background(
         QuickSwitcherRowBackground(
           isSelected: selectedIndex == index,
           isHovered: hoveredIndex == index
         )
       )
-      .padding(.horizontal, 8)
+      .padding(.horizontal, isCompactLayout ? 4 : 8)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .onHover { isHovered in
+      guard !isCompactLayout else { return }
       hoveredIndex = isHovered ? index : nil
     }
   }
@@ -438,30 +464,44 @@ struct QuickSwitcher: View {
   // MARK: - Search Bar
 
   private var searchBar: some View {
-    HStack(spacing: 14) {
+    HStack(spacing: isCompactLayout ? 10 : 14) {
       Image(systemName: "magnifyingglass")
-        .font(.system(size: 18, weight: .medium))
-        .foregroundStyle(Color.secondary)
-        .frame(width: 24)
+        .font(.system(size: isCompactLayout ? 16 : 18, weight: .medium))
+        .foregroundStyle(Color.textTertiary)
+        .frame(width: isCompactLayout ? 20 : 24)
 
-      TextField("Search sessions and commands...", text: $searchText)
-        .textFieldStyle(.plain)
-        .font(.system(size: 17))
-        .focused($isSearchFocused)
+      TextField(
+        isCompactLayout ? "Search sessions..." : "Search sessions and commands...",
+        text: $searchText
+      )
+      .textFieldStyle(.plain)
+      .font(.system(size: isCompactLayout ? 16 : 17))
+      .focused($isSearchFocused)
 
       if !searchText.isEmpty {
         Button {
           searchText = ""
         } label: {
           Image(systemName: "xmark.circle.fill")
-            .font(.system(size: 16))
-            .foregroundStyle(.tertiary)
+            .font(.system(size: isCompactLayout ? 18 : 16))
+            .foregroundStyle(Color.textQuaternary)
+        }
+        .buttonStyle(.plain)
+      }
+
+      if isCompactLayout {
+        Button {
+          onClose()
+        } label: {
+          Text("Cancel")
+            .font(.system(size: TypeScale.reading, weight: .medium))
+            .foregroundStyle(Color.accent)
         }
         .buttonStyle(.plain)
       }
     }
-    .padding(.horizontal, 20)
-    .padding(.vertical, 18)
+    .padding(.horizontal, isCompactLayout ? 14 : 20)
+    .padding(.vertical, isCompactLayout ? 12 : 18)
   }
 
   // MARK: - Results View
@@ -508,9 +548,9 @@ struct QuickSwitcher: View {
             }
           }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, isCompactLayout ? 4 : 8)
       }
-      .frame(maxHeight: isCompactLayout ? 420 : 620)
+      .frame(maxHeight: isCompactLayout ? 560 : 620)
       .onChange(of: selectedIndex) { _, newIndex in
         proxy.scrollTo("row-\(newIndex)", anchor: .center)
       }
@@ -522,15 +562,15 @@ struct QuickSwitcher: View {
   private var quickLaunchSection: some View {
     let provider = quickLaunchMode!
 
-    return VStack(alignment: .leading, spacing: 4) {
+    return VStack(alignment: .leading, spacing: isCompactLayout ? 2 : 4) {
       // Header
-      HStack(spacing: 8) {
+      HStack(spacing: isCompactLayout ? 6 : 8) {
         Image(systemName: provider.icon)
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: isCompactLayout ? 10 : 11, weight: .semibold))
           .foregroundStyle(provider.color)
 
         Text("NEW \(provider.displayName.uppercased()) SESSION")
-          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .font(.system(size: isCompactLayout ? 10 : 11, weight: .bold, design: .rounded))
           .foregroundStyle(provider.color)
           .tracking(0.8)
 
@@ -542,20 +582,20 @@ struct QuickSwitcher: View {
         } label: {
           HStack(spacing: 4) {
             Text("Full Options")
-              .font(.system(size: 10, weight: .medium))
+              .font(.system(size: isCompactLayout ? 11 : 10, weight: .medium))
             Image(systemName: "arrow.up.right")
-              .font(.system(size: 8, weight: .semibold))
+              .font(.system(size: isCompactLayout ? 9 : 8, weight: .semibold))
           }
           .foregroundStyle(Color.textTertiary)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
+          .padding(.horizontal, isCompactLayout ? 10 : 8)
+          .padding(.vertical, isCompactLayout ? 5 : 4)
           .background(Color.surfaceHover, in: Capsule())
         }
         .buttonStyle(.plain)
       }
-      .padding(.horizontal, 20)
-      .padding(.top, 8)
-      .padding(.bottom, 8)
+      .padding(.horizontal, isCompactLayout ? 14 : 20)
+      .padding(.top, isCompactLayout ? 6 : 8)
+      .padding(.bottom, isCompactLayout ? 4 : 8)
 
       // Loading state
       if isLoadingProjects {
@@ -565,22 +605,22 @@ struct QuickSwitcher: View {
             .controlSize(.small)
           Spacer()
         }
-        .padding(.vertical, 24)
+        .padding(.vertical, isCompactLayout ? 20 : 24)
       } else if recentProjects.isEmpty {
         // Empty state
-        VStack(spacing: 8) {
+        VStack(spacing: isCompactLayout ? 6 : 8) {
           Image(systemName: "folder.badge.plus")
-            .font(.system(size: 24))
+            .font(.system(size: isCompactLayout ? 20 : 24))
             .foregroundStyle(Color.textQuaternary)
           Text("No recent projects")
-            .font(.system(size: 13))
+            .font(.system(size: isCompactLayout ? 14 : 13))
             .foregroundStyle(Color.textTertiary)
           Text("Use Full Options to browse directories")
-            .font(.system(size: 11))
+            .font(.system(size: isCompactLayout ? 12 : 11))
             .foregroundStyle(Color.textQuaternary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
+        .padding(.vertical, isCompactLayout ? 20 : 24)
       } else {
         // Recent projects list
         ForEach(Array(recentProjects.enumerated()), id: \.element.id) { index, project in
@@ -591,61 +631,68 @@ struct QuickSwitcher: View {
     }
   }
 
-  private func quickLaunchProjectRow(project: ServerRecentProject, index: Int, provider: QuickLaunchProvider) -> some View {
-    Button {
+  private func quickLaunchProjectRow(
+    project: ServerRecentProject,
+    index: Int,
+    provider: QuickLaunchProvider
+  ) -> some View {
+    let iconSize: CGFloat = isCompactLayout ? 32 : 36
+
+    return Button {
       quickLaunchSession(path: project.path)
     } label: {
-      HStack(spacing: 14) {
+      HStack(spacing: isCompactLayout ? 10 : 14) {
         // Folder icon with provider color
         ZStack {
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
+          RoundedRectangle(cornerRadius: isCompactLayout ? 7 : 8, style: .continuous)
             .fill(provider.color.opacity(0.1))
-            .frame(width: 36, height: 36)
+            .frame(width: iconSize, height: iconSize)
 
           Image(systemName: "folder.fill")
-            .font(.system(size: 15, weight: .medium))
+            .font(.system(size: isCompactLayout ? 14 : 15, weight: .medium))
             .foregroundStyle(provider.color.opacity(0.8))
         }
 
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: isCompactLayout ? 2 : 3) {
           Text(URL(fileURLWithPath: project.path).lastPathComponent)
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: isCompactLayout ? 15 : 14, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
 
           Text(displayPath(project.path))
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: isCompactLayout ? 12 : 11, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
             .truncationMode(.middle)
         }
 
-        Spacer()
+        Spacer(minLength: 4)
 
         // Session count badge
         HStack(spacing: 4) {
           Image(systemName: "clock")
-            .font(.system(size: 9))
+            .font(.system(size: isCompactLayout ? 10 : 9))
           Text("\(project.sessionCount)")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: isCompactLayout ? 11 : 10, weight: .medium))
         }
         .foregroundStyle(Color.textQuaternary)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, isCompactLayout ? 10 : 8)
+        .padding(.vertical, isCompactLayout ? 5 : 4)
         .background(Color.surfaceHover, in: Capsule())
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 10)
+      .padding(.horizontal, isCompactLayout ? 12 : 16)
+      .padding(.vertical, isCompactLayout ? 10 : 10)
       .background(
         QuickSwitcherRowBackground(
           isSelected: selectedIndex == index,
           isHovered: hoveredIndex == index
         )
       )
-      .padding(.horizontal, 8)
+      .padding(.horizontal, isCompactLayout ? 4 : 8)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
     .onHover { isHovered in
+      guard !isCompactLayout else { return }
       hoveredIndex = isHovered ? index : nil
     }
   }
@@ -663,29 +710,29 @@ struct QuickSwitcher: View {
   // MARK: - Active Sessions Section
 
   private var activeSessionsSection: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: isCompactLayout ? 2 : 4) {
       // Section Header
-      HStack(spacing: 8) {
+      HStack(spacing: isCompactLayout ? 6 : 8) {
         Image(systemName: "cpu")
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: isCompactLayout ? 10 : 11, weight: .semibold))
           .foregroundStyle(Color.accent)
 
         Text("ACTIVE")
-          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .font(.system(size: isCompactLayout ? 10 : 11, weight: .bold, design: .rounded))
           .foregroundStyle(Color.accent)
           .tracking(0.8)
 
         // Count badge
         Text("\(activeSessions.count)")
-          .font(.system(size: 10, weight: .bold, design: .rounded))
+          .font(.system(size: isCompactLayout ? 9 : 10, weight: .bold, design: .rounded))
           .foregroundStyle(Color.accent)
           .padding(.horizontal, 6)
           .padding(.vertical, 2)
           .background(Color.accent.opacity(0.15), in: Capsule())
       }
-      .padding(.horizontal, 20)
-      .padding(.top, 16)
-      .padding(.bottom, 8)
+      .padding(.horizontal, isCompactLayout ? 14 : 20)
+      .padding(.top, isCompactLayout ? 10 : 16)
+      .padding(.bottom, isCompactLayout ? 4 : 8)
 
       // Session Rows
       ForEach(Array(activeSessions.enumerated()), id: \.element.scopedID) { index, session in
@@ -701,34 +748,34 @@ struct QuickSwitcher: View {
   private var recentSessionsSection: some View {
     let isSearching = !searchQuery.isEmpty
 
-    return VStack(alignment: .leading, spacing: 4) {
+    return VStack(alignment: .leading, spacing: isCompactLayout ? 2 : 4) {
       // Section Header - collapsible when not searching
       Button {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
           isRecentExpanded.toggle()
         }
       } label: {
-        HStack(spacing: 8) {
+        HStack(spacing: isCompactLayout ? 6 : 8) {
           // Chevron indicator (only when not searching)
           if !isSearching {
             Image(systemName: "chevron.right")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(.tertiary)
+              .font(.system(size: isCompactLayout ? 9 : 10, weight: .semibold))
+              .foregroundStyle(Color.textQuaternary)
               .rotationEffect(.degrees(isRecentExpanded ? 90 : 0))
           }
 
           Image(systemName: "clock")
-            .font(.system(size: 11, weight: .semibold))
+            .font(.system(size: isCompactLayout ? 10 : 11, weight: .semibold))
             .foregroundStyle(Color.statusEnded)
 
           Text("RECENT")
-            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .font(.system(size: isCompactLayout ? 10 : 11, weight: .bold, design: .rounded))
             .foregroundStyle(Color.statusEnded)
             .tracking(0.8)
 
           // Count badge
           Text("\(recentSessions.count)")
-            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .font(.system(size: isCompactLayout ? 9 : 10, weight: .bold, design: .rounded))
             .foregroundStyle(Color.statusEnded)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -736,9 +783,9 @@ struct QuickSwitcher: View {
 
           Spacer()
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 8)
+        .padding(.horizontal, isCompactLayout ? 14 : 20)
+        .padding(.top, isCompactLayout ? 10 : 16)
+        .padding(.bottom, isCompactLayout ? 4 : 8)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
@@ -760,31 +807,31 @@ struct QuickSwitcher: View {
   private var commandsSection: some View {
     let activeSession = targetSession ?? allVisibleSessions.first
 
-    return VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 8) {
+    return VStack(alignment: .leading, spacing: isCompactLayout ? 2 : 4) {
+      HStack(spacing: isCompactLayout ? 6 : 8) {
         Image(systemName: "command")
-          .font(.system(size: 11, weight: .semibold))
+          .font(.system(size: isCompactLayout ? 10 : 11, weight: .semibold))
           .foregroundStyle(Color.accent)
 
         Text("COMMANDS")
-          .font(.system(size: 11, weight: .bold, design: .rounded))
+          .font(.system(size: isCompactLayout ? 10 : 11, weight: .bold, design: .rounded))
           .foregroundStyle(Color.accent)
           .tracking(0.8)
 
         if let session = activeSession {
           Text("→")
-            .font(.system(size: 10))
-            .foregroundStyle(.tertiary)
+            .font(.system(size: isCompactLayout ? 9 : 10))
+            .foregroundStyle(Color.textQuaternary)
 
           Text(session.displayName)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
+            .font(.system(size: isCompactLayout ? 10 : 11, weight: .medium))
+            .foregroundStyle(Color.textSecondary)
             .lineLimit(1)
         }
       }
-      .padding(.horizontal, 20)
-      .padding(.top, 8)
-      .padding(.bottom, 4)
+      .padding(.horizontal, isCompactLayout ? 14 : 20)
+      .padding(.top, isCompactLayout ? 6 : 8)
+      .padding(.bottom, isCompactLayout ? 2 : 4)
 
       ForEach(Array(filteredCommands.enumerated()), id: \.element.id) { index, command in
         commandRow(command: command, index: index)
@@ -802,42 +849,46 @@ struct QuickSwitcher: View {
 
   /// Dashboard row
   private var dashboardRow: some View {
-    Button {
+    let iconSize: CGFloat = isCompactLayout ? 28 : 32
+
+    return Button {
       onGoToDashboard()
       onClose()
     } label: {
-      HStack(spacing: 14) {
+      HStack(spacing: isCompactLayout ? 10 : 14) {
         ZStack {
-          RoundedRectangle(cornerRadius: 8, style: .continuous)
+          RoundedRectangle(cornerRadius: isCompactLayout ? 7 : 8, style: .continuous)
             .fill(Color.accent.opacity(0.15))
-            .frame(width: 32, height: 32)
+            .frame(width: iconSize, height: iconSize)
 
           Image(systemName: "square.grid.2x2")
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: isCompactLayout ? 13 : 14, weight: .semibold))
             .foregroundStyle(Color.accent)
         }
 
         VStack(alignment: .leading, spacing: 2) {
           Text("Dashboard")
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: isCompactLayout ? 15 : 14, weight: .semibold))
             .foregroundStyle(.primary)
 
           Text("View all agents overview")
-            .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .font(.system(size: isCompactLayout ? 12 : 11))
+            .foregroundStyle(Color.textTertiary)
         }
 
         Spacer()
 
-        Text("⌘0")
-          .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(.tertiary)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 4)
-          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        if !isCompactLayout {
+          Text("⌘0")
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(Color.textQuaternary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        }
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 10)
+      .padding(.horizontal, isCompactLayout ? 12 : 16)
+      .padding(.vertical, isCompactLayout ? 10 : 10)
       .background(
         QuickSwitcherRowBackground(
           isSelected: selectedIndex == dashboardIndex,
@@ -848,9 +899,10 @@ struct QuickSwitcher: View {
     }
     .buttonStyle(.plain)
     .onHover { isHovered in
+      guard !isCompactLayout else { return }
       hoveredIndex = isHovered ? dashboardIndex : nil
     }
-    .padding(.horizontal, 8)
+    .padding(.horizontal, isCompactLayout ? 4 : 8)
   }
 
   // MARK: - Switcher Row
@@ -862,20 +914,21 @@ struct QuickSwitcher: View {
     return Button {
       onSelect(session.scopedID)
     } label: {
-      HStack(spacing: 14) {
-        // Status indicator - using unified component
-        SessionStatusDot(status: displayStatus, size: 10)
-          .frame(width: 20, height: 20)
+      HStack(spacing: isCompactLayout ? 10 : 14) {
+        // Status indicator - smaller on compact, no glow
+        SessionStatusDot(status: displayStatus, size: isCompactLayout ? 8 : 10, showGlow: !isCompactLayout)
+          .frame(width: isCompactLayout ? 16 : 20, height: isCompactLayout ? 16 : 20)
 
         // Content - stacked layout for better hierarchy
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: isCompactLayout ? 2 : 4) {
           // Project name + branch (top line, smaller)
-          HStack(spacing: 8) {
+          HStack(spacing: isCompactLayout ? 6 : 8) {
             Text(projectName(for: session))
-              .font(.system(size: 11, weight: .medium))
-              .foregroundStyle(.secondary)
+              .font(.system(size: isCompactLayout ? 10 : 11, weight: .medium))
+              .foregroundStyle(Color.textSecondary)
+              .lineLimit(1)
 
-            if session.endpointName != nil {
+            if !isCompactLayout, session.endpointName != nil {
               EndpointBadge(
                 endpointName: session.endpointName,
                 isDefault: session.endpointId == runtimeRegistry.activeEndpointId
@@ -885,22 +938,23 @@ struct QuickSwitcher: View {
             if let branch = session.branch {
               HStack(spacing: 3) {
                 Image(systemName: "arrow.triangle.branch")
-                  .font(.system(size: 9))
+                  .font(.system(size: isCompactLayout ? 8 : 9))
                 Text(branch)
-                  .font(.system(size: 10, design: .monospaced))
+                  .font(.system(size: isCompactLayout ? 9 : 10, design: .monospaced))
+                  .lineLimit(1)
               }
               .foregroundStyle(Color.gitBranch.opacity(0.7))
             }
 
-            if sessionObservable(for: session).forkedFrom != nil {
+            if !isCompactLayout, sessionObservable(for: session).forkedFrom != nil {
               ForkBadge()
             }
           }
 
           // Agent name (main line, prominent)
-          HStack(spacing: 10) {
+          HStack(spacing: isCompactLayout ? 8 : 10) {
             Text(agentName(for: session))
-              .font(.system(size: 14, weight: .semibold))
+              .font(.system(size: isCompactLayout ? 15 : 14, weight: .semibold))
               .foregroundStyle(.primary)
               .lineLimit(1)
 
@@ -912,7 +966,7 @@ struct QuickSwitcher: View {
               HStack(spacing: 4) {
                 if let endedAt = session.endedAt {
                   Text(endedAt, style: .relative)
-                    .font(.system(size: 10))
+                    .font(.system(size: isCompactLayout ? 11 : 10))
                 }
               }
               .foregroundStyle(Color.statusEnded)
@@ -920,39 +974,31 @@ struct QuickSwitcher: View {
           }
         }
 
-        Spacer()
+        Spacer(minLength: 4)
 
-        // Action buttons (shown on hover/selection)
-        if isHighlighted {
+        // On compact: always show model badge, use context menu for actions
+        // On desktop: show action buttons on hover/selection
+        if isCompactLayout {
+          UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
+        } else if isHighlighted {
           HStack(spacing: 4) {
-            // Focus terminal
             actionButton(icon: "terminal", tooltip: "Focus Terminal") {
-              print("Inline button focus on session: \(session.id)")
-              print("  terminalSessionId: \(session.terminalSessionId ?? "nil")")
               focusTerminal(for: session)
               onClose()
             }
-
-            // Open in Finder
             actionButton(icon: "folder", tooltip: "Open in Finder") {
               _ = Platform.services.revealInFileBrowser(session.projectPath)
               onClose()
             }
-
-            // Rename
             actionButton(icon: "pencil", tooltip: "Rename") {
               renameText = session.customName ?? ""
               renamingSession = session
             }
-
-            // Copy resume command
             actionButton(icon: "doc.on.doc", tooltip: "Copy Resume") {
               let command = "claude --resume \(session.id)"
               Platform.services.copyToClipboard(command)
               onClose()
             }
-
-            // Close session (only for active sessions)
             if session.isActive {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
                 appState(for: session).endSession(session.id)
@@ -962,26 +1008,66 @@ struct QuickSwitcher: View {
           }
           .transition(.opacity.combined(with: .scale(scale: 0.9)))
         } else {
-          // Provider + Model badge (shown when not highlighted)
           UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
         }
       }
-      .padding(.horizontal, 16)
-      .padding(.vertical, 12)
+      .padding(.horizontal, isCompactLayout ? 12 : 16)
+      .padding(.vertical, isCompactLayout ? 10 : 12)
       .background(
         QuickSwitcherRowBackground(
           isSelected: selectedIndex == index,
           isHovered: hoveredIndex == index
         )
       )
-      .padding(.horizontal, 8)
+      .padding(.horizontal, isCompactLayout ? 4 : 8)
       .contentShape(Rectangle())
       .animation(.easeOut(duration: 0.15), value: isHighlighted)
     }
     .buttonStyle(.plain)
     .onHover { isHovered in
+      guard !isCompactLayout else { return }
       hoveredIndex = isHovered ? index : nil
     }
+    .modifier(CompactContextMenuModifier(isCompact: isCompactLayout) {
+      Button {
+        focusTerminal(for: session)
+        onClose()
+      } label: {
+        Label("Focus Terminal", systemImage: "terminal")
+      }
+
+      Button {
+        _ = Platform.services.revealInFileBrowser(session.projectPath)
+        onClose()
+      } label: {
+        Label("Open in Files", systemImage: "folder")
+      }
+
+      Button {
+        renameText = session.customName ?? ""
+        renamingSession = session
+      } label: {
+        Label("Rename", systemImage: "pencil")
+      }
+
+      Button {
+        let command = "claude --resume \(session.id)"
+        Platform.services.copyToClipboard(command)
+        onClose()
+      } label: {
+        Label("Copy Resume Command", systemImage: "doc.on.doc")
+      }
+
+      if session.isActive {
+        Divider()
+        Button(role: .destructive) {
+          appState(for: session).endSession(session.id)
+          onClose()
+        } label: {
+          Label("Close Session", systemImage: "xmark.circle")
+        }
+      }
+    })
   }
 
   private func actionButton(icon: String, tooltip: String, action: @escaping () -> Void) -> some View {
@@ -999,31 +1085,34 @@ struct QuickSwitcher: View {
   // MARK: - Empty State
 
   private var emptyState: some View {
-    VStack(spacing: 16) {
+    let circleSize: CGFloat = isCompactLayout ? 44 : 56
+    let iconSize: CGFloat = isCompactLayout ? 20 : 24
+
+    return VStack(spacing: isCompactLayout ? 12 : 16) {
       ZStack {
         Circle()
           .fill(Color.backgroundTertiary)
-          .frame(width: 56, height: 56)
+          .frame(width: circleSize, height: circleSize)
 
         Image(systemName: "magnifyingglass")
-          .font(.system(size: 24, weight: .medium))
-          .foregroundStyle(.tertiary)
+          .font(.system(size: iconSize, weight: .medium))
+          .foregroundStyle(Color.textQuaternary)
       }
 
       VStack(spacing: 4) {
         Text("No agents found")
-          .font(.system(size: 14, weight: .medium))
-          .foregroundStyle(.secondary)
+          .font(.system(size: isCompactLayout ? 15 : 14, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
 
         if !searchText.isEmpty {
           Text("Try a different search term")
-            .font(.system(size: 12))
-            .foregroundStyle(.tertiary)
+            .font(.system(size: isCompactLayout ? 13 : 12))
+            .foregroundStyle(Color.textTertiary)
         }
       }
     }
     .frame(maxWidth: .infinity)
-    .padding(.vertical, 48)
+    .padding(.vertical, isCompactLayout ? 36 : 48)
   }
 
   // MARK: - Footer
@@ -1071,7 +1160,7 @@ struct QuickSwitcher: View {
 
       Text(label)
         .font(.system(size: 11))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
     }
   }
 
@@ -1364,6 +1453,23 @@ struct QuickSwitcher: View {
   }
   .frame(width: 800, height: 600)
   .environment(ServerAppState())
+}
+
+// MARK: - Compact Context Menu Modifier
+
+/// Conditionally attaches a context menu only on compact (iOS) layouts.
+/// On desktop, this is a no-op so hover-based action buttons remain primary.
+struct CompactContextMenuModifier<MenuContent: View>: ViewModifier {
+  let isCompact: Bool
+  @ViewBuilder let menuContent: () -> MenuContent
+
+  func body(content: Content) -> some View {
+    if isCompact {
+      content.contextMenu { menuContent() }
+    } else {
+      content
+    }
+  }
 }
 
 // MARK: - Row Background
