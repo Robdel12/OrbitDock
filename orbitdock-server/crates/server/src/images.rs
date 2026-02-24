@@ -1,7 +1,7 @@
 //! Image extraction — writes data-URI images to disk, returns path-based references.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -56,6 +56,37 @@ pub fn extract_images_to_disk(
         .enumerate()
         .map(|(i, img)| extract_image_to_disk(img, session_id, message_id, i))
         .collect()
+}
+
+/// Convert path-based image inputs to data URIs for cross-device transport.
+/// Non-path and conversion failures are returned unchanged.
+pub fn normalize_images_for_transport(images: &[ImageInput]) -> Vec<ImageInput> {
+    images
+        .iter()
+        .map(normalize_image_for_transport)
+        .collect::<Vec<_>>()
+}
+
+fn normalize_image_for_transport(image: &ImageInput) -> ImageInput {
+    if image.input_type != "path" {
+        return image.clone();
+    }
+
+    match path_image_to_data_uri(&image.value) {
+        Ok(data_uri) => ImageInput {
+            input_type: "url".to_string(),
+            value: data_uri,
+        },
+        Err(e) => {
+            warn!(
+                event = "image.transport_normalize_failed",
+                path = %image.value,
+                error = %e,
+                "Failed to normalize path image for transport, keeping original path"
+            );
+            image.clone()
+        }
+    }
 }
 
 fn write_data_uri_to_disk(
@@ -127,15 +158,44 @@ fn write_data_uri_to_disk(
     Ok(path)
 }
 
+fn path_image_to_data_uri(path: &str) -> Result<String, String> {
+    let mime_type = mime_type_for_path(path)
+        .ok_or_else(|| format!("unsupported image extension: {}", Path::new(path).display()))?;
+    let bytes = fs::read(path).map_err(|e| format!("read file: {e}"))?;
+    let base64 = STANDARD.encode(bytes);
+    Ok(format!("data:{mime_type};base64,{base64}"))
+}
+
 fn mime_to_extension(mime: &str) -> &str {
     match mime {
         "image/png" => "png",
         "image/jpeg" => "jpg",
         "image/gif" => "gif",
         "image/webp" => "webp",
+        "image/heic" => "heic",
+        "image/heif" => "heif",
         "image/svg+xml" => "svg",
         "image/bmp" => "bmp",
         "image/tiff" => "tiff",
         _ => "png",
+    }
+}
+
+fn mime_type_for_path(path: &str) -> Option<&'static str> {
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())?;
+    match ext.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "heic" => Some("image/heic"),
+        "heif" => Some("image/heif"),
+        "svg" => Some("image/svg+xml"),
+        "bmp" => Some("image/bmp"),
+        "tiff" | "tif" => Some("image/tiff"),
+        _ => None,
     }
 }

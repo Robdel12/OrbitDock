@@ -592,14 +592,10 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 |row| row.get(0),
             )?;
 
-            // Extract data-URI images to disk before persisting
-            let images =
-                crate::images::extract_images_to_disk(&message.images, &session_id, &message.id);
-
-            let images_json: Option<String> = if images.is_empty() {
+            let images_json: Option<String> = if message.images.is_empty() {
                 None
             } else {
-                serde_json::to_string(&images).ok()
+                serde_json::to_string(&message.images).ok()
             };
 
             conn.execute(
@@ -2035,7 +2031,6 @@ fn load_messages_from_transcript(
             }
 
             let msg_id = format!("{session_id}:transcript:{msg_counter}");
-            let images = crate::images::extract_images_to_disk(&item.images, session_id, &msg_id);
             messages.push(Message {
                 id: msg_id,
                 session_id: session_id.to_string(),
@@ -2047,7 +2042,7 @@ fn load_messages_from_transcript(
                 tool_output: item.tool_output,
                 duration_ms: None,
                 is_error: false,
-                images,
+                images: item.images,
             });
             msg_counter += 1;
         }

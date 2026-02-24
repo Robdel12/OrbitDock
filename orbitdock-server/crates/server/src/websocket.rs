@@ -17,7 +17,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
-use orbitdock_connectors::{discover_claude_models, discover_models};
+use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
     new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, MessageChanges,
     MessageType, Provider, ServerMessage, SessionState, SessionStatus, StateChanges, TokenUsage,
@@ -120,7 +120,7 @@ const SNAPSHOT_MAX_MESSAGES: usize = 200;
 const SNAPSHOT_MAX_CONTENT_CHARS: usize = 16_000;
 const SNAPSHOT_MIN_CONTENT_CHARS: usize = 250;
 const SNAPSHOT_MAX_TURN_DIFFS: usize = 80;
-const WS_MAX_TEXT_MESSAGE_BYTES: usize = 900 * 1024;
+const WS_MAX_TEXT_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Messages that can be sent through the WebSocket
 #[allow(clippy::large_enum_variant)]
@@ -365,13 +365,29 @@ async fn send_replay_or_snapshot_fallback(
     events: Vec<String>,
     conn_id: u64,
 ) {
-    if let Some(max_bytes) = replay_has_oversize_event(&events) {
+    let sanitized_events: Vec<String> = events
+        .into_iter()
+        .map(|event| {
+            sanitize_replay_event_for_transport(&event).unwrap_or_else(|| {
+                warn!(
+                    component = "websocket",
+                    event = "ws.subscribe.replay_sanitize_failed",
+                    connection_id = conn_id,
+                    session_id = %session_id,
+                    "Failed to sanitize replay event, using original payload"
+                );
+                event
+            })
+        })
+        .collect();
+
+    if let Some(max_bytes) = replay_has_oversize_event(&sanitized_events) {
         warn!(
             component = "websocket",
             event = "ws.subscribe.replay_fallback_snapshot",
             connection_id = conn_id,
             session_id = %session_id,
-            replay_count = events.len(),
+            replay_count = sanitized_events.len(),
             largest_event_bytes = max_bytes,
             max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
             "Replay payload exceeded transport limit, falling back to compact snapshot"
@@ -380,7 +396,7 @@ async fn send_replay_or_snapshot_fallback(
         return;
     }
 
-    for json in events {
+    for json in sanitized_events {
         send_raw(tx, json).await;
     }
 }
@@ -594,6 +610,18 @@ fn truncate_option_string_in_place(value: &mut Option<String>, max_chars: usize)
     }
 }
 
+fn compact_approval_preview_for_transport(
+    preview: &mut orbitdock_protocol::ApprovalPreview,
+    max_chars: usize,
+) {
+    truncate_string_in_place(&mut preview.value, max_chars);
+    truncate_option_string_in_place(&mut preview.compact, max_chars);
+    for segment in &mut preview.shell_segments {
+        truncate_string_in_place(&mut segment.command, max_chars);
+        truncate_option_string_in_place(&mut segment.leading_operator, 8);
+    }
+}
+
 fn compact_approval_for_transport(
     approval: &mut orbitdock_protocol::ApprovalRequest,
     max_chars: usize,
@@ -603,6 +631,9 @@ fn compact_approval_for_transport(
     truncate_option_string_in_place(&mut approval.file_path, max_chars);
     truncate_option_string_in_place(&mut approval.question, max_chars);
     truncate_option_string_in_place(&mut approval.diff, max_chars.saturating_mul(2));
+    if let Some(preview) = approval.preview.as_mut() {
+        compact_approval_preview_for_transport(preview, max_chars);
+    }
 
     if let Some(amendment) = approval.proposed_amendment.as_mut() {
         for line in amendment {
@@ -612,12 +643,10 @@ fn compact_approval_for_transport(
 }
 
 fn compact_message_for_transport(message: &mut orbitdock_protocol::Message, max_chars: usize) {
+    message.images = crate::images::normalize_images_for_transport(&message.images);
     truncate_string_in_place(&mut message.content, max_chars);
     truncate_option_string_in_place(&mut message.tool_input, max_chars);
     truncate_option_string_in_place(&mut message.tool_output, max_chars);
-
-    // Safety net: strip any data URIs that failed disk extraction
-    message.images.retain(|img| img.value.len() <= 500);
 }
 
 fn compact_message_changes_for_transport(changes: &mut MessageChanges, max_chars: usize) {
@@ -660,9 +689,8 @@ fn compact_snapshot_for_transport_with_limits(
     max_content_chars: usize,
 ) -> SessionState {
     let max_messages = max_messages.min(SNAPSHOT_MAX_MESSAGES);
-    let max_content_chars = max_content_chars
-        .max(SNAPSHOT_MIN_CONTENT_CHARS)
-        .min(SNAPSHOT_MAX_CONTENT_CHARS);
+    let max_content_chars =
+        max_content_chars.clamp(SNAPSHOT_MIN_CONTENT_CHARS, SNAPSHOT_MAX_CONTENT_CHARS);
 
     if max_messages == 0 {
         snapshot.messages.clear();
@@ -718,12 +746,47 @@ fn snapshot_transport_size_bytes(snapshot: &SessionState) -> Option<usize> {
     .map(|bytes| bytes.len())
 }
 
+fn trim_snapshot_images_to_transport_limit(snapshot: &mut SessionState) {
+    let mut size = snapshot_transport_size_bytes(snapshot).unwrap_or(usize::MAX);
+    if size <= WS_MAX_TEXT_MESSAGE_BYTES {
+        return;
+    }
+
+    loop {
+        let mut removed = false;
+        for message in &mut snapshot.messages {
+            if message.images.is_empty() {
+                continue;
+            }
+            message.images.pop();
+            removed = true;
+            break;
+        }
+
+        if !removed {
+            break;
+        }
+
+        size = snapshot_transport_size_bytes(snapshot).unwrap_or(usize::MAX);
+        if size <= WS_MAX_TEXT_MESSAGE_BYTES {
+            break;
+        }
+    }
+}
+
 fn compact_snapshot_to_transport_limit(snapshot: SessionState) -> SessionState {
+    let mut portable_snapshot = snapshot;
+    for message in &mut portable_snapshot.messages {
+        message.images = crate::images::normalize_images_for_transport(&message.images);
+    }
+
     let default_compacted = compact_snapshot_for_transport_with_limits(
-        snapshot.clone(),
+        portable_snapshot.clone(),
         SNAPSHOT_MAX_MESSAGES,
         SNAPSHOT_MAX_CONTENT_CHARS,
     );
+    let mut default_compacted = default_compacted;
+    trim_snapshot_images_to_transport_limit(&mut default_compacted);
 
     if snapshot_transport_size_bytes(&default_compacted)
         .is_some_and(|size| size <= WS_MAX_TEXT_MESSAGE_BYTES)
@@ -746,11 +809,12 @@ fn compact_snapshot_to_transport_limit(snapshot: SessionState) -> SessionState {
 
     for max_messages in message_caps {
         for max_content_chars in content_caps {
-            let candidate = compact_snapshot_for_transport_with_limits(
-                snapshot.clone(),
+            let mut candidate = compact_snapshot_for_transport_with_limits(
+                portable_snapshot.clone(),
                 max_messages,
                 max_content_chars,
             );
+            trim_snapshot_images_to_transport_limit(&mut candidate);
             let Some(size) = snapshot_transport_size_bytes(&candidate) else {
                 continue;
             };
@@ -773,6 +837,33 @@ fn compact_snapshot_for_transport(snapshot: SessionState) -> SessionState {
         SNAPSHOT_MAX_MESSAGES,
         SNAPSHOT_MAX_CONTENT_CHARS,
     )
+}
+
+fn message_appended_transport_size_bytes(
+    session_id: &str,
+    message: &orbitdock_protocol::Message,
+) -> Option<usize> {
+    serde_json::to_vec(&ServerMessage::MessageAppended {
+        session_id: session_id.to_string(),
+        message: message.clone(),
+    })
+    .ok()
+    .map(|bytes| bytes.len())
+}
+
+fn trim_message_images_to_transport_limit(
+    session_id: &str,
+    message: &mut orbitdock_protocol::Message,
+) {
+    let mut size = message_appended_transport_size_bytes(session_id, message).unwrap_or(usize::MAX);
+    if size <= WS_MAX_TEXT_MESSAGE_BYTES {
+        return;
+    }
+
+    while !message.images.is_empty() && size > WS_MAX_TEXT_MESSAGE_BYTES {
+        message.images.pop();
+        size = message_appended_transport_size_bytes(session_id, message).unwrap_or(usize::MAX);
+    }
 }
 
 fn sanitize_server_message_for_transport(msg: ServerMessage) -> ServerMessage {
@@ -803,6 +894,7 @@ fn sanitize_server_message_for_transport(msg: ServerMessage) -> ServerMessage {
             mut message,
         } => {
             compact_message_for_transport(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
+            trim_message_images_to_transport_limit(&session_id, &mut message);
             ServerMessage::MessageAppended {
                 session_id,
                 message,
@@ -832,6 +924,28 @@ fn sanitize_server_message_for_transport(msg: ServerMessage) -> ServerMessage {
         }
         other => other,
     }
+}
+
+fn sanitize_replay_event_for_transport(event_json: &str) -> Option<String> {
+    let mut value: serde_json::Value = serde_json::from_str(event_json).ok()?;
+    let revision = value
+        .as_object()
+        .and_then(|object| object.get("revision").cloned());
+
+    if let Some(object) = value.as_object_mut() {
+        object.remove("revision");
+    }
+
+    let message: ServerMessage = serde_json::from_value(value).ok()?;
+    let sanitized = sanitize_server_message_for_transport(message);
+    let mut sanitized_value = serde_json::to_value(sanitized).ok()?;
+    if let Some(revision) = revision {
+        if let Some(object) = sanitized_value.as_object_mut() {
+            object.insert("revision".to_string(), revision);
+        }
+    }
+
+    serde_json::to_string(&sanitized_value).ok()
 }
 
 /// Handle a client message
@@ -1952,10 +2066,9 @@ async fn handle_client_message(
                     .unwrap_or_default()
                     .as_millis();
                 let msg_id = format!("user-ws-{}-{}", ts_millis, conn_id);
-                // Extract data-URI images to disk before persisting/broadcasting
-                let extracted_images =
+                // Keep client message payload portable; only connector dispatch needs path images.
+                let connector_images =
                     crate::images::extract_images_to_disk(&images, &session_id, &msg_id);
-                let connector_images = extracted_images.clone();
                 let user_msg = orbitdock_protocol::Message {
                     id: msg_id,
                     session_id: session_id.clone(),
@@ -1967,7 +2080,7 @@ async fn handle_client_message(
                     is_error: false,
                     timestamp: iso_timestamp(ts_millis),
                     duration_ms: None,
-                    images: extracted_images,
+                    images: images.clone(),
                 };
 
                 if let Some(actor) = state.get_session(&session_id) {
@@ -2081,9 +2194,8 @@ async fn handle_client_message(
                     .unwrap_or_default()
                     .as_millis();
                 let steer_msg_id = format!("steer-ws-{}-{}", ts_millis, conn_id);
-                let extracted_images =
+                let connector_images =
                     crate::images::extract_images_to_disk(&images, &session_id, &steer_msg_id);
-                let connector_images = extracted_images.clone();
                 let steer_msg = orbitdock_protocol::Message {
                     id: steer_msg_id.clone(),
                     session_id: session_id.clone(),
@@ -2095,7 +2207,7 @@ async fn handle_client_message(
                     is_error: false,
                     timestamp: iso_timestamp(ts_millis),
                     duration_ms: None,
-                    images: extracted_images,
+                    images: images.clone(),
                 };
 
                 if let Some(actor) = state.get_session(&session_id) {
@@ -2327,31 +2439,6 @@ async fn handle_client_message(
         ClientMessage::ListClaudeModels => {
             let models = crate::persistence::load_cached_claude_models();
             send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
-        }
-
-        ClientMessage::DiscoverClaudeModels => {
-            match discover_claude_models().await {
-                Ok(models) => {
-                    // Cache the discovered models for future use
-                    if !models.is_empty() {
-                        let persist_tx = state.persist().clone();
-                        let _ = persist_tx.send(PersistCommand::SaveClaudeModels {
-                            models: models.clone(),
-                        });
-                    }
-                    send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
-                }
-                Err(e) => {
-                    warn!(
-                        event = "claude.discover.failed",
-                        error = %e,
-                        "Failed to discover Claude models, falling back to cached"
-                    );
-                    // Fall back to cached models
-                    let models = crate::persistence::load_cached_claude_models();
-                    send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
-                }
-            }
         }
 
         ClientMessage::CodexAccountRead { refresh_token } => {
@@ -5060,9 +5147,11 @@ fn resolve_claude_resume_cwd(project_path: &str, transcript_path: &str) -> Strin
 mod tests {
     use super::{
         claim_codex_thread_for_direct_session, claude_transcript_path_from_cwd,
-        compact_snapshot_to_transport_limit, direct_mode_activation_changes, handle_client_message,
-        replay_has_oversize_event, snapshot_transport_size_bytes,
-        work_status_for_approval_decision, OutboundMessage, WS_MAX_TEXT_MESSAGE_BYTES,
+        compact_message_for_transport, compact_snapshot_to_transport_limit,
+        direct_mode_activation_changes, handle_client_message, replay_has_oversize_event,
+        sanitize_replay_event_for_transport, sanitize_server_message_for_transport,
+        snapshot_transport_size_bytes, work_status_for_approval_decision, OutboundMessage,
+        SNAPSHOT_MAX_CONTENT_CHARS, WS_MAX_TEXT_MESSAGE_BYTES,
     };
     use crate::claude_session::ClaudeAction;
     use crate::codex_session::CodexAction;
@@ -5071,8 +5160,9 @@ mod tests {
     use crate::session_naming::name_from_first_prompt;
     use crate::state::SessionRegistry;
     use orbitdock_protocol::{
-        ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput, MentionInput,
-        Message, MessageType, Provider, ServerMessage, SessionStatus, TurnDiff, WorkStatus,
+        new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput,
+        MentionInput, Message, MessageType, Provider, ServerMessage, SessionStatus, TurnDiff,
+        WorkStatus,
     };
     use std::sync::{Arc, Once};
     use tokio::sync::mpsc;
@@ -5263,6 +5353,161 @@ mod tests {
         assert_eq!(compacted.turn_diffs[0].turn_id, "turn-21");
         assert_eq!(compacted.turn_diffs[1].turn_id, "turn-20");
         assert_eq!(compacted.turn_diffs[1].diff, "new");
+    }
+
+    #[test]
+    fn compact_message_transport_preserves_data_uri_images() {
+        let mut message = Message {
+            id: "m-image".to_string(),
+            session_id: "s".to_string(),
+            message_type: MessageType::User,
+            content: "send this".to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![ImageInput {
+                input_type: "url".to_string(),
+                value: format!("data:image/png;base64,{}", "A".repeat(5_000)),
+            }],
+        };
+
+        compact_message_for_transport(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
+
+        assert_eq!(message.images.len(), 1);
+        assert_eq!(message.images[0].input_type, "url");
+        assert!(message.images[0]
+            .value
+            .starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn compact_message_transport_converts_path_images_to_data_uri() {
+        let image_path = std::env::temp_dir().join(format!("orbitdock-image-{}.png", new_id()));
+        std::fs::write(&image_path, b"hello-image").expect("write test image");
+
+        let mut message = Message {
+            id: "m-path".to_string(),
+            session_id: "s".to_string(),
+            message_type: MessageType::User,
+            content: "send path".to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![ImageInput {
+                input_type: "path".to_string(),
+                value: image_path.to_string_lossy().to_string(),
+            }],
+        };
+
+        compact_message_for_transport(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
+        let _ = std::fs::remove_file(image_path);
+
+        assert_eq!(message.images.len(), 1);
+        assert_eq!(message.images[0].input_type, "url");
+        assert_eq!(
+            message.images[0].value,
+            "data:image/png;base64,aGVsbG8taW1hZ2U="
+        );
+    }
+
+    #[test]
+    fn sanitize_message_appended_trims_oversized_images_instead_of_dropping_message() {
+        let oversized_image = ImageInput {
+            input_type: "url".to_string(),
+            value: format!(
+                "data:image/png;base64,{}",
+                "A".repeat(WS_MAX_TEXT_MESSAGE_BYTES + 512)
+            ),
+        };
+
+        let message = Message {
+            id: "m-large".to_string(),
+            session_id: "s".to_string(),
+            message_type: MessageType::User,
+            content: "large image".to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![oversized_image],
+        };
+
+        let sanitized = sanitize_server_message_for_transport(ServerMessage::MessageAppended {
+            session_id: "s".to_string(),
+            message,
+        });
+
+        let json = serde_json::to_string(&sanitized).expect("serialize sanitized message");
+        assert!(
+            json.len() <= WS_MAX_TEXT_MESSAGE_BYTES,
+            "expected sanitized message <= {} bytes, got {}",
+            WS_MAX_TEXT_MESSAGE_BYTES,
+            json.len()
+        );
+
+        match sanitized {
+            ServerMessage::MessageAppended { message, .. } => {
+                assert!(
+                    message.images.is_empty(),
+                    "oversized image should be trimmed from outbound transport"
+                );
+            }
+            other => panic!("expected MessageAppended, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn replay_sanitize_preserves_revision_and_normalizes_path_images() {
+        let image_path =
+            std::env::temp_dir().join(format!("orbitdock-replay-image-{}.png", new_id()));
+        std::fs::write(&image_path, b"replay-image").expect("write test image");
+
+        let replay_json = serde_json::json!({
+            "type": "message_appended",
+            "revision": 42,
+            "session_id": "s",
+            "message": {
+                "id": "m",
+                "session_id": "s",
+                "message_type": "user",
+                "content": "hello",
+                "is_error": false,
+                "timestamp": "2026-01-01T00:00:00Z",
+                "images": [{
+                    "input_type": "path",
+                    "value": image_path.to_string_lossy().to_string(),
+                }]
+            }
+        });
+
+        let sanitized = sanitize_replay_event_for_transport(&replay_json.to_string())
+            .expect("sanitize replay payload");
+        let _ = std::fs::remove_file(image_path);
+
+        let decoded: serde_json::Value =
+            serde_json::from_str(&sanitized).expect("decode sanitized replay");
+        assert_eq!(
+            decoded.get("revision").and_then(|value| value.as_u64()),
+            Some(42)
+        );
+        assert_eq!(
+            decoded
+                .get("message")
+                .and_then(|value| value.get("images"))
+                .and_then(|value| value.as_array())
+                .and_then(|images| images.first())
+                .and_then(|image| image.get("input_type"))
+                .and_then(|value| value.as_str()),
+            Some("url")
+        );
     }
 
     fn new_test_state() -> Arc<SessionRegistry> {

@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 
 extension DirectSessionComposer {
   var shouldEncodeLocalFileImagesAsDataURI: Bool {
-    ServerRuntimeRegistry.shared.activeConnection.isRemoteConnection
+    // Keep attachments portable across devices (e.g. macOS-created turns on iOS).
+    true
   }
 
   func appendAttachedImage(_ attached: AttachedImage) {

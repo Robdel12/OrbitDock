@@ -5,14 +5,16 @@
 //! No IO, no async, no locking — fully unit-testable.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use orbitdock_connectors::{ApprovalType as ConnectorApprovalType, ConnectorEvent};
 use orbitdock_protocol::{
-    ApprovalRequest, ApprovalType, McpAuthStatus, McpResource, McpResourceTemplate,
-    McpStartupFailure, McpStartupStatus, McpTool, Message, MessageChanges, MessageType,
-    RemoteSkillSummary, ServerMessage, SessionStatus, SkillErrorInfo, SkillsListEntry,
-    StateChanges, TokenUsage, TurnDiff, WorkStatus,
+    ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalRequest, ApprovalType,
+    McpAuthStatus, McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool,
+    Message, MessageChanges, MessageType, RemoteSkillSummary, ServerMessage, SessionStatus,
+    SkillErrorInfo, SkillsListEntry, StateChanges, TokenUsage, TurnDiff, WorkStatus,
 };
+use serde_json::{Map as JsonMap, Value as JsonValue};
 
 // ---------------------------------------------------------------------------
 // WorkPhase — internal state machine (maps to WorkStatus for the wire)
@@ -646,12 +648,6 @@ pub fn transition(
         Input::MessageCreated(mut message) => {
             message.session_id = sid.clone();
 
-            // Extract data-URI images to disk before storing/broadcasting
-            if !message.images.is_empty() {
-                message.images =
-                    crate::images::extract_images_to_disk(&message.images, &sid, &message.id);
-            }
-
             // Dedup: skip echoed user messages from the connector
             let is_dup =
                 message.message_type == MessageType::User
@@ -753,6 +749,13 @@ pub fn transition(
                 ApprovalType::Patch => "Edit".to_string(),
                 ApprovalType::Question => "Question".to_string(),
             });
+            let preview = build_approval_preview(
+                approval_type,
+                Some(resolved_tool_name.as_str()),
+                tool_input.as_deref(),
+                command.as_deref(),
+                file_path.as_deref(),
+            );
 
             let request = ApprovalRequest {
                 id: request_id.clone(),
@@ -764,6 +767,7 @@ pub fn transition(
                 file_path: file_path.clone(),
                 diff,
                 question,
+                preview,
                 proposed_amendment: proposed_amendment.clone(),
             };
 
@@ -1148,6 +1152,419 @@ pub fn transition(
     (state, effects)
 }
 
+fn build_approval_preview(
+    approval_type: ApprovalType,
+    tool_name: Option<&str>,
+    tool_input: Option<&str>,
+    command: Option<&str>,
+    file_path: Option<&str>,
+) -> Option<ApprovalPreview> {
+    let input = parse_tool_input_object(tool_input);
+    let normalized_tool_name = trim_non_empty(tool_name)
+        .map(|name| name.to_lowercase())
+        .unwrap_or_default();
+
+    let command_from_input = input
+        .as_ref()
+        .and_then(|dict| dict.get("command").or_else(|| dict.get("cmd")))
+        .and_then(shell_command_from_json_value);
+    let command = command_from_input.or_else(|| trim_non_empty(command));
+
+    let file_path_from_input = input.as_ref().and_then(|dict| {
+        dict.get("path")
+            .and_then(|value| value.as_str())
+            .and_then(trim_non_empty_str)
+            .or_else(|| {
+                dict.get("file_path")
+                    .and_then(|value| value.as_str())
+                    .and_then(trim_non_empty_str)
+            })
+    });
+    let file_path = file_path_from_input.or_else(|| trim_non_empty(file_path));
+
+    let url = input.as_ref().and_then(|dict| {
+        dict.get("url")
+            .and_then(|value| value.as_str())
+            .and_then(trim_non_empty_str)
+    });
+    let query = input.as_ref().and_then(|dict| {
+        dict.get("query")
+            .and_then(|value| value.as_str())
+            .and_then(trim_non_empty_str)
+    });
+    let pattern = input.as_ref().and_then(|dict| {
+        dict.get("pattern")
+            .and_then(|value| value.as_str())
+            .and_then(trim_non_empty_str)
+    });
+    let prompt = input.as_ref().and_then(|dict| {
+        dict.get("prompt")
+            .and_then(|value| value.as_str())
+            .and_then(trim_non_empty_str)
+    });
+    let fallback_input_value = input.as_ref().and_then(first_string_value_from_json_object);
+
+    if let Some(command) = command {
+        let shell_segments = shell_segments_for_preview(&command);
+        let compact = compact_detail_for_preview(
+            ApprovalPreviewType::ShellCommand,
+            &command,
+            &shell_segments,
+            normalized_tool_name.as_str(),
+        );
+        return Some(ApprovalPreview {
+            preview_type: ApprovalPreviewType::ShellCommand,
+            value: command,
+            shell_segments,
+            compact,
+        });
+    }
+
+    if let Some(url) = url {
+        let compact = compact_detail_for_preview(
+            ApprovalPreviewType::Url,
+            &url,
+            &[],
+            normalized_tool_name.as_str(),
+        );
+        return Some(ApprovalPreview {
+            preview_type: ApprovalPreviewType::Url,
+            value: url,
+            shell_segments: vec![],
+            compact,
+        });
+    }
+
+    if let Some(query) = query {
+        let compact = compact_detail_for_preview(
+            ApprovalPreviewType::SearchQuery,
+            &query,
+            &[],
+            normalized_tool_name.as_str(),
+        );
+        return Some(ApprovalPreview {
+            preview_type: ApprovalPreviewType::SearchQuery,
+            value: query,
+            shell_segments: vec![],
+            compact,
+        });
+    }
+
+    if let Some(pattern) = pattern {
+        let compact = compact_detail_for_preview(
+            ApprovalPreviewType::Pattern,
+            &pattern,
+            &[],
+            normalized_tool_name.as_str(),
+        );
+        return Some(ApprovalPreview {
+            preview_type: ApprovalPreviewType::Pattern,
+            value: pattern,
+            shell_segments: vec![],
+            compact,
+        });
+    }
+
+    if let Some(prompt) = prompt {
+        let compact = compact_detail_for_preview(
+            ApprovalPreviewType::Prompt,
+            &prompt,
+            &[],
+            normalized_tool_name.as_str(),
+        );
+        return Some(ApprovalPreview {
+            preview_type: ApprovalPreviewType::Prompt,
+            value: prompt,
+            shell_segments: vec![],
+            compact,
+        });
+    }
+
+    if let Some(path) = file_path {
+        let compact = compact_detail_for_preview(
+            ApprovalPreviewType::FilePath,
+            &path,
+            &[],
+            normalized_tool_name.as_str(),
+        );
+        return Some(ApprovalPreview {
+            preview_type: ApprovalPreviewType::FilePath,
+            value: path,
+            shell_segments: vec![],
+            compact,
+        });
+    }
+
+    if let Some(value) = fallback_input_value {
+        let compact = compact_detail_for_preview(
+            ApprovalPreviewType::Value,
+            &value,
+            &[],
+            normalized_tool_name.as_str(),
+        );
+        return Some(ApprovalPreview {
+            preview_type: ApprovalPreviewType::Value,
+            value,
+            shell_segments: vec![],
+            compact,
+        });
+    }
+
+    let fallback_action = match approval_type {
+        ApprovalType::Question => {
+            trim_non_empty(tool_name).unwrap_or_else(|| "Question".to_string())
+        }
+        _ => trim_non_empty(tool_name)
+            .map(|name| format!("Approve {name} action?"))
+            .unwrap_or_else(|| "Approve action?".to_string()),
+    };
+
+    let compact = compact_detail_for_preview(
+        ApprovalPreviewType::Action,
+        &fallback_action,
+        &[],
+        normalized_tool_name.as_str(),
+    );
+
+    Some(ApprovalPreview {
+        preview_type: ApprovalPreviewType::Action,
+        value: fallback_action,
+        shell_segments: vec![],
+        compact,
+    })
+}
+
+fn parse_tool_input_object(tool_input: Option<&str>) -> Option<JsonMap<String, JsonValue>> {
+    let raw = trim_non_empty(tool_input)?;
+    let parsed: JsonValue = serde_json::from_str(&raw).ok()?;
+    parsed.as_object().cloned()
+}
+
+fn shell_command_from_json_value(value: &JsonValue) -> Option<String> {
+    if let Some(command) = value.as_str() {
+        return trim_non_empty(Some(command));
+    }
+
+    let parts = value.as_array()?;
+    let tokens: Option<Vec<String>> = parts
+        .iter()
+        .map(|item| item.as_str().map(|token| token.to_string()))
+        .collect();
+    let joined = tokens?.join(" ");
+    trim_non_empty(Some(joined.as_str()))
+}
+
+fn first_string_value_from_json_object(dict: &JsonMap<String, JsonValue>) -> Option<String> {
+    let mut keys: Vec<&String> = dict.keys().collect();
+    keys.sort_unstable();
+
+    for key in keys {
+        if let Some(value) = dict.get(key).and_then(|raw| raw.as_str()) {
+            if let Some(trimmed) = trim_non_empty(Some(value)) {
+                return Some(trimmed);
+            }
+        }
+    }
+
+    None
+}
+
+fn compact_detail_for_preview(
+    preview_type: ApprovalPreviewType,
+    value: &str,
+    shell_segments: &[ApprovalPreviewSegment],
+    normalized_tool_name: &str,
+) -> Option<String> {
+    let summary = match preview_type {
+        ApprovalPreviewType::ShellCommand => {
+            if shell_segments.len() > 1 {
+                let first = shell_segments
+                    .first()
+                    .map(|segment| segment.command.clone())
+                    .unwrap_or_else(|| value.to_string());
+                let remaining = shell_segments.len().saturating_sub(1);
+                let noun = if remaining == 1 {
+                    "segment"
+                } else {
+                    "segments"
+                };
+                format!("{first} +{remaining} {noun}")
+            } else {
+                value.to_string()
+            }
+        }
+        ApprovalPreviewType::Url => format!("url: {value}"),
+        ApprovalPreviewType::SearchQuery => format!("query: {value}"),
+        ApprovalPreviewType::Pattern => format!("pattern: {value}"),
+        ApprovalPreviewType::Prompt => format!("prompt: {value}"),
+        ApprovalPreviewType::FilePath
+            if matches!(
+                normalized_tool_name,
+                "edit" | "write" | "read" | "notebookedit"
+            ) =>
+        {
+            Path::new(value)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_string())
+                .unwrap_or_else(|| value.to_string())
+        }
+        ApprovalPreviewType::Value
+        | ApprovalPreviewType::FilePath
+        | ApprovalPreviewType::Action => value.to_string(),
+    };
+
+    let trimmed = trim_non_empty(Some(summary.as_str()))?;
+    Some(compact_truncate(trimmed, 50))
+}
+
+fn compact_truncate(text: String, max_length: usize) -> String {
+    if max_length == 0 {
+        return String::new();
+    }
+    if max_length <= 3 {
+        return text.chars().take(max_length).collect();
+    }
+    if text.chars().count() <= max_length {
+        return text;
+    }
+    let prefix: String = text.chars().take(max_length.saturating_sub(3)).collect();
+    format!("{prefix}...")
+}
+
+fn trim_non_empty(value: Option<&str>) -> Option<String> {
+    let value = value?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn trim_non_empty_str(value: &str) -> Option<String> {
+    trim_non_empty(Some(value))
+}
+
+fn flush_shell_segment(
+    buffer: &mut String,
+    segments: &mut Vec<ApprovalPreviewSegment>,
+    pending_operator: &mut Option<String>,
+) {
+    let trimmed = buffer.trim();
+    if trimmed.is_empty() {
+        buffer.clear();
+        return;
+    }
+
+    let leading_operator = if segments.is_empty() {
+        None
+    } else {
+        pending_operator.clone()
+    };
+    segments.push(ApprovalPreviewSegment {
+        command: trimmed.to_string(),
+        leading_operator,
+    });
+    buffer.clear();
+    *pending_operator = None;
+}
+
+fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
+    let chars: Vec<char> = command.chars().collect();
+    let mut segments: Vec<ApprovalPreviewSegment> = Vec::new();
+    let mut buffer = String::new();
+    let mut pending_operator: Option<String> = None;
+
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_backtick = false;
+    let mut escaped = false;
+    let mut paren_depth: usize = 0;
+
+    let mut index = 0;
+    while index < chars.len() {
+        let ch = chars[index];
+
+        if escaped {
+            buffer.push(ch);
+            escaped = false;
+            index += 1;
+            continue;
+        }
+
+        if ch == '\\' {
+            if !in_single_quote {
+                escaped = true;
+            }
+            buffer.push(ch);
+            index += 1;
+            continue;
+        }
+
+        if !in_double_quote && !in_backtick && ch == '\'' {
+            in_single_quote = !in_single_quote;
+            buffer.push(ch);
+            index += 1;
+            continue;
+        }
+
+        if !in_single_quote && !in_backtick && ch == '"' {
+            in_double_quote = !in_double_quote;
+            buffer.push(ch);
+            index += 1;
+            continue;
+        }
+
+        if !in_single_quote && !in_double_quote && ch == '`' {
+            in_backtick = !in_backtick;
+            buffer.push(ch);
+            index += 1;
+            continue;
+        }
+
+        let can_split = !in_single_quote && !in_double_quote && !in_backtick && paren_depth == 0;
+
+        if !in_single_quote && !in_double_quote && !in_backtick {
+            if ch == '(' {
+                paren_depth += 1;
+            } else if ch == ')' {
+                paren_depth = paren_depth.saturating_sub(1);
+            }
+        }
+
+        if can_split {
+            if ch == '|' {
+                let is_double = (index + 1) < chars.len() && chars[index + 1] == '|';
+                flush_shell_segment(&mut buffer, &mut segments, &mut pending_operator);
+                pending_operator = Some(if is_double { "||" } else { "|" }.to_string());
+                index += if is_double { 2 } else { 1 };
+                continue;
+            }
+
+            if ch == '&' && (index + 1) < chars.len() && chars[index + 1] == '&' {
+                flush_shell_segment(&mut buffer, &mut segments, &mut pending_operator);
+                pending_operator = Some("&&".to_string());
+                index += 2;
+                continue;
+            }
+
+            if ch == ';' || ch == '\n' {
+                flush_shell_segment(&mut buffer, &mut segments, &mut pending_operator);
+                pending_operator = Some(";".to_string());
+                index += 1;
+                continue;
+            }
+        }
+
+        buffer.push(ch);
+        index += 1;
+    }
+
+    flush_shell_segment(&mut buffer, &mut segments, &mut pending_operator);
+    segments
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1155,7 +1572,7 @@ pub fn transition(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbitdock_protocol::{Message, MessageType, TokenUsage};
+    use orbitdock_protocol::{ApprovalPreviewType, Message, MessageType, TokenUsage};
 
     fn test_state() -> TransitionState {
         TransitionState {
@@ -1269,6 +1686,100 @@ mod tests {
         ));
         // Persist(ApprovalRequested) + Emit(ApprovalRequested)
         assert_eq!(effects.len(), 2);
+
+        if let Effect::Emit(message) = &effects[1] {
+            match message.as_ref() {
+                ServerMessage::ApprovalRequested { request, .. } => {
+                    let preview = request.preview.as_ref().expect("expected preview");
+                    assert_eq!(preview.preview_type, ApprovalPreviewType::ShellCommand);
+                    assert_eq!(preview.compact.as_deref(), Some("rm -rf /"));
+                }
+                other => panic!("expected approval_requested emit, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn approval_requested_preview_segments_shell_control_operators() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+
+        let (new_state, effects) = transition(
+            state,
+            Input::ApprovalRequested {
+                request_id: "req-shell".to_string(),
+                approval_type: ApprovalType::Exec,
+                tool_name: Some("Bash".to_string()),
+                tool_input: Some(r#"{"command":"echo one || echo two"}"#.to_string()),
+                command: None,
+                file_path: None,
+                diff: None,
+                question: None,
+                proposed_amendment: None,
+            },
+            NOW,
+        );
+
+        assert!(matches!(
+            new_state.phase,
+            WorkPhase::AwaitingApproval {
+                ref request_id,
+                approval_type: ApprovalType::Exec,
+                ..
+            } if request_id == "req-shell"
+        ));
+        assert_eq!(effects.len(), 2);
+
+        if let Effect::Emit(message) = &effects[1] {
+            match message.as_ref() {
+                ServerMessage::ApprovalRequested { request, .. } => {
+                    let preview = request.preview.as_ref().expect("expected preview");
+                    assert_eq!(preview.preview_type, ApprovalPreviewType::ShellCommand);
+                    assert_eq!(preview.shell_segments.len(), 2);
+                    assert_eq!(preview.shell_segments[0].leading_operator, None);
+                    assert_eq!(
+                        preview.shell_segments[1].leading_operator.as_deref(),
+                        Some("||")
+                    );
+                    assert_eq!(preview.compact.as_deref(), Some("echo one +1 segment"));
+                }
+                other => panic!("expected approval_requested emit, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn approval_requested_preview_uses_basename_for_patch_like_tools() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+
+        let (_, effects) = transition(
+            state,
+            Input::ApprovalRequested {
+                request_id: "req-edit".to_string(),
+                approval_type: ApprovalType::Patch,
+                tool_name: Some("Edit".to_string()),
+                tool_input: Some(r#"{"file_path":"/tmp/OrbitDock/docs/approvals.md"}"#.to_string()),
+                command: None,
+                file_path: None,
+                diff: None,
+                question: None,
+                proposed_amendment: None,
+            },
+            NOW,
+        );
+
+        if let Effect::Emit(message) = &effects[1] {
+            match message.as_ref() {
+                ServerMessage::ApprovalRequested { request, .. } => {
+                    let preview = request.preview.as_ref().expect("expected preview");
+                    assert_eq!(preview.preview_type, ApprovalPreviewType::FilePath);
+                    assert_eq!(preview.value, "/tmp/OrbitDock/docs/approvals.md");
+                    assert_eq!(preview.compact.as_deref(), Some("approvals.md"));
+                }
+                other => panic!("expected approval_requested emit, got {other:?}"),
+            }
+        }
     }
 
     #[test]
@@ -1311,7 +1822,7 @@ mod tests {
             "I'm now cross-checking the highest-risk claims"
         );
         assert_eq!(updated.tool_output.as_deref(), Some("new output"));
-        assert_eq!(updated.is_error, false);
+        assert!(!updated.is_error);
         assert_eq!(updated.duration_ms, Some(420));
         assert_eq!(effects.len(), 2); // Persist + Emit
     }

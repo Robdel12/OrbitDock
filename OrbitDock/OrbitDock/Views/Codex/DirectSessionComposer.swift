@@ -40,9 +40,10 @@ struct DirectSessionComposer: View {
   @State private var completionActive = false
   @State private var completionQuery = ""
   @State private var completionIndex = 0
-  @FocusState private var isFocused: Bool
+  @State private var isFocused = false
+  @State private var composerInputHeight: CGFloat = 38
 
-  // Attachments
+  /// Attachments
   @State private var fileIndex = ProjectFileIndex()
   // Internal visibility keeps image input logic split into platform extension files.
   @State var attachedImages: [AttachedImage] = []
@@ -127,8 +128,16 @@ struct DirectSessionComposer: View {
     serverState.codexModels
   }
 
+  private var codexModelOptionsSignature: String {
+    codexModelOptions.map(\.model).joined(separator: "|")
+  }
+
   private var claudeModelOptions: [ServerClaudeModelOption] {
     serverState.claudeModels
+  }
+
+  private var claudeModelOptionsSignature: String {
+    claudeModelOptions.map(\.value).joined(separator: "|")
   }
 
   private var defaultCodexModelSelection: String {
@@ -560,58 +569,58 @@ struct DirectSessionComposer: View {
         matching: .images
       )
     #endif
-    .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
-      handleDrop(providers)
-    }
-    .onAppear {
-      if session.isDirectCodex {
-        serverState.refreshCodexModels()
-        if selectedModel.isEmpty {
+      .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+        handleDrop(providers)
+      }
+      .onAppear {
+        if session.isDirectCodex {
+          serverState.refreshCodexModels()
+          if selectedModel.isEmpty {
+            selectedModel = defaultCodexModelSelection
+          }
+          // Restore persisted effort level from server state
+          if let saved = session.effort, let level = EffortLevel(rawValue: saved) {
+            selectedEffort = level
+          }
+        } else if session.isDirectClaude {
+          serverState.refreshClaudeModels()
+          if selectedClaudeModel.isEmpty {
+            selectedClaudeModel = defaultClaudeModelSelection
+          }
+        }
+        if let path = projectPath {
+          Task { await fileIndex.loadIfNeeded(path) }
+        }
+      }
+      .onChange(of: codexModelOptionsSignature) { _, _ in
+        guard session.isDirectCodex else { return }
+        if selectedModel.isEmpty || !codexModelOptions.contains(where: { $0.model == selectedModel }) {
           selectedModel = defaultCodexModelSelection
         }
-        // Restore persisted effort level from server state
-        if let saved = session.effort, let level = EffortLevel(rawValue: saved) {
-          selectedEffort = level
-        }
-      } else if session.isDirectClaude {
-        serverState.refreshClaudeModels()
-        if selectedClaudeModel.isEmpty {
+      }
+      .onChange(of: claudeModelOptionsSignature) { _, _ in
+        guard session.isDirectClaude else { return }
+        if selectedClaudeModel.isEmpty || !claudeModelOptions.contains(where: { $0.value == selectedClaudeModel }) {
           selectedClaudeModel = defaultClaudeModelSelection
         }
       }
-      if let path = projectPath {
-        Task { await fileIndex.loadIfNeeded(path) }
+      .onChange(of: whisperDictationEnabled) { _, enabled in
+        guard !enabled else { return }
+        Task { @MainActor in
+          await dictationController.cancel()
+          clearDictationDraftState()
+        }
       }
-    }
-    .onChange(of: serverState.codexModels.count) { _, _ in
-      guard session.isDirectCodex else { return }
-      if selectedModel.isEmpty || !codexModelOptions.contains(where: { $0.model == selectedModel }) {
-        selectedModel = defaultCodexModelSelection
+      .onChange(of: dictationController.liveTranscript) { _, transcript in
+        guard dictationController.isRecording else { return }
+        applyDictationPreviewToComposer(transcript)
       }
-    }
-    .onChange(of: serverState.claudeModels.count) { _, _ in
-      guard session.isDirectClaude else { return }
-      if selectedClaudeModel.isEmpty || !claudeModelOptions.contains(where: { $0.value == selectedClaudeModel }) {
-        selectedClaudeModel = defaultClaudeModelSelection
+      .onDisappear {
+        Task { @MainActor in
+          await dictationController.cancel()
+          clearDictationDraftState()
+        }
       }
-    }
-    .onChange(of: whisperDictationEnabled) { _, enabled in
-      guard !enabled else { return }
-      Task { @MainActor in
-        await dictationController.cancel()
-        clearDictationDraftState()
-      }
-    }
-    .onChange(of: dictationController.liveTranscript) { _, transcript in
-      guard dictationController.isRecording else { return }
-      applyDictationPreviewToComposer(transcript)
-    }
-    .onDisappear {
-      Task { @MainActor in
-        await dictationController.cancel()
-        clearDictationDraftState()
-      }
-    }
     #if os(iOS)
       .onChange(of: photoPickerItems) { _, newItems in
         handlePhotoPickerSelection(newItems)
@@ -695,6 +704,41 @@ struct DirectSessionComposer: View {
     return "\(count)"
   }
 
+  @ViewBuilder
+  private var composerTextInput: some View {
+    ComposerTextArea(
+      text: $message,
+      placeholder: composerPlaceholder,
+      isFocused: $isFocused,
+      measuredHeight: $composerInputHeight,
+      isEnabled: !(isSending || isDictationActive),
+      minLines: 2,
+      maxLines: 5,
+      onPasteImage: { pasteImageFromClipboard() },
+      canPasteImage: { canPasteImageFromClipboard },
+      onKeyCommand: handleComposerTextAreaKeyCommand
+    )
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .frame(height: composerInputHeight)
+    .layoutPriority(1)
+    #if os(iOS)
+      .toolbar {
+        ToolbarItemGroup(placement: .keyboard) {
+          Spacer()
+          Button("Done") { isFocused = false }
+            .font(.system(size: TypeScale.body, weight: .semibold))
+        }
+      }
+    #endif
+      .onChange(of: message) { _, newValue in
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          updateCommandDeckCompletion(newValue)
+          updateSkillCompletion(newValue)
+          updateMentionCompletion(newValue)
+        }
+      }
+  }
+
   // MARK: - Composer Row
 
   private var composerRow: some View {
@@ -724,57 +768,7 @@ struct DirectSessionComposer: View {
             )
         }
 
-        TextField(composerPlaceholder, text: $message, axis: .vertical)
-          .textFieldStyle(.plain)
-          .lineLimit(1 ... 5)
-          .focused($isFocused)
-          .disabled(isSending || isDictationActive)
-        #if os(iOS)
-          .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-              Spacer()
-              Button("Done") { isFocused = false }
-                .font(.system(size: TypeScale.body, weight: .semibold))
-            }
-          }
-        #endif
-          .onChange(of: message) { _, newValue in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              updateCommandDeckCompletion(newValue)
-              updateSkillCompletion(newValue)
-              updateMentionCompletion(newValue)
-            }
-          }
-          .onKeyPress(phases: .down) { keyPress in
-            // Shift+Return inserts a newline instead of sending
-            if keyPress.key == .return, keyPress.modifiers.contains(.shift) {
-              message += "\n"
-              return .handled
-            }
-            // Cmd+Shift+T toggles shell mode
-            if keyPress.key == KeyEquivalent("t"),
-               keyPress.modifiers.contains(.command),
-               keyPress.modifiers.contains(.shift)
-            {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                manualShellMode.toggle()
-                if manualShellMode { manualReviewMode = false }
-              }
-              return .handled
-            }
-            if keyPress.modifiers.contains(.command), keyPress.key == KeyEquivalent("v") {
-              if pasteImageFromClipboard() {
-                return .handled
-              }
-            }
-            return handleCompletionKeyPress(keyPress)
-          }
-          .onSubmit {
-            let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            if hasContent || hasAttachments {
-              sendMessage()
-            }
-          }
+        composerTextInput
 
         if isDictationActive {
           HStack(spacing: 6) {
@@ -799,7 +793,7 @@ struct DirectSessionComposer: View {
         }
 
         // Override badges (inside border)
-        if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude), !isCompactLayout {
+        if !isSessionWorking, session.isDirectCodex || session.isDirectClaude, !isCompactLayout {
           if hasOverrides {
             overrideBadge
           }
@@ -1279,7 +1273,8 @@ struct DirectSessionComposer: View {
   }
 
   private var desktopWorkflowOverflowMenu: some View {
-    let hasActiveState = !selectedSkills.isEmpty || !attachedImages.isEmpty || !attachedMentions.isEmpty || manualShellMode
+    let hasActiveState = !selectedSkills.isEmpty || !attachedImages.isEmpty || !attachedMentions
+      .isEmpty || manualShellMode
 
     return Menu {
       Section("Compose") {
@@ -1374,7 +1369,7 @@ struct DirectSessionComposer: View {
           CodexInterruptButton(sessionId: sessionId)
         }
 
-        if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude) {
+        if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
           providerModelControlButton
         }
 
@@ -1421,7 +1416,7 @@ struct DirectSessionComposer: View {
             CodexInterruptButton(sessionId: sessionId)
           }
 
-          if !isSessionWorking, (session.isDirectCodex || session.isDirectClaude) {
+          if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
             providerModelControlButton
           }
 
@@ -1490,7 +1485,8 @@ struct DirectSessionComposer: View {
       if isCompactLayout || isActive {
         Capsule()
           .strokeBorder(
-            isActive ? tint.opacity(isCompactLayout ? 0.3 : 0.35) : Color.surfaceBorder.opacity(isCompactLayout ? 1 : 0.22),
+            isActive ? tint.opacity(isCompactLayout ? 0.3 : 0.35) : Color.surfaceBorder
+              .opacity(isCompactLayout ? 1 : 0.22),
             lineWidth: 1
           )
       }
@@ -1803,7 +1799,7 @@ struct DirectSessionComposer: View {
       (session.inputTokens ?? 0) + (session.cachedTokens ?? 0) // Claude: add cached to input
     }
 
-    let text: String = if totalContext > 0, let window = session.contextWindow {
+    let text = if totalContext > 0, let window = session.contextWindow {
       "\(displayPct)% · \(formatTokenCount(totalContext)) / \(formatTokenCount(window))"
     } else if totalContext > 0 {
       "\(displayPct)% · \(formatTokenCount(totalContext))"
@@ -1942,7 +1938,9 @@ struct DirectSessionComposer: View {
   private var overrideBadge: some View {
     let parts = [
       session.isDirectCodex && selectedModel != defaultCodexModelSelection ? shortModelName(selectedModel) : nil,
-      session.isDirectClaude && selectedClaudeModel != defaultClaudeModelSelection ? shortModelName(selectedClaudeModel) : nil,
+      session
+        .isDirectClaude && selectedClaudeModel != defaultClaudeModelSelection ? shortModelName(selectedClaudeModel) :
+        nil,
       session.isDirectCodex && selectedEffort != .default ? selectedEffort.displayName : nil,
     ].compactMap { $0 }
 
@@ -1962,13 +1960,12 @@ struct DirectSessionComposer: View {
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     if inputMode == .shell { return !isSending && hasContent }
     if isSessionWorking { return !isSending && (hasContent || hasAttachments) }
-    let hasModel: Bool
-    if session.isDirectCodex {
-      hasModel = !selectedModel.isEmpty
+    let hasModel: Bool = if session.isDirectCodex {
+      !selectedModel.isEmpty
     } else if session.isDirectClaude {
-      hasModel = !effectiveClaudeModel.isEmpty
+      !effectiveClaudeModel.isEmpty
     } else {
-      hasModel = session.model != nil
+      session.model != nil
     }
     return !isSending && (hasContent || hasAttachments) && hasModel
   }
@@ -2392,7 +2389,7 @@ struct DirectSessionComposer: View {
           if manualShellMode { manualReviewMode = false }
         }
 
-      case .insertText(let text):
+      case let .insertText(text):
         clearCommandDeckState()
         replaceTrailingCommandDeckToken(with: text, appendSpace: false)
 
@@ -2401,11 +2398,11 @@ struct DirectSessionComposer: View {
         removeTrailingCommandDeckToken()
         serverState.refreshMcpServers(sessionId: sessionId)
 
-      case .attachFile(let file):
+      case let .attachFile(file):
         clearCommandDeckState()
         attachMentionFromPicker(file)
 
-      case .attachSkill(let skill):
+      case let .attachSkill(skill):
         selectedSkills.insert(skill.path)
         clearCommandDeckState()
         replaceTrailingCommandDeckToken(with: "$\(skill.name)")
@@ -2425,123 +2422,162 @@ struct DirectSessionComposer: View {
 
   // MARK: - Keyboard Navigation
 
-  private func handleCompletionKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
-    if keyPress.key == .escape {
+  private enum ComposerCompletionCommand {
+    case escape
+    case upArrow
+    case downArrow
+    case accept
+    case controlN
+    case controlP
+  }
+
+  private func handleComposerTextAreaKeyCommand(_ keyCommand: ComposerTextAreaKeyCommand) -> Bool {
+    switch keyCommand {
+      case .commandShiftT:
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          manualShellMode.toggle()
+          if manualShellMode { manualReviewMode = false }
+        }
+        return true
+
+      case .shiftReturn:
+        message += "\n"
+        return true
+
+      case .escape:
+        return handleCompletionCommand(.escape)
+
+      case .upArrow:
+        return handleCompletionCommand(.upArrow)
+
+      case .downArrow:
+        return handleCompletionCommand(.downArrow)
+
+      case .tab:
+        return handleCompletionCommand(.accept)
+
+      case .controlN:
+        return handleCompletionCommand(.controlN)
+
+      case .controlP:
+        return handleCompletionCommand(.controlP)
+
+      case .returnKey:
+        if handleCompletionCommand(.accept) {
+          return true
+        }
+        let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if hasContent || hasAttachments {
+          sendMessage()
+          return true
+        }
+        return false
+    }
+  }
+
+  private func handleCompletionCommand(_ command: ComposerCompletionCommand) -> Bool {
+    if command == .escape {
       if shouldShowCommandDeck {
         clearCommandDeckState()
         removeTrailingCommandDeckToken()
-        return .handled
+        return true
       }
       if mentionActive {
         mentionActive = false
-        return .handled
+        return true
       }
-      guard completionActive else { return .ignored }
+      guard completionActive else { return false }
       completionActive = false
-      return .handled
+      return true
     }
 
     if shouldShowCommandDeck {
-      return handleCommandDeckKeyPress(keyPress)
+      return handleCommandDeckCommand(command)
     }
 
     if shouldShowMentionCompletion {
-      return handleMentionKeyPress(keyPress)
+      return handleMentionCommand(command)
     }
 
-    guard shouldShowCompletion else { return .ignored }
+    guard shouldShowCompletion else { return false }
 
-    if keyPress.key == .upArrow {
-      completionIndex = max(0, completionIndex - 1)
-      return .handled
-    } else if keyPress.key == .downArrow {
-      completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
-      return .handled
-    }
-
-    if keyPress.modifiers.contains(.control) {
-      if keyPress.key == KeyEquivalent("n") {
-        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
-        return .handled
-      } else if keyPress.key == KeyEquivalent("p") {
+    switch command {
+      case .upArrow:
         completionIndex = max(0, completionIndex - 1)
-        return .handled
-      }
+        return true
+      case .downArrow:
+        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
+        return true
+      case .controlN:
+        completionIndex = min(filteredSkills.count - 1, completionIndex + 1)
+        return true
+      case .controlP:
+        completionIndex = max(0, completionIndex - 1)
+        return true
+      case .accept:
+        acceptSkillCompletion(filteredSkills[completionIndex])
+        return true
+      case .escape:
+        return false
     }
-
-    if keyPress.key == .return || keyPress.key == .tab {
-      acceptSkillCompletion(filteredSkills[completionIndex])
-      return .handled
-    }
-
-    return .ignored
   }
 
-  private func handleCommandDeckKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+  private func handleCommandDeckCommand(_ command: ComposerCompletionCommand) -> Bool {
     let maxIndex = commandDeckItems.count - 1
-    guard maxIndex >= 0 else { return .ignored }
+    guard maxIndex >= 0 else { return false }
 
-    if keyPress.key == .upArrow {
-      commandDeckIndex = max(0, commandDeckIndex - 1)
-      return .handled
-    } else if keyPress.key == .downArrow {
-      commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
-      return .handled
-    }
-
-    if keyPress.modifiers.contains(.control) {
-      if keyPress.key == KeyEquivalent("n") {
-        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
-        return .handled
-      } else if keyPress.key == KeyEquivalent("p") {
+    switch command {
+      case .upArrow:
         commandDeckIndex = max(0, commandDeckIndex - 1)
-        return .handled
-      }
+        return true
+      case .downArrow:
+        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
+        return true
+      case .controlN:
+        commandDeckIndex = min(maxIndex, commandDeckIndex + 1)
+        return true
+      case .controlP:
+        commandDeckIndex = max(0, commandDeckIndex - 1)
+        return true
+      case .accept:
+        if commandDeckIndex < commandDeckItems.count {
+          acceptCommandDeckItem(commandDeckItems[commandDeckIndex])
+        }
+        return true
+      case .escape:
+        return false
     }
-
-    if keyPress.key == .return || keyPress.key == .tab {
-      if commandDeckIndex < commandDeckItems.count {
-        acceptCommandDeckItem(commandDeckItems[commandDeckIndex])
-      }
-      return .handled
-    }
-
-    return .ignored
   }
 
-  private func handleMentionKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+  private func handleMentionCommand(_ command: ComposerCompletionCommand) -> Bool {
     let maxIndex = filteredFiles.count - 1
-    guard maxIndex >= 0 else { return .ignored }
+    guard maxIndex >= 0 else { return false }
 
-    if keyPress.key == .upArrow {
-      mentionIndex = max(0, mentionIndex - 1)
-      return .handled
-    } else if keyPress.key == .downArrow {
-      mentionIndex = min(maxIndex, mentionIndex + 1)
-      return .handled
-    }
-
-    if keyPress.modifiers.contains(.control) {
-      if keyPress.key == KeyEquivalent("n") {
-        mentionIndex = min(maxIndex, mentionIndex + 1)
-        return .handled
-      } else if keyPress.key == KeyEquivalent("p") {
+    switch command {
+      case .upArrow:
         mentionIndex = max(0, mentionIndex - 1)
-        return .handled
-      }
+        return true
+      case .downArrow:
+        mentionIndex = min(maxIndex, mentionIndex + 1)
+        return true
+      case .controlN:
+        mentionIndex = min(maxIndex, mentionIndex + 1)
+        return true
+      case .controlP:
+        mentionIndex = max(0, mentionIndex - 1)
+        return true
+      case .accept:
+        if mentionIndex < filteredFiles.count {
+          acceptMentionCompletion(filteredFiles[mentionIndex])
+        }
+        return true
+      case .escape:
+        return false
     }
-
-    if keyPress.key == .return || keyPress.key == .tab {
-      if mentionIndex < filteredFiles.count {
-        acceptMentionCompletion(filteredFiles[mentionIndex])
-      }
-      return .handled
-    }
-
-    return .ignored
   }
 
   // MARK: - Image Input
+
   // Implemented in DirectSessionComposer+ImageShared.swift and platform extensions.
 }
 
@@ -2924,7 +2960,6 @@ private struct ComposerClaudeModelPopover: View {
     .background(Color.backgroundSecondary)
   }
 }
-
 
 #Preview {
   @Previewable @State var skills: Set<String> = []

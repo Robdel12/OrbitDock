@@ -111,8 +111,12 @@ struct ComposerTextArea: View {
       textView.smartQuotesType = .yes
       textView.smartDashesType = .yes
       textView.keyboardDismissMode = .interactive
+      textView.textContainer.widthTracksTextView = true
+      textView.textContainer.lineBreakMode = .byWordWrapping
       textView.textContainer.lineFragmentPadding = 0
       textView.textContainerInset = UIEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
+      textView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
       textView.isScrollEnabled = false
       textView.delegate = context.coordinator
       return textView
@@ -131,6 +135,8 @@ struct ComposerTextArea: View {
       uiView.canPasteImage = canPasteImage
       uiView.onKeyCommand = onKeyCommand
 
+      uiView.setNeedsLayout()
+      uiView.layoutIfNeeded()
       context.coordinator.recalculateHeight(for: uiView)
 
       if isFocused {

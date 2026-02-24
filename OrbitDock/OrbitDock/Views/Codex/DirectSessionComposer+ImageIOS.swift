@@ -26,6 +26,13 @@
         return true
       }
 
+      if let urlData = pasteboard.data(forPasteboardType: UTType.fileURL.identifier),
+         let url = URL(dataRepresentation: urlData, relativeTo: nil),
+         isImageFileURL(url)
+      {
+        return true
+      }
+
       return pasteboard.contains(pasteboardTypes: supportedImagePasteboardTypes)
     }
 
@@ -86,6 +93,15 @@
         return appendUIImageAttachment(image)
       }
 
+      if let urlData = pasteboard.data(forPasteboardType: UTType.fileURL.identifier),
+         let url = URL(dataRepresentation: urlData, relativeTo: nil),
+         isImageFileURL(url),
+         let fileData = try? Data(contentsOf: url),
+         let image = UIImage(data: fileData)
+      {
+        return appendUIImageAttachment(image)
+      }
+
       for pasteboardType in supportedImagePasteboardTypes {
         guard let imageData = pasteboard.data(forPasteboardType: pasteboardType),
               let image = UIImage(data: imageData)
@@ -100,7 +116,26 @@
     func handleDrop(_ providers: [NSItemProvider]) -> Bool {
       var handled = false
       for provider in providers {
-        if provider.canLoadObject(ofClass: UIImage.self) {
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+          provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            let url: URL? = if let urlData = item as? Data {
+              URL(dataRepresentation: urlData, relativeTo: nil)
+            } else {
+              item as? URL
+            }
+
+            guard let resolvedURL = url,
+                  isImageFileURL(resolvedURL),
+                  let fileData = try? Data(contentsOf: resolvedURL),
+                  let image = UIImage(data: fileData)
+            else { return }
+
+            DispatchQueue.main.async {
+              _ = appendUIImageAttachment(image)
+            }
+          }
+          handled = true
+        } else if provider.canLoadObject(ofClass: UIImage.self) {
           provider.loadObject(ofClass: UIImage.self) { object, _ in
             guard let image = object as? UIImage,
                   let pngData = image.pngData()

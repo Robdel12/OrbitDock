@@ -1066,7 +1066,6 @@ impl WatcherRuntime {
         };
 
         let msg_id = format!("rollout-{session_id}-{next_seq}");
-        let images = crate::images::extract_images_to_disk(&images, session_id, &msg_id);
         let message = Message {
             id: msg_id,
             session_id: session_id.to_string(),
