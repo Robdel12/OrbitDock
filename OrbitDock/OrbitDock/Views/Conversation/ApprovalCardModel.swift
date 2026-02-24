@@ -8,6 +8,61 @@
 
 import Foundation
 
+enum ApprovalPreviewType: Hashable, Sendable {
+  case shellCommand
+  case url
+  case searchQuery
+  case pattern
+  case prompt
+  case value
+  case filePath
+  case action
+
+  var title: String {
+    switch self {
+      case .shellCommand:
+        "Shell Command"
+      case .url:
+        "URL"
+      case .searchQuery:
+        "Search Query"
+      case .pattern:
+        "Pattern"
+      case .prompt:
+        "Prompt"
+      case .value:
+        "Input"
+      case .filePath:
+        "File Path"
+      case .action:
+        "Action"
+    }
+  }
+}
+
+extension ServerApprovalPreviewType {
+  var toApprovalPreviewType: ApprovalPreviewType {
+    switch self {
+      case .shellCommand:
+        .shellCommand
+      case .url:
+        .url
+      case .searchQuery:
+        .searchQuery
+      case .pattern:
+        .pattern
+      case .prompt:
+        .prompt
+      case .value:
+        .value
+      case .filePath:
+        .filePath
+      case .action:
+        .action
+    }
+  }
+}
+
 struct ApprovalQuestionOption: Hashable, Sendable {
   let label: String
   let description: String?
@@ -26,14 +81,15 @@ struct ApprovalQuestionPrompt: Hashable, Sendable {
 struct ApprovalCardModel: Hashable, Sendable {
   let mode: ApprovalCardMode
   let toolName: String?
-  let command: String? // Parsed shell command from toolInput
-  let filePath: String? // File path from toolInput (Edit/Write)
+  let previewType: ApprovalPreviewType
+  let shellSegments: [ApprovalShellSegment]
+  let serverManifest: String?
+  let decisionScope: String?
+  let command: String? // Server-authored preview command/value
+  let filePath: String? // Server-authored preview file target
   let risk: ApprovalRisk
+  let riskFindings: [String]
   let diff: String?
-  let question: String?
-  let questionId: String?
-  let questionHeader: String?
-  let questionOptions: [ApprovalQuestionOption]
   let questions: [ApprovalQuestionPrompt]
   let hasAmendment: Bool
   let approvalType: ServerApprovalType?
@@ -73,89 +129,54 @@ enum ApprovalCardModeResolver {
 }
 
 enum ApprovalCardModelBuilder {
-  private struct ParsedQuestionInput {
-    let prompts: [ApprovalQuestionPrompt]
+  private static func unresolvedApproval(
+    in history: [ServerApprovalHistoryItem],
+    requestId: String?
+  ) -> ServerApprovalHistoryItem? {
+    let unresolved = history.filter { $0.decision == nil && $0.decidedAt == nil }
+    if let requestId {
+      let normalizedRequestId = requestId.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !normalizedRequestId.isEmpty,
+         let matching = unresolved.first(where: {
+           $0.requestId.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedRequestId
+         })
+      {
+        return matching
+      }
+    }
+    return unresolved.min { $0.id < $1.id }
   }
 
-  private static func unresolvedApproval(in history: [ServerApprovalHistoryItem]) -> ServerApprovalHistoryItem? {
-    history.first { $0.decision == nil && $0.decidedAt == nil }
+  private static func mapQuestionOptions(
+    _ options: [ServerApprovalQuestionOption]
+  ) -> [ApprovalQuestionOption] {
+    options.compactMap { option in
+      let label = option.label.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !label.isEmpty else { return nil }
+      let description = option.description?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return ApprovalQuestionOption(label: label, description: description?.isEmpty == true ? nil : description)
+    }
   }
 
-  private static func parseQuestionOptions(_ rawOptions: Any?) -> [ApprovalQuestionOption] {
-    guard let options = rawOptions as? [[String: Any]] else { return [] }
-    return options.compactMap { optionDict in
-      let label = (optionDict["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        ?? (optionDict["value"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard let label, !label.isEmpty else { return nil }
-      let description = (optionDict["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-      return ApprovalQuestionOption(
-        label: label,
-        description: description?.isEmpty == true ? nil : description
+  private static func mapQuestionPrompts(
+    _ prompts: [ServerApprovalQuestionPrompt]
+  ) -> [ApprovalQuestionPrompt] {
+    prompts.compactMap { prompt in
+      let id = prompt.id.trimmingCharacters(in: .whitespacesAndNewlines)
+      let question = prompt.question.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !id.isEmpty, !question.isEmpty else { return nil }
+      let header = prompt.header?.trimmingCharacters(in: .whitespacesAndNewlines)
+      return ApprovalQuestionPrompt(
+        id: id,
+        header: header?.isEmpty == true ? nil : header,
+        question: question,
+        options: mapQuestionOptions(prompt.options),
+        allowsMultipleSelection: prompt.allowsMultipleSelection,
+        allowsOther: prompt.allowsOther,
+        isSecret: prompt.isSecret
       )
     }
-  }
-
-  private static func parseBoolean(_ value: Any?) -> Bool {
-    switch value {
-      case let b as Bool:
-        return b
-      case let n as NSNumber:
-        return n.boolValue
-      case let s as String:
-        let normalized = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == "true" || normalized == "1" || normalized == "yes"
-      default:
-        return false
-    }
-  }
-
-  private static func parsePrompt(_ rawQuestion: [String: Any], fallbackId: String) -> ApprovalQuestionPrompt? {
-    let question = (rawQuestion["question"] as? String)?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    let header = (rawQuestion["header"] as? String)?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    let id = (rawQuestion["id"] as? String)?
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    let options = parseQuestionOptions(rawQuestion["options"])
-
-    let resolvedQuestion = (question?.isEmpty == false ? question : nil) ?? "Question"
-    let resolvedId = (id?.isEmpty == false ? id : nil) ?? fallbackId
-
-    let allowsMultipleSelection = parseBoolean(rawQuestion["multiSelect"])
-      || parseBoolean(rawQuestion["multi_select"])
-    let allowsOther = parseBoolean(rawQuestion["isOther"])
-      || parseBoolean(rawQuestion["is_other"])
-    let isSecret = parseBoolean(rawQuestion["isSecret"])
-      || parseBoolean(rawQuestion["is_secret"])
-
-    return ApprovalQuestionPrompt(
-      id: resolvedId,
-      header: header?.isEmpty == true ? nil : header,
-      question: resolvedQuestion,
-      options: options,
-      allowsMultipleSelection: allowsMultipleSelection,
-      allowsOther: allowsOther,
-      isSecret: isSecret
-    )
-  }
-
-  private static func parseQuestionInput(from toolInput: [String: Any]?) -> ParsedQuestionInput {
-    guard let toolInput else {
-      return ParsedQuestionInput(prompts: [])
-    }
-
-    if let questions = toolInput["questions"] as? [[String: Any]] {
-      let prompts = questions.enumerated().compactMap { index, rawQuestion in
-        parsePrompt(rawQuestion, fallbackId: String(index))
-      }
-      return ParsedQuestionInput(prompts: prompts)
-    }
-
-    if let prompt = parsePrompt(toolInput, fallbackId: "0") {
-      return ParsedQuestionInput(prompts: [prompt])
-    }
-
-    return ParsedQuestionInput(prompts: [])
   }
 
   static func build(
@@ -163,8 +184,12 @@ enum ApprovalCardModelBuilder {
     pendingApproval: ServerApprovalRequest?,
     serverState: ServerAppState
   ) -> ApprovalCardModel? {
-    let pendingHistory = unresolvedApproval(in: serverState.session(session.id).approvalHistory)
-    let approvalId = session.pendingApprovalId ?? pendingApproval?.id ?? pendingHistory?.requestId
+    let queueHeadRequestId = serverState.nextPendingApprovalRequestId(sessionId: session.id) ?? session.pendingApprovalId
+    let pendingHistory = unresolvedApproval(
+      in: serverState.session(session.id).approvalHistory,
+      requestId: queueHeadRequestId
+    )
+    let approvalId = pendingApproval?.id ?? queueHeadRequestId ?? pendingHistory?.requestId
     let approvalType = pendingApproval?.type ?? pendingHistory?.approvalType
 
     let mode = ApprovalCardModeResolver.resolve(
@@ -174,89 +199,82 @@ enum ApprovalCardModelBuilder {
     )
     guard mode != .none else { return nil }
 
-    let risk: ApprovalRisk = if let approval = pendingApproval {
-      classifyApprovalRisk(type: approval.type, command: approval.command)
-    } else if let pendingHistory {
-      classifyApprovalRisk(type: pendingHistory.approvalType, command: pendingHistory.command)
-    } else {
-      .normal
-    }
+    let resolvedApprovalTypeForRisk = pendingApproval?.type ?? pendingHistory?.approvalType ?? approvalType
+    let risk = ApprovalRisk.fromServer(
+      level: pendingApproval?.preview?.riskLevel,
+      approvalType: resolvedApprovalTypeForRisk
+    )
+    let riskFindings = pendingApproval?.preview?.riskFindings ?? []
 
-    // Parse toolInput once for both command and filePath extraction
-    let rawToolInput = session.pendingToolInput ?? pendingApproval?.toolInputForDisplay
-    let inputDict: [String: Any]? = {
-      guard let json = rawToolInput,
-            let data = json.data(using: .utf8)
-      else { return nil }
-      return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    }()
+    let previewFromServer: (
+      command: String?,
+      filePath: String?,
+      previewType: ApprovalPreviewType,
+      shellSegments: [ApprovalShellSegment],
+      manifest: String?,
+      decisionScope: String?
+    )? = {
+      guard let preview = pendingApproval?.preview else { return nil }
 
-    // Tool-aware content extraction: try multiple fields to find preview content
-    let commandFromInput: String? = {
-      guard let dict = inputDict else { return nil }
-      // 1. Shell command (Bash)
-      if let cmd = String.shellCommandDisplay(from: dict["command"]) { return cmd }
-      if let cmd = String.shellCommandDisplay(from: dict["cmd"]) { return cmd }
-      // 2. URL (WebFetch, WebSearch)
-      if let url = dict["url"] as? String { return url }
-      // 3. Query (WebSearch, Grep, Glob, search tools)
-      if let query = dict["query"] as? String { return query }
-      // 4. Pattern (Grep, Glob)
-      if let pattern = dict["pattern"] as? String { return pattern }
-      // 5. Prompt (generic description field)
-      if let prompt = dict["prompt"] as? String, prompt.count <= 200 { return prompt }
-      // 6. Generic fallback: first short string value from the input dict
-      for (_, value) in dict {
-        if let str = value as? String, !str.isEmpty, str.count <= 200 {
-          return str
-        }
+      let normalizedValue = preview.value.trimmingCharacters(in: .whitespacesAndNewlines)
+      let valueForDisplay = normalizedValue.isEmpty ? nil : normalizedValue
+
+      switch preview.type {
+        case .filePath:
+          guard let path = valueForDisplay else { return nil }
+          return (
+            command: nil,
+            filePath: path,
+            previewType: .filePath,
+            shellSegments: [],
+            manifest: preview.manifest,
+            decisionScope: preview.decisionScope
+          )
+        default:
+          let previewType = preview.type.toApprovalPreviewType
+          let segments = preview.shellSegments.compactMap { segment -> ApprovalShellSegment? in
+            let command = segment.command.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else { return nil }
+            return ApprovalShellSegment(command: command, leadingOperator: segment.leadingOperator)
+          }
+          return (
+            command: valueForDisplay,
+            filePath: nil,
+            previewType: previewType,
+            shellSegments: segments,
+            manifest: preview.manifest,
+            decisionScope: preview.decisionScope
+          )
       }
-      return nil
     }()
 
-    let filePathFromInput: String? = {
-      guard let dict = inputDict else { return nil }
-      return (dict["path"] as? String) ?? (dict["file_path"] as? String)
+    let command = previewFromServer?.command
+    let filePath = previewFromServer?.filePath
+    let toolName = pendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? pendingHistory?.toolName
+    let previewType: ApprovalPreviewType = {
+      if let serverPreview = previewFromServer {
+        return serverPreview.previewType
+      }
+      return .action
     }()
+    let shellSegments = previewFromServer?.shellSegments ?? []
+    let serverManifest = previewFromServer?.manifest
+    let decisionScope = previewFromServer?.decisionScope
 
-    let parsedQuestionInput = parseQuestionInput(from: inputDict)
-    let command = commandFromInput
-      ?? String.shellCommandDisplay(from: pendingApproval?.command)
-      ?? String.shellCommandDisplay(from: pendingHistory?.command)
-    let filePath = filePathFromInput ?? pendingApproval?.filePath ?? pendingHistory?.filePath
-    let toolName = session.pendingToolName ?? pendingApproval?.toolName ?? pendingHistory?.toolName
-
-    var prompts = parsedQuestionInput.prompts
-    if prompts.isEmpty,
-       let fallbackQuestion = (session.pendingQuestion ?? pendingApproval?.question)?
-       .trimmingCharacters(in: .whitespacesAndNewlines),
-       !fallbackQuestion.isEmpty
-    {
-      prompts = [
-        ApprovalQuestionPrompt(
-          id: "0",
-          header: nil,
-          question: fallbackQuestion,
-          options: [],
-          allowsMultipleSelection: false,
-          allowsOther: true,
-          isSecret: false
-        )
-      ]
-    }
-    let firstPrompt = prompts.first
+    let prompts = mapQuestionPrompts(pendingApproval?.questionPrompts ?? [])
 
     return ApprovalCardModel(
       mode: mode,
       toolName: toolName,
+      previewType: previewType,
+      shellSegments: shellSegments,
+      serverManifest: serverManifest,
+      decisionScope: decisionScope,
       command: command,
       filePath: filePath,
       risk: risk,
+      riskFindings: riskFindings,
       diff: pendingApproval?.diff,
-      question: firstPrompt?.question,
-      questionId: firstPrompt?.id,
-      questionHeader: firstPrompt?.header,
-      questionOptions: firstPrompt?.options ?? [],
       questions: prompts,
       hasAmendment: pendingApproval?.proposedAmendment != nil || pendingHistory?.proposedAmendment != nil,
       approvalType: approvalType,

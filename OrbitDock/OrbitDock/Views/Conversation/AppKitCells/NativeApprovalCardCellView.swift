@@ -37,7 +37,7 @@
     private let toolNameLabel = NSTextField(labelWithString: "")
     private let riskBadge = NSView()
     private let riskBadgeIcon = NSImageView()
-    private let riskBadgeLabel = NSTextField(labelWithString: "DESTRUCTIVE")
+    private let riskBadgeLabel = NSTextField(labelWithString: "HIGH RISK")
 
     // Command preview
     private let commandContainer = NSView()
@@ -97,8 +97,8 @@
       static let commandHorizontalPadding: CGFloat = 10
       static let minCommandTextHeight: CGFloat = 22
       static let maxCommandTextHeight: CGFloat = 220
-      static let primaryButtonHeight: CGFloat = 28
-      static let secondaryRowHeight: CGFloat = 14
+      static let primaryButtonHeight: CGFloat = 32
+      static let secondaryRowHeight: CGFloat = 18
     }
 
     // MARK: - Init
@@ -336,7 +336,10 @@
           constant: -Layout.commandHorizontalPadding
         ),
 
-        projectPathRow.topAnchor.constraint(equalTo: commandContainer.bottomAnchor, constant: Layout.commandVerticalPadding),
+        projectPathRow.topAnchor.constraint(
+          equalTo: commandContainer.bottomAnchor,
+          constant: Layout.commandVerticalPadding
+        ),
         projectPathRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         projectPathRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
@@ -466,7 +469,7 @@
       cardContainer.addSubview(buttonRow)
 
       denyButton.translatesAutoresizingMaskIntoConstraints = false
-      denyButton.title = "Deny n"
+      denyButton.title = "Deny"
       denyButton.bezelStyle = .rounded
       denyButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       denyButton.contentTintColor = NSColor(Color.statusError)
@@ -479,7 +482,7 @@
       buttonRow.addSubview(denyButton)
 
       approveButton.translatesAutoresizingMaskIntoConstraints = false
-      approveButton.title = "Approve Once y"
+      approveButton.title = "Approve Once"
       approveButton.bezelStyle = .rounded
       approveButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       approveButton.contentTintColor = .white
@@ -499,7 +502,7 @@
       cardContainer.addSubview(secondaryRow)
 
       sessionAllowButton.translatesAutoresizingMaskIntoConstraints = false
-      sessionAllowButton.title = "Allow for Session Y"
+      sessionAllowButton.title = "Allow Session"
       sessionAllowButton.isBordered = false
       sessionAllowButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       sessionAllowButton.contentTintColor = NSColor(Color.textSecondary)
@@ -508,7 +511,7 @@
       secondaryRow.addArrangedSubview(sessionAllowButton)
 
       alwaysAllowButton.translatesAutoresizingMaskIntoConstraints = false
-      alwaysAllowButton.title = "Always Allow !"
+      alwaysAllowButton.title = "Always Allow"
       alwaysAllowButton.isBordered = false
       alwaysAllowButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       alwaysAllowButton.contentTintColor = NSColor(Color.accent)
@@ -517,7 +520,7 @@
       secondaryRow.addArrangedSubview(alwaysAllowButton)
 
       denyReasonButton.translatesAutoresizingMaskIntoConstraints = false
-      denyReasonButton.title = "Deny with Reason d"
+      denyReasonButton.title = "Deny w/ Reason"
       denyReasonButton.isBordered = false
       denyReasonButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       denyReasonButton.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)
@@ -531,7 +534,7 @@
       secondaryRow.addArrangedSubview(spacer)
 
       denyStopButton.translatesAutoresizingMaskIntoConstraints = false
-      denyStopButton.title = "Deny & Stop N"
+      denyStopButton.title = "Deny & Stop"
       denyStopButton.isBordered = false
       denyStopButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       denyStopButton.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)
@@ -553,12 +556,12 @@
         denyButton.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor),
         denyButton.topAnchor.constraint(equalTo: buttonRow.topAnchor),
         denyButton.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
-        denyButton.widthAnchor.constraint(equalTo: buttonRow.widthAnchor, multiplier: 0.48),
 
+        approveButton.leadingAnchor.constraint(equalTo: denyButton.trailingAnchor, constant: CGFloat(Spacing.sm)),
         approveButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor),
         approveButton.topAnchor.constraint(equalTo: buttonRow.topAnchor),
         approveButton.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
-        approveButton.widthAnchor.constraint(equalTo: buttonRow.widthAnchor, multiplier: 0.485),
+        approveButton.widthAnchor.constraint(equalTo: denyButton.widthAnchor),
 
         secondaryRow.topAnchor.constraint(equalTo: buttonRow.bottomAnchor, constant: CGFloat(Spacing.xs)),
         secondaryRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -645,10 +648,12 @@
     }
 
     private func configurePermissionMode(_ model: ApprovalCardModel) {
+      let preview = ApprovalPermissionPreviewBuilder.build(for: model)
+
       // Show permission views
       toolBadge.isHidden = false
-      commandContainer.isHidden = model.command == nil && model.filePath == nil
-      projectPathRow.isHidden = model.command == nil
+      commandContainer.isHidden = preview == nil
+      projectPathRow.isHidden = preview?.showsProjectPath != true
       actionDivider.isHidden = false
       buttonRow.isHidden = false
       secondaryRow.isHidden = false
@@ -670,7 +675,7 @@
       headerIcon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
       headerIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.subhead, weight: .semibold)
       headerIcon.contentTintColor = NSColor(model.risk.tintColor)
-      headerLabel.stringValue = "Permission Required"
+      headerLabel.stringValue = "Approval Required"
 
       // Tool badge
       if let toolName = model.toolName {
@@ -688,33 +693,21 @@
         )
         riskBadgeIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.micro, weight: .regular)
         riskBadgeIcon.contentTintColor = .white
-        riskBadgeLabel.stringValue = "DESTRUCTIVE"
+        riskBadgeLabel.stringValue = "HIGH RISK"
       }
 
-      // Command preview
-      if let command = model.command {
-        setCommandPreviewText(command)
-        commandAccentBar.layer?.backgroundColor = NSColor(model.risk.tintColor).cgColor
-        projectPathIcon.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-        projectPathLabel.stringValue = model.projectPath
-        commandContainer.isHidden = false
-        projectPathRow.isHidden = false
-      } else if let filePath = model.filePath {
-        let toolNameLower = (model.toolName ?? "").lowercased()
-        let icon = toolNameLower == "edit" ? "pencil" : "doc.badge.plus"
-        setCommandPreviewText(filePath)
-        commandAccentBar.layer?.backgroundColor = NSColor(model.risk.tintColor).cgColor
-
-        // Re-use project path icon for file icon
-        projectPathIcon.image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)
-        commandContainer.isHidden = false
-        projectPathRow.isHidden = true
-      } else if let toolName = model.toolName {
-        // Generic fallback: show tool name so the card is never blank
-        setCommandPreviewText("Approve \(toolName) action?")
+      // Preview content
+      if let preview {
+        setCommandPreviewText(preview.text)
         commandAccentBar.layer?.backgroundColor = NSColor(model.risk.tintColor).cgColor
         commandContainer.isHidden = false
-        projectPathRow.isHidden = true
+        if preview.showsProjectPath {
+          projectPathIcon.image = NSImage(systemSymbolName: preview.projectPathIconName, accessibilityDescription: nil)
+          projectPathLabel.stringValue = model.projectPath
+          projectPathRow.isHidden = false
+        } else {
+          projectPathRow.isHidden = true
+        }
       } else {
         setCommandPreviewText(nil)
         commandContainer.isHidden = true
@@ -778,9 +771,9 @@
       if isMultiPrompt {
         questionTextLabel.stringValue = "Answer all questions to continue."
       } else {
-        questionTextLabel.stringValue = primaryPrompt?.question ?? model.question ?? ""
+        questionTextLabel.stringValue = primaryPrompt?.question ?? ""
       }
-      if !hasOptions && !isMultiPrompt {
+      if !hasOptions, !isMultiPrompt {
         answerField.stringValue = ""
       }
     }
@@ -827,14 +820,14 @@
       headerIcon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
       headerIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.subhead, weight: .semibold)
       headerIcon.contentTintColor = tint
-      headerLabel.stringValue = isPermission ? "Permission Required" : "Question Pending"
+      headerLabel.stringValue = isPermission ? "Approval Required" : "Question Pending"
 
       takeoverDescription.stringValue = "Take over this session to respond."
       takeoverButton.title = isPermission ? "Take Over & Review" : "Take Over & Answer"
       takeoverButton.layer?.backgroundColor = tint.withAlphaComponent(0.75).cgColor
     }
 
-    private func updateActionDividerPosition(_ model: ApprovalCardModel) {
+    private func updateActionDividerPosition(_: ApprovalCardModel) {
       // Remove existing position constraints for divider if any
       for constraint in cardContainer.constraints where constraint.firstItem === actionDivider
         && constraint.firstAttribute == .top
@@ -842,8 +835,10 @@
         constraint.isActive = false
       }
 
-      let anchor: NSView = if !commandContainer.isHidden {
-        model.command != nil ? projectPathRow : commandContainer
+      let anchor: NSView = if !projectPathRow.isHidden {
+        projectPathRow
+      } else if !commandContainer.isHidden {
+        commandContainer
       } else {
         toolBadge
       }
@@ -957,7 +952,7 @@
     @objc private func answerFieldSubmitted() {
       let answer = answerField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !answer.isEmpty else { return }
-      let questionId = currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      let questionId = currentModel?.questions.first?.id ?? "0"
       onAnswer?([questionId: [answer]])
       answerField.stringValue = ""
     }
@@ -976,7 +971,7 @@
 
     @objc private func questionOptionClicked(_ sender: NSButton) {
       let payload = questionOptionPayloads[ObjectIdentifier(sender)]
-      let questionId = payload?.questionId ?? currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      let questionId = payload?.questionId ?? currentModel?.questions.first?.id ?? "0"
       let label = payload?.optionLabel ?? sender.title.components(separatedBy: "\n").first ?? sender.title
       let answer = label.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !answer.isEmpty else { return }
@@ -1002,7 +997,7 @@
     }
 
     private func configureQuestionOptions(_ options: [ApprovalQuestionOption]) {
-      questionOptionsStack.arrangedSubviews.forEach { view in
+      for view in questionOptionsStack.arrangedSubviews {
         questionOptionsStack.removeArrangedSubview(view)
         view.removeFromSuperview()
       }
@@ -1011,7 +1006,7 @@
 
       guard !options.isEmpty else { return }
 
-      let questionId = currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      let questionId = currentModel?.questions.first?.id ?? "0"
       var buttons: [NSButton] = []
       for option in options {
         let button = NSButton()
@@ -1055,7 +1050,7 @@
     }
 
     private func configureQuestionPromptForm(_ prompts: [ApprovalQuestionPrompt]) {
-      questionOptionsStack.arrangedSubviews.forEach { view in
+      for view in questionOptionsStack.arrangedSubviews {
         questionOptionsStack.removeArrangedSubview(view)
         view.removeFromSuperview()
       }
@@ -1326,12 +1321,7 @@
     }
 
     private static func commandPreviewText(for model: ApprovalCardModel) -> String? {
-      if let command = model.command, !command.isEmpty { return command }
-      if let filePath = model.filePath, !filePath.isEmpty { return filePath }
-      if let toolName = model.toolName, !toolName.isEmpty {
-        return "Approve \(toolName) action?"
-      }
-      return nil
+      ApprovalPermissionPreviewBuilder.build(for: model)?.text
     }
 
     private static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
@@ -1342,21 +1332,7 @@
     }
 
     private static func questionPrompts(for model: ApprovalCardModel) -> [ApprovalQuestionPrompt] {
-      if !model.questions.isEmpty { return model.questions }
-      if let question = model.question, !question.isEmpty {
-        return [
-          ApprovalQuestionPrompt(
-            id: model.questionId ?? "0",
-            header: model.questionHeader,
-            question: question,
-            options: model.questionOptions,
-            allowsMultipleSelection: false,
-            allowsOther: true,
-            isSecret: false
-          )
-        ]
-      }
-      return []
+      model.questions
     }
 
     private static func questionPromptHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {

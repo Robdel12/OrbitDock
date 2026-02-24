@@ -50,6 +50,7 @@ final class ServerAppState {
       )
     }
   }
+
   private(set) var hasReceivedInitialSessionsList = false
 
   /// Cross-session approval history (global view)
@@ -105,6 +106,11 @@ final class ServerAppState {
   private struct SessionsCachePayload: Codable {
     let cachedAt: Date
     let summaries: [ServerSessionSummary]
+  }
+
+  enum ApprovalDispatchResult: Equatable {
+    case dispatched
+    case stale(nextPendingRequestId: String?)
   }
 
   init(connection: ServerConnection, endpointId: UUID) {
@@ -205,9 +211,9 @@ final class ServerAppState {
       }
     }
 
-    conn.onTokensUpdated = { [weak self] sessionId, usage in
+    conn.onTokensUpdated = { [weak self] sessionId, usage, snapshotKind in
       Task { @MainActor in
-        self?.handleTokensUpdated(sessionId, usage)
+        self?.handleTokensUpdated(sessionId, usage, snapshotKind: snapshotKind)
       }
     }
 
@@ -372,7 +378,7 @@ final class ServerAppState {
 
     conn
       .onTurnDiffSnapshot =
-      { [weak self] sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow in
+      { [weak self] sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow, snapshotKind in
         Task { @MainActor in
           self?.handleTurnDiffSnapshot(
             sessionId,
@@ -381,7 +387,8 @@ final class ServerAppState {
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             cachedTokens: cachedTokens,
-            contextWindow: contextWindow
+            contextWindow: contextWindow,
+            snapshotKind: snapshotKind
           )
         }
       }
@@ -547,6 +554,7 @@ final class ServerAppState {
   }
 
   /// Refresh cached Claude models from the server DB.
+  /// Models are populated when Claude sessions are created.
   func refreshClaudeModels() {
     connection.listClaudeModels()
   }
@@ -634,17 +642,43 @@ final class ServerAppState {
     connection.listSkills(sessionId: sessionId)
   }
 
+  /// Resolve the next pending approval request ID for a session.
+  func nextPendingApprovalRequestId(sessionId: String) -> String? {
+    if let requestId = sessions.first(where: { $0.id == sessionId })?.pendingApprovalId {
+      return requestId
+    }
+    if let requestId = session(sessionId).pendingApproval?.id {
+      return requestId
+    }
+    return nil
+  }
+
+  /// Resolve approval type for a specific pending request.
+  func pendingApprovalType(sessionId: String, requestId: String? = nil) -> ServerApprovalType? {
+    let targetRequestId = requestId ?? nextPendingApprovalRequestId(sessionId: sessionId)
+    guard let targetRequestId else { return nil }
+
+    if let approval = session(sessionId).pendingApproval, approval.id == targetRequestId {
+      return approval.type
+    }
+    return nil
+  }
+
   /// Approve or reject a tool with a specific decision
+  @discardableResult
   func approveTool(
     sessionId: String,
     requestId: String,
     decision: String,
     message: String? = nil,
     interrupt: Bool? = nil
-  ) {
-    logger.info("Approving tool \(requestId) in \(sessionId): \(decision)")
+  ) -> ApprovalDispatchResult {
+    guard hasActivePendingApproval(sessionId: sessionId, requestId: requestId) else {
+      logger.warning("Ignoring stale tool approval for \(requestId) in \(sessionId)")
+      return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
+    }
 
-    resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: decision)
+    logger.info("Approving tool \(requestId) in \(sessionId): \(decision)")
 
     connection.approveTool(
       sessionId: sessionId,
@@ -655,18 +689,24 @@ final class ServerAppState {
     )
     connection.listApprovals(sessionId: sessionId, limit: 200)
     connection.listApprovals(sessionId: nil, limit: 200)
+    return .dispatched
   }
 
   /// Answer a question
+  @discardableResult
   func answerQuestion(
     sessionId: String,
     requestId: String,
     answer: String,
     questionId: String? = nil,
     answers: [String: [String]]? = nil
-  ) {
+  ) -> ApprovalDispatchResult {
+    guard hasActivePendingApproval(sessionId: sessionId, requestId: requestId) else {
+      logger.warning("Ignoring stale question answer for \(requestId) in \(sessionId)")
+      return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
+    }
+
     logger.info("Answering question \(requestId) in \(sessionId)")
-    resolvePendingApprovalLocally(sessionId: sessionId, requestId: requestId, decision: "approved")
     connection.answerQuestion(
       sessionId: sessionId,
       requestId: requestId,
@@ -676,6 +716,7 @@ final class ServerAppState {
     )
     connection.listApprovals(sessionId: sessionId, limit: 200)
     connection.listApprovals(sessionId: nil, limit: 200)
+    return .dispatched
   }
 
   /// Steer the active turn with additional guidance
@@ -926,9 +967,70 @@ final class ServerAppState {
 
     if let sessionId {
       session(sessionId).approvalHistory = merged
+      reconcilePendingApprovalFromHistory(sessionId: sessionId, approvals: merged)
     } else {
       globalApprovalHistory = merged
     }
+  }
+
+  private func queueHeadPendingApproval(in approvals: [ServerApprovalHistoryItem]) -> ServerApprovalHistoryItem? {
+    approvals
+      .filter { $0.decision == nil && $0.decidedAt == nil }
+      .min { lhs, rhs in lhs.id < rhs.id }
+  }
+
+  private func reconcilePendingApprovalFromHistory(sessionId: String, approvals: [ServerApprovalHistoryItem]) {
+    guard let idx = sessions.firstIndex(where: { $0.id == sessionId }) else { return }
+
+    let obs = session(sessionId)
+    var sess = sessions[idx]
+    let queueHead = queueHeadPendingApproval(in: approvals)
+    let queueHeadRequestId: String? = {
+      guard let queueHead else { return nil }
+      let trimmed = queueHead.requestId.trimmingCharacters(in: .whitespacesAndNewlines)
+      return trimmed.isEmpty ? nil : trimmed
+    }()
+
+    // No unresolved approvals remain; clear local pending state immediately so the
+    // approval card disappears without requiring navigation or reconnect.
+    guard let queueHeadRequestId else {
+      obs.pendingApproval = nil
+      sess.pendingApprovalId = nil
+      sess.pendingToolName = nil
+      sess.pendingToolInput = nil
+      sess.pendingPermissionDetail = nil
+      sess.pendingQuestion = nil
+      if sess.attentionReason == .awaitingPermission || sess.attentionReason == .awaitingQuestion {
+        sess.attentionReason = .none
+      }
+      if sess.workStatus == .permission {
+        sess.workStatus = .working
+      }
+      sessions[idx] = sess
+      return
+    }
+
+    if obs.pendingApproval?.id != queueHeadRequestId {
+      obs.pendingApproval = nil
+    }
+
+    if sess.pendingApprovalId != queueHeadRequestId {
+      sess.pendingApprovalId = queueHeadRequestId
+    }
+
+    if obs.pendingApproval == nil, let queueHead {
+      sess.pendingToolName = queueHead.toolName
+      sess.pendingToolInput = queueHead.command ?? queueHead.filePath
+      sess.pendingPermissionDetail = queueHead.command ?? queueHead.filePath
+      sess.pendingQuestion = queueHead.approvalType == .question ? (queueHead.command ?? queueHead.filePath) : nil
+    }
+
+    let nextAttentionReason: Session.AttentionReason = queueHead?.approvalType == .question
+      ? .awaitingQuestion
+      : .awaitingPermission
+    sess.attentionReason = nextAttentionReason
+    sess.workStatus = .permission
+    sessions[idx] = sess
   }
 
   /// Out-of-order websocket responses can deliver an older "pending" snapshot after a
@@ -989,6 +1091,7 @@ final class ServerAppState {
     }
 
     obs.tokenUsage = state.tokenUsage
+    obs.tokenUsageSnapshotKind = state.tokenUsageSnapshotKind
 
     if state.provider == .codex || state.claudeIntegrationMode == .direct {
       setConfigCache(sessionId: state.id, approvalPolicy: state.approvalPolicy, sandboxMode: state.sandboxMode)
@@ -1058,12 +1161,16 @@ final class ServerAppState {
         sess.pendingApprovalId = approval.id
         sess.pendingToolName = approval.toolNameForDisplay
         sess.pendingToolInput = approval.toolInputForDisplay
-        sess.pendingQuestion = approval.question
+        sess.pendingPermissionDetail = approval.preview?.compact
+        sess.pendingQuestion = approval.questionPrompts.first?.question ?? approval.question
+        sess.attentionReason = approval.type == .question ? .awaitingQuestion : .awaitingPermission
+        sess.workStatus = .permission
       } else {
         obs.pendingApproval = nil
         sess.pendingApprovalId = nil
         sess.pendingToolName = nil
         sess.pendingToolInput = nil
+        sess.pendingPermissionDetail = nil
         sess.pendingQuestion = nil
       }
     }
@@ -1074,6 +1181,10 @@ final class ServerAppState {
       sess.outputTokens = Int(usage.outputTokens)
       sess.cachedTokens = Int(usage.cachedTokens)
       sess.contextWindow = Int(usage.contextWindow)
+    }
+    if let snapshotKind = changes.tokenUsageSnapshotKind {
+      obs.tokenUsageSnapshotKind = snapshotKind
+      sess.tokenUsageSnapshotKind = snapshotKind
     }
     if let diffOuter = changes.currentDiff {
       if let diff = diffOuter {
@@ -1198,12 +1309,6 @@ final class ServerAppState {
     let hasPendingApproval = obs.pendingApproval != nil
     if hadPendingApproval, !hasPendingApproval {
       refreshApprovalHistory(sessionId: sessionId)
-      Task { @MainActor in
-        for delayMs in [250, 1_000, 2_000] {
-          try? await Task.sleep(for: .milliseconds(delayMs))
-          refreshApprovalHistory(sessionId: sessionId)
-        }
-      }
     }
   }
 
@@ -1212,69 +1317,8 @@ final class ServerAppState {
     connection.listApprovals(sessionId: nil, limit: 200)
   }
 
-  private func resolvePendingApprovalLocally(sessionId: String, requestId: String, decision: String) {
-    let decidedAt = ISO8601DateFormatter().string(from: Date())
-    let obs = session(sessionId)
-
-    if let pending = obs.pendingApproval, pending.id == requestId {
-      obs.pendingApproval = nil
-
-      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-        var sess = sessions[idx]
-        sess.pendingApprovalId = nil
-        sess.pendingToolName = nil
-        sess.pendingToolInput = nil
-        sess.pendingQuestion = nil
-        sess.workStatus = .working
-        sess.attentionReason = .none
-        sessions[idx] = sess
-      }
-    }
-
-    let rows = obs.approvalHistory
-    if !rows.isEmpty {
-      var updatedRows: [ServerApprovalHistoryItem] = []
-      for row in rows {
-        if row.requestId == requestId, row.decision == nil {
-          updatedRows.append(
-            ServerApprovalHistoryItem(
-              id: row.id,
-              sessionId: row.sessionId,
-              requestId: row.requestId,
-              approvalType: row.approvalType,
-              toolName: row.toolName,
-              command: row.command,
-              filePath: row.filePath,
-              cwd: row.cwd,
-              decision: decision,
-              proposedAmendment: row.proposedAmendment,
-              createdAt: row.createdAt,
-              decidedAt: decidedAt
-            )
-          )
-        } else {
-          updatedRows.append(row)
-        }
-      }
-      obs.approvalHistory = updatedRows
-      globalApprovalHistory = globalApprovalHistory.map { item in
-        guard item.sessionId == sessionId, item.requestId == requestId, item.decision == nil else { return item }
-        return ServerApprovalHistoryItem(
-          id: item.id,
-          sessionId: item.sessionId,
-          requestId: item.requestId,
-          approvalType: item.approvalType,
-          toolName: item.toolName,
-          command: item.command,
-          filePath: item.filePath,
-          cwd: item.cwd,
-          decision: decision,
-          proposedAmendment: item.proposedAmendment,
-          createdAt: item.createdAt,
-          decidedAt: decidedAt
-        )
-      }
-    }
+  private func hasActivePendingApproval(sessionId: String, requestId: String) -> Bool {
+    nextPendingApprovalRequestId(sessionId: sessionId) == requestId
   }
 
   private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {
@@ -1492,24 +1536,44 @@ final class ServerAppState {
 
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest) {
     logger.info("Approval requested in \(sessionId): \(request.type.rawValue)")
-    session(sessionId).pendingApproval = request
+    let obs = session(sessionId)
+    let currentPendingRequestId =
+      sessions.first(where: { $0.id == sessionId })?.pendingApprovalId
+      ?? obs.pendingApproval?.id
+    let shouldPromoteAsActive = currentPendingRequestId == nil || currentPendingRequestId == request.id
+
+    if shouldPromoteAsActive {
+      obs.pendingApproval = request
+
+      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+        var sess = sessions[idx]
+        sess.pendingApprovalId = request.id
+        sess.pendingToolName = request.toolNameForDisplay
+        sess.pendingToolInput = request.toolInputForDisplay
+        sess.pendingPermissionDetail = request.preview?.compact
+        sess.pendingQuestion = request.questionPrompts.first?.question ?? request.question
+        sess.attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
+        sess.workStatus = .permission
+        sessions[idx] = sess
+      }
+    } else {
+      logger.debug(
+        "Queued approval \(request.id) for \(sessionId); preserving active \(currentPendingRequestId ?? "none")"
+      )
+    }
+
     connection.listApprovals(sessionId: sessionId, limit: 200)
     connection.listApprovals(sessionId: nil, limit: 200)
-
-    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-      var sess = sessions[idx]
-      sess.pendingApprovalId = request.id
-      sess.pendingToolName = request.toolNameForDisplay
-      sess.pendingToolInput = request.toolInputForDisplay
-      sess.pendingQuestion = request.question
-      sess.attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
-      sess.workStatus = .permission
-      sessions[idx] = sess
-    }
   }
 
-  private func handleTokensUpdated(_ sessionId: String, _ usage: ServerTokenUsage) {
-    session(sessionId).tokenUsage = usage
+  private func handleTokensUpdated(
+    _ sessionId: String,
+    _ usage: ServerTokenUsage,
+    snapshotKind: ServerTokenUsageSnapshotKind
+  ) {
+    let obs = session(sessionId)
+    obs.tokenUsage = usage
+    obs.tokenUsageSnapshotKind = snapshotKind
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].totalTokens = Int(usage.inputTokens + usage.outputTokens)
@@ -1517,6 +1581,7 @@ final class ServerAppState {
       sessions[idx].outputTokens = Int(usage.outputTokens)
       sessions[idx].cachedTokens = Int(usage.cachedTokens)
       sessions[idx].contextWindow = Int(usage.contextWindow)
+      sessions[idx].tokenUsageSnapshotKind = snapshotKind
     }
   }
 
@@ -1537,6 +1602,7 @@ final class ServerAppState {
       contextWindow: contextWindow
     )
     obs.tokenUsage = resetUsage
+    obs.tokenUsageSnapshotKind = .compactionReset
 
     if let idx = sessionIndex {
       sessions[idx].totalTokens = Int(outputTokens)
@@ -1544,6 +1610,7 @@ final class ServerAppState {
       sessions[idx].outputTokens = Int(outputTokens)
       sessions[idx].cachedTokens = 0
       sessions[idx].contextWindow = Int(contextWindow)
+      sessions[idx].tokenUsageSnapshotKind = .compactionReset
     }
   }
 
@@ -1652,7 +1719,8 @@ final class ServerAppState {
     inputTokens: UInt64?,
     outputTokens: UInt64?,
     cachedTokens: UInt64?,
-    contextWindow: UInt64?
+    contextWindow: UInt64?,
+    snapshotKind: ServerTokenUsageSnapshotKind
   ) {
     logger.debug("Turn diff snapshot for \(sessionId), turn \(turnId)")
     let obs = session(sessionId)
@@ -1662,7 +1730,8 @@ final class ServerAppState {
       inputTokens: inputTokens,
       outputTokens: outputTokens,
       cachedTokens: cachedTokens,
-      contextWindow: contextWindow
+      contextWindow: contextWindow,
+      snapshotKind: snapshotKind
     )
     var turnDiffs = obs.turnDiffs
     turnDiffs.append(newDiff)

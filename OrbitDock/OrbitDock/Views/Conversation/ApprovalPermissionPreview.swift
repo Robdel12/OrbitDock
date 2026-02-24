@@ -20,29 +20,15 @@ struct ApprovalPermissionPreview: Hashable, Sendable {
 
 enum ApprovalPermissionPreviewBuilder {
   static func build(for model: ApprovalCardModel) -> ApprovalPermissionPreview? {
-    if let command = trimmed(model.command) {
-      return buildCommandPreview(
-        command: command,
-        previewType: model.previewType,
-        shellSegments: model.shellSegments
-      )
+    if let structuredPreview = buildServerBackedPreview(for: model) {
+      return structuredPreview
     }
 
-    if let filePath = trimmed(model.filePath) {
-      let title = ApprovalPreviewType.filePath.title
-      let iconName = filePreviewIconName(for: model.toolName)
+    if let manifest = trimmed(model.serverManifest) {
       return ApprovalPermissionPreview(
-        text: "\(title)\n\(filePath)",
-        showsProjectPath: false,
-        projectPathIconName: iconName
-      )
-    }
-
-    if let toolName = trimmed(model.toolName) {
-      return ApprovalPermissionPreview(
-        text: "\(ApprovalPreviewType.action.title)\nApprove \(toolName) action?",
-        showsProjectPath: false,
-        projectPathIconName: "questionmark.circle"
+        text: manifest,
+        showsProjectPath: model.previewType == .shellCommand,
+        projectPathIconName: previewIconName(for: model)
       )
     }
 
@@ -51,237 +37,151 @@ enum ApprovalPermissionPreviewBuilder {
 
   static func compactPermissionDetail(
     serverDetail: String?,
-    toolName: String?,
-    toolInput: String?,
     maxLength: Int = 50
   ) -> String? {
-    if let serverDetail = trimmed(serverDetail) {
-      return compactTruncate(serverDetail, maxLength: maxLength)
-    }
-    return compactPermissionDetail(toolName: toolName, toolInput: toolInput, maxLength: maxLength)
+    guard let serverDetail = trimmed(serverDetail) else { return nil }
+    return compactTruncate(serverDetail, maxLength: maxLength)
   }
 
-  static func compactPermissionDetail(
-    toolName: String?,
-    toolInput: String?,
-    maxLength: Int = 50
-  ) -> String? {
-    guard let toolInput,
-          let data = toolInput.data(using: .utf8),
-          let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { return nil }
+  private static func buildServerBackedPreview(for model: ApprovalCardModel) -> ApprovalPermissionPreview? {
+    let decisionScope = trimmed(model.decisionScope) ?? "approve/deny applies to the full request payload."
 
-    let normalizedTool = (toolName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    if ["edit", "write", "read", "notebookedit"].contains(normalizedTool),
-       let filePath = trimmed((input["file_path"] as? String) ?? (input["path"] as? String))
-    {
-      let fileName = (filePath as NSString).lastPathComponent
-      return compactTruncate(fileName, maxLength: maxLength)
-    }
+    let lines = serverBackedLines(for: model, decisionScope: decisionScope)
+    guard !lines.isEmpty else { return nil }
 
-    if let command = String.shellCommandDisplay(from: input["command"])
-      ?? String.shellCommandDisplay(from: input["cmd"])
-    {
-      let segments = shellSegments(for: command)
-      let summary: String
-      if segments.count > 1 {
-        let first = segments[0].command
-        let remaining = segments.count - 1
-        let segmentWord = remaining == 1 ? "segment" : "segments"
-        summary = "\(first) +\(remaining) \(segmentWord)"
-      } else {
-        summary = command
-      }
-      return compactTruncate(summary, maxLength: maxLength)
-    }
-
-    if let url = trimmed(input["url"] as? String) {
-      return compactTruncate("url: \(url)", maxLength: maxLength)
-    }
-
-    if let query = trimmed(input["query"] as? String) {
-      return compactTruncate("query: \(query)", maxLength: maxLength)
-    }
-
-    if let pattern = trimmed(input["pattern"] as? String) {
-      return compactTruncate("pattern: \(pattern)", maxLength: maxLength)
-    }
-
-    if let prompt = trimmed(input["prompt"] as? String) {
-      return compactTruncate("prompt: \(prompt)", maxLength: maxLength)
-    }
-
-    let fallback = input.keys.sorted().compactMap { key -> String? in
-      guard let value = input[key] as? String else { return nil }
-      let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard !trimmedValue.isEmpty else { return nil }
-      return trimmedValue
-    }.first
-
-    guard let fallback else { return nil }
-    return compactTruncate(fallback, maxLength: maxLength)
+    return ApprovalPermissionPreview(
+      text: lines.joined(separator: "\n"),
+      showsProjectPath: model.previewType == .shellCommand,
+      projectPathIconName: previewIconName(for: model)
+    )
   }
 
-  static func shellSegments(for command: String) -> [ApprovalShellSegment] {
-    let characters = Array(command)
-    var segments: [ApprovalShellSegment] = []
-    var buffer = ""
-    var pendingOperator: String?
+  private static func serverBackedLines(for model: ApprovalCardModel, decisionScope: String) -> [String] {
+    let requestId = trimmed(model.approvalId) ?? "unknown"
+    let toolName = trimmed(model.toolName) ?? "unknown"
+    let approvalType = approvalTypeLabel(model.approvalType)
+    let riskTier = riskTierLabel(model.risk)
 
-    var inSingleQuote = false
-    var inDoubleQuote = false
-    var inBacktick = false
-    var escaped = false
-    var parenDepth = 0
+    var lines: [String] = [
+      "APPROVAL REQUEST",
+      "request_id: \(requestId)",
+      "approval_type: \(approvalType)",
+      "tool: \(toolName)",
+      "risk_tier: \(riskTier)",
+    ]
 
-    func flushSegment() {
-      let trimmedSegment = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-      defer { buffer = "" }
-      guard !trimmedSegment.isEmpty else { return }
-
-      let leadingOperator = segments.isEmpty ? nil : pendingOperator
-      segments.append(
-        ApprovalShellSegment(
-          command: trimmedSegment,
-          leadingOperator: leadingOperator
-        )
-      )
-      pendingOperator = nil
+    if !model.riskFindings.isEmpty {
+      lines.append("risk_signals:")
+      lines.append(contentsOf: model.riskFindings.map { "- \($0)" })
     }
 
-    var index = 0
-    while index < characters.count {
-      let character = characters[index]
-
-      if escaped {
-        buffer.append(character)
-        escaped = false
-        index += 1
-        continue
-      }
-
-      if character == "\\" {
-        if !inSingleQuote {
-          escaped = true
-        }
-        buffer.append(character)
-        index += 1
-        continue
-      }
-
-      if !inDoubleQuote, !inBacktick, character == "'" {
-        inSingleQuote.toggle()
-        buffer.append(character)
-        index += 1
-        continue
-      }
-
-      if !inSingleQuote, !inBacktick, character == "\"" {
-        inDoubleQuote.toggle()
-        buffer.append(character)
-        index += 1
-        continue
-      }
-
-      if !inSingleQuote, !inDoubleQuote, character == "`" {
-        inBacktick.toggle()
-        buffer.append(character)
-        index += 1
-        continue
-      }
-
-      let canSplit = !inSingleQuote && !inDoubleQuote && !inBacktick && parenDepth == 0
-
-      if !inSingleQuote, !inDoubleQuote, !inBacktick {
-        if character == "(" {
-          parenDepth += 1
-        } else if character == ")" {
-          parenDepth = max(0, parenDepth - 1)
-        }
-      }
-
-      if canSplit {
-        if character == "|" {
-          let isDouble = (index + 1) < characters.count && characters[index + 1] == "|"
-          flushSegment()
-          pendingOperator = isDouble ? "||" : "|"
-          index += isDouble ? 2 : 1
-          continue
-        }
-
-        if character == "&", (index + 1) < characters.count, characters[index + 1] == "&" {
-          flushSegment()
-          pendingOperator = "&&"
-          index += 2
-          continue
-        }
-
-        if character == ";" || character == "\n" {
-          flushSegment()
-          pendingOperator = character == "\n" ? ";" : String(character)
-          index += 1
-          continue
-        }
-      }
-
-      buffer.append(character)
-      index += 1
-    }
-
-    flushSegment()
-    return segments
+    lines.append("")
+    lines.append("decision_scope: \(decisionScope)")
+    lines.append(contentsOf: serverBackedContentLines(for: model))
+    return lines
   }
 
-  private static func buildCommandPreview(
-    command: String,
-    previewType: ApprovalPreviewType,
-    shellSegments: [ApprovalShellSegment]
-  ) -> ApprovalPermissionPreview {
-    switch previewType {
+  private static func serverBackedContentLines(for model: ApprovalCardModel) -> [String] {
+    switch model.previewType {
       case .shellCommand:
-        let segments = shellSegments.isEmpty ? Self.shellSegments(for: command) : shellSegments
-        if segments.count > 1 {
-          let title = "\(previewType.title) (\(segments.count) segments)"
-          let lines = segments.enumerated().map { index, segment in
-            if let op = segment.leadingOperator, !op.isEmpty {
-              return "[\(index + 1)] (\(op)) \(segment.command)"
-            }
-            return "[\(index + 1)] \(segment.command)"
-          }
-          return ApprovalPermissionPreview(
-            text: ([title] + lines).joined(separator: "\n"),
-            showsProjectPath: true,
-            projectPathIconName: "folder"
-          )
+        let segments = model.shellSegments
+
+        var lines = [
+          "command_segments: \(max(segments.count, 1))",
+          "segments:",
+        ]
+        if segments.isEmpty {
+          lines.append("[1] unavailable")
+          return lines
         }
 
-        return ApprovalPermissionPreview(
-          text: "\(previewType.title)\n\(command)",
-          showsProjectPath: true,
-          projectPathIconName: "folder"
-        )
-
-      case .filePath:
-        return ApprovalPermissionPreview(
-          text: "\(ApprovalPreviewType.filePath.title)\n\(command)",
-          showsProjectPath: false,
-          projectPathIconName: "doc"
-        )
-
-      case .action:
-        return ApprovalPermissionPreview(
-          text: "\(ApprovalPreviewType.action.title)\n\(command)",
-          showsProjectPath: false,
-          projectPathIconName: "questionmark.circle"
-        )
+        for (index, segment) in segments.enumerated() {
+          let prefix = shellOperatorPrefix(segment.leadingOperator)
+          let command = compactTruncate(segment.command, maxLength: 220)
+          lines.append("[\(index + 1)] \(prefix)\(command)")
+        }
+        return lines
 
       default:
-        return ApprovalPermissionPreview(
-          text: "\(previewType.title)\n\(command)",
-          showsProjectPath: false,
-          projectPathIconName: "doc.text"
-        )
+        guard let value = previewValue(for: model) else { return [] }
+        return ["\(previewValueLabel(for: model.previewType)): \(value)"]
     }
+  }
+
+  private static func previewValue(for model: ApprovalCardModel) -> String? {
+    switch model.previewType {
+      case .filePath:
+        return trimmed(model.filePath)
+      default:
+        return trimmed(model.command)
+    }
+  }
+
+  private static func previewValueLabel(for previewType: ApprovalPreviewType) -> String {
+    switch previewType {
+      case .filePath:
+        "target_file"
+      case .url:
+        "target_url"
+      case .searchQuery:
+        "search_query"
+      case .pattern:
+        "pattern"
+      case .prompt:
+        "prompt"
+      case .value:
+        "value"
+      case .action:
+        "action"
+      case .shellCommand:
+        "command"
+    }
+  }
+
+  private static func previewIconName(for model: ApprovalCardModel) -> String {
+    switch model.previewType {
+      case .shellCommand:
+        "folder"
+      case .filePath:
+        filePreviewIconName(for: model.toolName)
+      case .action:
+        "questionmark.circle"
+      default:
+        "doc.text"
+    }
+  }
+
+  private static func approvalTypeLabel(_ approvalType: ServerApprovalType?) -> String {
+    guard let approvalType else { return "unknown" }
+    return approvalType.rawValue
+  }
+
+  private static func riskTierLabel(_ risk: ApprovalRisk) -> String {
+    switch risk {
+      case .low:
+        "low"
+      case .normal:
+        "normal"
+      case .high:
+        "high"
+    }
+  }
+
+  private static func shellOperatorPrefix(_ leadingOperator: String?) -> String {
+    guard let op = trimmed(leadingOperator) else { return "" }
+
+    let meaning: String
+    switch op {
+      case "||":
+        meaning = "if previous fails"
+      case "&&":
+        meaning = "if previous succeeds"
+      case "|":
+        meaning = "pipe output from previous"
+      default:
+        meaning = "then"
+    }
+    return "(\(op), \(meaning)) "
   }
 
   private static func filePreviewIconName(for toolName: String?) -> String {

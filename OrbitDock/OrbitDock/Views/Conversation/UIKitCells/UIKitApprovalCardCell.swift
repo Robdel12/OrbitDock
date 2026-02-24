@@ -183,7 +183,7 @@
       riskBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
       riskBadgeLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .black)
       riskBadgeLabel.textColor = .white
-      riskBadgeLabel.text = "DESTRUCTIVE"
+      riskBadgeLabel.text = "HIGH RISK"
       riskBadgeContainer.addSubview(riskBadgeLabel)
 
       let pad = Layout.cardPadding
@@ -390,7 +390,7 @@
       actionHintLabel.translatesAutoresizingMaskIntoConstraints = false
       actionHintLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       actionHintLabel.textColor = UIColor(Color.textQuaternary)
-      actionHintLabel.text = "Press and hold buttons for session, always, and deny-reason options"
+      actionHintLabel.text = "Decision applies to the full request. Long-press or More for alternate actions."
       actionHintLabel.numberOfLines = 1
       actionHintLabel.lineBreakMode = .byTruncatingTail
       actionHintLabel.adjustsFontSizeToFitWidth = true
@@ -486,7 +486,7 @@
       let iconName = model.risk == .high ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill"
       headerIcon.image = UIImage(systemName: iconName)
       headerIcon.tintColor = UIColor(model.risk.tintColor)
-      headerLabel.text = "Permission Required"
+      headerLabel.text = "Approval Required"
 
       // Tool badge
       if let toolName = model.toolName {
@@ -510,12 +510,12 @@
       configureMoreActionsMenu(model)
       let hasAlwaysAllow = model.approvalType == .exec && model.hasAmendment
       actionHintLabel.text = hasAlwaysAllow
-        ? "Long-press buttons, or use More, for session/always/deny-reason actions"
-        : "Long-press buttons, or use More, for session/deny-reason actions"
+        ? "Decision applies to the full request. Use long-press or More for session, always allow, or deny-reason actions."
+        : "Decision applies to the full request. Use long-press or More for session and deny-reason actions."
       approveButton.accessibilityHint = hasAlwaysAllow
-        ? "Press and hold for session or always allow options"
-        : "Press and hold for allow-for-session options"
-      moreActionsButton.accessibilityHint = "Opens all approval and denial actions"
+        ? "Approves the full request once. Press and hold for session or always allow options."
+        : "Approves the full request once. Press and hold for allow-for-session options."
+      moreActionsButton.accessibilityHint = "Opens all full-request approval and denial actions."
 
       // Position divider
       updateDividerPosition(model)
@@ -568,7 +568,7 @@
       if isMultiPrompt {
         questionTextLabel.text = "Answer all questions to continue."
       } else {
-        questionTextLabel.text = primaryPrompt?.question ?? model.question ?? ""
+        questionTextLabel.text = primaryPrompt?.question ?? ""
       }
       if !hasOptions, !isMultiPrompt {
         answerField.text = ""
@@ -612,7 +612,7 @@
       let iconName = isPermission ? "lock.fill" : "questionmark.bubble.fill"
       headerIcon.image = UIImage(systemName: iconName)
       headerIcon.tintColor = tint
-      headerLabel.text = isPermission ? "Permission Required" : "Question Pending"
+      headerLabel.text = isPermission ? "Approval Required" : "Question Pending"
       takeoverDescription.text = "Take over this session to respond."
       takeoverButton.setTitle(isPermission ? "Take Over & Review" : "Take Over & Answer", for: .normal)
       takeoverButton.backgroundColor = tint.withAlphaComponent(0.75)
@@ -679,7 +679,7 @@
 
     private func approveMenuActions(_ model: ApprovalCardModel) -> [UIAction] {
       var children: [UIAction] = []
-      children.append(UIAction(title: "Approve Once", image: UIImage(systemName: "checkmark")) { [weak self] _ in
+      children.append(UIAction(title: "Approve Request Once", image: UIImage(systemName: "checkmark")) { [weak self] _ in
         self?.onDecision?("approved", nil, nil)
       })
       children
@@ -750,7 +750,7 @@
     @objc private func answerFieldReturnPressed() {
       let answer = (answerField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
       guard !answer.isEmpty else { return }
-      let questionId = currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      let questionId = currentModel?.questions.first?.id ?? "0"
       onAnswer?([questionId: [answer]])
       answerField.text = ""
     }
@@ -779,7 +779,7 @@
 
       guard !options.isEmpty else { return }
 
-      let questionId = currentModel?.questionId ?? currentModel?.questions.first?.id ?? "0"
+      let questionId = currentModel?.questions.first?.id ?? "0"
       for option in options {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -1085,12 +1085,7 @@
     }
 
     private static func commandPreviewText(for model: ApprovalCardModel) -> String? {
-      if let command = model.command, !command.isEmpty { return command }
-      if let filePath = model.filePath, !filePath.isEmpty { return filePath }
-      if let toolName = model.toolName, !toolName.isEmpty {
-        return "Approve \(toolName) action?"
-      }
-      return nil
+      ApprovalPermissionPreviewBuilder.build(for: model)?.text
     }
 
     private static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
@@ -1101,21 +1096,7 @@
     }
 
     private static func questionPrompts(for model: ApprovalCardModel) -> [ApprovalQuestionPrompt] {
-      if !model.questions.isEmpty { return model.questions }
-      if let question = model.question, !question.isEmpty {
-        return [
-          ApprovalQuestionPrompt(
-            id: model.questionId ?? "0",
-            header: model.questionHeader,
-            question: question,
-            options: model.questionOptions,
-            allowsMultipleSelection: false,
-            allowsOther: true,
-            isSecret: false
-          ),
-        ]
-      }
-      return []
+      model.questions
     }
 
     private static func questionPromptHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {

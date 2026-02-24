@@ -19,7 +19,7 @@ import SwiftUI
     let workStatus: Session.WorkStatus
     let currentTool: String?
     let pendingToolName: String?
-    let pendingToolInput: String?
+    let pendingPermissionDetail: String?
     let provider: Provider
     let model: String?
     let sessionId: String?
@@ -59,7 +59,7 @@ import SwiftUI
         workStatus: workStatus,
         currentTool: currentTool,
         pendingToolName: pendingToolName,
-        pendingToolInput: pendingToolInput,
+        pendingPermissionDetail: pendingPermissionDetail,
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
@@ -87,7 +87,7 @@ import SwiftUI
         workStatus: workStatus,
         currentTool: currentTool,
         pendingToolName: pendingToolName,
-        pendingToolInput: pendingToolInput,
+        pendingPermissionDetail: pendingPermissionDetail,
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
@@ -325,7 +325,7 @@ import SwiftUI
           currentTool: meta.currentTool,
           currentPrompt: meta.currentPrompt,
           pendingToolName: meta.pendingToolName,
-          pendingToolInput: meta.pendingToolInput,
+          pendingPermissionDetail: meta.pendingPermissionDetail,
           provider: self.provider
         ))
       }
@@ -336,10 +336,7 @@ import SwiftUI
         cell.configure(model: model)
         cell.onDecision = { [weak self] decision, message, interrupt in
           guard let self else { return }
-          let requestId = model.approvalId
-            ?? self.serverState?.session(model.sessionId).pendingApproval?.id
-            ?? self.serverState?.sessions.first(where: { $0.id == model.sessionId })?.pendingApprovalId
-          guard let requestId else { return }
+          guard let requestId = model.approvalId else { return }
           self.serverState?.approveTool(
             sessionId: model.sessionId,
             requestId: requestId,
@@ -350,10 +347,7 @@ import SwiftUI
         }
         cell.onAnswer = { [weak self] answers in
           guard let self else { return }
-          let requestId = model.approvalId
-            ?? self.serverState?.session(model.sessionId).pendingApproval?.id
-            ?? self.serverState?.sessions.first(where: { $0.id == model.sessionId })?.pendingApprovalId
-          guard let requestId else { return }
+          guard let requestId = model.approvalId else { return }
           let normalizedAnswers = answers.reduce(into: [String: [String]]()) { partialResult, entry in
             let key = entry.key.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !key.isEmpty else { return }
@@ -364,7 +358,7 @@ import SwiftUI
             partialResult[key] = values
           }
           guard !normalizedAnswers.isEmpty else { return }
-          let preferredQuestionId = model.questionId ?? model.questions.first?.id
+          let preferredQuestionId = model.questions.first?.id
           let primaryAnswer: String? = {
             if let preferredQuestionId,
                let answer = normalizedAnswers[preferredQuestionId]?.first
@@ -490,7 +484,7 @@ import SwiftUI
       workStatus: Session.WorkStatus,
       currentTool: String?,
       pendingToolName: String?,
-      pendingToolInput: String?,
+      pendingPermissionDetail: String?,
       currentPrompt: String?,
       messageCount: Int,
       remainingLoadCount: Int,
@@ -499,10 +493,18 @@ import SwiftUI
       // Derive approval state directly from serverState (source of truth)
       let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
       let observable = sessionId.flatMap { serverState?.session($0) }
-      let pendingHistory = observable?.approvalHistory.first { $0.decision == nil && $0.decidedAt == nil }
-      let resolvedApprovalId = session?.pendingApprovalId ?? observable?.pendingApproval?.id ?? pendingHistory?.requestId
-      let resolvedApprovalType = observable?.pendingApproval?.type ?? pendingHistory?.approvalType
+      let resolvedApprovalId = sessionId.flatMap { sid in
+        serverState?.nextPendingApprovalRequestId(sessionId: sid)
+      }
+      let resolvedApprovalType = sessionId.flatMap { sid in
+        serverState?.pendingApprovalType(sessionId: sid, requestId: resolvedApprovalId)
+      }
       let needsApproval = session?.needsApprovalOverlay ?? false
+      let pendingApprovalCommand: String? = {
+        guard let preview = observable?.pendingApproval?.preview, preview.type == .shellCommand else { return nil }
+        let command = preview.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return command.isEmpty ? nil : command
+      }()
       let approvalMode: ApprovalCardMode = {
         guard let s = session else { return .none }
         return ApprovalCardModeResolver.resolve(
@@ -518,15 +520,19 @@ import SwiftUI
         isSessionActive: isSessionActive,
         workStatus: workStatus,
         currentTool: session?.lastTool ?? currentTool,
-        pendingToolName: session?.pendingToolName ?? pendingToolName,
-        pendingToolInput: session?.pendingToolInput ?? pendingToolInput,
+        pendingToolName: observable?.pendingApproval?.toolNameForDisplay ?? session?.pendingToolName ?? pendingToolName,
+        pendingApprovalCommand: pendingApprovalCommand,
+        pendingPermissionDetail: session?.pendingPermissionDetail
+          ?? observable?.pendingApproval?.preview?.compact
+          ?? pendingPermissionDetail,
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
         hasMoreMessages: hasMoreMessages,
         needsApprovalCard: shouldShowApprovalCard,
         approvalMode: approvalMode,
-        pendingQuestion: session?.pendingQuestion ?? observable?.pendingApproval?.question,
+        pendingQuestion: observable?.pendingApproval?.questionPrompts.first?.question
+          ?? observable?.pendingApproval?.question,
         pendingApprovalId: resolvedApprovalId,
         isDirectSession: session?.isDirect ?? false,
         sessionId: self.sessionId,
