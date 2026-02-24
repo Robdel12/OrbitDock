@@ -44,6 +44,7 @@ class ServerConnection: ObservableObject {
   @Published private(set) var status: ConnectionStatus = .disconnected
   @Published private(set) var lastError: String?
   @Published private(set) var serverIsPrimary: Bool?
+  @Published private(set) var serverPrimaryClaims: [ServerClientPrimaryClaim] = []
 
   private var webSocket: URLSessionWebSocketTask?
   private var session: URLSession?
@@ -52,6 +53,7 @@ class ServerConnection: ObservableObject {
 
   private var serverURL: URL
   private var connectAttempts = 0
+  private var lastSentClientPrimaryClaim: (clientId: String, deviceName: String, isPrimary: Bool)?
 
   private var pendingDirectoryListingContinuations: [String: CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>] = [:]
   private var pendingRecentProjectsContinuations: [String: CheckedContinuation<[ServerRecentProject], Error>] = [:]
@@ -167,6 +169,8 @@ class ServerConnection: ObservableObject {
 
     serverURL = url
     serverIsPrimary = nil
+    serverPrimaryClaims = []
+    lastSentClientPrimaryClaim = nil
     logger.info("Connecting to \(url.absoluteString)")
     attemptConnect()
   }
@@ -186,6 +190,8 @@ class ServerConnection: ObservableObject {
     status = .connecting
     lastError = nil
     serverIsPrimary = nil
+    serverPrimaryClaims = []
+    lastSentClientPrimaryClaim = nil
 
     logger.info("Connecting to server (attempt \(self.connectAttempts)/\(self.maxConnectAttempts))...")
 
@@ -274,6 +280,8 @@ class ServerConnection: ObservableObject {
     connectAttempts = 0
     status = .disconnected
     serverIsPrimary = nil
+    serverPrimaryClaims = []
+    lastSentClientPrimaryClaim = nil
     onDisconnected?()
     logger.info("Disconnected from server")
   }
@@ -310,6 +318,8 @@ class ServerConnection: ObservableObject {
                 self.failPendingRequests(with: ServerRequestError.connectionLost)
                 self.status = .disconnected
                 self.serverIsPrimary = nil
+                self.serverPrimaryClaims = []
+                self.lastSentClientPrimaryClaim = nil
                 connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
                 self.onDisconnected?()
                 self.attemptConnect()
@@ -345,6 +355,8 @@ class ServerConnection: ObservableObject {
               self.failPendingRequests(with: ServerRequestError.connectionLost)
               self.status = .disconnected
               self.serverIsPrimary = nil
+              self.serverPrimaryClaims = []
+              self.lastSentClientPrimaryClaim = nil
               connLog(.info, category: .lifecycle, "status → disconnected (reconnecting)")
               self.onDisconnected?()
               self.attemptConnect()
@@ -526,8 +538,8 @@ class ServerConnection: ObservableObject {
           continuation.resume(returning: (usage: usage, errorInfo: errorInfo))
         }
 
-      case let .serverInfo(isPrimary):
-        applyServerInfo(isPrimary: isPrimary)
+      case let .serverInfo(isPrimary, clientPrimaryClaims):
+        applyServerInfo(isPrimary: isPrimary, clientPrimaryClaims: clientPrimaryClaims)
 
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")
@@ -541,8 +553,9 @@ class ServerConnection: ObservableObject {
     }
   }
 
-  func applyServerInfo(isPrimary: Bool) {
+  func applyServerInfo(isPrimary: Bool, clientPrimaryClaims: [ServerClientPrimaryClaim] = []) {
     serverIsPrimary = isPrimary
+    serverPrimaryClaims = clientPrimaryClaims
   }
 
   // MARK: - Sending Messages
@@ -727,6 +740,24 @@ class ServerConnection: ObservableObject {
   /// Update this server's runtime role for control-plane routing.
   func setServerRole(isPrimary: Bool) {
     send(.setServerRole(isPrimary: isPrimary))
+  }
+
+  /// Advertise whether this endpoint is the control-plane endpoint for the current client device.
+  func setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool) {
+    guard case .connected = status else {
+      return
+    }
+
+    if let previous = lastSentClientPrimaryClaim,
+       previous.clientId == clientId,
+       previous.deviceName == deviceName,
+       previous.isPrimary == isPrimary
+    {
+      return
+    }
+
+    lastSentClientPrimaryClaim = (clientId: clientId, deviceName: deviceName, isPrimary: isPrimary)
+    send(.setClientPrimaryClaim(clientId: clientId, deviceName: deviceName, isPrimary: isPrimary))
   }
 
   /// Set the OpenAI API key for AI session naming

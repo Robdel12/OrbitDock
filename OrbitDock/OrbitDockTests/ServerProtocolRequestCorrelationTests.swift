@@ -113,11 +113,13 @@ struct ServerProtocolRequestCorrelationTests {
   }
 
   @Test func serverInfoMessageDecodesPrimaryFlag() throws {
-    let payload = #"{"type":"server_info","is_primary":false}"#
+    let payload =
+      #"{"type":"server_info","is_primary":false,"client_primary_claims":[{"client_id":"device-1","device_name":"Robert's iPhone"}]}"#
     let message = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(payload.utf8))
     switch message {
-      case let .serverInfo(isPrimary):
+      case let .serverInfo(isPrimary, clientPrimaryClaims):
         #expect(isPrimary == false)
+        #expect(clientPrimaryClaims.map(\.clientId) == ["device-1"])
       default:
         Issue.record("Expected server_info")
     }
@@ -128,6 +130,20 @@ struct ServerProtocolRequestCorrelationTests {
     let data = try JSONEncoder().encode(message)
     let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     #expect(payload["type"] as? String == "set_server_role")
+    #expect(payload["is_primary"] as? Bool == true)
+  }
+
+  @Test func clientSetClientPrimaryClaimEncodesIdentityAndPrimaryFlag() throws {
+    let message = ClientToServerMessage.setClientPrimaryClaim(
+      clientId: "device-1",
+      deviceName: "Robert's iPhone",
+      isPrimary: true
+    )
+    let data = try JSONEncoder().encode(message)
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(payload["type"] as? String == "set_client_primary_claim")
+    #expect(payload["client_id"] as? String == "device-1")
+    #expect(payload["device_name"] as? String == "Robert's iPhone")
     #expect(payload["is_primary"] as? Bool == true)
   }
 }

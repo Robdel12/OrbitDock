@@ -182,18 +182,18 @@ struct ServerSettingsSheet: View {
         statusMetric(
           icon: "crown.fill",
           value: primaryEndpointName,
-          label: "Primary",
+          label: "Control Plane",
           color: Color.accent,
           monospaced: false
         )
       }
 
-      Text("Primary endpoint comes from each server's live role. Fallback is used only when no server is currently primary.")
+      Text("Control-plane selection is local to this device. Server-declared primary role and active client claims are shown as metadata.")
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
 
       if runtimeRegistry.hasPrimaryEndpointConflict {
-        Text("Multiple connected servers currently report Primary. Choose one and set the others to Secondary.")
+        Text("Multiple connected servers currently report Server Primary role.")
           .font(.system(size: TypeScale.caption, weight: .semibold))
           .foregroundStyle(Color.statusPermission)
       }
@@ -246,12 +246,17 @@ struct ServerSettingsSheet: View {
               .foregroundStyle(Color.textPrimary)
               .lineLimit(1)
 
-            if endpoint.isDefault {
-              EndpointBadge(endpointName: "Fallback")
+            if runtimeRegistry.primaryEndpointId == endpoint.id {
+              EndpointBadge(endpointName: "Control Plane", isDefault: true)
             }
 
             if runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true {
-              EndpointBadge(endpointName: "Primary", isDefault: true)
+              EndpointBadge(endpointName: "Server Primary")
+            }
+
+            let claimCount = runtimeRegistry.serverPrimaryClaimsByEndpointId[endpoint.id]?.count ?? 0
+            if claimCount > 0 {
+              EndpointBadge(endpointName: "Claimed ×\(claimCount)")
             }
 
             if endpoint.isLocalManaged {
@@ -267,6 +272,13 @@ struct ServerSettingsSheet: View {
             .font(.system(size: TypeScale.caption, design: .monospaced))
             .foregroundStyle(Color.textQuaternary)
             .lineLimit(1)
+
+          if let claimsText = claimingDevicesDescription(for: endpoint) {
+            Text(claimsText)
+              .font(.system(size: TypeScale.micro))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(2)
+          }
         }
 
         Spacer(minLength: 10)
@@ -309,8 +321,8 @@ struct ServerSettingsSheet: View {
           .foregroundStyle(Color.accent)
         }
 
-        if !endpoint.isDefault {
-          Button("Set Fallback") {
+        if runtimeRegistry.primaryEndpointId != endpoint.id {
+          Button("Use for This Device") {
             setDefaultEndpoint(endpoint.id)
           }
           .buttonStyle(.borderless)
@@ -384,7 +396,7 @@ struct ServerSettingsSheet: View {
 
         Section("Behavior") {
           Toggle("Enabled", isOn: $draftIsEnabled)
-          Toggle("Fallback endpoint", isOn: $draftIsDefault)
+          Toggle("Control-plane endpoint on this device", isOn: $draftIsDefault)
             .disabled(!draftIsEnabled)
         }
 
@@ -424,6 +436,14 @@ struct ServerSettingsSheet: View {
     return runtimeRegistry.connectionStatusByEndpointId[endpoint.id]
       ?? runtimeRegistry.runtimesByEndpointId[endpoint.id]?.connection.status
       ?? .disconnected
+  }
+
+  private func claimingDevicesDescription(for endpoint: ServerEndpoint) -> String? {
+    guard let claims = runtimeRegistry.serverPrimaryClaimsByEndpointId[endpoint.id], !claims.isEmpty else {
+      return nil
+    }
+    let names = claims.map(\.deviceName).joined(separator: ", ")
+    return "Claimed as control plane by: \(names)"
   }
 
   private func statusLabel(for status: ConnectionStatus) -> String {
@@ -481,12 +501,12 @@ struct ServerSettingsSheet: View {
     guard case .connected = status else { return nil }
 
     if runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true {
-      return ("Set Secondary", { endpointId in
+      return ("Mark Server Secondary", { endpointId in
         runtimeRegistry.setServerRole(endpointId: endpointId, isPrimary: false)
       })
     }
 
-    return ("Set Primary", { endpointId in
+    return ("Mark Server Primary", { endpointId in
       runtimeRegistry.setServerRole(endpointId: endpointId, isPrimary: true)
     })
   }

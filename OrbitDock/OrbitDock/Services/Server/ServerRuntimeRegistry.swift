@@ -1,6 +1,51 @@
 import Combine
 import Foundation
 
+#if canImport(UIKit)
+  import UIKit
+#endif
+
+struct ServerClientIdentity: Equatable {
+  let clientId: String
+  let deviceName: String
+
+  private static let clientIdKey = "orbitdock.client.id"
+
+  static func current(defaults: UserDefaults = .standard) -> ServerClientIdentity {
+    let clientId: String
+    if let persisted = defaults.string(forKey: clientIdKey), !persisted.isEmpty {
+      clientId = persisted
+    } else {
+      let generated = UUID().uuidString
+      defaults.set(generated, forKey: clientIdKey)
+      clientId = generated
+    }
+
+    return ServerClientIdentity(clientId: clientId, deviceName: resolvedDeviceName())
+  }
+
+  private static func resolvedDeviceName() -> String {
+    #if canImport(UIKit)
+      let name = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !name.isEmpty {
+        return name
+      }
+    #endif
+
+    #if os(macOS)
+      if let name = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+        return name
+      }
+    #endif
+
+    let hostName = ProcessInfo.processInfo.hostName.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !hostName.isEmpty {
+      return hostName
+    }
+    return "OrbitDock Client"
+  }
+}
+
 @Observable
 @MainActor
 final class ServerRuntimeRegistry {
@@ -8,11 +53,14 @@ final class ServerRuntimeRegistry {
 
   private let endpointsProvider: () -> [ServerEndpoint]
   private let runtimeFactory: (ServerEndpoint) -> ServerRuntime
+  private let clientIdentityProvider: () -> ServerClientIdentity
   private(set) var runtimesByEndpointId: [UUID: ServerRuntime] = [:]
   private var statusSubscriptions: [UUID: AnyCancellable] = [:]
   private var serverRoleSubscriptions: [UUID: AnyCancellable] = [:]
+  private var serverClaimSubscriptions: [UUID: AnyCancellable] = [:]
   private(set) var connectionStatusByEndpointId: [UUID: ConnectionStatus] = [:]
   private(set) var serverPrimaryByEndpointId: [UUID: Bool] = [:]
+  private(set) var serverPrimaryClaimsByEndpointId: [UUID: [ServerClientPrimaryClaim]] = [:]
   private(set) var activeEndpointId: UUID?
   private(set) var primaryEndpointId: UUID?
   private(set) var hasPrimaryEndpointConflict = false
@@ -20,6 +68,7 @@ final class ServerRuntimeRegistry {
   init() {
     endpointsProvider = { ServerEndpointSettings.endpoints }
     runtimeFactory = { ServerRuntime(endpoint: $0) }
+    clientIdentityProvider = { ServerClientIdentity.current() }
   }
 
   init(
@@ -28,6 +77,17 @@ final class ServerRuntimeRegistry {
   ) {
     self.endpointsProvider = endpointsProvider
     self.runtimeFactory = runtimeFactory
+    self.clientIdentityProvider = { ServerClientIdentity.current() }
+  }
+
+  init(
+    endpointsProvider: @escaping () -> [ServerEndpoint],
+    runtimeFactory: @escaping (ServerEndpoint) -> ServerRuntime,
+    clientIdentityProvider: @escaping () -> ServerClientIdentity
+  ) {
+    self.endpointsProvider = endpointsProvider
+    self.runtimeFactory = runtimeFactory
+    self.clientIdentityProvider = clientIdentityProvider
   }
 
   var runtimes: [ServerRuntime] {
@@ -99,8 +159,11 @@ final class ServerRuntimeRegistry {
       statusSubscriptions[id] = nil
       serverRoleSubscriptions[id]?.cancel()
       serverRoleSubscriptions[id] = nil
+      serverClaimSubscriptions[id]?.cancel()
+      serverClaimSubscriptions[id] = nil
       connectionStatusByEndpointId[id] = nil
       serverPrimaryByEndpointId[id] = nil
+      serverPrimaryClaimsByEndpointId[id] = nil
     }
 
     for endpoint in configuredEndpoints {
@@ -111,7 +174,10 @@ final class ServerRuntimeRegistry {
           statusSubscriptions[endpoint.id] = nil
           serverRoleSubscriptions[endpoint.id]?.cancel()
           serverRoleSubscriptions[endpoint.id] = nil
+          serverClaimSubscriptions[endpoint.id]?.cancel()
+          serverClaimSubscriptions[endpoint.id] = nil
           serverPrimaryByEndpointId[endpoint.id] = nil
+          serverPrimaryClaimsByEndpointId[endpoint.id] = nil
 
           let replacement = runtimeFactory(endpoint)
           runtimesByEndpointId[endpoint.id] = replacement
@@ -139,6 +205,8 @@ final class ServerRuntimeRegistry {
     for endpoint in configuredEndpoints where endpoint.isEnabled {
       runtimesByEndpointId[endpoint.id]?.start()
     }
+
+    syncClientPrimaryClaims()
   }
 
   func setActiveEndpoint(id: UUID) {
@@ -248,12 +316,14 @@ final class ServerRuntimeRegistry {
     } else {
       serverPrimaryByEndpointId[endpointId] = nil
     }
+    serverPrimaryClaimsByEndpointId[endpointId] = runtime.connection.serverPrimaryClaims
 
     if statusSubscriptions[endpointId] == nil {
       statusSubscriptions[endpointId] = runtime.connection.$status.sink { [weak self] status in
         guard let self else { return }
         Task { @MainActor in
           self.connectionStatusByEndpointId[endpointId] = status
+          self.syncClientPrimaryClaims()
         }
       }
     }
@@ -271,6 +341,15 @@ final class ServerRuntimeRegistry {
         }
       }
     }
+
+    if serverClaimSubscriptions[endpointId] == nil {
+      serverClaimSubscriptions[endpointId] = runtime.connection.$serverPrimaryClaims.sink { [weak self] claims in
+        guard let self else { return }
+        Task { @MainActor in
+          self.serverPrimaryClaimsByEndpointId[endpointId] = claims
+        }
+      }
+    }
   }
 
   private func recomputePrimaryEndpoint(from endpoints: [ServerEndpoint]? = nil) {
@@ -282,12 +361,7 @@ final class ServerRuntimeRegistry {
     }
 
     hasPrimaryEndpointConflict = declaredPrimaryCandidates.count > 1
-    let declaredPrimaryEndpointId = Self.preferredDeclaredPrimaryEndpointID(
-      from: declaredPrimaryCandidates,
-      activeEndpointId: activeEndpointId
-    )
-    primaryEndpointId = declaredPrimaryEndpointId
-      ?? Self.preferredActiveEndpointID(from: configuredEndpoints)
+    primaryEndpointId = Self.preferredActiveEndpointID(from: configuredEndpoints)
 
     if previousPrimaryEndpointId != primaryEndpointId {
       NotificationCenter.default.post(
@@ -296,6 +370,8 @@ final class ServerRuntimeRegistry {
         userInfo: ["endpointId": primaryEndpointId as Any]
       )
     }
+
+    syncClientPrimaryClaims()
   }
 
   static func preferredActiveEndpointID(from endpoints: [ServerEndpoint]) -> UUID? {
@@ -304,27 +380,16 @@ final class ServerRuntimeRegistry {
       ?? endpoints.first?.id
   }
 
-  static func preferredDeclaredPrimaryEndpointID(
-    from endpoints: [ServerEndpoint],
-    activeEndpointId: UUID?
-  ) -> UUID? {
-    if let activeEndpointId,
-       endpoints.contains(where: { $0.id == activeEndpointId })
-    {
-      return activeEndpointId
+  private func syncClientPrimaryClaims() {
+    let identity = clientIdentityProvider()
+    guard let primaryEndpointId else { return }
+
+    for runtime in runtimesByEndpointId.values where runtime.endpoint.isEnabled {
+      runtime.connection.setClientPrimaryClaim(
+        clientId: identity.clientId,
+        deviceName: identity.deviceName,
+        isPrimary: runtime.endpoint.id == primaryEndpointId
+      )
     }
-    if let fallbackEndpoint = endpoints.first(where: \.isDefault) {
-      return fallbackEndpoint.id
-    }
-    return endpoints
-      .sorted { lhs, rhs in
-        let lhsName = lhs.name.lowercased()
-        let rhsName = rhs.name.lowercased()
-        if lhsName != rhsName {
-          return lhsName < rhsName
-        }
-        return lhs.id.uuidString < rhs.id.uuidString
-      }
-      .first?.id
   }
 }

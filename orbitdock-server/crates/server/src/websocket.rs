@@ -21,7 +21,7 @@ use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
     new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, MessageChanges,
     MessageType, Provider, ServerMessage, SessionState, SessionStatus, StateChanges, TokenUsage,
-    WorkStatus,
+    UsageErrorInfo, WorkStatus,
 };
 
 use crate::claude_session::{ClaudeAction, ClaudeSession};
@@ -222,13 +222,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
     let client_tx = outbound_tx.clone();
 
     // Announce server role immediately so clients can derive control-plane routing.
-    send_json(
-        &outbound_tx,
-        ServerMessage::ServerInfo {
-            is_primary: state.is_primary(),
-        },
-    )
-    .await;
+    send_json(&outbound_tx, server_info_message(&state)).await;
 
     // Handle incoming messages
     while let Some(result) = ws_rx.next().await {
@@ -300,6 +294,9 @@ async fn handle_socket(socket: WebSocket, state: Arc<SessionRegistry>) {
         connection_id = conn_id,
         "WebSocket connection closed"
     );
+    if state.clear_client_primary_claim(conn_id) {
+        state.broadcast_to_list(server_info_message(&state));
+    }
     send_task.abort();
 }
 
@@ -310,6 +307,13 @@ fn truncate_for_log(value: &str, max_chars: usize) -> String {
 /// Send a ServerMessage through the outbound channel
 async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
     let _ = tx.send(OutboundMessage::Json(msg)).await;
+}
+
+fn server_info_message(state: &SessionRegistry) -> ServerMessage {
+    ServerMessage::ServerInfo {
+        is_primary: state.is_primary(),
+        client_primary_claims: state.active_client_primary_claims(),
+    }
 }
 
 fn replay_has_oversize_event(events: &[String]) -> Option<usize> {
@@ -2778,7 +2782,29 @@ async fn handle_client_message(
                 })
                 .await;
 
-            let update = ServerMessage::ServerInfo { is_primary };
+            let update = server_info_message(state);
+            send_json(client_tx, update.clone()).await;
+            state.broadcast_to_list(update);
+        }
+
+        ClientMessage::SetClientPrimaryClaim {
+            client_id,
+            device_name,
+            is_primary,
+        } => {
+            info!(
+                component = "config",
+                event = "config.client_primary_claim.set",
+                connection_id = conn_id,
+                client_id = %client_id,
+                device_name = %device_name,
+                is_primary = is_primary,
+                "Client primary claim updated"
+            );
+
+            state.set_client_primary_claim(conn_id, client_id, device_name, is_primary);
+
+            let update = server_info_message(state);
             send_json(client_tx, update.clone()).await;
             state.broadcast_to_list(update);
         }
@@ -2813,6 +2839,23 @@ async fn handle_client_message(
         }
 
         ClientMessage::FetchCodexUsage { request_id } => {
+            if matches!(state.connection_primary_claim(conn_id), Some(false)) {
+                send_json(
+                    client_tx,
+                    ServerMessage::CodexUsageResult {
+                        request_id,
+                        usage: None,
+                        error_info: Some(UsageErrorInfo {
+                            code: "not_control_plane_for_client".to_string(),
+                            message: "This endpoint is not primary for the requesting client."
+                                .to_string(),
+                        }),
+                    },
+                )
+                .await;
+                return;
+            }
+
             let (usage, error_info) = match crate::usage_probe::fetch_codex_usage().await {
                 Ok(usage) => (Some(usage), None),
                 Err(err) => (None, Some(err.to_info())),
@@ -2829,6 +2872,23 @@ async fn handle_client_message(
         }
 
         ClientMessage::FetchClaudeUsage { request_id } => {
+            if matches!(state.connection_primary_claim(conn_id), Some(false)) {
+                send_json(
+                    client_tx,
+                    ServerMessage::ClaudeUsageResult {
+                        request_id,
+                        usage: None,
+                        error_info: Some(UsageErrorInfo {
+                            code: "not_control_plane_for_client".to_string(),
+                            message: "This endpoint is not primary for the requesting client."
+                                .to_string(),
+                        }),
+                    },
+                )
+                .await;
+                return;
+            }
+
             let (usage, error_info) = match crate::usage_probe::fetch_claude_usage().await {
                 Ok(usage) => (Some(usage), None),
                 Err(err) => (None, Some(err.to_info())),
@@ -5390,10 +5450,137 @@ mod tests {
 
         assert!(!state.is_primary());
         match recv_json(&mut client_rx).await {
-            ServerMessage::ServerInfo { is_primary } => {
+            ServerMessage::ServerInfo {
+                is_primary,
+                client_primary_claims,
+            } => {
                 assert!(!is_primary);
+                assert!(client_primary_claims.is_empty());
             }
             other => panic!("expected ServerInfo, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn set_client_primary_claim_updates_server_info() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+
+        handle_client_message(
+            ClientMessage::SetClientPrimaryClaim {
+                client_id: "device-1".to_string(),
+                device_name: "Robert's iPhone".to_string(),
+                is_primary: true,
+            },
+            &client_tx,
+            &state,
+            7,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::ServerInfo {
+                is_primary,
+                client_primary_claims,
+            } => {
+                assert!(is_primary);
+                assert_eq!(client_primary_claims.len(), 1);
+                assert_eq!(client_primary_claims[0].client_id, "device-1");
+                assert_eq!(client_primary_claims[0].device_name, "Robert's iPhone");
+            }
+            other => panic!("expected ServerInfo, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn codex_usage_rejected_for_secondary_client_claim() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+
+        handle_client_message(
+            ClientMessage::SetClientPrimaryClaim {
+                client_id: "device-2".to_string(),
+                device_name: "Work Mac".to_string(),
+                is_primary: false,
+            },
+            &client_tx,
+            &state,
+            11,
+        )
+        .await;
+        // initial server_info emitted for claim update
+        let _ = recv_json(&mut client_rx).await;
+
+        handle_client_message(
+            ClientMessage::FetchCodexUsage {
+                request_id: "req-codex".to_string(),
+            },
+            &client_tx,
+            &state,
+            11,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::CodexUsageResult {
+                request_id,
+                usage,
+                error_info,
+            } => {
+                assert_eq!(request_id, "req-codex");
+                assert!(usage.is_none());
+                assert_eq!(
+                    error_info.as_ref().map(|v| v.code.as_str()),
+                    Some("not_control_plane_for_client")
+                );
+            }
+            other => panic!("expected CodexUsageResult, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn claude_usage_rejected_for_secondary_client_claim() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+
+        handle_client_message(
+            ClientMessage::SetClientPrimaryClaim {
+                client_id: "device-3".to_string(),
+                device_name: "Work Mac".to_string(),
+                is_primary: false,
+            },
+            &client_tx,
+            &state,
+            15,
+        )
+        .await;
+        // initial server_info emitted for claim update
+        let _ = recv_json(&mut client_rx).await;
+
+        handle_client_message(
+            ClientMessage::FetchClaudeUsage {
+                request_id: "req-claude".to_string(),
+            },
+            &client_tx,
+            &state,
+            15,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::ClaudeUsageResult {
+                request_id,
+                usage,
+                error_info,
+            } => {
+                assert_eq!(request_id, "req-claude");
+                assert!(usage.is_none());
+                assert_eq!(
+                    error_info.as_ref().map(|v| v.code.as_str()),
+                    Some("not_control_plane_for_client")
+                );
+            }
+            other => panic!("expected ClaudeUsageResult, got {:?}", other),
         }
     }
 

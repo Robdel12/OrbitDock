@@ -1011,6 +1011,20 @@ struct ServerUsageErrorInfo: Codable {
   let message: String
 }
 
+struct ServerClientPrimaryClaim: Codable, Equatable, Identifiable {
+  let clientId: String
+  let deviceName: String
+
+  var id: String {
+    clientId
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case clientId = "client_id"
+    case deviceName = "device_name"
+  }
+}
+
 struct ServerCodexRateLimitWindow: Codable {
   let usedPercent: Double
   let windowDurationMins: UInt32
@@ -1137,7 +1151,7 @@ enum ServerToClientMessage: Codable {
   case codexUsageResult(requestId: String, usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?)
   case claudeUsageResult(requestId: String, usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?)
   case openAiKeyStatus(requestId: String, configured: Bool)
-  case serverInfo(isPrimary: Bool)
+  case serverInfo(isPrimary: Bool, clientPrimaryClaims: [ServerClientPrimaryClaim])
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1199,6 +1213,7 @@ enum ServerToClientMessage: Codable {
     case projects
     case configured
     case isPrimary = "is_primary"
+    case clientPrimaryClaims = "client_primary_claims"
   }
 
   init(from decoder: Decoder) throws {
@@ -1478,7 +1493,9 @@ enum ServerToClientMessage: Codable {
 
       case "server_info":
         let isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
-        self = .serverInfo(isPrimary: isPrimary)
+        let clientPrimaryClaims =
+          try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims) ?? []
+        self = .serverInfo(isPrimary: isPrimary, clientPrimaryClaims: clientPrimaryClaims)
 
       case "error":
         let code = try container.decode(String.self, forKey: .code)
@@ -1740,9 +1757,12 @@ enum ServerToClientMessage: Codable {
         try container.encode(requestId, forKey: .requestId)
         try container.encode(configured, forKey: .configured)
 
-      case let .serverInfo(isPrimary):
+      case let .serverInfo(isPrimary, clientPrimaryClaims):
         try container.encode("server_info", forKey: .type)
         try container.encode(isPrimary, forKey: .isPrimary)
+        if !clientPrimaryClaims.isEmpty {
+          try container.encode(clientPrimaryClaims, forKey: .clientPrimaryClaims)
+        }
 
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
@@ -1864,6 +1884,7 @@ enum ClientToServerMessage: Codable {
   case listReviewComments(sessionId: String, turnId: String? = nil)
   case getSubagentTools(sessionId: String, subagentId: String)
   case setServerRole(isPrimary: Bool)
+  case setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool)
   case setOpenAiKey(key: String)
   case checkOpenAiKey(requestId: String)
   case fetchCodexUsage(requestId: String)
@@ -1921,6 +1942,8 @@ enum ClientToServerMessage: Codable {
     case interrupt
     case path
     case isPrimary = "is_primary"
+    case clientId = "client_id"
+    case deviceName = "device_name"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -2186,6 +2209,12 @@ enum ClientToServerMessage: Codable {
         try container.encode("set_server_role", forKey: .type)
         try container.encode(isPrimary, forKey: .isPrimary)
 
+      case let .setClientPrimaryClaim(clientId, deviceName, isPrimary):
+        try container.encode("set_client_primary_claim", forKey: .type)
+        try container.encode(clientId, forKey: .clientId)
+        try container.encode(deviceName, forKey: .deviceName)
+        try container.encode(isPrimary, forKey: .isPrimary)
+
       case let .setOpenAiKey(key):
         try container.encode("set_open_ai_key", forKey: .type)
         try container.encode(key, forKey: .key)
@@ -2401,6 +2430,12 @@ enum ClientToServerMessage: Codable {
         )
       case "set_server_role":
         self = try .setServerRole(
+          isPrimary: container.decode(Bool.self, forKey: .isPrimary)
+        )
+      case "set_client_primary_claim":
+        self = try .setClientPrimaryClaim(
+          clientId: container.decode(String.self, forKey: .clientId),
+          deviceName: container.decode(String.self, forKey: .deviceName),
           isPrimary: container.decode(Bool.self, forKey: .isPrimary)
         )
       case "set_open_ai_key":

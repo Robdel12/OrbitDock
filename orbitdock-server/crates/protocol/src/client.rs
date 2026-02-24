@@ -189,6 +189,11 @@ pub enum ClientMessage {
     SetServerRole {
         is_primary: bool,
     },
+    SetClientPrimaryClaim {
+        client_id: String,
+        device_name: String,
+        is_primary: bool,
+    },
     CheckOpenAiKey {
         request_id: String,
     },
@@ -519,6 +524,31 @@ mod tests {
         match parsed {
             ClientMessage::SetServerRole { is_primary } => {
                 assert!(!is_primary);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_set_client_primary_claim() {
+        let json = r#"{
+          "type":"set_client_primary_claim",
+          "client_id":"device-123",
+          "device_name":"Robert's iPhone",
+          "is_primary":true
+        }"#;
+
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse set_client_primary_claim");
+        match parsed {
+            ClientMessage::SetClientPrimaryClaim {
+                client_id,
+                device_name,
+                is_primary,
+            } => {
+                assert_eq!(client_id, "device-123");
+                assert_eq!(device_name, "Robert's iPhone");
+                assert!(is_primary);
             }
             other => panic!("unexpected variant: {:?}", other),
         }

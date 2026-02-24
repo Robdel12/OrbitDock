@@ -253,6 +253,8 @@ pub enum ServerMessage {
     },
     ServerInfo {
         is_primary: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        client_primary_claims: Vec<ClientPrimaryClaim>,
     },
 
     // Errors
@@ -395,12 +397,39 @@ mod tests {
 
     #[test]
     fn roundtrip_server_info() {
-        let msg = ServerMessage::ServerInfo { is_primary: false };
+        let msg = ServerMessage::ServerInfo {
+            is_primary: false,
+            client_primary_claims: vec![ClientPrimaryClaim {
+                client_id: "device-1".to_string(),
+                device_name: "Robert's iPhone".to_string(),
+            }],
+        };
         let json = serde_json::to_string(&msg).expect("serialize");
         let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
         match reparsed {
-            ServerMessage::ServerInfo { is_primary } => {
+            ServerMessage::ServerInfo {
+                is_primary,
+                client_primary_claims,
+            } => {
                 assert!(!is_primary);
+                assert_eq!(client_primary_claims.len(), 1);
+                assert_eq!(client_primary_claims[0].client_id, "device-1");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn server_info_defaults_claims_when_absent() {
+        let json = r#"{"type":"server_info","is_primary":true}"#;
+        let reparsed: ServerMessage = serde_json::from_str(json).expect("deserialize");
+        match reparsed {
+            ServerMessage::ServerInfo {
+                is_primary,
+                client_primary_claims,
+            } => {
+                assert!(is_primary);
+                assert!(client_primary_claims.is_empty());
             }
             other => panic!("unexpected variant: {:?}", other),
         }

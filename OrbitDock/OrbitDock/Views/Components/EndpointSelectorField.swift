@@ -65,11 +65,15 @@ struct EndpointSelectorField: View {
   }
 
   private func endpointLabel(_ endpoint: ServerEndpoint) -> String {
-    if serverPrimaryByEndpointId[endpoint.id] == true {
-      return "\(endpoint.name) (Primary)"
+    let isServerPrimary = serverPrimaryByEndpointId[endpoint.id] == true
+    if endpoint.isDefault && isServerPrimary {
+      return "\(endpoint.name) (Control Plane, Server Primary)"
     }
     if endpoint.isDefault {
-      return "\(endpoint.name) (Fallback)"
+      return "\(endpoint.name) (Control Plane)"
+    }
+    if isServerPrimary {
+      return "\(endpoint.name) (Server Primary)"
     }
     return endpoint.name
   }

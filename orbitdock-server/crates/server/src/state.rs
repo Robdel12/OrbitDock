@@ -1,7 +1,8 @@
 //! Application state
 
 use dashmap::DashMap;
-use orbitdock_protocol::SessionSummary;
+use orbitdock_protocol::{ClientPrimaryClaim, SessionSummary};
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -15,6 +16,13 @@ use crate::hook_handler::PendingClaudeSession;
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
+
+#[derive(Clone)]
+struct ClientPrimaryClaimState {
+    client_id: String,
+    device_name: String,
+    is_primary: bool,
+}
 
 /// Shared application state backed by lock-free concurrent maps.
 /// All methods take `&self` — no external Mutex needed.
@@ -49,6 +57,9 @@ pub struct SessionRegistry {
 
     /// True when this server should act as the primary control-plane endpoint.
     is_primary: AtomicBool,
+
+    /// Per-WebSocket-connection primary claim state from connected client devices.
+    client_primary_claims: DashMap<u64, ClientPrimaryClaimState>,
 }
 
 impl SessionRegistry {
@@ -72,6 +83,7 @@ impl SessionRegistry {
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),
             is_primary: AtomicBool::new(is_primary),
+            client_primary_claims: DashMap::new(),
         }
     }
 
@@ -82,6 +94,53 @@ impl SessionRegistry {
     pub fn set_primary(&self, is_primary: bool) -> bool {
         let previous = self.is_primary.swap(is_primary, Ordering::SeqCst);
         previous != is_primary
+    }
+
+    pub fn set_client_primary_claim(
+        &self,
+        conn_id: u64,
+        client_id: String,
+        device_name: String,
+        is_primary: bool,
+    ) {
+        self.client_primary_claims.insert(
+            conn_id,
+            ClientPrimaryClaimState {
+                client_id,
+                device_name,
+                is_primary,
+            },
+        );
+    }
+
+    pub fn clear_client_primary_claim(&self, conn_id: u64) -> bool {
+        self.client_primary_claims.remove(&conn_id).is_some()
+    }
+
+    pub fn connection_primary_claim(&self, conn_id: u64) -> Option<bool> {
+        self.client_primary_claims
+            .get(&conn_id)
+            .map(|entry| entry.is_primary)
+    }
+
+    pub fn active_client_primary_claims(&self) -> Vec<ClientPrimaryClaim> {
+        let mut by_client: BTreeMap<String, String> = BTreeMap::new();
+        for claim in self.client_primary_claims.iter() {
+            if !claim.value().is_primary {
+                continue;
+            }
+            by_client
+                .entry(claim.value().client_id.clone())
+                .or_insert_with(|| claim.value().device_name.clone());
+        }
+
+        by_client
+            .into_iter()
+            .map(|(client_id, device_name)| ClientPrimaryClaim {
+                client_id,
+                device_name,
+            })
+            .collect()
     }
 
     /// Get persistence sender

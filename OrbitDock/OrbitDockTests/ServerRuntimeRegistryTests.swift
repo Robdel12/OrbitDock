@@ -291,7 +291,7 @@ struct ServerRuntimeRegistryTests {
     #expect(preferred == endpointB.id)
   }
 
-  @Test func serverDeclaredPrimaryOverridesFallbackEndpoint() async {
+  @Test func serverDeclaredPrimaryDoesNotOverrideClientControlPlaneEndpoint() async {
     let endpointA = ServerEndpoint(
       id: UUID(),
       name: "Fallback",
@@ -325,7 +325,7 @@ struct ServerRuntimeRegistryTests {
     spies[endpointB.id]?.applyServerInfo(isPrimary: true)
     await Task.yield()
 
-    #expect(registry.primaryEndpointId == endpointB.id)
+    #expect(registry.primaryEndpointId == endpointA.id)
     #expect(registry.serverPrimaryByEndpointId[endpointB.id] == true)
   }
 
@@ -403,6 +403,52 @@ struct ServerRuntimeRegistryTests {
     #expect(spies[endpointB.id]?.setServerRoleCalls == [true])
   }
 
+  @Test func syncsClientPrimaryClaimsFromClientControlPlaneEndpoint() async throws {
+    let endpointA = ServerEndpoint(
+      id: UUID(),
+      name: "A",
+      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      isLocalManaged: true,
+      isEnabled: true,
+      isDefault: true
+    )
+    let endpointB = ServerEndpoint(
+      id: UUID(),
+      name: "B",
+      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      isLocalManaged: false,
+      isEnabled: true,
+      isDefault: false
+    )
+
+    var spies: [UUID: SpyServerConnection] = [:]
+    let registry = ServerRuntimeRegistry(
+      endpointsProvider: { [endpointA, endpointB] },
+      runtimeFactory: { endpoint in
+        let spy = SpyServerConnection(endpoint: endpoint)
+        spies[endpoint.id] = spy
+        return ServerRuntime(endpoint: endpoint, connection: spy)
+      },
+      clientIdentityProvider: {
+        ServerClientIdentity(clientId: "device-1", deviceName: "Test iPhone")
+      }
+    )
+
+    registry.configureFromSettings(startEnabled: false)
+    await Task.yield()
+
+    let claimsA = try #require(spies[endpointA.id]?.setClientPrimaryClaimCalls)
+    let claimsB = try #require(spies[endpointB.id]?.setClientPrimaryClaimCalls)
+    let lastA = try #require(claimsA.last)
+    let lastB = try #require(claimsB.last)
+    #expect(lastA.0 == "device-1")
+    #expect(lastA.1 == "Test iPhone")
+    #expect(lastA.2)
+    #expect(lastB.0 == "device-1")
+    #expect(lastB.1 == "Test iPhone")
+    #expect(lastB.2 == false)
+  }
+
   @Test func memoryPressureTrimsInactivePayloadsAcrossAllRuntimes() {
     let endpointA = ServerEndpoint(
       id: UUID(),
@@ -472,6 +518,7 @@ private final class SpyServerConnection: ServerConnection {
   var recentProjectsResponse: [ServerRecentProject] = []
   var listRecentProjectsCallCount = 0
   var setServerRoleCalls: [Bool] = []
+  var setClientPrimaryClaimCalls: [(String, String, Bool)] = []
 
   override func connect(to url: URL) {
     connectCalls.append(url)
@@ -488,5 +535,9 @@ private final class SpyServerConnection: ServerConnection {
 
   override func setServerRole(isPrimary: Bool) {
     setServerRoleCalls.append(isPrimary)
+  }
+
+  override func setClientPrimaryClaim(clientId: String, deviceName: String, isPrimary: Bool) {
+    setClientPrimaryClaimCalls.append((clientId, deviceName, isPrimary))
   }
 }

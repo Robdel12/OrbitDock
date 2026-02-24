@@ -598,6 +598,13 @@ pub struct UsageErrorInfo {
     pub message: String,
 }
 
+/// A client device that currently claims this server as its primary control plane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientPrimaryClaim {
+    pub client_id: String,
+    pub device_name: String,
+}
+
 /// Codex rate-limit window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexRateLimitWindow {
