@@ -591,6 +591,7 @@
     ) -> UIView {
       let container = UIView()
       container.layer.cornerRadius = CGFloat(Radius.md)
+      container.clipsToBounds = true
       container.backgroundColor = UIColor(Color.backgroundPrimary)
       container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -679,6 +680,17 @@
         ? container.topAnchor
         : topAnchorView.bottomAnchor
 
+      // Cap text height to match the height calculation's maxCommandTextHeight clamp.
+      let bottomPin = textLabel.bottomAnchor.constraint(
+        equalTo: container.bottomAnchor,
+        constant: -Layout.commandVerticalPadding
+      )
+      bottomPin.priority = .defaultHigh
+
+      let textMaxHeight = textLabel.heightAnchor.constraint(
+        lessThanOrEqualToConstant: Layout.maxCommandTextHeight
+      )
+
       NSLayoutConstraint.activate([
         bar.topAnchor.constraint(equalTo: container.topAnchor),
         bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -694,11 +706,8 @@
           equalTo: container.trailingAnchor,
           constant: -Layout.commandHorizontalPadding
         ),
-        textLabel.heightAnchor.constraint(lessThanOrEqualToConstant: Layout.maxCommandTextHeight),
-        textLabel.bottomAnchor.constraint(
-          equalTo: container.bottomAnchor,
-          constant: -Layout.commandVerticalPadding
-        ),
+        bottomPin,
+        textMaxHeight,
       ])
 
       return container
@@ -711,6 +720,7 @@
     ) -> UIView {
       let container = UIView()
       container.layer.cornerRadius = CGFloat(Radius.md)
+      container.clipsToBounds = true
       container.backgroundColor = UIColor(Color.backgroundPrimary)
       container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -734,6 +744,17 @@
       valueLabel.lineBreakMode = .byCharWrapping
       valueLabel.text = value
       container.addSubview(valueLabel)
+
+      // Cap value text height to match the height calculation's maxCommandTextHeight clamp.
+      let bottomPin = valueLabel.bottomAnchor.constraint(
+        equalTo: container.bottomAnchor,
+        constant: -Layout.commandVerticalPadding
+      )
+      bottomPin.priority = .defaultHigh
+
+      let valueMaxHeight = valueLabel.heightAnchor.constraint(
+        lessThanOrEqualToConstant: Layout.maxCommandTextHeight
+      )
 
       NSLayoutConstraint.activate([
         bar.topAnchor.constraint(equalTo: container.topAnchor),
@@ -759,11 +780,8 @@
           equalTo: container.trailingAnchor,
           constant: -Layout.commandHorizontalPadding
         ),
-        valueLabel.heightAnchor.constraint(lessThanOrEqualToConstant: Layout.maxCommandTextHeight),
-        valueLabel.bottomAnchor.constraint(
-          equalTo: container.bottomAnchor,
-          constant: -Layout.commandVerticalPadding
-        ),
+        bottomPin,
+        valueMaxHeight,
       ])
 
       return container

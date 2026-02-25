@@ -781,6 +781,7 @@
       let container = NSView()
       container.wantsLayer = true
       container.layer?.cornerRadius = CGFloat(Radius.md)
+      container.layer?.masksToBounds = true
       container.layer?.backgroundColor = NSColor(Color.backgroundPrimary).cgColor
       container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -874,6 +875,18 @@
         ? container.topAnchor
         : topAnchorView.bottomAnchor
 
+      // Cap text height to match the height calculation's maxCommandTextHeight clamp.
+      // Use lower priority on bottom pin so the max height constraint wins for long text.
+      let bottomPin = textField.bottomAnchor.constraint(
+        equalTo: container.bottomAnchor,
+        constant: -Layout.commandVerticalPadding
+      )
+      bottomPin.priority = .defaultHigh
+
+      let textMaxHeight = textField.heightAnchor.constraint(
+        lessThanOrEqualToConstant: Layout.maxCommandTextHeight
+      )
+
       NSLayoutConstraint.activate([
         bar.topAnchor.constraint(equalTo: container.topAnchor),
         bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -889,10 +902,8 @@
           equalTo: container.trailingAnchor,
           constant: -Layout.commandHorizontalPadding
         ),
-        textField.bottomAnchor.constraint(
-          equalTo: container.bottomAnchor,
-          constant: -Layout.commandVerticalPadding
-        ),
+        bottomPin,
+        textMaxHeight,
       ])
 
       return container
@@ -907,6 +918,7 @@
       let container = NSView()
       container.wantsLayer = true
       container.layer?.cornerRadius = CGFloat(Radius.md)
+      container.layer?.masksToBounds = true
       container.layer?.backgroundColor = NSColor(Color.backgroundPrimary).cgColor
       container.translatesAutoresizingMaskIntoConstraints = false
 
@@ -933,6 +945,17 @@
       valueField.maximumNumberOfLines = 0
       container.addSubview(valueField)
 
+      // Cap value text height to match the height calculation's maxCommandTextHeight clamp.
+      let bottomPin = valueField.bottomAnchor.constraint(
+        equalTo: container.bottomAnchor,
+        constant: -Layout.commandVerticalPadding
+      )
+      bottomPin.priority = .defaultHigh
+
+      let valueMaxHeight = valueField.heightAnchor.constraint(
+        lessThanOrEqualToConstant: Layout.maxCommandTextHeight
+      )
+
       NSLayoutConstraint.activate([
         bar.topAnchor.constraint(equalTo: container.topAnchor),
         bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -957,10 +980,8 @@
           equalTo: container.trailingAnchor,
           constant: -Layout.commandHorizontalPadding
         ),
-        valueField.bottomAnchor.constraint(
-          equalTo: container.bottomAnchor,
-          constant: -Layout.commandVerticalPadding
-        ),
+        bottomPin,
+        valueMaxHeight,
       ])
 
       return container
