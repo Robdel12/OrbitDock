@@ -28,7 +28,7 @@ struct ApprovalCardModelTests {
     #expect(mode == .permission)
   }
 
-  @Test func builderUsesPendingApprovalHistoryWhenRequestIdIsMissingOnSession() {
+  @Test func builderDoesNotTreatHistoryAsLivePendingWithoutAuthoritativeRequestId() {
     let sessionId = "session-approval-history"
     let session = makeDirectSession(
       id: sessionId,
@@ -60,16 +60,115 @@ struct ApprovalCardModelTests {
       serverState: state
     )
 
+    #expect(model == nil)
+  }
+
+  @Test func builderUsesHistoryOnlyForAuthoritativePendingRequestId() {
+    let sessionId = "session-approval-history-authoritative"
+    let session = makeDirectSession(
+      id: sessionId,
+      attentionReason: .awaitingPermission,
+      pendingApprovalId: "req-from-history"
+    )
+
+    let state = ServerAppState()
+    state.session(sessionId).approvalHistory = [
+      ServerApprovalHistoryItem(
+        id: 42,
+        sessionId: sessionId,
+        requestId: "req-from-history",
+        approvalType: .exec,
+        toolName: "Bash",
+        command: "git status",
+        filePath: nil,
+        cwd: "/tmp",
+        decision: nil,
+        proposedAmendment: nil,
+        createdAt: "2026-02-23T00:00:00Z",
+        decidedAt: nil
+      ),
+    ]
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: nil,
+      serverState: state
+    )
+
     #expect(model != nil)
     #expect(model?.approvalId == "req-from-history")
     #expect(model?.approvalType == .exec)
     #expect(model?.toolName == "Bash")
-    #expect(model?.command == nil)
-    #expect(model?.previewType == .action)
+    #expect(model?.command == "git status")
+    #expect(model?.previewType == .shellCommand)
     #expect(model?.mode == .permission)
   }
 
-  @Test func builderDoesNotUseLegacyCommandFallbackWhenPreviewMissing() {
+  @Test func builderIgnoresSupersededUnresolvedHistoryForDuplicateRequestIds() {
+    let sessionId = "session-approval-history-superseded"
+    let session = makeDirectSession(
+      id: sessionId,
+      attentionReason: .awaitingPermission,
+      pendingApprovalId: "req-new"
+    )
+
+    let state = ServerAppState()
+    state.session(sessionId).approvalHistory = [
+      ServerApprovalHistoryItem(
+        id: 1,
+        sessionId: sessionId,
+        requestId: "req-old",
+        approvalType: .exec,
+        toolName: "Bash",
+        command: "echo old",
+        filePath: nil,
+        cwd: "/tmp",
+        decision: nil,
+        proposedAmendment: nil,
+        createdAt: "2026-02-23T00:00:00Z",
+        decidedAt: nil
+      ),
+      ServerApprovalHistoryItem(
+        id: 2,
+        sessionId: sessionId,
+        requestId: "req-old",
+        approvalType: .exec,
+        toolName: "Bash",
+        command: "echo old",
+        filePath: nil,
+        cwd: "/tmp",
+        decision: "approved",
+        proposedAmendment: nil,
+        createdAt: "2026-02-23T00:00:01Z",
+        decidedAt: "2026-02-23T00:00:02Z"
+      ),
+      ServerApprovalHistoryItem(
+        id: 3,
+        sessionId: sessionId,
+        requestId: "req-new",
+        approvalType: .exec,
+        toolName: "Bash",
+        command: "echo new",
+        filePath: nil,
+        cwd: "/tmp",
+        decision: nil,
+        proposedAmendment: nil,
+        createdAt: "2026-02-23T00:00:03Z",
+        decidedAt: nil
+      ),
+    ]
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: nil,
+      serverState: state
+    )
+
+    #expect(model != nil)
+    #expect(model?.approvalId == "req-new")
+  }
+
+  @Test func builderFallsBackToCommandWhenPreviewMissing() {
     let session = makeDirectSession(
       id: "session-command-fallback",
       attentionReason: .awaitingPermission,
@@ -97,8 +196,8 @@ struct ApprovalCardModelTests {
     )
 
     #expect(model?.mode == .permission)
-    #expect(model?.command == nil)
-    #expect(model?.previewType == .action)
+    #expect(model?.command == "xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations")
+    #expect(model?.previewType == .shellCommand)
   }
 
   @Test func builderSurfacesRiskFindingsForDestructiveExecCommand() {

@@ -501,9 +501,18 @@ import SwiftUI
       }
       let needsApproval = session?.needsApprovalOverlay ?? false
       let pendingApprovalCommand: String? = {
-        guard let preview = observable?.pendingApproval?.preview, preview.type == .shellCommand else { return nil }
-        let command = preview.value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return command.isEmpty ? nil : command
+        if let preview = observable?.pendingApproval?.preview, preview.type == .shellCommand {
+          let command = preview.value.trimmingCharacters(in: .whitespacesAndNewlines)
+          if !command.isEmpty {
+            return command
+          }
+        }
+
+        if let command = String.shellCommandDisplay(from: observable?.pendingApproval?.command) {
+          return command
+        }
+
+        return String.shellCommandDisplay(from: session?.pendingToolInput)
       }()
       let approvalMode: ApprovalCardMode = {
         guard let s = session else { return .none }

@@ -1365,32 +1365,66 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             let proposed_amendment_json =
                 proposed_amendment.and_then(|v| serde_json::to_string(&v).ok());
             let now = chrono_now();
-            conn.execute(
-                "INSERT INTO approval_history (
-                    session_id, request_id, approval_type, tool_name, command, file_path, cwd,
-                    proposed_amendment, created_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            let updated = conn.execute(
+                "UPDATE approval_history
+                 SET approval_type = ?1,
+                     tool_name = ?2,
+                     command = ?3,
+                     file_path = ?4,
+                     cwd = ?5,
+                     proposed_amendment = ?6
+                 WHERE session_id = ?7
+                   AND request_id = ?8
+                   AND decision IS NULL",
                 params![
-                    session_id,
-                    request_id,
                     approval_type_str,
-                    tool_name,
-                    command,
-                    file_path,
-                    cwd,
-                    proposed_amendment_json,
-                    now
+                    tool_name.as_deref(),
+                    command.as_deref(),
+                    file_path.as_deref(),
+                    cwd.as_deref(),
+                    proposed_amendment_json.as_deref(),
+                    &session_id,
+                    &request_id
                 ],
             )?;
+            if updated == 0 {
+                conn.execute(
+                    "INSERT INTO approval_history (
+                        session_id, request_id, approval_type, tool_name, command, file_path, cwd,
+                        proposed_amendment, created_at
+                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        &session_id,
+                        &request_id,
+                        approval_type_str,
+                        tool_name.as_deref(),
+                        command.as_deref(),
+                        file_path.as_deref(),
+                        cwd.as_deref(),
+                        proposed_amendment_json.as_deref(),
+                        now
+                    ],
+                )?;
+            }
             // Keep session pending_approval_id aligned to the queue head (oldest unresolved).
             conn.execute(
                 "UPDATE sessions
                  SET pending_approval_id = (
-                    SELECT request_id
-                    FROM approval_history
-                    WHERE session_id = ?1
-                      AND decision IS NULL
-                    ORDER BY id ASC
+                    SELECT ah.request_id
+                    FROM approval_history ah
+                    WHERE ah.session_id = ?1
+                      AND ah.decision IS NULL
+                      AND ah.id > COALESCE(
+                        (
+                            SELECT MAX(resolved.id)
+                            FROM approval_history resolved
+                            WHERE resolved.session_id = ah.session_id
+                              AND resolved.request_id = ah.request_id
+                              AND resolved.decision IS NOT NULL
+                        ),
+                        0
+                      )
+                    ORDER BY ah.id ASC
                     LIMIT 1
                  )
                  WHERE id = ?1",
@@ -1407,26 +1441,30 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             conn.execute(
                 "UPDATE approval_history
                  SET decision = ?1, decided_at = ?2
-                 WHERE id = (
-                   SELECT id
-                   FROM approval_history
-                   WHERE session_id = ?3
-                     AND request_id = ?4
-                     AND decision IS NULL
-                   ORDER BY id DESC
-                   LIMIT 1
-                 )",
+                 WHERE session_id = ?3
+                   AND request_id = ?4
+                   AND decision IS NULL",
                 params![decision, now, session_id, request_id],
             )?;
             // Recompute the queue head after each decision.
             conn.execute(
                 "UPDATE sessions
                  SET pending_approval_id = (
-                    SELECT request_id
-                    FROM approval_history
-                    WHERE session_id = ?1
-                      AND decision IS NULL
-                    ORDER BY id ASC
+                    SELECT ah.request_id
+                    FROM approval_history ah
+                    WHERE ah.session_id = ?1
+                      AND ah.decision IS NULL
+                      AND ah.id > COALESCE(
+                        (
+                            SELECT MAX(resolved.id)
+                            FROM approval_history resolved
+                            WHERE resolved.session_id = ah.session_id
+                              AND resolved.request_id = ah.request_id
+                              AND resolved.decision IS NOT NULL
+                        ),
+                        0
+                      )
+                    ORDER BY ah.id ASC
                     LIMIT 1
                  )
                  WHERE id = ?1",
@@ -3883,6 +3921,184 @@ mod tests {
         // 2024-01-15 12:30:45 UTC
         let result = time_to_iso8601(1705322445);
         assert!(result.starts_with("2024-01-15"));
+    }
+
+    #[test]
+    fn approval_requested_upserts_existing_unresolved_row_for_same_request_id() {
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::SessionCreate {
+                id: "approval-upsert-session".into(),
+                provider: Provider::Codex,
+                project_path: "/tmp/approval-upsert".into(),
+                project_name: Some("approval-upsert".into()),
+                branch: Some("main".into()),
+                model: Some("gpt-5".into()),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: None,
+                forked_from_session_id: None,
+            }],
+        )
+        .expect("seed approval upsert session");
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::ApprovalRequested {
+                    session_id: "approval-upsert-session".into(),
+                    request_id: "req-1".into(),
+                    approval_type: ApprovalType::Exec,
+                    tool_name: Some("Bash".into()),
+                    command: Some("echo first".into()),
+                    file_path: None,
+                    cwd: Some("/tmp/approval-upsert".into()),
+                    proposed_amendment: None,
+                },
+                PersistCommand::ApprovalRequested {
+                    session_id: "approval-upsert-session".into(),
+                    request_id: "req-1".into(),
+                    approval_type: ApprovalType::Exec,
+                    tool_name: Some("Bash".into()),
+                    command: Some("echo updated".into()),
+                    file_path: None,
+                    cwd: Some("/tmp/approval-upsert".into()),
+                    proposed_amendment: None,
+                },
+            ],
+        )
+        .expect("persist approval requests");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM approval_history WHERE session_id = ?1 AND request_id = ?2",
+                params!["approval-upsert-session", "req-1"],
+                |row| row.get(0),
+            )
+            .expect("count approval history rows");
+        assert_eq!(rows, 1);
+
+        let command: Option<String> = conn
+            .query_row(
+                "SELECT command FROM approval_history WHERE session_id = ?1 AND request_id = ?2",
+                params!["approval-upsert-session", "req-1"],
+                |row| row.get(0),
+            )
+            .expect("load updated command");
+        assert_eq!(command.as_deref(), Some("echo updated"));
+    }
+
+    #[test]
+    fn approval_decision_resolves_all_unresolved_duplicates_for_request_id() {
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::SessionCreate {
+                id: "approval-resolution-session".into(),
+                provider: Provider::Codex,
+                project_path: "/tmp/approval-resolution".into(),
+                project_name: Some("approval-resolution".into()),
+                branch: Some("main".into()),
+                model: Some("gpt-5".into()),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: None,
+                forked_from_session_id: None,
+            }],
+        )
+        .expect("seed approval resolution session");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let created_at = "2026-02-25T00:00:00Z";
+        conn.execute(
+            "INSERT INTO approval_history (
+                session_id, request_id, approval_type, tool_name, command, file_path, cwd, proposed_amendment, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, NULL, ?7)",
+            params![
+                "approval-resolution-session",
+                "req-1",
+                "exec",
+                "Bash",
+                "echo one",
+                "/tmp/approval-resolution",
+                created_at
+            ],
+        )
+        .expect("insert first duplicate unresolved approval");
+        conn.execute(
+            "INSERT INTO approval_history (
+                session_id, request_id, approval_type, tool_name, command, file_path, cwd, proposed_amendment, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, NULL, ?7)",
+            params![
+                "approval-resolution-session",
+                "req-1",
+                "exec",
+                "Bash",
+                "echo two",
+                "/tmp/approval-resolution",
+                created_at
+            ],
+        )
+        .expect("insert second duplicate unresolved approval");
+        conn.execute(
+            "INSERT INTO approval_history (
+                session_id, request_id, approval_type, tool_name, command, file_path, cwd, proposed_amendment, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, NULL, ?7)",
+            params![
+                "approval-resolution-session",
+                "req-2",
+                "exec",
+                "Bash",
+                "echo next",
+                "/tmp/approval-resolution",
+                created_at
+            ],
+        )
+        .expect("insert next unresolved approval");
+        conn.execute(
+            "UPDATE sessions SET pending_approval_id = ?1 WHERE id = ?2",
+            params!["req-1", "approval-resolution-session"],
+        )
+        .expect("seed stale queue head");
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::ApprovalDecision {
+                session_id: "approval-resolution-session".into(),
+                request_id: "req-1".into(),
+                decision: "approved".into(),
+            }],
+        )
+        .expect("persist approval decision");
+
+        let unresolved_for_req_1: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM approval_history
+                 WHERE session_id = ?1 AND request_id = ?2 AND decision IS NULL",
+                params!["approval-resolution-session", "req-1"],
+                |row| row.get(0),
+            )
+            .expect("count unresolved duplicates");
+        assert_eq!(unresolved_for_req_1, 0);
+
+        let pending_approval_id: Option<String> = conn
+            .query_row(
+                "SELECT pending_approval_id FROM sessions WHERE id = ?1",
+                params!["approval-resolution-session"],
+                |row| row.get(0),
+            )
+            .expect("load pending approval id");
+        assert_eq!(pending_approval_id.as_deref(), Some("req-2"));
     }
 
     #[test]

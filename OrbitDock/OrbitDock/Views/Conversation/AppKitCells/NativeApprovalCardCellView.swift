@@ -39,14 +39,15 @@
     private let riskBadgeIcon = NSImageView()
     private let riskBadgeLabel = NSTextField(labelWithString: "HIGH RISK")
 
-    // Command preview
-    private let commandContainer = NSView()
-    private let commandAccentBar = NSView()
-    private let commandTextScrollView = NSScrollView()
-    private let commandText = NSTextView()
+    // Command preview — structured segments
+    private let segmentStack = NSStackView()
+    private let riskFindingsStack = NSStackView()
     private let projectPathRow = NSView()
     private let projectPathIcon = NSImageView()
     private let projectPathLabel = NSTextField(labelWithString: "")
+    private let scopeRow = NSView()
+    private let scopeLabel = NSTextField(labelWithString: "")
+    private let requestIdLabel = NSTextField(labelWithString: "")
 
     // Question mode
     private let questionTextLabel = NSTextField(wrappingLabelWithString: "")
@@ -81,8 +82,6 @@
 
     private var currentModel: ApprovalCardModel?
     private var showDenyReason = false
-    private var commandTextHeightConstraint: NSLayoutConstraint?
-    private var commandPreviewTextForSizing: String?
     private var questionOptionsTopConstraint: NSLayoutConstraint?
     private var selectedQuestionAnswers: [String: [String]] = [:]
     private var questionTextFields: [String: NSTextField] = [:]
@@ -115,7 +114,6 @@
 
     override func layout() {
       super.layout()
-      refreshCommandPreviewHeight()
     }
 
     // MARK: - Setup
@@ -254,45 +252,23 @@
     }
 
     private func setupCommandPreview() {
-      commandContainer.wantsLayer = true
-      commandContainer.layer?.cornerRadius = CGFloat(Radius.md)
-      commandContainer.layer?.backgroundColor = NSColor(Color.backgroundPrimary).cgColor
-      commandContainer.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(commandContainer)
+      // Segment stack — holds per-segment code blocks
+      segmentStack.translatesAutoresizingMaskIntoConstraints = false
+      segmentStack.orientation = .vertical
+      segmentStack.spacing = CGFloat(Spacing.xs)
+      segmentStack.alignment = .leading
+      segmentStack.detachesHiddenViews = true
+      cardContainer.addSubview(segmentStack)
 
-      commandAccentBar.wantsLayer = true
-      commandAccentBar.translatesAutoresizingMaskIntoConstraints = false
-      commandContainer.addSubview(commandAccentBar)
+      // Risk findings stack
+      riskFindingsStack.translatesAutoresizingMaskIntoConstraints = false
+      riskFindingsStack.orientation = .vertical
+      riskFindingsStack.spacing = CGFloat(Spacing.xs)
+      riskFindingsStack.alignment = .leading
+      riskFindingsStack.isHidden = true
+      cardContainer.addSubview(riskFindingsStack)
 
-      commandTextScrollView.translatesAutoresizingMaskIntoConstraints = false
-      commandTextScrollView.drawsBackground = false
-      commandTextScrollView.borderType = .noBorder
-      commandTextScrollView.hasVerticalScroller = false
-      commandTextScrollView.hasHorizontalScroller = false
-      commandTextScrollView.autohidesScrollers = true
-      commandTextScrollView.scrollerStyle = .overlay
-      commandTextScrollView.verticalScrollElasticity = .automatic
-      commandTextScrollView.horizontalScrollElasticity = .none
-      commandContainer.addSubview(commandTextScrollView)
-
-      commandText.translatesAutoresizingMaskIntoConstraints = true
-      commandText.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-      commandText.textColor = NSColor(Color.textPrimary)
-      commandText.drawsBackground = false
-      commandText.isEditable = false
-      commandText.isSelectable = true
-      commandText.isRichText = false
-      commandText.isHorizontallyResizable = false
-      commandText.isVerticallyResizable = true
-      commandText.minSize = NSSize(width: 0, height: 0)
-      commandText.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-      commandText.autoresizingMask = [.width]
-      commandText.textContainerInset = .zero
-      commandText.textContainer?.lineFragmentPadding = 0
-      commandText.textContainer?.widthTracksTextView = true
-      commandText.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-      commandTextScrollView.documentView = commandText
-
+      // Project path row
       projectPathRow.translatesAutoresizingMaskIntoConstraints = false
       cardContainer.addSubview(projectPathRow)
 
@@ -308,36 +284,43 @@
       projectPathLabel.lineBreakMode = .byTruncatingMiddle
       projectPathRow.addSubview(projectPathLabel)
 
+      // Scope row — decision scope (left) + request ID (right)
+      scopeRow.translatesAutoresizingMaskIntoConstraints = false
+      scopeRow.isHidden = true
+      cardContainer.addSubview(scopeRow)
+
+      scopeLabel.translatesAutoresizingMaskIntoConstraints = false
+      scopeLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .regular)
+      scopeLabel.textColor = NSColor(Color.textQuaternary)
+      scopeLabel.lineBreakMode = .byTruncatingTail
+      scopeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+      scopeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+      scopeRow.addSubview(scopeLabel)
+
+      requestIdLabel.translatesAutoresizingMaskIntoConstraints = false
+      requestIdLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
+      requestIdLabel.textColor = NSColor(Color.textQuaternary)
+      requestIdLabel.alignment = .right
+      requestIdLabel.lineBreakMode = .byTruncatingTail
+      requestIdLabel.setContentHuggingPriority(.required, for: .horizontal)
+      requestIdLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+      scopeRow.addSubview(requestIdLabel)
+
       let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
-        commandContainer.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.sm)),
-        commandContainer.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        commandContainer.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+        segmentStack.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.sm)),
+        segmentStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        segmentStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
-        commandAccentBar.topAnchor.constraint(equalTo: commandContainer.topAnchor),
-        commandAccentBar.bottomAnchor.constraint(equalTo: commandContainer.bottomAnchor),
-        commandAccentBar.leadingAnchor.constraint(equalTo: commandContainer.leadingAnchor),
-        commandAccentBar.widthAnchor.constraint(equalToConstant: EdgeBar.width),
-
-        commandTextScrollView.topAnchor.constraint(
-          equalTo: commandContainer.topAnchor,
-          constant: Layout.commandVerticalPadding
+        riskFindingsStack.topAnchor.constraint(
+          equalTo: segmentStack.bottomAnchor,
+          constant: CGFloat(Spacing.sm)
         ),
-        commandTextScrollView.bottomAnchor.constraint(
-          equalTo: commandContainer.bottomAnchor,
-          constant: -Layout.commandVerticalPadding
-        ),
-        commandTextScrollView.leadingAnchor.constraint(
-          equalTo: commandAccentBar.trailingAnchor,
-          constant: Layout.commandHorizontalPadding
-        ),
-        commandTextScrollView.trailingAnchor.constraint(
-          equalTo: commandContainer.trailingAnchor,
-          constant: -Layout.commandHorizontalPadding
-        ),
+        riskFindingsStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        riskFindingsStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
         projectPathRow.topAnchor.constraint(
-          equalTo: commandContainer.bottomAnchor,
+          equalTo: riskFindingsStack.bottomAnchor,
           constant: Layout.commandVerticalPadding
         ),
         projectPathRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
@@ -355,12 +338,25 @@
         projectPathLabel.trailingAnchor.constraint(equalTo: projectPathRow.trailingAnchor),
         projectPathLabel.topAnchor.constraint(equalTo: projectPathRow.topAnchor),
         projectPathLabel.bottomAnchor.constraint(equalTo: projectPathRow.bottomAnchor),
-      ])
 
-      commandTextHeightConstraint = commandTextScrollView.heightAnchor.constraint(
-        equalToConstant: Layout.minCommandTextHeight
-      )
-      commandTextHeightConstraint?.isActive = true
+        scopeRow.topAnchor.constraint(
+          equalTo: projectPathRow.bottomAnchor,
+          constant: CGFloat(Spacing.xs)
+        ),
+        scopeRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        scopeRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+
+        scopeLabel.leadingAnchor.constraint(equalTo: scopeRow.leadingAnchor),
+        scopeLabel.topAnchor.constraint(equalTo: scopeRow.topAnchor),
+        scopeLabel.bottomAnchor.constraint(equalTo: scopeRow.bottomAnchor),
+
+        requestIdLabel.leadingAnchor.constraint(
+          greaterThanOrEqualTo: scopeLabel.trailingAnchor,
+          constant: CGFloat(Spacing.sm)
+        ),
+        requestIdLabel.trailingAnchor.constraint(equalTo: scopeRow.trailingAnchor),
+        requestIdLabel.centerYAnchor.constraint(equalTo: scopeRow.centerYAnchor),
+      ])
     }
 
     private func setupQuestionMode() {
@@ -648,12 +644,13 @@
     }
 
     private func configurePermissionMode(_ model: ApprovalCardModel) {
-      let preview = ApprovalPermissionPreviewBuilder.build(for: model)
+      let hasContent = ApprovalPermissionPreviewHelpers.hasPreviewContent(model)
+      let showPath = ApprovalPermissionPreviewHelpers.showsProjectPath(model)
 
       // Show permission views
       toolBadge.isHidden = false
-      commandContainer.isHidden = preview == nil
-      projectPathRow.isHidden = preview?.showsProjectPath != true
+      segmentStack.isHidden = !hasContent
+      projectPathRow.isHidden = !showPath
       actionDivider.isHidden = false
       buttonRow.isHidden = false
       secondaryRow.isHidden = false
@@ -696,22 +693,16 @@
         riskBadgeLabel.stringValue = "HIGH RISK"
       }
 
-      // Preview content
-      if let preview {
-        setCommandPreviewText(preview.text)
-        commandAccentBar.layer?.backgroundColor = NSColor(model.risk.tintColor).cgColor
-        commandContainer.isHidden = false
-        if preview.showsProjectPath {
-          projectPathIcon.image = NSImage(systemSymbolName: preview.projectPathIconName, accessibilityDescription: nil)
-          projectPathLabel.stringValue = model.projectPath
-          projectPathRow.isHidden = false
-        } else {
-          projectPathRow.isHidden = true
-        }
-      } else {
-        setCommandPreviewText(nil)
-        commandContainer.isHidden = true
-        projectPathRow.isHidden = true
+      // Preview content — structured segments
+      configurePreviewContent(model)
+      configureRiskFindings(model)
+      configureScopeRow(model)
+
+      // Project path
+      if showPath {
+        let iconName = ApprovalPermissionPreviewHelpers.previewIconName(for: model)
+        projectPathIcon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
+        projectPathLabel.stringValue = model.projectPath
       }
 
       // Always allow only for exec with amendment
@@ -719,6 +710,325 @@
 
       // Position divider after last visible content
       updateActionDividerPosition(model)
+    }
+
+    // MARK: - Structured Preview Content
+
+    private func configurePreviewContent(_ model: ApprovalCardModel) {
+      // Clear previous segments
+      for view in segmentStack.arrangedSubviews {
+        segmentStack.removeArrangedSubview(view)
+        view.removeFromSuperview()
+      }
+
+      let accentColor = NSColor(model.risk.tintColor)
+
+      switch model.previewType {
+        case .shellCommand:
+          if !model.shellSegments.isEmpty {
+            for (index, segment) in model.shellSegments.enumerated() {
+              let view = makeSegmentView(
+                command: segment.command,
+                operator: segment.leadingOperator,
+                isFirst: index == 0,
+                accentColor: accentColor
+              )
+              segmentStack.addArrangedSubview(view)
+              view.widthAnchor.constraint(equalTo: segmentStack.widthAnchor).isActive = true
+            }
+          } else if let command = ApprovalPermissionPreviewHelpers.trimmed(model.command) {
+            let view = makeSegmentView(
+              command: command, operator: nil, isFirst: true, accentColor: accentColor
+            )
+            segmentStack.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: segmentStack.widthAnchor).isActive = true
+          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
+            let view = makeSegmentView(
+              command: manifest, operator: nil, isFirst: true, accentColor: accentColor
+            )
+            segmentStack.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: segmentStack.widthAnchor).isActive = true
+          }
+
+        default:
+          if let value = ApprovalPermissionPreviewHelpers.previewValue(for: model) {
+            let view = makeNonShellPreview(
+              type: model.previewType,
+              value: value,
+              toolName: model.toolName,
+              accentColor: accentColor
+            )
+            segmentStack.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: segmentStack.widthAnchor).isActive = true
+          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
+            let view = makeSegmentView(
+              command: manifest, operator: nil, isFirst: true, accentColor: accentColor
+            )
+            segmentStack.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: segmentStack.widthAnchor).isActive = true
+          }
+      }
+
+      segmentStack.isHidden = segmentStack.arrangedSubviews.isEmpty
+    }
+
+    private func makeSegmentView(
+      command: String,
+      operator leadingOp: String?,
+      isFirst: Bool,
+      accentColor: NSColor
+    ) -> NSView {
+      let container = NSView()
+      container.wantsLayer = true
+      container.layer?.cornerRadius = CGFloat(Radius.md)
+      container.layer?.backgroundColor = NSColor(Color.backgroundPrimary).cgColor
+      container.translatesAutoresizingMaskIntoConstraints = false
+
+      // Left accent bar
+      let bar = NSView()
+      bar.wantsLayer = true
+      bar.layer?.backgroundColor = accentColor.cgColor
+      bar.translatesAutoresizingMaskIntoConstraints = false
+      container.addSubview(bar)
+
+      // Operator pill (for piped/chained segments)
+      var topAnchorView: NSView = container
+      var topConstant = Layout.commandVerticalPadding
+
+      if let op = leadingOp,
+         let label = ApprovalPermissionPreviewHelpers.operatorLabel(op)
+      {
+        let pill = NSView()
+        pill.wantsLayer = true
+        pill.layer?.cornerRadius = 3
+        pill.layer?.backgroundColor = NSColor(Color.backgroundTertiary).cgColor
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(pill)
+
+        let opLabel = NSTextField(labelWithString: op)
+        opLabel.translatesAutoresizingMaskIntoConstraints = false
+        opLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .semibold)
+        opLabel.textColor = NSColor(Color.textTertiary)
+        pill.addSubview(opLabel)
+
+        let descLabel = NSTextField(labelWithString: label)
+        descLabel.translatesAutoresizingMaskIntoConstraints = false
+        descLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .regular)
+        descLabel.textColor = NSColor(Color.textQuaternary)
+        container.addSubview(descLabel)
+
+        NSLayoutConstraint.activate([
+          pill.topAnchor.constraint(equalTo: container.topAnchor, constant: Layout.commandVerticalPadding),
+          pill.leadingAnchor.constraint(
+            equalTo: bar.trailingAnchor,
+            constant: Layout.commandHorizontalPadding
+          ),
+          pill.heightAnchor.constraint(equalToConstant: 16),
+
+          opLabel.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 5),
+          opLabel.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -5),
+          opLabel.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+
+          descLabel.leadingAnchor.constraint(equalTo: pill.trailingAnchor, constant: CGFloat(Spacing.xs)),
+          descLabel.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+        ])
+
+        topAnchorView = pill
+        topConstant = CGFloat(Spacing.xs)
+      }
+
+      // Command text
+      let textField = NSTextField(wrappingLabelWithString: "")
+      textField.translatesAutoresizingMaskIntoConstraints = false
+      textField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+      textField.textColor = NSColor(Color.textPrimary)
+      textField.isSelectable = true
+      textField.lineBreakMode = .byCharWrapping
+      textField.maximumNumberOfLines = 0
+
+      // Add $ prefix for first segment without operator
+      if isFirst, leadingOp == nil {
+        let attributed = NSMutableAttributedString()
+        attributed.append(NSAttributedString(
+          string: "$ ",
+          attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .semibold),
+            .foregroundColor: accentColor,
+          ]
+        ))
+        attributed.append(NSAttributedString(
+          string: command,
+          attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular),
+            .foregroundColor: NSColor(Color.textPrimary),
+          ]
+        ))
+        textField.attributedStringValue = attributed
+      } else {
+        textField.stringValue = command
+      }
+
+      container.addSubview(textField)
+
+      let textTopAnchor = topAnchorView === container
+        ? container.topAnchor
+        : topAnchorView.bottomAnchor
+
+      NSLayoutConstraint.activate([
+        bar.topAnchor.constraint(equalTo: container.topAnchor),
+        bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        bar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        bar.widthAnchor.constraint(equalToConstant: EdgeBar.width),
+
+        textField.topAnchor.constraint(equalTo: textTopAnchor, constant: topConstant),
+        textField.leadingAnchor.constraint(
+          equalTo: bar.trailingAnchor,
+          constant: Layout.commandHorizontalPadding
+        ),
+        textField.trailingAnchor.constraint(
+          equalTo: container.trailingAnchor,
+          constant: -Layout.commandHorizontalPadding
+        ),
+        textField.bottomAnchor.constraint(
+          equalTo: container.bottomAnchor,
+          constant: -Layout.commandVerticalPadding
+        ),
+      ])
+
+      return container
+    }
+
+    private func makeNonShellPreview(
+      type: ApprovalPreviewType,
+      value: String,
+      toolName: String?,
+      accentColor: NSColor
+    ) -> NSView {
+      let container = NSView()
+      container.wantsLayer = true
+      container.layer?.cornerRadius = CGFloat(Radius.md)
+      container.layer?.backgroundColor = NSColor(Color.backgroundPrimary).cgColor
+      container.translatesAutoresizingMaskIntoConstraints = false
+
+      let bar = NSView()
+      bar.wantsLayer = true
+      bar.layer?.backgroundColor = accentColor.cgColor
+      bar.translatesAutoresizingMaskIntoConstraints = false
+      container.addSubview(bar)
+
+      // Type label
+      let typeLabel = NSTextField(labelWithString: type.title)
+      typeLabel.translatesAutoresizingMaskIntoConstraints = false
+      typeLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
+      typeLabel.textColor = NSColor(Color.textTertiary)
+      container.addSubview(typeLabel)
+
+      // Value
+      let valueField = NSTextField(wrappingLabelWithString: value)
+      valueField.translatesAutoresizingMaskIntoConstraints = false
+      valueField.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+      valueField.textColor = NSColor(Color.textPrimary)
+      valueField.isSelectable = true
+      valueField.lineBreakMode = .byCharWrapping
+      valueField.maximumNumberOfLines = 0
+      container.addSubview(valueField)
+
+      NSLayoutConstraint.activate([
+        bar.topAnchor.constraint(equalTo: container.topAnchor),
+        bar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        bar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+        bar.widthAnchor.constraint(equalToConstant: EdgeBar.width),
+
+        typeLabel.topAnchor.constraint(
+          equalTo: container.topAnchor,
+          constant: Layout.commandVerticalPadding
+        ),
+        typeLabel.leadingAnchor.constraint(
+          equalTo: bar.trailingAnchor,
+          constant: Layout.commandHorizontalPadding
+        ),
+
+        valueField.topAnchor.constraint(
+          equalTo: typeLabel.bottomAnchor,
+          constant: CGFloat(Spacing.xxs)
+        ),
+        valueField.leadingAnchor.constraint(equalTo: typeLabel.leadingAnchor),
+        valueField.trailingAnchor.constraint(
+          equalTo: container.trailingAnchor,
+          constant: -Layout.commandHorizontalPadding
+        ),
+        valueField.bottomAnchor.constraint(
+          equalTo: container.bottomAnchor,
+          constant: -Layout.commandVerticalPadding
+        ),
+      ])
+
+      return container
+    }
+
+    private func configureRiskFindings(_ model: ApprovalCardModel) {
+      // Clear previous
+      for view in riskFindingsStack.arrangedSubviews {
+        riskFindingsStack.removeArrangedSubview(view)
+        view.removeFromSuperview()
+      }
+
+      guard !model.riskFindings.isEmpty else {
+        riskFindingsStack.isHidden = true
+        return
+      }
+
+      let tintColor = NSColor(model.risk.tintColor)
+
+      for finding in model.riskFindings {
+        let row = NSView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        let icon = NSImageView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: .regular)
+        icon.contentTintColor = tintColor
+        row.addSubview(icon)
+
+        let label = NSTextField(labelWithString: finding)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .regular)
+        label.textColor = NSColor(Color.textSecondary)
+        label.lineBreakMode = .byTruncatingTail
+        row.addSubview(label)
+
+        NSLayoutConstraint.activate([
+          icon.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+          icon.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+          icon.widthAnchor.constraint(equalToConstant: 12),
+          icon.heightAnchor.constraint(equalToConstant: 12),
+
+          label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: CGFloat(Spacing.xs)),
+          label.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+          label.topAnchor.constraint(equalTo: row.topAnchor),
+          label.bottomAnchor.constraint(equalTo: row.bottomAnchor),
+        ])
+
+        riskFindingsStack.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo: riskFindingsStack.widthAnchor).isActive = true
+      }
+
+      riskFindingsStack.isHidden = false
+    }
+
+    private func configureScopeRow(_ model: ApprovalCardModel) {
+      let hasScope = ApprovalPermissionPreviewHelpers.trimmed(model.decisionScope) != nil
+      let hasId = ApprovalPermissionPreviewHelpers.trimmed(model.approvalId) != nil
+
+      guard hasScope || hasId else {
+        scopeRow.isHidden = true
+        return
+      }
+
+      scopeLabel.stringValue = model.decisionScope ?? ""
+      requestIdLabel.stringValue = model.approvalId.map { "#\($0)" } ?? ""
+      scopeRow.isHidden = false
     }
 
     private func configureQuestionMode(_ model: ApprovalCardModel) {
@@ -752,8 +1062,9 @@
 
       // Hide other modes
       toolBadge.isHidden = true
-      commandContainer.isHidden = true
-      setCommandPreviewText(nil)
+      segmentStack.isHidden = true
+      riskFindingsStack.isHidden = true
+      scopeRow.isHidden = true
       projectPathRow.isHidden = true
       actionDivider.isHidden = true
       buttonRow.isHidden = true
@@ -800,8 +1111,9 @@
       }
 
       // Hide other modes
-      commandContainer.isHidden = true
-      setCommandPreviewText(nil)
+      segmentStack.isHidden = true
+      riskFindingsStack.isHidden = true
+      scopeRow.isHidden = true
       projectPathRow.isHidden = true
       actionDivider.isHidden = true
       buttonRow.isHidden = true
@@ -835,42 +1147,19 @@
         constraint.isActive = false
       }
 
-      let anchor: NSView = if !projectPathRow.isHidden {
+      let anchor: NSView = if !scopeRow.isHidden {
+        scopeRow
+      } else if !projectPathRow.isHidden {
         projectPathRow
-      } else if !commandContainer.isHidden {
-        commandContainer
+      } else if !riskFindingsStack.isHidden {
+        riskFindingsStack
+      } else if !segmentStack.isHidden {
+        segmentStack
       } else {
         toolBadge
       }
 
       actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.sm)).isActive = true
-    }
-
-    private func setCommandPreviewText(_ text: String?) {
-      commandPreviewTextForSizing = text
-      commandText.string = text ?? ""
-      commandTextScrollView.contentView.scroll(to: .zero)
-      commandTextScrollView.reflectScrolledClipView(commandTextScrollView.contentView)
-      refreshCommandPreviewHeight()
-    }
-
-    private func refreshCommandPreviewHeight() {
-      guard !commandContainer.isHidden, let text = commandPreviewTextForSizing else {
-        commandTextHeightConstraint?.constant = Layout.minCommandTextHeight
-        commandTextScrollView.hasVerticalScroller = false
-        return
-      }
-
-      let availableWidth = max(bounds.width, 1)
-      let visibleHeight = Self.visibleCommandTextHeight(text, availableWidth: availableWidth)
-      commandTextHeightConstraint?.constant = visibleHeight
-
-      let fullHeight = Self.measureTextHeight(
-        text,
-        font: NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular),
-        width: Self.commandTextWidth(for: availableWidth)
-      )
-      commandTextScrollView.hasVerticalScroller = fullHeight > visibleHeight + 0.5
     }
 
     // MARK: - Keyboard Shortcuts
@@ -1233,15 +1522,30 @@
           h += Layout.headerIconSize // header row (icon + label)
           h += CGFloat(Spacing.md) + 20 // tool badge row
 
-          if let text = Self.commandPreviewText(for: model) {
-            h += CGFloat(Spacing.sm) // spacing before command container
-            h += Layout.commandVerticalPadding
-            h += Self.visibleCommandTextHeight(text, availableWidth: availableWidth)
-            h += Layout.commandVerticalPadding
+          let hasContent = ApprovalPermissionPreviewHelpers.hasPreviewContent(model)
+          if hasContent {
+            h += CGFloat(Spacing.sm) // spacing before segment stack
+            h += Self.segmentStackHeight(for: model, contentWidth: contentWidth)
+          }
 
-            if model.command != nil {
-              h += Layout.commandVerticalPadding + 12 // project path row
-            }
+          // Risk findings
+          if !model.riskFindings.isEmpty {
+            h += CGFloat(Spacing.sm) // spacing before risk findings
+            let findingHeight: CGFloat = 14 // icon + label row height
+            h += findingHeight * CGFloat(model.riskFindings.count)
+            h += CGFloat(Spacing.xs) * CGFloat(max(0, model.riskFindings.count - 1))
+          }
+
+          // Project path
+          if ApprovalPermissionPreviewHelpers.showsProjectPath(model) {
+            h += Layout.commandVerticalPadding + 12
+          }
+
+          // Scope row
+          let hasScope = ApprovalPermissionPreviewHelpers.trimmed(model.decisionScope) != nil
+          let hasId = ApprovalPermissionPreviewHelpers.trimmed(model.approvalId) != nil
+          if hasScope || hasId {
+            h += CGFloat(Spacing.xs) + 12 // scope row
           }
 
           if model.diff != nil { h += 120 }
@@ -1320,8 +1624,51 @@
       return ceil(rect.height)
     }
 
-    private static func commandPreviewText(for model: ApprovalCardModel) -> String? {
-      ApprovalPermissionPreviewBuilder.build(for: model)?.text
+    /// Compute the total height of the segment stack for a given model.
+    private static func segmentStackHeight(for model: ApprovalCardModel, contentWidth: CGFloat) -> CGFloat {
+      let textWidth = max(1, contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2)
+      let monoFont = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+
+      var segments: [(command: String, hasOperator: Bool)] = []
+
+      switch model.previewType {
+        case .shellCommand:
+          if !model.shellSegments.isEmpty {
+            segments = model.shellSegments.map { ($0.command, $0.leadingOperator != nil) }
+          } else if let cmd = ApprovalPermissionPreviewHelpers.trimmed(model.command) {
+            segments = [(cmd, false)]
+          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
+            segments = [(manifest, false)]
+          }
+        default:
+          if let value = ApprovalPermissionPreviewHelpers.previewValue(for: model) {
+            // Non-shell has type label (12pt) + spacing + value
+            let labelHeight: CGFloat = 12
+            let textHeight = measureTextHeight(value, font: monoFont, width: textWidth)
+            let clampedText = min(textHeight, Layout.maxCommandTextHeight)
+            return Layout.commandVerticalPadding + labelHeight + CGFloat(Spacing.xxs) + clampedText + Layout
+              .commandVerticalPadding
+          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
+            segments = [(manifest, false)]
+          }
+      }
+
+      guard !segments.isEmpty else { return 0 }
+
+      var total: CGFloat = 0
+      for (index, segment) in segments.enumerated() {
+        let textHeight = measureTextHeight(segment.command, font: monoFont, width: textWidth)
+        let clampedText = min(textHeight, Layout.maxCommandTextHeight)
+        var segmentHeight = Layout.commandVerticalPadding + clampedText + Layout.commandVerticalPadding
+        if segment.hasOperator {
+          segmentHeight += 16 + CGFloat(Spacing.xs) // operator pill + spacing
+        }
+        total += segmentHeight
+        if index > 0 {
+          total += CGFloat(Spacing.xs) // inter-segment spacing
+        }
+      }
+      return total
     }
 
     private static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
@@ -1379,17 +1726,6 @@
       return max(30, textHeight + 16)
     }
 
-    private static func commandTextWidth(for availableWidth: CGFloat) -> CGFloat {
-      let contentWidth = availableWidth - ConversationLayout.laneHorizontalInset * 2 - Layout.cardPadding * 2
-      return max(1, contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2)
-    }
-
-    private static func visibleCommandTextHeight(_ text: String, availableWidth: CGFloat) -> CGFloat {
-      let font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-      let fullHeight = measureTextHeight(text, font: font, width: commandTextWidth(for: availableWidth))
-      let clampedHeight = min(fullHeight, Layout.maxCommandTextHeight)
-      return max(Layout.minCommandTextHeight, clampedHeight)
-    }
   }
 
 #endif

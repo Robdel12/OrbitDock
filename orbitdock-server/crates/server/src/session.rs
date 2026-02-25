@@ -901,10 +901,11 @@ impl SessionHandle {
         approval_type: ApprovalType,
         proposed_amendment: Option<Vec<String>>,
     ) {
+        let normalized_request_id = normalize_request_id(&approval.id);
         if let Some(index) = self
             .pending_approvals
             .iter()
-            .position(|entry| entry.request.id == approval.id)
+            .position(|entry| normalize_request_id(&entry.request.id) == normalized_request_id)
         {
             if let Some(existing) = self.pending_approvals.get_mut(index) {
                 existing.request = approval;
@@ -1015,7 +1016,7 @@ impl SessionHandle {
         let Some(head) = self.pending_approvals.front() else {
             return (None, None, self.pending_approval.clone(), self.work_status);
         };
-        if head.request.id != request_id {
+        if normalize_request_id(&head.request.id) != normalize_request_id(request_id) {
             return (None, None, self.pending_approval.clone(), self.work_status);
         }
 
@@ -1023,6 +1024,13 @@ impl SessionHandle {
             .pending_approvals
             .pop_front()
             .expect("pending approval queue should have head entry");
+        let removed_request_id = normalize_request_id(&removed.request.id);
+        while matches!(
+            self.pending_approvals.front(),
+            Some(entry) if normalize_request_id(&entry.request.id) == removed_request_id
+        ) {
+            let _ = self.pending_approvals.pop_front();
+        }
         self.promote_queue_front();
         if self.pending_approvals.is_empty() {
             self.work_status = fallback_work_status;
@@ -1499,6 +1507,37 @@ mod tests {
         let state = handle.state();
         assert_eq!(state.pending_approval_id.as_deref(), Some("req-1"));
     }
+
+    #[test]
+    fn resolve_pending_approval_drops_duplicate_entries_for_same_request_id() {
+        let mut handle = SessionHandle::new(
+            "session-duplicate-head".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+
+        apply_approval_event(&mut handle, "req-1", ApprovalType::Exec, None);
+        handle.pending_approvals.push_back(PendingApprovalEntry {
+            request: approval_request(handle.id(), "req-1", ApprovalType::Exec),
+            approval_type: ApprovalType::Exec,
+            proposed_amendment: None,
+        });
+        apply_approval_event(&mut handle, "req-2", ApprovalType::Exec, None);
+
+        let (approval_type, proposed_amendment, next_pending, work_status) =
+            handle.resolve_pending_approval("req-1", WorkStatus::Working);
+
+        assert_eq!(approval_type, Some(ApprovalType::Exec));
+        assert_eq!(proposed_amendment, None);
+        assert_eq!(
+            next_pending.as_ref().map(|approval| approval.id.as_str()),
+            Some("req-2")
+        );
+        assert_eq!(work_status, WorkStatus::Permission);
+
+        let state = handle.state();
+        assert_eq!(state.pending_approval_id.as_deref(), Some("req-2"));
+    }
 }
 
 /// Serialize a ServerMessage with a revision field injected at the top level
@@ -1521,4 +1560,8 @@ fn chrono_now() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("{}Z", duration.as_secs())
+}
+
+fn normalize_request_id(value: &str) -> &str {
+    value.trim()
 }

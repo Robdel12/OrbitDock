@@ -81,6 +81,35 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
+  @Test func approveToolDeduplicatesRepeatedSubmissionForSamePendingRequest() {
+    let state = ServerAppState()
+    let sessionId = "session-approval-dedupe"
+
+    state.session(sessionId).pendingApproval = makeApprovalRequest(
+      id: "req-1",
+      sessionId: sessionId,
+      type: .exec
+    )
+
+    let first = state.approveTool(sessionId: sessionId, requestId: "req-1", decision: "approved")
+    let second = state.approveTool(sessionId: sessionId, requestId: "req-1", decision: "approved")
+
+    switch first {
+      case .dispatched:
+        #expect(true)
+      case .stale:
+        Issue.record("Expected first approval dispatch to succeed.")
+    }
+
+    switch second {
+      case let .stale(nextPendingRequestId):
+        #expect(nextPendingRequestId == "req-1")
+      case .dispatched:
+        Issue.record("Expected duplicate approval dispatch to be ignored.")
+    }
+  }
+
+  @MainActor
   @Test func approvalsListClearsPendingStateImmediatelyAfterResolution() async {
     let state = ServerAppState()
     state.setup()
@@ -147,6 +176,102 @@ struct ServerAppStateApprovalQueueTests {
 
     #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-1")
     #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == "req-1")
+  }
+
+  @MainActor
+  @Test func approvalsListIgnoresSupersededUnresolvedDuplicatesForSameRequestId() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-approval-duplicate-history"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
+    await Task.yield()
+
+    state.connection.onApprovalsList?(
+      sessionId,
+      [
+        makeApprovalHistoryItem(id: 1, requestId: "req-1", sessionId: sessionId),
+        ServerApprovalHistoryItem(
+          id: 2,
+          sessionId: sessionId,
+          requestId: "req-1",
+          approvalType: .exec,
+          toolName: "Bash",
+          command: "echo test",
+          filePath: nil,
+          cwd: nil,
+          decision: "approved",
+          proposedAmendment: nil,
+          createdAt: "2026-02-24T00:00:01Z",
+          decidedAt: "2026-02-24T00:00:02Z"
+        ),
+        makeApprovalHistoryItem(id: 3, requestId: "req-2", sessionId: sessionId),
+      ]
+    )
+    await Task.yield()
+
+    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-2")
+    #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == "req-2")
+  }
+
+  @MainActor
+  @Test func approvalsListAllowsReusedRequestIdAfterQueueHeadGenerationChanges() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-approval-reused-request-id"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
+    await Task.yield()
+
+    state.connection.onApprovalsList?(
+      sessionId,
+      [
+        makeApprovalHistoryItem(id: 1, requestId: "req-1", sessionId: sessionId),
+      ]
+    )
+    await Task.yield()
+
+    let first = state.approveTool(sessionId: sessionId, requestId: "req-1", decision: "approved")
+    switch first {
+      case .dispatched:
+        #expect(true)
+      case .stale:
+        Issue.record("Expected first approval dispatch to succeed.")
+    }
+
+    state.connection.onApprovalsList?(
+      sessionId,
+      [
+        ServerApprovalHistoryItem(
+          id: 1,
+          sessionId: sessionId,
+          requestId: "req-1",
+          approvalType: .exec,
+          toolName: "Bash",
+          command: "echo test",
+          filePath: nil,
+          cwd: nil,
+          decision: "approved",
+          proposedAmendment: nil,
+          createdAt: "2026-02-24T00:00:00Z",
+          decidedAt: "2026-02-24T00:00:01Z"
+        ),
+        makeApprovalHistoryItem(id: 2, requestId: "req-1", sessionId: sessionId),
+      ]
+    )
+    await Task.yield()
+
+    let second = state.approveTool(sessionId: sessionId, requestId: "req-1", decision: "approved")
+    switch second {
+      case .dispatched:
+        #expect(true)
+      case .stale:
+        Issue.record("Expected reused request ID to unlock after queue-head generation changed.")
+    }
   }
 
   @MainActor

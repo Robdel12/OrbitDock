@@ -103,6 +103,18 @@ final class ServerAppState {
   /// When true, navigate to the next session that gets created
   private var pendingNavigationOnCreate = false
 
+  private struct ApprovalDispatchKey: Hashable {
+    let sessionId: String
+    let requestId: String
+  }
+
+  /// Client-side idempotency for approval/question decisions.
+  private var inFlightApprovalDispatches: Set<ApprovalDispatchKey> = []
+
+  /// Tracks queue-head approval-history row IDs so same request IDs can be
+  /// re-used safely after the queue advances.
+  private var approvalQueueHeadHistoryIdBySession: [String: Int64] = [:]
+
   private struct SessionsCachePayload: Codable {
     let cachedAt: Date
     let summaries: [ServerSessionSummary]
@@ -648,10 +660,12 @@ final class ServerAppState {
 
   /// Resolve the next pending approval request ID for a session.
   func nextPendingApprovalRequestId(sessionId: String) -> String? {
-    if let requestId = sessions.first(where: { $0.id == sessionId })?.pendingApprovalId {
+    if let requestId = normalizedApprovalRequestId(
+      sessions.first(where: { $0.id == sessionId })?.pendingApprovalId
+    ) {
       return requestId
     }
-    if let requestId = session(sessionId).pendingApproval?.id {
+    if let requestId = normalizedApprovalRequestId(session(sessionId).pendingApproval?.id) {
       return requestId
     }
     return nil
@@ -677,16 +691,27 @@ final class ServerAppState {
     message: String? = nil,
     interrupt: Bool? = nil
   ) -> ApprovalDispatchResult {
-    guard hasActivePendingApproval(sessionId: sessionId, requestId: requestId) else {
+    guard let normalizedRequestId = normalizedApprovalRequestId(requestId) else {
+      logger.warning("Ignoring empty tool approval request in \(sessionId)")
+      return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
+    }
+
+    guard hasActivePendingApproval(sessionId: sessionId, requestId: normalizedRequestId) else {
       logger.warning("Ignoring stale tool approval for \(requestId) in \(sessionId)")
       return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
     }
 
-    logger.info("Approving tool \(requestId) in \(sessionId): \(decision)")
+    guard !isApprovalDispatchInFlight(sessionId: sessionId, requestId: normalizedRequestId) else {
+      logger.info("Ignoring duplicate tool approval for \(normalizedRequestId) in \(sessionId)")
+      return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
+    }
+
+    markApprovalDispatchInFlight(sessionId: sessionId, requestId: normalizedRequestId)
+    logger.info("Approving tool \(normalizedRequestId) in \(sessionId): \(decision)")
 
     connection.approveTool(
       sessionId: sessionId,
-      requestId: requestId,
+      requestId: normalizedRequestId,
       decision: decision,
       message: message,
       interrupt: interrupt
@@ -705,15 +730,26 @@ final class ServerAppState {
     questionId: String? = nil,
     answers: [String: [String]]? = nil
   ) -> ApprovalDispatchResult {
-    guard hasActivePendingApproval(sessionId: sessionId, requestId: requestId) else {
+    guard let normalizedRequestId = normalizedApprovalRequestId(requestId) else {
+      logger.warning("Ignoring empty question approval request in \(sessionId)")
+      return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
+    }
+
+    guard hasActivePendingApproval(sessionId: sessionId, requestId: normalizedRequestId) else {
       logger.warning("Ignoring stale question answer for \(requestId) in \(sessionId)")
       return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
     }
 
-    logger.info("Answering question \(requestId) in \(sessionId)")
+    guard !isApprovalDispatchInFlight(sessionId: sessionId, requestId: normalizedRequestId) else {
+      logger.info("Ignoring duplicate question answer for \(normalizedRequestId) in \(sessionId)")
+      return .stale(nextPendingRequestId: nextPendingApprovalRequestId(sessionId: sessionId))
+    }
+
+    markApprovalDispatchInFlight(sessionId: sessionId, requestId: normalizedRequestId)
+    logger.info("Answering question \(normalizedRequestId) in \(sessionId)")
     connection.answerQuestion(
       sessionId: sessionId,
-      requestId: requestId,
+      requestId: normalizedRequestId,
       answer: answer,
       questionId: questionId,
       answers: answers
@@ -1004,9 +1040,27 @@ final class ServerAppState {
   }
 
   private func queueHeadPendingApproval(in approvals: [ServerApprovalHistoryItem]) -> ServerApprovalHistoryItem? {
-    approvals
-      .filter { $0.decision == nil && $0.decidedAt == nil }
-      .min { lhs, rhs in lhs.id < rhs.id }
+    let groupedByRequest = Dictionary(grouping: approvals) { item -> String in
+      let requestId = item.requestId.trimmingCharacters(in: .whitespacesAndNewlines)
+      return requestId.isEmpty ? "__approval_id_\(item.id)" : requestId
+    }
+
+    let unresolvedCandidates = groupedByRequest.values.compactMap { entries -> ServerApprovalHistoryItem? in
+      let latestResolvedId = entries
+        .filter { $0.decision != nil || $0.decidedAt != nil }
+        .map(\.id)
+        .max()
+
+      return entries
+        .filter { item in
+          guard item.decision == nil, item.decidedAt == nil else { return false }
+          guard let latestResolvedId else { return true }
+          return item.id > latestResolvedId
+        }
+        .min { lhs, rhs in lhs.id < rhs.id }
+    }
+
+    return unresolvedCandidates.min { lhs, rhs in lhs.id < rhs.id }
   }
 
   private func reconcilePendingApprovalFromHistory(sessionId: String, approvals: [ServerApprovalHistoryItem]) {
@@ -1015,11 +1069,12 @@ final class ServerAppState {
     let obs = session(sessionId)
     var sess = sessions[idx]
     let queueHead = queueHeadPendingApproval(in: approvals)
-    let queueHeadRequestId: String? = {
-      guard let queueHead else { return nil }
-      let trimmed = queueHead.requestId.trimmingCharacters(in: .whitespacesAndNewlines)
-      return trimmed.isEmpty ? nil : trimmed
-    }()
+    let queueHeadRequestId = normalizedApprovalRequestId(queueHead?.requestId)
+    reconcileApprovalDispatchState(
+      sessionId: sessionId,
+      queueHead: queueHead,
+      queueHeadRequestId: queueHeadRequestId
+    )
 
     // No unresolved approvals remain; clear local pending state immediately so the
     // approval card disappears without requiring navigation or reconnect.
@@ -1119,6 +1174,10 @@ final class ServerAppState {
     } else {
       obs.pendingApproval = nil
     }
+    reconcileApprovalDispatchState(
+      sessionId: state.id,
+      activeRequestId: state.pendingApproval?.id ?? state.pendingApprovalId
+    )
 
     obs.tokenUsage = state.tokenUsage
     obs.tokenUsageSnapshotKind = state.tokenUsageSnapshotKind
@@ -1334,6 +1393,10 @@ final class ServerAppState {
     }
 
     sessions[idx] = sess
+    reconcileApprovalDispatchState(
+      sessionId: sessionId,
+      activeRequestId: sess.pendingApprovalId ?? obs.pendingApproval?.id
+    )
 
     // Keep approval history in sync when approval resolves without a manual UI action
     let hasPendingApproval = obs.pendingApproval != nil
@@ -1348,7 +1411,8 @@ final class ServerAppState {
   }
 
   private func hasActivePendingApproval(sessionId: String, requestId: String) -> Bool {
-    nextPendingApprovalRequestId(sessionId: sessionId) == requestId
+    guard let normalizedRequestId = normalizedApprovalRequestId(requestId) else { return false }
+    return nextPendingApprovalRequestId(sessionId: sessionId) == normalizedRequestId
   }
 
   private func mergeMessage(_ existing: TranscriptMessage, with incoming: TranscriptMessage) -> TranscriptMessage {
@@ -1567,17 +1631,16 @@ final class ServerAppState {
   private func handleApprovalRequested(_ sessionId: String, _ request: ServerApprovalRequest) {
     logger.info("Approval requested in \(sessionId): \(request.type.rawValue)")
     let obs = session(sessionId)
-    let currentPendingRequestId =
-      sessions.first(where: { $0.id == sessionId })?.pendingApprovalId
-        ?? obs.pendingApproval?.id
-    let shouldPromoteAsActive = currentPendingRequestId == nil || currentPendingRequestId == request.id
+    let normalizedRequestId = normalizedApprovalRequestId(request.id)
+    let currentPendingRequestId = nextPendingApprovalRequestId(sessionId: sessionId)
+    let shouldPromoteAsActive = currentPendingRequestId == nil || currentPendingRequestId == normalizedRequestId
 
     if shouldPromoteAsActive {
       obs.pendingApproval = request
 
       if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
         var sess = sessions[idx]
-        sess.pendingApprovalId = request.id
+        sess.pendingApprovalId = normalizedRequestId
         sess.pendingToolName = request.toolNameForDisplay
         sess.pendingToolInput = request.toolInputForDisplay
         sess.pendingPermissionDetail = request.preview?.compact
@@ -1588,9 +1651,14 @@ final class ServerAppState {
       }
     } else {
       logger.debug(
-        "Queued approval \(request.id) for \(sessionId); preserving active \(currentPendingRequestId ?? "none")"
+        "Queued approval \(normalizedRequestId ?? request.id) for \(sessionId); preserving active \(currentPendingRequestId ?? "none")"
       )
     }
+
+    reconcileApprovalDispatchState(
+      sessionId: sessionId,
+      activeRequestId: shouldPromoteAsActive ? normalizedRequestId : currentPendingRequestId
+    )
 
     connection.listApprovals(sessionId: sessionId, limit: 200)
     connection.listApprovals(sessionId: nil, limit: 200)
@@ -1700,6 +1768,8 @@ final class ServerAppState {
     approvalPolicies.removeValue(forKey: sessionId)
     sandboxModes.removeValue(forKey: sessionId)
     permissionModes.removeValue(forKey: sessionId)
+    clearApprovalDispatchState(sessionId: sessionId)
+    approvalQueueHeadHistoryIdBySession.removeValue(forKey: sessionId)
     // Keep SessionObservable alive — user may still be viewing the conversation
   }
 
@@ -1723,6 +1793,12 @@ final class ServerAppState {
       handled = true
     }
 
+    if code == "stale_approval_request", let sid = sessionId {
+      clearApprovalDispatchState(sessionId: sid)
+      refreshApprovalHistory(sessionId: sid)
+      handled = true
+    }
+
     if code.hasPrefix("codex_auth_") {
       codexAuthError = message
       refreshCodexAccount()
@@ -1738,6 +1814,59 @@ final class ServerAppState {
   /// Clear the last server error (call after displaying it)
   func clearServerError() {
     lastServerError = nil
+  }
+
+  private func normalizedApprovalRequestId(_ requestId: String?) -> String? {
+    guard let requestId else { return nil }
+    let normalized = requestId.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
+  }
+
+  private func isApprovalDispatchInFlight(sessionId: String, requestId: String) -> Bool {
+    inFlightApprovalDispatches.contains(ApprovalDispatchKey(sessionId: sessionId, requestId: requestId))
+  }
+
+  private func markApprovalDispatchInFlight(sessionId: String, requestId: String) {
+    inFlightApprovalDispatches.insert(ApprovalDispatchKey(sessionId: sessionId, requestId: requestId))
+  }
+
+  private func clearApprovalDispatchState(sessionId: String) {
+    inFlightApprovalDispatches = inFlightApprovalDispatches.filter { $0.sessionId != sessionId }
+  }
+
+  private func reconcileApprovalDispatchState(sessionId: String, activeRequestId: String?) {
+    let normalizedActiveRequestId = normalizedApprovalRequestId(activeRequestId)
+    inFlightApprovalDispatches = inFlightApprovalDispatches.filter { key in
+      guard key.sessionId == sessionId else { return true }
+      guard let normalizedActiveRequestId else { return false }
+      return key.requestId == normalizedActiveRequestId
+    }
+
+    if normalizedActiveRequestId == nil {
+      approvalQueueHeadHistoryIdBySession.removeValue(forKey: sessionId)
+    }
+  }
+
+  private func reconcileApprovalDispatchState(
+    sessionId: String,
+    queueHead: ServerApprovalHistoryItem?,
+    queueHeadRequestId: String?
+  ) {
+    guard let queueHead, let queueHeadRequestId else {
+      clearApprovalDispatchState(sessionId: sessionId)
+      approvalQueueHeadHistoryIdBySession.removeValue(forKey: sessionId)
+      return
+    }
+
+    let previousQueueHeadHistoryId = approvalQueueHeadHistoryIdBySession[sessionId]
+    approvalQueueHeadHistoryIdBySession[sessionId] = queueHead.id
+
+    if let previousQueueHeadHistoryId, previousQueueHeadHistoryId != queueHead.id {
+      clearApprovalDispatchState(sessionId: sessionId)
+      return
+    }
+
+    reconcileApprovalDispatchState(sessionId: sessionId, activeRequestId: queueHeadRequestId)
   }
 
   // MARK: - Turn Diff Handlers

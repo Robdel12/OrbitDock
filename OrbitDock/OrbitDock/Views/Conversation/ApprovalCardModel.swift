@@ -129,22 +129,41 @@ enum ApprovalCardModeResolver {
 }
 
 enum ApprovalCardModelBuilder {
+  private static func normalizedRequestId(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : normalized
+  }
+
   private static func unresolvedApproval(
     in history: [ServerApprovalHistoryItem],
     requestId: String?
   ) -> ServerApprovalHistoryItem? {
-    let unresolved = history.filter { $0.decision == nil && $0.decidedAt == nil }
-    if let requestId {
-      let normalizedRequestId = requestId.trimmingCharacters(in: .whitespacesAndNewlines)
-      if !normalizedRequestId.isEmpty,
-         let matching = unresolved.first(where: {
-           $0.requestId.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedRequestId
-         })
-      {
-        return matching
-      }
+    guard let normalizedTargetRequestId = normalizedRequestId(requestId) else { return nil }
+
+    let groupedByRequest = Dictionary(grouping: history) { item -> String in
+      let normalizedRequestId = item.requestId.trimmingCharacters(in: .whitespacesAndNewlines)
+      return normalizedRequestId.isEmpty ? "__approval_id_\(item.id)" : normalizedRequestId
     }
-    return unresolved.min { $0.id < $1.id }
+
+    let unresolved = groupedByRequest.values.compactMap { entries -> ServerApprovalHistoryItem? in
+      let latestResolvedId = entries
+        .filter { $0.decision != nil || $0.decidedAt != nil }
+        .map(\.id)
+        .max()
+
+      return entries
+        .filter { item in
+          guard item.decision == nil, item.decidedAt == nil else { return false }
+          guard let latestResolvedId else { return true }
+          return item.id > latestResolvedId
+        }
+        .min { lhs, rhs in lhs.id < rhs.id }
+    }
+
+    return unresolved.first(where: {
+      $0.requestId.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTargetRequestId
+    })
   }
 
   private static func mapQuestionOptions(
@@ -184,13 +203,14 @@ enum ApprovalCardModelBuilder {
     pendingApproval: ServerApprovalRequest?,
     serverState: ServerAppState
   ) -> ApprovalCardModel? {
-    let queueHeadRequestId = serverState.nextPendingApprovalRequestId(sessionId: session.id) ?? session
-      .pendingApprovalId
+    let queueHeadRequestId = normalizedRequestId(
+      serverState.nextPendingApprovalRequestId(sessionId: session.id) ?? session.pendingApprovalId
+    )
     let pendingHistory = unresolvedApproval(
       in: serverState.session(session.id).approvalHistory,
       requestId: queueHeadRequestId
     )
-    let approvalId = pendingApproval?.id ?? queueHeadRequestId ?? pendingHistory?.requestId
+    let approvalId = normalizedRequestId(pendingApproval?.id) ?? queueHeadRequestId
     let approvalType = pendingApproval?.type ?? pendingHistory?.approvalType
 
     let mode = ApprovalCardModeResolver.resolve(
@@ -199,6 +219,9 @@ enum ApprovalCardModelBuilder {
       approvalType: approvalType
     )
     guard mode != .none else { return nil }
+    if (mode == .permission || mode == .question), approvalId == nil {
+      return nil
+    }
 
     let resolvedApprovalTypeForRisk = pendingApproval?.type ?? pendingHistory?.approvalType ?? approvalType
     let risk = ApprovalRisk.fromServer(
@@ -249,12 +272,38 @@ enum ApprovalCardModelBuilder {
       }
     }()
 
-    let command = previewFromServer?.command
-    let filePath = previewFromServer?.filePath
+    let fallbackPreview: (command: String?, filePath: String?, previewType: ApprovalPreviewType)? = {
+      guard previewFromServer == nil else { return nil }
+
+      let rawCommand = pendingApproval?.command ?? pendingHistory?.command
+      let command = String.shellCommandDisplay(from: rawCommand)
+        ?? ApprovalPermissionPreviewHelpers.trimmed(rawCommand)
+      let filePath = ApprovalPermissionPreviewHelpers.trimmed(pendingApproval?.filePath ?? pendingHistory?.filePath)
+
+      if let command {
+        return (
+          command: command,
+          filePath: nil,
+          previewType: approvalType == .question ? .prompt : .shellCommand
+        )
+      }
+
+      if let filePath {
+        return (command: nil, filePath: filePath, previewType: .filePath)
+      }
+
+      return nil
+    }()
+
+    let command = previewFromServer?.command ?? fallbackPreview?.command
+    let filePath = previewFromServer?.filePath ?? fallbackPreview?.filePath
     let toolName = pendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? pendingHistory?.toolName
     let previewType: ApprovalPreviewType = {
       if let serverPreview = previewFromServer {
         return serverPreview.previewType
+      }
+      if let fallbackPreview {
+        return fallbackPreview.previewType
       }
       return .action
     }()
