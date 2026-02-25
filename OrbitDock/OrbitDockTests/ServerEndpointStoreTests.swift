@@ -48,18 +48,18 @@ struct ServerEndpointStoreTests {
     #expect(cleared[0].isDefault)
   }
 
-  @Test func crudSupportsUpsertDefaultEnableDisableAndRemove() {
+  @Test func crudSupportsUpsertDefaultEnableDisableAndRemove() throws {
     let context = makeStoreContext()
     defer { context.defaults.removePersistentDomain(forName: context.suiteName) }
 
-    let remoteA = ServerEndpoint(
+    let remoteA = try ServerEndpoint(
       name: "Remote A",
-      wsURL: URL(string: "ws://10.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.1:4000/ws")),
       isLocalManaged: false
     )
-    var remoteB = ServerEndpoint(
+    var remoteB = try ServerEndpoint(
       name: "Remote B",
-      wsURL: URL(string: "ws://10.0.0.2:4000/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4000/ws")),
       isLocalManaged: false
     )
 
@@ -95,9 +95,9 @@ struct ServerEndpointStoreTests {
     #expect(withPath == URL(string: "ws://10.0.0.9:4010/ws"))
   }
 
-  @Test func hostInputOmitsDefaultPort() {
-    let defaultPortURL = URL(string: "ws://10.0.0.8:4000/ws")!
-    let customPortURL = URL(string: "ws://10.0.0.8:4111/ws")!
+  @Test func hostInputOmitsDefaultPort() throws {
+    let defaultPortURL = try #require(URL(string: "ws://10.0.0.8:4000/ws"))
+    let customPortURL = try #require(URL(string: "ws://10.0.0.8:4111/ws"))
 
     #expect(ServerEndpointStore.hostInput(from: defaultPortURL, defaultPort: 4_000) == "10.0.0.8")
     #expect(ServerEndpointStore.hostInput(from: customPortURL, defaultPort: 4_000) == "10.0.0.8:4111")

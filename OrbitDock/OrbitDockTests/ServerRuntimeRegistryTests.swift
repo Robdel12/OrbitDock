@@ -4,19 +4,19 @@ import Testing
 
 @MainActor
 struct ServerRuntimeRegistryTests {
-  @Test func startsTwoEnabledRuntimesConcurrently() {
-    let endpointA = ServerEndpoint(
+  @Test func startsTwoEnabledRuntimesConcurrently() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "Local",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "Remote",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -40,19 +40,19 @@ struct ServerRuntimeRegistryTests {
     #expect(spies[endpointB.id]?.connectCalls == [endpointB.wsURL])
   }
 
-  @Test func reconnectAndStopAreIsolatedPerEndpoint() {
-    let endpointA = ServerEndpoint(
+  @Test func reconnectAndStopAreIsolatedPerEndpoint() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -83,19 +83,19 @@ struct ServerRuntimeRegistryTests {
     #expect(spies[endpointA.id]?.disconnectCount == 1)
   }
 
-  @Test func endpointLookupReturnsScopedConnectionAndAppState() {
-    let endpointA = ServerEndpoint(
+  @Test func endpointLookupReturnsScopedConnectionAndAppState() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -123,19 +123,19 @@ struct ServerRuntimeRegistryTests {
     #expect(registry.appState(for: nil, fallback: fallback).endpointId == fallback.endpointId)
   }
 
-  @Test func configurePreservesActiveEndpointWhenStillEnabled() {
-    let endpointA = ServerEndpoint(
+  @Test func configurePreservesActiveEndpointWhenStillEnabled() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -171,19 +171,19 @@ struct ServerRuntimeRegistryTests {
     #expect(registry.activeEndpointId == endpointB.id)
   }
 
-  @Test func startsOnlyEnabledEndpointsWhenConfiguredFromSettings() {
-    let endpointA = ServerEndpoint(
+  @Test func startsOnlyEnabledEndpointsWhenConfiguredFromSettings() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "Enabled Endpoint",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "Disabled Endpoint",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: false,
       isDefault: false
@@ -207,18 +207,18 @@ struct ServerRuntimeRegistryTests {
   }
 
   @Test func requestStateIsNotSharedAcrossRuntimeConnections() async throws {
-    let endpointA = ServerEndpoint(
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -227,10 +227,10 @@ struct ServerRuntimeRegistryTests {
     let spyA = SpyServerConnection(endpoint: endpointA)
     let spyB = SpyServerConnection(endpoint: endpointB)
     spyA.recentProjectsResponse = [
-      ServerRecentProject(path: "/Users/alice/ProjectA", sessionCount: 2, lastActive: "2026-02-23T10:00:00Z")
+      ServerRecentProject(path: "/Users/alice/ProjectA", sessionCount: 2, lastActive: "2026-02-23T10:00:00Z"),
     ]
     spyB.recentProjectsResponse = [
-      ServerRecentProject(path: "/Users/alice/ProjectB", sessionCount: 5, lastActive: "2026-02-23T11:00:00Z")
+      ServerRecentProject(path: "/Users/alice/ProjectB", sessionCount: 5, lastActive: "2026-02-23T11:00:00Z"),
     ]
 
     let runtimeA = ServerRuntime(endpoint: endpointA, connection: spyA)
@@ -245,19 +245,19 @@ struct ServerRuntimeRegistryTests {
     #expect(spyB.listRecentProjectsCallCount == 1)
   }
 
-  @Test func preferredActiveEndpointDeterministicallyUsesDefaultEnabled() {
-    let endpointA = ServerEndpoint(
+  @Test func preferredActiveEndpointDeterministicallyUsesDefaultEnabled() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: false
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: true
@@ -268,19 +268,19 @@ struct ServerRuntimeRegistryTests {
     #expect(preferred == endpointB.id)
   }
 
-  @Test func preferredActiveEndpointFallsBackToFirstEnabled() {
-    let endpointA = ServerEndpoint(
+  @Test func preferredActiveEndpointFallsBackToFirstEnabled() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: false,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -291,19 +291,19 @@ struct ServerRuntimeRegistryTests {
     #expect(preferred == endpointB.id)
   }
 
-  @Test func serverDeclaredPrimaryDoesNotOverrideClientControlPlaneEndpoint() async {
-    let endpointA = ServerEndpoint(
+  @Test func serverDeclaredPrimaryDoesNotOverrideClientControlPlaneEndpoint() async throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "Fallback",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "Declared Primary",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -329,19 +329,19 @@ struct ServerRuntimeRegistryTests {
     #expect(registry.serverPrimaryByEndpointId[endpointB.id] == true)
   }
 
-  @Test func multipleDeclaredPrimariesSetConflictFlag() async {
-    let endpointA = ServerEndpoint(
+  @Test func multipleDeclaredPrimariesSetConflictFlag() async throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: false
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: true
@@ -368,19 +368,19 @@ struct ServerRuntimeRegistryTests {
     #expect(registry.primaryEndpointId == endpointB.id)
   }
 
-  @Test func settingPrimaryRoleDemotesPeerEndpoints() {
-    let endpointA = ServerEndpoint(
+  @Test func settingPrimaryRoleDemotesPeerEndpoints() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -404,18 +404,18 @@ struct ServerRuntimeRegistryTests {
   }
 
   @Test func syncsClientPrimaryClaimsFromClientControlPlaneEndpoint() async throws {
-    let endpointA = ServerEndpoint(
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -449,19 +449,19 @@ struct ServerRuntimeRegistryTests {
     #expect(lastB.2 == false)
   }
 
-  @Test func memoryPressureTrimsInactivePayloadsAcrossAllRuntimes() {
-    let endpointA = ServerEndpoint(
+  @Test func memoryPressureTrimsInactivePayloadsAcrossAllRuntimes() throws {
+    let endpointA = try ServerEndpoint(
       id: UUID(),
       name: "A",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
+    let endpointB = try ServerEndpoint(
       id: UUID(),
       name: "B",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false

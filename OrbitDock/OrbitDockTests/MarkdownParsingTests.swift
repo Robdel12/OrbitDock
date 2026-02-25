@@ -11,12 +11,12 @@ import Testing
 struct MarkdownParsingTests {
   @Test func tableParsingPreservesHeadersAndRowOrder() {
     let markdown = """
-      | # | What | File |
-      | --- | --- | --- |
-      | 1 | Fix scheme + add Rust build step | `.github/workflows/release.yml` |
-      | 2 | Add `network.client` + `automation` entitlement | `OrbitDock/OrbitDock/OrbitDock.entitlements` |
-      | 3 | Strip quarantine xattr after copy | `OrbitDock/OrbitDock/Services/Server/ServerManager.swift` |
-      """
+    | # | What | File |
+    | --- | --- | --- |
+    | 1 | Fix scheme + add Rust build step | `.github/workflows/release.yml` |
+    | 2 | Add `network.client` + `automation` entitlement | `OrbitDock/OrbitDock/OrbitDock.entitlements` |
+    | 3 | Strip quarantine xattr after copy | `OrbitDock/OrbitDock/Services/Server/ServerManager.swift` |
+    """
 
     let blocks = MarkdownAttributedStringRenderer.parse(markdown)
     let table = firstTable(in: blocks)
@@ -60,13 +60,13 @@ struct MarkdownParsingTests {
 
   @Test func listContinuationLinesRenderAsNestedBullets() {
     let markdown = """
-      **What changed**
-      - Question answers now carry `questionId` through the app -> websocket protocol path:
-        - UI callsites: `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+iOS.swift:357`, `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+macOS.swift:884`
-        - app state + connection: `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift:625`, `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift:589`
-        - Swift wire protocol: `OrbitDock/OrbitDock/Services/Server/ServerProtocol.swift:1689`
-        - Rust protocol + websocket handling: `orbitdock-server/crates/protocol/src/client.rs:51`, `orbitdock-server/crates/server/src/websocket.rs:2103`.
-      """
+    **What changed**
+    - Question answers now carry `questionId` through the app -> websocket protocol path:
+      - UI callsites: `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+iOS.swift:357`, `OrbitDock/OrbitDock/Views/Conversation/ConversationCollectionView+macOS.swift:884`
+      - app state + connection: `OrbitDock/OrbitDock/Services/Server/ServerAppState.swift:625`, `OrbitDock/OrbitDock/Services/Server/ServerConnection.swift:589`
+      - Swift wire protocol: `OrbitDock/OrbitDock/Services/Server/ServerProtocol.swift:1689`
+      - Rust protocol + websocket handling: `orbitdock-server/crates/protocol/src/client.rs:51`, `orbitdock-server/crates/server/src/websocket.rs:2103`.
+    """
 
     let blocks = MarkdownAttributedStringRenderer.parse(markdown)
     let target = blocks.compactMap { block -> NSAttributedString? in
@@ -88,8 +88,16 @@ struct MarkdownParsingTests {
       #expect(nestedLocation != NSNotFound)
 
       if parentLocation != NSNotFound, nestedLocation != NSNotFound {
-        let parentStyle = target.attribute(.paragraphStyle, at: parentLocation, effectiveRange: nil) as? NSParagraphStyle
-        let nestedStyle = target.attribute(.paragraphStyle, at: nestedLocation, effectiveRange: nil) as? NSParagraphStyle
+        let parentStyle = target.attribute(
+          .paragraphStyle,
+          at: parentLocation,
+          effectiveRange: nil
+        ) as? NSParagraphStyle
+        let nestedStyle = target.attribute(
+          .paragraphStyle,
+          at: nestedLocation,
+          effectiveRange: nil
+        ) as? NSParagraphStyle
         #expect((nestedStyle?.headIndent ?? 0) > (parentStyle?.headIndent ?? 0))
       }
     }

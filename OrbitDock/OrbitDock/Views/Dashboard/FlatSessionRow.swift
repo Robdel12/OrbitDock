@@ -367,13 +367,14 @@ struct FlatSessionRow: View {
   // MARK: - Background
 
   private var rowBackground: some View {
-    return ZStack(alignment: .leading) {
+    ZStack(alignment: .leading) {
       RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
         .fill(isSelected ? Color.surfaceSelected : (isHovering ? Color.surfaceHover : Color.clear))
         .overlay(
           RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
             .stroke(
-              Color.surfaceBorder.opacity(isSelected ? OpacityTier.strong : (isHovering ? OpacityTier.medium : OpacityTier.subtle)),
+              Color.surfaceBorder
+                .opacity(isSelected ? OpacityTier.strong : (isHovering ? OpacityTier.medium : OpacityTier.subtle)),
               lineWidth: 1
             )
         )

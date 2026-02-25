@@ -99,7 +99,7 @@ struct ProviderUsageCard: View {
     let desc = error.localizedDescription.lowercased()
     if desc.contains("token expired") { return "Token Expired" }
     if desc.contains("no claude credentials") { return "No Credentials" }
-    if desc.contains("missing") && desc.contains("scope") { return "Missing Scope" }
+    if desc.contains("missing"), desc.contains("scope") { return "Missing Scope" }
     if desc.contains("unauthorized") { return "Unauthorized" }
     if desc.contains("not installed") { return "Not Installed" }
     if desc.contains("not logged") { return "Not Logged In" }

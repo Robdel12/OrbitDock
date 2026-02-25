@@ -4,9 +4,9 @@ import Testing
 
 @MainActor
 struct UnifiedSessionsStoreTests {
-  @Test func sessionRefRoundTripsScopedID() {
-    let ref = SessionRef(
-      endpointId: UUID(uuidString: "f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0")!,
+  @Test func sessionRefRoundTripsScopedID() throws {
+    let ref = try SessionRef(
+      endpointId: #require(UUID(uuidString: "f0f0f0f0-f0f0-f0f0-f0f0-f0f0f0f0f0f0")),
       sessionId: "sess-123"
     )
 
@@ -15,19 +15,19 @@ struct UnifiedSessionsStoreTests {
     #expect(parsed == ref)
   }
 
-  @Test func projectionMergesEndpointSessionsWithScopedRefs() {
-    let endpointA = ServerEndpoint(
-      id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+  @Test func projectionMergesEndpointSessionsWithScopedRefs() throws {
+    let endpointA = try ServerEndpoint(
+      id: #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111")),
       name: "Alpha",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
-      id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+    let endpointB = try ServerEndpoint(
+      id: #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222")),
       name: "Beta",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -70,19 +70,19 @@ struct UnifiedSessionsStoreTests {
     #expect(snapshot.counts.ready == 1)
   }
 
-  @Test func projectionFiltersByEndpoint() {
-    let endpointA = ServerEndpoint(
-      id: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
+  @Test func projectionFiltersByEndpoint() throws {
+    let endpointA = try ServerEndpoint(
+      id: #require(UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
       name: "Alpha",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
     )
-    let endpointB = ServerEndpoint(
-      id: UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!,
+    let endpointB = try ServerEndpoint(
+      id: #require(UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")),
       name: "Beta",
-      wsURL: URL(string: "ws://10.0.0.2:4100/ws")!,
+      wsURL: #require(URL(string: "ws://10.0.0.2:4100/ws")),
       isLocalManaged: false,
       isEnabled: true,
       isDefault: false
@@ -101,11 +101,11 @@ struct UnifiedSessionsStoreTests {
     #expect(snapshot.sessions.first?.id == "a-1")
   }
 
-  @Test func projectionSortsActiveBeforeEndedThenByActivity() {
-    let endpoint = ServerEndpoint(
-      id: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!,
+  @Test func projectionSortsActiveBeforeEndedThenByActivity() throws {
+    let endpoint = try ServerEndpoint(
+      id: #require(UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")),
       name: "Solo",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true
@@ -143,19 +143,19 @@ struct UnifiedSessionsStoreTests {
     #expect(snapshot.sessions.map(\.id) == ["new-active", "old-active", "ended-recent"])
   }
 
-  @Test func projectionSortsEndpointHealthDeterministically() {
-    let endpointZulu = ServerEndpoint(
-      id: UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!,
+  @Test func projectionSortsEndpointHealthDeterministically() throws {
+    let endpointZulu = try ServerEndpoint(
+      id: #require(UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")),
       name: "Zulu",
-      wsURL: URL(string: "ws://127.0.0.1:4001/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4001/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: false
     )
-    let endpointAlpha = ServerEndpoint(
-      id: UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")!,
+    let endpointAlpha = try ServerEndpoint(
+      id: #require(UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")),
       name: "Alpha",
-      wsURL: URL(string: "ws://127.0.0.1:4000/ws")!,
+      wsURL: #require(URL(string: "ws://127.0.0.1:4000/ws")),
       isLocalManaged: true,
       isEnabled: true,
       isDefault: true

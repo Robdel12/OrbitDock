@@ -97,9 +97,9 @@ enum UnifiedSessionsProjection {
   private static func shouldInclude(ref: SessionRef, filter: UnifiedEndpointFilter) -> Bool {
     switch filter {
       case .all:
-        return true
+        true
       case let .endpoint(endpointId):
-        return ref.endpointId == endpointId
+        ref.endpointId == endpointId
     }
   }
 

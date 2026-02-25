@@ -5,7 +5,7 @@ struct EndpointSelectorField: View {
   let statusByEndpointId: [UUID: ConnectionStatus]
   let serverPrimaryByEndpointId: [UUID: Bool]
   @Binding var selectedEndpointId: UUID
-  var onReconnect: ((UUID) -> Void)? = nil
+  var onReconnect: ((UUID) -> Void)?
 
   private var selectedEndpoint: ServerEndpoint? {
     endpoints.first(where: { $0.id == selectedEndpointId })
@@ -104,7 +104,6 @@ struct EndpointSelectorField: View {
     )
   }
 
-  @ViewBuilder
   private func roleBadge(title: String, tint: Color) -> some View {
     Text(title)
       .font(.system(size: TypeScale.micro, weight: .semibold))
@@ -120,7 +119,7 @@ struct EndpointSelectorField: View {
 
   private func endpointLabel(_ endpoint: ServerEndpoint) -> String {
     let isServerPrimary = serverPrimaryByEndpointId[endpoint.id] == true
-    if endpoint.isDefault && isServerPrimary {
+    if endpoint.isDefault, isServerPrimary {
       return "\(endpoint.name) (CP, Primary)"
     }
     if endpoint.isDefault {

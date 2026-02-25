@@ -165,15 +165,14 @@ struct ServerEndpointStore {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    let hostPort: String
-    if trimmed.hasPrefix("ws://") {
-      hostPort = String(trimmed.dropFirst(5))
+    let hostPort: String = if trimmed.hasPrefix("ws://") {
+      String(trimmed.dropFirst(5))
     } else if trimmed.hasPrefix("wss://") {
-      hostPort = String(trimmed.dropFirst(6))
+      String(trimmed.dropFirst(6))
     } else if trimmed.hasPrefix("http://") {
-      hostPort = String(trimmed.dropFirst(7))
+      String(trimmed.dropFirst(7))
     } else {
-      hostPort = trimmed
+      trimmed
     }
 
     let clean = hostPort.split(separator: "/").first.map(String.init) ?? hostPort

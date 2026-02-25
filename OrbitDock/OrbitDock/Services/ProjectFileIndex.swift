@@ -121,9 +121,9 @@ class ProjectFileIndex {
         let excludedDirectoryNames: Set<String> = [
           ".git", ".build", "node_modules", "Pods", "DerivedData",
         ]
-        let maxFiles = 6000
+        let maxFiles = 6_000
         var files: [ProjectFile] = []
-        files.reserveCapacity(1500)
+        files.reserveCapacity(1_500)
 
         for case let fileURL as URL in enumerator {
           if files.count >= maxFiles {

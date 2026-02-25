@@ -487,14 +487,14 @@ enum MarkdownAttributedStringRenderer {
         }
 
         var cursor = normalized.startIndex
-        while cursor < normalized.endIndex && normalized[cursor].isNumber {
+        while cursor < normalized.endIndex, normalized[cursor].isNumber {
           cursor = normalized.index(after: cursor)
         }
 
         if cursor > normalized.startIndex, cursor < normalized.endIndex {
           let marker = normalized[cursor]
           let spaceIndex = normalized.index(after: cursor)
-          if (marker == "." || marker == ")"),
+          if marker == "." || marker == ")",
              spaceIndex < normalized.endIndex,
              normalized[spaceIndex] == " "
           {
@@ -531,7 +531,11 @@ enum MarkdownAttributedStringRenderer {
         )
         let inline = NSMutableAttributedString(attributedString: inlineVisitor.renderInlines(paragraph.inlineChildren))
         if inline.length > 0 {
-          inline.addAttribute(.paragraphStyle, value: paragraphStyle, range: NSRange(location: 0, length: inline.length))
+          inline.addAttribute(
+            .paragraphStyle,
+            value: paragraphStyle,
+            range: NSRange(location: 0, length: inline.length)
+          )
         }
         return inline
       }

@@ -319,7 +319,8 @@ struct ProjectStreamSection: View {
   }
 
   private var shouldShowCompactSignalRow: Bool {
-    counts.attention > 0 || counts.running > 0 || counts.ready > 0 || directCount > 0 || filter != .all || providerFilter != .all
+    counts.attention > 0 || counts.running > 0 || counts
+      .ready > 0 || directCount > 0 || filter != .all || providerFilter != .all
   }
 
   private var operationsPulse: (label: String, color: Color)? {
@@ -891,7 +892,9 @@ struct ProjectStreamSection: View {
               Spacer()
             }
 
-            if projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals.ready > 0 || projectSignals.direct > 0 {
+            if projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals.ready > 0 || projectSignals
+              .direct > 0
+            {
               HStack(spacing: 5) {
                 if projectSignals.attention > 0 {
                   projectSignalChip(
