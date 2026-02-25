@@ -13,7 +13,7 @@ struct WorkStreamLiveIndicator: View {
   let currentTool: String?
   let currentPrompt: String?
   var pendingToolName: String?
-  var pendingToolInput: String?
+  var pendingPermissionDetail: String?
   var provider: Provider = .claude
 
   var body: some View {
@@ -110,26 +110,9 @@ struct WorkStreamLiveIndicator: View {
   }
 
   private var permissionDetailText: String? {
-    guard let inputJson = pendingToolInput,
-          let data = inputJson.data(using: .utf8),
-          let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { return nil }
-
-    let toolName = pendingToolName ?? ""
-    switch toolName {
-      case "Bash":
-        if let cmd = String.shellCommandDisplay(from: input["command"])
-          ?? String.shellCommandDisplay(from: input["cmd"])
-        {
-          return cmd.count > 50 ? String(cmd.prefix(47)) + "\u{2026}" : cmd
-        }
-      case "Edit", "Write", "Read":
-        if let path = input["file_path"] as? String {
-          return (path as NSString).lastPathComponent
-        }
-      default:
-        break
-    }
-    return nil
+    ApprovalPermissionPreviewBuilder.compactPermissionDetail(
+      serverDetail: pendingPermissionDetail,
+      maxLength: 50
+    )
   }
 }

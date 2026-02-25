@@ -1,12 +1,13 @@
 //! Session management
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use orbitdock_protocol::{
-    ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider,
-    SessionState, SessionStatus, SessionSummary, StateChanges, SubagentInfo, TokenUsage, TurnDiff,
+    ApprovalQuestionOption, ApprovalQuestionPrompt, ApprovalRequest, ApprovalType,
+    ClaudeIntegrationMode, CodexIntegrationMode, Message, Provider, SessionState, SessionStatus,
+    SessionSummary, StateChanges, SubagentInfo, TokenUsage, TokenUsageSnapshotKind, TurnDiff,
     WorkStatus,
 };
 use tokio::sync::broadcast;
@@ -63,11 +64,166 @@ fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
             serde_json::Value::String(path.clone()),
         );
     }
+    if payload.is_empty() {
+        if let Some(preview) = approval.preview.as_ref() {
+            let key = match preview.preview_type {
+                orbitdock_protocol::ApprovalPreviewType::ShellCommand => "command",
+                orbitdock_protocol::ApprovalPreviewType::Url => "url",
+                orbitdock_protocol::ApprovalPreviewType::SearchQuery => "query",
+                orbitdock_protocol::ApprovalPreviewType::Pattern => "pattern",
+                orbitdock_protocol::ApprovalPreviewType::Prompt => "prompt",
+                orbitdock_protocol::ApprovalPreviewType::FilePath => "file_path",
+                orbitdock_protocol::ApprovalPreviewType::Value
+                | orbitdock_protocol::ApprovalPreviewType::Action => "value",
+            };
+            payload.insert(
+                key.to_string(),
+                serde_json::Value::String(preview.value.clone()),
+            );
+        }
+    }
 
     if payload.is_empty() {
         None
     } else {
         Some(serde_json::Value::Object(payload).to_string())
+    }
+}
+
+fn parse_bool_value(value: Option<&serde_json::Value>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    if let Some(flag) = value.as_bool() {
+        return flag;
+    }
+    if let Some(number) = value.as_u64() {
+        return number > 0;
+    }
+    if let Some(text) = value.as_str() {
+        let normalized = text.trim().to_ascii_lowercase();
+        return normalized == "true" || normalized == "1" || normalized == "yes";
+    }
+    false
+}
+
+fn parse_question_options(
+    payload: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<ApprovalQuestionOption> {
+    let Some(options) = payload.get("options").and_then(serde_json::Value::as_array) else {
+        return vec![];
+    };
+
+    options
+        .iter()
+        .filter_map(|raw_option| {
+            let option = raw_option.as_object()?;
+            let label = option
+                .get("label")
+                .or_else(|| option.get("value"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())?
+                .to_string();
+            let description = option
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(ToString::to_string);
+            Some(ApprovalQuestionOption { label, description })
+        })
+        .collect()
+}
+
+fn parse_question_prompt(
+    payload: &serde_json::Map<String, serde_json::Value>,
+    fallback_id: &str,
+) -> Option<ApprovalQuestionPrompt> {
+    let id = payload
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or(fallback_id)
+        .to_string();
+    let header = payload
+        .get("header")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string);
+    let question = payload
+        .get("question")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or("Question")
+        .to_string();
+    if question.is_empty() {
+        return None;
+    }
+
+    Some(ApprovalQuestionPrompt {
+        id,
+        header,
+        question,
+        options: parse_question_options(payload),
+        allows_multiple_selection: parse_bool_value(
+            payload.get("multiSelect").or_else(|| payload.get("multi_select")),
+        ),
+        allows_other: parse_bool_value(payload.get("isOther").or_else(|| payload.get("is_other"))),
+        is_secret: parse_bool_value(payload.get("isSecret").or_else(|| payload.get("is_secret"))),
+    })
+}
+
+fn extract_question_prompts(
+    tool_input: Option<&str>,
+    fallback_question: Option<&str>,
+) -> Vec<ApprovalQuestionPrompt> {
+    let from_tool_input: Vec<ApprovalQuestionPrompt> = tool_input
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|value| value.as_object().cloned())
+        .map(|payload| {
+            if let Some(questions) = payload.get("questions").and_then(serde_json::Value::as_array)
+            {
+                return questions
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, raw_question)| {
+                        let prompt = raw_question.as_object()?;
+                        parse_question_prompt(prompt, index.to_string().as_str())
+                    })
+                    .collect();
+            }
+            if payload.contains_key("question") || payload.contains_key("options") {
+                return parse_question_prompt(&payload, "0")
+                    .map(|prompt| vec![prompt])
+                    .unwrap_or_default();
+            }
+            vec![]
+        })
+        .unwrap_or_default();
+
+    if !from_tool_input.is_empty() {
+        return from_tool_input;
+    }
+
+    let fallback_question = fallback_question
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToString::to_string);
+    match fallback_question {
+        Some(question) => vec![ApprovalQuestionPrompt {
+            id: "0".to_string(),
+            header: None,
+            question,
+            options: vec![],
+            allows_multiple_selection: false,
+            allows_other: true,
+            is_secret: false,
+        }],
+        None => vec![],
     }
 }
 
@@ -101,6 +257,7 @@ pub struct SessionSnapshot {
     pub pending_approval_id: Option<String>,
     pub message_count: usize,
     pub token_usage: TokenUsage,
+    pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub started_at: Option<String>,
     pub last_activity_at: Option<String>,
     pub revision: u64,
@@ -110,6 +267,13 @@ pub struct SessionSnapshot {
     pub effort: Option<String>,
     pub terminal_session_id: Option<String>,
     pub terminal_app: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingApprovalEntry {
+    request: ApprovalRequest,
+    approval_type: ApprovalType,
+    proposed_amendment: Option<Vec<String>>,
 }
 
 const EVENT_LOG_CAPACITY: usize = 1000;
@@ -134,6 +298,7 @@ pub struct SessionHandle {
     last_tool: Option<String>,
     messages: Vec<Message>,
     token_usage: TokenUsage,
+    token_usage_snapshot_kind: TokenUsageSnapshotKind,
     current_diff: Option<String>,
     current_plan: Option<String>,
     current_turn_id: Option<String>,
@@ -159,13 +324,11 @@ pub struct SessionHandle {
     /// Persisted connector-path request_id for the current pending approval.
     /// Loaded from DB on restore so approval routing works after server restart.
     pending_approval_id: Option<String>,
+    /// Server-authoritative queue of unresolved approvals for this session.
+    pending_approvals: VecDeque<PendingApprovalEntry>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
-    /// Track approval type by request_id so we can dispatch correctly
-    pending_approval_types: HashMap<String, ApprovalType>,
-    /// Store proposed amendment by request_id for "always allow" decisions
-    pending_amendments: HashMap<String, Vec<String>>,
     /// Monotonic revision counter, incremented on every broadcast
     revision: u64,
     /// Ring buffer of (revision, pre-serialized JSON with revision injected)
@@ -204,6 +367,7 @@ impl SessionHandle {
             pending_approval_id: None,
             message_count: 0,
             token_usage: TokenUsage::default(),
+            token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             started_at: Some(now.clone()),
             last_activity_at: Some(now.clone()),
             revision: 0,
@@ -232,6 +396,7 @@ impl SessionHandle {
             last_tool: None,
             messages: Vec::new(),
             token_usage: TokenUsage::default(),
+            token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             current_diff: None,
             current_plan: None,
             current_turn_id: None,
@@ -255,10 +420,9 @@ impl SessionHandle {
             pending_tool_input: None,
             pending_question: None,
             pending_approval_id: None,
+            pending_approvals: VecDeque::new(),
             broadcast_tx,
             list_tx: None,
-            pending_approval_types: HashMap::new(),
-            pending_amendments: HashMap::new(),
             revision: 0,
             event_log: VecDeque::new(),
             snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
@@ -282,6 +446,7 @@ impl SessionHandle {
         sandbox_mode: Option<String>,
         permission_mode: Option<String>,
         token_usage: TokenUsage,
+        token_usage_snapshot_kind: TokenUsageSnapshotKind,
         started_at: Option<String>,
         last_activity_at: Option<String>,
         messages: Vec<Message>,
@@ -327,6 +492,7 @@ impl SessionHandle {
             pending_approval_id: pending_approval_id.clone(),
             message_count: messages.len(),
             token_usage: token_usage.clone(),
+            token_usage_snapshot_kind,
             started_at: started_at.clone(),
             last_activity_at: last_activity_at.clone(),
             revision: 0,
@@ -339,7 +505,7 @@ impl SessionHandle {
             terminal_session_id: terminal_session_id.clone(),
             terminal_app: terminal_app.clone(),
         };
-        Self {
+        let mut handle = Self {
             id,
             provider,
             project_path,
@@ -357,6 +523,7 @@ impl SessionHandle {
             last_tool: None,
             messages,
             token_usage,
+            token_usage_snapshot_kind,
             current_diff,
             current_plan,
             current_turn_id: None,
@@ -380,14 +547,16 @@ impl SessionHandle {
             pending_tool_input,
             pending_question,
             pending_approval_id,
+            pending_approvals: VecDeque::new(),
             broadcast_tx,
             list_tx: None,
-            pending_approval_types: HashMap::new(),
-            pending_amendments: HashMap::new(),
             revision: 0,
             event_log: VecDeque::new(),
             snapshot_handle: Arc::new(ArcSwap::from_pointee(snapshot)),
-        }
+        };
+        handle.bootstrap_pending_approval_from_persisted_fields();
+        handle.refresh_snapshot();
+        handle
     }
 
     /// Set the list broadcast sender (for dashboard sidebar updates)
@@ -424,6 +593,7 @@ impl SessionHandle {
             status: self.status,
             work_status: self.work_status,
             token_usage: self.token_usage.clone(),
+            token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             has_pending_approval: self.pending_approval.is_some()
                 || self.pending_tool_name.is_some()
                 || self.pending_question.is_some()
@@ -475,6 +645,7 @@ impl SessionHandle {
                 .clone()
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             token_usage: self.token_usage.clone(),
+            token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
             codex_integration_mode: self.codex_integration_mode,
@@ -627,6 +798,9 @@ impl SessionHandle {
     /// Set status
     pub fn set_status(&mut self, status: SessionStatus) {
         self.status = status;
+        if status == SessionStatus::Ended {
+            self.clear_pending_approvals();
+        }
         self.last_activity_at = Some(chrono_now());
     }
 
@@ -643,6 +817,9 @@ impl SessionHandle {
     /// Set work status
     pub fn set_work_status(&mut self, status: WorkStatus) {
         self.work_status = status;
+        if status == WorkStatus::Ended {
+            self.clear_pending_approvals();
+        }
         self.last_activity_at = Some(chrono_now());
     }
 
@@ -691,7 +868,110 @@ impl SessionHandle {
         self.current_plan = Some(plan);
     }
 
-    /// Register a pending approval with optional proposed amendment
+    fn inferred_approval_type_from_pending_fields(&self) -> ApprovalType {
+        if self.pending_question.is_some() {
+            return ApprovalType::Question;
+        }
+        if let Some(tool_name) = self.pending_tool_name.as_ref() {
+            let normalized = tool_name.to_ascii_lowercase();
+            if normalized.contains("edit")
+                || normalized.contains("patch")
+                || normalized.contains("write")
+            {
+                return ApprovalType::Patch;
+            }
+        }
+        ApprovalType::Exec
+    }
+
+    fn work_status_for_approval_type(approval_type: ApprovalType) -> WorkStatus {
+        match approval_type {
+            ApprovalType::Question => WorkStatus::Question,
+            ApprovalType::Exec | ApprovalType::Patch => WorkStatus::Permission,
+        }
+    }
+
+    fn queue_pending_approval(
+        &mut self,
+        approval: ApprovalRequest,
+        approval_type: ApprovalType,
+        proposed_amendment: Option<Vec<String>>,
+    ) {
+        if let Some(index) = self
+            .pending_approvals
+            .iter()
+            .position(|entry| entry.request.id == approval.id)
+        {
+            if let Some(existing) = self.pending_approvals.get_mut(index) {
+                existing.request = approval;
+                existing.approval_type = approval_type;
+                existing.proposed_amendment = proposed_amendment;
+            }
+            return;
+        }
+
+        self.pending_approvals.push_back(PendingApprovalEntry {
+            request: approval,
+            approval_type,
+            proposed_amendment,
+        });
+    }
+
+    fn promote_queue_front(&mut self) {
+        if let Some(entry) = self.pending_approvals.front() {
+            self.pending_approval = Some(entry.request.clone());
+            self.pending_tool_name = fallback_tool_name(&entry.request);
+            self.pending_tool_input = fallback_tool_input(&entry.request);
+            self.pending_question = entry.request.question.clone();
+            self.pending_approval_id = Some(entry.request.id.clone());
+            self.work_status = Self::work_status_for_approval_type(entry.approval_type);
+            return;
+        }
+
+        self.pending_approval = None;
+        self.pending_tool_name = None;
+        self.pending_tool_input = None;
+        self.pending_question = None;
+        self.pending_approval_id = None;
+    }
+
+    fn clear_pending_approvals(&mut self) {
+        self.pending_approvals.clear();
+        self.pending_approval = None;
+        self.pending_tool_name = None;
+        self.pending_tool_input = None;
+        self.pending_question = None;
+        self.pending_approval_id = None;
+    }
+
+    fn bootstrap_pending_approval_from_persisted_fields(&mut self) {
+        if self.pending_approvals.is_empty() {
+            if let Some(request_id) = self.pending_approval_id.clone() {
+                let approval_type = self.inferred_approval_type_from_pending_fields();
+                let approval = ApprovalRequest {
+                    id: request_id,
+                    session_id: self.id.clone(),
+                    approval_type,
+                    tool_name: self.pending_tool_name.clone(),
+                    tool_input: self.pending_tool_input.clone(),
+                    command: None,
+                    file_path: None,
+                    diff: None,
+                    question: self.pending_question.clone(),
+                    question_prompts: extract_question_prompts(
+                        self.pending_tool_input.as_deref(),
+                        self.pending_question.as_deref(),
+                    ),
+                    preview: None,
+                    proposed_amendment: None,
+                };
+                self.queue_pending_approval(approval, approval_type, None);
+                self.promote_queue_front();
+            }
+        }
+    }
+
+    /// Register a pending approval with optional proposed amendment.
     #[allow(dead_code)]
     pub fn set_pending_approval(
         &mut self,
@@ -699,21 +979,57 @@ impl SessionHandle {
         approval_type: ApprovalType,
         proposed_amendment: Option<Vec<String>>,
     ) {
-        self.pending_approval_types
-            .insert(request_id.clone(), approval_type);
-        if let Some(amendment) = proposed_amendment {
-            self.pending_amendments.insert(request_id, amendment);
+        let request = ApprovalRequest {
+            id: request_id,
+            session_id: self.id.clone(),
+            approval_type,
+            tool_name: None,
+            tool_input: None,
+            command: None,
+            file_path: None,
+            diff: None,
+            question: None,
+            question_prompts: vec![],
+            preview: None,
+            proposed_amendment: proposed_amendment.clone(),
+        };
+        self.queue_pending_approval(request, approval_type, proposed_amendment);
+        self.promote_queue_front();
+    }
+
+    /// Resolve a pending approval request and promote the next queued request.
+    pub fn resolve_pending_approval(
+        &mut self,
+        request_id: &str,
+        fallback_work_status: WorkStatus,
+    ) -> (
+        Option<ApprovalType>,
+        Option<Vec<String>>,
+        Option<ApprovalRequest>,
+        WorkStatus,
+    ) {
+        let Some(head) = self.pending_approvals.front() else {
+            return (None, None, self.pending_approval.clone(), self.work_status);
+        };
+        if head.request.id != request_id {
+            return (None, None, self.pending_approval.clone(), self.work_status);
         }
-    }
 
-    /// Get and remove the approval type for a request
-    pub fn take_pending_approval(&mut self, request_id: &str) -> Option<ApprovalType> {
-        self.pending_approval_types.remove(request_id)
-    }
+        let removed = self
+            .pending_approvals
+            .pop_front()
+            .expect("pending approval queue should have head entry");
+        self.promote_queue_front();
+        if self.pending_approvals.is_empty() {
+            self.work_status = fallback_work_status;
+        }
 
-    /// Get and remove the proposed amendment for a request
-    pub fn take_pending_amendment(&mut self, request_id: &str) -> Option<Vec<String>> {
-        self.pending_amendments.remove(request_id)
+        (
+            Some(removed.approval_type),
+            removed.proposed_amendment,
+            self.pending_approval.clone(),
+            self.work_status,
+        )
     }
 
     /// Apply a `StateChanges` delta to the handle fields.
@@ -724,27 +1040,16 @@ impl SessionHandle {
         }
         if let Some(work_status) = changes.work_status {
             self.work_status = work_status;
-            if !matches!(work_status, WorkStatus::Permission | WorkStatus::Question)
-                && changes.pending_approval.is_none()
-            {
-                self.pending_tool_name = None;
-                self.pending_tool_input = None;
-                self.pending_question = None;
-                self.pending_approval_id = None;
-            }
         }
         if let Some(ref pending_approval) = changes.pending_approval {
-            self.pending_approval = pending_approval.clone();
             if let Some(approval) = pending_approval.as_ref() {
-                self.pending_tool_name = fallback_tool_name(approval);
-                self.pending_tool_input = fallback_tool_input(approval);
-                self.pending_question = approval.question.clone();
-                self.pending_approval_id = Some(approval.id.clone());
+                self.queue_pending_approval(
+                    approval.clone(),
+                    approval.approval_type,
+                    approval.proposed_amendment.clone(),
+                );
             } else {
-                self.pending_tool_name = None;
-                self.pending_tool_input = None;
-                self.pending_question = None;
-                self.pending_approval_id = None;
+                self.clear_pending_approvals();
             }
         }
         if let Some(ref custom_name) = changes.custom_name {
@@ -777,6 +1082,9 @@ impl SessionHandle {
         if let Some(ref token_usage) = changes.token_usage {
             self.token_usage = token_usage.clone();
         }
+        if let Some(snapshot_kind) = changes.token_usage_snapshot_kind {
+            self.token_usage_snapshot_kind = snapshot_kind;
+        }
         if let Some(ref current_diff) = changes.current_diff {
             self.current_diff = current_diff.clone();
         }
@@ -806,6 +1114,21 @@ impl SessionHandle {
         }
         if let Some(ref effort) = changes.effort {
             self.effort = effort.clone();
+        }
+
+        if self.status == SessionStatus::Ended || self.work_status == WorkStatus::Ended {
+            self.clear_pending_approvals();
+        } else if !self.pending_approvals.is_empty() {
+            self.promote_queue_front();
+        } else if !matches!(
+            self.work_status,
+            WorkStatus::Permission | WorkStatus::Question
+        ) {
+            self.pending_approval = None;
+            self.pending_tool_name = None;
+            self.pending_tool_input = None;
+            self.pending_question = None;
+            self.pending_approval_id = None;
         }
     }
 
@@ -840,6 +1163,7 @@ impl SessionHandle {
                 .or_else(|| self.pending_approval.as_ref().map(|a| a.id.clone())),
             message_count: self.messages.len(),
             token_usage: self.token_usage.clone(),
+            token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             started_at: self.started_at.clone(),
             last_activity_at: self.last_activity_at.clone(),
             revision: self.revision,
@@ -913,22 +1237,30 @@ impl SessionHandle {
 
     /// Extract a pure data snapshot for the transition function
     pub fn extract_state(&self) -> TransitionState {
-        let phase = match self.work_status {
-            WorkStatus::Working => WorkPhase::Working,
-            WorkStatus::Permission => WorkPhase::AwaitingApproval {
-                request_id: String::new(),
-                approval_type: ApprovalType::Exec,
-                proposed_amendment: None,
-            },
-            WorkStatus::Question => WorkPhase::AwaitingApproval {
-                request_id: String::new(),
-                approval_type: ApprovalType::Question,
-                proposed_amendment: None,
-            },
-            WorkStatus::Ended => WorkPhase::Ended {
-                reason: String::new(),
-            },
-            _ => WorkPhase::Idle,
+        let phase = if let Some(entry) = self.pending_approvals.front() {
+            WorkPhase::AwaitingApproval {
+                request_id: entry.request.id.clone(),
+                approval_type: entry.approval_type,
+                proposed_amendment: entry.proposed_amendment.clone(),
+            }
+        } else {
+            match self.work_status {
+                WorkStatus::Working => WorkPhase::Working,
+                WorkStatus::Permission => WorkPhase::AwaitingApproval {
+                    request_id: String::new(),
+                    approval_type: ApprovalType::Exec,
+                    proposed_amendment: None,
+                },
+                WorkStatus::Question => WorkPhase::AwaitingApproval {
+                    request_id: String::new(),
+                    approval_type: ApprovalType::Question,
+                    proposed_amendment: None,
+                },
+                WorkStatus::Ended => WorkPhase::Ended {
+                    reason: String::new(),
+                },
+                _ => WorkPhase::Idle,
+            }
         };
 
         TransitionState {
@@ -937,6 +1269,7 @@ impl SessionHandle {
             phase,
             messages: self.messages.clone(),
             token_usage: self.token_usage.clone(),
+            token_usage_snapshot_kind: self.token_usage_snapshot_kind,
             current_diff: self.current_diff.clone(),
             current_plan: self.current_plan.clone(),
             custom_name: self.custom_name.clone(),
@@ -954,9 +1287,11 @@ impl SessionHandle {
 
     /// Apply the transition result back to this handle
     pub fn apply_state(&mut self, state: TransitionState) {
-        self.work_status = state.phase.to_work_status();
+        let phase = state.phase.clone();
+        self.work_status = phase.to_work_status();
         self.messages = state.messages;
         self.token_usage = state.token_usage;
+        self.token_usage_snapshot_kind = state.token_usage_snapshot_kind;
         self.current_diff = state.current_diff;
         self.current_plan = state.current_plan;
         self.custom_name = state.custom_name;
@@ -967,38 +1302,197 @@ impl SessionHandle {
         self.git_branch = state.git_branch;
         self.git_sha = state.git_sha;
         self.current_cwd = state.current_cwd;
-        self.pending_approval = state.pending_approval;
-        if let Some(approval) = self.pending_approval.as_ref() {
-            self.pending_tool_name = fallback_tool_name(approval);
-            self.pending_tool_input = fallback_tool_input(approval);
-            self.pending_question = approval.question.clone();
+
+        if let Some(approval) = state.pending_approval {
+            let (approval_type, proposed_amendment) = match &phase {
+                WorkPhase::AwaitingApproval {
+                    approval_type,
+                    proposed_amendment,
+                    ..
+                } => (*approval_type, proposed_amendment.clone()),
+                _ => (approval.approval_type, approval.proposed_amendment.clone()),
+            };
+            self.queue_pending_approval(approval, approval_type, proposed_amendment);
+        }
+
+        if matches!(phase, WorkPhase::Ended { .. }) {
+            self.clear_pending_approvals();
+        } else if !self.pending_approvals.is_empty() {
+            self.promote_queue_front();
         } else if !matches!(
             self.work_status,
             WorkStatus::Permission | WorkStatus::Question
         ) {
+            self.pending_approval = None;
             self.pending_tool_name = None;
             self.pending_tool_input = None;
             self.pending_question = None;
-        }
-
-        // Sync pending approval tracking from phase
-        if let WorkPhase::AwaitingApproval {
-            request_id,
-            approval_type,
-            proposed_amendment,
-        } = &state.phase
-        {
-            if !request_id.is_empty() {
-                self.pending_approval_types
-                    .insert(request_id.clone(), *approval_type);
-                if let Some(amendment) = proposed_amendment {
-                    self.pending_amendments
-                        .insert(request_id.clone(), amendment.clone());
-                }
-            }
+            self.pending_approval_id = None;
         }
 
         self.refresh_snapshot();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transition::WorkPhase;
+    use orbitdock_protocol::Provider;
+
+    fn approval_request(
+        session_id: &str,
+        request_id: &str,
+        approval_type: ApprovalType,
+    ) -> ApprovalRequest {
+        ApprovalRequest {
+            id: request_id.to_string(),
+            session_id: session_id.to_string(),
+            approval_type,
+            tool_name: Some("Bash".to_string()),
+            tool_input: Some("{\"command\":\"echo hi\"}".to_string()),
+            command: Some("echo hi".to_string()),
+            file_path: None,
+            diff: None,
+            question: None,
+            question_prompts: vec![],
+            preview: None,
+            proposed_amendment: None,
+        }
+    }
+
+    fn apply_approval_event(
+        handle: &mut SessionHandle,
+        request_id: &str,
+        approval_type: ApprovalType,
+        proposed_amendment: Option<Vec<String>>,
+    ) {
+        let mut state = handle.extract_state();
+        state.phase = WorkPhase::AwaitingApproval {
+            request_id: request_id.to_string(),
+            approval_type,
+            proposed_amendment: proposed_amendment.clone(),
+        };
+        let mut request = approval_request(handle.id(), request_id, approval_type);
+        request.proposed_amendment = proposed_amendment;
+        state.pending_approval = Some(request);
+        handle.apply_state(state);
+    }
+
+    #[test]
+    fn resolve_pending_approval_promotes_next_request() {
+        let mut handle = SessionHandle::new(
+            "session-queue".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+
+        apply_approval_event(&mut handle, "req-1", ApprovalType::Exec, None);
+        apply_approval_event(
+            &mut handle,
+            "req-2",
+            ApprovalType::Patch,
+            Some(vec!["git add .".to_string()]),
+        );
+
+        let (approval_type, proposed_amendment, next_pending, work_status) =
+            handle.resolve_pending_approval("req-1", WorkStatus::Working);
+
+        assert_eq!(approval_type, Some(ApprovalType::Exec));
+        assert_eq!(
+            proposed_amendment, None,
+            "first request should not inherit amendment from queued entries"
+        );
+        assert_eq!(
+            next_pending.as_ref().map(|approval| approval.id.as_str()),
+            Some("req-2")
+        );
+        assert_eq!(work_status, WorkStatus::Permission);
+
+        let state = handle.state();
+        assert_eq!(state.pending_approval_id.as_deref(), Some("req-2"));
+        assert_eq!(
+            state
+                .pending_approval
+                .as_ref()
+                .map(|approval| approval.id.as_str()),
+            Some("req-2")
+        );
+    }
+
+    #[test]
+    fn resolve_pending_approval_returns_fallback_when_queue_is_empty() {
+        let mut handle = SessionHandle::new(
+            "session-empty".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+
+        apply_approval_event(&mut handle, "req-only", ApprovalType::Question, None);
+
+        let (approval_type, proposed_amendment, next_pending, work_status) =
+            handle.resolve_pending_approval("req-only", WorkStatus::Waiting);
+
+        assert_eq!(approval_type, Some(ApprovalType::Question));
+        assert_eq!(proposed_amendment, None);
+        assert!(next_pending.is_none());
+        assert_eq!(work_status, WorkStatus::Waiting);
+
+        let state = handle.state();
+        assert_eq!(state.pending_approval_id, None);
+        assert!(state.pending_approval.is_none());
+    }
+
+    #[test]
+    fn apply_state_keeps_oldest_pending_request_at_queue_head() {
+        let mut handle = SessionHandle::new(
+            "session-order".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+
+        apply_approval_event(&mut handle, "req-first", ApprovalType::Exec, None);
+        apply_approval_event(&mut handle, "req-second", ApprovalType::Exec, None);
+
+        let state = handle.state();
+        assert_eq!(
+            state.pending_approval_id.as_deref(),
+            Some("req-first"),
+            "new approvals should queue behind the current head"
+        );
+        assert_eq!(
+            state
+                .pending_approval
+                .as_ref()
+                .map(|approval| approval.id.as_str()),
+            Some("req-first")
+        );
+    }
+
+    #[test]
+    fn resolve_pending_approval_requires_queue_head_request_id() {
+        let mut handle = SessionHandle::new(
+            "session-head-only".to_string(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+
+        apply_approval_event(&mut handle, "req-1", ApprovalType::Exec, None);
+        apply_approval_event(&mut handle, "req-2", ApprovalType::Exec, None);
+
+        let (approval_type, proposed_amendment, next_pending, work_status) =
+            handle.resolve_pending_approval("req-2", WorkStatus::Working);
+
+        assert!(approval_type.is_none());
+        assert!(proposed_amendment.is_none());
+        assert_eq!(
+            next_pending.as_ref().map(|approval| approval.id.as_str()),
+            Some("req-1")
+        );
+        assert_eq!(work_status, WorkStatus::Permission);
+
+        let state = handle.state();
+        assert_eq!(state.pending_approval_id.as_deref(), Some("req-1"));
     }
 }
 

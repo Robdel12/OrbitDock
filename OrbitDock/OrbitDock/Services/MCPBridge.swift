@@ -375,7 +375,7 @@ final class MCPBridge {
       }
     }
 
-    if content.isEmpty && images.isEmpty && mentions.isEmpty {
+    if content.isEmpty, images.isEmpty, mentions.isEmpty {
       return HTTPResponse(
         status: 400,
         body: ["error": "Missing steer input: provide 'content', 'images', or 'mentions'"]
@@ -436,25 +436,22 @@ final class MCPBridge {
       return HTTPResponse(status: 503, body: ["error": "Server state not available"])
     }
 
-    guard let session = state.sessions.first(where: { $0.id == sessionId }) else {
+    guard state.sessions.contains(where: { $0.id == sessionId }) else {
       return HTTPResponse(status: 404, body: ["error": "Session not found"])
     }
-    let observable = state.session(sessionId)
-    let pendingApproval = observable.pendingApproval
 
     let requestIdFromBody = body["request_id"] as? String
     let requestId: String
     if let rid = requestIdFromBody, !rid.isEmpty, rid != "pending" {
       requestId = rid
-    } else if let pending = session.pendingApprovalId {
+    } else if let pending = state.nextPendingApprovalRequestId(sessionId: sessionId) {
       requestId = pending
     } else {
       return HTTPResponse(status: 400, body: ["error": "Missing 'request_id' field and no pending approval found"])
     }
 
     let typeFromBody = (body["type"] as? String)?.lowercased()
-    let typeFromState = pendingApproval?.type.rawValue
-      ?? (session.attentionReason == .awaitingQuestion || session.pendingQuestion != nil ? "question" : nil)
+    let typeFromState = state.pendingApprovalType(sessionId: sessionId, requestId: requestId)?.rawValue
     let approvalType = typeFromBody ?? typeFromState ?? "exec"
 
     guard approvalType == "exec" || approvalType == "patch" || approvalType == "question" else {
@@ -472,10 +469,14 @@ final class MCPBridge {
       let providedAnswers = parseQuestionAnswers(from: body["answers"])
       let questionIdFromBody = (body["question_id"] as? String)?
         .trimmingCharacters(in: .whitespacesAndNewlines)
+      let pendingApproval = state.session(sessionId).pendingApproval
       let questionId: String? = {
         if let questionIdFromBody, !questionIdFromBody.isEmpty { return questionIdFromBody }
-        if let parsed = parseQuestionMetadata(from: pendingApproval?.toolInput ?? session.pendingToolInput) {
-          return parsed.questionId
+        if let firstPromptId = pendingApproval?.questionPrompts.first?.id
+          .trimmingCharacters(in: .whitespacesAndNewlines),
+          !firstPromptId.isEmpty
+        {
+          return firstPromptId
         }
         return nil
       }()
@@ -491,17 +492,31 @@ final class MCPBridge {
           "session_id": sessionId,
           "request_id": requestId,
         ]
-        let rawInput = pendingApproval?.toolInput ?? session.pendingToolInput
-        if let questionMeta = parseQuestionMetadata(from: rawInput) {
-          if let question = questionMeta.question {
-            errorBody["question"] = question
+        let firstPrompt = pendingApproval?.questionPrompts.first
+        let promptQuestion = firstPrompt?.question.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let question = promptQuestion, !question.isEmpty {
+          errorBody["question"] = question
+        } else if let question = pendingApproval?.question {
+          errorBody["question"] = question
+        }
+        if let promptId = firstPrompt?.id.trimmingCharacters(in: .whitespacesAndNewlines),
+           !promptId.isEmpty
+        {
+          errorBody["question_id"] = promptId
+        }
+        let options = firstPrompt?.options.compactMap { option -> [String: String]? in
+          let label = option.label.trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !label.isEmpty else { return nil }
+          var serialized: [String: String] = ["label": label]
+          if let description = option.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+             !description.isEmpty
+          {
+            serialized["description"] = description
           }
-          if let questionId = questionMeta.questionId {
-            errorBody["question_id"] = questionId
-          }
-          if !questionMeta.options.isEmpty {
-            errorBody["options"] = questionMeta.options
-          }
+          return serialized
+        } ?? []
+        if !options.isEmpty {
+          errorBody["options"] = options
         }
         return HTTPResponse(status: 400, body: errorBody)
       }
@@ -528,13 +543,29 @@ final class MCPBridge {
         ])
       }
 
-      state.answerQuestion(
+      let result = state.answerQuestion(
         sessionId: sessionId,
         requestId: requestId,
         answer: primaryAnswer,
         questionId: questionId,
         answers: answers
       )
+
+      guard case .dispatched = result else {
+        let nextPending = state.nextPendingApprovalRequestId(sessionId: sessionId)
+        let message = if let nextPending {
+          "Stale approval request '\(requestId)'. Next pending request is '\(nextPending)'."
+        } else {
+          "Stale approval request '\(requestId)'."
+        }
+        return HTTPResponse(status: 409, body: [
+          "error": message,
+          "session_id": sessionId,
+          "request_id": requestId,
+          "next_pending_request_id": nextPending as Any,
+        ])
+      }
+
       return HTTPResponse(status: 200, body: [
         "status": "answered",
         "session_id": sessionId,
@@ -543,23 +574,32 @@ final class MCPBridge {
         "answers": answers,
       ])
     } else {
-      // Support both "decision" string and legacy "approved" bool
-      let decision: String
-      if let d = body["decision"] as? String {
-        decision = d
-      } else if let approved = body["approved"] as? Bool {
-        decision = approved ? "approved" : "denied"
-      } else {
-        return HTTPResponse(status: 400, body: ["error": "Missing 'approved' or 'decision' field"])
+      guard let decision = body["decision"] as? String, !decision.isEmpty else {
+        return HTTPResponse(status: 400, body: ["error": "Missing 'decision' field"])
       }
 
-      state.approveTool(
+      let result = state.approveTool(
         sessionId: sessionId,
         requestId: requestId,
         decision: decision,
         message: denyMessage,
         interrupt: interrupt
       )
+
+      guard case .dispatched = result else {
+        let nextPending = state.nextPendingApprovalRequestId(sessionId: sessionId)
+        let message = if let nextPending {
+          "Stale approval request '\(requestId)'. Next pending request is '\(nextPending)'."
+        } else {
+          "Stale approval request '\(requestId)'."
+        }
+        return HTTPResponse(status: 409, body: [
+          "error": message,
+          "session_id": sessionId,
+          "request_id": requestId,
+          "next_pending_request_id": nextPending as Any,
+        ])
+      }
     }
 
     return HTTPResponse(status: 200, body: [
@@ -590,27 +630,37 @@ final class MCPBridge {
         "is_direct_claude": session.isDirectClaude,
         "is_direct": session.isDirect,
       ]
-      if let pendingApprovalId = session.pendingApprovalId {
+      if let pendingApprovalId = state.nextPendingApprovalRequestId(sessionId: session.id) {
         data["pending_approval_id"] = pendingApprovalId
       }
       let pendingApproval = state.session(session.id).pendingApproval
       if let pendingApproval {
         data["pending_approval_type"] = pendingApproval.type.rawValue
-      } else if session.attentionReason == .awaitingQuestion || session.pendingQuestion != nil {
-        data["pending_approval_type"] = "question"
       }
-      if let pendingQuestion = pendingApproval?.question ?? session.pendingQuestion {
+      if let pendingQuestion = pendingApproval?.questionPrompts.first?.question ?? pendingApproval?.question {
         data["pending_question"] = pendingQuestion
       }
-      if let pendingToolInput = pendingApproval?.toolInput ?? session.pendingToolInput {
+      if let pendingToolInput = pendingApproval?.toolInput {
         data["pending_tool_input"] = pendingToolInput
-        if let questionMeta = parseQuestionMetadata(from: pendingToolInput) {
-          if let questionId = questionMeta.questionId {
-            data["pending_question_id"] = questionId
+      }
+      if let firstPrompt = pendingApproval?.questionPrompts.first {
+        let questionId = firstPrompt.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !questionId.isEmpty {
+          data["pending_question_id"] = questionId
+        }
+        let options = firstPrompt.options.compactMap { option -> [String: String]? in
+          let label = option.label.trimmingCharacters(in: .whitespacesAndNewlines)
+          guard !label.isEmpty else { return nil }
+          var serialized: [String: String] = ["label": label]
+          if let description = option.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+             !description.isEmpty
+          {
+            serialized["description"] = description
           }
-          if !questionMeta.options.isEmpty {
-            data["pending_question_options"] = questionMeta.options
-          }
+          return serialized
+        }
+        if !options.isEmpty {
+          data["pending_question_options"] = options
         }
       }
       if session.isDirectClaude {
@@ -643,28 +693,38 @@ final class MCPBridge {
       "is_direct_claude": session.isDirectClaude,
       "is_direct": session.isDirect,
     ]
-    if let pendingApprovalId = session.pendingApprovalId {
+    if let pendingApprovalId = state.nextPendingApprovalRequestId(sessionId: session.id) {
       sessionData["pending_approval_id"] = pendingApprovalId
     }
 
     let pendingApproval = state.session(session.id).pendingApproval
     if let pendingApproval {
       sessionData["pending_approval_type"] = pendingApproval.type.rawValue
-    } else if session.attentionReason == .awaitingQuestion || session.pendingQuestion != nil {
-      sessionData["pending_approval_type"] = "question"
     }
-    if let pendingQuestion = pendingApproval?.question ?? session.pendingQuestion {
+    if let pendingQuestion = pendingApproval?.questionPrompts.first?.question ?? pendingApproval?.question {
       sessionData["pending_question"] = pendingQuestion
     }
-    if let pendingToolInput = pendingApproval?.toolInput ?? session.pendingToolInput {
+    if let pendingToolInput = pendingApproval?.toolInput {
       sessionData["pending_tool_input"] = pendingToolInput
-      if let questionMeta = parseQuestionMetadata(from: pendingToolInput) {
-        if let questionId = questionMeta.questionId {
-          sessionData["pending_question_id"] = questionId
+    }
+    if let firstPrompt = pendingApproval?.questionPrompts.first {
+      let questionId = firstPrompt.id.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !questionId.isEmpty {
+        sessionData["pending_question_id"] = questionId
+      }
+      let options = firstPrompt.options.compactMap { option -> [String: String]? in
+        let label = option.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return nil }
+        var serialized: [String: String] = ["label": label]
+        if let description = option.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !description.isEmpty
+        {
+          serialized["description"] = description
         }
-        if !questionMeta.options.isEmpty {
-          sessionData["pending_question_options"] = questionMeta.options
-        }
+        return serialized
+      }
+      if !options.isEmpty {
+        sessionData["pending_question_options"] = options
       }
     }
 
@@ -681,44 +741,6 @@ final class MCPBridge {
     }
 
     return HTTPResponse(status: 200, body: sessionData)
-  }
-
-  private func parseQuestionMetadata(from rawToolInput: String?) -> (questionId: String?, question: String?, options: [[String: String]])? {
-    guard let rawToolInput,
-          let data = rawToolInput.data(using: .utf8),
-          let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-    else {
-      return nil
-    }
-
-    let questionPayload: [String: Any]
-    if let questions = payload["questions"] as? [[String: Any]], let first = questions.first {
-      questionPayload = first
-    } else if payload["question"] != nil || payload["options"] != nil {
-      questionPayload = payload
-    } else {
-      return nil
-    }
-
-    let questionId = (questionPayload["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let question = (questionPayload["question"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let options = ((questionPayload["options"] as? [[String: Any]]) ?? []).compactMap { option -> [String: String]? in
-      let label = (option["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-      guard let label, !label.isEmpty else { return nil }
-      var serialized: [String: String] = ["label": label]
-      if let description = (option["description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-         !description.isEmpty
-      {
-        serialized["description"] = description
-      }
-      return serialized
-    }
-
-    return (
-      questionId?.isEmpty == true ? nil : questionId,
-      question?.isEmpty == true ? nil : question,
-      options
-    )
   }
 
   private func parseQuestionAnswers(from rawAnswers: Any?) -> [String: [String]]? {

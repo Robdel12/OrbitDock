@@ -38,6 +38,9 @@ enum ServerRequestError: LocalizedError {
 /// WebSocket connection to OrbitDock server
 @MainActor
 class ServerConnection: ObservableObject {
+  // Keep aligned with orbitdock-server WS_MAX_TEXT_MESSAGE_BYTES.
+  private static let maxInboundWebSocketMessageBytes = 1 * 1024 * 1024
+
   let endpointId: UUID
   let endpointName: String
 
@@ -55,11 +58,20 @@ class ServerConnection: ObservableObject {
   private var connectAttempts = 0
   private var lastSentClientPrimaryClaim: (clientId: String, deviceName: String, isPrimary: Bool)?
 
-  private var pendingDirectoryListingContinuations: [String: CheckedContinuation<(path: String, entries: [ServerDirectoryEntry]), Error>] = [:]
+  private var pendingDirectoryListingContinuations: [String: CheckedContinuation<
+    (path: String, entries: [ServerDirectoryEntry]),
+    Error
+  >] = [:]
   private var pendingRecentProjectsContinuations: [String: CheckedContinuation<[ServerRecentProject], Error>] = [:]
   private var pendingOpenAiKeyStatusContinuations: [String: CheckedContinuation<Bool, Error>] = [:]
-  private var pendingCodexUsageContinuations: [String: CheckedContinuation<(usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?), Error>] = [:]
-  private var pendingClaudeUsageContinuations: [String: CheckedContinuation<(usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?), Error>] = [:]
+  private var pendingCodexUsageContinuations: [String: CheckedContinuation<
+    (usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?),
+    Error
+  >] = [:]
+  private var pendingClaudeUsageContinuations: [String: CheckedContinuation<
+    (usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?),
+    Error
+  >] = [:]
 
   /// Whether we're connecting to a non-localhost server
   private var isRemote: Bool {
@@ -89,7 +101,7 @@ class ServerConnection: ObservableObject {
   var onMessageAppended: ((String, ServerMessage) -> Void)?
   var onMessageUpdated: ((String, String, ServerMessageChanges) -> Void)?
   var onApprovalRequested: ((String, ServerApprovalRequest) -> Void)?
-  var onTokensUpdated: ((String, ServerTokenUsage) -> Void)?
+  var onTokensUpdated: ((String, ServerTokenUsage, ServerTokenUsageSnapshotKind) -> Void)?
   var onSessionCreated: ((ServerSessionSummary) -> Void)?
   var onSessionEnded: ((String, String) -> Void)?
   var onApprovalsList: ((String?, [ServerApprovalHistoryItem]) -> Void)?
@@ -120,8 +132,8 @@ class ServerConnection: ObservableObject {
   var onUndoCompleted: ((String, Bool, String?) -> Void)?
   var onThreadRolledBack: ((String, UInt32) -> Void)?
   var onSessionForked: ((String, String, String?) -> Void)? // sourceSessionId, newSessionId, forkedFromThreadId
-  var onTurnDiffSnapshot: ((String, String, String, UInt64?, UInt64?, UInt64?, UInt64?)
-    -> Void)? // sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow
+  var onTurnDiffSnapshot: ((String, String, String, UInt64?, UInt64?, UInt64?, UInt64?, ServerTokenUsageSnapshotKind)
+    -> Void)? // sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow, snapshotKind
   var onReviewCommentCreated: ((String, ServerReviewComment) -> Void)?
   var onReviewCommentUpdated: ((String, ServerReviewComment) -> Void)?
   var onReviewCommentDeleted: ((String, String) -> Void)? // sessionId, commentId
@@ -207,6 +219,7 @@ class ServerConnection: ObservableObject {
     session = URLSession(configuration: configuration)
 
     webSocket = session?.webSocketTask(with: serverURL)
+    webSocket?.maximumMessageSize = Self.maxInboundWebSocketMessageBytes
     webSocket?.resume()
     startReceiving()
 
@@ -414,8 +427,8 @@ class ServerConnection: ObservableObject {
       case let .approvalRequested(sessionId, request):
         onApprovalRequested?(sessionId, request)
 
-      case let .tokensUpdated(sessionId, usage):
-        onTokensUpdated?(sessionId, usage)
+      case let .tokensUpdated(sessionId, usage, snapshotKind):
+        onTokensUpdated?(sessionId, usage, snapshotKind)
 
       case let .sessionCreated(session):
         onSessionCreated?(session)
@@ -489,8 +502,26 @@ class ServerConnection: ObservableObject {
       case let .sessionForked(sourceSessionId, newSessionId, forkedFromThreadId):
         onSessionForked?(sourceSessionId, newSessionId, forkedFromThreadId)
 
-      case let .turnDiffSnapshot(sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow):
-        onTurnDiffSnapshot?(sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow)
+      case let .turnDiffSnapshot(
+        sessionId,
+        turnId,
+        diff,
+        inputTokens,
+        outputTokens,
+        cachedTokens,
+        contextWindow,
+        snapshotKind
+      ):
+        onTurnDiffSnapshot?(
+          sessionId,
+          turnId,
+          diff,
+          inputTokens,
+          outputTokens,
+          cachedTokens,
+          contextWindow,
+          snapshotKind
+        )
 
       case let .reviewCommentCreated(sessionId, comment):
         onReviewCommentCreated?(sessionId, comment)
@@ -868,7 +899,7 @@ class ServerConnection: ObservableObject {
     send(.listModels)
   }
 
-  /// Load cached Claude models from DB
+  /// Load cached Claude models from DB (populated when Claude sessions are created)
   func listClaudeModels() {
     send(.listClaudeModels)
   }

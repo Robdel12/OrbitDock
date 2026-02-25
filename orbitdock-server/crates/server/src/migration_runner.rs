@@ -35,6 +35,17 @@ const EMBEDDED_MIGRATIONS: &[(i64, &str, &str)] = &[
         "005_pending_approval_id",
         include_str!("../../../../migrations/005_pending_approval_id.sql"),
     ),
+    // Re-added as version 6 because some databases had "quest_inbox" at version 4
+    (
+        6,
+        "006_claude_models",
+        include_str!("../../../../migrations/004_claude_models.sql"),
+    ),
+    (
+        7,
+        "007_usage_tracking",
+        include_str!("../../../../migrations/007_usage_tracking.sql"),
+    ),
 ];
 
 /// Run all pending migrations against the given connection.

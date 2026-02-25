@@ -391,7 +391,7 @@ private struct DetailedStats {
     let input = session.inputTokens ?? 0
     let output = session.outputTokens ?? 0
     let cached = session.cachedTokens ?? 0
-    let context = session.contextWindow ?? 0
+    let context = session.effectiveContextInputTokens
     let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
 
     if hasServerUsage {

@@ -360,6 +360,7 @@ async fn async_main(
                     output_tokens,
                     cached_tokens,
                     context_window,
+                    token_usage_snapshot_kind,
                     pending_tool_name,
                     pending_tool_input,
                     pending_question,
@@ -423,6 +424,7 @@ async fn async_main(
                         cached_tokens: cached_tokens.max(0) as u64,
                         context_window: context_window.max(0) as u64,
                     },
+                    token_usage_snapshot_kind,
                     started_at,
                     last_activity_at,
                     messages,
@@ -438,6 +440,7 @@ async fn async_main(
                                 output_tokens,
                                 cached_tokens,
                                 context_window,
+                                snapshot_kind,
                             )| {
                                 let has_tokens =
                                     input_tokens > 0 || output_tokens > 0 || context_window > 0;
@@ -454,6 +457,7 @@ async fn async_main(
                                     } else {
                                         None
                                     },
+                                    snapshot_kind: Some(snapshot_kind),
                                 }
                             },
                         )

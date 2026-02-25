@@ -196,6 +196,7 @@ impl SessionRegistry {
                     status: snap.status,
                     work_status: snap.work_status,
                     token_usage: snap.token_usage.clone(),
+                    token_usage_snapshot_kind: snap.token_usage_snapshot_kind,
                     has_pending_approval: snap.has_pending_approval,
                     codex_integration_mode: snap.codex_integration_mode,
                     claude_integration_mode: snap.claude_integration_mode,

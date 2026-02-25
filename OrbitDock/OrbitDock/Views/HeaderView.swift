@@ -631,7 +631,7 @@ struct CodexTokenBadge: View {
           .foregroundStyle(.tertiary)
       } else {
         // Fallback if no window info yet
-        Text(formatTokenCount(session.inputTokens ?? 0))
+        Text(formatTokenCount(session.effectiveContextInputTokens))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
         Text("tokens")
@@ -658,10 +658,7 @@ struct CodexTokenBadge: View {
 
   /// Context fill: input tokens / context window
   private var contextPercent: Int {
-    guard let window = session.contextWindow, window > 0,
-          let input = session.inputTokens
-    else { return 0 }
-    return min(100, Int(Double(input) / Double(window) * 100))
+    min(100, Int(session.contextFillPercent))
   }
 
   private var contextColor: Color {
@@ -672,11 +669,7 @@ struct CodexTokenBadge: View {
 
   /// Cache savings as percentage of input tokens
   private var cacheSavingsPercent: Int {
-    guard let cached = session.cachedTokens,
-          let input = session.inputTokens,
-          input > 0
-    else { return 0 }
-    return Int(Double(cached) / Double(input) * 100)
+    Int(session.effectiveCacheHitPercent)
   }
 
   private var tokenTooltip: String {
@@ -689,9 +682,9 @@ struct CodexTokenBadge: View {
       parts.append("Output: \(formatTokenCount(output))")
     }
     if let cached = session.cachedTokens, cached > 0,
-       let input = session.inputTokens, input > 0
+       session.effectiveContextInputTokens > 0
     {
-      let percent = Int(Double(cached) / Double(input) * 100)
+      let percent = Int(session.effectiveCacheHitPercent)
       parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
     }
     if let window = session.contextWindow {

@@ -204,86 +204,16 @@ nonisolated enum ConversationTimelineProjector {
   }
 
   private static func pendingApprovalCommand(from metadata: ConversationSourceState.SessionMetadata) -> String? {
-    guard let rawInput = metadata.pendingToolInput, !rawInput.isEmpty else { return nil }
-    if let data = rawInput.data(using: .utf8),
-       let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-    {
-      if let command = extractDisplayCommand(from: dict["command"])
-        ?? extractDisplayCommand(from: dict["cmd"])
-      {
-        return command
-      }
-    }
-    return extractDisplayCommand(from: rawInput)
+    guard let command = metadata.pendingApprovalCommand?
+      .trimmingCharacters(in: .whitespacesAndNewlines),
+      !command.isEmpty
+    else { return nil }
+    let cleaned = stripKnownShellWrapperPrefix(command)
+    return cleaned.isEmpty ? nil : cleaned
   }
 
   private static func commandFromToolMessage(_ message: TranscriptMessage) -> String {
-    return stripKnownShellWrapperPrefix(message.content)
-  }
-
-  private static func extractDisplayCommand(from value: Any?) -> String? {
-    guard let value else { return nil }
-
-    if let command = value as? String {
-      let cleaned = stripKnownShellWrapperPrefix(command)
-      return cleaned.isEmpty ? nil : cleaned
-    }
-
-    if let commandParts = value as? [String] {
-      return displayCommand(fromParts: commandParts)
-    }
-
-    if let commandParts = value as? [Any] {
-      let parts = commandParts.compactMap { $0 as? String }
-      guard parts.count == commandParts.count else { return nil }
-      return displayCommand(fromParts: parts)
-    }
-
-    return nil
-  }
-
-  private static func displayCommand(fromParts parts: [String]) -> String? {
-    let tokens = parts
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-    guard !tokens.isEmpty else { return nil }
-
-    let switches = Set(["-lc", "-c", "-ic", "-ilc", "/c", "/C", "-Command"])
-    let shells = Set([
-      "sh", "bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh",
-      "pwsh", "pwsh.exe", "powershell", "powershell.exe",
-      "cmd", "cmd.exe",
-    ])
-
-    func executableName(_ token: String) -> String {
-      (token as NSString).lastPathComponent.lowercased()
-    }
-
-    var shellIndex = 0
-    if executableName(tokens[0]) == "env", tokens.count > 1 {
-      shellIndex = 1
-    }
-
-    if shellIndex < tokens.count, shells.contains(executableName(tokens[shellIndex])) {
-      var optionIndex = shellIndex + 1
-      while optionIndex < tokens.count {
-        let option = tokens[optionIndex]
-        if switches.contains(option) {
-          let commandTokens = Array(tokens[(optionIndex + 1)...])
-          if !commandTokens.isEmpty {
-            let command = stripKnownShellWrapperPrefix(commandTokens.joined(separator: " "))
-            return command.isEmpty ? nil : command
-          }
-        }
-        if !option.hasPrefix("-") && !option.hasPrefix("/") {
-          break
-        }
-        optionIndex += 1
-      }
-    }
-
-    let joined = stripKnownShellWrapperPrefix(tokens.joined(separator: " "))
-    return joined.isEmpty ? nil : joined
+    stripKnownShellWrapperPrefix(message.content)
   }
 
   private static func stripKnownShellWrapperPrefix(_ value: String) -> String {
@@ -523,13 +453,14 @@ nonisolated enum ConversationTimelineProjector {
         combineTextSignature(metadata.currentTool, into: &hasher)
         combineTextSignature(metadata.currentPrompt, into: &hasher)
         combineTextSignature(metadata.pendingToolName, into: &hasher)
-        combineTextSignature(metadata.pendingToolInput, into: &hasher)
+        combineTextSignature(metadata.pendingApprovalCommand, into: &hasher)
+        combineTextSignature(metadata.pendingPermissionDetail, into: &hasher)
 
       case .approvalCard:
         let metadata = context.source.metadata
         hasher.combine(metadata.approvalMode)
         combineTextSignature(metadata.pendingToolName, into: &hasher)
-        combineTextSignature(metadata.pendingToolInput, into: &hasher)
+        combineTextSignature(metadata.pendingApprovalCommand, into: &hasher)
         combineTextSignature(metadata.pendingQuestion, into: &hasher)
         hasher.combine(metadata.pendingApprovalId)
         hasher.combine(metadata.isDirectSession)

@@ -11,7 +11,7 @@ pub use claude::ClaudeConnector;
 pub use codex::{discover_models, CodexConnector, SteerOutcome};
 use orbitdock_protocol::{
     McpAuthStatus, McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool,
-    TokenUsage,
+    TokenUsage, TokenUsageSnapshotKind,
 };
 use std::collections::HashMap;
 use thiserror::Error;
@@ -67,7 +67,10 @@ pub enum ConnectorEvent {
     },
 
     /// Token usage updated
-    TokensUpdated(TokenUsage),
+    TokensUpdated {
+        usage: TokenUsage,
+        snapshot_kind: TokenUsageSnapshotKind,
+    },
 
     /// Aggregated diff updated
     DiffUpdated(String),

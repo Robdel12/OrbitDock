@@ -409,13 +409,7 @@ async function handleApprove({
   ensureOrbitDock();
   let session = await requireControllableSession(session_id);
 
-  let resolvedRequestId = request_id;
-  if (!resolvedRequestId || resolvedRequestId === "pending") {
-    resolvedRequestId = session.pending_approval_id;
-  }
-  if (!resolvedRequestId) {
-    throw new Error("No pending approval request_id available for this session.");
-  }
+  let resolvedRequestId = request_id && request_id !== "pending" ? request_id : "pending";
 
   let pendingQuestion = parseQuestionMetadata(session.pending_tool_input);
   let resolvedType = type
@@ -469,7 +463,7 @@ async function handleApprove({
     }
   }
 
-  await orbitdock.approve(session_id, resolvedRequestId, {
+  let approvePayload = {
     type: resolvedType,
     decision: resolvedDecision,
     answer: normalizedAnswer || undefined,
@@ -477,14 +471,32 @@ async function handleApprove({
     question_id: resolvedQuestionId,
     message,
     interrupt,
-  });
+  };
 
+  let response;
+  try {
+    response = await orbitdock.approve(session_id, resolvedRequestId, approvePayload);
+  } catch (error) {
+    let nextPendingRequestId = error?.response?.next_pending_request_id;
+    let canRetryWithNextPending = (
+      error?.status === 409
+      && resolvedRequestId === "pending"
+      && typeof nextPendingRequestId === "string"
+      && nextPendingRequestId.trim().length > 0
+    );
+    if (!canRetryWithNextPending) {
+      throw error;
+    }
+    response = await orbitdock.approve(session_id, nextPendingRequestId, approvePayload);
+  }
+
+  let responseRequestId = response?.request_id || resolvedRequestId;
   let statusText = resolvedType === "question" ? "answered" : resolvedDecision;
   return {
     content: [
       {
         type: "text",
-        text: `${resolvedType} ${statusText} for ${session_id} (${resolvedRequestId})`,
+        text: `${resolvedType} ${statusText} for ${session_id} (${responseRequestId})`,
       },
     ],
   };

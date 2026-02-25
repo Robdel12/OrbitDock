@@ -1,8 +1,8 @@
 //! Commands sent to a session actor from websocket/rollout_watcher callers.
 
 use orbitdock_protocol::{
-    ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message, ServerMessage,
-    SessionState, SessionStatus, SessionSummary, StateChanges, WorkStatus,
+    ApprovalRequest, ApprovalType, ClaudeIntegrationMode, CodexIntegrationMode, Message,
+    ServerMessage, SessionState, SessionStatus, SessionSummary, StateChanges, WorkStatus,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -128,10 +128,11 @@ pub enum SessionCommand {
     },
 
     // -- Approval --
-    /// Get and remove the approval type + amendment for a request
-    TakePendingApproval {
+    /// Resolve a pending approval request and promote the next one if present.
+    ResolvePendingApproval {
         request_id: String,
-        reply: oneshot::Sender<(Option<ApprovalType>, Option<Vec<String>>)>,
+        fallback_work_status: WorkStatus,
+        reply: oneshot::Sender<PendingApprovalResolution>,
     },
     SetPendingApproval {
         request_id: String,
@@ -178,6 +179,13 @@ pub enum SessionCommand {
     TakeHandle {
         reply: oneshot::Sender<crate::session::SessionHandle>,
     },
+}
+
+pub struct PendingApprovalResolution {
+    pub approval_type: Option<ApprovalType>,
+    pub proposed_amendment: Option<Vec<String>>,
+    pub next_pending_approval: Option<ApprovalRequest>,
+    pub work_status: WorkStatus,
 }
 
 /// Result of a Subscribe command

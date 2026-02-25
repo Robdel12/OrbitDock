@@ -2,16 +2,16 @@
 //  ApprovalRisk.swift
 //  OrbitDock
 //
-//  Risk classifier for Codex approval requests.
-//  Maps approval type + command content to visual risk tiers.
+//  UI-facing risk tier used to tint approval cards.
+//  Risk classification is computed server-side and decoded from approval preview metadata.
 //
 
 import SwiftUI
 
 enum ApprovalRisk {
-  case low // questions, read-only tools
-  case normal // standard file edits, safe bash
-  case high // destructive bash patterns
+  case low
+  case normal
+  case high
 
   var tintColor: Color {
     switch self {
@@ -28,42 +28,26 @@ enum ApprovalRisk {
       case .high: OpacityTier.medium
     }
   }
-}
 
-private let destructivePatterns: [String] = [
-  "rm -rf",
-  "git push --force",
-  "git push -f",
-  "git reset --hard",
-  "sudo ",
-  "DROP TABLE",
-  "DROP DATABASE",
-  "chmod 777",
-  "curl|sh",
-  "curl | sh",
-  "wget|sh",
-  "wget | sh",
-  "dd if=",
-  "> /dev/",
-  "mkfs",
-  ":(){ :|:& };:",
-]
-
-func classifyApprovalRisk(type: ServerApprovalType, command: String?) -> ApprovalRisk {
-  switch type {
-    case .question:
-      return .low
-
-    case .patch:
-      return .normal
-
-    case .exec:
-      guard let cmd = command?.lowercased() else { return .normal }
-      for pattern in destructivePatterns {
-        if cmd.contains(pattern.lowercased()) {
+  static func fromServer(
+    level: ServerApprovalRiskLevel?,
+    approvalType: ServerApprovalType?
+  ) -> ApprovalRisk {
+    if let level {
+      switch level {
+        case .low:
+          return .low
+        case .normal:
+          return .normal
+        case .high:
           return .high
-        }
       }
-      return .normal
+    }
+
+    // Minimal fallback for older servers that do not send risk_level yet.
+    if approvalType == .question {
+      return .low
+    }
+    return .normal
   }
 }

@@ -646,20 +646,7 @@ struct DirectSessionComposer: View {
   }
 
   private var tokenContextPercentage: Double {
-    guard let window = session.contextWindow, window > 0,
-          let input = session.inputTokens
-    else { return 0 }
-
-    // Provider-specific context calculation:
-    // - Claude/Anthropic: input_tokens is non-cached only, add cached_tokens for total
-    // - Codex/OpenAI: input_tokens already includes cached, use input alone
-    let totalContext = if session.provider == .codex {
-      input // Codex input_tokens already includes cached
-    } else {
-      input + (session.cachedTokens ?? 0) // Claude input_tokens + cached
-    }
-
-    return min(1.0, Double(totalContext) / Double(window))
+    session.contextFillFraction
   }
 
   private var tokenTooltipText: String {
@@ -671,9 +658,9 @@ struct DirectSessionComposer: View {
       parts.append("Output: \(formatTokenCount(output))")
     }
     if let cached = session.cachedTokens, cached > 0,
-       let input = session.inputTokens, input > 0
+       session.effectiveContextInputTokens > 0
     {
-      let percent = Int(Double(cached) / Double(input) * 100)
+      let percent = Int(session.effectiveCacheHitPercent)
       parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
     }
     if let window = session.contextWindow {
@@ -1465,12 +1452,8 @@ struct DirectSessionComposer: View {
           Text("\(displayPct)%")
             .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
             .foregroundStyle(color)
-          if let input = session.inputTokens, let window = session.contextWindow {
-            let totalContext = if session.provider == .codex {
-              input // Codex: input already includes cached
-            } else {
-              input + (session.cachedTokens ?? 0) // Claude: add cached to input
-            }
+          if let window = session.contextWindow {
+            let totalContext = session.effectiveContextInputTokens
             HStack(spacing: 4) {
               Text(formatTokenCount(totalContext))
                 .foregroundStyle(Color.textTertiary)
@@ -1699,11 +1682,7 @@ struct DirectSessionComposer: View {
     } else {
       "\(pct)"
     }
-    let totalContext = if session.provider == .codex {
-      session.inputTokens ?? 0 // Codex: input already includes cached
-    } else {
-      (session.inputTokens ?? 0) + (session.cachedTokens ?? 0) // Claude: add cached to input
-    }
+    let totalContext = session.effectiveContextInputTokens
 
     let text = if totalContext > 0, let window = session.contextWindow {
       "\(displayPct)% · \(formatTokenCount(totalContext)) / \(formatTokenCount(window))"

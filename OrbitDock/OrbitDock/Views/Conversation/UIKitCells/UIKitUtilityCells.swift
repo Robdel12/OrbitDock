@@ -542,7 +542,7 @@
       let currentTool: String?
       let currentPrompt: String?
       let pendingToolName: String?
-      let pendingToolInput: String?
+      let pendingPermissionDetail: String?
       let provider: Provider
     }
 
@@ -658,7 +658,9 @@
             nextX = toolLabel.frame.maxX
           }
 
-          if let detail = permissionDetail(toolName: model.pendingToolName, toolInput: model.pendingToolInput) {
+          if let detail = permissionDetail(
+            serverDetail: model.pendingPermissionDetail
+          ) {
             detailLabel.isHidden = false
             detailLabel.text = detail
             detailLabel.font = .monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
@@ -689,28 +691,11 @@
       }
     }
 
-    private func permissionDetail(toolName: String?, toolInput: String?) -> String? {
-      guard let inputJson = toolInput,
-            let data = inputJson.data(using: .utf8),
-            let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-      else { return nil }
-
-      let name = toolName ?? ""
-      switch name {
-        case "Bash":
-          if let cmd = String.shellCommandDisplay(from: input["command"])
-            ?? String.shellCommandDisplay(from: input["cmd"])
-          {
-            return cmd.count > 50 ? String(cmd.prefix(47)) + "\u{2026}" : cmd
-          }
-        case "Edit", "Write", "Read":
-          if let path = input["file_path"] as? String {
-            return (path as NSString).lastPathComponent
-          }
-        default:
-          break
-      }
-      return nil
+    private func permissionDetail(serverDetail: String?) -> String? {
+      ApprovalPermissionPreviewBuilder.compactPermissionDetail(
+        serverDetail: serverDetail,
+        maxLength: 50
+      )
     }
   }
 

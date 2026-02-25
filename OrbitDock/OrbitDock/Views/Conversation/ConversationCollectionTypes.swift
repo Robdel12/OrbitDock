@@ -37,7 +37,8 @@ nonisolated struct ConversationSourceState {
     var workStatus: Session.WorkStatus
     var currentTool: String?
     var pendingToolName: String?
-    var pendingToolInput: String?
+    var pendingApprovalCommand: String?
+    var pendingPermissionDetail: String?
     var currentPrompt: String?
     var messageCount: Int
     var remainingLoadCount: Int
@@ -66,7 +67,8 @@ nonisolated struct ConversationSourceState {
       workStatus: .unknown,
       currentTool: nil,
       pendingToolName: nil,
-      pendingToolInput: nil,
+      pendingApprovalCommand: nil,
+      pendingPermissionDetail: nil,
       currentPrompt: nil,
       messageCount: 0,
       remainingLoadCount: 0,

@@ -145,7 +145,7 @@ pub enum ClientMessage {
 
     // Codex models
     ListModels,
-    // Claude models (cached from DB)
+    // Claude models (cached from DB, populated when sessions are created)
     ListClaudeModels,
     // Codex account/auth state
     CodexAccountRead {

@@ -51,7 +51,7 @@ struct ApprovalCardModelTests {
         proposedAmendment: nil,
         createdAt: "2026-02-23T00:00:00Z",
         decidedAt: nil
-      )
+      ),
     ]
 
     let model = ApprovalCardModelBuilder.build(
@@ -64,11 +64,12 @@ struct ApprovalCardModelTests {
     #expect(model?.approvalId == "req-from-history")
     #expect(model?.approvalType == .exec)
     #expect(model?.toolName == "Bash")
-    #expect(model?.command == "git status")
+    #expect(model?.command == nil)
+    #expect(model?.previewType == .action)
     #expect(model?.mode == .permission)
   }
 
-  @Test func builderNormalizesShellWrapperWhenUsingPendingApprovalCommandFallback() {
+  @Test func builderDoesNotUseLegacyCommandFallbackWhenPreviewMissing() {
     let session = makeDirectSession(
       id: "session-command-fallback",
       attentionReason: .awaitingPermission,
@@ -85,6 +86,7 @@ struct ApprovalCardModelTests {
       filePath: nil,
       diff: nil,
       question: nil,
+      preview: nil,
       proposedAmendment: nil
     )
 
@@ -95,94 +97,260 @@ struct ApprovalCardModelTests {
     )
 
     #expect(model?.mode == .permission)
-    #expect(model?.command == "xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations")
+    #expect(model?.command == nil)
+    #expect(model?.previewType == .action)
   }
 
-  @Test func builderParsesQuestionOptionsFromPendingToolInput() {
-    let toolInput = """
-    {
-      "questions": [
-        {
-          "id": "speed",
-          "header": "Speed",
-          "question": "How do you want to launch?",
-          "options": [
-            { "label": "Open Sheet", "description": "Open full sheet first" },
-            { "label": "Quick Launch", "description": "Use defaults immediately" }
-          ]
-        }
-      ]
-    }
-    """
+  @Test func builderSurfacesRiskFindingsForDestructiveExecCommand() {
+    let session = makeDirectSession(
+      id: "session-risk-findings",
+      attentionReason: .awaitingPermission,
+      pendingApprovalId: "req-risk"
+    )
 
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-risk",
+      sessionId: session.id,
+      type: .exec,
+      toolName: "Bash",
+      toolInput: nil,
+      command: "sudo rm -rf /tmp/orbitdock-cache",
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      preview: ServerApprovalPreview(
+        type: .shellCommand,
+        value: "sudo rm -rf /tmp/orbitdock-cache",
+        shellSegments: [
+          ServerApprovalPreviewSegment(command: "sudo rm -rf /tmp/orbitdock-cache", leadingOperator: nil),
+        ],
+        compact: "sudo rm -rf /tmp/orbitdock-cache",
+        decisionScope: "approve/deny applies to all command segments in this request.",
+        riskLevel: .high,
+        riskFindings: [
+          "Uses elevated privileges via sudo.",
+          "Deletes files recursively with rm -rf.",
+        ],
+        manifest: "APPROVAL MANIFEST"
+      ),
+      proposedAmendment: nil
+    )
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: pendingApproval,
+      serverState: ServerAppState()
+    )
+
+    #expect(model?.risk == .high)
+    #expect(model?.riskFindings.contains("Uses elevated privileges via sudo.") == true)
+    #expect(model?.riskFindings.contains("Deletes files recursively with rm -rf.") == true)
+  }
+
+  @Test func builderPrefersServerPreviewOverSessionToolInputFallback() {
+    let session = Session(
+      id: "session-server-preview",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingPermission,
+      pendingToolName: "Bash",
+      pendingToolInput: #"{"query":"this should not be used"}"#,
+      provider: .codex,
+      codexIntegrationMode: .direct,
+      pendingApprovalId: "req-preview"
+    )
+
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-preview",
+      sessionId: session.id,
+      type: .exec,
+      toolName: "Bash",
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      preview: ServerApprovalPreview(
+        type: .shellCommand,
+        value: "sqlite3 ~/.orbitdock/orbitdock.db 'SELECT 1' || echo fail",
+        shellSegments: [
+          ServerApprovalPreviewSegment(
+            command: "sqlite3 ~/.orbitdock/orbitdock.db 'SELECT 1'",
+            leadingOperator: nil
+          ),
+          ServerApprovalPreviewSegment(command: "echo fail", leadingOperator: "||"),
+        ],
+        compact: "sqlite3 ~/.orbitdock/orbitdock.db +1 segment",
+        decisionScope: "approve/deny applies to all command segments in this request.",
+        riskLevel: .normal,
+        riskFindings: [],
+        manifest: "APPROVAL MANIFEST\nrequest_id: req-preview"
+      ),
+      proposedAmendment: nil
+    )
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: pendingApproval,
+      serverState: ServerAppState()
+    )
+
+    #expect(model?.previewType == .shellCommand)
+    #expect(model?.command == "sqlite3 ~/.orbitdock/orbitdock.db 'SELECT 1' || echo fail")
+    #expect(model?.shellSegments.count == 2)
+    #expect(model?.shellSegments[1].leadingOperator == "||")
+    #expect(model?.decisionScope == "approve/deny applies to all command segments in this request.")
+    #expect(model?.serverManifest?.contains("APPROVAL MANIFEST") == true)
+  }
+
+  @Test func builderUsesServerPreviewTypeForSearchQuery() {
+    let session = Session(
+      id: "session-search-query",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingPermission,
+      pendingToolInput: #"{"query":"swift sqlite migration patterns"}"#,
+      provider: .claude,
+      claudeIntegrationMode: .direct,
+      pendingApprovalId: "req-search"
+    )
+
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-search",
+      sessionId: session.id,
+      type: .exec,
+      toolName: "WebSearch",
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      preview: ServerApprovalPreview(
+        type: .searchQuery,
+        value: "swift sqlite migration patterns",
+        shellSegments: [],
+        compact: "query: swift sqlite migration patterns",
+        decisionScope: "approve/deny applies to this full tool action.",
+        riskLevel: .normal,
+        riskFindings: [],
+        manifest: "APPROVAL MANIFEST"
+      ),
+      proposedAmendment: nil
+    )
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: pendingApproval,
+      serverState: ServerAppState()
+    )
+
+    #expect(model?.mode == .permission)
+    #expect(model?.command == "swift sqlite migration patterns")
+    #expect(model?.previewType == .searchQuery)
+  }
+
+  @Test func builderUsesServerQuestionPrompts() {
     let session = Session(
       id: "session-question-options",
       projectPath: "/tmp/project",
       status: .active,
       workStatus: .permission,
       attentionReason: .awaitingQuestion,
-      pendingToolInput: toolInput,
       provider: .claude,
       claudeIntegrationMode: .direct,
       pendingApprovalId: "req-question"
     )
 
-    let state = ServerAppState()
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-question",
+      sessionId: session.id,
+      type: .question,
+      toolName: "AskUserQuestion",
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: "How do you want to launch?",
+      questionPrompts: [
+        ServerApprovalQuestionPrompt(
+          id: "speed",
+          header: "Speed",
+          question: "How do you want to launch?",
+          options: [
+            ServerApprovalQuestionOption(label: "Open Sheet", description: "Open full sheet first"),
+            ServerApprovalQuestionOption(label: "Quick Launch", description: "Use defaults immediately"),
+          ]
+        ),
+      ],
+      preview: nil,
+      proposedAmendment: nil
+    )
+
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: nil,
-      serverState: state
+      pendingApproval: pendingApproval,
+      serverState: ServerAppState()
     )
 
     #expect(model?.mode == .question)
-    #expect(model?.questionId == "speed")
-    #expect(model?.question == "How do you want to launch?")
-    #expect(model?.questionOptions.count == 2)
-    #expect(model?.questionOptions.first?.label == "Open Sheet")
+    #expect(model?.questions.first?.id == "speed")
+    #expect(model?.questions.first?.question == "How do you want to launch?")
+    #expect(model?.questions.first?.options.count == 2)
+    #expect(model?.questions.first?.options.first?.label == "Open Sheet")
   }
 
-  @Test func builderParsesMultipleQuestionPromptsFromPendingToolInput() {
-    let toolInput = """
-    {
-      "questions": [
-        {
-          "id": "speed",
-          "header": "Speed",
-          "question": "How do you want to launch?",
-          "options": [
-            { "label": "Open Sheet", "description": "Open full sheet first" },
-            { "label": "Quick Launch", "description": "Use defaults immediately" }
-          ]
-        },
-        {
-          "id": "confirm",
-          "header": "Confirm",
-          "question": "Apply this setup?",
-          "multiSelect": true,
-          "isOther": true,
-          "isSecret": false
-        }
-      ]
-    }
-    """
-
+  @Test func builderUsesMultipleServerQuestionPrompts() {
     let session = Session(
       id: "session-multi-question-options",
       projectPath: "/tmp/project",
       status: .active,
       workStatus: .permission,
       attentionReason: .awaitingQuestion,
-      pendingToolInput: toolInput,
       provider: .claude,
       claudeIntegrationMode: .direct,
       pendingApprovalId: "req-question"
     )
 
-    let state = ServerAppState()
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-question",
+      sessionId: session.id,
+      type: .question,
+      toolName: "AskUserQuestion",
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: "How do you want to launch?",
+      questionPrompts: [
+        ServerApprovalQuestionPrompt(
+          id: "speed",
+          header: "Speed",
+          question: "How do you want to launch?",
+          options: [
+            ServerApprovalQuestionOption(label: "Open Sheet", description: "Open full sheet first"),
+            ServerApprovalQuestionOption(label: "Quick Launch", description: "Use defaults immediately"),
+          ]
+        ),
+        ServerApprovalQuestionPrompt(
+          id: "confirm",
+          header: "Confirm",
+          question: "Apply this setup?",
+          options: [],
+          allowsMultipleSelection: true,
+          allowsOther: true,
+          isSecret: false
+        ),
+      ],
+      preview: nil,
+      proposedAmendment: nil
+    )
+
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: nil,
-      serverState: state
+      pendingApproval: pendingApproval,
+      serverState: ServerAppState()
     )
 
     #expect(model?.mode == .question)

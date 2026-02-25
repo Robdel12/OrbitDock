@@ -773,7 +773,10 @@ impl CodexConnector {
                         cached_tokens: last.cached_input_tokens.max(0) as u64,
                         context_window: info.model_context_window.unwrap_or(200_000).max(0) as u64,
                     };
-                    vec![ConnectorEvent::TokensUpdated(usage)]
+                    vec![ConnectorEvent::TokensUpdated {
+                        usage,
+                        snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::ContextTurn,
+                    }]
                 } else {
                     vec![]
                 }
@@ -1637,7 +1640,9 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         .list_models(&config, RefreshStrategy::OnlineIfUncached)
         .await
         .into_iter()
-        .filter(|preset| preset.show_in_picker && preset.supported_in_api)
+        // codex-core already applies auth-aware filtering in list_models:
+        // ChatGPT mode can include models that are not API-key compatible.
+        .filter(|preset| preset.show_in_picker)
         .map(|preset| orbitdock_protocol::CodexModelOption {
             id: preset.id,
             model: preset.model,

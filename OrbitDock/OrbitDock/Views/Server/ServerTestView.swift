@@ -247,8 +247,10 @@ struct ServerTestView: View {
       log("Message appended to \(sessionId): \(message.content.prefix(50))...")
     }
 
-    connection.onTokensUpdated = { sessionId, usage in
-      log("Tokens updated for \(sessionId): \(usage.inputTokens) in, \(usage.outputTokens) out")
+    connection.onTokensUpdated = { sessionId, usage, snapshotKind in
+      log(
+        "Tokens updated for \(sessionId): \(usage.inputTokens) in, \(usage.outputTokens) out (\(snapshotKind.rawValue))"
+      )
     }
 
     connection.onSessionCreated = { session in

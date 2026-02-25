@@ -9,10 +9,11 @@ use std::path::Path;
 
 use orbitdock_connectors::{ApprovalType as ConnectorApprovalType, ConnectorEvent};
 use orbitdock_protocol::{
-    ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalRequest, ApprovalType,
-    McpAuthStatus, McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool,
-    Message, MessageChanges, MessageType, RemoteSkillSummary, ServerMessage, SessionStatus,
-    SkillErrorInfo, SkillsListEntry, StateChanges, TokenUsage, TurnDiff, WorkStatus,
+    ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalQuestionOption,
+    ApprovalQuestionPrompt, ApprovalRequest, ApprovalRiskLevel, ApprovalType, McpAuthStatus,
+    McpResource, McpResourceTemplate, McpStartupFailure, McpStartupStatus, McpTool, Message,
+    MessageChanges, MessageType, RemoteSkillSummary, ServerMessage, SessionStatus, SkillErrorInfo,
+    SkillsListEntry, StateChanges, TokenUsage, TokenUsageSnapshotKind, TurnDiff, WorkStatus,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
@@ -60,6 +61,7 @@ pub struct TransitionState {
     pub phase: WorkPhase,
     pub messages: Vec<Message>,
     pub token_usage: TokenUsage,
+    pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
     pub custom_name: Option<String>,
@@ -105,7 +107,10 @@ pub enum Input {
         question: Option<String>,
         proposed_amendment: Option<Vec<String>>,
     },
-    TokensUpdated(TokenUsage),
+    TokensUpdated {
+        usage: TokenUsage,
+        snapshot_kind: TokenUsageSnapshotKind,
+    },
     DiffUpdated(String),
     PlanUpdated(String),
     ThreadNameUpdated(String),
@@ -211,7 +216,13 @@ impl From<ConnectorEvent> for Input {
                 question,
                 proposed_amendment,
             },
-            ConnectorEvent::TokensUpdated(usage) => Input::TokensUpdated(usage),
+            ConnectorEvent::TokensUpdated {
+                usage,
+                snapshot_kind,
+            } => Input::TokensUpdated {
+                usage,
+                snapshot_kind,
+            },
             ConnectorEvent::DiffUpdated(diff) => Input::DiffUpdated(diff),
             ConnectorEvent::PlanUpdated(plan) => Input::PlanUpdated(plan),
             ConnectorEvent::ThreadNameUpdated(name) => Input::ThreadNameUpdated(name),
@@ -316,6 +327,7 @@ pub enum PersistOp {
     TokensUpdate {
         session_id: String,
         usage: TokenUsage,
+        snapshot_kind: TokenUsageSnapshotKind,
     },
     TurnStateUpdate {
         session_id: String,
@@ -325,11 +337,13 @@ pub enum PersistOp {
     TurnDiffInsert {
         session_id: String,
         turn_id: String,
+        turn_seq: u64,
         diff: String,
         input_tokens: u64,
         output_tokens: u64,
         cached_tokens: u64,
         context_window: u64,
+        snapshot_kind: TokenUsageSnapshotKind,
     },
     SetCustomName {
         session_id: String,
@@ -402,9 +416,15 @@ impl PersistOp {
                 duration_ms,
                 is_error,
             },
-            PersistOp::TokensUpdate { session_id, usage } => {
-                PersistCommand::TokensUpdate { session_id, usage }
-            }
+            PersistOp::TokensUpdate {
+                session_id,
+                usage,
+                snapshot_kind,
+            } => PersistCommand::TokensUpdate {
+                session_id,
+                usage,
+                snapshot_kind,
+            },
             PersistOp::TurnStateUpdate {
                 session_id,
                 diff,
@@ -417,19 +437,23 @@ impl PersistOp {
             PersistOp::TurnDiffInsert {
                 session_id,
                 turn_id,
+                turn_seq,
                 diff,
                 input_tokens,
                 output_tokens,
                 cached_tokens,
                 context_window,
+                snapshot_kind,
             } => PersistCommand::TurnDiffInsert {
                 session_id,
                 turn_id,
+                turn_seq,
                 diff,
                 input_tokens,
                 output_tokens,
                 cached_tokens,
                 context_window,
+                snapshot_kind,
             },
             PersistOp::SetCustomName {
                 session_id,
@@ -532,16 +556,19 @@ pub fn transition(
                     turn_id: turn_id.clone(),
                     diff: diff.clone(),
                     token_usage: Some(usage.clone()),
+                    snapshot_kind: Some(state.token_usage_snapshot_kind),
                 };
                 state.turn_diffs.push(snapshot);
                 effects.push(Effect::Persist(Box::new(PersistOp::TurnDiffInsert {
                     session_id: sid.clone(),
                     turn_id: turn_id.clone(),
+                    turn_seq: state.turn_count,
                     diff: diff.clone(),
                     input_tokens: usage.input_tokens,
                     output_tokens: usage.output_tokens,
                     cached_tokens: usage.cached_tokens,
                     context_window: usage.context_window,
+                    snapshot_kind: state.token_usage_snapshot_kind,
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::TurnDiffSnapshot {
                     session_id: sid.clone(),
@@ -551,6 +578,7 @@ pub fn transition(
                     output_tokens: Some(usage.output_tokens),
                     cached_tokens: Some(usage.cached_tokens),
                     context_window: Some(usage.context_window),
+                    snapshot_kind: state.token_usage_snapshot_kind,
                 })));
             }
 
@@ -749,12 +777,24 @@ pub fn transition(
                 ApprovalType::Patch => "Edit".to_string(),
                 ApprovalType::Question => "Question".to_string(),
             });
+            let question_prompts = extract_question_prompts_for_approval(
+                tool_input.as_deref(),
+                question.as_deref(),
+            );
+            let resolved_question = question.or_else(|| {
+                question_prompts
+                    .first()
+                    .map(|prompt| prompt.question.clone())
+                    .filter(|text| !text.is_empty())
+            });
             let preview = build_approval_preview(
+                request_id.as_str(),
                 approval_type,
                 Some(resolved_tool_name.as_str()),
                 tool_input.as_deref(),
                 command.as_deref(),
                 file_path.as_deref(),
+                resolved_question.as_deref(),
             );
 
             let request = ApprovalRequest {
@@ -766,7 +806,8 @@ pub fn transition(
                 command: command.clone(),
                 file_path: file_path.clone(),
                 diff,
-                question,
+                question: resolved_question,
+                question_prompts,
                 preview,
                 proposed_amendment: proposed_amendment.clone(),
             };
@@ -790,16 +831,22 @@ pub fn transition(
         }
 
         // -- Metadata ---------------------------------------------------------
-        Input::TokensUpdated(usage) => {
+        Input::TokensUpdated {
+            usage,
+            snapshot_kind,
+        } => {
             state.token_usage = usage.clone();
+            state.token_usage_snapshot_kind = snapshot_kind;
 
             effects.push(Effect::Persist(Box::new(PersistOp::TokensUpdate {
                 session_id: sid.clone(),
                 usage: usage.clone(),
+                snapshot_kind,
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::TokensUpdated {
                 session_id: sid,
                 usage,
+                snapshot_kind,
             })));
         }
 
@@ -1033,14 +1080,17 @@ pub fn transition(
                 context_window: state.token_usage.context_window,
             };
             state.token_usage = compacted_usage.clone();
+            state.token_usage_snapshot_kind = TokenUsageSnapshotKind::CompactionReset;
 
             effects.push(Effect::Persist(Box::new(PersistOp::TokensUpdate {
                 session_id: sid.clone(),
                 usage: compacted_usage.clone(),
+                snapshot_kind: TokenUsageSnapshotKind::CompactionReset,
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::TokensUpdated {
                 session_id: sid.clone(),
                 usage: compacted_usage,
+                snapshot_kind: TokenUsageSnapshotKind::CompactionReset,
             })));
 
             // Record compaction as a first-class transcript event so it is visible
@@ -1153,11 +1203,13 @@ pub fn transition(
 }
 
 fn build_approval_preview(
+    request_id: &str,
     approval_type: ApprovalType,
     tool_name: Option<&str>,
     tool_input: Option<&str>,
     command: Option<&str>,
     file_path: Option<&str>,
+    question: Option<&str>,
 ) -> Option<ApprovalPreview> {
     let input = parse_tool_input_object(tool_input);
     let normalized_tool_name = trim_non_empty(tool_name)
@@ -1169,6 +1221,7 @@ fn build_approval_preview(
         .and_then(|dict| dict.get("command").or_else(|| dict.get("cmd")))
         .and_then(shell_command_from_json_value);
     let command = command_from_input.or_else(|| trim_non_empty(command));
+    let risk_assessment = assess_approval_risk(approval_type, command.as_deref());
 
     let file_path_from_input = input.as_ref().and_then(|dict| {
         dict.get("path")
@@ -1203,111 +1256,113 @@ fn build_approval_preview(
             .and_then(trim_non_empty_str)
     });
     let fallback_input_value = input.as_ref().and_then(first_string_value_from_json_object);
+    let question = trim_non_empty(question);
 
     if let Some(command) = command {
         let shell_segments = shell_segments_for_preview(&command);
-        let compact = compact_detail_for_preview(
-            ApprovalPreviewType::ShellCommand,
-            &command,
-            &shell_segments,
+        return Some(compose_approval_preview(
+            request_id,
+            approval_type,
+            tool_name,
             normalized_tool_name.as_str(),
-        );
-        return Some(ApprovalPreview {
-            preview_type: ApprovalPreviewType::ShellCommand,
-            value: command,
+            ApprovalPreviewType::ShellCommand,
+            command,
             shell_segments,
-            compact,
-        });
+            &risk_assessment,
+        ));
     }
 
     if let Some(url) = url {
-        let compact = compact_detail_for_preview(
-            ApprovalPreviewType::Url,
-            &url,
-            &[],
+        return Some(compose_approval_preview(
+            request_id,
+            approval_type,
+            tool_name,
             normalized_tool_name.as_str(),
-        );
-        return Some(ApprovalPreview {
-            preview_type: ApprovalPreviewType::Url,
-            value: url,
-            shell_segments: vec![],
-            compact,
-        });
+            ApprovalPreviewType::Url,
+            url,
+            vec![],
+            &risk_assessment,
+        ));
     }
 
     if let Some(query) = query {
-        let compact = compact_detail_for_preview(
-            ApprovalPreviewType::SearchQuery,
-            &query,
-            &[],
+        return Some(compose_approval_preview(
+            request_id,
+            approval_type,
+            tool_name,
             normalized_tool_name.as_str(),
-        );
-        return Some(ApprovalPreview {
-            preview_type: ApprovalPreviewType::SearchQuery,
-            value: query,
-            shell_segments: vec![],
-            compact,
-        });
+            ApprovalPreviewType::SearchQuery,
+            query,
+            vec![],
+            &risk_assessment,
+        ));
     }
 
     if let Some(pattern) = pattern {
-        let compact = compact_detail_for_preview(
-            ApprovalPreviewType::Pattern,
-            &pattern,
-            &[],
+        return Some(compose_approval_preview(
+            request_id,
+            approval_type,
+            tool_name,
             normalized_tool_name.as_str(),
-        );
-        return Some(ApprovalPreview {
-            preview_type: ApprovalPreviewType::Pattern,
-            value: pattern,
-            shell_segments: vec![],
-            compact,
-        });
+            ApprovalPreviewType::Pattern,
+            pattern,
+            vec![],
+            &risk_assessment,
+        ));
     }
 
     if let Some(prompt) = prompt {
-        let compact = compact_detail_for_preview(
-            ApprovalPreviewType::Prompt,
-            &prompt,
-            &[],
+        return Some(compose_approval_preview(
+            request_id,
+            approval_type,
+            tool_name,
             normalized_tool_name.as_str(),
-        );
-        return Some(ApprovalPreview {
-            preview_type: ApprovalPreviewType::Prompt,
-            value: prompt,
-            shell_segments: vec![],
-            compact,
-        });
+            ApprovalPreviewType::Prompt,
+            prompt,
+            vec![],
+            &risk_assessment,
+        ));
+    }
+
+    if approval_type == ApprovalType::Question {
+        if let Some(question) = question {
+            return Some(compose_approval_preview(
+                request_id,
+                approval_type,
+                tool_name,
+                normalized_tool_name.as_str(),
+                ApprovalPreviewType::Prompt,
+                question,
+                vec![],
+                &risk_assessment,
+            ));
+        }
     }
 
     if let Some(path) = file_path {
-        let compact = compact_detail_for_preview(
-            ApprovalPreviewType::FilePath,
-            &path,
-            &[],
+        return Some(compose_approval_preview(
+            request_id,
+            approval_type,
+            tool_name,
             normalized_tool_name.as_str(),
-        );
-        return Some(ApprovalPreview {
-            preview_type: ApprovalPreviewType::FilePath,
-            value: path,
-            shell_segments: vec![],
-            compact,
-        });
+            ApprovalPreviewType::FilePath,
+            path,
+            vec![],
+            &risk_assessment,
+        ));
     }
 
     if let Some(value) = fallback_input_value {
-        let compact = compact_detail_for_preview(
-            ApprovalPreviewType::Value,
-            &value,
-            &[],
+        return Some(compose_approval_preview(
+            request_id,
+            approval_type,
+            tool_name,
             normalized_tool_name.as_str(),
-        );
-        return Some(ApprovalPreview {
-            preview_type: ApprovalPreviewType::Value,
+            ApprovalPreviewType::Value,
             value,
-            shell_segments: vec![],
-            compact,
-        });
+            vec![],
+            &risk_assessment,
+        ));
     }
 
     let fallback_action = match approval_type {
@@ -1315,29 +1370,446 @@ fn build_approval_preview(
             trim_non_empty(tool_name).unwrap_or_else(|| "Question".to_string())
         }
         _ => trim_non_empty(tool_name)
-            .map(|name| format!("Approve {name} action?"))
-            .unwrap_or_else(|| "Approve action?".to_string()),
+            .map(|name| format!("Approve {name} action"))
+            .unwrap_or_else(|| "Approve action".to_string()),
     };
 
-    let compact = compact_detail_for_preview(
-        ApprovalPreviewType::Action,
-        &fallback_action,
-        &[],
+    Some(compose_approval_preview(
+        request_id,
+        approval_type,
+        tool_name,
         normalized_tool_name.as_str(),
+        ApprovalPreviewType::Action,
+        fallback_action,
+        vec![],
+        &risk_assessment,
+    ))
+}
+
+#[derive(Debug, Clone)]
+struct ApprovalRiskAssessment {
+    level: ApprovalRiskLevel,
+    findings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ExecRiskRule {
+    pattern: &'static str,
+    finding: &'static str,
+}
+
+const EXEC_RISK_RULES: &[ExecRiskRule] = &[
+    ExecRiskRule {
+        pattern: " sudo ",
+        finding: "Uses elevated privileges via sudo.",
+    },
+    ExecRiskRule {
+        pattern: " rm -rf",
+        finding: "Deletes files recursively with rm -rf.",
+    },
+    ExecRiskRule {
+        pattern: " rm -fr",
+        finding: "Deletes files recursively with rm -fr.",
+    },
+    ExecRiskRule {
+        pattern: " git reset --hard",
+        finding: "Performs hard git reset and discards local changes.",
+    },
+    ExecRiskRule {
+        pattern: " git clean -fd",
+        finding: "Deletes untracked files with git clean -fd.",
+    },
+    ExecRiskRule {
+        pattern: " git clean -xdf",
+        finding: "Deletes ignored and untracked files with git clean -xdf.",
+    },
+    ExecRiskRule {
+        pattern: " git push --force",
+        finding: "Force-pushes git history.",
+    },
+    ExecRiskRule {
+        pattern: " git push -f",
+        finding: "Force-pushes git history.",
+    },
+    ExecRiskRule {
+        pattern: " drop table",
+        finding: "Contains SQL DROP TABLE statement.",
+    },
+    ExecRiskRule {
+        pattern: " drop database",
+        finding: "Contains SQL DROP DATABASE statement.",
+    },
+    ExecRiskRule {
+        pattern: " truncate table",
+        finding: "Contains SQL TRUNCATE TABLE statement.",
+    },
+    ExecRiskRule {
+        pattern: " chmod 777",
+        finding: "Sets permissive file mode (chmod 777).",
+    },
+    ExecRiskRule {
+        pattern: " curl | sh",
+        finding: "Pipes remote script directly into shell (curl | sh).",
+    },
+    ExecRiskRule {
+        pattern: " wget | sh",
+        finding: "Pipes remote script directly into shell (wget | sh).",
+    },
+    ExecRiskRule {
+        pattern: " dd if=",
+        finding: "Uses dd with direct device/file writes.",
+    },
+    ExecRiskRule {
+        pattern: " > /dev/",
+        finding: "Writes output directly to a /dev device path.",
+    },
+    ExecRiskRule {
+        pattern: " mkfs",
+        finding: "Formats a filesystem with mkfs.",
+    },
+    ExecRiskRule {
+        pattern: ":(){ :|:& };:",
+        finding: "Contains a shell fork bomb signature.",
+    },
+];
+
+fn assess_approval_risk(
+    approval_type: ApprovalType,
+    command: Option<&str>,
+) -> ApprovalRiskAssessment {
+    match approval_type {
+        ApprovalType::Question => ApprovalRiskAssessment {
+            level: ApprovalRiskLevel::Low,
+            findings: vec![],
+        },
+        ApprovalType::Patch => ApprovalRiskAssessment {
+            level: ApprovalRiskLevel::Normal,
+            findings: vec![],
+        },
+        ApprovalType::Exec => {
+            let Some(normalized_command) = normalize_command_for_risk(command) else {
+                return ApprovalRiskAssessment {
+                    level: ApprovalRiskLevel::Normal,
+                    findings: vec![],
+                };
+            };
+
+            let mut findings: Vec<String> = vec![];
+            for rule in EXEC_RISK_RULES {
+                if normalized_command.contains(rule.pattern) {
+                    let finding = rule.finding.to_string();
+                    if !findings.contains(&finding) {
+                        findings.push(finding);
+                    }
+                }
+            }
+
+            let level = if findings.is_empty() {
+                ApprovalRiskLevel::Normal
+            } else {
+                ApprovalRiskLevel::High
+            };
+            ApprovalRiskAssessment { level, findings }
+        }
+    }
+}
+
+fn normalize_command_for_risk(command: Option<&str>) -> Option<String> {
+    let normalized = trim_non_empty(command)?.to_lowercase();
+    // Pad with spaces so token-boundary patterns like " sudo " can match start/end.
+    Some(format!(" {normalized} "))
+}
+
+fn compose_approval_preview(
+    request_id: &str,
+    approval_type: ApprovalType,
+    tool_name: Option<&str>,
+    normalized_tool_name: &str,
+    preview_type: ApprovalPreviewType,
+    value: String,
+    shell_segments: Vec<ApprovalPreviewSegment>,
+    risk_assessment: &ApprovalRiskAssessment,
+) -> ApprovalPreview {
+    let compact = compact_detail_for_preview(
+        preview_type,
+        value.as_str(),
+        shell_segments.as_slice(),
+        normalized_tool_name,
+    );
+    let decision_scope = decision_scope_for_preview(preview_type).to_string();
+    let manifest = build_manifest_for_preview(
+        request_id,
+        approval_type,
+        tool_name,
+        risk_assessment,
+        preview_type,
+        value.as_str(),
+        shell_segments.as_slice(),
+        decision_scope.as_str(),
     );
 
-    Some(ApprovalPreview {
-        preview_type: ApprovalPreviewType::Action,
-        value: fallback_action,
-        shell_segments: vec![],
+    ApprovalPreview {
+        preview_type,
+        value,
+        shell_segments,
         compact,
-    })
+        decision_scope: Some(decision_scope),
+        risk_level: Some(risk_assessment.level),
+        risk_findings: risk_assessment.findings.clone(),
+        manifest: Some(manifest),
+    }
+}
+
+fn decision_scope_for_preview(preview_type: ApprovalPreviewType) -> &'static str {
+    match preview_type {
+        ApprovalPreviewType::ShellCommand => {
+            "approve/deny applies to all command segments in this request."
+        }
+        ApprovalPreviewType::FilePath => "approve/deny applies to this full file action.",
+        ApprovalPreviewType::Action
+        | ApprovalPreviewType::Value
+        | ApprovalPreviewType::Url
+        | ApprovalPreviewType::SearchQuery
+        | ApprovalPreviewType::Pattern
+        | ApprovalPreviewType::Prompt => "approve/deny applies to this full tool action.",
+    }
+}
+
+fn build_manifest_for_preview(
+    request_id: &str,
+    approval_type: ApprovalType,
+    tool_name: Option<&str>,
+    risk_assessment: &ApprovalRiskAssessment,
+    preview_type: ApprovalPreviewType,
+    value: &str,
+    shell_segments: &[ApprovalPreviewSegment],
+    decision_scope: &str,
+) -> String {
+    let resolved_tool = trim_non_empty(tool_name).unwrap_or_else(|| "unknown".to_string());
+    let resolved_request_id =
+        trim_non_empty(Some(request_id)).unwrap_or_else(|| "unknown".to_string());
+
+    let mut lines: Vec<String> = vec![
+        "APPROVAL MANIFEST".to_string(),
+        format!("request_id: {resolved_request_id}"),
+        format!("approval_type: {}", approval_type_label(approval_type)),
+        format!("tool: {resolved_tool}"),
+        format!("risk_tier: {}", risk_level_label(risk_assessment.level)),
+    ];
+
+    if !risk_assessment.findings.is_empty() {
+        lines.push("risk_signals:".to_string());
+        lines.extend(
+            risk_assessment
+                .findings
+                .iter()
+                .map(|finding| format!("- {finding}")),
+        );
+    }
+
+    lines.push(String::new());
+    lines.push(format!("decision_scope: {decision_scope}"));
+    lines.extend(manifest_content_lines(preview_type, value, shell_segments));
+
+    lines.join("\n")
+}
+
+fn manifest_content_lines(
+    preview_type: ApprovalPreviewType,
+    value: &str,
+    shell_segments: &[ApprovalPreviewSegment],
+) -> Vec<String> {
+    match preview_type {
+        ApprovalPreviewType::ShellCommand => {
+            let mut lines = vec![format!(
+                "command_segments: {}",
+                std::cmp::max(shell_segments.len(), 1)
+            )];
+            lines.push("segments:".to_string());
+            if shell_segments.is_empty() {
+                lines.push(format!("[1] {value}"));
+                return lines;
+            }
+
+            lines.extend(shell_segments.iter().enumerate().map(|(index, segment)| {
+                let prefix = shell_operator_prefix(segment.leading_operator.as_deref());
+                format!("[{}] {}{}", index + 1, prefix, segment.command)
+            }));
+            lines
+        }
+        ApprovalPreviewType::FilePath => vec![format!("target_file: {value}")],
+        ApprovalPreviewType::Url => vec![format!("target_url: {value}")],
+        ApprovalPreviewType::SearchQuery => vec![format!("search_query: {value}")],
+        ApprovalPreviewType::Pattern => vec![format!("pattern: {value}")],
+        ApprovalPreviewType::Prompt => vec![format!("prompt: {value}")],
+        ApprovalPreviewType::Value => vec![format!("value: {value}")],
+        ApprovalPreviewType::Action => vec![format!("action: {value}")],
+    }
+}
+
+fn shell_operator_prefix(leading_operator: Option<&str>) -> String {
+    let Some(op) = leading_operator
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
+        return String::new();
+    };
+
+    let meaning = match op {
+        "||" => "if previous fails",
+        "&&" => "if previous succeeds",
+        "|" => "pipe output from previous",
+        _ => "then",
+    };
+    format!("({op}, {meaning}) ")
+}
+
+fn approval_type_label(approval_type: ApprovalType) -> &'static str {
+    match approval_type {
+        ApprovalType::Exec => "exec",
+        ApprovalType::Patch => "patch",
+        ApprovalType::Question => "question",
+    }
+}
+
+fn risk_level_label(risk_level: ApprovalRiskLevel) -> &'static str {
+    match risk_level {
+        ApprovalRiskLevel::Low => "low",
+        ApprovalRiskLevel::Normal => "normal",
+        ApprovalRiskLevel::High => "high",
+    }
 }
 
 fn parse_tool_input_object(tool_input: Option<&str>) -> Option<JsonMap<String, JsonValue>> {
     let raw = trim_non_empty(tool_input)?;
     let parsed: JsonValue = serde_json::from_str(&raw).ok()?;
     parsed.as_object().cloned()
+}
+
+fn parse_bool_value(value: Option<&JsonValue>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    if let Some(flag) = value.as_bool() {
+        return flag;
+    }
+    if let Some(number) = value.as_u64() {
+        return number > 0;
+    }
+    if let Some(text) = value.as_str() {
+        let normalized = text.trim().to_ascii_lowercase();
+        return normalized == "true" || normalized == "1" || normalized == "yes";
+    }
+    false
+}
+
+fn parse_question_options_from_json(value: Option<&JsonValue>) -> Vec<ApprovalQuestionOption> {
+    let Some(options) = value.and_then(JsonValue::as_array) else {
+        return vec![];
+    };
+
+    options
+        .iter()
+        .filter_map(|raw_option| {
+            let option = raw_option.as_object()?;
+            let label = option
+                .get("label")
+                .or_else(|| option.get("value"))
+                .and_then(JsonValue::as_str)
+                .and_then(trim_non_empty_str)?;
+            let description = option
+                .get("description")
+                .and_then(JsonValue::as_str)
+                .and_then(trim_non_empty_str);
+            Some(ApprovalQuestionOption { label, description })
+        })
+        .collect()
+}
+
+fn parse_question_prompt_from_json(
+    payload: &JsonMap<String, JsonValue>,
+    fallback_id: &str,
+) -> Option<ApprovalQuestionPrompt> {
+    let id = payload
+        .get("id")
+        .and_then(JsonValue::as_str)
+        .and_then(trim_non_empty_str)
+        .unwrap_or_else(|| fallback_id.to_string());
+    let header = payload
+        .get("header")
+        .and_then(JsonValue::as_str)
+        .and_then(trim_non_empty_str);
+    let question = payload
+        .get("question")
+        .and_then(JsonValue::as_str)
+        .and_then(trim_non_empty_str)
+        .unwrap_or_else(|| "Question".to_string());
+    if question.is_empty() {
+        return None;
+    }
+
+    Some(ApprovalQuestionPrompt {
+        id,
+        header,
+        question,
+        options: parse_question_options_from_json(payload.get("options")),
+        allows_multiple_selection: parse_bool_value(
+            payload
+                .get("multiSelect")
+                .or_else(|| payload.get("multi_select")),
+        ),
+        allows_other: parse_bool_value(payload.get("isOther").or_else(|| payload.get("is_other"))),
+        is_secret: parse_bool_value(payload.get("isSecret").or_else(|| payload.get("is_secret"))),
+    })
+}
+
+fn parse_question_prompts_from_tool_input(tool_input: Option<&str>) -> Vec<ApprovalQuestionPrompt> {
+    let Some(input) = parse_tool_input_object(tool_input) else {
+        return vec![];
+    };
+
+    if let Some(raw_questions) = input.get("questions").and_then(JsonValue::as_array) {
+        return raw_questions
+            .iter()
+            .enumerate()
+            .filter_map(|(index, raw_question)| {
+                let payload = raw_question.as_object()?;
+                parse_question_prompt_from_json(payload, index.to_string().as_str())
+            })
+            .collect();
+    }
+
+    if input.contains_key("question") || input.contains_key("options") {
+        if let Some(prompt) = parse_question_prompt_from_json(&input, "0") {
+            return vec![prompt];
+        }
+    }
+
+    vec![]
+}
+
+fn extract_question_prompts_for_approval(
+    tool_input: Option<&str>,
+    fallback_question: Option<&str>,
+) -> Vec<ApprovalQuestionPrompt> {
+    let prompts = parse_question_prompts_from_tool_input(tool_input);
+    if !prompts.is_empty() {
+        return prompts;
+    }
+
+    let Some(question) = trim_non_empty(fallback_question) else {
+        return vec![];
+    };
+
+    vec![ApprovalQuestionPrompt {
+        id: "0".to_string(),
+        header: None,
+        question,
+        options: vec![],
+        allows_multiple_selection: false,
+        allows_other: true,
+        is_secret: false,
+    }]
 }
 
 fn shell_command_from_json_value(value: &JsonValue) -> Option<String> {
@@ -1572,7 +2044,9 @@ fn shell_segments_for_preview(command: &str) -> Vec<ApprovalPreviewSegment> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use orbitdock_protocol::{ApprovalPreviewType, Message, MessageType, TokenUsage};
+    use orbitdock_protocol::{
+        ApprovalPreviewType, ApprovalRiskLevel, Message, MessageType, TokenUsage,
+    };
 
     fn test_state() -> TransitionState {
         TransitionState {
@@ -1581,6 +2055,7 @@ mod tests {
             phase: WorkPhase::Idle,
             messages: Vec::new(),
             token_usage: TokenUsage::default(),
+            token_usage_snapshot_kind: TokenUsageSnapshotKind::Unknown,
             current_diff: None,
             current_plan: None,
             custom_name: None,
@@ -1693,6 +2168,19 @@ mod tests {
                     let preview = request.preview.as_ref().expect("expected preview");
                     assert_eq!(preview.preview_type, ApprovalPreviewType::ShellCommand);
                     assert_eq!(preview.compact.as_deref(), Some("rm -rf /"));
+                    assert_eq!(
+                        preview.decision_scope.as_deref(),
+                        Some("approve/deny applies to all command segments in this request.")
+                    );
+                    assert_eq!(preview.risk_level, Some(ApprovalRiskLevel::High));
+                    assert!(preview
+                        .risk_findings
+                        .iter()
+                        .any(|finding| finding == "Deletes files recursively with rm -rf."));
+                    assert!(preview
+                        .manifest
+                        .as_deref()
+                        .is_some_and(|manifest| manifest.contains("APPROVAL MANIFEST")));
                 }
                 other => panic!("expected approval_requested emit, got {other:?}"),
             }
@@ -1742,6 +2230,11 @@ mod tests {
                         Some("||")
                     );
                     assert_eq!(preview.compact.as_deref(), Some("echo one +1 segment"));
+                    assert_eq!(preview.risk_level, Some(ApprovalRiskLevel::Normal));
+                    assert!(preview.risk_findings.is_empty());
+                    assert!(preview.manifest.as_deref().is_some_and(
+                        |manifest| manifest.contains("[2] (||, if previous fails) echo two")
+                    ));
                 }
                 other => panic!("expected approval_requested emit, got {other:?}"),
             }
@@ -1776,6 +2269,164 @@ mod tests {
                     assert_eq!(preview.preview_type, ApprovalPreviewType::FilePath);
                     assert_eq!(preview.value, "/tmp/OrbitDock/docs/approvals.md");
                     assert_eq!(preview.compact.as_deref(), Some("approvals.md"));
+                    assert_eq!(
+                        preview.decision_scope.as_deref(),
+                        Some("approve/deny applies to this full file action.")
+                    );
+                    assert!(preview.manifest.as_deref().is_some_and(|manifest| manifest
+                        .contains("target_file: /tmp/OrbitDock/docs/approvals.md")));
+                }
+                other => panic!("expected approval_requested emit, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn build_approval_preview_covers_supported_non_shell_preview_types() {
+        let cases: [(&str, ApprovalType, ApprovalPreviewType, &str, &str); 6] = [
+            (
+                r#"{"url":"https://example.com/docs"}"#,
+                ApprovalType::Exec,
+                ApprovalPreviewType::Url,
+                "target_url: https://example.com/docs",
+                "approve/deny applies to this full tool action.",
+            ),
+            (
+                r#"{"query":"latest orbitdock release"}"#,
+                ApprovalType::Exec,
+                ApprovalPreviewType::SearchQuery,
+                "search_query: latest orbitdock release",
+                "approve/deny applies to this full tool action.",
+            ),
+            (
+                r#"{"pattern":"session.resume.connector_failed"}"#,
+                ApprovalType::Exec,
+                ApprovalPreviewType::Pattern,
+                "pattern: session.resume.connector_failed",
+                "approve/deny applies to this full tool action.",
+            ),
+            (
+                r#"{"prompt":"Summarize approval history"}"#,
+                ApprovalType::Exec,
+                ApprovalPreviewType::Prompt,
+                "prompt: Summarize approval history",
+                "approve/deny applies to this full tool action.",
+            ),
+            (
+                r#"{"file_path":"/tmp/OrbitDock/README.md"}"#,
+                ApprovalType::Patch,
+                ApprovalPreviewType::FilePath,
+                "target_file: /tmp/OrbitDock/README.md",
+                "approve/deny applies to this full file action.",
+            ),
+            (
+                r#"{"foo":"bar"}"#,
+                ApprovalType::Exec,
+                ApprovalPreviewType::Value,
+                "value: bar",
+                "approve/deny applies to this full tool action.",
+            ),
+        ];
+
+        for (tool_input, approval_type, expected_preview_type, expected_manifest_line, expected_scope) in
+            cases
+        {
+            let preview = build_approval_preview(
+                "req-matrix",
+                approval_type,
+                Some("Bash"),
+                Some(tool_input),
+                None,
+                None,
+                None,
+            )
+            .expect("expected preview");
+
+            assert_eq!(preview.preview_type, expected_preview_type);
+            assert_eq!(preview.decision_scope.as_deref(), Some(expected_scope));
+            assert!(preview
+                .manifest
+                .as_deref()
+                .is_some_and(|manifest| manifest.contains(expected_manifest_line)));
+        }
+    }
+
+    #[test]
+    fn build_approval_preview_uses_prompt_preview_with_scope_and_low_risk_for_question() {
+        let preview = build_approval_preview(
+            "req-question",
+            ApprovalType::Question,
+            Some("AskUserQuestion"),
+            None,
+            None,
+            None,
+            Some("How should we continue?"),
+        )
+        .expect("expected preview");
+
+        assert_eq!(preview.preview_type, ApprovalPreviewType::Prompt);
+        assert_eq!(preview.value, "How should we continue?");
+        assert_eq!(
+            preview.decision_scope.as_deref(),
+            Some("approve/deny applies to this full tool action.")
+        );
+        assert_eq!(preview.risk_level, Some(ApprovalRiskLevel::Low));
+        assert!(preview.risk_findings.is_empty());
+        assert!(preview
+            .manifest
+            .as_deref()
+            .is_some_and(|manifest| manifest.contains("prompt: How should we continue?")));
+    }
+
+    #[test]
+    fn approval_requested_extracts_structured_question_prompts_from_tool_input() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+
+        let question_input = r#"{
+            "questions": [
+                {
+                    "id": "launch_mode",
+                    "header": "Launch",
+                    "question": "How do you want to launch?",
+                    "options": [
+                        { "label": "Open Sheet", "description": "Open the full sheet first" },
+                        { "label": "Quick Launch", "description": "Use defaults now" }
+                    ],
+                    "multiSelect": true,
+                    "isOther": true
+                }
+            ]
+        }"#;
+
+        let (_, effects) = transition(
+            state,
+            Input::ApprovalRequested {
+                request_id: "req-question-metadata".to_string(),
+                approval_type: ApprovalType::Question,
+                tool_name: Some("AskUserQuestion".to_string()),
+                tool_input: Some(question_input.to_string()),
+                command: None,
+                file_path: None,
+                diff: None,
+                question: None,
+                proposed_amendment: None,
+            },
+            NOW,
+        );
+
+        if let Effect::Emit(message) = &effects[1] {
+            match message.as_ref() {
+                ServerMessage::ApprovalRequested { request, .. } => {
+                    assert_eq!(request.question.as_deref(), Some("How do you want to launch?"));
+                    assert_eq!(request.question_prompts.len(), 1);
+                    let prompt = &request.question_prompts[0];
+                    assert_eq!(prompt.id, "launch_mode");
+                    assert_eq!(prompt.header.as_deref(), Some("Launch"));
+                    assert_eq!(prompt.options.len(), 2);
+                    assert!(prompt.allows_multiple_selection);
+                    assert!(prompt.allows_other);
+                    assert!(!prompt.is_secret);
                 }
                 other => panic!("expected approval_requested emit, got {other:?}"),
             }
@@ -1980,11 +2631,54 @@ mod tests {
             context_window: 128000,
         };
 
-        let (new_state, effects) = transition(state, Input::TokensUpdated(usage.clone()), NOW);
+        let (new_state, effects) = transition(
+            state,
+            Input::TokensUpdated {
+                usage: usage.clone(),
+                snapshot_kind: TokenUsageSnapshotKind::Unknown,
+            },
+            NOW,
+        );
 
         assert_eq!(new_state.token_usage.input_tokens, 100);
         assert_eq!(new_state.token_usage.output_tokens, 50);
+        assert_eq!(
+            new_state.token_usage_snapshot_kind,
+            TokenUsageSnapshotKind::Unknown
+        );
         assert_eq!(effects.len(), 2); // Persist + Emit
+    }
+
+    #[test]
+    fn tokens_updated_persists_snapshot_kind() {
+        let state = test_state();
+        let usage = TokenUsage {
+            input_tokens: 42,
+            output_tokens: 17,
+            cached_tokens: 5,
+            context_window: 200_000,
+        };
+
+        let (_, effects) = transition(
+            state,
+            Input::TokensUpdated {
+                usage,
+                snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
+            },
+            NOW,
+        );
+
+        assert!(matches!(
+            effects.first(),
+            Some(Effect::Persist(op))
+                if matches!(
+                    op.as_ref(),
+                    PersistOp::TokensUpdate {
+                        snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
+                        ..
+                    }
+                )
+        ));
     }
 
     #[test]

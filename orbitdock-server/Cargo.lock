@@ -3880,11 +3880,9 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 name = "orbitdock-connectors"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "base64",
  "codex-core",
  "codex-protocol",
- "futures",
  "orbitdock-protocol",
  "serde",
  "serde_json",
@@ -3931,7 +3929,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
- "tower",
  "tower-http",
  "tracing",
  "tracing-appender",

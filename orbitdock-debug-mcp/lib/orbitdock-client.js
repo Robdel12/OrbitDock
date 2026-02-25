@@ -155,7 +155,10 @@ export class OrbitDockClient {
     let data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || `HTTP ${response.status}`);
+      let error = new Error(data.error || `HTTP ${response.status}`);
+      error.status = response.status;
+      error.response = data;
+      throw error;
     }
 
     return data;

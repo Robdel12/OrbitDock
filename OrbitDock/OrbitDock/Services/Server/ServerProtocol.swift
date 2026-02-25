@@ -25,6 +25,14 @@ enum ServerClaudeIntegrationMode: String, Codable {
   case passive
 }
 
+enum ServerTokenUsageSnapshotKind: String, Codable, Hashable, Sendable {
+  case unknown
+  case contextTurn = "context_turn"
+  case lifetimeTotals = "lifetime_totals"
+  case mixedLegacy = "mixed_legacy"
+  case compactionReset = "compaction_reset"
+}
+
 // MARK: - Session Status
 
 enum ServerSessionStatus: String, Codable {
@@ -150,6 +158,146 @@ struct ServerTokenUsage: Codable {
   }
 }
 
+enum ServerApprovalPreviewType: String, Codable {
+  case shellCommand = "shell_command"
+  case url
+  case searchQuery = "search_query"
+  case pattern
+  case prompt
+  case value
+  case filePath = "file_path"
+  case action
+}
+
+enum ServerApprovalRiskLevel: String, Codable {
+  case low
+  case normal
+  case high
+}
+
+struct ServerApprovalPreviewSegment: Codable, Hashable {
+  let command: String
+  let leadingOperator: String?
+
+  enum CodingKeys: String, CodingKey {
+    case command
+    case leadingOperator = "leading_operator"
+  }
+}
+
+struct ServerApprovalPreview: Codable, Hashable {
+  let type: ServerApprovalPreviewType
+  let value: String
+  let shellSegments: [ServerApprovalPreviewSegment]
+  let compact: String?
+  let decisionScope: String?
+  let riskLevel: ServerApprovalRiskLevel?
+  let riskFindings: [String]
+  let manifest: String?
+
+  enum CodingKeys: String, CodingKey {
+    case type
+    case value
+    case shellSegments = "shell_segments"
+    case compact
+    case decisionScope = "decision_scope"
+    case riskLevel = "risk_level"
+    case riskFindings = "risk_findings"
+    case manifest
+  }
+
+  init(
+    type: ServerApprovalPreviewType,
+    value: String,
+    shellSegments: [ServerApprovalPreviewSegment] = [],
+    compact: String? = nil,
+    decisionScope: String? = nil,
+    riskLevel: ServerApprovalRiskLevel? = nil,
+    riskFindings: [String] = [],
+    manifest: String? = nil
+  ) {
+    self.type = type
+    self.value = value
+    self.shellSegments = shellSegments
+    self.compact = compact
+    self.decisionScope = decisionScope
+    self.riskLevel = riskLevel
+    self.riskFindings = riskFindings
+    self.manifest = manifest
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    type = try container.decode(ServerApprovalPreviewType.self, forKey: .type)
+    value = try container.decode(String.self, forKey: .value)
+    shellSegments = try container.decodeIfPresent([ServerApprovalPreviewSegment].self, forKey: .shellSegments) ?? []
+    compact = try container.decodeIfPresent(String.self, forKey: .compact)
+    decisionScope = try container.decodeIfPresent(String.self, forKey: .decisionScope)
+    riskLevel = try container.decodeIfPresent(ServerApprovalRiskLevel.self, forKey: .riskLevel)
+    riskFindings = try container.decodeIfPresent([String].self, forKey: .riskFindings) ?? []
+    manifest = try container.decodeIfPresent(String.self, forKey: .manifest)
+  }
+}
+
+struct ServerApprovalQuestionOption: Codable, Hashable {
+  let label: String
+  let description: String?
+
+  enum CodingKeys: String, CodingKey {
+    case label
+    case description
+  }
+}
+
+struct ServerApprovalQuestionPrompt: Codable, Hashable {
+  let id: String
+  let header: String?
+  let question: String
+  let options: [ServerApprovalQuestionOption]
+  let allowsMultipleSelection: Bool
+  let allowsOther: Bool
+  let isSecret: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case id
+    case header
+    case question
+    case options
+    case allowsMultipleSelection = "allows_multiple_selection"
+    case allowsOther = "allows_other"
+    case isSecret = "is_secret"
+  }
+
+  init(
+    id: String,
+    header: String? = nil,
+    question: String,
+    options: [ServerApprovalQuestionOption] = [],
+    allowsMultipleSelection: Bool = false,
+    allowsOther: Bool = false,
+    isSecret: Bool = false
+  ) {
+    self.id = id
+    self.header = header
+    self.question = question
+    self.options = options
+    self.allowsMultipleSelection = allowsMultipleSelection
+    self.allowsOther = allowsOther
+    self.isSecret = isSecret
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    header = try container.decodeIfPresent(String.self, forKey: .header)
+    question = try container.decode(String.self, forKey: .question)
+    options = try container.decodeIfPresent([ServerApprovalQuestionOption].self, forKey: .options) ?? []
+    allowsMultipleSelection = try container.decodeIfPresent(Bool.self, forKey: .allowsMultipleSelection) ?? false
+    allowsOther = try container.decodeIfPresent(Bool.self, forKey: .allowsOther) ?? false
+    isSecret = try container.decodeIfPresent(Bool.self, forKey: .isSecret) ?? false
+  }
+}
+
 struct ServerApprovalRequest: Codable, Identifiable {
   let id: String
   let sessionId: String
@@ -160,6 +308,8 @@ struct ServerApprovalRequest: Codable, Identifiable {
   let filePath: String?
   let diff: String?
   let question: String?
+  let questionPrompts: [ServerApprovalQuestionPrompt]
+  let preview: ServerApprovalPreview?
   let proposedAmendment: [String]?
 
   enum CodingKeys: String, CodingKey {
@@ -172,7 +322,72 @@ struct ServerApprovalRequest: Codable, Identifiable {
     case filePath = "file_path"
     case diff
     case question
+    case questionPrompts = "question_prompts"
+    case preview
     case proposedAmendment = "proposed_amendment"
+  }
+
+  init(
+    id: String,
+    sessionId: String,
+    type: ServerApprovalType,
+    toolName: String? = nil,
+    toolInput: String? = nil,
+    command: String? = nil,
+    filePath: String? = nil,
+    diff: String? = nil,
+    question: String? = nil,
+    questionPrompts: [ServerApprovalQuestionPrompt] = [],
+    preview: ServerApprovalPreview? = nil,
+    proposedAmendment: [String]? = nil
+  ) {
+    self.id = id
+    self.sessionId = sessionId
+    self.type = type
+    self.toolName = toolName
+    self.toolInput = toolInput
+    self.command = command
+    self.filePath = filePath
+    self.diff = diff
+    self.question = question
+    self.questionPrompts = questionPrompts
+    self.preview = preview
+    self.proposedAmendment = proposedAmendment
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    sessionId = try container.decode(String.self, forKey: .sessionId)
+    type = try container.decode(ServerApprovalType.self, forKey: .type)
+    toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+    toolInput = try container.decodeIfPresent(String.self, forKey: .toolInput)
+    command = try container.decodeIfPresent(String.self, forKey: .command)
+    filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+    diff = try container.decodeIfPresent(String.self, forKey: .diff)
+    question = try container.decodeIfPresent(String.self, forKey: .question)
+    questionPrompts =
+      try container.decodeIfPresent([ServerApprovalQuestionPrompt].self, forKey: .questionPrompts) ?? []
+    preview = try container.decodeIfPresent(ServerApprovalPreview.self, forKey: .preview)
+    proposedAmendment = try container.decodeIfPresent([String].self, forKey: .proposedAmendment)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encode(sessionId, forKey: .sessionId)
+    try container.encode(type, forKey: .type)
+    try container.encodeIfPresent(toolName, forKey: .toolName)
+    try container.encodeIfPresent(toolInput, forKey: .toolInput)
+    try container.encodeIfPresent(command, forKey: .command)
+    try container.encodeIfPresent(filePath, forKey: .filePath)
+    try container.encodeIfPresent(diff, forKey: .diff)
+    try container.encodeIfPresent(question, forKey: .question)
+    if !questionPrompts.isEmpty {
+      try container.encode(questionPrompts, forKey: .questionPrompts)
+    }
+    try container.encodeIfPresent(preview, forKey: .preview)
+    try container.encodeIfPresent(proposedAmendment, forKey: .proposedAmendment)
   }
 }
 
@@ -226,6 +441,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let status: ServerSessionStatus
   let workStatus: ServerWorkStatus
   let tokenUsage: ServerTokenUsage?
+  let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
   let hasPendingApproval: Bool
   let codexIntegrationMode: ServerCodexIntegrationMode?
   let claudeIntegrationMode: ServerClaudeIntegrationMode?
@@ -257,6 +473,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case status
     case workStatus = "work_status"
     case tokenUsage = "token_usage"
+    case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
     case hasPendingApproval = "has_pending_approval"
     case codexIntegrationMode = "codex_integration_mode"
     case claudeIntegrationMode = "claude_integration_mode"
@@ -287,6 +504,7 @@ struct ServerTurnDiff: Codable {
   let outputTokens: UInt64?
   let cachedTokens: UInt64?
   let contextWindow: UInt64?
+  let snapshotKind: ServerTokenUsageSnapshotKind?
 
   enum CodingKeys: String, CodingKey {
     case turnId = "turn_id"
@@ -295,6 +513,7 @@ struct ServerTurnDiff: Codable {
     case outputTokens = "output_tokens"
     case cachedTokens = "cached_tokens"
     case contextWindow = "context_window"
+    case snapshotKind = "snapshot_kind"
     case tokenUsage = "token_usage"
   }
 
@@ -315,7 +534,8 @@ struct ServerTurnDiff: Codable {
     inputTokens: UInt64? = nil,
     outputTokens: UInt64? = nil,
     cachedTokens: UInt64? = nil,
-    contextWindow: UInt64? = nil
+    contextWindow: UInt64? = nil,
+    snapshotKind: ServerTokenUsageSnapshotKind? = nil
   ) {
     self.turnId = turnId
     self.diff = diff
@@ -323,6 +543,7 @@ struct ServerTurnDiff: Codable {
     self.outputTokens = outputTokens
     self.cachedTokens = cachedTokens
     self.contextWindow = contextWindow
+    self.snapshotKind = snapshotKind
   }
 
   init(from decoder: Decoder) throws {
@@ -335,6 +556,7 @@ struct ServerTurnDiff: Codable {
     var output = try container.decodeIfPresent(UInt64.self, forKey: .outputTokens)
     var cached = try container.decodeIfPresent(UInt64.self, forKey: .cachedTokens)
     var window = try container.decodeIfPresent(UInt64.self, forKey: .contextWindow)
+    var snapshotKind = try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .snapshotKind)
 
     // Fall back to nested token_usage object (SessionState.turn_diffs)
     if input == nil, let nested = try container.decodeIfPresent(ServerTokenUsage.self, forKey: .tokenUsage) {
@@ -344,10 +566,15 @@ struct ServerTurnDiff: Codable {
       window = nested.contextWindow
     }
 
+    if snapshotKind == nil {
+      snapshotKind = .unknown
+    }
+
     inputTokens = input
     outputTokens = output
     cachedTokens = cached
     contextWindow = window
+    self.snapshotKind = snapshotKind
   }
 
   func encode(to encoder: Encoder) throws {
@@ -358,6 +585,7 @@ struct ServerTurnDiff: Codable {
     try container.encodeIfPresent(outputTokens, forKey: .outputTokens)
     try container.encodeIfPresent(cachedTokens, forKey: .cachedTokens)
     try container.encodeIfPresent(contextWindow, forKey: .contextWindow)
+    try container.encodeIfPresent(snapshotKind, forKey: .snapshotKind)
   }
 }
 
@@ -451,6 +679,7 @@ struct ServerSessionState: Codable, Identifiable {
   let messages: [ServerMessage]
   let pendingApproval: ServerApprovalRequest?
   let tokenUsage: ServerTokenUsage
+  let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind
   let currentDiff: String?
   let currentPlan: String?
   let codexIntegrationMode: ServerCodexIntegrationMode?
@@ -493,6 +722,7 @@ struct ServerSessionState: Codable, Identifiable {
     case messages
     case pendingApproval = "pending_approval"
     case tokenUsage = "token_usage"
+    case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
     case codexIntegrationMode = "codex_integration_mode"
@@ -537,6 +767,8 @@ struct ServerSessionState: Codable, Identifiable {
     messages = try container.decode([ServerMessage].self, forKey: .messages)
     pendingApproval = try container.decodeIfPresent(ServerApprovalRequest.self, forKey: .pendingApproval)
     tokenUsage = try container.decode(ServerTokenUsage.self, forKey: .tokenUsage)
+    tokenUsageSnapshotKind =
+      try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .tokenUsageSnapshotKind) ?? .unknown
     currentDiff = try container.decodeIfPresent(String.self, forKey: .currentDiff)
     currentPlan = try container.decodeIfPresent(String.self, forKey: .currentPlan)
     codexIntegrationMode = try container.decodeIfPresent(ServerCodexIntegrationMode.self, forKey: .codexIntegrationMode)
@@ -577,6 +809,7 @@ struct ServerStateChanges: Codable {
   let workStatus: ServerWorkStatus?
   let pendingApproval: ServerApprovalRequest??
   let tokenUsage: ServerTokenUsage?
+  let tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind?
   let currentDiff: String??
   let currentPlan: String??
   let customName: String??
@@ -602,6 +835,7 @@ struct ServerStateChanges: Codable {
     case workStatus = "work_status"
     case pendingApproval = "pending_approval"
     case tokenUsage = "token_usage"
+    case tokenUsageSnapshotKind = "token_usage_snapshot_kind"
     case currentDiff = "current_diff"
     case currentPlan = "current_plan"
     case customName = "custom_name"
@@ -661,7 +895,10 @@ struct ServerCodexModelOption: Codable, Identifiable {
 // MARK: - Claude Models
 
 struct ServerClaudeModelOption: Codable, Identifiable {
-  var id: String { value }
+  var id: String {
+    value
+  }
+
   let value: String
   let displayName: String
   let description: String
@@ -1086,7 +1323,7 @@ enum ServerToClientMessage: Codable {
   case messageAppended(sessionId: String, message: ServerMessage)
   case messageUpdated(sessionId: String, messageId: String, changes: ServerMessageChanges)
   case approvalRequested(sessionId: String, request: ServerApprovalRequest)
-  case tokensUpdated(sessionId: String, usage: ServerTokenUsage)
+  case tokensUpdated(sessionId: String, usage: ServerTokenUsage, snapshotKind: ServerTokenUsageSnapshotKind)
   case sessionCreated(session: ServerSessionSummary)
   case sessionEnded(sessionId: String, reason: String)
   case approvalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem])
@@ -1130,7 +1367,8 @@ enum ServerToClientMessage: Codable {
     inputTokens: UInt64?,
     outputTokens: UInt64?,
     cachedTokens: UInt64?,
-    contextWindow: UInt64?
+    contextWindow: UInt64?,
+    snapshotKind: ServerTokenUsageSnapshotKind
   )
   case reviewCommentCreated(sessionId: String, comment: ServerReviewComment)
   case reviewCommentUpdated(sessionId: String, comment: ServerReviewComment)
@@ -1198,6 +1436,7 @@ enum ServerToClientMessage: Codable {
     case outputTokens = "output_tokens"
     case cachedTokens = "cached_tokens"
     case contextWindow = "context_window"
+    case snapshotKind = "snapshot_kind"
     case comment
     case commentId = "comment_id"
     case comments
@@ -1253,7 +1492,9 @@ enum ServerToClientMessage: Codable {
       case "tokens_updated":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let usage = try container.decode(ServerTokenUsage.self, forKey: .usage)
-        self = .tokensUpdated(sessionId: sessionId, usage: usage)
+        let snapshotKind =
+          try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .snapshotKind) ?? .unknown
+        self = .tokensUpdated(sessionId: sessionId, usage: usage, snapshotKind: snapshotKind)
 
       case "session_created":
         let session = try container.decode(ServerSessionSummary.self, forKey: .session)
@@ -1409,6 +1650,8 @@ enum ServerToClientMessage: Codable {
         let outputTokens = try container.decodeIfPresent(UInt64.self, forKey: .outputTokens)
         let cachedTokens = try container.decodeIfPresent(UInt64.self, forKey: .cachedTokens)
         let contextWindow = try container.decodeIfPresent(UInt64.self, forKey: .contextWindow)
+        let snapshotKind =
+          try container.decodeIfPresent(ServerTokenUsageSnapshotKind.self, forKey: .snapshotKind) ?? .unknown
         self = .turnDiffSnapshot(
           sessionId: sessionId,
           turnId: turnId,
@@ -1416,7 +1659,8 @@ enum ServerToClientMessage: Codable {
           inputTokens: inputTokens,
           outputTokens: outputTokens,
           cachedTokens: cachedTokens,
-          contextWindow: contextWindow
+          contextWindow: contextWindow,
+          snapshotKind: snapshotKind
         )
 
       case "review_comment_created":
@@ -1546,10 +1790,11 @@ enum ServerToClientMessage: Codable {
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(request, forKey: .request)
 
-      case let .tokensUpdated(sessionId, usage):
+      case let .tokensUpdated(sessionId, usage, snapshotKind):
         try container.encode("tokens_updated", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(usage, forKey: .usage)
+        try container.encode(snapshotKind, forKey: .snapshotKind)
 
       case let .sessionCreated(session):
         try container.encode("session_created", forKey: .type)
@@ -1678,7 +1923,16 @@ enum ServerToClientMessage: Codable {
         try container.encode(newSessionId, forKey: .newSessionId)
         try container.encodeIfPresent(forkedFromThreadId, forKey: .forkedFromThreadId)
 
-      case let .turnDiffSnapshot(sessionId, turnId, diff, inputTokens, outputTokens, cachedTokens, contextWindow):
+      case let .turnDiffSnapshot(
+        sessionId,
+        turnId,
+        diff,
+        inputTokens,
+        outputTokens,
+        cachedTokens,
+        contextWindow,
+        snapshotKind
+      ):
         try container.encode("turn_diff_snapshot", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(turnId, forKey: .turnId)
@@ -1687,6 +1941,7 @@ enum ServerToClientMessage: Codable {
         try container.encodeIfPresent(outputTokens, forKey: .outputTokens)
         try container.encodeIfPresent(cachedTokens, forKey: .cachedTokens)
         try container.encodeIfPresent(contextWindow, forKey: .contextWindow)
+        try container.encode(snapshotKind, forKey: .snapshotKind)
 
       case let .reviewCommentCreated(sessionId, comment):
         try container.encode("review_comment_created", forKey: .type)

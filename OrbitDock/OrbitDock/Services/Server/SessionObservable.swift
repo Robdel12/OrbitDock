@@ -23,6 +23,7 @@ final class SessionObservable {
 
   // Session metadata
   var tokenUsage: ServerTokenUsage?
+  var tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind = .unknown
   var diff: String?
   var plan: String?
   var autonomy: AutonomyLevel = .autonomous

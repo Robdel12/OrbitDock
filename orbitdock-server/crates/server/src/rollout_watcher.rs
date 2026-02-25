@@ -12,7 +12,7 @@ use anyhow::Context;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use orbitdock_protocol::{
     CodexIntegrationMode, Message, MessageType, Provider, ServerMessage, SessionStatus,
-    StateChanges, TokenUsage, WorkStatus,
+    StateChanges, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -930,7 +930,10 @@ impl WatcherRuntime {
                     if let Some(actor) = self.app_state.get_session(&session_id) {
                         actor
                             .send(SessionCommand::ProcessEvent {
-                                event: crate::transition::Input::TokensUpdated(usage),
+                                event: crate::transition::Input::TokensUpdated {
+                                    usage,
+                                    snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+                                },
                             })
                             .await;
                     } else {
@@ -939,6 +942,7 @@ impl WatcherRuntime {
                             .send(PersistCommand::TokensUpdate {
                                 session_id: session_id.clone(),
                                 usage,
+                                snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
                             })
                             .await;
                     }

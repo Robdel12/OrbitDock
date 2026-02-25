@@ -1197,7 +1197,10 @@ impl ClaudeConnector {
                 cached_tokens: cached,
                 context_window: *last_context_window,
             };
-            events.push(ConnectorEvent::TokensUpdated(live_usage));
+            events.push(ConnectorEvent::TokensUpdated {
+                usage: live_usage,
+                snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::MixedLegacy,
+            });
         }
 
         events
@@ -1383,7 +1386,10 @@ impl ClaudeConnector {
 
         if let Some(tu) = token_usage {
             *last_context_window = tu.context_window.max(1);
-            events.push(ConnectorEvent::TokensUpdated(tu));
+            events.push(ConnectorEvent::TokensUpdated {
+                usage: tu,
+                snapshot_kind: orbitdock_protocol::TokenUsageSnapshotKind::MixedLegacy,
+            });
         }
 
         let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");

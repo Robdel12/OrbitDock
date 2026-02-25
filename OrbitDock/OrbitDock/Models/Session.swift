@@ -50,7 +50,8 @@ struct Session: Identifiable, Hashable, Sendable {
   var terminalApp: String?
   var attentionReason: AttentionReason
   var pendingToolName: String? // Which tool needs permission
-  var pendingToolInput: String? // JSON string of tool input (for rich permission display)
+  var pendingToolInput: String? // Raw tool input JSON (server passthrough for diagnostics)
+  var pendingPermissionDetail: String? // Server-authored compact permission summary
   var pendingQuestion: String? // Question text from AskUserQuestion
   var provider: Provider // AI provider (claude, codex)
 
@@ -67,6 +68,7 @@ struct Session: Identifiable, Hashable, Sendable {
   var outputTokens: Int? // Output tokens generated
   var cachedTokens: Int? // Cached input tokens (cost savings)
   var contextWindow: Int? // Model context window size
+  var tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind // Token snapshot semantics
 
   // MARK: - Turn State (transient, updated during turns)
 
@@ -163,6 +165,7 @@ struct Session: Identifiable, Hashable, Sendable {
     attentionReason: AttentionReason = .none,
     pendingToolName: String? = nil,
     pendingToolInput: String? = nil,
+    pendingPermissionDetail: String? = nil,
     pendingQuestion: String? = nil,
     provider: Provider = .claude,
     codexIntegrationMode: CodexIntegrationMode? = nil,
@@ -172,7 +175,8 @@ struct Session: Identifiable, Hashable, Sendable {
     inputTokens: Int? = nil,
     outputTokens: Int? = nil,
     cachedTokens: Int? = nil,
-    contextWindow: Int? = nil
+    contextWindow: Int? = nil,
+    tokenUsageSnapshotKind: ServerTokenUsageSnapshotKind = .unknown
   ) {
     self.id = id
     self.endpointId = endpointId
@@ -204,6 +208,7 @@ struct Session: Identifiable, Hashable, Sendable {
     self.attentionReason = attentionReason
     self.pendingToolName = pendingToolName
     self.pendingToolInput = pendingToolInput
+    self.pendingPermissionDetail = pendingPermissionDetail
     self.pendingQuestion = pendingQuestion
     self.provider = provider
     self.codexIntegrationMode = codexIntegrationMode
@@ -214,6 +219,7 @@ struct Session: Identifiable, Hashable, Sendable {
     self.outputTokens = outputTokens
     self.cachedTokens = cachedTokens
     self.contextWindow = contextWindow
+    self.tokenUsageSnapshotKind = tokenUsageSnapshotKind
   }
 
   var scopedID: String {
@@ -362,6 +368,56 @@ struct Session: Identifiable, Hashable, Sendable {
 
   // MARK: - Token Usage Computed Properties
 
+  /// Effective context input tokens using provider + snapshot semantics.
+  var effectiveContextInputTokens: Int {
+    let input = max(inputTokens ?? 0, 0)
+    let cached = max(cachedTokens ?? 0, 0)
+
+    switch tokenUsageSnapshotKind {
+      case .mixedLegacy:
+        return input + cached
+      case .compactionReset:
+        return 0
+      case .contextTurn:
+        return provider == .claude ? input + cached : input
+      case .lifetimeTotals:
+        return input
+      case .unknown:
+        return provider == .codex ? input : input + cached
+    }
+  }
+
+  /// Effective context fill fraction (0-1).
+  var contextFillFraction: Double {
+    guard let window = contextWindow, window > 0 else { return 0 }
+    guard effectiveContextInputTokens > 0 else { return 0 }
+    return min(Double(effectiveContextInputTokens) / Double(window), 1.0)
+  }
+
+  /// Effective context fill percent (0-100).
+  var contextFillPercent: Double {
+    contextFillFraction * 100
+  }
+
+  /// Effective cache share based on snapshot semantics.
+  var effectiveCacheHitPercent: Double {
+    let cached = max(cachedTokens ?? 0, 0)
+    guard cached > 0 else { return 0 }
+
+    switch tokenUsageSnapshotKind {
+      case .mixedLegacy:
+        let denominator = effectiveContextInputTokens
+        guard denominator > 0 else { return 0 }
+        return Double(cached) / Double(denominator) * 100
+      case .compactionReset:
+        return 0
+      case .contextTurn, .lifetimeTotals, .unknown:
+        let input = max(inputTokens ?? 0, 0)
+        guard input > 0 else { return 0 }
+        return Double(cached) / Double(input) * 100
+    }
+  }
+
   /// Total tokens used (input + output)
   var totalTokensUsed: Int {
     (inputTokens ?? 0) + (outputTokens ?? 0)
@@ -369,8 +425,7 @@ struct Session: Identifiable, Hashable, Sendable {
 
   /// Percentage of context window used (0-100)
   var contextUsagePercent: Double {
-    guard let contextWindow, contextWindow > 0 else { return 0 }
-    return Double(totalTokensUsed) / Double(contextWindow) * 100
+    contextFillPercent
   }
 
   /// Whether token usage data is available

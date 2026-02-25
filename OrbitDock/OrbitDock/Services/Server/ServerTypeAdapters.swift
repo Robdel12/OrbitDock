@@ -40,6 +40,7 @@ extension ServerSessionSummary {
       attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
       pendingToolName: pendingToolName,
       pendingToolInput: pendingToolInput,
+      pendingPermissionDetail: nil,
       pendingQuestion: pendingQuestion,
       provider: provider == .codex ? .codex : .claude,
       codexIntegrationMode: codexMode,
@@ -48,7 +49,8 @@ extension ServerSessionSummary {
       inputTokens: tokenUsage.map { Int($0.inputTokens) },
       outputTokens: tokenUsage.map { Int($0.outputTokens) },
       cachedTokens: tokenUsage.map { Int($0.cachedTokens) },
-      contextWindow: tokenUsage.map { Int($0.contextWindow) }
+      contextWindow: tokenUsage.map { Int($0.contextWindow) },
+      tokenUsageSnapshotKind: tokenUsageSnapshotKind ?? .unknown
     )
     session.summary = summary
     session.firstPrompt = firstPrompt
@@ -77,7 +79,10 @@ extension ServerSessionState {
     }
     let effectivePendingToolName = pendingApproval?.toolNameForDisplay ?? pendingToolName
     let effectivePendingToolInput = pendingApproval?.toolInputForDisplay ?? pendingToolInput
-    let effectivePendingQuestion = pendingApproval?.question ?? pendingQuestion
+    let effectivePendingPermissionDetail = pendingApproval?.preview?.compact
+    let effectivePendingQuestion = pendingApproval?.questionPrompts.first?.question
+      ?? pendingApproval?.question
+      ?? pendingQuestion
     let hasPendingApproval = pendingApproval != nil
       || effectivePendingToolName != nil
       || effectivePendingQuestion != nil
@@ -98,6 +103,7 @@ extension ServerSessionState {
       attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
       pendingToolName: effectivePendingToolName,
       pendingToolInput: effectivePendingToolInput,
+      pendingPermissionDetail: effectivePendingPermissionDetail,
       pendingQuestion: effectivePendingQuestion,
       provider: provider == .codex ? .codex : .claude,
       codexIntegrationMode: codexMode,
@@ -106,7 +112,8 @@ extension ServerSessionState {
       inputTokens: Int(tokenUsage.inputTokens),
       outputTokens: Int(tokenUsage.outputTokens),
       cachedTokens: Int(tokenUsage.cachedTokens),
-      contextWindow: Int(tokenUsage.contextWindow)
+      contextWindow: Int(tokenUsage.contextWindow),
+      tokenUsageSnapshotKind: tokenUsageSnapshotKind
     )
     session.summary = summary
     session.firstPrompt = firstPrompt
@@ -176,22 +183,8 @@ extension ServerApprovalRequest {
   }
 
   var toolInputForDisplay: String? {
-    // Prefer real tool_input from the server when available
-    if let input = toolInput, !input.isEmpty { return input }
-
-    // Fall back to synthesized JSON from legacy fields
-    var payload: [String: Any] = [:]
-    if let cmd = command {
-      payload["command"] = cmd
-    }
-    if let path = filePath {
-      payload["file_path"] = path
-    }
-    guard !payload.isEmpty else { return nil }
-    guard let data = try? JSONSerialization.data(withJSONObject: payload),
-          let json = String(data: data, encoding: .utf8)
-    else { return nil }
-    return json
+    guard let input = toolInput, !input.isEmpty else { return nil }
+    return input
   }
 }
 

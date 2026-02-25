@@ -40,6 +40,7 @@ pub enum ServerMessage {
     TokensUpdated {
         session_id: String,
         usage: TokenUsage,
+        snapshot_kind: TokenUsageSnapshotKind,
     },
 
     // Lifecycle
@@ -179,6 +180,7 @@ pub enum ServerMessage {
         cached_tokens: Option<u64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         context_window: Option<u64>,
+        snapshot_kind: TokenUsageSnapshotKind,
     },
 
     // Review comments
@@ -610,6 +612,7 @@ mod tests {
             output_tokens: Some(1200),
             cached_tokens: Some(3000),
             context_window: Some(200000),
+            snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
         };
 
         let json = serde_json::to_string(&msg).expect("serialize");
@@ -623,6 +626,7 @@ mod tests {
                 output_tokens,
                 cached_tokens,
                 context_window,
+                snapshot_kind,
             } => {
                 assert_eq!(session_id, "sess-1");
                 assert_eq!(turn_id, "turn-3");
@@ -631,6 +635,7 @@ mod tests {
                 assert_eq!(output_tokens, Some(1200));
                 assert_eq!(cached_tokens, Some(3000));
                 assert_eq!(context_window, Some(200000));
+                assert_eq!(snapshot_kind, TokenUsageSnapshotKind::ContextTurn);
             }
             other => panic!("unexpected variant: {:?}", other),
         }

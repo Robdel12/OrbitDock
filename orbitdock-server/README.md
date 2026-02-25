@@ -173,6 +173,10 @@ Shared message types for server and client (Swift app):
 - `ClientMessage` / `ServerMessage` — tagged JSON enums
 - `SessionState`, `SessionSummary`, `StateChanges`
 - `Message`, `TokenUsage`, `ApprovalRequest`
+- `TokenUsageSnapshotKind` — explicit semantics for token snapshots (context vs totals)
+
+Usage architecture reference:
+- `docs/token-context-architecture.md`
 
 ### connectors
 

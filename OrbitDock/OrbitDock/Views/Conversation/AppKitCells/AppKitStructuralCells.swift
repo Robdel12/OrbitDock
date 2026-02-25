@@ -585,7 +585,10 @@
         iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
         iconView.widthAnchor.constraint(equalToConstant: Self.statusColumnWidth),
 
-        primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + Self.statusColumnWidth + Spacing.xs),
+        primaryLabel.leadingAnchor.constraint(
+          equalTo: leadingAnchor,
+          constant: inset + Self.statusColumnWidth + Spacing.xs
+        ),
         primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
         separatorLabel.leadingAnchor.constraint(equalTo: primaryLabel.trailingAnchor, constant: Spacing.xs),
@@ -604,7 +607,7 @@
       workStatus: Session.WorkStatus,
       currentTool: String?,
       pendingToolName: String?,
-      pendingToolInput: String?,
+      pendingPermissionDetail: String?,
       provider: Provider
     ) {
       dotView.isHidden = true
@@ -662,7 +665,9 @@
             toolLabel.stringValue = toolName
           }
 
-          if let detail = permissionDetail(toolName: pendingToolName, toolInput: pendingToolInput) {
+          if let detail = permissionDetail(
+            serverDetail: pendingPermissionDetail
+          ) {
             detailLabel.isHidden = false
             detailLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
             detailLabel.textColor = NSColor(Color.textSecondary)
@@ -674,27 +679,11 @@
       }
     }
 
-    private func permissionDetail(toolName: String?, toolInput: String?) -> String? {
-      guard let inputJson = toolInput,
-            let data = inputJson.data(using: .utf8),
-            let input = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-      else { return nil }
-
-      switch toolName ?? "" {
-        case "Bash":
-          if let cmd = String.shellCommandDisplay(from: input["command"])
-            ?? String.shellCommandDisplay(from: input["cmd"])
-          {
-            return cmd.count > 50 ? String(cmd.prefix(47)) + "\u{2026}" : cmd
-          }
-        case "Edit", "Write", "Read":
-          if let path = input["file_path"] as? String {
-            return (path as NSString).lastPathComponent
-          }
-        default:
-          break
-      }
-      return nil
+    private func permissionDetail(serverDetail: String?) -> String? {
+      ApprovalPermissionPreviewBuilder.compactPermissionDetail(
+        serverDetail: serverDetail,
+        maxLength: 50
+      )
     }
   }
 

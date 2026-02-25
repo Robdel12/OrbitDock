@@ -17,7 +17,7 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{
     ApprovalHistoryItem, ApprovalType, Message, MessageType, Provider, SessionStatus, TokenUsage,
-    WorkStatus,
+    TokenUsageSnapshotKind, WorkStatus,
 };
 
 /// Commands that can be persisted
@@ -68,6 +68,7 @@ pub enum PersistCommand {
     TokensUpdate {
         session_id: String,
         usage: TokenUsage,
+        snapshot_kind: TokenUsageSnapshotKind,
     },
 
     /// Update diff/plan for session
@@ -81,11 +82,13 @@ pub enum PersistCommand {
     TurnDiffInsert {
         session_id: String,
         turn_id: String,
+        turn_seq: u64,
         diff: String,
         input_tokens: u64,
         output_tokens: u64,
         cached_tokens: u64,
         context_window: u64,
+        snapshot_kind: TokenUsageSnapshotKind,
     },
 
     /// Store codex-core thread ID for a session
@@ -675,7 +678,11 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             }
         }
 
-        PersistCommand::TokensUpdate { session_id, usage } => {
+        PersistCommand::TokensUpdate {
+            session_id,
+            usage,
+            snapshot_kind,
+        } => {
             conn.execute(
                 "UPDATE sessions SET
                    input_tokens = ?1,
@@ -693,6 +700,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     session_id,
                 ],
             )?;
+
+            persist_usage_event(conn, &session_id, &usage, snapshot_kind)?;
+            upsert_usage_session_state(conn, &session_id, &usage, snapshot_kind)?;
         }
 
         PersistCommand::TurnStateUpdate {
@@ -723,15 +733,29 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         PersistCommand::TurnDiffInsert {
             session_id,
             turn_id,
+            turn_seq,
             diff,
             input_tokens,
             output_tokens,
             cached_tokens,
             context_window,
+            snapshot_kind,
         } => {
             conn.execute(
                 "INSERT OR REPLACE INTO turn_diffs (session_id, turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![session_id, turn_id, diff, input_tokens as i64, output_tokens as i64, cached_tokens as i64, context_window as i64],
+            )?;
+
+            upsert_usage_turn_snapshot(
+                conn,
+                &session_id,
+                &turn_id,
+                turn_seq,
+                input_tokens,
+                output_tokens,
+                cached_tokens,
+                context_window,
+                snapshot_kind,
             )?;
         }
 
@@ -1358,12 +1382,19 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     now
                 ],
             )?;
-            // Persist the request_id so it survives a server restart.
-            // Without this, clicking "Allow" after a restart fails silently because
-            // the request_id only existed in-memory.
+            // Keep session pending_approval_id aligned to the queue head (oldest unresolved).
             conn.execute(
-                "UPDATE sessions SET pending_approval_id = ?1 WHERE id = ?2",
-                params![request_id, session_id],
+                "UPDATE sessions
+                 SET pending_approval_id = (
+                    SELECT request_id
+                    FROM approval_history
+                    WHERE session_id = ?1
+                      AND decision IS NULL
+                    ORDER BY id ASC
+                    LIMIT 1
+                 )
+                 WHERE id = ?1",
+                params![session_id],
             )?;
         }
 
@@ -1387,10 +1418,19 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                  )",
                 params![decision, now, session_id, request_id],
             )?;
-            // Clear the persisted approval_id once a decision is made.
+            // Recompute the queue head after each decision.
             conn.execute(
-                "UPDATE sessions SET pending_approval_id = NULL WHERE id = ?1 AND pending_approval_id = ?2",
-                params![session_id, request_id],
+                "UPDATE sessions
+                 SET pending_approval_id = (
+                    SELECT request_id
+                    FROM approval_history
+                    WHERE session_id = ?1
+                      AND decision IS NULL
+                    ORDER BY id ASC
+                    LIMIT 1
+                 )
+                 WHERE id = ?1",
+                params![session_id],
             )?;
         }
 
@@ -1633,6 +1673,277 @@ fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
+fn snapshot_kind_to_str(kind: TokenUsageSnapshotKind) -> &'static str {
+    match kind {
+        TokenUsageSnapshotKind::Unknown => "unknown",
+        TokenUsageSnapshotKind::ContextTurn => "context_turn",
+        TokenUsageSnapshotKind::LifetimeTotals => "lifetime_totals",
+        TokenUsageSnapshotKind::MixedLegacy => "mixed_legacy",
+        TokenUsageSnapshotKind::CompactionReset => "compaction_reset",
+    }
+}
+
+fn snapshot_kind_from_str(kind: Option<&str>) -> TokenUsageSnapshotKind {
+    match kind {
+        Some("context_turn") => TokenUsageSnapshotKind::ContextTurn,
+        Some("lifetime_totals") => TokenUsageSnapshotKind::LifetimeTotals,
+        Some("mixed_legacy") => TokenUsageSnapshotKind::MixedLegacy,
+        Some("compaction_reset") => TokenUsageSnapshotKind::CompactionReset,
+        _ => TokenUsageSnapshotKind::Unknown,
+    }
+}
+
+fn persist_usage_event(
+    conn: &Connection,
+    session_id: &str,
+    usage: &TokenUsage,
+    snapshot_kind: TokenUsageSnapshotKind,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "INSERT INTO usage_events (
+            session_id,
+            observed_at,
+            snapshot_kind,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            context_window
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![
+            session_id,
+            chrono_now(),
+            snapshot_kind_to_str(snapshot_kind),
+            usage.input_tokens as i64,
+            usage.output_tokens as i64,
+            usage.cached_tokens as i64,
+            usage.context_window as i64,
+        ],
+    )?;
+    Ok(())
+}
+
+fn upsert_usage_session_state(
+    conn: &Connection,
+    session_id: &str,
+    usage: &TokenUsage,
+    snapshot_kind: TokenUsageSnapshotKind,
+) -> Result<(), rusqlite::Error> {
+    let session_meta: Option<(String, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT COALESCE(provider, 'claude'), codex_integration_mode, claude_integration_mode
+             FROM sessions
+             WHERE id = ?1",
+            params![session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let (provider, codex_mode, claude_mode) =
+        session_meta.unwrap_or(("claude".to_string(), None, None));
+
+    let existing: Option<(i64, i64, i64, i64, i64, i64)> = conn
+        .query_row(
+            "SELECT
+                lifetime_input_tokens,
+                lifetime_output_tokens,
+                lifetime_cached_tokens,
+                context_input_tokens,
+                context_cached_tokens,
+                context_window
+             FROM usage_session_state
+             WHERE session_id = ?1",
+            params![session_id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()?;
+
+    let usage_input = usage.input_tokens as i64;
+    let usage_output = usage.output_tokens as i64;
+    let usage_cached = usage.cached_tokens as i64;
+    let usage_window = usage.context_window as i64;
+
+    let (
+        mut lifetime_input,
+        mut lifetime_output,
+        mut lifetime_cached,
+        mut context_input,
+        mut context_cached,
+        mut context_window,
+    ) = if let Some(values) = existing {
+        values
+    } else {
+        (
+            usage_input,
+            usage_output,
+            usage_cached,
+            usage_input,
+            usage_cached,
+            usage_window,
+        )
+    };
+
+    match snapshot_kind {
+        TokenUsageSnapshotKind::Unknown => {}
+        TokenUsageSnapshotKind::ContextTurn => {
+            context_input = usage_input;
+            context_cached = usage_cached;
+            context_window = usage_window;
+        }
+        TokenUsageSnapshotKind::LifetimeTotals => {
+            lifetime_input = usage_input;
+            lifetime_output = usage_output;
+            lifetime_cached = usage_cached;
+            context_input = usage_input;
+            context_cached = usage_cached;
+            context_window = usage_window;
+        }
+        TokenUsageSnapshotKind::MixedLegacy => {
+            context_input = usage_input;
+            context_cached = usage_cached;
+            context_window = usage_window;
+            lifetime_output = lifetime_output.max(usage_output);
+        }
+        TokenUsageSnapshotKind::CompactionReset => {
+            context_input = 0;
+            context_cached = 0;
+            context_window = usage_window;
+            lifetime_output = lifetime_output.max(usage_output);
+        }
+    }
+
+    conn.execute(
+        "INSERT INTO usage_session_state (
+            session_id,
+            provider,
+            codex_integration_mode,
+            claude_integration_mode,
+            snapshot_kind,
+            snapshot_input_tokens,
+            snapshot_output_tokens,
+            snapshot_cached_tokens,
+            snapshot_context_window,
+            lifetime_input_tokens,
+            lifetime_output_tokens,
+            lifetime_cached_tokens,
+            context_input_tokens,
+            context_cached_tokens,
+            context_window,
+            updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+        ON CONFLICT(session_id) DO UPDATE SET
+            provider = excluded.provider,
+            codex_integration_mode = excluded.codex_integration_mode,
+            claude_integration_mode = excluded.claude_integration_mode,
+            snapshot_kind = excluded.snapshot_kind,
+            snapshot_input_tokens = excluded.snapshot_input_tokens,
+            snapshot_output_tokens = excluded.snapshot_output_tokens,
+            snapshot_cached_tokens = excluded.snapshot_cached_tokens,
+            snapshot_context_window = excluded.snapshot_context_window,
+            lifetime_input_tokens = excluded.lifetime_input_tokens,
+            lifetime_output_tokens = excluded.lifetime_output_tokens,
+            lifetime_cached_tokens = excluded.lifetime_cached_tokens,
+            context_input_tokens = excluded.context_input_tokens,
+            context_cached_tokens = excluded.context_cached_tokens,
+            context_window = excluded.context_window,
+            updated_at = excluded.updated_at",
+        params![
+            session_id,
+            provider,
+            codex_mode,
+            claude_mode,
+            snapshot_kind_to_str(snapshot_kind),
+            usage_input,
+            usage_output,
+            usage_cached,
+            usage_window,
+            lifetime_input,
+            lifetime_output,
+            lifetime_cached,
+            context_input,
+            context_cached,
+            context_window,
+            chrono_now(),
+        ],
+    )?;
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn upsert_usage_turn_snapshot(
+    conn: &Connection,
+    session_id: &str,
+    turn_id: &str,
+    turn_seq: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cached_tokens: u64,
+    context_window: u64,
+    snapshot_kind: TokenUsageSnapshotKind,
+) -> Result<(), rusqlite::Error> {
+    let previous_input: i64 = conn
+        .query_row(
+            "SELECT input_tokens
+             FROM usage_turns
+             WHERE session_id = ?1 AND turn_id != ?2
+             ORDER BY turn_seq DESC, rowid DESC
+             LIMIT 1",
+            params![session_id, turn_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
+
+    let input_tokens_i64 = input_tokens as i64;
+    let input_delta_tokens = (input_tokens_i64 - previous_input).max(0);
+
+    conn.execute(
+        "INSERT INTO usage_turns (
+            session_id,
+            turn_id,
+            turn_seq,
+            snapshot_kind,
+            input_tokens,
+            output_tokens,
+            cached_tokens,
+            context_window,
+            input_delta_tokens,
+            created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        ON CONFLICT(session_id, turn_id) DO UPDATE SET
+            turn_seq = excluded.turn_seq,
+            snapshot_kind = excluded.snapshot_kind,
+            input_tokens = excluded.input_tokens,
+            output_tokens = excluded.output_tokens,
+            cached_tokens = excluded.cached_tokens,
+            context_window = excluded.context_window,
+            input_delta_tokens = excluded.input_delta_tokens,
+            created_at = excluded.created_at",
+        params![
+            session_id,
+            turn_id,
+            turn_seq as i64,
+            snapshot_kind_to_str(snapshot_kind),
+            input_tokens as i64,
+            output_tokens as i64,
+            cached_tokens as i64,
+            context_window as i64,
+            input_delta_tokens,
+            chrono_now(),
+        ],
+    )?;
+
+    Ok(())
+}
+
 /// A session restored from the database on startup
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -1660,6 +1971,7 @@ pub struct RestoredSession {
     pub output_tokens: i64,
     pub cached_tokens: i64,
     pub context_window: i64,
+    pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub pending_tool_name: Option<String>,
     pub pending_tool_input: Option<String>,
     pub pending_question: Option<String>,
@@ -1668,7 +1980,7 @@ pub struct RestoredSession {
     pub forked_from_session_id: Option<String>,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
-    pub turn_diffs: Vec<(String, String, i64, i64, i64, i64)>, // (turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window)
+    pub turn_diffs: Vec<(String, String, i64, i64, i64, i64, TokenUsageSnapshotKind)>, // (turn_id, diff, input_tokens, output_tokens, cached_tokens, context_window, snapshot_kind)
     pub git_branch: Option<String>,
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
@@ -2419,17 +2731,21 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
         // Restore recent sessions into runtime for active + history UI continuity.
         // Only load: active sessions, server-shutdown sessions (need resume), and recent 7-day history.
         let mut stmt = conn.prepare(
-            "SELECT id, provider, status, work_status, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, codex_integration_mode, codex_thread_id, started_at, last_activity_at, approval_policy, sandbox_mode, permission_mode,
-                    pending_tool_name, pending_tool_input, pending_question,
-                    COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
-                    COALESCE(cached_tokens, 0), COALESCE(context_window, 0)
-             FROM sessions
-             WHERE status = 'active'
-                OR (status = 'ended' AND end_reason = 'server_shutdown')
-                OR datetime(COALESCE(last_activity_at, started_at)) > datetime('now', '-7 days')
+            "SELECT s.id, s.provider, s.status, s.work_status, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.codex_integration_mode, s.codex_thread_id, s.started_at, s.last_activity_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                    s.pending_tool_name, s.pending_tool_input, s.pending_question,
+                    COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
+                    COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
+                    COALESCE(uss.snapshot_cached_tokens, s.cached_tokens, 0),
+                    COALESCE(uss.snapshot_context_window, s.context_window, 0),
+                    COALESCE(uss.snapshot_kind, 'unknown')
+             FROM sessions s
+             LEFT JOIN usage_session_state uss ON uss.session_id = s.id
+             WHERE s.status = 'active'
+                OR (s.status = 'ended' AND s.end_reason = 'server_shutdown')
+                OR datetime(COALESCE(s.last_activity_at, s.started_at)) > datetime('now', '-7 days')
              ORDER BY
-               datetime(last_activity_at) DESC,
-               datetime(started_at) DESC
+               datetime(s.last_activity_at) DESC,
+               datetime(s.started_at) DESC
              LIMIT 1000"
         )?;
 
@@ -2460,6 +2776,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             i64,
             i64,
             i64,
+            String,
         )> = stmt
             .query_map([], |row| {
                 Ok((
@@ -2488,6 +2805,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                     row.get(22)?,
                     row.get(23)?,
                     row.get(24)?,
+                    row.get(25)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -2521,8 +2839,12 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
             output_tokens,
             cached_tokens,
             context_window,
+            token_usage_snapshot_kind_str,
         ) in session_rows
         {
+            let token_usage_snapshot_kind =
+                snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
+
             // Skip message loading for ended history sessions (not server_shutdown).
             // Messages load lazily when a client subscribes.
             let end_reason_val: Option<String> = conn
@@ -2572,11 +2894,35 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 .unwrap_or((None, None));
 
             // Load persisted turn diffs (table may not exist on old schemas)
-            let turn_diffs: Vec<(String, String, i64, i64, i64, i64)> = conn
-                .prepare("SELECT turn_id, diff, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(cached_tokens, 0), COALESCE(context_window, 0) FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
+            let turn_diffs: Vec<(String, String, i64, i64, i64, i64, TokenUsageSnapshotKind)> =
+                conn
+                .prepare(
+                    "SELECT td.turn_id,
+                            td.diff,
+                            COALESCE(ut.input_tokens, td.input_tokens, 0),
+                            COALESCE(ut.output_tokens, td.output_tokens, 0),
+                            COALESCE(ut.cached_tokens, td.cached_tokens, 0),
+                            COALESCE(ut.context_window, td.context_window, 0),
+                            COALESCE(ut.snapshot_kind, 'unknown')
+                     FROM turn_diffs td
+                     LEFT JOIN usage_turns ut
+                       ON ut.session_id = td.session_id
+                      AND ut.turn_id = td.turn_id
+                     WHERE td.session_id = ?1
+                     ORDER BY COALESCE(ut.turn_seq, td.rowid)"
+                )
                 .and_then(|mut stmt| {
                     let rows = stmt.query_map(params![id], |row| {
-                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?))
+                        let snapshot_kind: String = row.get(6)?;
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, i64>(2)?,
+                            row.get::<_, i64>(3)?,
+                            row.get::<_, i64>(4)?,
+                            row.get::<_, i64>(5)?,
+                            snapshot_kind_from_str(Some(snapshot_kind.as_str())),
+                        ))
                     })?;
                     rows.collect::<Result<Vec<_>, _>>()
                 })
@@ -2695,6 +3041,7 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 output_tokens,
                 cached_tokens,
                 context_window,
+                token_usage_snapshot_kind,
                 pending_tool_name,
                 pending_tool_input,
                 pending_question,
@@ -2739,15 +3086,19 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
         )?;
 
         let mut stmt = conn.prepare(
-            "SELECT id, project_path, transcript_path, project_name, model, custom_name, first_prompt, summary, started_at, last_activity_at, approval_policy, sandbox_mode, permission_mode,
-                    pending_tool_name, pending_tool_input, pending_question,
-                    COALESCE(input_tokens, 0), COALESCE(output_tokens, 0),
-                    COALESCE(cached_tokens, 0), COALESCE(context_window, 0),
-                    provider, codex_integration_mode, claude_integration_mode,
-                    claude_sdk_session_id, codex_thread_id, end_reason,
-                    terminal_session_id, terminal_app
-             FROM sessions
-             WHERE id = ?1"
+            "SELECT s.id, s.project_path, s.transcript_path, s.project_name, s.model, s.custom_name, s.first_prompt, s.summary, s.started_at, s.last_activity_at, s.approval_policy, s.sandbox_mode, s.permission_mode,
+                    s.pending_tool_name, s.pending_tool_input, s.pending_question,
+                    COALESCE(uss.snapshot_input_tokens, s.input_tokens, 0),
+                    COALESCE(uss.snapshot_output_tokens, s.output_tokens, 0),
+                    COALESCE(uss.snapshot_cached_tokens, s.cached_tokens, 0),
+                    COALESCE(uss.snapshot_context_window, s.context_window, 0),
+                    s.provider, s.codex_integration_mode, s.claude_integration_mode,
+                    s.claude_sdk_session_id, s.codex_thread_id, s.end_reason,
+                    s.terminal_session_id, s.terminal_app,
+                    COALESCE(uss.snapshot_kind, 'unknown')
+             FROM sessions s
+             LEFT JOIN usage_session_state uss ON uss.session_id = s.id
+             WHERE s.id = ?1"
         )?;
 
         let row = stmt
@@ -2781,6 +3132,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
                     row.get::<_, Option<String>>(25)?,
                     row.get::<_, Option<String>>(26)?,
                     row.get::<_, Option<String>>(27)?,
+                    row.get::<_, String>(28)?,
                 ))
             })
             .optional()?;
@@ -2814,9 +3166,13 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             end_reason,
             terminal_session_id,
             terminal_app,
+            token_usage_snapshot_kind_str,
         )) = row else {
             return Ok(None);
         };
+
+        let token_usage_snapshot_kind =
+            snapshot_kind_from_str(Some(token_usage_snapshot_kind_str.as_str()));
 
         let messages = load_messages_from_db(&conn, &id)?;
         let custom_name =
@@ -2832,11 +3188,34 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             .unwrap_or((None, None));
 
         // Load persisted turn diffs (table may not exist on old schemas)
-        let turn_diffs: Vec<(String, String, i64, i64, i64, i64)> = conn
-            .prepare("SELECT turn_id, diff, COALESCE(input_tokens, 0), COALESCE(output_tokens, 0), COALESCE(cached_tokens, 0), COALESCE(context_window, 0) FROM turn_diffs WHERE session_id = ?1 ORDER BY rowid")
+        let turn_diffs: Vec<(String, String, i64, i64, i64, i64, TokenUsageSnapshotKind)> = conn
+            .prepare(
+                "SELECT td.turn_id,
+                        td.diff,
+                        COALESCE(ut.input_tokens, td.input_tokens, 0),
+                        COALESCE(ut.output_tokens, td.output_tokens, 0),
+                        COALESCE(ut.cached_tokens, td.cached_tokens, 0),
+                        COALESCE(ut.context_window, td.context_window, 0),
+                        COALESCE(ut.snapshot_kind, 'unknown')
+                 FROM turn_diffs td
+                 LEFT JOIN usage_turns ut
+                   ON ut.session_id = td.session_id
+                  AND ut.turn_id = td.turn_id
+                 WHERE td.session_id = ?1
+                 ORDER BY COALESCE(ut.turn_seq, td.rowid)"
+            )
             .and_then(|mut stmt| {
                 let rows = stmt.query_map(params![&id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?))
+                    let snapshot_kind: String = row.get(6)?;
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        snapshot_kind_from_str(Some(snapshot_kind.as_str())),
+                    ))
                 })?;
                 rows.collect::<Result<Vec<_>, _>>()
             })
@@ -2902,6 +3281,7 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             output_tokens,
             cached_tokens,
             context_window,
+            token_usage_snapshot_kind,
             pending_tool_name,
             pending_tool_input,
             pending_question,
@@ -3503,6 +3883,257 @@ mod tests {
         // 2024-01-15 12:30:45 UTC
         let result = time_to_iso8601(1705322445);
         assert!(result.starts_with("2024-01-15"));
+    }
+
+    #[test]
+    fn tokens_update_writes_usage_tables() {
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::SessionCreate {
+                    id: "usage-session".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/usage-session".into(),
+                    project_name: Some("usage-session".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                PersistCommand::TokensUpdate {
+                    session_id: "usage-session".into(),
+                    usage: TokenUsage {
+                        input_tokens: 1200,
+                        output_tokens: 300,
+                        cached_tokens: 100,
+                        context_window: 200_000,
+                    },
+                    snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
+                },
+                PersistCommand::TurnDiffInsert {
+                    session_id: "usage-session".into(),
+                    turn_id: "turn-1".into(),
+                    turn_seq: 1,
+                    diff: "--- a/file\n+++ b/file\n@@\n-old\n+new".into(),
+                    input_tokens: 1200,
+                    output_tokens: 300,
+                    cached_tokens: 100,
+                    context_window: 200_000,
+                    snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
+                },
+            ],
+        )
+        .expect("flush usage writes");
+
+        let conn = Connection::open(&db_path).expect("open db");
+
+        let event_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM usage_events WHERE session_id = ?1",
+                params!["usage-session"],
+                |row| row.get(0),
+            )
+            .expect("count usage events");
+        assert_eq!(event_count, 1);
+
+        let (snapshot_kind, context_input, context_window): (String, i64, i64) = conn
+            .query_row(
+                "SELECT snapshot_kind, context_input_tokens, context_window
+                 FROM usage_session_state
+                 WHERE session_id = ?1",
+                params!["usage-session"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load usage state");
+        assert_eq!(snapshot_kind, "context_turn");
+        assert_eq!(context_input, 1200);
+        assert_eq!(context_window, 200_000);
+
+        let (turn_seq, input_delta, turn_kind): (i64, i64, String) = conn
+            .query_row(
+                "SELECT turn_seq, input_delta_tokens, snapshot_kind
+                 FROM usage_turns
+                 WHERE session_id = ?1 AND turn_id = ?2",
+                params!["usage-session", "turn-1"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("load usage turn");
+        assert_eq!(turn_seq, 1);
+        assert_eq!(input_delta, 1200);
+        assert_eq!(turn_kind, "context_turn");
+    }
+
+    #[tokio::test]
+    async fn startup_restore_prefers_usage_session_state_snapshot_values() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::SessionCreate {
+                    id: "usage-restore".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/usage-restore".into(),
+                    project_name: Some("usage-restore".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                PersistCommand::TokensUpdate {
+                    session_id: "usage-restore".into(),
+                    usage: TokenUsage {
+                        input_tokens: 123,
+                        output_tokens: 77,
+                        cached_tokens: 19,
+                        context_window: 200_000,
+                    },
+                    snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
+                },
+            ],
+        )
+        .expect("seed usage restore session");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        conn.execute(
+            "UPDATE sessions
+             SET input_tokens = 1,
+                 output_tokens = 2,
+                 cached_tokens = 3,
+                 context_window = 4
+             WHERE id = ?1",
+            params!["usage-restore"],
+        )
+        .expect("mutate legacy token columns");
+
+        let restored = load_sessions_for_startup()
+            .await
+            .expect("load sessions for startup");
+        let session = restored
+            .iter()
+            .find(|s| s.id == "usage-restore")
+            .expect("restored usage session");
+
+        assert_eq!(session.input_tokens, 123);
+        assert_eq!(session.output_tokens, 77);
+        assert_eq!(session.cached_tokens, 19);
+        assert_eq!(session.context_window, 200_000);
+        assert_eq!(
+            session.token_usage_snapshot_kind,
+            TokenUsageSnapshotKind::ContextTurn
+        );
+    }
+
+    #[tokio::test]
+    async fn load_session_by_id_prefers_usage_turns_and_turn_seq_order() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::SessionCreate {
+                    id: "usage-turn-restore".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/usage-turn-restore".into(),
+                    project_name: Some("usage-turn-restore".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                PersistCommand::TokensUpdate {
+                    session_id: "usage-turn-restore".into(),
+                    usage: TokenUsage {
+                        input_tokens: 1_000,
+                        output_tokens: 200,
+                        cached_tokens: 50,
+                        context_window: 200_000,
+                    },
+                    snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+                },
+                PersistCommand::TurnDiffInsert {
+                    session_id: "usage-turn-restore".into(),
+                    turn_id: "turn-2".into(),
+                    turn_seq: 2,
+                    diff: "two".into(),
+                    input_tokens: 700,
+                    output_tokens: 140,
+                    cached_tokens: 30,
+                    context_window: 200_000,
+                    snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
+                },
+                PersistCommand::TurnDiffInsert {
+                    session_id: "usage-turn-restore".into(),
+                    turn_id: "turn-1".into(),
+                    turn_seq: 1,
+                    diff: "one".into(),
+                    input_tokens: 400,
+                    output_tokens: 80,
+                    cached_tokens: 20,
+                    context_window: 200_000,
+                    snapshot_kind: TokenUsageSnapshotKind::ContextTurn,
+                },
+            ],
+        )
+        .expect("seed turn restore session");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        conn.execute(
+            "UPDATE turn_diffs
+             SET input_tokens = 9,
+                 output_tokens = 9,
+                 cached_tokens = 9,
+                 context_window = 9
+             WHERE session_id = ?1",
+            params!["usage-turn-restore"],
+        )
+        .expect("mutate legacy turn token columns");
+
+        let restored = load_session_by_id("usage-turn-restore")
+            .await
+            .expect("load session by id")
+            .expect("session restored");
+
+        assert_eq!(
+            restored.token_usage_snapshot_kind,
+            TokenUsageSnapshotKind::LifetimeTotals
+        );
+        assert_eq!(restored.turn_diffs.len(), 2);
+        assert_eq!(restored.turn_diffs[0].0, "turn-1");
+        assert_eq!(restored.turn_diffs[1].0, "turn-2");
+        assert_eq!(restored.turn_diffs[0].2, 400);
+        assert_eq!(restored.turn_diffs[1].2, 700);
+        assert_eq!(
+            restored.turn_diffs[0].6,
+            TokenUsageSnapshotKind::ContextTurn
+        );
+        assert_eq!(
+            restored.turn_diffs[1].6,
+            TokenUsageSnapshotKind::ContextTurn
+        );
     }
 
     #[tokio::test]

@@ -95,6 +95,26 @@ pub struct TokenUsage {
     pub context_window: u64,
 }
 
+/// Semantics for a token usage snapshot.
+///
+/// OrbitDock receives token values with different meaning depending on provider/integration mode.
+/// Persist this explicitly so analytics and rollups stay correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenUsageSnapshotKind {
+    /// Snapshot semantics are unknown (legacy callers).
+    #[default]
+    Unknown,
+    /// Snapshot represents current turn/context occupancy, not lifetime totals.
+    ContextTurn,
+    /// Snapshot represents lifetime cumulative totals.
+    LifetimeTotals,
+    /// Snapshot mixes semantics (e.g. context input + cumulative output).
+    MixedLegacy,
+    /// Snapshot was emitted after a compaction reset event.
+    CompactionReset,
+}
+
 impl TokenUsage {
     /// Calculate context fill percentage
     pub fn context_fill_percent(&self) -> f64 {
@@ -128,8 +148,37 @@ pub struct ApprovalRequest {
     pub file_path: Option<String>,
     pub diff: Option<String>,
     pub question: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub question_prompts: Vec<ApprovalQuestionPrompt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<ApprovalPreview>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proposed_amendment: Option<Vec<String>>,
+}
+
+/// Structured question option metadata for question approvals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalQuestionOption {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Structured question prompt metadata for question approvals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalQuestionPrompt {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    pub question: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<ApprovalQuestionOption>,
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pub allows_multiple_selection: bool,
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pub allows_other: bool,
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pub is_secret: bool,
 }
 
 /// Type of approval being requested
@@ -139,6 +188,61 @@ pub enum ApprovalType {
     Exec,
     Patch,
     Question,
+}
+
+fn bool_is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// Client-facing preview metadata for pending approvals.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApprovalPreview {
+    #[serde(rename = "type")]
+    pub preview_type: ApprovalPreviewType,
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shell_segments: Vec<ApprovalPreviewSegment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk_level: Option<ApprovalRiskLevel>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub risk_findings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<String>,
+}
+
+/// Display kind for approval preview value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalPreviewType {
+    ShellCommand,
+    Url,
+    SearchQuery,
+    Pattern,
+    Prompt,
+    Value,
+    FilePath,
+    Action,
+}
+
+/// Risk tier for an approval request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalRiskLevel {
+    Low,
+    Normal,
+    High,
+}
+
+/// Segment in a shell command split by control operators.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalPreviewSegment {
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leading_operator: Option<String>,
 }
 
 /// Persisted approval history item
@@ -180,6 +284,8 @@ pub struct SessionSummary {
     pub work_status: WorkStatus,
     #[serde(default)]
     pub token_usage: TokenUsage,
+    #[serde(default)]
+    pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub has_pending_approval: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_integration_mode: Option<CodexIntegrationMode>,
@@ -221,6 +327,8 @@ pub struct TurnDiff {
     pub diff: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<TokenUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_kind: Option<TokenUsageSnapshotKind>,
 }
 
 /// Subagent metadata
@@ -277,6 +385,8 @@ pub struct SessionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_approval_id: Option<String>,
     pub token_usage: TokenUsage,
+    #[serde(default)]
+    pub token_usage_snapshot_kind: TokenUsageSnapshotKind,
     pub current_diff: Option<String>,
     pub current_plan: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -326,6 +436,8 @@ pub struct StateChanges {
     pub pending_approval: Option<Option<ApprovalRequest>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<TokenUsage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_usage_snapshot_kind: Option<TokenUsageSnapshotKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_diff: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

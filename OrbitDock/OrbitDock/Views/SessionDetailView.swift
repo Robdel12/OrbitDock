@@ -115,13 +115,12 @@ struct SessionDetailView: View {
               }
             },
             onNavigateToSession: { id in
-              let normalizedID: String
-              if let scoped = SessionRef(scopedID: id)?.scopedID {
-                normalizedID = scoped
+              let normalizedID: String = if let scoped = SessionRef(scopedID: id)?.scopedID {
+                scoped
               } else if let endpointId = session.endpointId {
-                normalizedID = SessionRef(endpointId: endpointId, sessionId: id).scopedID
+                SessionRef(endpointId: endpointId, sessionId: id).scopedID
               } else {
-                normalizedID = id
+                id
               }
               NotificationCenter.default.post(
                 name: .selectSession,
@@ -589,7 +588,7 @@ struct SessionDetailView: View {
       workStatus: session.workStatus,
       currentTool: currentTool,
       pendingToolName: session.pendingToolName,
-      pendingToolInput: session.pendingToolInput,
+      pendingPermissionDetail: session.pendingPermissionDetail,
       provider: session.provider,
       model: session.model,
       onNavigateToReviewFile: { filePath, lineNumber in
@@ -711,7 +710,7 @@ struct SessionDetailView: View {
     let input = session.inputTokens ?? 0
     let output = session.outputTokens ?? 0
     let cached = session.cachedTokens ?? 0
-    let context = session.contextWindow ?? 0
+    let context = session.effectiveContextInputTokens
     let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
 
     if hasServerUsage {

@@ -146,4 +146,36 @@ struct ServerProtocolRequestCorrelationTests {
     #expect(payload["device_name"] as? String == "Robert's iPhone")
     #expect(payload["is_primary"] as? Bool == true)
   }
+
+  @Test func serverTokenMessagesEncodeSnapshotKind() throws {
+    let usage = ServerTokenUsage(
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedTokens: 10,
+      contextWindow: 8_000
+    )
+
+    let tokensUpdated = ServerToClientMessage.tokensUpdated(
+      sessionId: "session-1",
+      usage: usage,
+      snapshotKind: .contextTurn
+    )
+    let tokensData = try JSONEncoder().encode(tokensUpdated)
+    let tokensPayload = try #require(JSONSerialization.jsonObject(with: tokensData) as? [String: Any])
+    #expect(tokensPayload["snapshot_kind"] as? String == "context_turn")
+
+    let turnDiffSnapshot = ServerToClientMessage.turnDiffSnapshot(
+      sessionId: "session-1",
+      turnId: "turn-1",
+      diff: "diff --git a/file b/file",
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedTokens: 10,
+      contextWindow: 8_000,
+      snapshotKind: .contextTurn
+    )
+    let turnData = try JSONEncoder().encode(turnDiffSnapshot)
+    let turnPayload = try #require(JSONSerialization.jsonObject(with: turnData) as? [String: Any])
+    #expect(turnPayload["snapshot_kind"] as? String == "context_turn")
+  }
 }

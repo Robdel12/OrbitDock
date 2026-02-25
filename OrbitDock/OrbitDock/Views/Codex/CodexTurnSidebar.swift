@@ -653,11 +653,16 @@ private struct TokenTimelineView: View {
     obs.tokenUsage
   }
 
+  private var currentSession: Session? {
+    serverState.sessions.first(where: { $0.id == sessionId })
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       // Summary header
       if let usage = currentUsage, usage.contextWindow > 0 {
-        let fill = usage.contextFillPercent
+        let kind = obs.tokenUsageSnapshotKind
+        let fill = contextFillPercent(usage: usage, snapshotKind: kind)
         HStack {
           Text("Context")
             .font(.system(size: 11, weight: .medium))
@@ -685,7 +690,7 @@ private struct TokenTimelineView: View {
         .padding(.bottom, 8)
 
         HStack(spacing: 12) {
-          tokenStat("In", value: usage.inputTokens)
+          tokenStat("In", value: effectiveContextInputTokens(usage: usage, snapshotKind: kind))
           tokenStat("Out", value: usage.outputTokens)
           if usage.cachedTokens > 0 {
             tokenStat("Cache", value: usage.cachedTokens)
@@ -703,9 +708,15 @@ private struct TokenTimelineView: View {
 
         ForEach(Array(diffs.enumerated()), id: \.element.turnId) { index, td in
           if let usage = td.tokenUsage {
-            let fill = usage.contextFillPercent
-            let prevInput = index > 0 ? diffs[index - 1].tokenUsage?.inputTokens ?? 0 : 0
-            let delta = Int(usage.inputTokens) - Int(prevInput)
+            let turnSnapshotKind = td.snapshotKind ?? obs.tokenUsageSnapshotKind
+            let fill = contextFillPercent(usage: usage, snapshotKind: turnSnapshotKind)
+            let prevInput: UInt64 = {
+              guard index > 0, let prevUsage = diffs[index - 1].tokenUsage else { return 0 }
+              let prevKind = diffs[index - 1].snapshotKind ?? obs.tokenUsageSnapshotKind
+              return effectiveContextInputTokens(usage: prevUsage, snapshotKind: prevKind)
+            }()
+            let currentInput = effectiveContextInputTokens(usage: usage, snapshotKind: turnSnapshotKind)
+            let delta = Int(currentInput) - Int(prevInput)
 
             HStack(spacing: 8) {
               Text("T\(index + 1)")
@@ -752,6 +763,40 @@ private struct TokenTimelineView: View {
     if percent >= 90 { return Color(red: 1.0, green: 0.4, blue: 0.4) }
     if percent >= 70 { return Color(red: 1.0, green: 0.7, blue: 0.3) }
     return Color.accent
+  }
+
+  private func effectiveContextInputTokens(
+    usage: ServerTokenUsage,
+    snapshotKind: ServerTokenUsageSnapshotKind
+  ) -> UInt64 {
+    switch snapshotKind {
+      case .mixedLegacy:
+        return usage.inputTokens + usage.cachedTokens
+      case .compactionReset:
+        return 0
+      case .contextTurn:
+        if currentSession?.provider == .claude {
+          return usage.inputTokens + usage.cachedTokens
+        }
+        return usage.inputTokens
+      case .lifetimeTotals:
+        return usage.inputTokens
+      case .unknown:
+        if currentSession?.provider == .claude {
+          return usage.inputTokens + usage.cachedTokens
+        }
+        return usage.inputTokens
+    }
+  }
+
+  private func contextFillPercent(
+    usage: ServerTokenUsage,
+    snapshotKind: ServerTokenUsageSnapshotKind
+  ) -> Double {
+    guard usage.contextWindow > 0 else { return 0 }
+    let contextInput = effectiveContextInputTokens(usage: usage, snapshotKind: snapshotKind)
+    guard contextInput > 0 else { return 0 }
+    return min(Double(contextInput) / Double(usage.contextWindow) * 100, 100)
   }
 
   private func tokenStat(_ label: String, value: UInt64) -> some View {

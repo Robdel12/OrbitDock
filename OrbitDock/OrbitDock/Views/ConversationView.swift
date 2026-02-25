@@ -8,12 +8,12 @@ import SwiftUI
 
 struct ConversationView: View {
   let sessionId: String?
-  var endpointId: UUID? = nil
+  var endpointId: UUID?
   var isSessionActive: Bool = false
   var workStatus: Session.WorkStatus = .unknown
   var currentTool: String?
   var pendingToolName: String?
-  var pendingToolInput: String?
+  var pendingPermissionDetail: String?
   var provider: Provider = .claude
   var model: String?
   var onNavigateToReviewFile: ((String, Int) -> Void)? // (filePath, lineNumber) deep link from review card
@@ -128,7 +128,7 @@ struct ConversationView: View {
         workStatus: workStatus,
         currentTool: currentTool,
         pendingToolName: pendingToolName,
-        pendingToolInput: pendingToolInput,
+        pendingPermissionDetail: pendingPermissionDetail,
         provider: provider,
         model: model,
         sessionId: sessionId,

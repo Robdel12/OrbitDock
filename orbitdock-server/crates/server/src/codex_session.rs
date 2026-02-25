@@ -12,7 +12,9 @@ use tracing::{error, info, warn};
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
-use crate::session_command::{PersistOp, SessionCommand, SubscribeResult};
+use crate::session_command::{
+    PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
+};
 use crate::transition::{self, Effect, Input};
 
 /// Manages a Codex session with its connector
@@ -564,10 +566,32 @@ pub async fn handle_session_command(
                 message,
             });
         }
-        SessionCommand::TakePendingApproval { request_id, reply } => {
-            let atype = handle.take_pending_approval(&request_id);
-            let amendment = handle.take_pending_amendment(&request_id);
-            let _ = reply.send((atype, amendment));
+        SessionCommand::ResolvePendingApproval {
+            request_id,
+            fallback_work_status,
+            reply,
+        } => {
+            let (approval_type, proposed_amendment, next_pending_approval, work_status) =
+                handle.resolve_pending_approval(&request_id, fallback_work_status);
+
+            if approval_type.is_some() {
+                let session_id = handle.id().to_string();
+                handle.broadcast(ServerMessage::SessionDelta {
+                    session_id,
+                    changes: orbitdock_protocol::StateChanges {
+                        work_status: Some(work_status),
+                        pending_approval: Some(next_pending_approval.clone()),
+                        ..Default::default()
+                    },
+                });
+            }
+
+            let _ = reply.send(PendingApprovalResolution {
+                approval_type,
+                proposed_amendment,
+                next_pending_approval,
+                work_status,
+            });
         }
         SessionCommand::SetPendingApproval {
             request_id,

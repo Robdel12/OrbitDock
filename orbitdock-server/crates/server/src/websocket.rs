@@ -21,7 +21,7 @@ use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
     new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, MessageChanges,
     MessageType, Provider, ServerMessage, SessionState, SessionStatus, StateChanges, TokenUsage,
-    UsageErrorInfo, WorkStatus,
+    TokenUsageSnapshotKind, UsageErrorInfo, WorkStatus,
 };
 
 use crate::claude_session::{ClaudeAction, ClaudeSession};
@@ -120,7 +120,10 @@ const SNAPSHOT_MAX_MESSAGES: usize = 200;
 const SNAPSHOT_MAX_CONTENT_CHARS: usize = 16_000;
 const SNAPSHOT_MIN_CONTENT_CHARS: usize = 250;
 const SNAPSHOT_MAX_TURN_DIFFS: usize = 80;
-const WS_MAX_TEXT_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
+// Keep outbound frames within common client defaults (Apple URLSession WS default is 1 MiB).
+const WS_MAX_TEXT_MESSAGE_BYTES: usize = 1 * 1024 * 1024;
+// Snapshots should stay much smaller than the hard transport ceiling to avoid reconnect churn.
+const SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES: usize = 256 * 1024;
 
 /// Messages that can be sent through the WebSocket
 #[allow(clippy::large_enum_variant)]
@@ -616,6 +619,11 @@ fn compact_approval_preview_for_transport(
 ) {
     truncate_string_in_place(&mut preview.value, max_chars);
     truncate_option_string_in_place(&mut preview.compact, max_chars);
+    truncate_option_string_in_place(&mut preview.decision_scope, max_chars);
+    truncate_option_string_in_place(&mut preview.manifest, max_chars.saturating_mul(2));
+    for finding in &mut preview.risk_findings {
+        truncate_string_in_place(finding, max_chars);
+    }
     for segment in &mut preview.shell_segments {
         truncate_string_in_place(&mut segment.command, max_chars);
         truncate_option_string_in_place(&mut segment.leading_operator, 8);
@@ -631,6 +639,15 @@ fn compact_approval_for_transport(
     truncate_option_string_in_place(&mut approval.file_path, max_chars);
     truncate_option_string_in_place(&mut approval.question, max_chars);
     truncate_option_string_in_place(&mut approval.diff, max_chars.saturating_mul(2));
+    for prompt in &mut approval.question_prompts {
+        truncate_string_in_place(&mut prompt.id, max_chars);
+        truncate_option_string_in_place(&mut prompt.header, max_chars);
+        truncate_string_in_place(&mut prompt.question, max_chars);
+        for option in &mut prompt.options {
+            truncate_string_in_place(&mut option.label, max_chars);
+            truncate_option_string_in_place(&mut option.description, max_chars);
+        }
+    }
     if let Some(preview) = approval.preview.as_mut() {
         compact_approval_preview_for_transport(preview, max_chars);
     }
@@ -746,9 +763,9 @@ fn snapshot_transport_size_bytes(snapshot: &SessionState) -> Option<usize> {
     .map(|bytes| bytes.len())
 }
 
-fn trim_snapshot_images_to_transport_limit(snapshot: &mut SessionState) {
+fn trim_snapshot_images_to_transport_limit(snapshot: &mut SessionState, limit_bytes: usize) {
     let mut size = snapshot_transport_size_bytes(snapshot).unwrap_or(usize::MAX);
-    if size <= WS_MAX_TEXT_MESSAGE_BYTES {
+    if size <= limit_bytes {
         return;
     }
 
@@ -768,7 +785,7 @@ fn trim_snapshot_images_to_transport_limit(snapshot: &mut SessionState) {
         }
 
         size = snapshot_transport_size_bytes(snapshot).unwrap_or(usize::MAX);
-        if size <= WS_MAX_TEXT_MESSAGE_BYTES {
+        if size <= limit_bytes {
             break;
         }
     }
@@ -786,10 +803,13 @@ fn compact_snapshot_to_transport_limit(snapshot: SessionState) -> SessionState {
         SNAPSHOT_MAX_CONTENT_CHARS,
     );
     let mut default_compacted = default_compacted;
-    trim_snapshot_images_to_transport_limit(&mut default_compacted);
+    trim_snapshot_images_to_transport_limit(
+        &mut default_compacted,
+        SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
+    );
 
     if snapshot_transport_size_bytes(&default_compacted)
-        .is_some_and(|size| size <= WS_MAX_TEXT_MESSAGE_BYTES)
+        .is_some_and(|size| size <= SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES)
     {
         return default_compacted;
     }
@@ -814,7 +834,10 @@ fn compact_snapshot_to_transport_limit(snapshot: SessionState) -> SessionState {
                 max_messages,
                 max_content_chars,
             );
-            trim_snapshot_images_to_transport_limit(&mut candidate);
+            trim_snapshot_images_to_transport_limit(
+                &mut candidate,
+                SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
+            );
             let Some(size) = snapshot_transport_size_bytes(&candidate) else {
                 continue;
             };
@@ -822,10 +845,14 @@ fn compact_snapshot_to_transport_limit(snapshot: SessionState) -> SessionState {
                 smallest_size = size;
                 smallest = candidate.clone();
             }
-            if size <= WS_MAX_TEXT_MESSAGE_BYTES {
+            if size <= SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES {
                 return candidate;
             }
         }
+    }
+
+    if smallest_size > WS_MAX_TEXT_MESSAGE_BYTES {
+        trim_snapshot_images_to_transport_limit(&mut smallest, WS_MAX_TEXT_MESSAGE_BYTES);
     }
 
     smallest
@@ -874,15 +901,16 @@ fn sanitize_server_message_for_transport(msg: ServerMessage) -> ServerMessage {
             let after = snapshot_transport_size_bytes(&compacted);
 
             if let (Some(before), Some(after)) = (before, after) {
-                if before > WS_MAX_TEXT_MESSAGE_BYTES && after < before {
+                if before > SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES && after < before {
                     warn!(
                         component = "websocket",
                         event = "ws.transport.snapshot_compacted",
                         session_id = %compacted.id,
                         before_bytes = before,
                         after_bytes = after,
+                        target_bytes = SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
                         max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
-                        "Compacted session snapshot to fit transport limits"
+                        "Compacted session snapshot to fit outbound payload target"
                     );
                 }
             }
@@ -1564,6 +1592,7 @@ async fn handle_client_message(
                                 cached_tokens: restored.cached_tokens as u64,
                                 context_window: restored.context_window as u64,
                             },
+                            token_usage_snapshot_kind: restored.token_usage_snapshot_kind,
                             current_diff: restored.current_diff,
                             current_plan: restored.current_plan,
                             codex_integration_mode,
@@ -1579,7 +1608,7 @@ async fn handle_client_message(
                             turn_diffs: restored
                                 .turn_diffs
                                 .into_iter()
-                                .map(|(tid, diff, inp, out, cached, ctx)| {
+                                .map(|(tid, diff, inp, out, cached, ctx, snapshot_kind)| {
                                     orbitdock_protocol::TurnDiff {
                                         turn_id: tid,
                                         diff,
@@ -1589,6 +1618,7 @@ async fn handle_client_message(
                                             cached_tokens: cached as u64,
                                             context_window: ctx as u64,
                                         }),
+                                        snapshot_kind: Some(snapshot_kind),
                                     }
                                 })
                                 .collect(),
@@ -2275,6 +2305,52 @@ async fn handle_client_message(
                 "Approval decision received"
             );
 
+            let fallback_work_status = work_status_for_approval_decision(&decision);
+            let mut resolved_work_status = fallback_work_status;
+
+            // Resolve pending approval server-side and promote next queued request.
+            // This keeps queue ownership inside the session actor.
+            let (approval_type, proposed_amendment, next_pending_request_id) =
+                if let Some(actor) = state.get_session(&session_id) {
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    actor
+                        .send(SessionCommand::ResolvePendingApproval {
+                            request_id: request_id.clone(),
+                            fallback_work_status,
+                            reply: reply_tx,
+                        })
+                        .await;
+
+                    if let Ok(resolution) = reply_rx.await {
+                        resolved_work_status = resolution.work_status;
+                        (
+                            resolution.approval_type,
+                            resolution.proposed_amendment,
+                            resolution.next_pending_approval.map(|approval| approval.id),
+                        )
+                    } else {
+                        (None, None, None)
+                    }
+                } else {
+                    (None, None, None)
+                };
+
+            if state.get_session(&session_id).is_some() && approval_type.is_none() {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "stale_approval_request".into(),
+                        message: format!(
+                            "Approval request {} is not pending for session {}",
+                            request_id, session_id
+                        ),
+                        session_id: Some(session_id.clone()),
+                    },
+                )
+                .await;
+                return;
+            }
+
             let _ = state
                 .persist()
                 .send(PersistCommand::ApprovalDecision {
@@ -2283,21 +2359,6 @@ async fn handle_client_message(
                     decision: decision.clone(),
                 })
                 .await;
-
-            // Look up approval type and proposed amendment from session state
-            let (approval_type, proposed_amendment) =
-                if let Some(actor) = state.get_session(&session_id) {
-                    let (reply_tx, reply_rx) = oneshot::channel();
-                    actor
-                        .send(SessionCommand::TakePendingApproval {
-                            request_id: request_id.clone(),
-                            reply: reply_tx,
-                        })
-                        .await;
-                    reply_rx.await.unwrap_or((None, None))
-                } else {
-                    (None, None)
-                };
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let action = match approval_type {
@@ -2337,31 +2398,23 @@ async fn handle_client_message(
                     .await;
             }
 
-            // Clear pending approval and transition to an appropriate post-decision state.
-            // Approved actions continue work; denied/abort returns to waiting.
-            let next_work_status = work_status_for_approval_decision(&decision);
-
             let _ = state
                 .persist()
                 .send(PersistCommand::SessionUpdate {
                     id: session_id.clone(),
                     status: None,
-                    work_status: Some(next_work_status),
+                    work_status: Some(resolved_work_status),
                     last_activity_at: None,
                 })
                 .await;
-
-            if let Some(actor) = state.get_session(&session_id) {
-                actor
-                    .send(SessionCommand::ApplyDelta {
-                        changes: orbitdock_protocol::StateChanges {
-                            work_status: Some(next_work_status),
-                            pending_approval: Some(None),
-                            ..Default::default()
-                        },
-                        persist_op: None,
-                    })
-                    .await;
+            if let Some(next_pending_request_id) = next_pending_request_id {
+                info!(
+                    component = "approval",
+                    event = "approval.queue.promoted",
+                    session_id = %session_id,
+                    next_request_id = %next_pending_request_id,
+                    "Promoted next queued approval"
+                );
             }
         }
 
@@ -2677,10 +2730,55 @@ async fn handle_client_message(
                 return;
             }
 
+            let fallback_work_status = WorkStatus::Working;
+            let mut resolved_work_status = fallback_work_status;
+            let mut resolved = false;
+            let mut next_pending_request_id: Option<String> = None;
+            if let Some(actor) = state.get_session(&session_id) {
+                let (reply_tx, reply_rx) = oneshot::channel();
+                actor
+                    .send(SessionCommand::ResolvePendingApproval {
+                        request_id: request_id.clone(),
+                        fallback_work_status,
+                        reply: reply_tx,
+                    })
+                    .await;
+                if let Ok(resolution) = reply_rx.await {
+                    resolved = resolution.approval_type.is_some();
+                    resolved_work_status = resolution.work_status;
+                    next_pending_request_id = resolution.next_pending_approval.map(|a| a.id);
+                }
+            }
+
+            if state.get_session(&session_id).is_some() && !resolved {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "stale_approval_request".into(),
+                        message: format!(
+                            "Approval request {} is not pending for session {}",
+                            request_id, session_id
+                        ),
+                        session_id: Some(session_id.clone()),
+                    },
+                )
+                .await;
+                return;
+            }
+
+            let _ = state
+                .persist()
+                .send(PersistCommand::ApprovalDecision {
+                    session_id: session_id.clone(),
+                    request_id: request_id.clone(),
+                    decision: "approved".to_string(),
+                })
+                .await;
+
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx
                     .send(CodexAction::AnswerQuestion {
-                        request_id,
+                        request_id: request_id.clone(),
                         answers: normalized_answers,
                     })
                     .await;
@@ -2708,6 +2806,26 @@ async fn handle_client_message(
                         answer: claude_answer,
                     })
                     .await;
+            }
+
+            let _ = state
+                .persist()
+                .send(PersistCommand::SessionUpdate {
+                    id: session_id.clone(),
+                    status: None,
+                    work_status: Some(resolved_work_status),
+                    last_activity_at: None,
+                })
+                .await;
+
+            if let Some(next_pending_request_id) = next_pending_request_id {
+                info!(
+                    component = "approval",
+                    event = "approval.queue.promoted",
+                    session_id = %session_id,
+                    next_request_id = %next_pending_request_id,
+                    "Promoted next queued approval"
+                );
             }
         }
 
@@ -3145,6 +3263,7 @@ async fn handle_client_message(
                     cached_tokens: restored.cached_tokens.max(0) as u64,
                     context_window: restored.context_window.max(0) as u64,
                 },
+                restored.token_usage_snapshot_kind,
                 restored.started_at,
                 restored.last_activity_at,
                 restored.messages,
@@ -3161,6 +3280,7 @@ async fn handle_client_message(
                             output_tokens,
                             cached_tokens,
                             context_window,
+                            snapshot_kind,
                         )| {
                             let has_tokens =
                                 input_tokens > 0 || output_tokens > 0 || context_window > 0;
@@ -3177,6 +3297,7 @@ async fn handle_client_message(
                                 } else {
                                     None
                                 },
+                                snapshot_kind: Some(snapshot_kind),
                             }
                         },
                     )
@@ -5016,7 +5137,13 @@ pub(crate) async fn sync_transcript_messages(
         {
             actor
                 .send(SessionCommand::ProcessEvent {
-                    event: crate::transition::Input::TokensUpdated(usage),
+                    event: crate::transition::Input::TokensUpdated {
+                        usage,
+                        snapshot_kind: match snap.provider {
+                            Provider::Codex => TokenUsageSnapshotKind::ContextTurn,
+                            Provider::Claude => TokenUsageSnapshotKind::MixedLegacy,
+                        },
+                    },
                 })
                 .await;
         }
@@ -5151,16 +5278,19 @@ mod tests {
         direct_mode_activation_changes, handle_client_message, replay_has_oversize_event,
         sanitize_replay_event_for_transport, sanitize_server_message_for_transport,
         snapshot_transport_size_bytes, work_status_for_approval_decision, OutboundMessage,
-        SNAPSHOT_MAX_CONTENT_CHARS, WS_MAX_TEXT_MESSAGE_BYTES,
+        SNAPSHOT_MAX_CONTENT_CHARS, SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
+        WS_MAX_TEXT_MESSAGE_BYTES,
     };
     use crate::claude_session::ClaudeAction;
     use crate::codex_session::CodexAction;
     use crate::persistence::PersistCommand;
     use crate::session::SessionHandle;
+    use crate::session_command::SessionCommand;
     use crate::session_naming::name_from_first_prompt;
     use crate::state::SessionRegistry;
+    use crate::transition::Input;
     use orbitdock_protocol::{
-        new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput,
+        new_id, ApprovalType, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput,
         MentionInput, Message, MessageType, Provider, ServerMessage, SessionStatus, TurnDiff,
         WorkStatus,
     };
@@ -5210,6 +5340,146 @@ mod tests {
             work_status_for_approval_decision("unknown_value"),
             WorkStatus::Waiting
         );
+    }
+
+    async fn queue_codex_exec_approval(
+        state: &Arc<SessionRegistry>,
+        session_id: &str,
+        request_id: &str,
+    ) {
+        let actor = state
+            .get_session(session_id)
+            .expect("session should exist to queue approval");
+        actor
+            .send(SessionCommand::ProcessEvent {
+                event: Input::ApprovalRequested {
+                    request_id: request_id.to_string(),
+                    approval_type: ApprovalType::Exec,
+                    tool_name: Some("Bash".to_string()),
+                    tool_input: Some(r#"{"command":"echo test"}"#.to_string()),
+                    command: Some("echo test".to_string()),
+                    file_path: None,
+                    diff: None,
+                    question: None,
+                    proposed_amendment: None,
+                },
+            })
+            .await;
+        tokio::task::yield_now().await;
+    }
+
+    #[tokio::test]
+    async fn approve_tool_promotes_next_queued_request_from_server_state() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "approve-tool-queue-promote".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        queue_codex_exec_approval(&state, &session_id, "req-1").await;
+        queue_codex_exec_approval(&state, &session_id, "req-2").await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        assert_eq!(actor.snapshot().pending_approval_id.as_deref(), Some("req-1"));
+
+        handle_client_message(
+            ClientMessage::ApproveTool {
+                session_id: session_id.clone(),
+                request_id: "req-1".to_string(),
+                decision: "approved".to_string(),
+                message: None,
+                interrupt: None,
+                updated_input: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx.recv().await.expect("expected codex approval action") {
+            CodexAction::ApproveExec { request_id, .. } => {
+                assert_eq!(request_id, "req-1");
+            }
+            other => panic!("expected ApproveExec action, got {:?}", other),
+        }
+
+        tokio::task::yield_now().await;
+
+        let snapshot = actor.snapshot();
+        assert_eq!(snapshot.pending_approval_id.as_deref(), Some("req-2"));
+        assert_eq!(snapshot.work_status, WorkStatus::Permission);
+        assert!(
+            client_rx.try_recv().is_err(),
+            "successful approval should not emit websocket errors"
+        );
+    }
+
+    #[tokio::test]
+    async fn approve_tool_rejects_out_of_order_request_ids() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "approve-tool-queue-stale".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        queue_codex_exec_approval(&state, &session_id, "req-1").await;
+        queue_codex_exec_approval(&state, &session_id, "req-2").await;
+
+        handle_client_message(
+            ClientMessage::ApproveTool {
+                session_id: session_id.clone(),
+                request_id: "req-2".to_string(),
+                decision: "approved".to_string(),
+                message: None,
+                interrupt: None,
+                updated_input: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                message,
+                session_id: error_session_id,
+            } => {
+                assert_eq!(code, "stale_approval_request");
+                assert!(
+                    message.contains("req-2"),
+                    "stale error should mention rejected request id"
+                );
+                assert_eq!(error_session_id.as_deref(), Some(session_id.as_str()));
+            }
+            other => panic!("expected stale approval error, got {:?}", other),
+        }
+
+        assert!(
+            action_rx.try_recv().is_err(),
+            "stale approvals must not dispatch connector approval actions"
+        );
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        assert_eq!(actor.snapshot().pending_approval_id.as_deref(), Some("req-1"));
     }
 
     #[test]
@@ -5295,6 +5565,7 @@ mod tests {
                 turn_id: format!("turn-{idx}"),
                 diff: "H".repeat(120_000),
                 token_usage: None,
+                snapshot_kind: None,
             })
             .collect();
 
@@ -5306,6 +5577,12 @@ mod tests {
             compacted_size <= WS_MAX_TEXT_MESSAGE_BYTES,
             "expected compacted snapshot <= {} bytes, got {}",
             WS_MAX_TEXT_MESSAGE_BYTES,
+            compacted_size
+        );
+        assert!(
+            compacted_size <= SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
+            "expected compacted snapshot <= {} bytes target, got {}",
+            SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
             compacted_size
         );
     }
@@ -5335,16 +5612,19 @@ mod tests {
                 turn_id: "turn-20".to_string(),
                 diff: "old".to_string(),
                 token_usage: None,
+                snapshot_kind: None,
             },
             TurnDiff {
                 turn_id: "turn-21".to_string(),
                 diff: "next".to_string(),
                 token_usage: None,
+                snapshot_kind: None,
             },
             TurnDiff {
                 turn_id: "turn-20".to_string(),
                 diff: "new".to_string(),
                 token_usage: None,
+                snapshot_kind: None,
             },
         ];
 
