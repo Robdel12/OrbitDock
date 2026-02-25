@@ -46,7 +46,7 @@ This lets writes return immediate HTTP ack semantics while the UI still updates 
 ## Phase 1 (implemented)
 
 - Added `GET /api/sessions`
-- Added `GET /api/sessions/:session_id`
+- Added `GET /api/sessions/{session_id}`
 - Added `include_snapshot` flag on WS `subscribe_session` (defaults `true` for backward compatibility)
 - App flow now:
   1. HTTP fetch session snapshot
@@ -60,14 +60,17 @@ Result: large bootstrap payloads no longer need WS transport compaction/truncati
   - `GET /api/models/codex`
   - `GET /api/models/claude`
   - `GET /api/codex/account`
-  - `GET /api/sessions/:session_id/review-comments`
-  - `GET /api/sessions/:session_id/subagents/:subagent_id/tools`
-  - `GET /api/sessions/:session_id/skills`
-  - `GET /api/sessions/:session_id/skills/remote`
-  - `GET /api/sessions/:session_id/mcp/tools`
+  - `GET /api/sessions/{session_id}/review-comments`
+  - `GET /api/sessions/{session_id}/subagents/{subagent_id}/tools`
+  - `GET /api/sessions/{session_id}/skills`
+  - `GET /api/sessions/{session_id}/skills/remote`
+  - `GET /api/sessions/{session_id}/mcp/tools`
 - Swift client now uses HTTP for these read paths.
 - Legacy WS request/response handlers for these read/list operations now return
   `error.code = "http_only_endpoint"` so read traffic cannot regress back to WS.
+- Connector-bound read endpoints can return `409` (`code = "session_not_found"`) while a
+  direct connector is not yet available; clients should treat this as transient availability,
+  not as an MCP auth/startup failure.
 
 ## Next Migration Steps
 

@@ -672,10 +672,10 @@ async fn async_main(
         .route("/ws", get(ws_handler))
         .route("/api/hook", post(hook_handler::hook_handler))
         .route("/api/sessions", get(http_api::list_sessions))
-        .route("/api/sessions/:session_id", get(http_api::get_session))
+        .route("/api/sessions/{session_id}", get(http_api::get_session))
         .route("/api/approvals", get(http_api::list_approvals_endpoint))
         .route(
-            "/api/approvals/:approval_id",
+            "/api/approvals/{approval_id}",
             delete(http_api::delete_approval_endpoint),
         )
         .route("/api/server/openai-key", get(http_api::check_open_ai_key))
@@ -685,23 +685,23 @@ async fn async_main(
         .route("/api/models/claude", get(http_api::list_claude_models))
         .route("/api/codex/account", get(http_api::read_codex_account))
         .route(
-            "/api/sessions/:session_id/review-comments",
+            "/api/sessions/{session_id}/review-comments",
             get(http_api::list_review_comments_endpoint),
         )
         .route(
-            "/api/sessions/:session_id/subagents/:subagent_id/tools",
+            "/api/sessions/{session_id}/subagents/{subagent_id}/tools",
             get(http_api::list_subagent_tools_endpoint),
         )
         .route(
-            "/api/sessions/:session_id/skills",
+            "/api/sessions/{session_id}/skills",
             get(http_api::list_skills_endpoint),
         )
         .route(
-            "/api/sessions/:session_id/skills/remote",
+            "/api/sessions/{session_id}/skills/remote",
             get(http_api::list_remote_skills_endpoint),
         )
         .route(
-            "/api/sessions/:session_id/mcp/tools",
+            "/api/sessions/{session_id}/mcp/tools",
             get(http_api::list_mcp_tools_endpoint),
         )
         .route("/api/fs/browse", get(http_api::browse_directory))

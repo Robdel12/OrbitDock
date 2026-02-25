@@ -60,7 +60,7 @@ Response:
 }
 ```
 
-### `GET /api/sessions/:session_id`
+### `GET /api/sessions/{session_id}`
 
 Returns full session state (messages, token usage, approvals metadata, diffs, etc).
 
@@ -93,7 +93,7 @@ Response:
 }
 ```
 
-### `DELETE /api/approvals/:approval_id`
+### `DELETE /api/approvals/{approval_id}`
 
 Response:
 
@@ -210,7 +210,7 @@ Error response example (`503`):
 }
 ```
 
-### `GET /api/sessions/:session_id/review-comments?turn_id=<turn-id>`
+### `GET /api/sessions/{session_id}/review-comments?turn_id=<turn-id>`
 
 Query params:
 
@@ -229,7 +229,7 @@ Notes:
 
 - If comment loading fails, this endpoint returns an empty list.
 
-### `GET /api/sessions/:session_id/subagents/:subagent_id/tools`
+### `GET /api/sessions/{session_id}/subagents/{subagent_id}/tools`
 
 Response:
 
@@ -245,7 +245,7 @@ Notes:
 
 - If the subagent transcript is missing or unreadable, this endpoint returns an empty list.
 
-### `GET /api/sessions/:session_id/skills?cwd=<path>&force_reload=true|false`
+### `GET /api/sessions/{session_id}/skills?cwd=<path>&force_reload=true|false`
 
 Returns session skills grouped by cwd.
 
@@ -264,7 +264,20 @@ Response:
 }
 ```
 
-### `GET /api/sessions/:session_id/skills/remote`
+Error response example (`409`):
+
+```json
+{
+  "code": "session_not_found",
+  "error": "Session od-... not found or has no active connector"
+}
+```
+
+Notes:
+
+- `409` here is a connector availability state (for example, lazy connector startup), not an MCP auth failure.
+
+### `GET /api/sessions/{session_id}/skills/remote`
 
 Returns remote skills available for the session.
 
@@ -277,7 +290,16 @@ Response:
 }
 ```
 
-### `GET /api/sessions/:session_id/mcp/tools`
+Error response example (`409`):
+
+```json
+{
+  "code": "session_not_found",
+  "error": "Session od-... not found or has no active connector"
+}
+```
+
+### `GET /api/sessions/{session_id}/mcp/tools`
 
 Returns MCP tools/resources/auth status for the session.
 
@@ -292,6 +314,19 @@ Response:
   "auth_statuses": {}
 }
 ```
+
+Error response example (`409`):
+
+```json
+{
+  "code": "session_not_found",
+  "error": "Session od-... not found or has no active connector"
+}
+```
+
+Notes:
+
+- Real MCP server failures (auth/startup/tool discovery) are surfaced through MCP startup/status events, not by this connector-availability response.
 
 ### `GET /api/fs/recent-projects`
 

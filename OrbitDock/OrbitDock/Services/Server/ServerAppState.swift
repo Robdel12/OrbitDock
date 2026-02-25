@@ -373,6 +373,9 @@ final class ServerAppState {
         state.isComplete = true
         obs.mcpStartupState = state
         logger.info("MCP startup complete for \(sessionId): \(ready.count) ready, \(failed.count) failed")
+        if self.shouldRequestCodexConnectorData(sessionId: sessionId) {
+          self.connection.listMcpTools(sessionId: sessionId)
+        }
       }
     }
 
@@ -639,6 +642,7 @@ final class ServerAppState {
 
   /// Request the list of available skills for a session
   func listSkills(sessionId: String) {
+    guard shouldRequestCodexConnectorData(sessionId: sessionId) else { return }
     connection.listSkills(sessionId: sessionId)
   }
 
@@ -916,6 +920,7 @@ final class ServerAppState {
 
   /// List MCP tools for a session
   func listMcpTools(sessionId: String) {
+    guard shouldRequestCodexConnectorData(sessionId: sessionId) else { return }
     connection.listMcpTools(sessionId: sessionId)
   }
 
@@ -1897,6 +1902,13 @@ final class ServerAppState {
     logger.info(
       "Trimmed inactive session payload \(sessionId, privacy: .public) reason=\(reason, privacy: .public) messages=\(messageCount, privacy: .public) turnDiffs=\(turnDiffCount, privacy: .public)"
     )
+  }
+
+  private func shouldRequestCodexConnectorData(sessionId: String) -> Bool {
+    guard let session = sessions.first(where: { $0.id == sessionId }) else {
+      return false
+    }
+    return session.isActive && session.isDirectCodex
   }
 
   private static func mockSessions() -> [Session] {

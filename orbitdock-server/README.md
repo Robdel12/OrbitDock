@@ -95,8 +95,8 @@ orbitdock-server --bind 127.0.0.1:4000   # same as: orbitdock-server start --bin
 │  │  GET /ws      → WebSocket upgrade                        │  │
 │  │  POST /api/hook → Claude Code hook events                │  │
 │  │  GET /api/sessions → Session summaries (REST bootstrap)  │  │
-│  │  GET /api/sessions/:id → Full session state (REST load)  │  │
-│  │  GET /api/approvals, DELETE /api/approvals/:id           │  │
+│  │  GET /api/sessions/{session_id} → Full session state      │  │
+│  │  GET /api/approvals, DELETE /api/approvals/{approval_id}  │  │
 │  │  GET /api/server/openai-key, /api/usage/*, /api/models/* │  │
 │  │  GET /api/codex/account, /api/fs/*, /api/sessions/*/...  │  │
 │  │  GET /health  → Health check                             │  │
@@ -299,7 +299,7 @@ ws://127.0.0.1:4000/ws?token=<your-token>
 List review comments over HTTP:
 
 ```http
-GET /api/sessions/:session_id/review-comments
+GET /api/sessions/{session_id}/review-comments
 ```
 
 **Claude hook transport** (how `hook.sh` delivers events):

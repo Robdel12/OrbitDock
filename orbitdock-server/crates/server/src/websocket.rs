@@ -2480,7 +2480,7 @@ async fn handle_client_message_impl(
         }
 
         ClientMessage::DeleteApproval { .. } => {
-            send_rest_only_error(client_tx, "DELETE /api/approvals/:approval_id", None).await;
+            send_rest_only_error(client_tx, "DELETE /api/approvals/{approval_id}", None).await;
         }
 
         ClientMessage::ListModels => {
@@ -2562,7 +2562,7 @@ async fn handle_client_message_impl(
         ClientMessage::ListSkills { session_id, .. } => {
             send_rest_only_error(
                 client_tx,
-                "GET /api/sessions/:session_id/skills",
+                "GET /api/sessions/{session_id}/skills",
                 Some(session_id),
             )
             .await;
@@ -2571,7 +2571,7 @@ async fn handle_client_message_impl(
         ClientMessage::ListRemoteSkills { session_id } => {
             send_rest_only_error(
                 client_tx,
-                "GET /api/sessions/:session_id/skills/remote",
+                "GET /api/sessions/{session_id}/skills/remote",
                 Some(session_id),
             )
             .await;
@@ -2604,7 +2604,7 @@ async fn handle_client_message_impl(
         ClientMessage::ListMcpTools { session_id } => {
             send_rest_only_error(
                 client_tx,
-                "GET /api/sessions/:session_id/mcp/tools",
+                "GET /api/sessions/{session_id}/mcp/tools",
                 Some(session_id),
             )
             .await;
@@ -4076,7 +4076,7 @@ async fn handle_client_message_impl(
             let _ = subagent_id;
             send_rest_only_error(
                 client_tx,
-                "GET /api/sessions/:session_id/subagents/:subagent_id/tools",
+                "GET /api/sessions/{session_id}/subagents/{subagent_id}/tools",
                 Some(session_id),
             )
             .await;
@@ -4579,7 +4579,7 @@ async fn handle_client_message_impl(
         ClientMessage::ListReviewComments { session_id, .. } => {
             send_rest_only_error(
                 client_tx,
-                "GET /api/sessions/:session_id/review-comments",
+                "GET /api/sessions/{session_id}/review-comments",
                 Some(session_id),
             )
             .await;

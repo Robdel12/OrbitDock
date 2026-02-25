@@ -26,7 +26,29 @@ enum ServerRequestError: LocalizedError {
   case connectionLost
   case invalidEndpoint
   case invalidResponse
-  case httpStatus(Int)
+  case httpStatus(Int, code: String? = nil, message: String? = nil)
+
+  var statusCode: Int? {
+    switch self {
+      case let .httpStatus(status, _, _):
+        status
+      default:
+        nil
+    }
+  }
+
+  var apiErrorCode: String? {
+    switch self {
+      case let .httpStatus(_, code, _):
+        code
+      default:
+        nil
+    }
+  }
+
+  var isConnectorUnavailableConflict: Bool {
+    statusCode == 409 && apiErrorCode == "session_not_found"
+  }
 
   var errorDescription: String? {
     switch self {
@@ -38,8 +60,14 @@ enum ServerRequestError: LocalizedError {
         "Server endpoint URL is invalid."
       case .invalidResponse:
         "Server returned an invalid response."
-      case let .httpStatus(status):
-        "Server request failed with status \(status)."
+      case let .httpStatus(status, code, message):
+        if let code, let message {
+          "Server request failed with status \(status) (\(code)): \(message)"
+        } else if let code {
+          "Server request failed with status \(status) (\(code))."
+        } else {
+          "Server request failed with status \(status)."
+        }
     }
   }
 }
@@ -175,6 +203,11 @@ private struct McpToolsHTTPResponse: Decodable {
     case resourceTemplates = "resource_templates"
     case authStatuses = "auth_statuses"
   }
+}
+
+private struct APIErrorHTTPResponse: Decodable {
+  let code: String
+  let error: String
 }
 
 /// WebSocket connection to OrbitDock server
@@ -1081,6 +1114,15 @@ class ServerConnection: ObservableObject {
         )
         onSkillsList?(response.sessionId, response.skills, response.errors)
       } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) {
+          connLog(
+            .info,
+            category: .receive,
+            "Deferred skills fetch until connector is available",
+            sessionId: sessionId
+          )
+          return
+        }
         onError?("skills_list_failed", error.localizedDescription, sessionId)
       }
     }
@@ -1096,6 +1138,15 @@ class ServerConnection: ObservableObject {
         )
         onRemoteSkillsList?(response.sessionId, response.skills)
       } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) {
+          connLog(
+            .info,
+            category: .receive,
+            "Deferred remote skills fetch until connector is available",
+            sessionId: sessionId
+          )
+          return
+        }
         onError?("remote_skills_list_failed", error.localizedDescription, sessionId)
       }
     }
@@ -1122,6 +1173,15 @@ class ServerConnection: ObservableObject {
           response.authStatuses
         )
       } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) {
+          connLog(
+            .info,
+            category: .receive,
+            "Deferred MCP tools fetch until connector is available",
+            sessionId: sessionId
+          )
+          return
+        }
         onError?("mcp_tools_list_failed", error.localizedDescription, sessionId)
       }
     }
@@ -1282,7 +1342,12 @@ class ServerConnection: ObservableObject {
       throw ServerRequestError.invalidResponse
     }
     guard (200 ..< 300).contains(http.statusCode) else {
-      throw ServerRequestError.httpStatus(http.statusCode)
+      let apiError = try? JSONDecoder().decode(APIErrorHTTPResponse.self, from: data)
+      throw ServerRequestError.httpStatus(
+        http.statusCode,
+        code: apiError?.code,
+        message: apiError?.error
+      )
     }
     return try JSONDecoder().decode(Response.self, from: data)
   }
@@ -1296,6 +1361,11 @@ class ServerConnection: ObservableObject {
 
   private func encodePathComponent(_ value: String) -> String {
     value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+  }
+
+  static func shouldSuppressConnectorUnavailableError(_ error: Error) -> Bool {
+    guard let requestError = error as? ServerRequestError else { return false }
+    return requestError.isConnectorUnavailableConflict
   }
 
   private func apiURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
