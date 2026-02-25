@@ -93,7 +93,7 @@ struct StandardToolCard: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("INPUT")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView(.horizontal, showsIndicators: false) {
@@ -114,7 +114,7 @@ struct StandardToolCard: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("OUTPUT")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {

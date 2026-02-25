@@ -434,7 +434,7 @@ struct ActiveSessionsSection: View {
           .font(.system(size: 9, weight: .bold, design: .rounded))
           .tracking(0.6)
       }
-      .foregroundStyle(.tertiary)
+      .foregroundStyle(Color.textTertiary)
 
       RoundedRectangle(cornerRadius: 1, style: .continuous)
         .fill(Color.surfaceBorder.opacity(0.55))
@@ -530,7 +530,7 @@ struct ActiveSessionsSection: View {
 
         Text("\(section.workstreams.count) \(pluralizedLabel("workstream", count: section.workstreams.count))")
           .font(.system(size: 10, weight: .medium, design: .rounded))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
 
         if section.totalDirect > 0 {
           compactStat(icon: "terminal.fill", text: "\(section.totalDirect) direct", color: .providerCodex)
@@ -577,7 +577,7 @@ struct ActiveSessionsSection: View {
 
         Text("•")
           .font(.system(size: 8, weight: .bold))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
 
         branchBadge(workstream.branchName)
 
@@ -600,7 +600,7 @@ struct ActiveSessionsSection: View {
       HStack(spacing: 8) {
         Text(shortProjectPath(workstream.projectPath))
           .font(.system(size: 9, weight: .medium, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
 
         HStack(spacing: 6) {
@@ -707,7 +707,7 @@ struct ActiveSessionsSection: View {
         Text(workstream.latestActivityAt, style: .relative)
           .font(.system(size: 9, weight: .medium, design: .monospaced))
       }
-      .foregroundStyle(.tertiary)
+      .foregroundStyle(Color.textTertiary)
       .padding(.horizontal, 7)
       .padding(.vertical, 3)
       .background(Color.backgroundSecondary.opacity(0.75), in: Capsule())
@@ -749,7 +749,7 @@ struct ActiveSessionsSection: View {
 
         Image(systemName: "cpu")
           .font(.system(size: 20, weight: .light))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
 
       VStack(spacing: 4) {
@@ -759,7 +759,7 @@ struct ActiveSessionsSection: View {
             .foregroundStyle(.secondary)
           Text("Try a different filter or clear the current one.")
             .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         } else {
           Text(mode == .now ? "No Sessions Need Action Right Now" : "No Active Sessions")
             .font(.system(size: 13, weight: .semibold))
@@ -768,7 +768,7 @@ struct ActiveSessionsSection: View {
           Text(mode == .now ? "Switch to All to browse every active project." :
             "Start an AI coding session to see it here.")
             .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
       }
     }

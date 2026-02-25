@@ -721,20 +721,20 @@ struct DirectSessionComposer: View {
         // Mode badge embedded in the composer
         if isSessionWorking {
           Text("STEER")
-            .font(.system(size: 9, weight: .black, design: .monospaced))
+            .font(.system(size: 11, weight: .black, design: .monospaced))
             .foregroundStyle(Color.composerSteer)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
             .background(
               Color.composerSteer.opacity(OpacityTier.light),
               in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
             )
         } else if inputMode == .shell {
           Text("SHELL")
-            .font(.system(size: 9, weight: .black, design: .monospaced))
+            .font(.system(size: 11, weight: .black, design: .monospaced))
             .foregroundStyle(Color.shellAccent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
             .background(
               Color.shellAccent.opacity(OpacityTier.light),
               in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
@@ -750,9 +750,9 @@ struct DirectSessionComposer: View {
           }
           if !selectedSkills.isEmpty {
             Text("\(selectedSkills.count) skill\(selectedSkills.count == 1 ? "" : "s")")
-              .font(.system(size: TypeScale.micro, weight: .bold))
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
+              .font(.system(size: TypeScale.caption, weight: .bold))
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
               .background(Color.accent.opacity(0.15))
               .foregroundStyle(Color.accent)
               .clipShape(Capsule())
@@ -805,7 +805,7 @@ struct DirectSessionComposer: View {
       .keyboardShortcut(.return, modifiers: .command)
     }
     .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-    .padding(.vertical, isCompactLayout ? Spacing.xs : 4)
+    .padding(.vertical, isCompactLayout ? Spacing.sm : 8)
   }
 
   // MARK: - Composer Action Button
@@ -1311,8 +1311,7 @@ struct DirectSessionComposer: View {
       .padding(.vertical, 1)
     }
     .padding(.horizontal, Spacing.lg)
-    .padding(.top, 10)
-    .padding(.bottom, 4)
+    .padding(.vertical, 8)
   }
 
   private var compactWorkflowActionDock: some View {
@@ -1373,7 +1372,7 @@ struct DirectSessionComposer: View {
 
     return HStack(spacing: 6) {
       Image(systemName: icon)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .font(.system(size: 13, weight: .semibold))
       Text(title)
         .font(.system(size: TypeScale.caption, weight: .semibold))
     }
@@ -1383,7 +1382,7 @@ struct DirectSessionComposer: View {
         : (isCompactLayout ? Color.textTertiary : Color.textSecondary.opacity(0.84))
     )
     .padding(.horizontal, isCompactLayout ? Spacing.sm : 6)
-    .padding(.vertical, isCompactLayout ? 5 : 4)
+    .padding(.vertical, isCompactLayout ? 7 : 6)
     .background(
       (isCompactLayout || isActive) ? (isActive ? activeFill : inactiveFill) : .clear,
       in: Capsule()
@@ -1578,8 +1577,7 @@ struct DirectSessionComposer: View {
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
     }
-    .frame(height: 24)
-    .padding(.horizontal, Spacing.sm)
+    .frame(height: 30)
     .padding(.horizontal, Spacing.lg)
     .padding(.top, 8)
     .padding(.bottom, 10)
@@ -1747,7 +1745,7 @@ struct DirectSessionComposer: View {
       if let lastActivity = session.lastActivityAt {
         Text(lastActivity, style: .relative)
           .font(.system(size: TypeScale.body, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
     }
     .padding(.horizontal, Spacing.lg)

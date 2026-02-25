@@ -146,7 +146,7 @@ struct FlatSessionRow: View {
           regularRowContent
         }
       }
-      .padding(.vertical, 7)
+      .padding(.vertical, 10)
       .padding(.horizontal, 10)
       .background(rowBackground)
     }
@@ -214,7 +214,7 @@ struct FlatSessionRow: View {
         if let context = contextLine {
           Text(context)
             .font(.system(size: TypeScale.caption, weight: .regular))
-            .foregroundStyle(Color.textQuaternary)
+            .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
         }
       }
@@ -223,21 +223,7 @@ struct FlatSessionRow: View {
 
       HStack(spacing: 6) {
         SessionStatusBadge(status: displayStatus, showIcon: true, size: .compact)
-
-        if let activityRecency {
-          recencyBadge(activityRecency)
-        }
-
         UnifiedModelBadge(model: session.model, provider: session.provider, size: .mini)
-
-        if session.isDirect {
-          directPill
-        }
-
-        Text(formatTokens(session.totalTokens))
-          .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
-          .frame(width: 44, alignment: .trailing)
       }
     }
   }

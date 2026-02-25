@@ -244,7 +244,7 @@ struct CodexTurnSidebar: View {
       Button(action: onClose) {
         Image(systemName: "xmark")
           .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .frame(width: 24, height: 24)
           .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 4))
       }
@@ -315,7 +315,7 @@ struct CodexTurnSidebar: View {
     VStack(spacing: 12) {
       Image(systemName: "sidebar.right")
         .font(.system(size: 32, weight: .light))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
 
       Text("No Content Yet")
         .font(.system(size: 13, weight: .medium))
@@ -323,7 +323,7 @@ struct CodexTurnSidebar: View {
 
       Text("Plan, changes, servers, and skills will appear here as the agent works")
         .font(.system(size: 11))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
         .multilineTextAlignment(.center)
     }
     .padding(.horizontal, 24)
@@ -432,7 +432,7 @@ struct CodexTurnSidebar: View {
         if model.files.count > 5 {
           Text("+\(model.files.count - 5) more")
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
             .padding(.horizontal, 12)
             .padding(.vertical, 3)
         }

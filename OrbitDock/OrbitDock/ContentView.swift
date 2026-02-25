@@ -93,7 +93,7 @@ struct ContentView: View {
           .transition(.move(edge: .leading).combined(with: .opacity))
 
           // Click-away area
-          Color.black.opacity(0.3)
+          Color.black.opacity(0.4)
             .onTapGesture {
               withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                 showAgentPanel = false
@@ -239,11 +239,6 @@ struct ContentView: View {
       } else if let session = selectedSession {
         SessionDetailView(
           session: session,
-          onTogglePanel: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-              showAgentPanel.toggle()
-            }
-          },
           onOpenSwitcher: {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
               showQuickSwitcher = true

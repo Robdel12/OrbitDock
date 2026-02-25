@@ -34,7 +34,7 @@ struct FileListRow: View {
         if !parentPath.isEmpty {
           Text(parentPath)
             .font(.system(size: TypeScale.micro, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
         }
       }

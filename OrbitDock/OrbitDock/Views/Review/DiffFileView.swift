@@ -114,7 +114,7 @@ struct DiffFileView: View {
           HStack(spacing: 2) {
             Text("\(focusedHunkIndex + 1)/\(fileDiff.hunks.count)")
               .font(.system(size: 9, weight: .medium, design: .monospaced))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .padding(.trailing, 4)
 
             Button {
@@ -195,7 +195,7 @@ struct DiffFileView: View {
       if !dirPath.isEmpty {
         Text(dirPath)
           .font(.system(size: 12, weight: .regular, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
       Text(fileName)
         .font(.system(size: 12, weight: .semibold, design: .monospaced))

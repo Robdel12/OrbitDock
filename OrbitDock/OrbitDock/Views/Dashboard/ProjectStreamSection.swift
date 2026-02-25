@@ -90,7 +90,7 @@ struct ProjectStreamSection: View {
       if projectGroups.isEmpty {
         emptyState
       } else {
-        VStack(spacing: 0) {
+        VStack(spacing: Spacing.md) {
           ForEach(projectGroups) { group in
             projectSection(group)
           }
@@ -127,9 +127,9 @@ struct ProjectStreamSection: View {
   }
 
   private var regularSectionHeader: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       HStack(alignment: .firstTextBaseline, spacing: 8) {
-        Text("Conversation Operations")
+        Text("Active Sessions")
           .font(.system(size: TypeScale.headline, weight: .bold))
           .foregroundStyle(.primary)
           .tracking(-0.35)
@@ -161,46 +161,8 @@ struct ProjectStreamSection: View {
       HStack(spacing: 0) {
         sortPicker
         thinSeparator
-        providerToggle
-        thinSeparator
 
-        HStack(spacing: 4) {
-          if directCount > 0 || filter == .direct {
-            filterChip(
-              target: .direct,
-              icon: "chevron.left.forwardslash.chevron.right",
-              count: directCount,
-              color: .providerCodex
-            )
-          }
-
-          if counts.attention > 0 || filter == .attention {
-            filterChip(
-              target: .attention,
-              icon: "exclamationmark.circle.fill",
-              count: counts.attention,
-              color: .statusPermission
-            )
-          }
-
-          if counts.running > 0 || filter == .running {
-            filterChip(
-              target: .running,
-              icon: "bolt.fill",
-              count: counts.running,
-              color: .statusWorking
-            )
-          }
-
-          if counts.ready > 0 || filter == .ready {
-            filterChip(
-              target: .ready,
-              icon: "bubble.left.fill",
-              count: counts.ready,
-              color: .statusReply
-            )
-          }
-        }
+        filterDropdown
 
         Spacer()
 
@@ -811,6 +773,52 @@ struct ProjectStreamSection: View {
     }
     .buttonStyle(.plain)
     .help(target.title)
+  }
+
+  private var filterDropdown: some View {
+    Menu {
+      Section("State") {
+        ForEach(ActiveSessionWorkbenchFilter.allCases) { option in
+          Button {
+            filter = option
+          } label: {
+            HStack {
+              Text(option.title)
+              if filter == option {
+                Image(systemName: "checkmark")
+              }
+            }
+          }
+        }
+      }
+
+      Section("Provider") {
+        ForEach(ActiveSessionProviderFilter.allCases) { option in
+          Button {
+            providerFilter = option
+          } label: {
+            HStack {
+              Text(option.label)
+              if providerFilter == option {
+                Image(systemName: "checkmark")
+              }
+            }
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: "line.3.horizontal.decrease.circle")
+          .font(.system(size: 11, weight: .semibold))
+        Text("Filter")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+      }
+      .foregroundStyle((filter != .all || providerFilter != .all) ? Color.accent : Color.textSecondary)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+    }
+    .menuStyle(.borderlessButton)
   }
 
   private var thinSeparator: some View {

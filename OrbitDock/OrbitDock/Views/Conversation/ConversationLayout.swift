@@ -25,14 +25,14 @@ enum ConversationLayout {
   static let metadataHorizontalInset: CGFloat = 12
 
   /// Vertical spacing between a role header row and its body (4pt grid).
-  static let headerToBodySpacing: CGFloat = 8
+  static let headerToBodySpacing: CGFloat = 4
 
   /// Vertical spacing between timeline entries (4pt grid).
-  static let entryBottomSpacing: CGFloat = 16
+  static let entryBottomSpacing: CGFloat = 12
 
   /// Max readable width for left-aligned assistant content.
   /// Capped at ~80 characters per line at 14.5pt SF Pro (Typography.md §Line Length).
-  static let assistantRailMaxWidth: CGFloat = 820
+  static let assistantRailMaxWidth: CGFloat = 880
 
   /// Max readable width for reasoning/thinking blocks (subordinate to assistant).
   static let thinkingRailMaxWidth: CGFloat = 880
@@ -41,7 +41,7 @@ enum ConversationLayout {
   static let userRailMaxWidth: CGFloat = 1_000
 
   /// Chat turn stack spacing.
-  static let turnVerticalSpacing: CGFloat = 20
+  static let turnVerticalSpacing: CGFloat = 16
 
   /// Tool-zone panel insets.
   static let toolZoneInnerHorizontalInset: CGFloat = 10
@@ -50,14 +50,17 @@ enum ConversationLayout {
 
   // MARK: - Fixed Row Heights (macOS native rows — no SwiftUI measurement)
 
-  /// Turn header: "TURN N" + status capsule + tool count
-  static let turnHeaderHeight: CGFloat = 40
+  /// Turn header: subtle breath mark between turns
+  static let turnHeaderHeight: CGFloat = 24
 
-  /// Rollup summary: chevron + action count + tool breakdown chips
-  static let rollupSummaryHeight: CGFloat = 40
+  /// First turn header: minimal spacer (no visual break before first message)
+  static let firstTurnHeaderHeight: CGFloat = 8
+
+  /// Rollup summary: chevron + comma-separated tool counts
+  static let rollupSummaryHeight: CGFloat = 28
 
   /// Compact tool row: glyph + summary + meta (4pt grid)
-  static let compactToolRowHeight: CGFloat = 32
+  static let compactToolRowHeight: CGFloat = 28
 
   /// "Load N earlier messages" button
   static let loadMoreHeight: CGFloat = 38
@@ -66,7 +69,7 @@ enum ConversationLayout {
   static let messageCountHeight: CGFloat = 24
 
   /// Bottom status row ("Working", "Your turn", "Permission")
-  static let liveIndicatorHeight: CGFloat = 40
+  static let liveIndicatorHeight: CGFloat = 36
 
   /// Bottom spacer below last row
   static let bottomSpacerHeight: CGFloat = 32

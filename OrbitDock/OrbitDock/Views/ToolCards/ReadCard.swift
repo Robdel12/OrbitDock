@@ -61,7 +61,7 @@ struct ReadCard: View {
 
         Text(ToolCardStyle.shortenPath(path))
           .font(.system(size: 10, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
       } else {
         Text("Read")
@@ -123,7 +123,7 @@ struct ReadCard: View {
       if hasMore {
         Text("... +\(lineCount - maxLines) more lines")
           .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .padding(.horizontal, 12)
           .padding(.vertical, 6)
       }

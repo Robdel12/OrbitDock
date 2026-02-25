@@ -26,7 +26,7 @@ struct CollapsibleSection<Content: View>: View {
         HStack(spacing: 8) {
           Image(systemName: "chevron.right")
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
 
           Image(systemName: icon)

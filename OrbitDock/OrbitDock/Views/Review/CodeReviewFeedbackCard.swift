@@ -73,12 +73,12 @@ struct CodeReviewFeedbackCard: View {
           Text("\(sections.count) files")
             .font(.system(size: TypeScale.micro, weight: .medium))
         }
-        .foregroundStyle(.quaternary)
+        .foregroundStyle(Color.textQuaternary)
       }
 
       Text(formatTime(timestamp))
         .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        .foregroundStyle(.quaternary)
+        .foregroundStyle(Color.textQuaternary)
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
@@ -192,7 +192,7 @@ private struct FileSectionView: View {
 
         Text("\(section.comments.count)")
           .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
           .padding(.horizontal, 5)
           .padding(.vertical, 1)
           .background(Color.white.opacity(OpacityTier.tint), in: Capsule())
@@ -231,7 +231,7 @@ private struct FileSectionView: View {
       if !dirPath.isEmpty {
         Text(dirPath)
           .font(.system(size: TypeScale.body, weight: .regular, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
       Text(fileName)
         .font(.system(size: TypeScale.body, weight: .semibold, design: .monospaced))

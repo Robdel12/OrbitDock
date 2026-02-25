@@ -52,10 +52,10 @@ struct CommentComposerView: View {
             if let fileName {
               Text("in")
                 .font(.system(size: TypeScale.micro))
-                .foregroundStyle(.quaternary)
+                .foregroundStyle(Color.textQuaternary)
               Text(fileName)
                 .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
           }
 
@@ -84,7 +84,7 @@ struct CommentComposerView: View {
             if commentBody.isEmpty {
               Text("Add a comment...")
                 .font(.system(size: TypeScale.code, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 14)
                 .allowsHitTesting(false)

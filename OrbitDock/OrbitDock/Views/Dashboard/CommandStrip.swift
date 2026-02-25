@@ -107,44 +107,15 @@ struct CommandStrip: View {
 
       syncIndicator
 
-      if !sessions.isEmpty {
-        HStack(spacing: 8) {
-          if workingCount > 0 {
-            statusDot(count: workingCount, color: .statusWorking, icon: "bolt.fill")
-          }
-          if attentionCount > 0 {
-            statusDot(count: attentionCount, color: .statusPermission, icon: "exclamationmark.circle.fill")
-          }
-          if readyCount > 0 {
-            statusDot(count: readyCount, color: .statusReply, icon: "bubble.left.fill")
-          }
-        }
+      if !sessions.isEmpty, workingCount + attentionCount + readyCount > 0 {
+        statusSummaryPill
       }
 
-      if hasMultipleEndpoints {
-        endpointHealthPill
-      }
+      usageGaugeStrip
 
       Spacer()
 
-      HStack(spacing: 12) {
-        ForEach(registry.activeProviders) { provider in
-          ProviderUsageCompact(
-            provider: provider,
-            windows: registry.windows(for: provider),
-            isLoading: registry.isLoading(for: provider),
-            error: registry.error(for: provider),
-            isStale: registry.isStale(for: provider)
-          )
-        }
-      }
-
-      if !registry.activeProviders.isEmpty {
-        Color.panelBorder.frame(width: 1, height: 16)
-      }
-
-      newClaudeButton
-      newCodexButton
+      newSessionMenu
       quickSwitchButton
     }
     .padding(.horizontal, 16)
@@ -152,59 +123,27 @@ struct CommandStrip: View {
   }
 
   private var padStrip: some View {
-    VStack(spacing: 8) {
-      HStack(spacing: 10) {
-        panelButton
+    HStack(spacing: 10) {
+      panelButton
 
-        Text("OrbitDock")
-          .font(.system(size: TypeScale.large, weight: .bold))
-          .foregroundStyle(.primary)
+      Text("OrbitDock")
+        .font(.system(size: TypeScale.large, weight: .bold))
+        .foregroundStyle(.primary)
 
-        syncIndicator
+      syncIndicator
 
-        if !sessions.isEmpty {
-          HStack(spacing: 8) {
-            if workingCount > 0 {
-              statusDot(count: workingCount, color: .statusWorking, icon: "bolt.fill")
-            }
-            if attentionCount > 0 {
-              statusDot(count: attentionCount, color: .statusPermission, icon: "exclamationmark.circle.fill")
-            }
-            if readyCount > 0 {
-              statusDot(count: readyCount, color: .statusReply, icon: "bubble.left.fill")
-            }
-          }
-        }
-
-        if hasMultipleEndpoints {
-          endpointHealthPill
-        }
-
-        Spacer()
-
-        newClaudeButton
-        newCodexButton
-        quickSwitchButton
-        settingsButton
-        serverSettingsButton
+      if !sessions.isEmpty, workingCount + attentionCount + readyCount > 0 {
+        statusSummaryPill
       }
 
-      if !registry.activeProviders.isEmpty {
-        ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 12) {
-            ForEach(registry.activeProviders) { provider in
-              ProviderUsageCompact(
-                provider: provider,
-                windows: registry.windows(for: provider),
-                isLoading: registry.isLoading(for: provider),
-                error: registry.error(for: provider),
-                isStale: registry.isStale(for: provider)
-              )
-            }
-          }
-          .padding(.horizontal, 1)
-        }
-      }
+      usageGaugeStrip
+
+      Spacer()
+
+      newSessionMenu
+      quickSwitchButton
+      settingsButton
+      serverSettingsButton
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
@@ -289,12 +228,24 @@ struct CommandStrip: View {
     .help("Connected endpoints: \(connectedEndpointCount) of \(enabledEndpointCount)")
   }
 
-  private var newClaudeButton: some View {
-    Button(action: onNewClaude) {
+  private var newSessionMenu: some View {
+    Menu {
+      Button {
+        onNewClaude()
+      } label: {
+        Label("Claude Session", systemImage: "sparkles")
+      }
+
+      Button {
+        onNewCodex()
+      } label: {
+        Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
+      }
+    } label: {
       HStack(spacing: 5) {
         Image(systemName: "plus")
           .font(.system(size: 10, weight: .bold))
-        Text("Claude")
+        Text("New")
           .font(.system(size: TypeScale.body, weight: .semibold))
       }
       .padding(.horizontal, 10)
@@ -302,25 +253,8 @@ struct CommandStrip: View {
       .background(Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
       .foregroundStyle(Color.accent)
     }
-    .buttonStyle(.plain)
-    .help("Create new Claude session")
-  }
-
-  private var newCodexButton: some View {
-    Button(action: onNewCodex) {
-      HStack(spacing: 5) {
-        Image(systemName: "plus")
-          .font(.system(size: 10, weight: .bold))
-        Text("Codex")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-      }
-      .padding(.horizontal, 10)
-      .padding(.vertical, 5)
-      .background(Color.providerCodex.opacity(0.15), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-      .foregroundStyle(Color.providerCodex)
-    }
-    .buttonStyle(.plain)
-    .help("Create new Codex session")
+    .menuStyle(.borderlessButton)
+    .help("New session")
   }
 
   private var newSessionMenuButton: some View {
@@ -580,6 +514,58 @@ struct CommandStrip: View {
         return Color.textTertiary
       case .failed:
         return Color.statusPermission
+    }
+  }
+
+  private var statusSummaryPill: some View {
+    HStack(spacing: 6) {
+      if workingCount > 0 {
+        HStack(spacing: 3) {
+          Image(systemName: "bolt.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(Color.statusWorking)
+          Text("\(workingCount)")
+            .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.statusWorking)
+        }
+      }
+      if attentionCount > 0 {
+        HStack(spacing: 3) {
+          Image(systemName: "exclamationmark.circle.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(Color.statusPermission)
+          Text("\(attentionCount)")
+            .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.statusPermission)
+        }
+      }
+      if readyCount > 0 {
+        HStack(spacing: 3) {
+          Image(systemName: "bubble.left.fill")
+            .font(.system(size: 8, weight: .bold))
+            .foregroundStyle(Color.statusReply)
+          Text("\(readyCount)")
+            .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
+            .foregroundStyle(Color.statusReply)
+        }
+      }
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background(Color.surfaceHover.opacity(0.6), in: Capsule())
+  }
+
+  private var usageGaugeStrip: some View {
+    HStack(spacing: 12) {
+      ForEach(registry.activeProviders) { provider in
+        ProviderUsageCompact(
+          provider: provider,
+          windows: registry.windows(for: provider),
+          isLoading: registry.isLoading(for: provider),
+          error: registry.error(for: provider),
+          isStale: registry.isStale(for: provider)
+        )
+      }
     }
   }
 

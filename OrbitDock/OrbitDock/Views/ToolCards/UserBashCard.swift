@@ -297,11 +297,11 @@ struct UserBashCard: View {
       HStack(spacing: 8) {
         Text(formatTime(timestamp))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
 
         Text("You")
           .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
 
       // Bash card - right aligned
@@ -344,7 +344,7 @@ struct UserBashCard: View {
             if bash.hasOutput {
               Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
                 .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
           }
@@ -456,11 +456,11 @@ struct UserSlashCommandCard: View {
       HStack(spacing: 8) {
         Text(formatTime(timestamp))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
 
         Text("You")
           .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
 
       // Command card (only show if there's a command name)
@@ -551,7 +551,7 @@ struct SystemCaveatView: View {
       Text("System notice")
         .font(.system(size: 11, weight: .medium))
     }
-    .foregroundStyle(.quaternary)
+    .foregroundStyle(Color.textQuaternary)
     .padding(.horizontal, 12)
     .padding(.vertical, 6)
   }
@@ -967,11 +967,11 @@ struct TaskNotificationCard: View {
       HStack(spacing: 8) {
         Text(formatTime(timestamp))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
 
         Text("Background Task")
           .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
 
       // Task notification card
@@ -997,11 +997,11 @@ struct TaskNotificationCard: View {
 
               Text("•")
                 .font(.system(size: 8))
-                .foregroundStyle(.quaternary)
+                .foregroundStyle(Color.textQuaternary)
 
               Text(notification.taskId)
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
           }
 
@@ -1011,7 +1011,7 @@ struct TaskNotificationCard: View {
           if !notification.outputFile.isEmpty {
             Image(systemName: "chevron.down")
               .font(.system(size: 9, weight: .semibold))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .rotationEffect(.degrees(isExpanded ? 0 : -90))
           }
         }
@@ -1062,7 +1062,7 @@ struct TaskNotificationCard: View {
             } else {
               Text("Output file not found")
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
           }
           .padding(12)

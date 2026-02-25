@@ -464,7 +464,7 @@ struct GeneralSettingsView: View {
 
             Text("Used when clicking project paths to open in your editor.")
               .font(.system(size: 11))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
         }
 
@@ -610,7 +610,7 @@ struct GeneralSettingsView: View {
 
               Text("Transcribe microphone audio on-device using whisper.cpp.")
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
 
             Divider()
@@ -646,15 +646,15 @@ struct GeneralSettingsView: View {
                   """
                 )
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
               case let .unavailable(message):
                 Text(message)
                   .font(.system(size: 11))
-                  .foregroundStyle(.tertiary)
+                  .foregroundStyle(Color.textTertiary)
               case .ready:
                 Text("Local Whisper model is available and ready for dictation.")
                   .font(.system(size: 11))
-                  .foregroundStyle(.tertiary)
+                  .foregroundStyle(Color.textTertiary)
             }
           }
         }
@@ -756,7 +756,7 @@ struct NotificationSettingsView: View {
 
               Text("Master switch for all OrbitDock notifications.")
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
 
             Divider()
@@ -773,7 +773,7 @@ struct NotificationSettingsView: View {
 
               Text("Alert when a session stops working and is ready for input.")
                 .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
             .opacity(notificationsEnabled ? 1 : 0.5)
           }
@@ -816,7 +816,7 @@ struct NotificationSettingsView: View {
 
             Text("Plays when a session needs your attention.")
               .font(.system(size: 11))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
         }
         .opacity(notificationsEnabled ? 1 : 0.5)
@@ -1254,7 +1254,7 @@ struct DebugSettingsView: View {
             "Choose one control-plane endpoint for this Mac while keeping additional endpoints connected in parallel."
           )
           .font(.system(size: 11))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
         }
 
         // Server install state

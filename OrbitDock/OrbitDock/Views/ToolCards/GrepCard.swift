@@ -131,7 +131,7 @@ struct GrepCard: View {
             if !item.matches.isEmpty {
               Text("(\(item.matches.count))")
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
           }
           .padding(.vertical, 4)
@@ -152,7 +152,7 @@ struct GrepCard: View {
             if item.matches.count > 5 {
               Text("... +\(item.matches.count - 5) more")
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
                 .padding(.leading, 28)
                 .padding(.vertical, 2)
             }
@@ -163,7 +163,7 @@ struct GrepCard: View {
       if hasMore {
         Text("... +\(grouped.count - maxFiles) more files")
           .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .padding(.horizontal, 12)
           .padding(.vertical, 6)
       }

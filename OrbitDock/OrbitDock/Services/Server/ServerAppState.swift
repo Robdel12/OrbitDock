@@ -1777,7 +1777,12 @@ final class ServerAppState {
 
     if code.hasPrefix("codex_auth_") {
       codexAuthError = message
-      refreshCodexAccount()
+      // Only re-fetch account status for real auth errors from the server.
+      // Connection failures use "codex_auth_connection" — retrying those
+      // creates an infinite loop (fetch fails → error → fetch → …).
+      if code == "codex_auth_error" {
+        refreshCodexAccount()
+      }
       handled = true
     }
 

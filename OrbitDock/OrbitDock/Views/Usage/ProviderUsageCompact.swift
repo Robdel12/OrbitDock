@@ -45,7 +45,7 @@ struct ProviderUsageCompact: View {
           if isApiKeyMode {
             Text("API")
               .font(.system(size: 9, weight: .medium))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
         }
         .help(error.localizedDescription)

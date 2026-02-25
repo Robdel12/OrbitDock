@@ -48,13 +48,13 @@ struct SkillsPicker: View {
         VStack(spacing: 8) {
           Image(systemName: "bolt.slash")
             .font(.title2)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
           Text("No skills available")
             .font(.caption)
             .foregroundStyle(.secondary)
           Text("Add skills to .codex/skills/")
             .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 24)
@@ -124,7 +124,7 @@ private struct SkillRow: View {
       HStack(spacing: 10) {
         Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
           .font(.body)
-          .foregroundStyle(isSelected ? AnyShapeStyle(Color.accent) : AnyShapeStyle(.tertiary))
+          .foregroundStyle(isSelected ? AnyShapeStyle(Color.accent) : AnyShapeStyle(Color.textTertiary))
 
         VStack(alignment: .leading, spacing: 2) {
           Text(skill.name)

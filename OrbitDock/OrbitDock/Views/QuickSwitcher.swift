@@ -365,11 +365,11 @@ struct QuickSwitcher: View {
     .padding(.horizontal, isCompactLayout ? 0 : 0)
     .background {
       if isCompactLayout {
-        Color.panelBackground
+        Color.backgroundSecondary
           .ignoresSafeArea(.container, edges: .bottom)
       } else {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
-          .fill(Color.panelBackground)
+          .fill(Color.backgroundSecondary)
       }
     }
     .overlay {
@@ -501,7 +501,8 @@ struct QuickSwitcher: View {
       }
     }
     .padding(.horizontal, isCompactLayout ? 14 : 20)
-    .padding(.vertical, isCompactLayout ? 12 : 18)
+    .padding(.vertical, isCompactLayout ? 12 : 14)
+    .frame(minHeight: isCompactLayout ? nil : 40)
   }
 
   // MARK: - Results View

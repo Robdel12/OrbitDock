@@ -49,7 +49,7 @@ struct ProviderUsageCard: View {
 
             Text("Plan")
               .font(.system(size: 8, weight: .medium))
-              .foregroundStyle(.quaternary)
+              .foregroundStyle(Color.textQuaternary)
           }
           .padding(.leading, 4)
         }
@@ -59,7 +59,7 @@ struct ProviderUsageCard: View {
             .controlSize(.small)
           Text("Loading...")
             .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
       } else if let error {
         HStack(spacing: 6) {
@@ -68,7 +68,7 @@ struct ProviderUsageCard: View {
             .foregroundStyle(isApiKeyMode ? provider.accentColor : Color.statusError)
           Text(errorLabel)
             .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
         .help(error.localizedDescription)
       } else {

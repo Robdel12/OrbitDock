@@ -117,7 +117,7 @@ struct GlobCard: View {
               .foregroundStyle(.primary.opacity(0.8))
             Text("(\(dirFiles.count))")
               .font(.system(size: 10, design: .monospaced))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
           .padding(.vertical, 4)
           .padding(.horizontal, 12)
@@ -142,7 +142,7 @@ struct GlobCard: View {
           if dirFiles.count > 10 {
             Text("... +\(dirFiles.count - 10) more")
               .font(.system(size: 10))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .padding(.leading, 28)
               .padding(.vertical, 2)
           }
@@ -152,7 +152,7 @@ struct GlobCard: View {
       if hasMoreDirs {
         Text("... +\(sortedDirs.count - maxDirs) more directories")
           .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .padding(.horizontal, 12)
           .padding(.vertical, 6)
       }

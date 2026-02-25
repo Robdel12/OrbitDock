@@ -740,7 +740,7 @@ struct ReviewCanvas: View {
       if isCollapsed {
         Text("\(file.hunks.count) hunk\(file.hunks.count == 1 ? "" : "s")")
           .font(.system(size: TypeScale.micro, weight: .medium))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .padding(.trailing, 8)
       }
     }
@@ -759,7 +759,7 @@ struct ReviewCanvas: View {
       if !dirPath.isEmpty {
         Text(dirPath)
           .font(.system(size: TypeScale.body, weight: .regular, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
       Text(fileName)
         .font(.system(size: TypeScale.body, weight: .semibold, design: .monospaced))
@@ -1663,7 +1663,7 @@ struct ReviewCanvas: View {
               "\(round.commentCount) comment\(round.commentCount == 1 ? "" : "s") on \(round.reviewedFilePaths.count) file\(round.reviewedFilePaths.count == 1 ? "" : "s")"
             )
             .font(.system(size: TypeScale.caption, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
           }
 
           Spacer()
@@ -1676,7 +1676,7 @@ struct ReviewCanvas: View {
           } label: {
             Image(systemName: "xmark")
               .font(.system(size: 8, weight: .bold))
-              .foregroundStyle(.quaternary)
+              .foregroundStyle(Color.textQuaternary)
               .padding(Spacing.xs)
           }
           .buttonStyle(.plain)

@@ -176,7 +176,7 @@ struct TodoTaskCard: View {
         VStack(alignment: .leading, spacing: 8) {
           Text("DETAILS")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           VStack(alignment: .leading, spacing: 4) {
@@ -202,7 +202,7 @@ struct TodoTaskCard: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("RESULT")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           Text(output.count > 500 ? String(output.prefix(500)) + "..." : output)
@@ -220,7 +220,7 @@ struct TodoTaskCard: View {
     HStack(alignment: .top, spacing: 8) {
       Text(label)
         .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
         .frame(width: 70, alignment: .trailing)
 
       Text(value.count > 150 ? String(value.prefix(150)) + "..." : value)

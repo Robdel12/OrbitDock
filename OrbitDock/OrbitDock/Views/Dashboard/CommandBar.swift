@@ -10,7 +10,6 @@ import SwiftUI
 
 struct CommandBar: View {
   let sessions: [Session]
-  @State private var showDetails = false
 
   /// Calculate today's stats
   private var todayStats: DetailedStats {
@@ -28,91 +27,39 @@ struct CommandBar: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      // Always-visible compact stats + usage bar
-      HStack(spacing: 0) {
-        // Left: Today headline cost + supporting stats
-        HStack(spacing: 5) {
-          Text("TODAY")
-            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.textQuaternary)
-            .tracking(1.0)
+    HStack(spacing: 0) {
+      HStack(spacing: 5) {
+        Text("Today:")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
 
-          Text(formatCostCompact(todayStats.cost))
-            .font(.system(size: 18, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.textPrimary)
+        Text(formatCostCompact(todayStats.cost))
+          .font(.system(size: TypeScale.title, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textPrimary)
 
-          compactStat(value: "\(todayStats.sessionCount)", label: "sessions")
-          compactStat(value: formatCompactTokens(todayStats.tokens), label: "tokens")
-        }
-
-        thinDivider
-
-        // Center: All-time
-        HStack(spacing: 5) {
-          Text("ALL")
-            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.textQuaternary)
-            .tracking(1.0)
-
-          Text(formatCostCompact(trackedStats.cost))
-            .font(.system(size: 18, weight: .bold, design: .rounded))
-            .foregroundStyle(Color.textPrimary)
-
-          compactStat(value: "\(trackedStats.sessionCount)", label: "sessions")
-          compactStat(value: formatCompactTokens(trackedStats.tokens), label: "tokens")
-        }
-
-        Spacer(minLength: 16)
-
-        // Right: Usage gauges (always visible)
-        UsageGaugesPanel()
-
-        // Details toggle
-        Button {
-          withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            showDetails.toggle()
-          }
-        } label: {
-          Image(systemName: "ellipsis.circle")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(showDetails ? Color.accent : Color.white.opacity(0.42))
-            .frame(width: 24, height: 24)
-        }
-        .buttonStyle(.plain)
-        .help("Toggle detailed breakdown")
+        compactStat(value: "\(todayStats.sessionCount)", label: "sessions")
+        compactStat(value: formatCompactTokens(todayStats.tokens), label: "tokens")
       }
-      .padding(.horizontal, 2)
-      .padding(.vertical, 10)
 
-      // Expandable detail panels
-      if showDetails {
-        HStack(alignment: .top, spacing: 16) {
-          StatsDetailPanel(
-            stats: todayStats,
-            title: "Today",
-            icon: "sun.max.fill",
-            accentColor: .statusWaiting
-          )
-          .frame(maxWidth: .infinity)
+      thinDivider
 
-          StatsDetailPanel(
-            stats: trackedStats,
-            title: "All-Time",
-            icon: "tray.full.fill",
-            accentColor: .accent
-          )
-          .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
-        .background(
-          RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color.backgroundTertiary.opacity(0.4))
-        )
+      HStack(spacing: 5) {
+        Text("All:")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(Color.textTertiary)
+
+        Text(formatCostCompact(trackedStats.cost))
+          .font(.system(size: TypeScale.title, weight: .bold, design: .monospaced))
+          .foregroundStyle(Color.textPrimary)
+
+        compactStat(value: "\(trackedStats.sessionCount)", label: "sessions")
+        compactStat(value: formatCompactTokens(trackedStats.tokens), label: "tokens")
       }
+
+      Spacer(minLength: 16)
     }
-    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: showDetails)
+    .padding(.horizontal, 2)
+    .padding(.vertical, 8)
   }
 
   private func compactStat(value: String, label: String) -> some View {

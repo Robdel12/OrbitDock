@@ -33,13 +33,24 @@ struct AttentionBanner: View {
   }
 
   var body: some View {
-    if !attentionSessions.isEmpty {
+    let visible = Array(attentionSessions.prefix(3))
+    let overflow = attentionSessions.count - visible.count
+
+    if !visible.isEmpty {
       VStack(spacing: 4) {
-        ForEach(attentionSessions, id: \.scopedID) { session in
+        ForEach(visible, id: \.scopedID) { session in
           AttentionBannerItem(
             session: session,
             onSelect: { onSelectSession(session.scopedID) }
           )
+        }
+
+        if overflow > 0 {
+          Text("+\(overflow) more")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 4)
         }
       }
       .transition(.move(edge: .top).combined(with: .opacity))
@@ -101,75 +112,44 @@ private struct AttentionBannerItem: View {
           .padding(.vertical, 4)
 
         HStack(spacing: 10) {
-          // Status icon
-          Image(systemName: displayStatus.icon)
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(edgeColor)
-            .frame(width: 20)
+          // Pulsing status dot
+          Circle()
+            .fill(edgeColor)
+            .frame(width: 8, height: 8)
+            .shadow(color: edgeColor.opacity(0.5), radius: 4)
+            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: true)
 
-          // Project + session identity + context
-          VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 5) {
-              Text(session.projectName ?? "Unknown")
-                .font(.system(size: TypeScale.code, weight: .bold))
-                .foregroundStyle(.primary)
-
-              if let branch = session.branch, !branch.isEmpty {
-                Text("·")
-                  .foregroundStyle(Color.textQuaternary)
-                Text(branch.count > 28 ? String(branch.prefix(26)) + "…" : branch)
-                  .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-                  .foregroundStyle(Color.gitBranch.opacity(0.7))
-                  .lineLimit(1)
-              }
-
-              // Session name for identification
-              if let name = session.customName ?? session.summary {
-                Text("·")
-                  .foregroundStyle(Color.textQuaternary)
-                Text(name.strippingXMLTags())
-                  .font(.system(size: TypeScale.body, weight: .medium))
-                  .foregroundStyle(.secondary)
-                  .lineLimit(1)
-              }
-            }
-
+          // Context text with inline duration
+          HStack(spacing: 5) {
             Text(contextText)
-              .font(.system(size: TypeScale.code, weight: .semibold))
-              .foregroundStyle(edgeColor.opacity(0.9))
+              .font(.system(size: TypeScale.body, weight: .semibold))
+              .foregroundStyle(edgeColor)
               .lineLimit(1)
+
+            if !blockedDuration.isEmpty {
+              Text("(\(blockedDuration) ago)")
+                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.textTertiary)
+            }
           }
 
           Spacer()
 
-          // Blocked duration
-          if !blockedDuration.isEmpty {
-            Text(blockedDuration)
-              .font(.system(size: 10, weight: .semibold, design: .monospaced))
-              .foregroundStyle(Color.textTertiary)
-          }
-
-          // Action button
-          HStack(spacing: 4) {
-            Image(systemName: displayStatus == .question ? "eye" : "arrow.right.circle")
-              .font(.system(size: 10, weight: .bold))
-            Text(displayStatus == .question ? "View" : "Review")
-              .font(.system(size: TypeScale.body, weight: .bold))
-          }
-          .foregroundStyle(edgeColor)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 5)
-          .background(edgeColor.opacity(OpacityTier.light), in: Capsule())
+          // Project identity
+          Text(session.projectName ?? "Unknown")
+            .font(.system(size: TypeScale.caption, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
+            .lineLimit(1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
       }
       .background(
         RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-          .fill(edgeColor.opacity(isHovering ? 0.08 : 0.04))
+          .fill(edgeColor.opacity(isHovering ? 0.15 : 0.10))
           .overlay(
             RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-              .stroke(edgeColor.opacity(isHovering ? 0.28 : 0.18), lineWidth: 1)
+              .stroke(edgeColor.opacity(isHovering ? 0.35 : 0.25), lineWidth: 1.5)
           )
       )
     }

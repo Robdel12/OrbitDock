@@ -130,7 +130,7 @@ struct EditCard: View {
 
           Text(ToolCardStyle.shortenPath(path))
             .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
         }
       }
@@ -198,7 +198,7 @@ struct EditCard: View {
         } label: {
           Image(systemName: "arrow.up.forward.square")
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
         .buttonStyle(.plain)
         .help("Open in Finder")
@@ -222,7 +222,7 @@ struct EditCard: View {
           if let duration = message.formattedDuration {
             Text(duration)
               .font(.system(size: 10, weight: .medium, design: .monospaced))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
         }
       }
@@ -272,7 +272,7 @@ struct EditCard: View {
       } else {
         Text("No content")
           .font(.system(size: 12))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .padding(14)
       }
     }
@@ -477,7 +477,7 @@ struct ChangedDiffView: View {
       if displayLines.isEmpty {
         Text("No changed lines")
           .font(.system(size: 12))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .padding(.horizontal, 14)
           .padding(.vertical, 10)
       } else {
@@ -493,7 +493,7 @@ struct ChangedDiffView: View {
           Text("\(lines.count - maxLines) more changed lines")
             .font(.system(size: 11, weight: .medium))
         }
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)

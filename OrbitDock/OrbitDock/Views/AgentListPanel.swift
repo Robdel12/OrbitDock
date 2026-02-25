@@ -172,7 +172,7 @@ struct AgentListPanel: View {
       Button(action: onClose) {
         Image(systemName: "xmark")
           .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .frame(width: 24, height: 24)
           .background(Color.surfaceHover, in: Circle())
       }
@@ -188,7 +188,7 @@ struct AgentListPanel: View {
     HStack(spacing: 8) {
       Image(systemName: "magnifyingglass")
         .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
 
       TextField("Search agents...", text: $searchText)
         .textFieldStyle(.plain)
@@ -244,7 +244,7 @@ struct AgentListPanel: View {
     VStack(spacing: 12) {
       Image(systemName: "terminal")
         .font(.system(size: 28))
-        .foregroundStyle(.quaternary)
+        .foregroundStyle(Color.textQuaternary)
 
       VStack(spacing: 4) {
         Text("No Agents")
@@ -253,7 +253,7 @@ struct AgentListPanel: View {
 
         Text("Start an AI session\nto see it here")
           .font(.system(size: 11))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .multilineTextAlignment(.center)
       }
     }
@@ -426,7 +426,7 @@ struct RenameSessionSheet: View {
 
         Text("Leave empty to use the AI-generated title, or set a custom name.")
           .font(.system(size: 11))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .fixedSize(horizontal: false, vertical: true)
       }
       .padding(16)

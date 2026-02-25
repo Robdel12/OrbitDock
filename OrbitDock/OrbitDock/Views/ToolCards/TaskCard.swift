@@ -300,7 +300,7 @@ struct TaskCard: View {
 
           Text("(\(subagentTools.count) tools)")
             .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
 
           Spacer()
         }
@@ -321,7 +321,7 @@ struct TaskCard: View {
           if subagentTools.count > 20 {
             Text("... +\(subagentTools.count - 20) more tools")
               .font(.system(size: 10))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .padding(.horizontal, 12)
               .padding(.vertical, 6)
           }
@@ -342,7 +342,7 @@ struct TaskCard: View {
           .foregroundStyle(agentInfo.color.opacity(0.7))
         Text("PROMPT")
           .font(.system(size: 9, weight: .bold, design: .rounded))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
           .tracking(0.5)
       }
 

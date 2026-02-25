@@ -45,7 +45,7 @@ struct ReviewChecklistSection: View {
           Spacer()
           Text(showAll ? "No comments yet" : "No open comments")
             .font(.system(size: 11))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
           Spacer()
         }
         .padding(.vertical, 16)
@@ -142,7 +142,7 @@ struct ReviewChecklistSection: View {
 
           Text(":\(comment.lineStart)")
             .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
 
         // Body preview

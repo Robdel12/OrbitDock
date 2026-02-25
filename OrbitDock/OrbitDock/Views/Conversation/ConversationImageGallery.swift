@@ -138,16 +138,16 @@ struct ImageGallery: View {
           Text(images.count == 1 ? "1 image" : "\(images.count) images")
             .font(.system(size: 12, weight: .medium))
           Text("•")
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
           Text(totalSize)
             .font(.system(size: 11, weight: .medium, design: .monospaced))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
 
           Spacer()
 
           Image(systemName: "chevron.right")
             .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
             .rotationEffect(.degrees(isExpanded ? 90 : 0))
         }
         .foregroundStyle(.secondary)
@@ -270,7 +270,7 @@ struct SingleImageView: View {
           Text(imageSize)
         }
         .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.quaternary)
+        .foregroundStyle(Color.textQuaternary)
       }
       .scaleEffect(isHovering ? 1.01 : 1.0)
       .animation(.easeOut(duration: 0.15), value: isHovering)
