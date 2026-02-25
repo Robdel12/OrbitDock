@@ -21,7 +21,7 @@ final class NativeCodeBlockView: PlatformView {
 
   private static let headerHeight: CGFloat = 36
   private static let separatorHeight: CGFloat = 1
-  private static let lineHeight: CGFloat = 18
+  private static let lineHeight: CGFloat = 22
   private static let verticalPadding: CGFloat = 10
   private static let horizontalPadding: CGFloat = 14
   private static let lineNumberTrailingPad: CGFloat = 14
@@ -31,11 +31,11 @@ final class NativeCodeBlockView: PlatformView {
   private static let collapsedLineCount = 8
   private static let expandButtonHeight: CGFloat = 34
 
-  private static let bgColor = PlatformColor.calibrated(red: 0.06, green: 0.06, blue: 0.07, alpha: 1)
-  private static let borderColor = PlatformColor.white.withAlphaComponent(0.06)
+  private static let bgColor = PlatformColor.calibrated(red: 0.04, green: 0.04, blue: 0.052, alpha: 1)
+  private static let borderColor = PlatformColor.white.withAlphaComponent(0.10)
   private static let lineNumberColor = PlatformColor.white.withAlphaComponent(0.35)
   private static let lineNumberFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-  private static let codeFont = PlatformFont.monospacedSystemFont(ofSize: 12.5, weight: .regular)
+  private static let codeFont = PlatformFont.monospacedSystemFont(ofSize: 14, weight: .regular)
 
   // MARK: - State
 

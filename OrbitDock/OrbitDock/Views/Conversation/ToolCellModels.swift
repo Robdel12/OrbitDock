@@ -312,7 +312,8 @@ enum SharedModelBuilders {
   static func richMessageModel(
     from message: TranscriptMessage,
     messageID: String,
-    isThinkingExpanded: Bool
+    isThinkingExpanded: Bool,
+    showHeader: Bool = true
   ) -> NativeRichMessageRowModel? {
     guard !message.isTool else { return nil }
 
@@ -359,7 +360,8 @@ enum SharedModelBuilders {
       timestamp: message.timestamp,
       hasImages: message.hasImage,
       images: message.images,
-      isThinkingExpanded: isThinkingExpanded
+      isThinkingExpanded: isThinkingExpanded,
+      showHeader: showHeader
     )
   }
 

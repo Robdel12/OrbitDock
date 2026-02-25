@@ -83,7 +83,7 @@ struct ToastView: View {
           Button(action: onDismiss) {
             Image(systemName: "xmark")
               .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .frame(width: 20, height: 20)
               .background(Color.surfaceHover, in: Circle())
           }

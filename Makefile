@@ -21,7 +21,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint whisper-model xcode-cache-dirs
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint rust-release-darwin rust-release-linux release whisper-model xcode-cache-dirs
 
 help:
 	@echo "make build      Build the macOS app"
@@ -41,6 +41,9 @@ help:
 	@echo "make rust-test  Run Rust workspace tests"
 	@echo "make rust-fmt   Format Rust with cargo fmt"
 	@echo "make rust-lint  Run cargo clippy for Rust workspace"
+	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-universal.zip"
+	@echo "make rust-release-linux  Build + package orbitdock-server-linux-x86_64.zip"
+	@echo "make release             Alias for rust-release-darwin"
 	@echo "make whisper-model Download ggml-base.en.bin into app resources"
 
 build:
@@ -97,6 +100,14 @@ rust-fmt:
 
 rust-lint:
 	cd $(RUST_WORKSPACE_DIR) && cargo clippy --workspace --all-targets
+
+rust-release-darwin:
+	cd $(RUST_WORKSPACE_DIR) && ./package-release-assets.sh darwin
+
+rust-release-linux:
+	cd $(RUST_WORKSPACE_DIR) && ./package-release-assets.sh linux
+
+release: rust-release-darwin
 
 whisper-model:
 	@./OrbitDock/Scripts/download-whisper-model.sh

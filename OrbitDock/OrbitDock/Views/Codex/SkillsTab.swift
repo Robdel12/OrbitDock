@@ -37,7 +37,7 @@ struct SkillsTab: View {
 
         if !selectedSkills.isEmpty {
           Text("·")
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
           Text("\(selectedSkills.count) attached")
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(Color.accent)

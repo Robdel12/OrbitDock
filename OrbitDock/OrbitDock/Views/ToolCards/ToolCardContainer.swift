@@ -77,11 +77,11 @@ struct ToolCardContainer<Header: View, Content: View>: View {
     .clipShape(RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
     .background(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .fill(Color.backgroundTertiary.opacity(0.3))
+        .fill(Color.backgroundTertiary.opacity(0.5))
     )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .strokeBorder(color.opacity(isHovering ? OpacityTier.strong : OpacityTier.medium), lineWidth: 1)
+        .strokeBorder(color.opacity(isHovering ? OpacityTier.light : OpacityTier.subtle), lineWidth: 1)
     )
   }
 }
@@ -113,7 +113,7 @@ struct ToolCardExpandButton: View {
     } label: {
       Image(systemName: "chevron.right")
         .font(.system(size: 10, weight: .semibold))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
         .rotationEffect(.degrees(isExpanded ? 90 : 0))
     }
     .buttonStyle(.plain)
@@ -156,7 +156,7 @@ struct ToolCardDuration: View {
     if let duration {
       Text(duration)
         .font(.system(size: 10, weight: .medium, design: .monospaced))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
     }
   }
 }

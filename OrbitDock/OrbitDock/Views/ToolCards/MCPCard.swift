@@ -154,7 +154,7 @@ struct MCPCard: View {
         VStack(alignment: .leading, spacing: 8) {
           Text("INPUT")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           VStack(alignment: .leading, spacing: 4) {
@@ -167,7 +167,7 @@ struct MCPCard: View {
             if input.count > 10 {
               Text("... +\(input.count - 10) more")
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.textTertiary)
             }
           }
         }
@@ -179,7 +179,7 @@ struct MCPCard: View {
         VStack(alignment: .leading, spacing: 8) {
           Text("OUTPUT")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {

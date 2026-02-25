@@ -94,9 +94,9 @@ jobs:
           mkdir -p dist
           cp orbitdock-server/target/universal/orbitdock-server dist/orbitdock-server
           chmod +x dist/orbitdock-server
-          tar -C dist -czf dist/orbitdock-server-darwin-universal.tar.gz orbitdock-server
           cd dist
-          shasum -a 256 orbitdock-server-darwin-universal.tar.gz > orbitdock-server-darwin-universal.tar.gz.sha256
+          zip -q orbitdock-server-darwin-universal.zip orbitdock-server
+          shasum -a 256 orbitdock-server-darwin-universal.zip > orbitdock-server-darwin-universal.zip.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -105,8 +105,8 @@ jobs:
           name: ${{ env.APP_NAME }} v${{ steps.version.outputs.version }}
           draft: true
           files: |
-            dist/orbitdock-server-darwin-universal.tar.gz
-            dist/orbitdock-server-darwin-universal.tar.gz.sha256
+            dist/orbitdock-server-darwin-universal.zip
+            dist/orbitdock-server-darwin-universal.zip.sha256
           body: |
             ## ${{ env.APP_NAME }} v${{ steps.version.outputs.version }}
 
@@ -146,16 +146,16 @@ jobs:
           mkdir -p dist
           cp orbitdock-server/target/release/orbitdock-server dist/orbitdock-server
           chmod +x dist/orbitdock-server
-          tar -C dist -czf dist/orbitdock-server-linux-x86_64.tar.gz orbitdock-server
           cd dist
-          sha256sum orbitdock-server-linux-x86_64.tar.gz > orbitdock-server-linux-x86_64.tar.gz.sha256
+          zip -q orbitdock-server-linux-x86_64.zip orbitdock-server
+          sha256sum orbitdock-server-linux-x86_64.zip > orbitdock-server-linux-x86_64.zip.sha256
 
       - name: Upload linux server asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.release.outputs.version }}
           files: |
-            dist/orbitdock-server-linux-x86_64.tar.gz
-            dist/orbitdock-server-linux-x86_64.tar.gz.sha256
+            dist/orbitdock-server-linux-x86_64.zip
+            dist/orbitdock-server-linux-x86_64.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

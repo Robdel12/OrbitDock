@@ -9,8 +9,6 @@ import SwiftUI
 
 struct HeaderView: View {
   let session: Session
-  let currentTool: String?
-  let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
   let onFocusTerminal: () -> Void
   let onGoToDashboard: () -> Void
@@ -19,7 +17,7 @@ struct HeaderView: View {
   var hasSidebarContent: Bool = false
   var layoutConfig: Binding<LayoutConfiguration>?
 
-  @State private var isHoveringPath = false
+  @State private var isHoveringBack = false
   @State private var isHoveringProject = false
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -51,164 +49,178 @@ struct HeaderView: View {
   // MARK: - Layouts
 
   private var regularHeader: some View {
-    // Single-row identity bar
-    HStack(spacing: Spacing.sm) {
-      // Nav buttons
-      HStack(spacing: 2) {
-        navButton(icon: "sidebar.left", action: onTogglePanel, help: "Toggle projects panel (⌘1)")
-        navButton(icon: "square.grid.2x2", action: onGoToDashboard, help: "Go to dashboard (⌘0)")
-      }
+    HStack(spacing: Spacing.md) {
+      // Back button
+      backButton
 
       // Status dot
-      SessionStatusDot(session: session, size: 8)
+      SessionStatusDot(session: session, size: 10)
 
       // Session title dropdown
-      Button(action: onOpenSwitcher) {
-        HStack(spacing: Spacing.xs) {
-          Text(agentName)
-            .font(.system(size: TypeScale.title, weight: .semibold))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-
-          Image(systemName: "chevron.down")
-            .font(.system(size: TypeScale.micro, weight: .semibold))
-            .foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, Spacing.xs)
-        .padding(.horizontal, Spacing.sm)
-        .background(
-          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-            .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
-        )
-      }
-      .buttonStyle(.plain)
-      .onHover { isHoveringProject = $0 }
-      .contextMenu {
-        debugContextMenu
-      }
+      sessionTitleDropdown
 
       // Model badge
       UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
 
-      if session.endpointName != nil {
-        EndpointBadge(endpointName: session.endpointName)
-      }
-
-      // Capabilities
-      ForEach(SessionCapability.capabilities(for: session)) { cap in
-        CapabilityBadge(label: cap.label, icon: cap.icon, color: cap.color)
-      }
-
-      if session.isActive {
-        StatusPillCompact(workStatus: session.workStatus, currentTool: currentTool)
-      }
-
-      // Separator before context
-      Color.panelBorder.frame(width: 1, height: 16)
-
-      // Git branch (inline)
-      if let branch = session.branch, !branch.isEmpty {
-        HStack(spacing: 4) {
-          Image(systemName: "arrow.triangle.branch")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-          Text(branch)
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        }
-        .foregroundStyle(Color.gitBranch)
-      }
-
-      // Project path (inline)
-      Button {
-        openInEditor(session.projectPath)
-      } label: {
-        Text(shortenPath(session.projectPath))
-          .font(.system(size: TypeScale.caption, design: .monospaced))
-          .foregroundStyle(isHoveringPath ? .secondary : .quaternary)
-          .lineLimit(1)
-      }
-      .buttonStyle(.plain)
-      .onHover { isHoveringPath = $0 }
-      .help("Open in editor")
-      .contextMenu {
-        Button("Open in Editor") { openInEditor(session.projectPath) }
-        Button("Reveal in Finder") {
-          _ = Platform.services.revealInFileBrowser(session.projectPath)
-        }
-        Divider()
-        Menu("Set Editor") {
-          Button("Use $EDITOR") { preferredEditor = "" }
-          Divider()
-          Button("Emacs") { preferredEditor = "emacs" }
-          Button("VS Code") { preferredEditor = "code" }
-          Button("Cursor") { preferredEditor = "cursor" }
-          Button("Zed") { preferredEditor = "zed" }
-          Button("Sublime Text") { preferredEditor = "subl" }
-          Button("Vim") { preferredEditor = "vim" }
-          Button("Neovim") { preferredEditor = "nvim" }
-        }
-      }
-
       Spacer()
 
-      // Duration (tertiary, right side)
-      Text(session.formattedDuration)
-        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        .foregroundStyle(.quaternary)
-
-      // Layout toggle
+      // Layout toggle (direct sessions only)
       if let layoutBinding = layoutConfig {
         layoutToggle(layoutBinding)
       }
 
-      // Separator before action buttons
-      Color.panelBorder.frame(width: 1, height: 16)
-
       // Action buttons
       HStack(spacing: 2) {
-        navButton(icon: "magnifyingglass", action: onOpenSwitcher, help: "Search sessions (⌘K)", style: .tertiary)
-
-        navButton(
-          icon: session.isActive ? "arrow.up.forward.app" : "terminal",
-          action: onFocusTerminal,
-          help: session.isActive ? "Focus terminal" : "Resume in terminal"
-        )
-
-        if let sidebarBinding = showTurnSidebar {
-          Button {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-              sidebarBinding.wrappedValue.toggle()
-            }
-          } label: {
-            Image(systemName: "sidebar.right")
-              .font(.system(size: TypeScale.body, weight: .medium))
-              .foregroundStyle(sidebarBinding.wrappedValue ? AnyShapeStyle(Color.accent) : AnyShapeStyle(.tertiary))
-              .frame(width: 26, height: 26)
-              .background(
-                sidebarBinding.wrappedValue ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover,
-                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-              )
-          }
-          .buttonStyle(.plain)
-          .help("Toggle sidebar (⌥⌘R)")
-        }
-
-        if session.isDirect, session.isActive, let onEnd = onEndSession {
-          navButton(icon: "stop.circle", action: onEnd, help: "End session", style: .danger)
-        }
+        navButton(icon: "magnifyingglass", action: onOpenSwitcher, help: "Search sessions (⌘K)")
+        overflowMenu
       }
     }
     .padding(.horizontal, Spacing.lg)
     .padding(.vertical, Spacing.sm)
   }
 
+  // MARK: - Back Button
+
+  private var backButton: some View {
+    Button(action: onGoToDashboard) {
+      HStack(spacing: 4) {
+        Image(systemName: "chevron.left")
+          .font(.system(size: TypeScale.caption, weight: .semibold))
+        Text("Dashboard")
+          .font(.system(size: TypeScale.body, weight: .medium))
+      }
+      .foregroundStyle(isHoveringBack ? Color.textPrimary : Color.textSecondary)
+      .padding(.vertical, Spacing.xs)
+      .padding(.horizontal, Spacing.sm)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(isHoveringBack ? Color.surfaceHover : Color.clear)
+      )
+    }
+    .buttonStyle(.plain)
+    .onHover { isHoveringBack = $0 }
+    .help("Go to dashboard (⌘0)")
+  }
+
+  // MARK: - Session Title Dropdown
+
+  private var sessionTitleDropdown: some View {
+    Button(action: onOpenSwitcher) {
+      HStack(spacing: Spacing.xs) {
+        Text(agentName)
+          .font(.system(size: 17, weight: .semibold))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+
+        Image(systemName: "chevron.down")
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+          .foregroundStyle(Color.textTertiary)
+      }
+      .padding(.vertical, Spacing.xs)
+      .padding(.horizontal, Spacing.sm)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
+      )
+    }
+    .buttonStyle(.plain)
+    .onHover { isHoveringProject = $0 }
+    .contextMenu {
+      if session.endpointName != nil {
+        Text("Endpoint: \(session.endpointName ?? "")")
+      }
+      ForEach(SessionCapability.capabilities(for: session)) { cap in
+        if let icon = cap.icon {
+          Label(cap.label, systemImage: icon)
+        } else {
+          Text(cap.label)
+        }
+      }
+      Divider()
+      debugContextMenu
+    }
+  }
+
+  // MARK: - Overflow Menu
+
+  private var overflowMenu: some View {
+    Menu {
+      if Platform.services.capabilities.canFocusTerminal {
+        Button {
+          onFocusTerminal()
+        } label: {
+          Label(
+            session.isActive ? "Focus Terminal" : "Resume in Terminal",
+            systemImage: session.isActive ? "arrow.up.forward.app" : "terminal"
+          )
+        }
+      }
+
+      if let sidebarBinding = showTurnSidebar {
+        Button {
+          withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+            sidebarBinding.wrappedValue.toggle()
+          }
+        } label: {
+          Label(
+            sidebarBinding.wrappedValue ? "Hide Sidebar" : "Show Sidebar",
+            systemImage: "sidebar.right"
+          )
+        }
+      }
+
+      if let layoutBinding = layoutConfig {
+        Section("Layout") {
+          ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+            Button {
+              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                layoutBinding.wrappedValue = config
+              }
+            } label: {
+              Label(config.label, systemImage: config.icon)
+            }
+          }
+        }
+      }
+
+      Divider()
+
+      debugContextMenu
+
+      if session.isDirect, session.isActive, let onEnd = onEndSession {
+        Divider()
+        Button(role: .destructive) {
+          onEnd()
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
+    } label: {
+      Image(systemName: "ellipsis.circle")
+        .font(.system(size: TypeScale.body, weight: .medium))
+        .foregroundStyle(Color.textTertiary)
+        .frame(width: 26, height: 26)
+        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+    }
+    .help("More options")
+  }
+
   private var compactHeader: some View {
     VStack(spacing: Spacing.xs) {
       HStack(spacing: Spacing.xs) {
-        navButton(icon: "sidebar.left", action: onTogglePanel, help: "Toggle projects panel (⌘1)")
+        Button(action: onGoToDashboard) {
+          Image(systemName: "chevron.left")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
+            .frame(width: 26, height: 26)
+            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("Dashboard (⌘0)")
 
         Button(action: onOpenSwitcher) {
           HStack(spacing: Spacing.xs) {
-            SessionStatusDot(session: session, size: 8)
+            SessionStatusDot(session: session, size: 10)
 
             Text(agentName)
               .font(.system(size: TypeScale.body, weight: .semibold))
@@ -217,7 +229,7 @@ struct HeaderView: View {
 
             Image(systemName: "chevron.down")
               .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
           .padding(.vertical, Spacing.xs)
           .padding(.horizontal, Spacing.sm)
@@ -235,7 +247,7 @@ struct HeaderView: View {
 
         Spacer(minLength: 0)
 
-        navButton(icon: "magnifyingglass", action: onOpenSwitcher, help: "Search sessions (⌘K)", style: .tertiary)
+        navButton(icon: "magnifyingglass", action: onOpenSwitcher, help: "Search sessions (⌘K)")
 
         compactOverflowMenu
       }
@@ -250,7 +262,7 @@ struct HeaderView: View {
           }
 
           if session.isActive {
-            StatusPillCompact(workStatus: session.workStatus, currentTool: currentTool)
+            StatusPillCompact(workStatus: session.workStatus, currentTool: session.lastTool)
           }
 
           if let branch = session.branch, !branch.isEmpty {
@@ -293,20 +305,15 @@ struct HeaderView: View {
 
   private var compactOverflowMenu: some View {
     Menu {
-      Button {
-        onGoToDashboard()
-      } label: {
-        Label("Dashboard", systemImage: "square.grid.2x2")
-      }
-
-      Button {
-        onFocusTerminal()
-      } label: {
-        Label(
-          session.isActive ? "Focus Terminal" : "Resume in Terminal",
-          systemImage: session.isActive ?
-            "arrow.up.forward.app" : "terminal"
-        )
+      if Platform.services.capabilities.canFocusTerminal {
+        Button {
+          onFocusTerminal()
+        } label: {
+          Label(
+            session.isActive ? "Focus Terminal" : "Resume in Terminal",
+            systemImage: session.isActive ? "arrow.up.forward.app" : "terminal"
+          )
+        }
       }
 
       if let sidebarBinding = showTurnSidebar {
@@ -333,7 +340,12 @@ struct HeaderView: View {
         }
       }
 
+      Divider()
+
+      debugContextMenu
+
       if session.isDirect, session.isActive, let onEnd = onEndSession {
+        Divider()
         Button(role: .destructive) {
           onEnd()
         } label: {
@@ -343,7 +355,7 @@ struct HeaderView: View {
     } label: {
       Image(systemName: "ellipsis.circle")
         .font(.system(size: 14, weight: .semibold))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
         .frame(width: 26, height: 26)
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
@@ -352,21 +364,15 @@ struct HeaderView: View {
 
   // MARK: - Nav Button Helper
 
-  private enum NavButtonStyle {
-    case secondary, tertiary, danger
-  }
-
   private func navButton(
     icon: String,
     action: @escaping () -> Void,
-    help: String,
-    style: NavButtonStyle = .secondary
+    help: String
   ) -> some View {
     Button(action: action) {
       Image(systemName: icon)
         .font(.system(size: TypeScale.body, weight: .medium))
-        .foregroundStyle(style == .danger ? AnyShapeStyle(Color.statusPermission) : style == .tertiary ?
-          AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+        .foregroundStyle(Color.textTertiary)
         .frame(width: 26, height: 26)
         .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
     }
@@ -628,7 +634,7 @@ struct CodexTokenBadge: View {
 
         Text("of \(formatTokenCount(window))")
           .font(.system(size: 10))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       } else {
         // Fallback if no window info yet
         Text(formatTokenCount(session.effectiveContextInputTokens))
@@ -636,7 +642,7 @@ struct CodexTokenBadge: View {
           .foregroundStyle(.secondary)
         Text("tokens")
           .font(.system(size: 10))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
 
       // Cache savings (compact)
@@ -732,8 +738,6 @@ struct CodexTokenBadge: View {
         terminalSessionId: nil,
         terminalApp: nil
       ),
-      currentTool: "Edit",
-      onTogglePanel: {},
       onOpenSwitcher: {},
       onFocusTerminal: {},
       onGoToDashboard: {}

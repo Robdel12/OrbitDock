@@ -108,18 +108,18 @@ struct CodexApprovalHistoryView: View {
       HStack {
         Text(approval.sessionId)
           .font(.system(size: 10, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .lineLimit(1)
           .truncationMode(.middle)
         Spacer()
         if let decidedAt = approval.decidedAt {
           Text(relativeTime(decidedAt))
             .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         } else {
           Text(relativeTime(approval.createdAt))
             .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
       }
     }

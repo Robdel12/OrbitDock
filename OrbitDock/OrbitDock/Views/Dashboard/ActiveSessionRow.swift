@@ -189,7 +189,7 @@ struct ActiveSessionRow: View {
         Text(session.formattedDuration)
           .font(.system(size: TypeScale.body, weight: .medium, design: .monospaced))
       }
-      .foregroundStyle(.tertiary)
+      .foregroundStyle(Color.textTertiary)
 
       // Branch (if present)
       if let branch = session.branch, !branch.isEmpty {

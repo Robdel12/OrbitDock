@@ -36,7 +36,7 @@ struct ReviewEmptyState: View {
           ? "File changes will appear here as the agent edits code"
           : "This session ended without file changes")
           .font(.system(size: 11.5))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
           .multilineTextAlignment(.center)
           .frame(maxWidth: 240)
       }
@@ -46,10 +46,10 @@ struct ReviewEmptyState: View {
         HStack(spacing: 4) {
           keyboardHint("n")
           Text("/")
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
           keyboardHint("p")
           Text("navigate hunks")
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
         .font(.system(size: 9.5))
       }
@@ -61,7 +61,7 @@ struct ReviewEmptyState: View {
   private func keyboardHint(_ key: String) -> some View {
     Text(key)
       .font(.system(size: 9, weight: .semibold, design: .monospaced))
-      .foregroundStyle(.tertiary)
+      .foregroundStyle(Color.textTertiary)
       .padding(.horizontal, 5)
       .padding(.vertical, 2)
       .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: 3, style: .continuous))

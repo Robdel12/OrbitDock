@@ -128,7 +128,7 @@ struct WebFetchCard: View {
       VStack(alignment: .leading, spacing: 6) {
         Text("URL")
           .font(.system(size: 9, weight: .bold, design: .rounded))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
           .tracking(0.5)
 
         HStack {
@@ -147,7 +147,7 @@ struct WebFetchCard: View {
           } label: {
             Image(systemName: "arrow.up.forward.square")
               .font(.system(size: 11))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
           .buttonStyle(.plain)
           .help("Open in browser")
@@ -160,7 +160,7 @@ struct WebFetchCard: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("PROMPT")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           Text(prompt.count > 200 ? String(prompt.prefix(200)) + "..." : prompt)
@@ -177,7 +177,7 @@ struct WebFetchCard: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("RESPONSE")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {

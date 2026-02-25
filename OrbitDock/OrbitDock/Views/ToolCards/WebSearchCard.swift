@@ -96,7 +96,7 @@ struct WebSearchCard: View {
       VStack(alignment: .leading, spacing: 6) {
         Text("QUERY")
           .font(.system(size: 9, weight: .bold, design: .rounded))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
           .tracking(0.5)
 
         Text(query)
@@ -111,7 +111,7 @@ struct WebSearchCard: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("RESULTS")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {

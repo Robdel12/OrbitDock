@@ -70,7 +70,7 @@ struct GenericUsageGauge: View {
         if let resetTime = window.resetsAtFormatted(showDay: showDay) {
           Text("@ \(resetTime)")
             .font(.system(size: 8, weight: .medium))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
         }
       }
     }

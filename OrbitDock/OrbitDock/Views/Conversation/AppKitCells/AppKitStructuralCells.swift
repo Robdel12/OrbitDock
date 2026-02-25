@@ -33,11 +33,7 @@
   final class NativeTurnHeaderCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeTurnHeaderCell")
 
-    private let dividerLine = NSView()
-    private let turnLabel = NSTextField(labelWithString: "")
-    private let statusCapsule = NSView()
-    private let statusLabel = NSTextField(labelWithString: "")
-    private let toolsLabel = NSTextField(labelWithString: "")
+    private let hairline = NSView()
 
     override init(frame frameRect: NSRect) {
       super.init(frame: frameRect)
@@ -53,99 +49,24 @@
       wantsLayer = true
       layer?.backgroundColor = NSColor.clear.cgColor
 
-      // Subtle horizontal divider at the top of the cell
-      dividerLine.wantsLayer = true
-      dividerLine.layer?.backgroundColor = NSColor(Color.textQuaternary).withAlphaComponent(0.5).cgColor
-      dividerLine.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(dividerLine)
+      hairline.wantsLayer = true
+      hairline.layer?.backgroundColor = NSColor(Color.textQuaternary).withAlphaComponent(0.3).cgColor
+      hairline.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(hairline)
 
-      turnLabel.translatesAutoresizingMaskIntoConstraints = false
-      turnLabel.font = Self.roundedFont(size: 10, weight: .bold)
-      turnLabel.textColor = NSColor(Color.textSecondary)
-      turnLabel.lineBreakMode = .byTruncatingTail
-      addSubview(turnLabel)
-
-      statusCapsule.translatesAutoresizingMaskIntoConstraints = false
-      statusCapsule.wantsLayer = true
-      statusCapsule.layer?.cornerRadius = 8
-      statusCapsule.layer?.masksToBounds = true
-      addSubview(statusCapsule)
-
-      statusLabel.translatesAutoresizingMaskIntoConstraints = false
-      statusLabel.font = Self.roundedFont(size: 9, weight: .bold)
-      statusLabel.lineBreakMode = .byTruncatingTail
-      statusCapsule.addSubview(statusLabel)
-
-      toolsLabel.translatesAutoresizingMaskIntoConstraints = false
-      toolsLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-      toolsLabel.textColor = NSColor(Color.textTertiary)
-      toolsLabel.lineBreakMode = .byTruncatingTail
-      addSubview(toolsLabel)
-
-      let inset = ConversationLayout.laneHorizontalInset
       NSLayoutConstraint.activate([
-        dividerLine.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-        dividerLine.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
-        dividerLine.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-        dividerLine.heightAnchor.constraint(equalToConstant: 1),
-
-        turnLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
-        turnLabel.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 4),
-
-        statusCapsule.leadingAnchor.constraint(equalTo: turnLabel.trailingAnchor, constant: 10),
-        statusCapsule.centerYAnchor.constraint(equalTo: turnLabel.centerYAnchor),
-
-        statusLabel.topAnchor.constraint(equalTo: statusCapsule.topAnchor, constant: 3),
-        statusLabel.bottomAnchor.constraint(equalTo: statusCapsule.bottomAnchor, constant: -3),
-        statusLabel.leadingAnchor.constraint(equalTo: statusCapsule.leadingAnchor, constant: 7),
-        statusLabel.trailingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: -7),
-
-        toolsLabel.leadingAnchor.constraint(equalTo: statusCapsule.trailingAnchor, constant: 10),
-        toolsLabel.centerYAnchor.constraint(equalTo: turnLabel.centerYAnchor),
+        hairline.centerXAnchor.constraint(equalTo: centerXAnchor),
+        hairline.centerYAnchor.constraint(equalTo: centerYAnchor),
+        hairline.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.2),
+        hairline.heightAnchor.constraint(equalToConstant: 0.5),
       ])
     }
 
     func configure(turn: TurnSummary) {
-      // Uppercase labels need wider tracking for legibility (Typography.md §Micro-Typography)
-      let turnAttrs: [NSAttributedString.Key: Any] = [
-        .font: turnLabel.font as Any,
-        .foregroundColor: turnLabel.textColor as Any,
-        .kern: 1.0,
-      ]
-      turnLabel.attributedStringValue = NSAttributedString(
-        string: "TURN \(turn.turnNumber)",
-        attributes: turnAttrs
-      )
-
-      let (label, color) = statusInfo(for: turn.status)
-      let statusAttrs: [NSAttributedString.Key: Any] = [
-        .font: statusLabel.font as Any,
-        .foregroundColor: color,
-        .kern: 0.8,
-      ]
-      statusLabel.attributedStringValue = NSAttributedString(string: label, attributes: statusAttrs)
-      statusCapsule.layer?.backgroundColor = color.withAlphaComponent(0.16).cgColor
-
-      if turn.toolsUsed.isEmpty {
-        toolsLabel.isHidden = true
+      if turn.turnNumber == 1 {
+        hairline.isHidden = true
       } else {
-        toolsLabel.isHidden = false
-        toolsLabel.stringValue = "\(turn.toolsUsed.count) tools"
-      }
-    }
-
-    private static func roundedFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-      NSFont.systemFont(ofSize: size, weight: weight)
-    }
-
-    private func statusInfo(for status: TurnStatus) -> (String, NSColor) {
-      switch status {
-        case .active:
-          ("ACTIVE", NSColor(Color.accent))
-        case .completed:
-          ("DONE", NSColor(Color.textTertiary))
-        case .failed:
-          ("FAILED", NSColor(calibratedRed: 0.95, green: 0.48, blue: 0.42, alpha: 1))
+        hairline.isHidden = false
       }
     }
   }
@@ -155,13 +76,8 @@
   final class NativeRollupSummaryCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeRollupSummaryCell")
 
-    private let accentLine = NSView()
-    private let backgroundBox = NSView()
     private let chevronImage = NSImageView()
-    private let countLabel = NSTextField(labelWithString: "")
-    private let actionsLabel = NSTextField(labelWithString: "")
-    private let separatorDot = NSView()
-    private let breakdownStack = NSStackView()
+    private let summaryLabel = NSTextField(labelWithString: "")
     private var isHovering = false
     private var trackingArea: NSTrackingArea?
     var onToggle: (() -> Void)?
@@ -182,89 +98,27 @@
 
       let inset = ConversationLayout.laneHorizontalInset
 
-      // Thin left accent line — visual thread connector
-      accentLine.wantsLayer = true
-      accentLine.layer?.backgroundColor = NSColor(Color.textQuaternary).withAlphaComponent(0.4).cgColor
-      accentLine.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(accentLine)
-
-      // Background pill
-      backgroundBox.translatesAutoresizingMaskIntoConstraints = false
-      backgroundBox.wantsLayer = true
-      backgroundBox.layer?.cornerRadius = Radius.lg
-      backgroundBox.layer?.masksToBounds = true
-      backgroundBox.layer?.backgroundColor = NSColor(Color.backgroundTertiary).withAlphaComponent(0.7).cgColor
-      backgroundBox.layer?.borderWidth = 0.5
-      backgroundBox.layer?.borderColor = NSColor(Color.surfaceBorder).withAlphaComponent(0.4).cgColor
-      addSubview(backgroundBox)
-
       // Chevron
       chevronImage.translatesAutoresizingMaskIntoConstraints = false
-      chevronImage.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-      backgroundBox.addSubview(chevronImage)
+      chevronImage.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+      chevronImage.contentTintColor = NSColor(Color.textQuaternary)
+      addSubview(chevronImage)
 
-      // Count — bold monospaced
-      countLabel.translatesAutoresizingMaskIntoConstraints = false
-      countLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .bold)
-      countLabel.textColor = NSColor(Color.textPrimary)
-      backgroundBox.addSubview(countLabel)
-
-      // "actions" label
-      actionsLabel.translatesAutoresizingMaskIntoConstraints = false
-      actionsLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
-      actionsLabel.textColor = NSColor(Color.textSecondary)
-      actionsLabel.stringValue = "actions"
-      backgroundBox.addSubview(actionsLabel)
-
-      // Separator dot
-      separatorDot.translatesAutoresizingMaskIntoConstraints = false
-      separatorDot.wantsLayer = true
-      separatorDot.layer?.cornerRadius = 1.5
-      separatorDot.layer?.backgroundColor = NSColor(Color.surfaceBorder).cgColor
-      backgroundBox.addSubview(separatorDot)
-
-      // Tool breakdown stack
-      breakdownStack.translatesAutoresizingMaskIntoConstraints = false
-      breakdownStack.orientation = .horizontal
-      breakdownStack.spacing = 12
-      breakdownStack.alignment = .centerY
-      backgroundBox.addSubview(breakdownStack)
+      // Summary text
+      summaryLabel.translatesAutoresizingMaskIntoConstraints = false
+      summaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .regular)
+      summaryLabel.textColor = NSColor(Color.textTertiary)
+      summaryLabel.lineBreakMode = .byTruncatingTail
+      addSubview(summaryLabel)
 
       NSLayoutConstraint.activate([
-        accentLine.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 6),
-        accentLine.widthAnchor.constraint(equalToConstant: 2),
-        accentLine.topAnchor.constraint(equalTo: topAnchor),
-        accentLine.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-        backgroundBox.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 16),
-        backgroundBox.trailingAnchor.constraint(
-          lessThanOrEqualTo: trailingAnchor,
-          constant: -inset
-        ),
-        backgroundBox.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-        backgroundBox.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-
-        chevronImage.leadingAnchor.constraint(equalTo: backgroundBox.leadingAnchor, constant: 14),
-        chevronImage.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
+        chevronImage.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 4),
+        chevronImage.centerYAnchor.constraint(equalTo: centerYAnchor),
         chevronImage.widthAnchor.constraint(equalToConstant: 10),
 
-        countLabel.leadingAnchor.constraint(equalTo: chevronImage.trailingAnchor, constant: 6),
-        countLabel.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-
-        actionsLabel.leadingAnchor.constraint(equalTo: countLabel.trailingAnchor, constant: 4),
-        actionsLabel.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-
-        separatorDot.leadingAnchor.constraint(equalTo: actionsLabel.trailingAnchor, constant: 16),
-        separatorDot.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-        separatorDot.widthAnchor.constraint(equalToConstant: 3),
-        separatorDot.heightAnchor.constraint(equalToConstant: 3),
-
-        breakdownStack.leadingAnchor.constraint(equalTo: separatorDot.trailingAnchor, constant: 16),
-        breakdownStack.centerYAnchor.constraint(equalTo: backgroundBox.centerYAnchor),
-        breakdownStack.trailingAnchor.constraint(
-          lessThanOrEqualTo: backgroundBox.trailingAnchor,
-          constant: -14
-        ),
+        summaryLabel.leadingAnchor.constraint(equalTo: chevronImage.trailingAnchor, constant: 6),
+        summaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -inset),
       ])
 
       let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
@@ -297,15 +151,12 @@
       NSAnimationContext.runAnimationGroup { ctx in
         ctx.duration = 0.15
         ctx.allowsImplicitAnimation = true
-        backgroundBox.layer?.backgroundColor = isHovering
-          ? NSColor(Color.backgroundTertiary).cgColor
-          : NSColor(Color.backgroundTertiary).withAlphaComponent(0.7).cgColor
-        backgroundBox.layer?.borderColor = isHovering
-          ? NSColor(Color.accent).withAlphaComponent(0.15).cgColor
-          : NSColor(Color.surfaceBorder).withAlphaComponent(0.4).cgColor
         chevronImage.contentTintColor = isHovering
           ? NSColor(Color.accent)
-          : NSColor(Color.textSecondary)
+          : NSColor(Color.textQuaternary)
+        summaryLabel.textColor = isHovering
+          ? NSColor(Color.textSecondary)
+          : NSColor(Color.textTertiary)
       }
     }
 
@@ -320,84 +171,17 @@
       let symbolName = isExpanded ? "chevron.down" : "chevron.right"
       chevronImage.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
 
-      let lineColor = isExpanded
-        ? NSColor(Color.textQuaternary).withAlphaComponent(0.3)
-        : NSColor(Color.textQuaternary).withAlphaComponent(0.4)
-      accentLine.layer?.backgroundColor = lineColor.cgColor
-
       if isExpanded {
-        chevronImage.contentTintColor = NSColor(Color.textTertiary)
-        countLabel.isHidden = true
-        actionsLabel.textColor = NSColor(Color.textTertiary)
-        actionsLabel.stringValue = "Collapse tools"
-        separatorDot.isHidden = true
-        breakdownStack.isHidden = true
-        backgroundBox.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.02).cgColor
-        backgroundBox.layer?.borderColor = NSColor.clear.cgColor
+        summaryLabel.stringValue = "Collapse"
       } else {
-        chevronImage.contentTintColor = NSColor(Color.textSecondary)
-        countLabel.isHidden = false
-        countLabel.stringValue = "\(hiddenCount)"
-        actionsLabel.textColor = NSColor(Color.textSecondary)
-        actionsLabel.stringValue = "actions"
-        separatorDot.isHidden = breakdown.isEmpty
-        breakdownStack.isHidden = breakdown.isEmpty
-        backgroundBox.layer?.backgroundColor =
-          NSColor(Color.backgroundTertiary).withAlphaComponent(0.7).cgColor
-        backgroundBox.layer?.borderColor =
-          NSColor(Color.surfaceBorder).withAlphaComponent(0.4).cgColor
-
-        rebuildBreakdownChips(breakdown)
+        summaryLabel.stringValue = Self.buildBreakdownText(breakdown)
       }
     }
 
-    private func rebuildBreakdownChips(_ breakdown: [ToolBreakdownEntry]) {
-      breakdownStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-
-      for entry in breakdown.prefix(6) {
-        let chip = NSStackView()
-        chip.orientation = .horizontal
-        chip.spacing = 5
-        chip.alignment = .centerY
-
-        let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: entry.icon, accessibilityDescription: nil)
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-        icon.contentTintColor = NSColor(Self.toolColor(for: entry.colorKey))
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.widthAnchor.constraint(equalToConstant: 12).isActive = true
-
-        let count = NSTextField(labelWithString: "\(entry.count)")
-        count.font = NSFont.monospacedDigitSystemFont(ofSize: TypeScale.body, weight: .bold)
-        count.textColor = NSColor(Color.textSecondary)
-
-        let name = NSTextField(labelWithString: Self.displayName(for: entry.name))
-        name.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
-        name.textColor = NSColor(Color.textTertiary)
-        name.lineBreakMode = .byTruncatingTail
-
-        chip.addArrangedSubview(icon)
-        chip.addArrangedSubview(count)
-        chip.addArrangedSubview(name)
-        breakdownStack.addArrangedSubview(chip)
-      }
-    }
-
-    private static func toolColor(for key: String) -> Color {
-      switch key {
-        case "bash": .toolBash
-        case "read": .toolRead
-        case "write": .toolWrite
-        case "search": .toolSearch
-        case "task": .toolTask
-        case "web": .toolWeb
-        case "skill": .toolSkill
-        case "plan": .toolPlan
-        case "todo": .toolTodo
-        case "question": .toolQuestion
-        case "mcp": .toolMcp
-        default: .textSecondary
-      }
+    private static func buildBreakdownText(_ breakdown: [ToolBreakdownEntry]) -> String {
+      breakdown.prefix(6)
+        .map { "\($0.count) \(displayName(for: $0.name))" }
+        .joined(separator: ", ")
     }
 
     private static func displayName(for toolName: String) -> String {
@@ -516,194 +300,12 @@
   final class NativeLiveIndicatorCellView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeLiveIndicatorCell")
 
-    private static let dotSize: CGFloat = 6
-    private static let statusColumnWidth: CGFloat = 20
-
-    private let dotView = NSView()
+    private let shimmerBar = NSView()
+    private let staticBar = NSView()
     private let iconView = NSImageView()
     private let primaryLabel = NSTextField(labelWithString: "")
-    private let separatorLabel = NSTextField(labelWithString: "\u{00B7}")
     private let detailLabel = NSTextField(labelWithString: "")
-    private let toolLabel = NSTextField(labelWithString: "")
-
-    override init(frame frameRect: NSRect) {
-      super.init(frame: frameRect)
-      setup()
-    }
-
-    required init?(coder: NSCoder) {
-      super.init(coder: coder)
-      setup()
-    }
-
-    private func setup() {
-      wantsLayer = true
-      layer?.backgroundColor = NSColor.clear.cgColor
-
-      dotView.wantsLayer = true
-      dotView.layer?.cornerRadius = Self.dotSize / 2
-      dotView.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(dotView)
-
-      iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-      iconView.contentTintColor = NSColor(Color.statusPermission)
-      iconView.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(iconView)
-
-      primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
-      primaryLabel.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(primaryLabel)
-
-      separatorLabel.font = NSFont.systemFont(ofSize: TypeScale.body)
-      separatorLabel.textColor = NSColor(Color.textQuaternary)
-      separatorLabel.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(separatorLabel)
-
-      detailLabel.font = NSFont.systemFont(ofSize: TypeScale.body)
-      detailLabel.textColor = NSColor(Color.textTertiary)
-      detailLabel.lineBreakMode = .byTruncatingTail
-      detailLabel.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(detailLabel)
-
-      toolLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .bold)
-      toolLabel.textColor = NSColor(Color.textPrimary)
-      toolLabel.lineBreakMode = .byTruncatingTail
-      toolLabel.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(toolLabel)
-
-      let inset = ConversationLayout.metadataHorizontalInset
-      NSLayoutConstraint.activate([
-        dotView.leadingAnchor.constraint(
-          equalTo: leadingAnchor,
-          constant: inset + (Self.statusColumnWidth - Self.dotSize) / 2
-        ),
-        dotView.centerYAnchor.constraint(equalTo: centerYAnchor),
-        dotView.widthAnchor.constraint(equalToConstant: Self.dotSize),
-        dotView.heightAnchor.constraint(equalToConstant: Self.dotSize),
-
-        iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
-        iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-        iconView.widthAnchor.constraint(equalToConstant: Self.statusColumnWidth),
-
-        primaryLabel.leadingAnchor.constraint(
-          equalTo: leadingAnchor,
-          constant: inset + Self.statusColumnWidth + Spacing.xs
-        ),
-        primaryLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-        separatorLabel.leadingAnchor.constraint(equalTo: primaryLabel.trailingAnchor, constant: Spacing.xs),
-        separatorLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-        toolLabel.leadingAnchor.constraint(equalTo: separatorLabel.trailingAnchor, constant: Spacing.xs),
-        toolLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-        detailLabel.leadingAnchor.constraint(equalTo: toolLabel.trailingAnchor, constant: Spacing.xs),
-        detailLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-        detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -inset),
-      ])
-    }
-
-    func configure(
-      workStatus: Session.WorkStatus,
-      currentTool: String?,
-      pendingToolName: String?,
-      pendingPermissionDetail: String?,
-      provider: Provider
-    ) {
-      dotView.isHidden = true
-      iconView.isHidden = true
-      separatorLabel.isHidden = true
-      detailLabel.isHidden = true
-      toolLabel.isHidden = true
-      primaryLabel.stringValue = ""
-      detailLabel.stringValue = ""
-      toolLabel.stringValue = ""
-      detailLabel.font = NSFont.systemFont(ofSize: TypeScale.body)
-      detailLabel.textColor = NSColor(Color.textTertiary)
-
-      switch workStatus {
-        case .working:
-          dotView.isHidden = false
-          dotView.layer?.backgroundColor = NSColor(Color.statusWorking).cgColor
-
-          primaryLabel.stringValue = "Working"
-          primaryLabel.textColor = NSColor(Color.statusWorking)
-
-          if let tool = currentTool, !tool.isEmpty {
-            separatorLabel.isHidden = false
-            detailLabel.isHidden = false
-            toolLabel.isHidden = true
-            detailLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-            detailLabel.stringValue = tool
-          }
-
-        case .waiting:
-          dotView.isHidden = false
-          dotView.layer?.backgroundColor = NSColor(Color.statusReply).cgColor
-
-          primaryLabel.stringValue = "Your turn"
-          primaryLabel.textColor = NSColor(Color.statusReply)
-
-          separatorLabel.isHidden = false
-          detailLabel.isHidden = false
-          detailLabel.stringValue = provider == .codex ? "Send a message below" : "Respond in terminal"
-
-        case .permission:
-          iconView.isHidden = false
-          iconView.image = NSImage(
-            systemSymbolName: "exclamationmark.triangle.fill",
-            accessibilityDescription: nil
-          )
-          iconView.contentTintColor = NSColor(Color.statusPermission)
-
-          primaryLabel.stringValue = "Permission"
-          primaryLabel.textColor = NSColor(Color.statusPermission)
-
-          if let toolName = pendingToolName, !toolName.isEmpty {
-            separatorLabel.isHidden = false
-            toolLabel.isHidden = false
-            toolLabel.stringValue = toolName
-          }
-
-          if let detail = permissionDetail(
-            serverDetail: pendingPermissionDetail
-          ) {
-            detailLabel.isHidden = false
-            detailLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-            detailLabel.textColor = NSColor(Color.textSecondary)
-            detailLabel.stringValue = detail
-          }
-
-        case .unknown:
-          primaryLabel.stringValue = ""
-      }
-    }
-
-    private func permissionDetail(serverDetail: String?) -> String? {
-      ApprovalPermissionPreviewBuilder.compactPermissionDetail(
-        serverDetail: serverDetail,
-        maxLength: 50
-      )
-    }
-  }
-
-  // MARK: - Compact Tool Cell
-
-  final class NativeCompactToolCellView: NSTableCellView {
-    static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeCompactToolCell")
-
-    private let threadLine = NSView()
-    private let glyphImage = NSImageView()
-    private let summaryField = NSTextField(labelWithString: "")
-    private let metaField = NSTextField(labelWithString: "")
-    private let contextField = NSTextField(labelWithString: "")
-    private let snippetField = NSTextField(labelWithString: "")
-    private let diffBarContainer = NSView()
-    private let diffBarAdded = NSView()
-    private let diffBarRemoved = NSView()
-    private var diffBarAddedWidth: NSLayoutConstraint?
-    private var diffBarRemovedWidth: NSLayoutConstraint?
-    var onTap: (() -> Void)?
+    private var shimmerLayer: CAGradientLayer?
 
     override init(frame frameRect: NSRect) {
       super.init(frame: frameRect)
@@ -721,19 +323,220 @@
 
       let inset = ConversationLayout.laneHorizontalInset
 
-      // Thread line — connects to rollup above/below
-      threadLine.wantsLayer = true
-      threadLine.layer?.backgroundColor = NSColor(Color.textQuaternary).withAlphaComponent(0.4).cgColor
-      threadLine.translatesAutoresizingMaskIntoConstraints = false
-      addSubview(threadLine)
+      // Shimmer bar for working state
+      shimmerBar.wantsLayer = true
+      shimmerBar.translatesAutoresizingMaskIntoConstraints = false
+      shimmerBar.isHidden = true
+      addSubview(shimmerBar)
+
+      // Static bar for permission state
+      staticBar.wantsLayer = true
+      staticBar.translatesAutoresizingMaskIntoConstraints = false
+      staticBar.isHidden = true
+      addSubview(staticBar)
+
+      iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+      iconView.contentTintColor = NSColor(Color.statusPermission)
+      iconView.translatesAutoresizingMaskIntoConstraints = false
+      iconView.isHidden = true
+      addSubview(iconView)
+
+      primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
+      primaryLabel.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(primaryLabel)
+
+      detailLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+      detailLabel.textColor = NSColor(Color.textTertiary)
+      detailLabel.lineBreakMode = .byTruncatingTail
+      detailLabel.translatesAutoresizingMaskIntoConstraints = false
+      addSubview(detailLabel)
+
+      NSLayoutConstraint.activate([
+        shimmerBar.topAnchor.constraint(equalTo: topAnchor),
+        shimmerBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+        shimmerBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
+        shimmerBar.heightAnchor.constraint(equalToConstant: 2),
+
+        staticBar.topAnchor.constraint(equalTo: topAnchor),
+        staticBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+        staticBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
+        staticBar.heightAnchor.constraint(equalToConstant: 2),
+
+        iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+        iconView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+        iconView.widthAnchor.constraint(equalToConstant: 16),
+
+        primaryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset),
+        primaryLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+
+        detailLabel.leadingAnchor.constraint(equalTo: primaryLabel.trailingAnchor, constant: Spacing.xs),
+        detailLabel.centerYAnchor.constraint(equalTo: primaryLabel.centerYAnchor),
+        detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -inset),
+      ])
+    }
+
+    override func layout() {
+      super.layout()
+      shimmerLayer?.frame = shimmerBar.bounds
+    }
+
+    func configure(
+      workStatus: Session.WorkStatus,
+      currentTool: String?,
+      pendingToolName: String?,
+      pendingPermissionDetail: String?,
+      provider: Provider
+    ) {
+      shimmerBar.isHidden = true
+      staticBar.isHidden = true
+      iconView.isHidden = true
+      detailLabel.isHidden = true
+      primaryLabel.stringValue = ""
+      detailLabel.stringValue = ""
+      removeShimmerAnimation()
+
+      switch workStatus {
+        case .working:
+          shimmerBar.isHidden = false
+          setupShimmerAnimation()
+
+          primaryLabel.stringValue = "Working"
+          primaryLabel.textColor = NSColor(Color.statusWorking).withAlphaComponent(0.8)
+          primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
+
+          // Shift primary label down to account for shimmer bar
+          updateLabelLeadingConstraint(hasIcon: false)
+
+          if let tool = currentTool, !tool.isEmpty {
+            detailLabel.isHidden = false
+            detailLabel.stringValue = "on \(tool)"
+            detailLabel.textColor = NSColor(Color.textTertiary)
+            detailLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
+          }
+
+        case .waiting:
+          primaryLabel.stringValue = "Type a message\u{2026}"
+          primaryLabel.textColor = NSColor(Color.textTertiary).withAlphaComponent(0.8)
+          primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .regular)
+          updateLabelLeadingConstraint(hasIcon: false)
+
+        case .permission:
+          staticBar.isHidden = false
+          staticBar.layer?.backgroundColor = NSColor(Color.statusPermission).withAlphaComponent(0.4).cgColor
+
+          iconView.isHidden = false
+          iconView.image = NSImage(
+            systemSymbolName: "exclamationmark.triangle.fill",
+            accessibilityDescription: nil
+          )
+          iconView.contentTintColor = NSColor(Color.statusPermission)
+
+          primaryLabel.stringValue = "Permission"
+          primaryLabel.textColor = NSColor(Color.statusPermission)
+          primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
+          updateLabelLeadingConstraint(hasIcon: true)
+
+          if let toolName = pendingToolName, !toolName.isEmpty {
+            detailLabel.isHidden = false
+            detailLabel.stringValue = toolName
+            detailLabel.textColor = NSColor(Color.textPrimary)
+            detailLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .bold)
+          }
+
+        case .unknown:
+          primaryLabel.stringValue = ""
+      }
+    }
+
+    private var primaryLeadingConstraint: NSLayoutConstraint?
+
+    private func updateLabelLeadingConstraint(hasIcon: Bool) {
+      let inset = ConversationLayout.laneHorizontalInset
+      primaryLeadingConstraint?.isActive = false
+      if hasIcon {
+        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
+          equalTo: iconView.trailingAnchor, constant: Spacing.xs
+        )
+      } else {
+        primaryLeadingConstraint = primaryLabel.leadingAnchor.constraint(
+          equalTo: leadingAnchor, constant: inset
+        )
+      }
+      primaryLeadingConstraint?.isActive = true
+    }
+
+    private func setupShimmerAnimation() {
+      let gradient = CAGradientLayer()
+      gradient.frame = shimmerBar.bounds
+      gradient.colors = [
+        NSColor.clear.cgColor,
+        NSColor(Color.statusWorking).withAlphaComponent(0.3).cgColor,
+        NSColor.clear.cgColor,
+      ]
+      gradient.locations = [0, 0.5, 1.0]
+      gradient.startPoint = CGPoint(x: 0, y: 0.5)
+      gradient.endPoint = CGPoint(x: 1, y: 0.5)
+      shimmerBar.layer?.addSublayer(gradient)
+      shimmerLayer = gradient
+
+      let animation = CABasicAnimation(keyPath: "position.x")
+      animation.fromValue = -shimmerBar.bounds.width
+      animation.toValue = shimmerBar.bounds.width * 2
+      animation.duration = 1.8
+      animation.repeatCount = .infinity
+      gradient.add(animation, forKey: "shimmer")
+    }
+
+    private func removeShimmerAnimation() {
+      shimmerLayer?.removeAllAnimations()
+      shimmerLayer?.removeFromSuperlayer()
+      shimmerLayer = nil
+    }
+  }
+
+  // MARK: - Compact Tool Cell
+
+  final class NativeCompactToolCellView: NSTableCellView {
+    static let reuseIdentifier = NSUserInterfaceItemIdentifier("conversationNativeCompactToolCell")
+
+    private let glyphImage = NSImageView()
+    private let summaryField = NSTextField(labelWithString: "")
+    private let metaField = NSTextField(labelWithString: "")
+    private let contextField = NSTextField(labelWithString: "")
+    private let snippetField = NSTextField(labelWithString: "")
+    private let diffBarContainer = NSView()
+    private let diffBarAdded = NSView()
+    private let diffBarRemoved = NSView()
+    private var diffBarAddedWidth: NSLayoutConstraint?
+    private var diffBarRemovedWidth: NSLayoutConstraint?
+    private var isHovering = false
+    private var trackingArea: NSTrackingArea?
+    var onTap: (() -> Void)?
+
+    override init(frame frameRect: NSRect) {
+      super.init(frame: frameRect)
+      setup()
+    }
+
+    required init?(coder: NSCoder) {
+      super.init(coder: coder)
+      setup()
+    }
+
+    private func setup() {
+      wantsLayer = true
+      layer?.backgroundColor = NSColor.clear.cgColor
+      layer?.cornerRadius = Radius.sm
+
+      let inset = ConversationLayout.laneHorizontalInset
 
       glyphImage.translatesAutoresizingMaskIntoConstraints = false
-      glyphImage.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .medium)
+      glyphImage.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .regular)
       addSubview(glyphImage)
 
       summaryField.translatesAutoresizingMaskIntoConstraints = false
       summaryField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-      summaryField.textColor = NSColor.white.withAlphaComponent(0.58)
+      summaryField.textColor = NSColor(Color.textTertiary)
       summaryField.lineBreakMode = .byCharWrapping
       summaryField.maximumNumberOfLines = 0
       summaryField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -786,21 +589,16 @@
       diffBarRemovedWidth = removedW
 
       NSLayoutConstraint.activate([
-        threadLine.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 6),
-        threadLine.widthAnchor.constraint(equalToConstant: 2),
-        threadLine.topAnchor.constraint(equalTo: topAnchor),
-        threadLine.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-        glyphImage.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 16),
-        glyphImage.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-        glyphImage.widthAnchor.constraint(equalToConstant: 18),
+        glyphImage.leadingAnchor.constraint(equalTo: leadingAnchor, constant: inset + 4),
+        glyphImage.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+        glyphImage.widthAnchor.constraint(equalToConstant: 14),
 
         summaryField.leadingAnchor.constraint(equalTo: glyphImage.trailingAnchor, constant: 4),
-        summaryField.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+        summaryField.topAnchor.constraint(equalTo: topAnchor, constant: 5),
         summaryField.trailingAnchor.constraint(lessThanOrEqualTo: metaField.leadingAnchor, constant: -8),
 
         metaField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -inset),
-        metaField.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+        metaField.topAnchor.constraint(equalTo: topAnchor, constant: 7),
 
         // Context — below summary (shown when surrounding context exists)
         contextField.leadingAnchor.constraint(equalTo: summaryField.leadingAnchor),
@@ -814,7 +612,7 @@
 
         // Diff bar — below snippet
         diffBarContainer.leadingAnchor.constraint(equalTo: summaryField.leadingAnchor),
-        diffBarContainer.topAnchor.constraint(equalTo: snippetField.bottomAnchor, constant: 3),
+        diffBarContainer.topAnchor.constraint(equalTo: snippetField.bottomAnchor, constant: 2),
         diffBarContainer.heightAnchor.constraint(equalToConstant: 3),
         diffBarContainer.widthAnchor.constraint(lessThanOrEqualToConstant: 80),
 
@@ -833,6 +631,38 @@
       addGestureRecognizer(click)
     }
 
+    override func updateTrackingAreas() {
+      super.updateTrackingAreas()
+      if let existing = trackingArea { removeTrackingArea(existing) }
+      let area = NSTrackingArea(
+        rect: bounds,
+        options: [.mouseEnteredAndExited, .activeInActiveApp],
+        owner: self
+      )
+      addTrackingArea(area)
+      trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+      isHovering = true
+      updateHoverState()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+      isHovering = false
+      updateHoverState()
+    }
+
+    private func updateHoverState() {
+      NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.15
+        ctx.allowsImplicitAnimation = true
+        layer?.backgroundColor = isHovering
+          ? NSColor(Color.accent).withAlphaComponent(0.04).cgColor
+          : NSColor.clear.cgColor
+      }
+    }
+
     @objc private func handleClick(_ sender: NSClickGestureRecognizer) {
       onTap?()
     }
@@ -845,21 +675,21 @@
     ) -> CGFloat {
       let inset = ConversationLayout.laneHorizontalInset
       let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-      // glyph leading: inset + 16 + 18 (glyph) + 4 (gap) = inset + 38
+      // glyph leading: inset + 4 + 14 (glyph) + 4 (gap) = inset + 22
       // meta trailing area ~ 60pt reserve
-      let textWidth = max(60, width - inset * 2 - 38 - 60)
+      let textWidth = max(60, width - inset * 2 - 22 - 60)
       let textH = ExpandedToolLayout.measuredTextHeight(summary, font: font, maxWidth: textWidth)
-      let baseHeight = max(ConversationLayout.compactToolRowHeight, textH + 12)
+      let baseHeight = max(ConversationLayout.compactToolRowHeight, textH + 10)
       if hasDiffPreview {
         let contextExtra: CGFloat = hasContextLine ? 14 : 0
-        return baseHeight + 22 + contextExtra // snippet (~14pt) + gap (2pt) + bar (3pt) + gap (3pt) + context
+        return baseHeight + 21 + contextExtra // snippet (~14pt) + gap (2pt) + bar (3pt) + gap (2pt) + context
       }
       return baseHeight
     }
 
     func configure(model: NativeCompactToolRowModel) {
       glyphImage.image = NSImage(systemSymbolName: model.glyphSymbol, accessibilityDescription: nil)
-      glyphImage.contentTintColor = model.glyphColor.withAlphaComponent(0.7)
+      glyphImage.contentTintColor = model.glyphColor.withAlphaComponent(0.5)
       summaryField.stringValue = model.summary
       glyphImage.alphaValue = model.isInProgress ? 0.4 : 0.8
 

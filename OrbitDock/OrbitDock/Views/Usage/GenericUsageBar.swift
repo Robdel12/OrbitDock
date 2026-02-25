@@ -30,7 +30,7 @@ struct GenericUsageBar: View {
       if showLabel {
         Text(window.label)
           .font(.system(size: 9, weight: .medium))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
 
       GeometryReader { geo in

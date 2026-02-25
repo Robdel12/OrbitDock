@@ -765,7 +765,7 @@ struct CodeBlockView: View {
 
       Text("\(lines.count) lines")
         .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
 
       Button {
         Platform.services.copyToClipboard(code)
@@ -849,7 +849,7 @@ struct CodeBlockView: View {
         Text(isExpanded ? "Show less" : "Show \(lines.count - collapsedLineCount) more lines")
           .font(.system(size: 11, weight: .medium))
       }
-      .foregroundStyle(.tertiary)
+      .foregroundStyle(Color.textTertiary)
       .frame(maxWidth: .infinity)
       .padding(.vertical, 10)
       .background(Color.white.opacity(0.03))

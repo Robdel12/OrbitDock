@@ -41,7 +41,7 @@ struct SessionRowView: View {
         HStack(spacing: 6) {
           Text(shortenedPath(session.projectPath))
             .font(.system(size: 10))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
 
           if let branch = session.branch, !branch.isEmpty {
@@ -68,7 +68,7 @@ struct SessionRowView: View {
         if session.toolCount > 0 {
           Text("\(session.toolCount) tools")
             .font(.system(size: 9))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
         }
       }
 

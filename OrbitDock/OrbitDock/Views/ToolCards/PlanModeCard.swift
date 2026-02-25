@@ -87,7 +87,7 @@ struct PlanModeCard: View {
       VStack(alignment: .leading, spacing: 6) {
         Text("DETAILS")
           .font(.system(size: 9, weight: .bold, design: .rounded))
-          .foregroundStyle(.quaternary)
+          .foregroundStyle(Color.textQuaternary)
           .tracking(0.5)
 
         Text(output.count > 500 ? String(output.prefix(500)) + "..." : output)

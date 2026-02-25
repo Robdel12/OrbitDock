@@ -10,7 +10,6 @@ struct SessionDetailView: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   let session: Session
-  let onTogglePanel: () -> Void
   let onOpenSwitcher: () -> Void
   let onGoToDashboard: () -> Void
 
@@ -44,8 +43,6 @@ struct SessionDetailView: View {
       // Compact header
       HeaderView(
         session: session,
-        currentTool: currentTool,
-        onTogglePanel: onTogglePanel,
         onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
         onGoToDashboard: onGoToDashboard,
@@ -311,131 +308,119 @@ struct SessionDetailView: View {
   }
 
   private var regularActionBar: some View {
-    HStack(spacing: Spacing.lg) {
-      // Focus/Resume (macOS only — requires terminal)
+    passiveInstrumentStrip
+  }
+
+  // MARK: - Passive Instrument Strip
+
+  private var passiveInstrumentStrip: some View {
+    HStack(spacing: 0) {
+      // Focus / Resume button
       if Platform.services.capabilities.canFocusTerminal {
         Button {
           openInITerm()
         } label: {
-          HStack(spacing: Spacing.sm) {
+          HStack(spacing: Spacing.xs) {
             Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
-              .font(.system(size: TypeScale.code, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .semibold))
             Text(session.isActive ? "Focus" : "Resume")
-              .font(.system(size: TypeScale.code, weight: .medium))
+              .font(.system(size: TypeScale.caption, weight: .medium))
           }
-          .padding(.horizontal, Spacing.md)
-          .padding(.vertical, Spacing.sm)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-          .foregroundStyle(.primary)
+          .foregroundStyle(Color.textSecondary)
         }
         .buttonStyle(.plain)
         .keyboardShortcut("t", modifiers: .command)
         .help(session.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
+        .padding(.horizontal, Spacing.md)
+
+        stripDivider
       }
 
-      // Secondary actions
-      HStack(spacing: Spacing.xxs) {
-        Button {
-          copyResumeCommand()
-        } label: {
-          Image(systemName: copiedResume ? "checkmark" : "doc.on.doc")
-            .font(.system(size: TypeScale.code, weight: .medium))
-            .frame(width: 32, height: 32)
-            .foregroundStyle(copiedResume ? Color.statusSuccess : .secondary)
+      // Git branch
+      if let branch = session.branch, !branch.isEmpty {
+        HStack(spacing: 4) {
+          Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+          Text(compactBranchLabel(branch))
+            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
         }
-        .buttonStyle(.plain)
-        .help("Copy resume command")
+        .foregroundStyle(Color.gitBranch)
+        .padding(.horizontal, Spacing.md)
 
-        if Platform.services.capabilities.canRevealInFileBrowser {
-          Button {
-            _ = Platform.services.revealInFileBrowser(session.projectPath)
-          } label: {
-            Image(systemName: "folder")
-              .font(.system(size: TypeScale.code, weight: .medium))
-              .frame(width: 32, height: 32)
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-          .help("Open in Finder")
-        }
+        stripDivider
       }
-      .padding(Spacing.xxs)
-      .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
 
-      // Context stats
-      HStack(spacing: Spacing.md) {
-        ContextGaugeCompact(stats: usageStats)
-
-        if usageStats.estimatedCostUSD > 0 {
-          Text(usageStats.formattedCost)
-            .font(.system(size: TypeScale.code, weight: .semibold, design: .monospaced))
-            .foregroundStyle(.primary.opacity(OpacityTier.vivid))
-        }
-      }
+      // Project path
+      Text(compactProjectPath(session.projectPath))
+        .font(.system(size: TypeScale.caption, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+        .padding(.horizontal, Spacing.md)
 
       Spacer()
 
-      // Right: Chat scroll + timestamp
-      HStack(spacing: Spacing.lg) {
-        // New messages button (only when paused with unread)
-        if !isPinned, unreadCount > 0 {
-          Button {
-            isPinned = true
-            unreadCount = 0
-            scrollToBottomTrigger += 1
-          } label: {
-            HStack(spacing: 5) {
-              Image(systemName: "arrow.down")
-                .font(.system(size: TypeScale.caption, weight: .bold))
-              Text("\(unreadCount) new")
-                .font(.system(size: TypeScale.code, weight: .semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.md)
-            .padding(.vertical, Spacing.sm)
-            .background(Color.accent, in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .transition(.scale.combined(with: .opacity))
-        }
-
-        // Scroll toggle
-        Button {
-          isPinned.toggle()
-          if isPinned {
-            unreadCount = 0
-            scrollToBottomTrigger += 1
-          }
-        } label: {
-          HStack(spacing: 5) {
-            Image(systemName: isPinned ? "arrow.down.to.line" : "pause")
-              .font(.system(size: TypeScale.body, weight: .medium))
-            Text(isPinned ? "Following" : "Paused")
-              .font(.system(size: TypeScale.code, weight: .medium))
-          }
-          .foregroundStyle(isPinned ? .secondary : .primary)
+      // Cost
+      if usageStats.estimatedCostUSD > 0 {
+        Text(usageStats.formattedCost)
+          .font(.system(size: TypeScale.caption, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
           .padding(.horizontal, Spacing.md)
-          .padding(.vertical, Spacing.sm)
-          .background(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-              .fill(isPinned ? Color.clear : Color.backgroundTertiary)
-          )
+
+        stripDivider
+      }
+
+      // Context gauge
+      ContextGaugeCompact(stats: usageStats)
+        .padding(.horizontal, Spacing.md)
+
+      stripDivider
+
+      // Scroll state / new messages
+      if !isPinned, unreadCount > 0 {
+        Button {
+          isPinned = true
+          unreadCount = 0
+          scrollToBottomTrigger += 1
+        } label: {
+          HStack(spacing: 4) {
+            Image(systemName: "arrow.down")
+              .font(.system(size: TypeScale.micro, weight: .bold))
+            Text("\(unreadCount) new")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+          .foregroundStyle(.white)
+          .padding(.horizontal, Spacing.sm)
+          .padding(.vertical, Spacing.xs)
+          .background(Color.accent, in: Capsule())
         }
         .buttonStyle(.plain)
-
-        // Last activity timestamp
-        if let lastActivity = session.lastActivityAt {
-          Text(lastActivity, style: .relative)
-            .font(.system(size: TypeScale.body, design: .monospaced))
-            .foregroundStyle(.tertiary)
-        }
+        .padding(.horizontal, Spacing.sm)
+        .transition(.scale.combined(with: .opacity))
       }
-      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
-      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+
+      Button {
+        isPinned.toggle()
+        if isPinned {
+          unreadCount = 0
+          scrollToBottomTrigger += 1
+        }
+      } label: {
+        Text(isPinned ? "Following" : "Paused")
+          .font(.system(size: TypeScale.caption, weight: .medium))
+          .foregroundStyle(isPinned ? Color.textTertiary : Color.textPrimary)
+      }
+      .buttonStyle(.plain)
+      .padding(.horizontal, Spacing.md)
     }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.vertical, Spacing.md)
+    .frame(height: 30)
     .background(Color.backgroundSecondary)
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+  }
+
+  private var stripDivider: some View {
+    Color.panelBorder.opacity(0.38)
+      .frame(width: 1, height: 14)
   }
 
   private var compactActionBar: some View {
@@ -562,7 +547,7 @@ struct SessionDetailView: View {
           if let lastActivity = session.lastActivityAt {
             Text(lastActivity, style: .relative)
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .padding(.horizontal, Spacing.sm)
               .padding(.vertical, 4)
               .background(Color.backgroundTertiary, in: Capsule())
@@ -701,6 +686,15 @@ struct SessionDetailView: View {
     let maxLength = 14
     guard branch.count > maxLength else { return branch }
     return String(branch.prefix(maxLength - 1)) + "…"
+  }
+
+  private func compactProjectPath(_ path: String) -> String {
+    // Show last two path components: "parent/project"
+    let components = path.split(separator: "/")
+    if components.count >= 2 {
+      return components.suffix(2).joined(separator: "/")
+    }
+    return path
   }
 
   private var usageStats: TranscriptUsageStats {
@@ -887,7 +881,6 @@ struct SessionDetailView: View {
       status: .active,
       workStatus: .working
     ),
-    onTogglePanel: {},
     onOpenSwitcher: {},
     onGoToDashboard: {}
   )

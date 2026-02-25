@@ -113,7 +113,7 @@ struct AskUserQuestionCard: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("RESPONSE")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           Text(output)

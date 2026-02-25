@@ -205,11 +205,11 @@ struct FileListNavigator: View {
     VStack(spacing: 8) {
       Image(systemName: "doc.text")
         .font(.system(size: 20, weight: .light))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
 
       Text("No files changed")
         .font(.system(size: TypeScale.body))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }

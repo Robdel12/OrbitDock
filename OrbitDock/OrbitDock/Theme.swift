@@ -2,11 +2,9 @@
 //  Theme.swift
 //  OrbitDock
 //
-//  Design system for OrbitDock - "Cosmic Harbor" theme
-//  A space mission control center for AI agent sessions
-//
-//  Cyan orbit ring as hero accent on deep space backgrounds
-//  with subtle nebula undertones
+//  Design system for OrbitDock
+//  Dark, warm charcoal palette with subtle indigo undertones
+//  Engineered for readability and professional clarity
 //
 
 import SwiftUI
@@ -21,40 +19,43 @@ enum Spacing {
   static let md: CGFloat = 12
   static let lg: CGFloat = 16
   static let xl: CGFloat = 24
+  static let xxl: CGFloat = 32
+  static let section: CGFloat = 20
 }
 
-/// Canonical font sizes — collapses 10.5/11/12 clutter to a clear hierarchy.
+/// Canonical font sizes — clear visual hierarchy with distinct steps.
 enum TypeScale {
-  static let micro: CGFloat = 9
-  static let caption: CGFloat = 10
-  static let body: CGFloat = 11
-  static let code: CGFloat = 12
-  static let subhead: CGFloat = 13
-  static let title: CGFloat = 14
+  static let micro: CGFloat = 10
+  static let caption: CGFloat = 12
+  static let body: CGFloat = 13
+  static let label: CGFloat = 12
+  static let code: CGFloat = 13
+  static let subhead: CGFloat = 14
+  static let title: CGFloat = 15
   /// Content meant to be read (user prompts, steer text) vs. UI labels
-  static let reading: CGFloat = 14
+  static let reading: CGFloat = 15
   /// Conversation timeline role labels ("Assistant", "You", "Reasoning")
-  static let chatLabel: CGFloat = 10
+  static let chatLabel: CGFloat = 12
   /// Assistant/user prose body in transcript cards
-  static let chatBody: CGFloat = 14.5
+  static let chatBody: CGFloat = 15
   /// Prominent markdown headers inside assistant responses
-  static let chatHeading1: CGFloat = 22
-  static let chatHeading2: CGFloat = 18
-  static let chatHeading3: CGFloat = 15
+  static let chatHeading1: CGFloat = 24
+  static let chatHeading2: CGFloat = 20
+  static let chatHeading3: CGFloat = 16
   /// Inline and block code inside assistant responses
-  static let chatCode: CGFloat = 12.5
+  static let chatCode: CGFloat = 14
   /// Section headers ("Active Agents") — dominant dashboard tier
-  static let headline: CGFloat = 20
+  static let headline: CGFloat = 22
   /// Project names, emphasized subheads
-  static let large: CGFloat = 15
+  static let large: CGFloat = 16
 }
 
 /// Corner radius tiers — replaces ad-hoc 4/5/6/8/10/12 mix.
 enum Radius {
   static let sm: CGFloat = 4
   static let md: CGFloat = 6
-  static let lg: CGFloat = 8
-  static let xl: CGFloat = 12
+  static let lg: CGFloat = 10
+  static let xl: CGFloat = 14
 }
 
 /// Opacity tiers — collapses 17+ unique values to 6 semantic levels.
@@ -77,15 +78,15 @@ enum EdgeBar {
 extension Color {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Brand - The Orbit
+  // MARK: Brand
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Primary brand color - Ice-blue orbit ring (cooler, less neon)
-  static let accent = Color(red: 0.35, green: 0.78, blue: 0.95)
+  /// Primary brand color — calmer teal, less neon
+  static let accent = Color(red: 0.33, green: 0.68, blue: 0.90)
 
   /// Slightly brighter for glow effects
-  static let accentGlow = Color(red: 0.35, green: 0.9, blue: 1.0)
+  static let accentGlow = Color(red: 0.35, green: 0.8, blue: 0.98)
 
   /// Muted accent for subtle highlights
   static let accentMuted = Color(red: 0.2, green: 0.5, blue: 0.6)
@@ -94,11 +95,11 @@ extension Color {
   static let accentPrimary = accent
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Diff Colors — Inline Review
+  // MARK: Diff Colors
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Line background washes (softer for instrument feel)
+  /// Line background washes
   static let diffAddedBg = Color(red: 0.12, green: 0.26, blue: 0.15).opacity(0.30)
   static let diffRemovedBg = Color(red: 0.30, green: 0.12, blue: 0.12).opacity(0.30)
 
@@ -115,40 +116,40 @@ extension Color {
   static let diffRemovedHighlight = Color(red: 1.0, green: 0.5, blue: 0.5).opacity(0.25)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Backgrounds - Deep Space with Nebula Undertones
+  // MARK: Backgrounds — Warm Charcoal with Subtle Indigo
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Main content area - neutral void black
-  static let backgroundPrimary = Color(red: 0.045, green: 0.045, blue: 0.055)
+  /// Main content area — warm charcoal
+  static let backgroundPrimary = Color(red: 0.06, green: 0.058, blue: 0.065)
 
-  /// Elevated surfaces (sidebars, headers) - neutral dark
-  static let backgroundSecondary = Color(red: 0.065, green: 0.065, blue: 0.08)
+  /// Elevated surfaces (sidebars, headers)
+  static let backgroundSecondary = Color(red: 0.082, green: 0.08, blue: 0.09)
 
-  /// Cards, code blocks - neutral with slight depth
-  static let backgroundTertiary = Color(red: 0.085, green: 0.085, blue: 0.105)
+  /// Cards, code blocks — warm card surface
+  static let backgroundTertiary = Color(red: 0.11, green: 0.108, blue: 0.125)
 
-  /// Slide-in panels - deep space with blue cast
-  static let panelBackground = Color(red: 0.045, green: 0.05, blue: 0.085)
+  /// Slide-in panels — subtle indigo cast
+  static let panelBackground = Color(red: 0.055, green: 0.055, blue: 0.072)
 
-  /// Panel borders - subtle cyan tint
+  /// Panel borders — subtle accent tint
   static let panelBorder = accent.opacity(0.1)
 
-  /// Code blocks - darker void
-  static let backgroundCode = Color(red: 0.03, green: 0.035, blue: 0.055)
+  /// Code blocks — slightly darker
+  static let backgroundCode = Color(red: 0.04, green: 0.04, blue: 0.052)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Surfaces - Interaction States (Cyan-tinted)
+  // MARK: Surfaces — Interaction States
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  static let surfaceHover = accent.opacity(0.08)
-  static let surfaceSelected = accent.opacity(0.15)
-  static let surfaceBorder = accent.opacity(0.12)
-  static let surfaceActive = accent.opacity(0.22)
+  static let surfaceHover = accent.opacity(0.06)
+  static let surfaceSelected = accent.opacity(0.12)
+  static let surfaceBorder = accent.opacity(0.10)
+  static let surfaceActive = accent.opacity(0.20)
 
-  /// Row highlight with subtle nebula tint
-  static let rowHighlight = Color(red: 0.15, green: 0.2, blue: 0.35).opacity(0.4)
+  /// Row highlight
+  static let rowHighlight = Color(red: 0.15, green: 0.18, blue: 0.28).opacity(0.35)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Text Hierarchy — Guaranteed Readable on Dark Backgrounds
@@ -172,49 +173,44 @@ extension Color {
   static let textQuaternary = Color.white.opacity(0.38)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Provider Colors - Multi-Provider Support
+  // MARK: Provider Colors
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Claude accent - uses brand cyan
   static let providerClaude = accent
-
-  /// Codex/OpenAI accent - green (#4AC78F)
   static let providerCodex = Color(red: 0.29, green: 0.78, blue: 0.56)
-
-  /// Gemini accent - purple/blue
   static let providerGemini = Color(red: 0.4, green: 0.5, blue: 0.9)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Status - Mission Control Indicators
+  // MARK: Status Indicators
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //
-  // 5 distinct status states for maximum clarity:
+  // 5 distinct status states:
   // 1. Permission (coral) - Needs tool approval - URGENT
   // 2. Question (purple)  - Claude asked you something - URGENT
-  // 3. Working (cyan)     - Claude actively processing
+  // 3. Working (teal)     - Actively processing
   // 4. Reply (soft blue)  - Awaiting your next prompt
-  // 5. Ended (gray)       - Session finished
+  // 5. Ended (warm gray)  - Session finished
   //
 
-  /// Active/Working - Cyan orbit (Claude is doing stuff)
+  /// Active/Working — brand teal
   static let statusWorking = accent
 
-  /// Permission required - Warm coral (distinct from question, urgent)
-  static let statusPermission = Color(red: 1.0, green: 0.55, blue: 0.4)
+  /// Permission required — softened coral
+  static let statusPermission = Color(red: 0.95, green: 0.55, blue: 0.42)
 
-  /// Question waiting - Nebula purple (Claude asked something)
+  /// Question waiting — purple
   static let statusQuestion = Color(red: 0.75, green: 0.5, blue: 0.95)
 
-  /// Awaiting reply - Soft blue (your turn to type, lower urgency)
+  /// Awaiting reply — soft blue
   static let statusReply = Color(red: 0.45, green: 0.7, blue: 1.0)
 
-  /// Error - Red warning
+  /// Error — red warning
   static let statusError = Color(red: 0.95, green: 0.4, blue: 0.45)
 
-  /// Ended/Idle - Muted purple-gray (inactive but not invisible)
-  static let statusEnded = Color(red: 0.45, green: 0.42, blue: 0.55)
+  /// Ended/Idle — warm gray, less purple
+  static let statusEnded = Color(red: 0.42, green: 0.40, blue: 0.45)
 
   /// Legacy aliases for backward compatibility
   /// @deprecated Use statusPermission or statusQuestion instead
@@ -229,56 +225,56 @@ extension Color {
   static let statusIdle = statusEnded
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Model Colors - Crew Ranks
+  // MARK: Model Colors
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  static let modelOpus = Color(red: 0.7, green: 0.45, blue: 0.95) // Cosmic purple
-  static let modelSonnet = Color(red: 0.4, green: 0.65, blue: 1.0) // Nebula blue
-  static let modelHaiku = Color(red: 0.3, green: 0.85, blue: 0.8) // Aqua teal
+  static let modelOpus = Color(red: 0.7, green: 0.45, blue: 0.95)
+  static let modelSonnet = Color(red: 0.4, green: 0.65, blue: 1.0)
+  static let modelHaiku = Color(red: 0.3, green: 0.85, blue: 0.8)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Tool Colors - Operations Palette
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  static let toolRead = Color(red: 0.45, green: 0.7, blue: 1.0) // Scanner blue
-  static let toolWrite = Color(red: 1.0, green: 0.6, blue: 0.3) // Thruster orange
-  static let toolBash = Color(red: 0.35, green: 0.85, blue: 0.55) // Terminal green
-  static let toolSearch = Color(red: 0.65, green: 0.5, blue: 0.95) // Radar purple
-  static let toolTask = Color(red: 0.5, green: 0.55, blue: 1.0) // Subspace indigo
-  static let toolWeb = accent // Uses brand cyan
-  static let toolQuestion = Color(red: 1.0, green: 0.7, blue: 0.3) // Beacon amber
-  static let toolMcp = Color(red: 0.55, green: 0.7, blue: 0.85) // Dock gray-blue
-  static let toolSkill = Color(red: 0.85, green: 0.55, blue: 0.9) // Warp pink
-  static let toolPlan = Color(red: 0.4, green: 0.75, blue: 0.55) // Navigate green
-  static let toolTodo = Color(red: 0.7, green: 0.8, blue: 0.45) // Manifest lime
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: MCP Server Colors - Docked Services
+  // MARK: Tool Colors
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  static let serverGitHub = Color(red: 0.6, green: 0.5, blue: 1.0) // Nebula purple
-  static let serverLinear = Color(red: 0.4, green: 0.55, blue: 1.0) // Deep blue
-  static let serverChrome = Color(red: 1.0, green: 0.65, blue: 0.25) // Solar orange
-  static let serverSlack = Color(red: 0.95, green: 0.4, blue: 0.6) // Nova pink
-  static let serverApple = Color(red: 0.45, green: 0.75, blue: 1.0) // Sky blue
-  static let serverDefault = accentMuted // Uses muted accent
+  static let toolRead = Color(red: 0.45, green: 0.7, blue: 1.0)
+  static let toolWrite = Color(red: 1.0, green: 0.6, blue: 0.3)
+  static let toolBash = Color(red: 0.35, green: 0.85, blue: 0.55)
+  static let toolSearch = Color(red: 0.65, green: 0.5, blue: 0.95)
+  static let toolTask = Color(red: 0.5, green: 0.55, blue: 1.0)
+  static let toolWeb = accent
+  static let toolQuestion = Color(red: 1.0, green: 0.7, blue: 0.3)
+  static let toolMcp = Color(red: 0.55, green: 0.7, blue: 0.85)
+  static let toolSkill = Color(red: 0.85, green: 0.55, blue: 0.9)
+  static let toolPlan = Color(red: 0.4, green: 0.75, blue: 0.55)
+  static let toolTodo = Color(red: 0.7, green: 0.8, blue: 0.45)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Syntax Highlighting - Code Telescope
+  // MARK: MCP Server Colors
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  static let syntaxKeyword = Color(red: 0.75, green: 0.5, blue: 0.95) // Nebula purple
-  static let syntaxString = Color(red: 0.95, green: 0.65, blue: 0.4) // Solar orange
-  static let syntaxNumber = Color(red: 0.7, green: 0.85, blue: 0.5) // Starchart lime
-  static let syntaxComment = Color(red: 0.4, green: 0.45, blue: 0.5) // Distant star gray
-  static let syntaxType = accent // Orbit cyan
-  static let syntaxFunction = Color(red: 0.9, green: 0.85, blue: 0.55) // Signal yellow
-  static let syntaxProperty = Color(red: 0.55, green: 0.75, blue: 0.95) // Atmosphere blue
-  static let syntaxText = Color(red: 0.85, green: 0.87, blue: 0.9) // Starlight
+  static let serverGitHub = Color(red: 0.6, green: 0.5, blue: 1.0)
+  static let serverLinear = Color(red: 0.4, green: 0.55, blue: 1.0)
+  static let serverChrome = Color(red: 1.0, green: 0.65, blue: 0.25)
+  static let serverSlack = Color(red: 0.95, green: 0.4, blue: 0.6)
+  static let serverApple = Color(red: 0.45, green: 0.75, blue: 1.0)
+  static let serverDefault = accentMuted
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Syntax Highlighting
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  static let syntaxKeyword = Color(red: 0.75, green: 0.5, blue: 0.95)
+  static let syntaxString = Color(red: 0.95, green: 0.65, blue: 0.4)
+  static let syntaxNumber = Color(red: 0.7, green: 0.85, blue: 0.5)
+  static let syntaxComment = Color(red: 0.4, green: 0.45, blue: 0.5)
+  static let syntaxType = accent
+  static let syntaxFunction = Color(red: 0.9, green: 0.85, blue: 0.55)
+  static let syntaxProperty = Color(red: 0.55, green: 0.75, blue: 0.95)
+  static let syntaxText = Color(red: 0.85, green: 0.87, blue: 0.9)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Language Badge Colors
@@ -307,43 +303,37 @@ extension Color {
   static let markdownBlockquote = Color(red: 0.6, green: 0.5, blue: 0.9) // Nebula purple
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Git / Branch - Navigation
+  // MARK: Git / Branch
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  static let gitBranch = Color(red: 0.95, green: 0.65, blue: 0.3) // Flight path orange
+  static let gitBranch = Color(red: 0.95, green: 0.65, blue: 0.3)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Terminal - Uplink
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  static let terminal = Color(red: 0.35, green: 0.85, blue: 0.55) // Uplink green
-
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Special Effects - Cosmic Atmosphere
+  // MARK: Terminal
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// For active session "in orbit" glow rings
-  static let orbitGlow = accent.opacity(0.4)
+  static let terminal = Color(red: 0.35, green: 0.85, blue: 0.55)
 
-  /// For attention-needed pulsing (permission state)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: Effects
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /// Subtle glow for active states
+  static let orbitGlow = accent.opacity(0.3)
+
+  /// Attention pulse color
   static let beaconPulse = statusPermission
 
-  /// Nebula gradient start (purple)
-  static let nebulaStart = Color(red: 0.25, green: 0.15, blue: 0.4)
-
-  /// Nebula gradient end (blue)
-  static let nebulaEnd = Color(red: 0.1, green: 0.15, blue: 0.35)
-
-  /// Starfield highlight
+  /// Legacy — consolidated to backgroundPrimary variants
+  static let nebulaStart = Color(red: 0.20, green: 0.13, blue: 0.30)
+  static let nebulaEnd = Color(red: 0.08, green: 0.12, blue: 0.28)
   static let starlight = Color.white.opacity(0.85)
-
-  /// Void shadow
   static let voidBlack = Color(red: 0.02, green: 0.02, blue: 0.04)
 
-  /// Docked/Ready state - use accent for brand cohesion
+  /// Ready state
   static let statusDocked = accent
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -351,13 +341,13 @@ extension Color {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Prompt mode border — cyan orbit
+  /// Prompt mode border
   static let composerPrompt = accent
-  /// Steer mode border — amber/orange thruster
+  /// Steer mode border
   static let composerSteer = toolWrite
-  /// Review mode border — purple nebula
+  /// Review mode border
   static let composerReview = statusQuestion
-  /// Shell mode border — terminal green
+  /// Shell mode border
   static let composerShell = shellAccent
 
   /// Terminal green accent for user-initiated shell commands
@@ -368,35 +358,29 @@ extension Color {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// Locked — teal-cyan (most restrictive, safe)
+  /// Locked — most restrictive
   static let autonomyLocked = Color(red: 0.2, green: 0.75, blue: 0.78)
-  /// Guarded — accent cyan
+  /// Guarded
   static let autonomyGuarded = accent
-  /// Autonomous — calm green (Codex default)
+  /// Autonomous — Codex default
   static let autonomyAutonomous = Color(red: 0.35, green: 0.82, blue: 0.55)
-  /// Open — amber (caution, no sandbox)
+  /// Open — caution
   static let autonomyOpen = Color(red: 0.95, green: 0.75, blue: 0.3)
-  /// Full Auto — orange (everything auto-approves)
+  /// Full Auto
   static let autonomyFullAuto = Color(red: 1.0, green: 0.6, blue: 0.3)
-  /// Unrestricted — coral-red (max danger)
+  /// Unrestricted — max risk
   static let autonomyUnrestricted = Color(red: 1.0, green: 0.45, blue: 0.4)
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // MARK: Effort Levels — Speed Spectrum (cool→warm)
+  // MARK: Effort Levels
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  /// None — muted gray (no reasoning)
-  static let effortNone = Color(red: 0.45, green: 0.42, blue: 0.55)
-  /// Minimal — cool teal
+  static let effortNone = Color(red: 0.42, green: 0.40, blue: 0.45)
   static let effortMinimal = Color(red: 0.2, green: 0.75, blue: 0.78)
-  /// Low — accent cyan
   static let effortLow = accent
-  /// Medium — calm green (default)
   static let effortMedium = Color(red: 0.35, green: 0.82, blue: 0.55)
-  /// High — amber
   static let effortHigh = Color(red: 0.95, green: 0.75, blue: 0.3)
-  /// XHigh — coral-orange (deepest reasoning)
   static let effortXHigh = Color(red: 1.0, green: 0.55, blue: 0.35)
 }
 
@@ -594,47 +578,14 @@ struct SessionStatusDot: View {
   }
 
   var body: some View {
-    ZStack {
-      // Glow ring for working status (cyan active glow)
-      if showGlow, status == .working {
-        Circle()
-          .fill(status.color.opacity(0.2))
-          .frame(width: size * 2, height: size * 2)
-          .blur(radius: 3)
-
-        Circle()
-          .stroke(status.color.opacity(0.4), lineWidth: 1.5)
-          .frame(width: size * 1.75, height: size * 1.75)
-      }
-
-      // Permission ring (coral urgent ring)
-      if showGlow, status == .permission {
-        Circle()
-          .stroke(status.color.opacity(0.6), lineWidth: 2)
-          .frame(width: size * 1.75, height: size * 1.75)
-      }
-
-      // Question ring (purple ring)
-      if showGlow, status == .question {
-        Circle()
-          .stroke(status.color.opacity(0.5), lineWidth: 1.5)
-          .frame(width: size * 1.75, height: size * 1.75)
-      }
-
-      // Reply ring (subtle blue ring)
-      if showGlow, status == .reply {
-        Circle()
-          .stroke(status.color.opacity(0.3), lineWidth: 1)
-          .frame(width: size * 1.6, height: size * 1.6)
-      }
-
-      // Core dot
-      Circle()
-        .fill(status.color)
-        .frame(width: size, height: size)
-        .shadow(color: status != .ended ? status.color.opacity(0.5) : .clear, radius: 3)
-    }
-    .frame(width: size * 2.5, height: size * 2.5)
+    Circle()
+      .fill(status.color)
+      .frame(width: size, height: size)
+      .shadow(
+        color: showGlow && status != .ended ? status.color.opacity(0.4) : .clear,
+        radius: 4
+      )
+      .frame(width: size * 2.5, height: size * 2.5)
   }
 }
 
@@ -765,7 +716,7 @@ struct PermissionBanner: View {
       // Subtle hint
       Text("Accept in terminal")
         .font(.system(size: 10, weight: .medium))
-        .foregroundStyle(.tertiary)
+        .foregroundStyle(Color.textTertiary)
     }
     .padding(14)
     .background(Color.statusAttention.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))

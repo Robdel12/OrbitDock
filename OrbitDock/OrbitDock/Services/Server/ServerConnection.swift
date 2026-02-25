@@ -1084,7 +1084,13 @@ class ServerConnection: ObservableObject {
           try await fetchAPIJSON(path: "/api/codex/account", queryItems: queryItems)
         onCodexAccountStatus?(response.status)
       } catch {
-        onError?("codex_auth_error", error.localizedDescription, nil)
+        // Use a distinct code for connection failures so the error handler
+        // doesn't re-trigger readCodexAccount → infinite retry loop.
+        let isConnectionError = (error as? URLError)?.code == .cannotConnectToHost
+          || (error as? URLError)?.code == .notConnectedToInternet
+          || (error as? URLError)?.code == .timedOut
+        let code = isConnectionError ? "codex_auth_connection" : "codex_auth_error"
+        onError?(code, error.localizedDescription, nil)
       }
     }
   }

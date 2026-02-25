@@ -478,13 +478,13 @@
       buttonRow.addSubview(denyButton)
 
       approveButton.translatesAutoresizingMaskIntoConstraints = false
-      approveButton.title = "Approve Once"
+      approveButton.title = "Approve"
       approveButton.bezelStyle = .rounded
-      approveButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+      approveButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .bold)
       approveButton.contentTintColor = .white
       approveButton.wantsLayer = true
       approveButton.layer?.cornerRadius = CGFloat(Radius.md)
-      approveButton.layer?.backgroundColor = NSColor(Color.accent).withAlphaComponent(0.75).cgColor
+      approveButton.layer?.backgroundColor = NSColor(Color.accent).cgColor
       approveButton.target = self
       approveButton.action = #selector(approveButtonClicked)
       buttonRow.addSubview(approveButton)
@@ -498,7 +498,7 @@
       cardContainer.addSubview(secondaryRow)
 
       sessionAllowButton.translatesAutoresizingMaskIntoConstraints = false
-      sessionAllowButton.title = "Allow Session"
+      sessionAllowButton.title = "Allow for Session"
       sessionAllowButton.isBordered = false
       sessionAllowButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       sessionAllowButton.contentTintColor = NSColor(Color.textSecondary)
@@ -516,7 +516,7 @@
       secondaryRow.addArrangedSubview(alwaysAllowButton)
 
       denyReasonButton.translatesAutoresizingMaskIntoConstraints = false
-      denyReasonButton.title = "Deny w/ Reason"
+      denyReasonButton.title = "Deny with Reason"
       denyReasonButton.isBordered = false
       denyReasonButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
       denyReasonButton.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)

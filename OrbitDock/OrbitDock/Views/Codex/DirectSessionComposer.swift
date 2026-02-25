@@ -3,7 +3,7 @@
 //  OrbitDock
 //
 //  Unified composer for direct sessions.
-//  Three layers: token strip → composer → instrument strip.
+//  Two layers: composer (text input + action dock) → instrument strip.
 //
 
 import SwiftUI
@@ -394,10 +394,6 @@ struct DirectSessionComposer: View {
     return "Send a message..."
   }
 
-  private var dictationButtonWidth: CGFloat {
-    isCompactLayout ? 96 : 120
-  }
-
   private var isCompactLayout: Bool {
     horizontalSizeClass == .compact
   }
@@ -406,80 +402,6 @@ struct DirectSessionComposer: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      // ━━━ Token Progress Strip (2px full-width) ━━━
-      if session.hasTokenUsage {
-        tokenStrip
-          .padding(.horizontal, isCompactLayout ? 0 : Spacing.lg)
-          .padding(.top, isCompactLayout ? 0 : 6)
-      }
-
-      // ━━━ Review notes indicator (only for review mode) ━━━
-      if isSessionActive, inputMode == .reviewNotes {
-        HStack(spacing: 8) {
-          HStack(spacing: 6) {
-            Circle()
-              .fill(Color.composerReview)
-              .frame(width: 6, height: 6)
-            Text("Review Notes")
-              .font(.system(size: TypeScale.body, weight: .medium))
-              .foregroundStyle(Color.composerReview)
-          }
-          Spacer()
-          Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              manualReviewMode.toggle()
-            }
-          } label: {
-            Text("Cancel")
-              .font(.system(size: TypeScale.body, weight: .medium))
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-        .padding(.horizontal, Spacing.lg)
-        .frame(height: 24)
-        .background(Color.backgroundTertiary)
-      }
-
-      // ━━━ Shell mode indicator ━━━
-      if isSessionActive, inputMode == .shell {
-        HStack(spacing: 8) {
-          HStack(spacing: 6) {
-            Image(systemName: "terminal")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(Color.shellAccent)
-            Text("Shell Mode")
-              .font(.system(size: TypeScale.body, weight: .medium))
-              .foregroundStyle(Color.shellAccent)
-
-            // Pending shell context count
-            let pending = serverState.session(sessionId).pendingShellContext.count
-            if pending > 0 {
-              Text("\(pending) buffered")
-                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-                .foregroundStyle(Color.shellAccent.opacity(0.7))
-            }
-          }
-          Spacer()
-          Text("\u{2318}\u{21E7}T")
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-          Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              manualShellMode = false
-            }
-          } label: {
-            Text("Cancel")
-              .font(.system(size: TypeScale.body, weight: .medium))
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-        .padding(.horizontal, Spacing.lg)
-        .frame(height: 24)
-        .background(Color.backgroundTertiary)
-      }
-
       // ━━━ Command Deck (/ trigger) ━━━
       if shouldShowCommandDeck, !isSessionWorking {
         ComposerCommandDeckList(
@@ -525,13 +447,10 @@ struct DirectSessionComposer: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
-      if isSessionActive {
-        workflowActionDock
-      }
-
       // ━━━ Composer area ━━━
       if isSessionActive {
         composerRow
+        statusBar
       } else {
         // Ended session — resume button
         resumeRow
@@ -540,11 +459,6 @@ struct DirectSessionComposer: View {
       // ━━━ Error message ━━━
       if let error = composerErrorMessage {
         errorRow(error)
-      }
-
-      // ━━━ Instrument strip (bottom) ━━━
-      if isSessionActive {
-        instrumentStrip
       }
     }
     .background(isCompactLayout ? Color.backgroundSecondary : Color.clear)
@@ -715,97 +629,344 @@ struct DirectSessionComposer: View {
   // MARK: - Composer Row
 
   private var composerRow: some View {
-    HStack(spacing: isCompactLayout ? Spacing.xs : 8) {
-      // Text field inside bordered container with mode tint
-      HStack(spacing: Spacing.sm) {
-        // Mode badge embedded in the composer
-        if isSessionWorking {
-          Text("STEER")
-            .font(.system(size: 9, weight: .black, design: .monospaced))
-            .foregroundStyle(Color.composerSteer)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-              Color.composerSteer.opacity(OpacityTier.light),
-              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            )
-        } else if inputMode == .shell {
-          Text("SHELL")
-            .font(.system(size: 9, weight: .black, design: .monospaced))
-            .foregroundStyle(Color.shellAccent)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-              Color.shellAccent.opacity(OpacityTier.light),
-              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-            )
+    VStack(spacing: 0) {
+      // Text input
+      composerTextInput
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+
+      // Unified footer: actions + metadata + send
+      composerFooter
+    }
+    .background(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .fill(
+          isCompactLayout
+            ? composerBorderColor.opacity(0.04)
+            : Color.backgroundTertiary.opacity(0.17)
+        )
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
+        .strokeBorder(
+          isFocused || inputMode != .prompt
+            ? composerBorderColor.opacity(0.5)
+            : Color.surfaceBorder.opacity(isCompactLayout ? 0.35 : (canSend ? 0.34 : 0.18)),
+          lineWidth: isFocused || inputMode != .prompt ? 1.5 : 1
+        )
+    )
+    .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
+    .padding(.vertical, isCompactLayout ? Spacing.sm : 8)
+  }
+
+  // MARK: - Status Bar (informational metadata below composer)
+
+  @ViewBuilder
+  private var statusBar: some View {
+    if isCompactLayout {
+      compactStatusBar
+    } else {
+      desktopStatusBar
+    }
+  }
+
+  private var desktopStatusBar: some View {
+    HStack(spacing: 8) {
+      if session.isDirectCodex {
+        AutonomyPill(sessionId: sessionId)
+      } else if session.isDirectClaude {
+        ClaudePermissionPill(sessionId: sessionId)
+      }
+
+      if session.hasTokenUsage {
+        footerTokenLabel
+      }
+
+      footerModelLabel
+
+      if let branch = session.branch, !branch.isEmpty {
+        footerBranchLabel(branch)
+      }
+
+      if !session.projectPath.isEmpty {
+        statusBarCwdLabel(session.projectPath)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, Spacing.lg + 10)
+    .padding(.top, -2)
+    .padding(.bottom, 6)
+  }
+
+  private var compactStatusBar: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 6) {
+        if session.isDirectCodex {
+          AutonomyPill(sessionId: sessionId)
+        } else if session.isDirectClaude {
+          ClaudePermissionPill(sessionId: sessionId)
         }
 
-        composerTextInput
+        if session.hasTokenUsage {
+          compactFooterTokenChip
+        }
 
-        // Override badges (inside border)
-        if !isSessionWorking, session.isDirectCodex || session.isDirectClaude, !isCompactLayout {
-          if hasOverrides {
-            overrideBadge
-          }
-          if !selectedSkills.isEmpty {
-            Text("\(selectedSkills.count) skill\(selectedSkills.count == 1 ? "" : "s")")
-              .font(.system(size: TypeScale.micro, weight: .bold))
-              .padding(.horizontal, 6)
-              .padding(.vertical, 2)
-              .background(Color.accent.opacity(0.15))
-              .foregroundStyle(Color.accent)
-              .clipShape(Capsule())
-          }
+        footerModelLabel
+
+        if let branch = session.branch, !branch.isEmpty {
+          footerBranchLabel(branch)
         }
       }
-      .padding(.horizontal, isCompactLayout ? Spacing.sm : Spacing.sm)
-      .padding(.vertical, isCompactLayout ? 6 : 4)
-      .background(
-        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-          .fill(
-            isCompactLayout
-              ? composerBorderColor.opacity(0.04)
-              : Color.backgroundTertiary.opacity(0.17)
-          )
-      )
-      .overlay(
-        Group {
-          if isCompactLayout {
-            RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-              .strokeBorder(composerBorderColor.opacity(0.35), lineWidth: 1.5)
-          } else {
-            RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-              .strokeBorder(Color.surfaceBorder.opacity(canSend ? 0.34 : 0.18), lineWidth: 1)
-          }
-        }
-      )
-      .shadow(color: .clear, radius: 0, y: 0)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, Spacing.md + Spacing.sm)
+    }
+    .scrollIndicators(.hidden)
+  }
 
-      // Send button — larger, with glow when active
-      Button(action: sendMessage) {
-        Group {
-          if isSending {
-            ProgressView()
-              .controlSize(.small)
-          } else {
-            Image(systemName: isSessionWorking ? "arrow.uturn.right" : "arrow.up")
-              .font(.system(size: TypeScale.subhead, weight: .bold))
-              .foregroundStyle(.white)
+  private func statusBarCwdLabel(_ cwd: String) -> some View {
+    let display = (cwd as NSString).lastPathComponent
+    return HStack(spacing: 2) {
+      Image(systemName: "folder")
+        .font(.system(size: 9, weight: .medium))
+      Text(display)
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .lineLimit(1)
+    }
+    .foregroundStyle(Color.textQuaternary)
+    .help(cwd)
+  }
+
+  // MARK: - Action Footer (actions + follow + send)
+
+  @ViewBuilder
+  private var composerFooter: some View {
+    if isCompactLayout {
+      compactComposerFooter
+    } else {
+      desktopComposerFooter
+    }
+  }
+
+  private var desktopComposerFooter: some View {
+    HStack(spacing: 4) {
+      // Ghost action icons
+      HStack(spacing: 2) {
+        if session.workStatus == .working {
+          CodexInterruptButton(sessionId: sessionId)
+        }
+
+        if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
+          providerModelControlButton
+        }
+
+        if !isSessionWorking {
+          fileMentionControlButton
+          commandDeckControlButton
+        }
+
+        if shouldShowDictation, !isSessionWorking {
+          dictationControlButton
+        }
+
+        if !isSessionWorking {
+          desktopWorkflowOverflowMenu
+        }
+
+        if inputMode == .shell || inputMode == .reviewNotes, !isSessionWorking {
+          Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+              if inputMode == .shell { manualShellMode = false }
+              if inputMode == .reviewNotes { manualReviewMode = false }
+            }
+          } label: {
+            ghostActionLabel(icon: "xmark.circle", isActive: true, tint: Color.textSecondary)
+          }
+          .buttonStyle(.plain)
+          .help("Exit \(inputMode == .shell ? "shell" : "review") mode")
+        }
+      }
+
+      Spacer()
+
+      // Follow + Send
+      HStack(spacing: 6) {
+        footerFollowControls
+        composerSendButton
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.bottom, 8)
+  }
+
+  private var compactComposerFooter: some View {
+    HStack(spacing: 6) {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 4) {
+          if session.workStatus == .working {
+            CodexInterruptButton(sessionId: sessionId, isCompact: true)
+          }
+
+          if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
+            providerModelControlButton
+          }
+
+          if !isSessionWorking {
+            commandDeckControlButton
+          }
+
+          if shouldShowDictation, !isSessionWorking {
+            dictationControlButton
+          }
+
+          if !isSessionWorking {
+            compactWorkflowOverflowMenu
           }
         }
-        .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
-        .background(
-          Circle().fill(canSend ? composerBorderColor : Color.surfaceHover)
-        )
-        .shadow(color: canSend ? composerBorderColor.opacity(0.4) : .clear, radius: 6, y: 0)
+        .padding(.trailing, 4)
+      }
+      .scrollIndicators(.hidden)
+
+      // Pinned right: follow + send
+      footerFollowControls
+      composerSendButton
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.bottom, 8)
+  }
+
+  // MARK: - Footer Helpers
+
+  private var footerTokenLabel: some View {
+    let pct = Int(tokenContextPercentage * 100)
+    let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
+    let displayPct = if tokenContextPercentage > 0, pct == 0 { "< 1" } else { "\(pct)" }
+
+    return HStack(spacing: 3) {
+      Text("\(displayPct)%")
+        .foregroundStyle(color)
+      if let window = session.contextWindow {
+        let total = session.effectiveContextInputTokens
+        Text("·")
+          .foregroundStyle(Color.textQuaternary)
+        Text("\(formatTokenCount(total))/\(formatTokenCount(window))")
+          .foregroundStyle(Color.textTertiary)
+      }
+    }
+    .font(.system(size: 10, weight: .medium, design: .monospaced))
+    .help(tokenTooltipText)
+  }
+
+  @ViewBuilder
+  private var footerModelLabel: some View {
+    if session.isDirectCodex, !selectedModel.isEmpty {
+      Text(shortModelName(selectedModel))
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+        .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
+    } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
+      Text(shortModelName(effectiveClaudeModel))
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+    }
+  }
+
+  private func footerBranchLabel(_ branch: String) -> some View {
+    HStack(spacing: 2) {
+      Image(systemName: "arrow.triangle.branch")
+        .font(.system(size: 9, weight: .medium))
+      Text(branch)
+        .font(.system(size: 10, weight: .medium, design: .monospaced))
+        .lineLimit(1)
+    }
+    .foregroundStyle(Color.gitBranch.opacity(0.65))
+    .help(branch)
+  }
+
+  private var footerFollowControls: some View {
+    HStack(spacing: 4) {
+      if !isPinned, unreadCount > 0 {
+        Button {
+          isPinned = true
+          unreadCount = 0
+          scrollToBottomTrigger += 1
+        } label: {
+          Text("\(unreadCount)")
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.accent, in: Capsule())
+        }
+        .buttonStyle(.plain)
+      }
+
+      Button {
+        isPinned.toggle()
+        if isPinned {
+          unreadCount = 0
+          scrollToBottomTrigger += 1
+        }
+      } label: {
+        Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
+          .font(.system(size: isCompactLayout ? 13 : 11, weight: .semibold))
+          .foregroundStyle(isPinned ? Color.textQuaternary : Color.statusReply)
+          .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
+          .background(
+            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
+            in: RoundedRectangle(cornerRadius: isCompactLayout ? Radius.md : Radius.sm, style: .continuous)
+          )
       }
       .buttonStyle(.plain)
-      .disabled(!canSend)
-      .keyboardShortcut(.return, modifiers: .command)
     }
-    .padding(.horizontal, isCompactLayout ? Spacing.md : Spacing.lg)
-    .padding(.vertical, isCompactLayout ? Spacing.xs : 4)
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
+    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
+  }
+
+  private var composerSendButton: some View {
+    Button(action: sendMessage) {
+      Group {
+        if isSending {
+          ProgressView()
+            .controlSize(.small)
+        } else {
+          Image(systemName: isSessionWorking ? "arrow.uturn.right" : "arrow.up")
+            .font(.system(size: isCompactLayout ? TypeScale.subhead : 12, weight: .bold))
+            .foregroundStyle(.white)
+        }
+      }
+      .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
+      .background(
+        Circle().fill(canSend ? composerBorderColor : Color.surfaceHover)
+      )
+      .shadow(color: canSend ? composerBorderColor.opacity(0.4) : .clear, radius: 6, y: 0)
+    }
+    .buttonStyle(.plain)
+    .disabled(!canSend)
+    .keyboardShortcut(.return, modifiers: .command)
+  }
+
+  private var compactFooterTokenChip: some View {
+    let pct = Int(tokenContextPercentage * 100)
+    let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
+    let displayPct = if tokenContextPercentage > 0, pct == 0 { "< 1" } else { "\(pct)" }
+    let total = session.effectiveContextInputTokens
+
+    let text = if total > 0, let window = session.contextWindow {
+      "\(displayPct)%·\(formatTokenCount(total))/\(formatTokenCount(window))"
+    } else {
+      "\(displayPct)%"
+    }
+
+    return Text(text)
+      .font(.system(size: 10, weight: .medium, design: .monospaced))
+      .foregroundStyle(color)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 3)
+      .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+      .help(tokenTooltipText)
   }
 
   // MARK: - Composer Action Button
@@ -814,25 +975,9 @@ struct DirectSessionComposer: View {
     Button {
       showModelEffortPopover.toggle()
     } label: {
-      HStack(spacing: isCompactLayout ? 5 : 6) {
-        Image(systemName: "slider.horizontal.3")
-          .font(.system(size: 13, weight: .semibold))
-
-        Text("Model")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-      }
-      .foregroundStyle(hasOverrides ? Color.accent : Color.textSecondary)
-      .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
-      .frame(height: isCompactLayout ? 26 : 26)
-      .background(
-        isCompactLayout
-          ? (hasOverrides ? Color.accent.opacity(OpacityTier.light) : Color.surfaceHover)
-          : (hasOverrides ? Color.accent.opacity(0.10) : Color.clear),
-        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-      )
+      ghostActionLabel(icon: "slider.horizontal.3", isActive: hasOverrides)
     }
     .buttonStyle(.plain)
-    .fixedSize()
     .help("Model and reasoning effort")
     .platformPopover(isPresented: $showModelEffortPopover) {
       NavigationStack {
@@ -853,46 +998,12 @@ struct DirectSessionComposer: View {
   }
 
   private var claudeModelControlButton: some View {
-    let hasOverride = hasOverrides
-    let modelLabel = effectiveClaudeModel.isEmpty ? "Auto" : shortModelName(effectiveClaudeModel)
-    let compactModelLabel = modelLabel.uppercased()
-
-    return Button {
+    Button {
       showClaudeModelPopover.toggle()
     } label: {
-      HStack(spacing: isCompactLayout ? 5 : 6) {
-        Image(systemName: "slider.horizontal.3")
-          .font(.system(size: 13, weight: .semibold))
-        if isCompactLayout {
-          Text(compactModelLabel)
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.providerClaude)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Color.providerClaude.opacity(0.14), in: Capsule())
-        } else {
-          Text("Model")
-            .font(.system(size: TypeScale.caption, weight: .semibold))
-          Text(modelLabel)
-            .font(.system(size: 10, weight: .bold, design: .monospaced))
-            .foregroundStyle(Color.providerClaude)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(Color.providerClaude.opacity(0.14), in: Capsule())
-        }
-      }
-      .foregroundStyle(hasOverride ? Color.providerClaude : Color.textSecondary)
-      .padding(.horizontal, isCompactLayout ? Spacing.xs : Spacing.sm)
-      .frame(height: isCompactLayout ? 26 : 26)
-      .background(
-        isCompactLayout
-          ? (hasOverride ? Color.providerClaude.opacity(OpacityTier.light) : Color.surfaceHover)
-          : (hasOverride ? Color.providerClaude.opacity(0.10) : Color.clear),
-        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-      )
+      ghostActionLabel(icon: "slider.horizontal.3", isActive: hasOverrides, tint: .providerClaude)
     }
     .buttonStyle(.plain)
-    .fixedSize()
     .help("Claude model override")
     .platformPopover(isPresented: $showClaudeModelPopover) {
       NavigationStack {
@@ -924,15 +1035,10 @@ struct DirectSessionComposer: View {
     Button {
       openFilePicker()
     } label: {
-      actionDockLabel(
-        icon: "doc.badge.plus",
-        title: attachedMentions.isEmpty ? "Files" : "Files \(attachedMentions.count)",
-        tint: .composerPrompt,
-        isActive: !attachedMentions.isEmpty
-      )
+      ghostActionLabel(icon: "doc.badge.plus", isActive: !attachedMentions.isEmpty, tint: .composerPrompt)
     }
     .buttonStyle(.plain)
-    .help("Attach project files")
+    .help("Attach project files (@)")
     .platformPopover(isPresented: $showFilePickerPopover) {
       NavigationStack {
         ComposerFilePickerPopover(
@@ -957,13 +1063,11 @@ struct DirectSessionComposer: View {
     Button {
       toggleDictation()
     } label: {
-      actionDockLabel(
+      ghostActionLabel(
         icon: dictationController.isRecording ? "stop.fill" : "mic.fill",
-        title: dictationController.isRecording ? "Stop Dictation" : "Dictate",
-        tint: dictationController.isRecording ? .statusError : .accent,
-        isActive: dictationController.isRecording
+        isActive: dictationController.isRecording,
+        tint: dictationController.isRecording ? .statusError : .accent
       )
-      .frame(width: dictationButtonWidth, alignment: .leading)
     }
     .buttonStyle(.plain)
     .disabled(dictationController.isBusy)
@@ -974,14 +1078,7 @@ struct DirectSessionComposer: View {
     Button {
       toggleCommandDeck()
     } label: {
-      actionDockLabel(
-        icon: "slash.circle",
-        title: isCompactLayout
-          ? (shouldShowCommandDeck ? "Cmds On" : "Cmds")
-          : (shouldShowCommandDeck ? "Cmds On" : "Cmds"),
-        tint: .accent,
-        isActive: shouldShowCommandDeck
-      )
+      ghostActionLabel(icon: "slash.circle", isActive: shouldShowCommandDeck)
     }
     .buttonStyle(.plain)
     .help("Command deck (/)")
@@ -1259,105 +1356,22 @@ struct DirectSessionComposer: View {
     .help("More actions")
   }
 
-  private var workflowActionDock: some View {
-    Group {
-      if isCompactLayout {
-        compactWorkflowActionDock
-      } else {
-        regularWorkflowActionDock
-      }
-    }
-  }
-
-  private var regularWorkflowActionDock: some View {
-    ScrollView(.horizontal, showsIndicators: false) {
-      HStack(spacing: 10) {
-        if session.workStatus == .working {
-          CodexInterruptButton(sessionId: sessionId)
-        }
-
-        if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
-          providerModelControlButton
-        }
-
-        fileMentionControlButton
-
-        if shouldShowDictation {
-          dictationControlButton
-        }
-
-        if !isSessionWorking {
-          commandDeckControlButton
-        }
-
-        if manualShellMode, !isSessionWorking {
-          intentChip(
-            icon: "terminal",
-            title: "Shell",
-            tint: .shellAccent,
-            isActive: true
-          ) {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              manualShellMode = false
-            }
-          }
-        }
-
-        if !isSessionWorking {
-          desktopWorkflowOverflowMenu
-        }
-      }
-      .padding(.horizontal, 2)
-      .padding(.vertical, 1)
-    }
-    .padding(.horizontal, Spacing.lg)
-    .padding(.top, 10)
-    .padding(.bottom, 4)
-  }
-
-  private var compactWorkflowActionDock: some View {
-    HStack(spacing: Spacing.xs) {
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: Spacing.xs) {
-          if session.workStatus == .working {
-            CodexInterruptButton(sessionId: sessionId)
-          }
-
-          if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
-            providerModelControlButton
-          }
-
-          if shouldShowDictation {
-            dictationControlButton
-          }
-
-          if !isSessionWorking {
-            commandDeckControlButton
-          }
-
-          if manualShellMode, !isSessionWorking {
-            intentChip(
-              icon: "terminal",
-              title: "Shell",
-              tint: .shellAccent,
-              isActive: true
-            ) {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                manualShellMode = false
-              }
-            }
-          }
-        }
-        .padding(.horizontal, Spacing.xs)
-        .padding(.vertical, Spacing.xs)
-      }
-      .scrollIndicators(.hidden)
-
-      compactWorkflowOverflowMenu
-    }
-    .padding(.horizontal, Spacing.md)
-    .padding(.top, Spacing.xs)
-    .padding(.bottom, 4)
+  private func ghostActionLabel(
+    icon: String,
+    isActive: Bool = false,
+    tint: Color = .accent
+  ) -> some View {
+    Image(systemName: icon)
+      .font(.system(size: isCompactLayout ? 14 : 12, weight: isCompactLayout ? .semibold : .medium))
+      .foregroundStyle(isActive ? tint : (isCompactLayout ? Color.textTertiary : Color.textQuaternary))
+      .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
+      .background(
+        isCompactLayout
+          ? (isActive ? tint.opacity(OpacityTier.light) : Color.surfaceHover.opacity(0.5))
+          : (isActive ? tint.opacity(0.08) : Color.clear),
+        in: RoundedRectangle(cornerRadius: isCompactLayout ? Radius.md : Radius.sm, style: .continuous)
+      )
+      .contentShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
   }
 
   private func actionDockLabel(
@@ -1366,356 +1380,8 @@ struct DirectSessionComposer: View {
     tint: Color,
     isActive: Bool = false
   ) -> some View {
-    let activeFill = isCompactLayout ? tint.opacity(OpacityTier.light) : tint.opacity(0.10)
-    let inactiveFill: Color = isCompactLayout
-      ? Color.backgroundTertiary.opacity(0.7)
-      : .clear
-
-    return HStack(spacing: 6) {
-      Image(systemName: icon)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-      Text(title)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-    }
-    .foregroundStyle(
-      isActive
-        ? tint
-        : (isCompactLayout ? Color.textTertiary : Color.textSecondary.opacity(0.84))
-    )
-    .padding(.horizontal, isCompactLayout ? Spacing.sm : 6)
-    .padding(.vertical, isCompactLayout ? 5 : 4)
-    .background(
-      (isCompactLayout || isActive) ? (isActive ? activeFill : inactiveFill) : .clear,
-      in: Capsule()
-    )
-    .overlay {
-      if isCompactLayout || isActive {
-        Capsule()
-          .strokeBorder(
-            isActive ? tint.opacity(isCompactLayout ? 0.3 : 0.35) : Color.surfaceBorder
-              .opacity(isCompactLayout ? 1 : 0.22),
-            lineWidth: 1
-          )
-      }
-    }
-  }
-
-  private func intentChip(
-    icon: String,
-    title: String,
-    tint: Color,
-    isActive: Bool = false,
-    action: @escaping () -> Void
-  ) -> some View {
-    Button(action: action) {
-      actionDockLabel(icon: icon, title: title, tint: tint, isActive: isActive)
-    }
-    .buttonStyle(.plain)
-  }
-
-  // MARK: - Instrument Strip
-
-  private var instrumentStrip: some View {
-    Group {
-      if isCompactLayout {
-        compactInstrumentStrip
-      } else {
-        regularInstrumentStrip
-      }
-    }
-  }
-
-  private var regularInstrumentStrip: some View {
-    HStack(spacing: 0) {
-      // ━━━ Status segment: Permission/Autonomy ━━━
-      HStack(spacing: Spacing.sm) {
-        if session.isDirectCodex {
-          AutonomyPill(sessionId: sessionId)
-        } else if session.isDirectClaude {
-          ClaudePermissionPill(sessionId: sessionId)
-        }
-      }
-      .padding(.horizontal, Spacing.sm)
-
-      // ━━━ Token summary + model (inline) ━━━
-      if session.hasTokenUsage {
-        Color.panelBorder.opacity(0.38).frame(width: 1, height: 14)
-
-        HStack(spacing: 6) {
-          let pct = Int(tokenContextPercentage * 100)
-          let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
-          let displayPct = if tokenContextPercentage > 0, pct == 0 {
-            "< 1"
-          } else {
-            "\(pct)"
-          }
-          Text("\(displayPct)%")
-            .font(.system(size: TypeScale.body, weight: .bold, design: .monospaced))
-            .foregroundStyle(color)
-          if let window = session.contextWindow {
-            let totalContext = session.effectiveContextInputTokens
-            HStack(spacing: 4) {
-              Text(formatTokenCount(totalContext))
-                .foregroundStyle(Color.textTertiary)
-              Text("/")
-                .foregroundStyle(Color.textQuaternary)
-              Text(formatTokenCount(window))
-                .foregroundStyle(Color.textQuaternary)
-            }
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-          }
-        }
-        .padding(.horizontal, Spacing.sm)
-        .help(tokenTooltipText)
-
-        if session.isDirectCodex, !selectedModel.isEmpty {
-          Text(shortModelName(selectedModel))
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(1)
-            .padding(.horizontal, Spacing.xs)
-            .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
-        } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
-          Text(shortModelName(effectiveClaudeModel))
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(1)
-            .padding(.horizontal, Spacing.xs)
-        }
-      }
-
-      // ━━━ Branch info ━━━
-      if let branch = session.branch, !branch.isEmpty {
-        Color.panelBorder.opacity(0.38).frame(width: 1, height: 14)
-
-        HStack(spacing: Spacing.xs) {
-          Image(systemName: "arrow.triangle.branch")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-          Text(branch)
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .lineLimit(1)
-        }
-        .foregroundStyle(Color.gitBranch.opacity(0.75))
-        .padding(.horizontal, Spacing.xs)
-        .help(branch)
-      }
-
-      // ━━━ CWD (when different from project root) ━━━
-      if let cwd = session.currentCwd,
-         !cwd.isEmpty,
-         cwd != session.projectPath
-      {
-        Color.panelBorder.opacity(0.38).frame(width: 1, height: 14)
-
-        let displayCwd = cwd.hasPrefix(session.projectPath + "/")
-          ? "./" + cwd.dropFirst(session.projectPath.count + 1)
-          : cwd
-
-        HStack(spacing: Spacing.xs) {
-          Image(systemName: "folder")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-          Text(displayCwd)
-            .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-            .lineLimit(1)
-        }
-        .foregroundStyle(Color.textTertiary)
-        .padding(.horizontal, Spacing.xs)
-        .help(cwd)
-      }
-
-      Spacer()
-
-      // ━━━ Right segment: Follow state + Time ━━━
-      HStack(spacing: Spacing.sm) {
-        // Unread badge
-        if !isPinned, unreadCount > 0 {
-          Button {
-            isPinned = true
-            unreadCount = 0
-            scrollToBottomTrigger += 1
-          } label: {
-            HStack(spacing: 3) {
-              Image(systemName: "arrow.down")
-                .font(.system(size: TypeScale.caption, weight: .bold))
-              Text("\(unreadCount)")
-                .font(.system(size: TypeScale.body, weight: .bold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, 3)
-            .background(Color.accent, in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-
-        // Follow toggle
-        Button {
-          isPinned.toggle()
-          if isPinned {
-            unreadCount = 0
-            scrollToBottomTrigger += 1
-          }
-        } label: {
-          let followTint = isPinned ? Color.textTertiary : Color.statusReply
-          HStack(spacing: 4) {
-            Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
-              .font(.system(size: TypeScale.body, weight: .semibold))
-            Text(isPinned ? "Following" : "Paused")
-              .font(.system(size: TypeScale.body, weight: .medium))
-          }
-          .foregroundStyle(followTint)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, Spacing.xs)
-          .background(
-            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
-            in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-          )
-        }
-        .buttonStyle(.plain)
-
-      }
-      .padding(.horizontal, Spacing.sm)
-      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
-      .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
-    }
-    .frame(height: 24)
-    .padding(.horizontal, Spacing.sm)
-    .padding(.horizontal, Spacing.lg)
-    .padding(.top, 8)
-    .padding(.bottom, 10)
-  }
-
-  private var compactInstrumentStrip: some View {
-    HStack(spacing: 6) {
-      // ━━━ Status-only ribbon ━━━
-      ScrollView(.horizontal) {
-        HStack(spacing: 6) {
-          if session.isDirectCodex {
-            AutonomyPill(sessionId: sessionId)
-          } else if session.isDirectClaude {
-            ClaudePermissionPill(sessionId: sessionId)
-          }
-
-          if session.hasTokenUsage {
-            compactTokenSummaryChip
-          }
-
-          if let meta = compactSessionMetaLabel {
-            compactMetaChip(icon: "ellipsis", text: meta, color: Color.textTertiary)
-              .help(meta)
-          }
-        }
-        .padding(.trailing, Spacing.xs)
-      }
-      .scrollIndicators(.hidden)
-
-      // ━━━ Pinned right: unread badge + follow toggle ━━━
-      if !isPinned, unreadCount > 0 {
-        Button {
-          isPinned = true
-          unreadCount = 0
-          scrollToBottomTrigger += 1
-        } label: {
-          HStack(spacing: 3) {
-            Image(systemName: "arrow.down")
-              .font(.system(size: TypeScale.caption, weight: .bold))
-            Text("\(unreadCount)")
-              .font(.system(size: TypeScale.body, weight: .bold))
-          }
-          .foregroundStyle(.white)
-          .padding(.horizontal, Spacing.sm)
-          .padding(.vertical, 3)
-          .background(Color.accent, in: Capsule())
-        }
-        .buttonStyle(.plain)
-      }
-
-      Button {
-        isPinned.toggle()
-        if isPinned {
-          unreadCount = 0
-          scrollToBottomTrigger += 1
-        }
-      } label: {
-        Image(systemName: isPinned ? "arrow.down.to.line" : "pause.fill")
-          .font(.system(size: TypeScale.body, weight: .semibold))
-          .foregroundStyle(isPinned ? Color.textTertiary : Color.statusReply)
-          .frame(width: 32, height: 32)
-          .background(
-            isPinned ? Color.clear : Color.statusReply.opacity(OpacityTier.light),
-            in: Circle()
-          )
-      }
-      .buttonStyle(.plain)
-    }
-    .padding(.horizontal, Spacing.md)
-    .padding(.top, Spacing.xs)
-    .padding(.bottom, Spacing.xs)
-    .background(Color.backgroundTertiary.opacity(0.5))
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isPinned)
-    .animation(.spring(response: 0.25, dampingFraction: 0.8), value: unreadCount)
-  }
-
-  private var compactSessionMetaLabel: String? {
-    var parts: [String] = []
-
-    if session.isDirectCodex, !selectedModel.isEmpty {
-      parts.append(shortModelName(selectedModel))
-    } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
-      parts.append(shortModelName(effectiveClaudeModel))
-    } else if session.isDirectClaude, let model = session.model {
-      parts.append(shortModelName(model))
-    }
-
-    if let branch = session.branch, !branch.isEmpty {
-      parts.append(compactStripBranchLabel(branch))
-    }
-
-    return parts.isEmpty ? nil : parts.joined(separator: " · ")
-  }
-
-  private var compactTokenSummaryChip: some View {
-    let pct = Int(tokenContextPercentage * 100)
-    let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
-    let displayPct = if tokenContextPercentage > 0, pct == 0 {
-      "< 1"
-    } else {
-      "\(pct)"
-    }
-    let totalContext = session.effectiveContextInputTokens
-
-    let text = if totalContext > 0, let window = session.contextWindow {
-      "\(displayPct)% · \(formatTokenCount(totalContext)) / \(formatTokenCount(window))"
-    } else if totalContext > 0 {
-      "\(displayPct)% · \(formatTokenCount(totalContext))"
-    } else {
-      "\(displayPct)%"
-    }
-
-    return compactMetaChip(icon: "gauge.with.needle", text: text, color: color)
-      .help(tokenTooltipText)
-  }
-
-  private func compactStripBranchLabel(_ branch: String) -> String {
-    let maxLength = 12
-    guard branch.count > maxLength else { return branch }
-    return String(branch.prefix(maxLength - 1)) + "…"
-  }
-
-  private func compactMetaChip(icon: String?, text: String, color: Color) -> some View {
-    HStack(spacing: 4) {
-      if let icon {
-        Image(systemName: icon)
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-      }
-      Text(text)
-        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-        .lineLimit(1)
-    }
-    .foregroundStyle(color)
-    .padding(.horizontal, Spacing.sm)
-    .padding(.vertical, 4)
-    .background(Color.surfaceHover, in: Capsule())
+    ghostActionLabel(icon: icon, isActive: isActive, tint: tint)
+      .accessibilityLabel(title)
   }
 
   // MARK: - Resume Row (ended session)
@@ -1747,7 +1413,7 @@ struct DirectSessionComposer: View {
       if let lastActivity = session.lastActivityAt {
         Text(lastActivity, style: .relative)
           .font(.system(size: TypeScale.body, design: .monospaced))
-          .foregroundStyle(.tertiary)
+          .foregroundStyle(Color.textTertiary)
       }
     }
     .padding(.horizontal, Spacing.lg)
@@ -1817,26 +1483,6 @@ struct DirectSessionComposer: View {
       return String(parts[0]) + "-" + String(parts[1])
     }
     return name
-  }
-
-  @ViewBuilder
-  private var overrideBadge: some View {
-    let parts = [
-      session.isDirectCodex && selectedModel != defaultCodexModelSelection ? shortModelName(selectedModel) : nil,
-      session
-        .isDirectClaude && selectedClaudeModel != defaultClaudeModelSelection ? shortModelName(selectedClaudeModel) :
-        nil,
-    ].compactMap { $0 }
-
-    if !parts.isEmpty {
-      Text(parts.joined(separator: " · "))
-        .font(.caption2)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(Color.accent.opacity(0.15))
-        .foregroundStyle(Color.accent)
-        .clipShape(Capsule())
-    }
   }
 
   private var canSend: Bool {
@@ -2475,34 +2121,39 @@ struct DirectSessionComposer: View {
 
 struct CodexInterruptButton: View {
   let sessionId: String
+  var isCompact: Bool = false
   @Environment(ServerAppState.self) private var serverState
 
   @State private var isInterrupting = false
   @State private var isHovering = false
 
+  private var size: CGFloat {
+    isCompact ? 34 : 26
+  }
+
   var body: some View {
     Button(action: interrupt) {
-      HStack(spacing: 5) {
+      Group {
         if isInterrupting {
           ProgressView()
             .controlSize(.mini)
         } else {
           Image(systemName: "stop.fill")
-            .font(.system(size: TypeScale.body, weight: .bold))
+            .font(.system(size: isCompact ? 14 : 12, weight: .semibold))
         }
-        Text("Stop")
-          .font(.system(size: TypeScale.body, weight: .semibold))
       }
       .foregroundStyle(Color.statusError)
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, 4)
-      .background(Color.statusError.opacity(isHovering ? OpacityTier.medium : OpacityTier.light), in: Capsule())
-      .shadow(color: Color.statusError.opacity(isHovering ? 0.3 : 0), radius: 6, y: 0)
+      .frame(width: size, height: size)
+      .background(
+        Color.statusError.opacity(isHovering ? OpacityTier.medium : OpacityTier.light),
+        in: RoundedRectangle(cornerRadius: isCompact ? Radius.md : Radius.sm, style: .continuous)
+      )
     }
     .buttonStyle(.plain)
     .disabled(isInterrupting)
     .platformHover($isHovering)
     .animation(.easeOut(duration: 0.15), value: isHovering)
+    .help("Stop")
   }
 
   private func interrupt() {

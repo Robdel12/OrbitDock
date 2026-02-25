@@ -83,16 +83,20 @@ struct BashCard: View {
 
       // Output
       if isExpanded, let output = message.sanitizedToolOutput, !output.isEmpty {
-        ScrollView {
-          Text(output.count > 2_000 ? String(output.prefix(2_000)) + "\n[...]" : output)
-            .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.primary.opacity(0.8))
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 0) {
+          Color.surfaceBorder.frame(height: 1)
+
+          ScrollView {
+            Text(output.count > 2_000 ? String(output.prefix(2_000)) + "\n[...]" : output)
+              .font(.system(size: 10, design: .monospaced))
+              .foregroundStyle(.primary.opacity(0.8))
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .frame(maxHeight: 180)
+          .padding(10)
         }
-        .frame(maxHeight: 180)
-        .padding(10)
-        .background(Color.backgroundTertiary)
+        .background(Color.backgroundCode)
         .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         .padding(.top, 6)
         .padding(.leading, 16)

@@ -78,7 +78,7 @@ struct InlineCommentThread: View {
 
           Text(relativeTime(comment.createdAt))
             .font(.system(size: TypeScale.micro, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(Color.textTertiary)
 
           Spacer()
 
@@ -102,7 +102,7 @@ struct InlineCommentThread: View {
         if let lineEnd = comment.lineEnd, lineEnd != comment.lineStart {
           Text("Lines \(comment.lineStart)–\(lineEnd)")
             .font(.system(size: TypeScale.micro, design: .monospaced))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
         }
       }
       .padding(.vertical, 6)

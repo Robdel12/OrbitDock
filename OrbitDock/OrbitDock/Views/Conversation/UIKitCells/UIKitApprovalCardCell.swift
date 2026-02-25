@@ -694,6 +694,7 @@
           equalTo: container.trailingAnchor,
           constant: -Layout.commandHorizontalPadding
         ),
+        textLabel.heightAnchor.constraint(lessThanOrEqualToConstant: Layout.maxCommandTextHeight),
         textLabel.bottomAnchor.constraint(
           equalTo: container.bottomAnchor,
           constant: -Layout.commandVerticalPadding
@@ -758,6 +759,7 @@
           equalTo: container.trailingAnchor,
           constant: -Layout.commandHorizontalPadding
         ),
+        valueLabel.heightAnchor.constraint(lessThanOrEqualToConstant: Layout.maxCommandTextHeight),
         valueLabel.bottomAnchor.constraint(
           equalTo: container.bottomAnchor,
           constant: -Layout.commandVerticalPadding

@@ -36,6 +36,9 @@ struct NativeRichMessageRowModel {
   let images: [MessageImage]
   /// Whether thinking content is expanded (only relevant for .thinking type)
   var isThinkingExpanded: Bool = false
+  /// Whether to show the speaker header (glyph + optional label).
+  /// False when the previous row is the same role — reduces visual noise.
+  var showHeader: Bool = true
 
   /// Max characters to show in collapsed thinking preview (matches SwiftUI)
   static let maxThinkingPreviewLength = 600
@@ -124,7 +127,8 @@ struct NativeRichMessageRowModel {
 
     // MARK: - Layout Constants
 
-    private static let headerHeight: CGFloat = 26
+    /// Header height when visible — glyph only, no label (except error)
+    private static let headerHeight: CGFloat = 20
     private static let laneHorizontalInset = ConversationLayout.laneHorizontalInset
     private static let metadataHorizontalInset = ConversationLayout.metadataHorizontalInset
     private static let headerToBodySpacing = ConversationLayout.headerToBodySpacing
@@ -154,7 +158,7 @@ struct NativeRichMessageRowModel {
     private static let thinkingHPad: CGFloat = 16
     private static let thinkingVPadTop: CGFloat = 14
     private static let thinkingVPadBottom: CGFloat = 12
-    private static let thinkingColor = NSColor(calibratedRed: 0.65, green: 0.6, blue: 0.85, alpha: 1)
+    private static let thinkingColor = NSColor(Color.textTertiary)
     private static let thinkingShowMoreHeight: CGFloat = 32
     private static let thinkingFadeHeight: CGFloat = 28
 
@@ -233,7 +237,7 @@ struct NativeRichMessageRowModel {
       bubbleBackground.wantsLayer = true
       bubbleBackground.layer?.cornerRadius = Self.userBubbleCornerRadius
       bubbleBackground.layer?.masksToBounds = true
-      bubbleBackground.layer?.backgroundColor = NSColor(Color.backgroundTertiary).withAlphaComponent(0.68).cgColor
+      bubbleBackground.layer?.backgroundColor = NSColor(Color.accent).withAlphaComponent(0.04).cgColor
       bubbleBackground.translatesAutoresizingMaskIntoConstraints = false
       bubbleBackground.isHidden = true
 
@@ -293,18 +297,26 @@ struct NativeRichMessageRowModel {
       markdownContentView.wantsLayer = true
       markdownContentView.translatesAutoresizingMaskIntoConstraints = false
 
+      headerHeightConstraint = headerContainer.heightAnchor.constraint(equalToConstant: Self.headerHeight)
+      bodyTopConstraint = bodyContainer.topAnchor.constraint(
+        equalTo: headerContainer.bottomAnchor, constant: Self.headerToBodySpacing
+      )
+
       NSLayoutConstraint.activate([
         headerContainer.topAnchor.constraint(equalTo: topAnchor),
         headerContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
         headerContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
-        headerContainer.heightAnchor.constraint(equalToConstant: Self.headerHeight),
+        headerHeightConstraint!,
 
-        bodyContainer.topAnchor.constraint(equalTo: headerContainer.bottomAnchor, constant: Self.headerToBodySpacing),
+        bodyTopConstraint!,
         bodyContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
         bodyContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
         bodyContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
       ])
     }
+
+    private var headerHeightConstraint: NSLayoutConstraint?
+    private var bodyTopConstraint: NSLayoutConstraint?
 
     // MARK: - Configure
 
@@ -313,6 +325,15 @@ struct NativeRichMessageRowModel {
 
       // Configure header
       configureHeader(model: model)
+
+      // Adjust header height + body spacing based on showHeader
+      if model.showHeader {
+        headerHeightConstraint?.constant = Self.headerHeight
+        bodyTopConstraint?.constant = Self.headerToBodySpacing
+      } else {
+        headerHeightConstraint?.constant = 0
+        bodyTopConstraint?.constant = 0
+      }
 
       // Parse markdown — use displayContent (truncated for thinking)
       let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
@@ -326,7 +347,9 @@ struct NativeRichMessageRowModel {
       let maxBodyBottom = bodyContainer.subviews
         .map(\.frame.maxY)
         .max() ?? 0
-      let bodyBudget = expectedTotal - Self.headerHeight - Self.headerToBodySpacing - Self.entryBottomSpacing
+      let actualHeaderHeight: CGFloat = model.showHeader ? Self.headerHeight : 0
+      let actualSpacing: CGFloat = model.showHeader ? Self.headerToBodySpacing : 0
+      let bodyBudget = expectedTotal - actualHeaderHeight - actualSpacing - Self.entryBottomSpacing
       let msgType = "\(model.messageType)"
       if maxBodyBottom > bodyBudget + 1 {
         Self.logger.info(
@@ -340,31 +363,34 @@ struct NativeRichMessageRowModel {
     }
 
     private func configureHeader(model: NativeRichMessageRowModel) {
+      if !model.showHeader {
+        headerContainer.isHidden = true
+        return
+      }
+      headerContainer.isHidden = false
+
       glyphImage.image = NSImage(systemSymbolName: model.glyphSymbol, accessibilityDescription: nil)
       glyphImage.contentTintColor = model.glyphColor
 
-      // Thinking headers are softer — smaller, lighter, less tracking
       let isThinking = model.messageType == .thinking
-      let fontSize: CGFloat = isThinking ? 9 : TypeScale.chatLabel
-      let fontWeight: NSFont.Weight = isThinking ? .medium : .semibold
-      let kern: CGFloat = isThinking ? 0.3 : 0.5
-
-      speakerLabel.font = NSFont.systemFont(ofSize: fontSize, weight: fontWeight)
-
-      // Glyph size: smaller for thinking
       glyphImage.symbolConfiguration = NSImage.SymbolConfiguration(
         pointSize: isThinking ? 8 : 10,
         weight: isThinking ? .regular : .medium
       )
 
-      let attrs: [NSAttributedString.Key: Any] = [
-        .kern: kern,
-        .font: speakerLabel.font as Any,
-        .foregroundColor: model.speakerColor,
-      ]
-      speakerLabel.attributedStringValue = NSAttributedString(string: model.speaker, attributes: attrs)
+      // Only show speaker label for error messages — all others rely on glyph alone
+      if model.messageType == .error {
+        speakerLabel.isHidden = false
+        let attrs: [NSAttributedString.Key: Any] = [
+          .kern: 0.5 as CGFloat,
+          .font: NSFont.systemFont(ofSize: TypeScale.chatLabel, weight: .semibold),
+          .foregroundColor: model.speakerColor,
+        ]
+        speakerLabel.attributedStringValue = NSAttributedString(string: model.speaker, attributes: attrs)
+      } else {
+        speakerLabel.isHidden = true
+      }
 
-      // Layout header based on alignment
       configureHeaderLayout(isUserAligned: model.isUserAligned)
     }
 
@@ -962,7 +988,9 @@ struct NativeRichMessageRowModel {
         bodyHeight = mdHeight + imgHeight
       }
 
-      let total = max(1, ceil(headerHeight + headerToBodySpacing + bodyHeight + entryBottomSpacing))
+      let actualHeaderHeight: CGFloat = model.showHeader ? headerHeight : 0
+      let actualSpacing: CGFloat = model.showHeader ? headerToBodySpacing : 0
+      let total = max(1, ceil(actualHeaderHeight + actualSpacing + bodyHeight + entryBottomSpacing))
       logger.debug(
         "requiredHeight-rich[\(model.messageID)] \(model.messageType) "
           + "body=\(f(bodyHeight)) total=\(f(total)) w=\(f(width)) "

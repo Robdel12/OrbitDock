@@ -87,7 +87,7 @@ struct SkillCard: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("ARGUMENTS")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           Text(args)
@@ -103,7 +103,7 @@ struct SkillCard: View {
         VStack(alignment: .leading, spacing: 6) {
           Text("OUTPUT")
             .font(.system(size: 9, weight: .bold, design: .rounded))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(Color.textQuaternary)
             .tracking(0.5)
 
           ScrollView {

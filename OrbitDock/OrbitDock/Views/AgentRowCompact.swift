@@ -51,7 +51,7 @@ struct AgentRowCompact: View {
             if session.isActive {
               Text("•")
                 .font(.system(size: 8))
-                .foregroundStyle(.quaternary)
+                .foregroundStyle(Color.textQuaternary)
 
               Text(displayStatus.label)
                 .font(.system(size: 10, weight: .medium))
@@ -61,11 +61,11 @@ struct AgentRowCompact: View {
               if duration != "--" {
                 Text("•")
                   .font(.system(size: 8))
-                  .foregroundStyle(.quaternary)
+                  .foregroundStyle(Color.textQuaternary)
 
                 Text(duration)
                   .font(.system(size: 10, design: .monospaced))
-                  .foregroundStyle(.tertiary)
+                  .foregroundStyle(Color.textTertiary)
               }
             }
 

@@ -146,14 +146,14 @@ struct McpServersTab: View {
           if !entry.tools.isEmpty {
             Text("\(entry.tools.count) tool\(entry.tools.count == 1 ? "" : "s")")
               .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
           }
 
           // Expand chevron (only if has tools)
           if !entry.tools.isEmpty {
             Image(systemName: "chevron.right")
               .font(.system(size: 9, weight: .semibold))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .rotationEffect(.degrees(isExpanded ? 90 : 0))
           }
         }

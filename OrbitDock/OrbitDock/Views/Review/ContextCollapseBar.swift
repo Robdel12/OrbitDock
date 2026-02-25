@@ -26,7 +26,7 @@ struct ContextCollapseBar: View {
             // Fold indicators
             Text("\u{22EF}")
               .font(.system(size: 11, weight: .light))
-              .foregroundStyle(.tertiary)
+              .foregroundStyle(Color.textTertiary)
               .frame(maxWidth: .infinity)
           }
           .frame(width: 76)
