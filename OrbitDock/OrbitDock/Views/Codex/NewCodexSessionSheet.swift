@@ -39,6 +39,10 @@ struct NewCodexSessionSheet: View {
     return modelOptions.first(where: { !$0.model.isEmpty })?.model ?? ""
   }
 
+  private var modelOptionsSignature: String {
+    modelOptions.map(\.model).joined(separator: "|")
+  }
+
   private var selectableEndpoints: [ServerEndpoint] {
     let enabled = ServerEndpointSettings.endpoints.filter(\.isEnabled)
     return enabled.isEmpty ? ServerEndpointSettings.endpoints : enabled
@@ -124,7 +128,7 @@ struct NewCodexSessionSheet: View {
       normalizeEndpointSelection()
       refreshEndpointData()
     }
-    .onChange(of: endpointAppState.codexModels.count) { _, _ in
+    .onChange(of: modelOptionsSignature) { _, _ in
       if selectedModel.isEmpty || !modelOptions.contains(where: { $0.model == selectedModel }) {
         selectedModel = defaultModelSelection
       }
@@ -228,7 +232,10 @@ struct NewCodexSessionSheet: View {
       }
     }
     .padding(Spacing.lg)
-    .background(Color.statusPermission.opacity(OpacityTier.tint), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .background(
+      Color.statusPermission.opacity(OpacityTier.tint),
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.statusPermission.opacity(OpacityTier.light), lineWidth: 1)
@@ -563,17 +570,17 @@ private struct CompactAutonomySelector: View {
       }
     }
     #if !os(iOS)
-      .onHover { hovering in
-        if hovering {
-          NSCursor.pointingHand.push()
-        } else {
-          NSCursor.pop()
-          hoveredLevel = nil
-        }
+    .onHover { hovering in
+      if hovering {
+        NSCursor.pointingHand.push()
+      } else {
+        NSCursor.pop()
+        hoveredLevel = nil
       }
+    }
     #endif
-      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredLevel)
-      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
+    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredLevel)
+    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
   }
 }
 
@@ -627,7 +634,8 @@ private struct AutonomyLevelButton: View {
 
   @ViewBuilder
   private var strokeCircle: some View {
-    let strokeColor = isActive ? Color.clear : (isHovered ? level.color.opacity(OpacityTier.strong) : level.color.opacity(0.3))
+    let strokeColor = isActive ? Color
+      .clear : (isHovered ? level.color.opacity(OpacityTier.strong) : level.color.opacity(0.3))
     let strokeWidth: CGFloat = isActive ? 0 : (isHovered ? 1.5 : 1)
 
     Circle().stroke(strokeColor, lineWidth: strokeWidth)

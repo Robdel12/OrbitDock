@@ -101,12 +101,8 @@ struct NewClaudeSessionSheet: View {
         selectedEndpointId = primaryEndpointId
       }
       normalizeEndpointSelection()
+      // Load cached models (populated when Claude sessions are created)
       endpointAppState.refreshClaudeModels()
-      if availableModels.isEmpty {
-        useCustomModel = true
-      } else if selectedModelId.isEmpty, let firstModel = availableModels.first {
-        selectedModelId = firstModel.value
-      }
     }
     .onChange(of: selectedEndpointId) { _, _ in
       selectedPath = ""
@@ -115,10 +111,14 @@ struct NewClaudeSessionSheet: View {
       useCustomModel = false
       normalizeEndpointSelection()
       endpointAppState.refreshClaudeModels()
+    }
+    .onChange(of: availableModels.count) { _, _ in
+      // When models arrive, update selection
       if availableModels.isEmpty {
         useCustomModel = true
-      } else if selectedModelId.isEmpty, let firstModel = availableModels.first {
-        selectedModelId = firstModel.value
+      } else if selectedModelId.isEmpty || !availableModels.contains(where: { $0.value == selectedModelId }) {
+        selectedModelId = availableModels.first?.value ?? ""
+        useCustomModel = false
       }
     }
   }
@@ -516,17 +516,17 @@ private struct CompactClaudePermissionSelector: View {
       }
     }
     #if !os(iOS)
-      .onHover { hovering in
-        if hovering {
-          NSCursor.pointingHand.push()
-        } else {
-          NSCursor.pop()
-          hoveredMode = nil
-        }
+    .onHover { hovering in
+      if hovering {
+        NSCursor.pointingHand.push()
+      } else {
+        NSCursor.pop()
+        hoveredMode = nil
       }
+    }
     #endif
-      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredMode)
-      .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
+    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: hoveredMode)
+    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: selection)
   }
 }
 
@@ -580,7 +580,8 @@ private struct PermissionModeButton: View {
 
   @ViewBuilder
   private var strokeCircle: some View {
-    let strokeColor = isActive ? Color.clear : (isHovered ? mode.color.opacity(OpacityTier.strong) : mode.color.opacity(0.3))
+    let strokeColor = isActive ? Color
+      .clear : (isHovered ? mode.color.opacity(OpacityTier.strong) : mode.color.opacity(0.3))
     let strokeWidth: CGFloat = isActive ? 0 : (isHovered ? 1.5 : 1)
 
     Circle().stroke(strokeColor, lineWidth: strokeWidth)
