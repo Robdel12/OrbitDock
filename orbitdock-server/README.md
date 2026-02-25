@@ -219,6 +219,8 @@ These map to the wire `WorkStatus` that clients see:
 - `AwaitingApproval` → `Permission` or `Question`
 - `Ended` → `Ended`
 
+Each session maintains a monotonic `approval_version` counter that increments on every approval state change (enqueue, decide, clear). All approval-related messages include this version so clients can reject stale or out-of-order events. See `session.rs` for queue management and `codex_session.rs` for version injection.
+
 ## WebSocket Protocol
 
 JSON over WebSocket at `ws://127.0.0.1:4000/ws`.

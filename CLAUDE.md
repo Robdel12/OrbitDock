@@ -38,6 +38,14 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 - Never add client-side logic that scans history or computes queue heads. If the server doesn't provide the data the client needs, fix the server to emit it.
 - Prefer functional, stateless transforms on the server side (its own state machine drives transitions). The client's job is rendering, not reasoning about state.
 
+### Approval Version Gating
+- Each session has a monotonic `approval_version` counter (`sessions.approval_version` in SQLite, `SessionHandle.approval_version` in memory)
+- The counter increments on every approval state change: enqueue, decide, clear, or in-place update
+- Every approval-related message includes the version: `ApprovalRequested`, `SessionDelta` (when `pending_approval` changes), and `ApprovalDecisionResult`
+- Clients compare the incoming version against their local high-water mark (`SessionObservable.approvalVersion`) and reject stale events
+- The `approval_version` field is `Option<u64>` for backwards compatibility with older servers — `nil` bypasses the gate
+- Key files: `session.rs` (queue + version management), `codex_session.rs` (`inject_approval_version`), `transition.rs` (state machine), `ServerAppState.swift` (`handleApprovalRequested`, `handleApprovalDecisionResult`)
+
 ### State Management
 - Use `@State private var cache: [String: T] = [:]` dictionaries keyed by session/path ID to prevent state bleeding between sessions
 - Always guard async callbacks with `guard currentId == targetId else { return }`
@@ -364,7 +372,7 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 ```
 
 ### Schema changes
-1. Add a numbered migration in `migrations/` (currently starts at 001_baseline)
+1. Add a numbered migration in `migrations/` (currently 001–008)
 2. Add `include_str!` entry in `migration_runner.rs` `EMBEDDED_MIGRATIONS` array
 3. Use `IF NOT EXISTS` for safety
 4. Add the corresponding PersistCommand in `persistence.rs`
@@ -374,7 +382,7 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 ### Tables
 | Table | Purpose |
 |-------|---------|
-| `sessions` | Core session tracking — one row per Claude/Codex session |
+| `sessions` | Core session tracking — one row per Claude/Codex session. Includes `pending_approval_id` (queue head) and `approval_version` (monotonic counter for client gating) |
 | `messages` | Conversation messages per session |
 | `subagents` | Spawned Task agents (Explore, Plan, etc.) |
 | `turn_diffs` | Per-turn git diff snapshots + token usage |
@@ -393,6 +401,7 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 - `orbitdock-server/crates/server/src/auth.rs` — Optional Bearer token middleware
 - `orbitdock-server/crates/protocol/` — Shared types between server components
 - `migrations/001_baseline.sql` — Complete schema definition
+- `migrations/008_approval_version.sql` — Adds `approval_version` column to `sessions`
 - `scripts/hook.sh` — Dev-time hook script
 - `scripts/hook.sh.template` — Templated hook script for standalone deploy
 
