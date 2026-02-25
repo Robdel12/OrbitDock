@@ -29,10 +29,10 @@ asset_name_for_platform() {
 
   case "$os/$arch" in
     Darwin/*)
-      echo "orbitdock-server-darwin-universal.tar.gz"
+      echo "orbitdock-server-darwin-universal.zip"
       ;;
     Linux/x86_64)
-      echo "orbitdock-server-linux-x86_64.tar.gz"
+      echo "orbitdock-server-linux-x86_64.zip"
       ;;
     *)
       return 1
@@ -40,12 +40,30 @@ asset_name_for_platform() {
   esac
 }
 
+verify_checksum() {
+  local tmp_dir="$1"
+  local checksum_path="$2"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$tmp_dir" && sha256sum -c "$(basename "$checksum_path")" >/dev/null)
+    return $?
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    (cd "$tmp_dir" && shasum -a 256 -c "$(basename "$checksum_path")" >/dev/null)
+    return $?
+  fi
+
+  echo "warning: sha256 tool not available; skipping checksum verification."
+  return 0
+}
+
 install_from_release_asset() {
   local asset_name
   local tag
   local url
   local tmp_dir
-  local archive_path
+  local zip_path
   local checksum_url
   local checksum_path
 
@@ -58,48 +76,40 @@ install_from_release_asset() {
     url="https://github.com/${REPO_SLUG}/releases/download/${tag}/${asset_name}"
   fi
 
-  if ! command -v curl >/dev/null 2>&1 || ! command -v tar >/dev/null 2>&1; then
+  if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
     return 1
   fi
 
   tmp_dir="$(mktemp -d)"
-  archive_path="$tmp_dir/$asset_name"
+  zip_path="$tmp_dir/$asset_name"
   checksum_url="${url}.sha256"
   checksum_path="$tmp_dir/${asset_name}.sha256"
 
-  if ! curl -fsSL "$url" -o "$archive_path"; then
+  if ! curl -fsSL "$url" -o "$zip_path"; then
     rm -rf "$tmp_dir"
     return 1
   fi
 
   if curl -fsSL "$checksum_url" -o "$checksum_path"; then
-    if command -v sha256sum >/dev/null 2>&1; then
-      if ! (cd "$tmp_dir" && sha256sum -c "$(basename "$checksum_path")" >/dev/null); then
-        echo "error: checksum verification failed for $asset_name"
-        rm -rf "$tmp_dir"
-        return 1
-      fi
-    elif command -v shasum >/dev/null 2>&1; then
-      if ! (cd "$tmp_dir" && shasum -a 256 -c "$(basename "$checksum_path")" >/dev/null); then
-        echo "error: checksum verification failed for $asset_name"
-        rm -rf "$tmp_dir"
-        return 1
-      fi
-    else
-      echo "warning: sha256 tool not available; skipping checksum verification."
+    if ! verify_checksum "$tmp_dir" "$checksum_path"; then
+      echo "error: checksum verification failed for $asset_name"
+      rm -rf "$tmp_dir"
+      return 1
     fi
   else
     echo "warning: checksum file not found for $asset_name; skipping verification."
   fi
 
-  tar -xzf "$archive_path" -C "$tmp_dir"
+  unzip -q "$zip_path" -d "$tmp_dir"
   if [[ ! -f "$tmp_dir/orbitdock-server" ]]; then
+    echo "error: expected orbitdock-server in $asset_name"
     rm -rf "$tmp_dir"
     return 1
   fi
 
   cp "$tmp_dir/orbitdock-server" "$INSTALL_ROOT/bin/orbitdock-server"
   chmod 755 "$INSTALL_ROOT/bin/orbitdock-server"
+
   rm -rf "$tmp_dir"
   return 0
 }
