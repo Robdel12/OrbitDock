@@ -36,6 +36,8 @@ pub enum ServerMessage {
     ApprovalRequested {
         session_id: String,
         request: ApprovalRequest,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approval_version: Option<u64>,
     },
     TokensUpdated {
         session_id: String,
@@ -257,6 +259,16 @@ pub enum ServerMessage {
         is_primary: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         client_primary_claims: Vec<ClientPrimaryClaim>,
+    },
+
+    // Approval decision result
+    ApprovalDecisionResult {
+        session_id: String,
+        request_id: String,
+        outcome: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        active_request_id: Option<String>,
+        approval_version: u64,
     },
 
     // Errors

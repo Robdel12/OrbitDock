@@ -33,6 +33,11 @@ make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
 
 ## Key Patterns
 
+### Server-Authoritative State
+- The Rust server is the **single source of truth** for all session and approval state. Clients (Swift app) should never derive, infer, or reconcile business-logic state locally — they receive it from the server via WebSocket events and display it.
+- Never add client-side logic that scans history or computes queue heads. If the server doesn't provide the data the client needs, fix the server to emit it.
+- Prefer functional, stateless transforms on the server side (its own state machine drives transitions). The client's job is rendering, not reasoning about state.
+
 ### State Management
 - Use `@State private var cache: [String: T] = [:]` dictionaries keyed by session/path ID to prevent state bleeding between sessions
 - Always guard async callbacks with `guard currentId == targetId else { return }`

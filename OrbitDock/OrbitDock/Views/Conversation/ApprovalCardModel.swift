@@ -203,15 +203,10 @@ enum ApprovalCardModelBuilder {
     pendingApproval: ServerApprovalRequest?,
     serverState: ServerAppState
   ) -> ApprovalCardModel? {
-    let queueHeadRequestId = normalizedRequestId(
-      serverState.nextPendingApprovalRequestId(sessionId: session.id) ?? session.pendingApprovalId
-    )
-    let pendingHistory = unresolvedApproval(
-      in: serverState.session(session.id).approvalHistory,
-      requestId: queueHeadRequestId
-    )
-    let approvalId = normalizedRequestId(pendingApproval?.id) ?? queueHeadRequestId
-    let approvalType = pendingApproval?.type ?? pendingHistory?.approvalType
+    let approvalId = normalizedRequestId(pendingApproval?.id)
+      ?? normalizedRequestId(serverState.nextPendingApprovalRequestId(sessionId: session.id))
+      ?? normalizedRequestId(session.pendingApprovalId)
+    let approvalType = pendingApproval?.type
 
     let mode = ApprovalCardModeResolver.resolve(
       for: session,
@@ -219,11 +214,11 @@ enum ApprovalCardModelBuilder {
       approvalType: approvalType
     )
     guard mode != .none else { return nil }
-    if (mode == .permission || mode == .question), approvalId == nil {
+    if mode == .permission || mode == .question, approvalId == nil {
       return nil
     }
 
-    let resolvedApprovalTypeForRisk = pendingApproval?.type ?? pendingHistory?.approvalType ?? approvalType
+    let resolvedApprovalTypeForRisk = pendingApproval?.type ?? approvalType
     let risk = ApprovalRisk.fromServer(
       level: pendingApproval?.preview?.riskLevel,
       approvalType: resolvedApprovalTypeForRisk
@@ -275,10 +270,10 @@ enum ApprovalCardModelBuilder {
     let fallbackPreview: (command: String?, filePath: String?, previewType: ApprovalPreviewType)? = {
       guard previewFromServer == nil else { return nil }
 
-      let rawCommand = pendingApproval?.command ?? pendingHistory?.command
+      let rawCommand = pendingApproval?.command ?? nil
       let command = String.shellCommandDisplay(from: rawCommand)
         ?? ApprovalPermissionPreviewHelpers.trimmed(rawCommand)
-      let filePath = ApprovalPermissionPreviewHelpers.trimmed(pendingApproval?.filePath ?? pendingHistory?.filePath)
+      let filePath = ApprovalPermissionPreviewHelpers.trimmed(pendingApproval?.filePath ?? nil)
 
       if let command {
         return (
@@ -297,7 +292,7 @@ enum ApprovalCardModelBuilder {
 
     let command = previewFromServer?.command ?? fallbackPreview?.command
     let filePath = previewFromServer?.filePath ?? fallbackPreview?.filePath
-    let toolName = pendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? pendingHistory?.toolName
+    let toolName = pendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? nil
     let previewType: ApprovalPreviewType = {
       if let serverPreview = previewFromServer {
         return serverPreview.previewType
@@ -326,7 +321,7 @@ enum ApprovalCardModelBuilder {
       riskFindings: riskFindings,
       diff: pendingApproval?.diff,
       questions: prompts,
-      hasAmendment: pendingApproval?.proposedAmendment != nil || pendingHistory?.proposedAmendment != nil,
+      hasAmendment: pendingApproval?.proposedAmendment != nil || nil != nil,
       approvalType: approvalType,
       projectPath: session.projectPath,
       approvalId: approvalId,

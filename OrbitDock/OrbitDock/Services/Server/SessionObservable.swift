@@ -20,6 +20,7 @@ final class SessionObservable {
   // Approval
   var pendingApproval: ServerApprovalRequest?
   var approvalHistory: [ServerApprovalHistoryItem] = []
+  var approvalVersion: UInt64 = 0
 
   // Session metadata
   var tokenUsage: ServerTokenUsage?

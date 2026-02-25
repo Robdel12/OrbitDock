@@ -209,6 +209,7 @@ impl SessionRegistry {
                     first_prompt: snap.first_prompt.clone(),
                     last_message: snap.last_message.clone(),
                     effort: snap.effort.clone(),
+                    approval_version: Some(snap.approval_version),
                 }
             })
             .collect()

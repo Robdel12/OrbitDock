@@ -318,6 +318,9 @@ pub struct SessionSummary {
     pub current_cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// Monotonic counter incremented on every approval state change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_version: Option<u64>,
 }
 
 /// A diff snapshot from a completed turn
@@ -423,6 +426,9 @@ pub struct SessionState {
     pub terminal_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_app: Option<String>,
+    /// Monotonic counter incremented on every approval state change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_version: Option<u64>,
 }
 
 /// Changes to apply to a session state (delta updates)
@@ -476,6 +482,9 @@ pub struct StateChanges {
     pub model: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<Option<String>>,
+    /// Monotonic counter incremented on every approval state change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_version: Option<u64>,
 }
 
 /// Changes to apply to a message (delta updates)

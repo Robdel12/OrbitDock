@@ -666,6 +666,7 @@ fn restored_session_to_state(restored: RestoredSession) -> SessionState {
         effort: restored.effort,
         terminal_session_id: restored.terminal_session_id,
         terminal_app: restored.terminal_app,
+        approval_version: Some(restored.approval_version),
     }
 }
 

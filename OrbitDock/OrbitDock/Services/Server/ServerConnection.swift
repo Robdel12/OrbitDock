@@ -260,7 +260,8 @@ class ServerConnection: ObservableObject {
   var onSessionDelta: ((String, ServerStateChanges) -> Void)?
   var onMessageAppended: ((String, ServerMessage) -> Void)?
   var onMessageUpdated: ((String, String, ServerMessageChanges) -> Void)?
-  var onApprovalRequested: ((String, ServerApprovalRequest) -> Void)?
+  var onApprovalRequested: ((String, ServerApprovalRequest, UInt64?) -> Void)?
+  var onApprovalDecisionResult: ((String, String, String, String?, UInt64) -> Void)?
   var onTokensUpdated: ((String, ServerTokenUsage, ServerTokenUsageSnapshotKind) -> Void)?
   var onSessionCreated: ((ServerSessionSummary) -> Void)?
   var onSessionEnded: ((String, String) -> Void)?
@@ -584,8 +585,8 @@ class ServerConnection: ObservableObject {
       case let .messageUpdated(sessionId, messageId, changes):
         onMessageUpdated?(sessionId, messageId, changes)
 
-      case let .approvalRequested(sessionId, request):
-        onApprovalRequested?(sessionId, request)
+      case let .approvalRequested(sessionId, request, approvalVersion):
+        onApprovalRequested?(sessionId, request, approvalVersion)
 
       case let .tokensUpdated(sessionId, usage, snapshotKind):
         onTokensUpdated?(sessionId, usage, snapshotKind)
@@ -709,6 +710,10 @@ class ServerConnection: ObservableObject {
 
       case let .serverInfo(isPrimary, clientPrimaryClaims):
         applyServerInfo(isPrimary: isPrimary, clientPrimaryClaims: clientPrimaryClaims)
+
+      case let .approvalDecisionResult(sessionId, requestId, outcome, activeRequestId, approvalVersion):
+        logger.debug("Approval decision result for \(sessionId): \(requestId) -> \(outcome)")
+        onApprovalDecisionResult?(sessionId, requestId, outcome, activeRequestId, approvalVersion)
 
       case let .error(code, errorMessage, sessionId):
         logger.error("Server error [\(code)]: \(errorMessage)")

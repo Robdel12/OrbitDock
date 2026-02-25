@@ -460,6 +460,7 @@ struct ServerSessionSummary: Codable, Identifiable {
   let firstPrompt: String?
   let lastMessage: String?
   let effort: String?
+  let approvalVersion: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -489,6 +490,7 @@ struct ServerSessionSummary: Codable, Identifiable {
     case gitBranch = "git_branch"
     case gitSha = "git_sha"
     case currentCwd = "current_cwd"
+    case approvalVersion = "approval_version"
     case firstPrompt = "first_prompt"
     case lastMessage = "last_message"
     case effort
@@ -707,6 +709,7 @@ struct ServerSessionState: Codable, Identifiable {
   let effort: String?
   let terminalSessionId: String?
   let terminalApp: String?
+  let approvalVersion: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -750,6 +753,7 @@ struct ServerSessionState: Codable, Identifiable {
     case effort
     case terminalSessionId = "terminal_session_id"
     case terminalApp = "terminal_app"
+    case approvalVersion = "approval_version"
   }
 
   init(from decoder: Decoder) throws {
@@ -799,6 +803,7 @@ struct ServerSessionState: Codable, Identifiable {
     effort = try container.decodeIfPresent(String.self, forKey: .effort)
     terminalSessionId = try container.decodeIfPresent(String.self, forKey: .terminalSessionId)
     terminalApp = try container.decodeIfPresent(String.self, forKey: .terminalApp)
+    approvalVersion = try container.decodeIfPresent(UInt64.self, forKey: .approvalVersion)
   }
 }
 
@@ -829,6 +834,7 @@ struct ServerStateChanges: Codable {
   let model: String??
   let effort: String??
   let permissionMode: String??
+  let approvalVersion: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -855,6 +861,7 @@ struct ServerStateChanges: Codable {
     case model
     case effort
     case permissionMode = "permission_mode"
+    case approvalVersion = "approval_version"
   }
 }
 
@@ -1322,7 +1329,7 @@ enum ServerToClientMessage: Codable {
   case sessionDelta(sessionId: String, changes: ServerStateChanges)
   case messageAppended(sessionId: String, message: ServerMessage)
   case messageUpdated(sessionId: String, messageId: String, changes: ServerMessageChanges)
-  case approvalRequested(sessionId: String, request: ServerApprovalRequest)
+  case approvalRequested(sessionId: String, request: ServerApprovalRequest, approvalVersion: UInt64?)
   case tokensUpdated(sessionId: String, usage: ServerTokenUsage, snapshotKind: ServerTokenUsageSnapshotKind)
   case sessionCreated(session: ServerSessionSummary)
   case sessionEnded(sessionId: String, reason: String)
@@ -1390,6 +1397,13 @@ enum ServerToClientMessage: Codable {
   case claudeUsageResult(requestId: String, usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?)
   case openAiKeyStatus(requestId: String, configured: Bool)
   case serverInfo(isPrimary: Bool, clientPrimaryClaims: [ServerClientPrimaryClaim])
+  case approvalDecisionResult(
+    sessionId: String,
+    requestId: String,
+    outcome: String,
+    activeRequestId: String?,
+    approvalVersion: UInt64
+  )
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1453,6 +1467,9 @@ enum ServerToClientMessage: Codable {
     case configured
     case isPrimary = "is_primary"
     case clientPrimaryClaims = "client_primary_claims"
+    case approvalVersion = "approval_version"
+    case outcome
+    case activeRequestId = "active_request_id"
   }
 
   init(from decoder: Decoder) throws {
@@ -1487,7 +1504,8 @@ enum ServerToClientMessage: Codable {
       case "approval_requested":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
         let request = try container.decode(ServerApprovalRequest.self, forKey: .request)
-        self = .approvalRequested(sessionId: sessionId, request: request)
+        let approvalVersion = try container.decodeIfPresent(UInt64.self, forKey: .approvalVersion)
+        self = .approvalRequested(sessionId: sessionId, request: request, approvalVersion: approvalVersion)
 
       case "tokens_updated":
         let sessionId = try container.decode(String.self, forKey: .sessionId)
@@ -1741,6 +1759,20 @@ enum ServerToClientMessage: Codable {
           try container.decodeIfPresent([ServerClientPrimaryClaim].self, forKey: .clientPrimaryClaims) ?? []
         self = .serverInfo(isPrimary: isPrimary, clientPrimaryClaims: clientPrimaryClaims)
 
+      case "approval_decision_result":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let outcome = try container.decode(String.self, forKey: .outcome)
+        let activeRequestId = try container.decodeIfPresent(String.self, forKey: .activeRequestId)
+        let approvalVersion = try container.decode(UInt64.self, forKey: .approvalVersion)
+        self = .approvalDecisionResult(
+          sessionId: sessionId,
+          requestId: requestId,
+          outcome: outcome,
+          activeRequestId: activeRequestId,
+          approvalVersion: approvalVersion
+        )
+
       case "error":
         let code = try container.decode(String.self, forKey: .code)
         let message = try container.decode(String.self, forKey: .message)
@@ -1785,10 +1817,11 @@ enum ServerToClientMessage: Codable {
         try container.encode(messageId, forKey: .messageId)
         try container.encode(changes, forKey: .changes)
 
-      case let .approvalRequested(sessionId, request):
+      case let .approvalRequested(sessionId, request, approvalVersion):
         try container.encode("approval_requested", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(request, forKey: .request)
+        try container.encodeIfPresent(approvalVersion, forKey: .approvalVersion)
 
       case let .tokensUpdated(sessionId, usage, snapshotKind):
         try container.encode("tokens_updated", forKey: .type)
@@ -2018,6 +2051,14 @@ enum ServerToClientMessage: Codable {
         if !clientPrimaryClaims.isEmpty {
           try container.encode(clientPrimaryClaims, forKey: .clientPrimaryClaims)
         }
+
+      case let .approvalDecisionResult(sessionId, requestId, outcome, activeRequestId, approvalVersion):
+        try container.encode("approval_decision_result", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(outcome, forKey: .outcome)
+        try container.encodeIfPresent(activeRequestId, forKey: .activeRequestId)
+        try container.encode(approvalVersion, forKey: .approvalVersion)
 
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)

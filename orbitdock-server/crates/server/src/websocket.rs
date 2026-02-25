@@ -1685,6 +1685,7 @@ async fn handle_client_message_impl(
                             effort: restored.effort,
                             terminal_session_id: restored.terminal_session_id,
                             terminal_app: restored.terminal_app,
+                            approval_version: Some(restored.approval_version),
                         };
 
                         send_snapshot_if_requested(
@@ -2367,7 +2368,7 @@ async fn handle_client_message_impl(
 
             // Resolve pending approval server-side and promote next queued request.
             // This keeps queue ownership inside the session actor.
-            let (approval_type, proposed_amendment, next_pending_request_id) =
+            let (approval_type, proposed_amendment, next_pending_request_id, approval_version) =
                 if let Some(actor) = state.get_session(&session_id) {
                     let (reply_tx, reply_rx) = oneshot::channel();
                     actor
@@ -2384,29 +2385,31 @@ async fn handle_client_message_impl(
                             resolution.approval_type,
                             resolution.proposed_amendment,
                             resolution.next_pending_approval.map(|approval| approval.id),
+                            resolution.approval_version,
                         )
                     } else {
-                        (None, None, None)
+                        (None, None, None, 0)
                     }
                 } else {
-                    (None, None, None)
+                    (None, None, None, 0)
                 };
 
             if state.get_session(&session_id).is_some() && approval_type.is_none() {
                 send_json(
                     client_tx,
-                    ServerMessage::Error {
-                        code: "stale_approval_request".into(),
-                        message: format!(
-                            "Approval request {} is not pending for session {}",
-                            request_id, session_id
-                        ),
-                        session_id: Some(session_id.clone()),
+                    ServerMessage::ApprovalDecisionResult {
+                        session_id: session_id.clone(),
+                        request_id: request_id.clone(),
+                        outcome: "stale".to_string(),
+                        active_request_id: next_pending_request_id.clone(),
+                        approval_version,
                     },
                 )
                 .await;
                 return;
             }
+
+            let request_id_for_result = request_id.clone();
 
             let _ = state
                 .persist()
@@ -2464,6 +2467,19 @@ async fn handle_client_message_impl(
                     last_activity_at: None,
                 })
                 .await;
+
+            send_json(
+                client_tx,
+                ServerMessage::ApprovalDecisionResult {
+                    session_id: session_id.clone(),
+                    request_id: request_id_for_result,
+                    outcome: "applied".to_string(),
+                    active_request_id: next_pending_request_id.clone(),
+                    approval_version,
+                },
+            )
+            .await;
+
             if let Some(next_pending_request_id) = next_pending_request_id {
                 info!(
                     component = "approval",
@@ -2679,6 +2695,7 @@ async fn handle_client_message_impl(
             let mut resolved_work_status = fallback_work_status;
             let mut resolved = false;
             let mut next_pending_request_id: Option<String> = None;
+            let mut approval_version: u64 = 0;
             if let Some(actor) = state.get_session(&session_id) {
                 let (reply_tx, reply_rx) = oneshot::channel();
                 actor
@@ -2692,24 +2709,26 @@ async fn handle_client_message_impl(
                     resolved = resolution.approval_type.is_some();
                     resolved_work_status = resolution.work_status;
                     next_pending_request_id = resolution.next_pending_approval.map(|a| a.id);
+                    approval_version = resolution.approval_version;
                 }
             }
 
             if state.get_session(&session_id).is_some() && !resolved {
                 send_json(
                     client_tx,
-                    ServerMessage::Error {
-                        code: "stale_approval_request".into(),
-                        message: format!(
-                            "Approval request {} is not pending for session {}",
-                            request_id, session_id
-                        ),
-                        session_id: Some(session_id.clone()),
+                    ServerMessage::ApprovalDecisionResult {
+                        session_id: session_id.clone(),
+                        request_id: request_id.clone(),
+                        outcome: "stale".to_string(),
+                        active_request_id: next_pending_request_id.clone(),
+                        approval_version,
                     },
                 )
                 .await;
                 return;
             }
+
+            let request_id_for_result = request_id.clone();
 
             let _ = state
                 .persist()
@@ -2762,6 +2781,18 @@ async fn handle_client_message_impl(
                     last_activity_at: None,
                 })
                 .await;
+
+            send_json(
+                client_tx,
+                ServerMessage::ApprovalDecisionResult {
+                    session_id: session_id.clone(),
+                    request_id: request_id_for_result,
+                    outcome: "applied".to_string(),
+                    active_request_id: next_pending_request_id.clone(),
+                    approval_version,
+                },
+            )
+            .await;
 
             if let Some(next_pending_request_id) = next_pending_request_id {
                 info!(
@@ -3193,6 +3224,7 @@ async fn handle_client_message_impl(
                 restored.effort,
                 restored.terminal_session_id,
                 restored.terminal_app,
+                restored.approval_version,
             );
 
             // Set integration mode to direct BEFORE snapshot so the client sees it immediately
@@ -5132,10 +5164,19 @@ mod tests {
         let snapshot = actor.snapshot();
         assert_eq!(snapshot.pending_approval_id.as_deref(), Some("req-2"));
         assert_eq!(snapshot.work_status, WorkStatus::Permission);
-        assert!(
-            client_rx.try_recv().is_err(),
-            "successful approval should not emit websocket errors"
-        );
+
+        // The server now sends an ApprovalDecisionResult on success
+        match recv_json(&mut client_rx).await {
+            ServerMessage::ApprovalDecisionResult {
+                outcome,
+                request_id,
+                ..
+            } => {
+                assert_eq!(outcome, "applied");
+                assert_eq!(request_id, "req-1");
+            }
+            other => panic!("expected ApprovalDecisionResult, got {:?}", other),
+        }
     }
 
     #[tokio::test]
@@ -5171,19 +5212,26 @@ mod tests {
         .await;
 
         match recv_json(&mut client_rx).await {
-            ServerMessage::Error {
-                code,
-                message,
-                session_id: error_session_id,
+            ServerMessage::ApprovalDecisionResult {
+                session_id: result_session_id,
+                request_id,
+                outcome,
+                active_request_id,
+                ..
             } => {
-                assert_eq!(code, "stale_approval_request");
-                assert!(
-                    message.contains("req-2"),
-                    "stale error should mention rejected request id"
+                assert_eq!(result_session_id, session_id);
+                assert_eq!(request_id, "req-2");
+                assert_eq!(outcome, "stale");
+                assert_eq!(
+                    active_request_id.as_deref(),
+                    Some("req-1"),
+                    "stale result should include the active request id"
                 );
-                assert_eq!(error_session_id.as_deref(), Some(session_id.as_str()));
             }
-            other => panic!("expected stale approval error, got {:?}", other),
+            other => panic!(
+                "expected ApprovalDecisionResult with stale outcome, got {:?}",
+                other
+            ),
         }
 
         assert!(

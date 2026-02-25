@@ -825,6 +825,7 @@ pub fn transition(
             effects.push(Effect::Emit(Box::new(ServerMessage::ApprovalRequested {
                 session_id: sid,
                 request,
+                approval_version: None, // Filled by actor after apply_state
             })));
         }
 

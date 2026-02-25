@@ -37,6 +37,7 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Link related issues or include a short rationale if no issue exists.
 
 ## Architecture & App-Specific Notes
+- **Server-authoritative**: The Rust server (`orbitdock-server`) is the single source of truth for all session and approval state. Clients receive state over WebSocket and render it — they must never derive, infer, or reconcile business-logic state locally. If the client lacks data it needs, fix the server to emit it.
 - The app reads AI agent session data from a local SQLite DB and JSONL transcripts.
 - Claude Code sessions: populated via Swift CLI hooks configured in `~/.claude/settings.json`.
 - Codex sessions: unified through `orbitdock-server` (direct sessions + rollout-watched CLI sessions).

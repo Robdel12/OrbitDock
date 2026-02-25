@@ -63,109 +63,31 @@ struct ApprovalCardModelTests {
     #expect(model == nil)
   }
 
-  @Test func builderUsesHistoryOnlyForAuthoritativePendingRequestId() {
-    let sessionId = "session-approval-history-authoritative"
+  @Test func builderReadsFromObservablePendingApproval() {
+    let sessionId = "session-approval-observable-authoritative"
     let session = makeDirectSession(
       id: sessionId,
       attentionReason: .awaitingPermission,
-      pendingApprovalId: "req-from-history"
+      pendingApprovalId: "req-1"
     )
 
     let state = ServerAppState()
-    state.session(sessionId).approvalHistory = [
-      ServerApprovalHistoryItem(
-        id: 42,
-        sessionId: sessionId,
-        requestId: "req-from-history",
-        approvalType: .exec,
-        toolName: "Bash",
-        command: "git status",
-        filePath: nil,
-        cwd: "/tmp",
-        decision: nil,
-        proposedAmendment: nil,
-        createdAt: "2026-02-23T00:00:00Z",
-        decidedAt: nil
-      ),
-    ]
+    state.session(sessionId).pendingApproval = ServerApprovalRequest(
+      id: "req-1",
+      sessionId: sessionId,
+      type: .exec
+    )
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: nil,
+      pendingApproval: state.session(sessionId).pendingApproval,
       serverState: state
     )
 
     #expect(model != nil)
-    #expect(model?.approvalId == "req-from-history")
+    #expect(model?.approvalId == "req-1")
     #expect(model?.approvalType == .exec)
-    #expect(model?.toolName == "Bash")
-    #expect(model?.command == "git status")
-    #expect(model?.previewType == .shellCommand)
     #expect(model?.mode == .permission)
-  }
-
-  @Test func builderIgnoresSupersededUnresolvedHistoryForDuplicateRequestIds() {
-    let sessionId = "session-approval-history-superseded"
-    let session = makeDirectSession(
-      id: sessionId,
-      attentionReason: .awaitingPermission,
-      pendingApprovalId: "req-new"
-    )
-
-    let state = ServerAppState()
-    state.session(sessionId).approvalHistory = [
-      ServerApprovalHistoryItem(
-        id: 1,
-        sessionId: sessionId,
-        requestId: "req-old",
-        approvalType: .exec,
-        toolName: "Bash",
-        command: "echo old",
-        filePath: nil,
-        cwd: "/tmp",
-        decision: nil,
-        proposedAmendment: nil,
-        createdAt: "2026-02-23T00:00:00Z",
-        decidedAt: nil
-      ),
-      ServerApprovalHistoryItem(
-        id: 2,
-        sessionId: sessionId,
-        requestId: "req-old",
-        approvalType: .exec,
-        toolName: "Bash",
-        command: "echo old",
-        filePath: nil,
-        cwd: "/tmp",
-        decision: "approved",
-        proposedAmendment: nil,
-        createdAt: "2026-02-23T00:00:01Z",
-        decidedAt: "2026-02-23T00:00:02Z"
-      ),
-      ServerApprovalHistoryItem(
-        id: 3,
-        sessionId: sessionId,
-        requestId: "req-new",
-        approvalType: .exec,
-        toolName: "Bash",
-        command: "echo new",
-        filePath: nil,
-        cwd: "/tmp",
-        decision: nil,
-        proposedAmendment: nil,
-        createdAt: "2026-02-23T00:00:03Z",
-        decidedAt: nil
-      ),
-    ]
-
-    let model = ApprovalCardModelBuilder.build(
-      session: session,
-      pendingApproval: nil,
-      serverState: state
-    )
-
-    #expect(model != nil)
-    #expect(model?.approvalId == "req-new")
   }
 
   @Test func builderFallsBackToCommandWhenPreviewMissing() {

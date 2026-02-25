@@ -1,0 +1,1 @@
+ALTER TABLE sessions ADD COLUMN approval_version INTEGER NOT NULL DEFAULT 0;

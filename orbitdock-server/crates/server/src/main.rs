@@ -380,6 +380,7 @@ async fn async_main(
                     effort,
                     terminal_session_id,
                     terminal_app,
+                    approval_version,
                 } = rs;
                 let msg_count = messages.len();
 
@@ -475,6 +476,7 @@ async fn async_main(
                     effort,
                     terminal_session_id,
                     terminal_app,
+                    approval_version,
                 );
                 let is_codex = matches!(provider, Provider::Codex);
                 let is_claude = matches!(provider, Provider::Claude);

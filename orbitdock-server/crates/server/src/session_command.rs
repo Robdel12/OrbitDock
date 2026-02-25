@@ -187,6 +187,7 @@ pub struct PendingApprovalResolution {
     pub proposed_amendment: Option<Vec<String>>,
     pub next_pending_approval: Option<ApprovalRequest>,
     pub work_status: WorkStatus,
+    pub approval_version: u64,
 }
 
 /// Result of a Subscribe command

@@ -17,6 +17,23 @@ use crate::session_command::{
 };
 use crate::transition::{self, Effect, Input};
 
+/// Inject approval_version into ApprovalRequested and SessionDelta messages.
+fn inject_approval_version(msg: &mut ServerMessage, version: u64) {
+    match msg {
+        ServerMessage::ApprovalRequested {
+            approval_version, ..
+        } => {
+            *approval_version = Some(version);
+        }
+        ServerMessage::SessionDelta { changes, .. } => {
+            if changes.pending_approval.is_some() && changes.approval_version.is_none() {
+                changes.approval_version = Some(version);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Manages a Codex session with its connector
 pub struct CodexSession {
     pub session_id: String,
@@ -217,7 +234,9 @@ impl CodexSession {
                     let _ = persist_tx.send((*op).into_persist_command()).await;
                 }
                 Effect::Emit(msg) => {
-                    handle.broadcast(*msg);
+                    let mut msg = *msg;
+                    inject_approval_version(&mut msg, handle.approval_version());
+                    handle.broadcast(msg);
                 }
             }
         }
@@ -443,7 +462,9 @@ pub async fn handle_session_command(
                         let _ = persist_tx.send((*op).into_persist_command()).await;
                     }
                     transition::Effect::Emit(msg) => {
-                        handle.broadcast(*msg);
+                        let mut msg = *msg;
+                        inject_approval_version(&mut msg, handle.approval_version());
+                        handle.broadcast(msg);
                     }
                 }
             }
@@ -574,6 +595,7 @@ pub async fn handle_session_command(
             let (approval_type, proposed_amendment, next_pending_approval, work_status) =
                 handle.resolve_pending_approval(&request_id, fallback_work_status);
 
+            let approval_version = handle.approval_version();
             if approval_type.is_some() {
                 let session_id = handle.id().to_string();
                 handle.broadcast(ServerMessage::SessionDelta {
@@ -581,6 +603,7 @@ pub async fn handle_session_command(
                     changes: orbitdock_protocol::StateChanges {
                         work_status: Some(work_status),
                         pending_approval: Some(next_pending_approval.clone()),
+                        approval_version: Some(approval_version),
                         ..Default::default()
                     },
                 });
@@ -591,6 +614,7 @@ pub async fn handle_session_command(
                 proposed_amendment,
                 next_pending_approval,
                 work_status,
+                approval_version,
             });
         }
         SessionCommand::SetPendingApproval {

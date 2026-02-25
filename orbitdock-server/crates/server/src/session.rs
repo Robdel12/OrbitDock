@@ -11,6 +11,7 @@ use orbitdock_protocol::{
     WorkStatus,
 };
 use tokio::sync::broadcast;
+use tracing::info;
 
 use orbitdock_protocol::ServerMessage;
 
@@ -271,6 +272,7 @@ pub struct SessionSnapshot {
     pub effort: Option<String>,
     pub terminal_session_id: Option<String>,
     pub terminal_app: Option<String>,
+    pub approval_version: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -330,6 +332,8 @@ pub struct SessionHandle {
     pending_approval_id: Option<String>,
     /// Server-authoritative queue of unresolved approvals for this session.
     pending_approvals: VecDeque<PendingApprovalEntry>,
+    /// Monotonic counter incremented on every approval state change (enqueue, decide, clear).
+    approval_version: u64,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -381,6 +385,7 @@ impl SessionHandle {
             effort: None,
             terminal_session_id: None,
             terminal_app: None,
+            approval_version: 0,
         };
         Self {
             id,
@@ -425,6 +430,7 @@ impl SessionHandle {
             pending_question: None,
             pending_approval_id: None,
             pending_approvals: VecDeque::new(),
+            approval_version: 0,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -469,6 +475,7 @@ impl SessionHandle {
         effort: Option<String>,
         terminal_session_id: Option<String>,
         terminal_app: Option<String>,
+        approval_version: u64,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let snapshot = SessionSnapshot {
@@ -508,6 +515,7 @@ impl SessionHandle {
             last_message: last_message.clone(),
             terminal_session_id: terminal_session_id.clone(),
             terminal_app: terminal_app.clone(),
+            approval_version,
         };
         let mut handle = Self {
             id,
@@ -552,6 +560,7 @@ impl SessionHandle {
             pending_question,
             pending_approval_id,
             pending_approvals: VecDeque::new(),
+            approval_version,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -622,6 +631,7 @@ impl SessionHandle {
             effort: self.effort.clone(),
             first_prompt: self.first_prompt.clone(),
             last_message: self.last_message.clone(),
+            approval_version: Some(self.approval_version),
         }
     }
 
@@ -672,6 +682,7 @@ impl SessionHandle {
             effort: self.effort.clone(),
             terminal_session_id: self.terminal_session_id.clone(),
             terminal_app: self.terminal_app.clone(),
+            approval_version: Some(self.approval_version),
         }
     }
 
@@ -895,13 +906,18 @@ impl SessionHandle {
         }
     }
 
+    /// Get the current approval version.
+    pub fn approval_version(&self) -> u64 {
+        self.approval_version
+    }
+
     fn queue_pending_approval(
         &mut self,
         approval: ApprovalRequest,
         approval_type: ApprovalType,
         proposed_amendment: Option<Vec<String>>,
     ) {
-        let normalized_request_id = normalize_request_id(&approval.id);
+        let normalized_request_id = normalize_request_id(&approval.id).to_string();
         if let Some(index) = self
             .pending_approvals
             .iter()
@@ -912,6 +928,18 @@ impl SessionHandle {
                 existing.approval_type = approval_type;
                 existing.proposed_amendment = proposed_amendment;
             }
+            // Update in place — still bump version since state changed.
+            self.approval_version += 1;
+            info!(
+                component = "approval",
+                event = "approval.updated",
+                session_id = %self.id,
+                request_id = %normalized_request_id,
+                approval_version = self.approval_version,
+                approval_type = ?approval_type,
+                queue_depth = self.pending_approvals.len(),
+                "Approval request updated in place"
+            );
             return;
         }
 
@@ -920,6 +948,17 @@ impl SessionHandle {
             approval_type,
             proposed_amendment,
         });
+        self.approval_version += 1;
+        info!(
+            component = "approval",
+            event = "approval.enqueued",
+            session_id = %self.id,
+            request_id = %normalized_request_id,
+            approval_version = self.approval_version,
+            approval_type = ?approval_type,
+            queue_depth = self.pending_approvals.len(),
+            "Approval request enqueued"
+        );
     }
 
     fn promote_queue_front(&mut self) {
@@ -930,6 +969,16 @@ impl SessionHandle {
             self.pending_question = entry.request.question.clone();
             self.pending_approval_id = Some(entry.request.id.clone());
             self.work_status = Self::work_status_for_approval_type(entry.approval_type);
+            info!(
+                component = "approval",
+                event = "approval.promoted",
+                session_id = %self.id,
+                request_id = %entry.request.id,
+                approval_version = self.approval_version,
+                approval_type = ?entry.approval_type,
+                queue_depth = self.pending_approvals.len(),
+                "Promoted next approval to active"
+            );
             return;
         }
 
@@ -941,12 +990,25 @@ impl SessionHandle {
     }
 
     fn clear_pending_approvals(&mut self) {
+        let had_approvals = !self.pending_approvals.is_empty() || self.pending_approval.is_some();
+        let cleared_count = self.pending_approvals.len();
         self.pending_approvals.clear();
         self.pending_approval = None;
         self.pending_tool_name = None;
         self.pending_tool_input = None;
         self.pending_question = None;
         self.pending_approval_id = None;
+        if had_approvals {
+            self.approval_version += 1;
+            info!(
+                component = "approval",
+                event = "approval.cleared",
+                session_id = %self.id,
+                approval_version = self.approval_version,
+                cleared_count,
+                "Cleared all pending approvals"
+            );
+        }
     }
 
     fn bootstrap_pending_approval_from_persisted_fields(&mut self) {
@@ -1031,6 +1093,17 @@ impl SessionHandle {
         ) {
             let _ = self.pending_approvals.pop_front();
         }
+        self.approval_version += 1;
+        info!(
+            component = "approval",
+            event = "approval.decided",
+            session_id = %self.id,
+            request_id = %removed.request.id,
+            approval_version = self.approval_version,
+            approval_type = ?removed.approval_type,
+            queue_depth = self.pending_approvals.len(),
+            "Approval decided and removed from queue"
+        );
         self.promote_queue_front();
         if self.pending_approvals.is_empty() {
             self.work_status = fallback_work_status;
@@ -1187,6 +1260,7 @@ impl SessionHandle {
             last_message: self.last_message.clone(),
             terminal_session_id: self.terminal_session_id.clone(),
             terminal_app: self.terminal_app.clone(),
+            approval_version: self.approval_version,
         }
     }
 

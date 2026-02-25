@@ -17,7 +17,8 @@ struct ServerAppStateApprovalQueueTests {
 
     state.connection.onApprovalRequested?(
       sessionId,
-      makeApprovalRequest(id: "req-2", sessionId: sessionId, type: .exec)
+      makeApprovalRequest(id: "req-2", sessionId: sessionId, type: .exec),
+      nil
     )
 
     #expect(state.session(sessionId).pendingApproval?.id == "req-1")
@@ -25,7 +26,7 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
-  @Test func approveToolUsesSessionListPendingApprovalAsSourceOfTruth() async {
+  @Test func approveToolPrefersObservableAsSourceOfTruth() async {
     let state = ServerAppState()
     state.setup()
     let sessionId = "session-summary-head"
@@ -35,24 +36,25 @@ struct ServerAppStateApprovalQueueTests {
     ])
     await Task.yield()
     state.session(sessionId).pendingApproval = makeApprovalRequest(
-      id: "req-observable-drift",
+      id: "req-observable",
       sessionId: sessionId,
       type: .exec
     )
 
-    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-head")
+    // Observable is authoritative — its pendingApproval is the single source
+    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-observable")
 
     let result = state.approveTool(
       sessionId: sessionId,
-      requestId: "req-observable-drift",
+      requestId: "req-observable",
       decision: "approved"
     )
 
     switch result {
-      case let .stale(nextPendingRequestId):
-        #expect(nextPendingRequestId == "req-head")
       case .dispatched:
-        Issue.record("Expected stale result when request ID is not the server-declared queue head.")
+        #expect(true)
+      case .stale:
+        Issue.record("Expected approval dispatch to succeed for observable's active request.")
     }
   }
 
@@ -110,171 +112,6 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
-  @Test func approvalsListClearsPendingStateImmediatelyAfterResolution() async {
-    let state = ServerAppState()
-    state.setup()
-    let sessionId = "session-approval-resolve"
-
-    state.connection.onSessionsList?([
-      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
-    ])
-    await Task.yield()
-
-    state.session(sessionId).pendingApproval = makeApprovalRequest(
-      id: "req-1",
-      sessionId: sessionId,
-      type: .exec
-    )
-
-    state.connection.onApprovalsList?(
-      sessionId,
-      [
-        ServerApprovalHistoryItem(
-          id: 1,
-          sessionId: sessionId,
-          requestId: "req-1",
-          approvalType: .exec,
-          toolName: "Bash",
-          command: "echo test",
-          filePath: nil,
-          cwd: nil,
-          decision: "approved",
-          proposedAmendment: nil,
-          createdAt: "2026-02-24T00:00:00Z",
-          decidedAt: "2026-02-24T00:00:01Z"
-        ),
-      ]
-    )
-    await Task.yield()
-    await Task.yield()
-
-    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == nil)
-    #expect(state.session(sessionId).pendingApproval == nil)
-    #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == nil)
-    #expect(state.sessions.first(where: { $0.id == sessionId })?.attentionReason == Session.AttentionReason.none)
-  }
-
-  @MainActor
-  @Test func approvalsListPromotesOldestUnresolvedRequestAsQueueHead() async {
-    let state = ServerAppState()
-    state.setup()
-    let sessionId = "session-approval-queue-head"
-
-    state.connection.onSessionsList?([
-      makeSessionSummary(id: sessionId, pendingApprovalId: "req-2"),
-    ])
-    await Task.yield()
-
-    state.connection.onApprovalsList?(
-      sessionId,
-      [
-        makeApprovalHistoryItem(id: 2, requestId: "req-2", sessionId: sessionId),
-        makeApprovalHistoryItem(id: 1, requestId: "req-1", sessionId: sessionId),
-      ]
-    )
-    await Task.yield()
-
-    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-1")
-    #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == "req-1")
-  }
-
-  @MainActor
-  @Test func approvalsListIgnoresSupersededUnresolvedDuplicatesForSameRequestId() async {
-    let state = ServerAppState()
-    state.setup()
-    let sessionId = "session-approval-duplicate-history"
-
-    state.connection.onSessionsList?([
-      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
-    ])
-    await Task.yield()
-
-    state.connection.onApprovalsList?(
-      sessionId,
-      [
-        makeApprovalHistoryItem(id: 1, requestId: "req-1", sessionId: sessionId),
-        ServerApprovalHistoryItem(
-          id: 2,
-          sessionId: sessionId,
-          requestId: "req-1",
-          approvalType: .exec,
-          toolName: "Bash",
-          command: "echo test",
-          filePath: nil,
-          cwd: nil,
-          decision: "approved",
-          proposedAmendment: nil,
-          createdAt: "2026-02-24T00:00:01Z",
-          decidedAt: "2026-02-24T00:00:02Z"
-        ),
-        makeApprovalHistoryItem(id: 3, requestId: "req-2", sessionId: sessionId),
-      ]
-    )
-    await Task.yield()
-
-    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-2")
-    #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == "req-2")
-  }
-
-  @MainActor
-  @Test func approvalsListAllowsReusedRequestIdAfterQueueHeadGenerationChanges() async {
-    let state = ServerAppState()
-    state.setup()
-    let sessionId = "session-approval-reused-request-id"
-
-    state.connection.onSessionsList?([
-      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
-    ])
-    await Task.yield()
-
-    state.connection.onApprovalsList?(
-      sessionId,
-      [
-        makeApprovalHistoryItem(id: 1, requestId: "req-1", sessionId: sessionId),
-      ]
-    )
-    await Task.yield()
-
-    let first = state.approveTool(sessionId: sessionId, requestId: "req-1", decision: "approved")
-    switch first {
-      case .dispatched:
-        #expect(true)
-      case .stale:
-        Issue.record("Expected first approval dispatch to succeed.")
-    }
-
-    state.connection.onApprovalsList?(
-      sessionId,
-      [
-        ServerApprovalHistoryItem(
-          id: 1,
-          sessionId: sessionId,
-          requestId: "req-1",
-          approvalType: .exec,
-          toolName: "Bash",
-          command: "echo test",
-          filePath: nil,
-          cwd: nil,
-          decision: "approved",
-          proposedAmendment: nil,
-          createdAt: "2026-02-24T00:00:00Z",
-          decidedAt: "2026-02-24T00:00:01Z"
-        ),
-        makeApprovalHistoryItem(id: 2, requestId: "req-1", sessionId: sessionId),
-      ]
-    )
-    await Task.yield()
-
-    let second = state.approveTool(sessionId: sessionId, requestId: "req-1", decision: "approved")
-    switch second {
-      case .dispatched:
-        #expect(true)
-      case .stale:
-        Issue.record("Expected reused request ID to unlock after queue-head generation changed.")
-    }
-  }
-
-  @MainActor
   @Test func approveToolReturnsStaleWithNextPendingRequestId() {
     let state = ServerAppState()
     let sessionId = "session-approval-stale"
@@ -295,10 +132,115 @@ struct ServerAppStateApprovalQueueTests {
     }
   }
 
+  // MARK: - Approval Version Gating
+
   @MainActor
-  @Test func answerQuestionLeavesPendingApprovalServerAuthoritative() {
+  @Test func approvalVersionGatesStaleApprovalRequested() async {
     let state = ServerAppState()
-    let sessionId = "session-question-approval"
+    state.setup()
+    let sessionId = "session-version-gate-stale"
+
+    let obs = state.session(sessionId)
+    obs.approvalVersion = 5
+    obs.pendingApproval = makeApprovalRequest(id: "req-current", sessionId: sessionId, type: .exec)
+
+    state.connection.onApprovalRequested?(
+      sessionId,
+      makeApprovalRequest(id: "req-stale", sessionId: sessionId, type: .exec),
+      3
+    )
+    await Task.yield()
+
+    #expect(obs.pendingApproval?.id == "req-current")
+    #expect(obs.approvalVersion == 5)
+  }
+
+  @MainActor
+  @Test func approvalVersionAcceptsNewerApprovalRequested() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-version-gate-newer"
+
+    let obs = state.session(sessionId)
+    obs.approvalVersion = 3
+
+    state.connection.onApprovalRequested?(
+      sessionId,
+      makeApprovalRequest(id: "req-newer", sessionId: sessionId, type: .exec),
+      5
+    )
+    await Task.yield()
+
+    #expect(obs.pendingApproval?.id == "req-newer")
+    #expect(obs.approvalVersion == 5)
+  }
+
+  @MainActor
+  @Test func approvalDecisionResultUpdatesVersionAndClearsPending() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-decision-version"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
+    await Task.yield()
+
+    let obs = state.session(sessionId)
+    obs.pendingApproval = makeApprovalRequest(id: "req-1", sessionId: sessionId, type: .exec)
+
+    state.connection.onApprovalDecisionResult?(sessionId, "req-1", "applied", nil, 10)
+    await Task.yield()
+
+    #expect(obs.approvalVersion == 10)
+    #expect(obs.pendingApproval == nil)
+    #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == nil)
+    #expect(state.sessions.first(where: { $0.id == sessionId })?.attentionReason == Session.AttentionReason.none)
+  }
+
+  @MainActor
+  @Test func approvalDecisionResultDoesNotClearDifferentPending() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-decision-mismatch"
+
+    let obs = state.session(sessionId)
+    obs.pendingApproval = makeApprovalRequest(id: "req-2", sessionId: sessionId, type: .exec)
+
+    // Decision arrives for req-1, but req-2 is now pending
+    state.connection.onApprovalDecisionResult?(sessionId, "req-1", "applied", nil, 10)
+    await Task.yield()
+
+    #expect(obs.approvalVersion == 10)
+    #expect(obs.pendingApproval?.id == "req-2")
+  }
+
+  @MainActor
+  @Test func approvalRequestedAcceptsNilVersionForBackwardsCompat() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-nil-version"
+
+    let obs = state.session(sessionId)
+    obs.approvalVersion = 5
+
+    // Older server sends nil version — should be accepted regardless
+    state.connection.onApprovalRequested?(
+      sessionId,
+      makeApprovalRequest(id: "req-no-version", sessionId: sessionId, type: .exec),
+      nil
+    )
+    await Task.yield()
+
+    #expect(obs.pendingApproval?.id == "req-no-version")
+    // Version unchanged since incoming was nil
+    #expect(obs.approvalVersion == 5)
+  }
+
+  @MainActor
+  @Test func answerQuestionDispatchesForActivePending() {
+    let state = ServerAppState()
+    let sessionId = "session-answer-question"
 
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-question",
@@ -312,16 +254,11 @@ struct ServerAppStateApprovalQueueTests {
       answer: "Ship it"
     )
 
-    switch result {
-      case .dispatched:
-        #expect(true)
-      case .stale:
-        Issue.record("Expected answer dispatch to succeed.")
-    }
-
+    #expect(result == .dispatched)
     #expect(state.session(sessionId).pendingApproval?.id == "req-question")
-    #expect(state.pendingApprovalType(sessionId: sessionId) == .question)
   }
+
+  // MARK: - Helpers
 
   private func makeApprovalRequest(id: String, sessionId: String, type: ServerApprovalType) -> ServerApprovalRequest {
     ServerApprovalRequest(
@@ -387,7 +324,8 @@ struct ServerAppStateApprovalQueueTests {
       currentCwd: nil,
       firstPrompt: nil,
       lastMessage: nil,
-      effort: nil
+      effort: nil,
+      approvalVersion: nil
     )
   }
 }

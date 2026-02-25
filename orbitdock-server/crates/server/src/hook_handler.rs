@@ -658,10 +658,28 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             }
                         }
                         "PermissionRequest" => {
+                            let serialized_input =
+                                tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                            let request_id = format!(
+                                "claude-perm-{}-{}",
+                                tool_name,
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis()
+                            );
+
                             if let Some(actor) = state.get_session(&owning_id) {
                                 actor
                                     .send(SessionCommand::SetLastTool {
                                         tool: Some(tool_name.clone()),
+                                    })
+                                    .await;
+                                actor
+                                    .send(SessionCommand::SetPendingApproval {
+                                        request_id: request_id.clone(),
+                                        approval_type: orbitdock_protocol::ApprovalType::Exec,
+                                        proposed_amendment: None,
                                     })
                                     .await;
                                 actor
@@ -677,8 +695,20 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                     })
                                     .await;
                             }
-                            let serialized_input =
-                                tool_input.and_then(|value| serde_json::to_string(&value).ok());
+
+                            let _ = persist_tx
+                                .send(PersistCommand::ApprovalRequested {
+                                    session_id: owning_id.clone(),
+                                    request_id,
+                                    approval_type: orbitdock_protocol::ApprovalType::Exec,
+                                    tool_name: Some(tool_name.clone()),
+                                    command: None,
+                                    file_path: None,
+                                    cwd: None,
+                                    proposed_amendment: None,
+                                })
+                                .await;
+
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
                                     id: owning_id.clone(),
@@ -899,10 +929,25 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 "PermissionRequest" => {
                     let serialized_input =
                         tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                    let request_id = format!(
+                        "claude-perm-{}-{}",
+                        tool_name,
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis()
+                    );
 
                     actor
                         .send(SessionCommand::SetLastTool {
                             tool: Some(tool_name.clone()),
+                        })
+                        .await;
+                    actor
+                        .send(SessionCommand::SetPendingApproval {
+                            request_id: request_id.clone(),
+                            approval_type: orbitdock_protocol::ApprovalType::Exec,
+                            proposed_amendment: None,
                         })
                         .await;
                     actor
@@ -913,6 +958,19 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 ..Default::default()
                             },
                             persist_op: None,
+                        })
+                        .await;
+
+                    let _ = persist_tx
+                        .send(PersistCommand::ApprovalRequested {
+                            session_id: session_id.clone(),
+                            request_id,
+                            approval_type: orbitdock_protocol::ApprovalType::Exec,
+                            tool_name: Some(tool_name.clone()),
+                            command: None,
+                            file_path: None,
+                            cwd: None,
+                            proposed_amendment: None,
                         })
                         .await;
 
