@@ -53,6 +53,14 @@ Hit Cmd+R. On first launch, the app checks if the server is reachable. If it is 
 
 The server runs separately from the app — as a background service, a manual `cargo run`, or on a remote machine.
 
+**One-liner install (server only):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
+```
+
+This installs to `~/.orbitdock/bin/`, runs `init`, installs Claude hooks, and enables launchd/systemd. It downloads a prebuilt binary from GitHub Releases when available, then falls back to Cargo source install.
+
 **From the app:** Click "Install Locally" in the setup view. It copies the binary to `~/.orbitdock/bin/`, runs `init` and `install-hooks`, and registers a launchd service that auto-starts at login.
 
 **From the CLI:** Build and set up manually if you prefer:

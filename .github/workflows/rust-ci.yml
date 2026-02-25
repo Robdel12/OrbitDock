@@ -20,6 +20,7 @@ jobs:
   check:
     name: Check, Lint & Test
     runs-on: macos-15
+    timeout-minutes: 8
 
     steps:
       - name: Checkout

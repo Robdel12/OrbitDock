@@ -6,6 +6,31 @@ Runs as a **standalone binary** you can drop on any macOS or Linux box. OrbitDoc
 
 ## Getting Started
 
+### Install in One Line
+
+Install the server without building or running the macOS app:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
+```
+
+The installer:
+
+- Downloads a prebuilt binary from GitHub Releases when available
+- Verifies SHA-256 checksums when checksum files are present
+- Installs `orbitdock-server` to `~/.orbitdock/bin/`
+- Runs `orbitdock-server init`
+- Runs `orbitdock-server install-hooks`
+- Runs `orbitdock-server install-service --enable`
+
+Optional flags:
+
+- `ORBITDOCK_SKIP_HOOKS=1` skip Claude hook setup
+- `ORBITDOCK_SKIP_SERVICE=1` skip launchd/systemd install
+- `ORBITDOCK_SERVER_VERSION=<tag>` install a specific release (for example `v1.2.3`)
+- `ORBITDOCK_FORCE_SOURCE=1` skip prebuilt download and build from source with Cargo
+- `ORBITDOCK_SERVER_REF=<branch>` source fallback branch (default: `main`)
+
 ### Standalone Setup
 
 The binary is fully self-contained — database migrations are baked in at compile time. No source tree, no Xcode, no app bundle.
