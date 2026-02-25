@@ -17,17 +17,15 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, warn};
 
-use orbitdock_connectors::discover_models;
 use orbitdock_protocol::{
     new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, MessageChanges,
     MessageType, Provider, ServerMessage, SessionState, SessionStatus, StateChanges, TokenUsage,
-    TokenUsageSnapshotKind, UsageErrorInfo, WorkStatus,
+    TokenUsageSnapshotKind, WorkStatus,
 };
 
 use crate::claude_session::{ClaudeAction, ClaudeSession};
 use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{
-    delete_approval, list_approvals, list_review_comments,
     load_latest_codex_turn_context_settings_from_transcript_path, load_messages_for_session,
     load_messages_from_transcript_path, load_session_by_id, load_session_permission_mode,
     load_token_usage_from_transcript_path, PersistCommand,
@@ -121,7 +119,7 @@ const SNAPSHOT_MAX_CONTENT_CHARS: usize = 16_000;
 const SNAPSHOT_MIN_CONTENT_CHARS: usize = 250;
 const SNAPSHOT_MAX_TURN_DIFFS: usize = 80;
 // Keep outbound frames within common client defaults (Apple URLSession WS default is 1 MiB).
-const WS_MAX_TEXT_MESSAGE_BYTES: usize = 1 * 1024 * 1024;
+const WS_MAX_TEXT_MESSAGE_BYTES: usize = 1024 * 1024;
 // Snapshots should stay much smaller than the hard transport ceiling to avoid reconnect churn.
 const SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES: usize = 256 * 1024;
 
@@ -312,6 +310,22 @@ async fn send_json(tx: &mpsc::Sender<OutboundMessage>, msg: ServerMessage) {
     let _ = tx.send(OutboundMessage::Json(msg)).await;
 }
 
+async fn send_rest_only_error(
+    tx: &mpsc::Sender<OutboundMessage>,
+    endpoint: &str,
+    session_id: Option<String>,
+) {
+    send_json(
+        tx,
+        ServerMessage::Error {
+            code: "http_only_endpoint".into(),
+            message: format!("Use REST endpoint {endpoint} for this request"),
+            session_id,
+        },
+    )
+    .await;
+}
+
 fn server_info_message(state: &SessionRegistry) -> ServerMessage {
     ServerMessage::ServerInfo {
         is_primary: state.is_primary(),
@@ -402,6 +416,33 @@ async fn send_replay_or_snapshot_fallback(
     for json in sanitized_events {
         send_raw(tx, json).await;
     }
+}
+
+async fn send_snapshot_if_requested(
+    tx: &mpsc::Sender<OutboundMessage>,
+    session_id: &str,
+    snapshot: SessionState,
+    include_snapshot: bool,
+    conn_id: u64,
+) {
+    if include_snapshot {
+        send_json(
+            tx,
+            ServerMessage::SessionSnapshot {
+                session: compact_snapshot_for_transport(snapshot),
+            },
+        )
+        .await;
+        return;
+    }
+
+    info!(
+        component = "websocket",
+        event = "ws.subscribe.snapshot_suppressed",
+        connection_id = conn_id,
+        session_id = %session_id,
+        "Session snapshot suppressed (client requested replay-only subscribe)"
+    );
 }
 
 /// Send a pre-serialized JSON string through the outbound channel (for replay)
@@ -983,6 +1024,17 @@ async fn handle_client_message(
     state: &Arc<SessionRegistry>,
     conn_id: u64,
 ) {
+    // Keep this large state-machine future on the heap for direct callers
+    // (notably unit tests) to avoid debug stack overflows.
+    Box::pin(handle_client_message_impl(msg, client_tx, state, conn_id)).await;
+}
+
+async fn handle_client_message_impl(
+    msg: ClientMessage,
+    client_tx: &mpsc::Sender<OutboundMessage>,
+    state: &Arc<SessionRegistry>,
+    conn_id: u64,
+) {
     debug!(
         component = "websocket",
         event = "ws.message.received",
@@ -1004,6 +1056,7 @@ async fn handle_client_message(
         ClientMessage::SubscribeSession {
             session_id,
             since_revision,
+            include_snapshot,
         } => {
             if let Some(actor) = state.get_session(&session_id) {
                 let snap = actor.snapshot();
@@ -1093,11 +1146,12 @@ async fn handle_client_message(
                                         client_tx.clone(),
                                         Some(session_id.clone()),
                                     );
-                                    send_json(
+                                    send_snapshot_if_requested(
                                         client_tx,
-                                        ServerMessage::SessionSnapshot {
-                                            session: compact_snapshot_for_transport(*snapshot),
-                                        },
+                                        &session_id,
+                                        *snapshot,
+                                        include_snapshot,
+                                        conn_id,
                                     )
                                     .await;
                                 }
@@ -1385,11 +1439,12 @@ async fn handle_client_message(
                                             client_tx.clone(),
                                             Some(session_id.clone()),
                                         );
-                                        send_json(
+                                        send_snapshot_if_requested(
                                             client_tx,
-                                            ServerMessage::SessionSnapshot {
-                                                session: compact_snapshot_for_transport(snapshot),
-                                            },
+                                            &session_id,
+                                            snapshot,
+                                            include_snapshot,
+                                            conn_id,
                                         )
                                         .await;
                                     }
@@ -1506,11 +1561,12 @@ async fn handle_client_message(
                                 client_tx.clone(),
                                 Some(session_id.clone()),
                             );
-                            send_json(
+                            send_snapshot_if_requested(
                                 client_tx,
-                                ServerMessage::SessionSnapshot {
-                                    session: compact_snapshot_for_transport(snapshot),
-                                },
+                                &session_id,
+                                snapshot,
+                                include_snapshot,
+                                conn_id,
                             )
                             .await;
                         }
@@ -1631,11 +1687,12 @@ async fn handle_client_message(
                             terminal_app: restored.terminal_app,
                         };
 
-                        send_json(
+                        send_snapshot_if_requested(
                             client_tx,
-                            ServerMessage::SessionSnapshot {
-                                session: compact_snapshot_for_transport(state),
-                            },
+                            &session_id,
+                            state,
+                            include_snapshot,
+                            conn_id,
                         )
                         .await;
                     }
@@ -2418,100 +2475,24 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::ListApprovals { session_id, limit } => {
-            match list_approvals(session_id.clone(), limit).await {
-                Ok(approvals) => {
-                    send_json(
-                        client_tx,
-                        ServerMessage::ApprovalsList {
-                            session_id,
-                            approvals,
-                        },
-                    )
-                    .await;
-                }
-                Err(e) => {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "approval_list_failed".into(),
-                            message: format!("Failed to list approvals: {}", e),
-                            session_id: None,
-                        },
-                    )
-                    .await;
-                }
-            }
+        ClientMessage::ListApprovals { session_id, .. } => {
+            send_rest_only_error(client_tx, "GET /api/approvals", session_id).await;
         }
 
-        ClientMessage::DeleteApproval { approval_id } => match delete_approval(approval_id).await {
-            Ok(true) => {
-                send_json(client_tx, ServerMessage::ApprovalDeleted { approval_id }).await;
-            }
-            Ok(false) => {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "not_found".into(),
-                        message: format!("Approval {} not found", approval_id),
-                        session_id: None,
-                    },
-                )
-                .await;
-            }
-            Err(e) => {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "approval_delete_failed".into(),
-                        message: format!("Failed to delete approval {}: {}", approval_id, e),
-                        session_id: None,
-                    },
-                )
-                .await;
-            }
-        },
+        ClientMessage::DeleteApproval { .. } => {
+            send_rest_only_error(client_tx, "DELETE /api/approvals/:approval_id", None).await;
+        }
 
-        ClientMessage::ListModels => match discover_models().await {
-            Ok(models) => {
-                send_json(client_tx, ServerMessage::ModelsList { models }).await;
-            }
-            Err(e) => {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "model_list_failed".into(),
-                        message: format!("Failed to list models: {}", e),
-                        session_id: None,
-                    },
-                )
-                .await;
-            }
-        },
+        ClientMessage::ListModels => {
+            send_rest_only_error(client_tx, "GET /api/models/codex", None).await;
+        }
 
         ClientMessage::ListClaudeModels => {
-            let models = crate::persistence::load_cached_claude_models();
-            send_json(client_tx, ServerMessage::ClaudeModelsList { models }).await;
+            send_rest_only_error(client_tx, "GET /api/models/claude", None).await;
         }
 
-        ClientMessage::CodexAccountRead { refresh_token } => {
-            let auth = state.codex_auth();
-            match auth.read_account(refresh_token).await {
-                Ok(status) => {
-                    send_json(client_tx, ServerMessage::CodexAccountStatus { status }).await;
-                }
-                Err(err) => {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "codex_auth_error".into(),
-                            message: err,
-                            session_id: None,
-                        },
-                    )
-                    .await;
-                }
-            }
+        ClientMessage::CodexAccountRead { .. } => {
+            send_rest_only_error(client_tx, "GET /api/codex/account", None).await;
         }
 
         ClientMessage::CodexLoginChatgptStart => {
@@ -2578,48 +2559,22 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::ListSkills {
-            session_id,
-            cwds,
-            force_reload,
-        } => {
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                let _ = tx
-                    .send(CodexAction::ListSkills { cwds, force_reload })
-                    .await;
-            } else {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "session_not_found".into(),
-                        message: format!(
-                            "Session {} not found or has no active connector",
-                            session_id
-                        ),
-                        session_id: Some(session_id),
-                    },
-                )
-                .await;
-            }
+        ClientMessage::ListSkills { session_id, .. } => {
+            send_rest_only_error(
+                client_tx,
+                "GET /api/sessions/:session_id/skills",
+                Some(session_id),
+            )
+            .await;
         }
 
         ClientMessage::ListRemoteSkills { session_id } => {
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                let _ = tx.send(CodexAction::ListRemoteSkills).await;
-            } else {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "session_not_found".into(),
-                        message: format!(
-                            "Session {} not found or has no active connector",
-                            session_id
-                        ),
-                        session_id: Some(session_id),
-                    },
-                )
-                .await;
-            }
+            send_rest_only_error(
+                client_tx,
+                "GET /api/sessions/:session_id/skills/remote",
+                Some(session_id),
+            )
+            .await;
         }
 
         ClientMessage::DownloadRemoteSkill {
@@ -2647,22 +2602,12 @@ async fn handle_client_message(
         }
 
         ClientMessage::ListMcpTools { session_id } => {
-            if let Some(tx) = state.get_codex_action_tx(&session_id) {
-                let _ = tx.send(CodexAction::ListMcpTools).await;
-            } else {
-                send_json(
-                    client_tx,
-                    ServerMessage::Error {
-                        code: "session_not_found".into(),
-                        message: format!(
-                            "Session {} not found or has no active connector",
-                            session_id
-                        ),
-                        session_id: Some(session_id),
-                    },
-                )
-                .await;
-            }
+            send_rest_only_error(
+                client_tx,
+                "GET /api/sessions/:session_id/mcp/tools",
+                Some(session_id),
+            )
+            .await;
         }
 
         ClientMessage::RefreshMcpServers { session_id } => {
@@ -3075,82 +3020,16 @@ async fn handle_client_message(
                 .await;
         }
 
-        ClientMessage::CheckOpenAiKey { request_id } => {
-            let configured = crate::ai_naming::resolve_api_key().is_some();
-            send_json(
-                client_tx,
-                ServerMessage::OpenAiKeyStatus {
-                    request_id,
-                    configured,
-                },
-            )
-            .await;
+        ClientMessage::CheckOpenAiKey { .. } => {
+            send_rest_only_error(client_tx, "GET /api/server/openai-key", None).await;
         }
 
-        ClientMessage::FetchCodexUsage { request_id } => {
-            if matches!(state.connection_primary_claim(conn_id), Some(false)) {
-                send_json(
-                    client_tx,
-                    ServerMessage::CodexUsageResult {
-                        request_id,
-                        usage: None,
-                        error_info: Some(UsageErrorInfo {
-                            code: "not_control_plane_for_client".to_string(),
-                            message: "This endpoint is not primary for the requesting client."
-                                .to_string(),
-                        }),
-                    },
-                )
-                .await;
-                return;
-            }
-
-            let (usage, error_info) = match crate::usage_probe::fetch_codex_usage().await {
-                Ok(usage) => (Some(usage), None),
-                Err(err) => (None, Some(err.to_info())),
-            };
-            send_json(
-                client_tx,
-                ServerMessage::CodexUsageResult {
-                    request_id,
-                    usage,
-                    error_info,
-                },
-            )
-            .await;
+        ClientMessage::FetchCodexUsage { .. } => {
+            send_rest_only_error(client_tx, "GET /api/usage/codex", None).await;
         }
 
-        ClientMessage::FetchClaudeUsage { request_id } => {
-            if matches!(state.connection_primary_claim(conn_id), Some(false)) {
-                send_json(
-                    client_tx,
-                    ServerMessage::ClaudeUsageResult {
-                        request_id,
-                        usage: None,
-                        error_info: Some(UsageErrorInfo {
-                            code: "not_control_plane_for_client".to_string(),
-                            message: "This endpoint is not primary for the requesting client."
-                                .to_string(),
-                        }),
-                    },
-                )
-                .await;
-                return;
-            }
-
-            let (usage, error_info) = match crate::usage_probe::fetch_claude_usage().await {
-                Ok(usage) => (Some(usage), None),
-                Err(err) => (None, Some(err.to_info())),
-            };
-            send_json(
-                client_tx,
-                ServerMessage::ClaudeUsageResult {
-                    request_id,
-                    usage,
-                    error_info,
-                },
-            )
-            .await;
+        ClientMessage::FetchClaudeUsage { .. } => {
+            send_rest_only_error(client_tx, "GET /api/usage/claude", None).await;
         }
 
         ClientMessage::ResumeSession { session_id } => {
@@ -4185,69 +4064,22 @@ async fn handle_client_message(
         | ClientMessage::ClaudeStatusEvent { .. }
         | ClientMessage::ClaudeToolEvent { .. }
         | ClientMessage::ClaudeSubagentEvent { .. } => {
-            crate::hook_handler::handle_hook_message(msg, state).await;
+            // Keep hook processing future on the heap to avoid debug-stack blowups
+            // when this large async match is exercised directly by tests.
+            Box::pin(crate::hook_handler::handle_hook_message(msg, state)).await;
         }
 
         ClientMessage::GetSubagentTools {
             session_id,
             subagent_id,
         } => {
-            debug!(
-                component = "websocket",
-                event = "ws.get_subagent_tools",
-                connection_id = conn_id,
-                session_id = %session_id,
-                subagent_id = %subagent_id,
-                "GetSubagentTools request"
-            );
-
-            let subagent_id_clone = subagent_id.clone();
-            let session_id_clone = session_id.clone();
-            let client_tx = client_tx.clone();
-
-            tokio::spawn(async move {
-                match crate::persistence::load_subagent_transcript_path(&subagent_id_clone).await {
-                    Ok(Some(path)) => {
-                        let tools = tokio::task::spawn_blocking(move || {
-                            crate::subagent_parser::parse_tools(std::path::Path::new(&path))
-                        })
-                        .await
-                        .unwrap_or_default();
-
-                        let _ = client_tx
-                            .send(OutboundMessage::Json(ServerMessage::SubagentToolsList {
-                                session_id: session_id_clone,
-                                subagent_id: subagent_id_clone,
-                                tools,
-                            }))
-                            .await;
-                    }
-                    Ok(None) => {
-                        let _ = client_tx
-                            .send(OutboundMessage::Json(ServerMessage::SubagentToolsList {
-                                session_id: session_id_clone,
-                                subagent_id: subagent_id_clone,
-                                tools: Vec::new(),
-                            }))
-                            .await;
-                    }
-                    Err(e) => {
-                        warn!(
-                            component = "websocket",
-                            event = "ws.get_subagent_tools.error",
-                            error = %e,
-                            "Failed to load subagent transcript path"
-                        );
-                        let _ = client_tx
-                            .send(OutboundMessage::Json(ServerMessage::SubagentToolsList {
-                                session_id: session_id_clone,
-                                subagent_id: subagent_id_clone,
-                                tools: Vec::new(),
-                            }))
-                            .await;
-                    }
-                }
-            });
+            let _ = subagent_id;
+            send_rest_only_error(
+                client_tx,
+                "GET /api/sessions/:session_id/subagents/:subagent_id/tools",
+                Some(session_id),
+            )
+            .await;
         }
 
         ClientMessage::ForkSession {
@@ -4744,37 +4576,14 @@ async fn handle_client_message(
             // The client should optimistically remove the comment locally.
         }
 
-        ClientMessage::ListReviewComments {
-            session_id,
-            turn_id,
-        } => match list_review_comments(&session_id, turn_id.as_deref()).await {
-            Ok(comments) => {
-                send_json(
-                    client_tx,
-                    ServerMessage::ReviewCommentsList {
-                        session_id,
-                        comments,
-                    },
-                )
-                .await;
-            }
-            Err(e) => {
-                warn!(
-                    component = "websocket",
-                    event = "review_comments.list.failed",
-                    error = %e,
-                    "Failed to list review comments"
-                );
-                send_json(
-                    client_tx,
-                    ServerMessage::ReviewCommentsList {
-                        session_id,
-                        comments: Vec::new(),
-                    },
-                )
-                .await;
-            }
-        },
+        ClientMessage::ListReviewComments { session_id, .. } => {
+            send_rest_only_error(
+                client_tx,
+                "GET /api/sessions/:session_id/review-comments",
+                Some(session_id),
+            )
+            .await;
+        }
 
         ClientMessage::EndSession { session_id } => {
             info!(
@@ -4998,112 +4807,12 @@ async fn handle_client_message(
             });
         }
 
-        ClientMessage::BrowseDirectory { path, request_id } => {
-            let target = match &path {
-                Some(p) if !p.is_empty() => {
-                    let expanded = if let Some(stripped) = p.strip_prefix('~') {
-                        if let Some(home) = dirs::home_dir() {
-                            home.join(stripped.trim_start_matches('/'))
-                        } else {
-                            std::path::PathBuf::from(p)
-                        }
-                    } else {
-                        std::path::PathBuf::from(p)
-                    };
-                    expanded
-                }
-                _ => dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/")),
-            };
-
-            info!(
-                component = "browse",
-                event = "browse_directory.requested",
-                connection_id = conn_id,
-                path = %target.display(),
-                "Directory browse requested"
-            );
-
-            match std::fs::read_dir(&target) {
-                Ok(entries) => {
-                    let mut listing: Vec<orbitdock_protocol::DirectoryEntry> = Vec::new();
-                    for entry in entries.flatten() {
-                        let meta = match entry.metadata() {
-                            Ok(m) => m,
-                            Err(_) => continue,
-                        };
-                        let name = entry.file_name().to_string_lossy().to_string();
-                        // Skip hidden files/dirs
-                        if name.starts_with('.') {
-                            continue;
-                        }
-                        let is_dir = meta.is_dir();
-                        let is_git = if is_dir {
-                            entry.path().join(".git").exists()
-                        } else {
-                            false
-                        };
-                        listing.push(orbitdock_protocol::DirectoryEntry {
-                            name,
-                            is_dir,
-                            is_git,
-                        });
-                    }
-                    listing.sort_by(|a, b| {
-                        // Dirs first, then alphabetical
-                        b.is_dir
-                            .cmp(&a.is_dir)
-                            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                    });
-                    send_json(
-                        client_tx,
-                        ServerMessage::DirectoryListing {
-                            request_id,
-                            path: target.to_string_lossy().to_string(),
-                            entries: listing,
-                        },
-                    )
-                    .await;
-                }
-                Err(e) => {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "browse_error".to_string(),
-                            message: format!("Cannot read directory: {e}"),
-                            session_id: None,
-                        },
-                    )
-                    .await;
-                    send_json(
-                        client_tx,
-                        ServerMessage::DirectoryListing {
-                            request_id,
-                            path: target.to_string_lossy().to_string(),
-                            entries: vec![],
-                        },
-                    )
-                    .await;
-                }
-            }
+        ClientMessage::BrowseDirectory { .. } => {
+            send_rest_only_error(client_tx, "GET /api/fs/browse", None).await;
         }
 
-        ClientMessage::ListRecentProjects { request_id } => {
-            info!(
-                component = "browse",
-                event = "list_recent_projects.requested",
-                connection_id = conn_id,
-                "Recent projects list requested"
-            );
-
-            let projects = state.list_recent_projects().await;
-            send_json(
-                client_tx,
-                ServerMessage::RecentProjectsList {
-                    request_id,
-                    projects,
-                },
-            )
-            .await;
+        ClientMessage::ListRecentProjects { .. } => {
+            send_rest_only_error(client_tx, "GET /api/fs/recent-projects", None).await;
         }
     }
 }
@@ -5278,8 +4987,7 @@ mod tests {
         direct_mode_activation_changes, handle_client_message, replay_has_oversize_event,
         sanitize_replay_event_for_transport, sanitize_server_message_for_transport,
         snapshot_transport_size_bytes, work_status_for_approval_decision, OutboundMessage,
-        SNAPSHOT_MAX_CONTENT_CHARS, SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
-        WS_MAX_TEXT_MESSAGE_BYTES,
+        SNAPSHOT_MAX_CONTENT_CHARS, SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES, WS_MAX_TEXT_MESSAGE_BYTES,
     };
     use crate::claude_session::ClaudeAction;
     use crate::codex_session::CodexAction;
@@ -5290,9 +4998,9 @@ mod tests {
     use crate::state::SessionRegistry;
     use crate::transition::Input;
     use orbitdock_protocol::{
-        new_id, ApprovalType, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, ImageInput,
-        MentionInput, Message, MessageType, Provider, ServerMessage, SessionStatus, TurnDiff,
-        WorkStatus,
+        new_id, ApprovalType, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode,
+        ImageInput, MentionInput, Message, MessageType, Provider, ServerMessage, SessionStatus,
+        TurnDiff, WorkStatus,
     };
     use std::sync::{Arc, Once};
     use tokio::sync::mpsc;
@@ -5388,7 +5096,10 @@ mod tests {
         let actor = state
             .get_session(&session_id)
             .expect("session should exist");
-        assert_eq!(actor.snapshot().pending_approval_id.as_deref(), Some("req-1"));
+        assert_eq!(
+            actor.snapshot().pending_approval_id.as_deref(),
+            Some("req-1")
+        );
 
         handle_client_message(
             ClientMessage::ApproveTool {
@@ -5405,7 +5116,11 @@ mod tests {
         )
         .await;
 
-        match action_rx.recv().await.expect("expected codex approval action") {
+        match action_rx
+            .recv()
+            .await
+            .expect("expected codex approval action")
+        {
             CodexAction::ApproveExec { request_id, .. } => {
                 assert_eq!(request_id, "req-1");
             }
@@ -5479,7 +5194,10 @@ mod tests {
         let actor = state
             .get_session(&session_id)
             .expect("session should exist");
-        assert_eq!(actor.snapshot().pending_approval_id.as_deref(), Some("req-1"));
+        assert_eq!(
+            actor.snapshot().pending_approval_id.as_deref(),
+            Some("req-1")
+        );
     }
 
     #[test]
@@ -5883,7 +5601,67 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_open_ai_key_response_echoes_request_id() {
+    async fn subscribe_session_can_stream_without_initial_snapshot() {
+        let state = new_test_state();
+        let session_id = format!("od-{}", orbitdock_protocol::new_id());
+        let handle = SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/tmp/project".to_string(),
+        );
+        state.add_session(handle);
+
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        handle_client_message(
+            ClientMessage::SubscribeSession {
+                session_id: session_id.clone(),
+                since_revision: None,
+                include_snapshot: false,
+            },
+            &client_tx,
+            &state,
+            1001,
+        )
+        .await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should be available after subscribe");
+        let message = Message {
+            id: orbitdock_protocol::new_id(),
+            session_id: session_id.clone(),
+            message_type: MessageType::Assistant,
+            content: "streamed update".to_string(),
+            tool_name: None,
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        };
+
+        actor
+            .send(SessionCommand::AddMessageAndBroadcast { message })
+            .await;
+
+        match recv_json(&mut client_rx).await {
+            ServerMessage::MessageAppended {
+                session_id: sid,
+                message,
+            } => {
+                assert_eq!(sid, session_id);
+                assert_eq!(message.content, "streamed update");
+            }
+            other => panic!(
+                "expected first streamed event to be MessageAppended, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn check_open_ai_key_over_websocket_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
 
@@ -5898,18 +5676,21 @@ mod tests {
         .await;
 
         match recv_json(&mut client_rx).await {
-            ServerMessage::OpenAiKeyStatus {
-                request_id,
-                configured: _,
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
             } => {
-                assert_eq!(request_id, "req-check-key");
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("GET /api/server/openai-key"));
+                assert_eq!(session_id, None);
             }
-            other => panic!("expected OpenAiKeyStatus, got {:?}", other),
+            other => panic!("expected http_only_endpoint error, got {:?}", other),
         }
     }
 
     #[tokio::test]
-    async fn list_recent_projects_response_echoes_request_id() {
+    async fn list_recent_projects_over_websocket_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
 
@@ -5924,28 +5705,27 @@ mod tests {
         .await;
 
         match recv_json(&mut client_rx).await {
-            ServerMessage::RecentProjectsList {
-                request_id,
-                projects: _,
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
             } => {
-                assert_eq!(request_id, "req-recent-projects");
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("GET /api/fs/recent-projects"));
+                assert_eq!(session_id, None);
             }
-            other => panic!("expected RecentProjectsList, got {:?}", other),
+            other => panic!("expected http_only_endpoint error, got {:?}", other),
         }
     }
 
     #[tokio::test]
-    async fn browse_directory_response_echoes_request_id() {
+    async fn browse_directory_over_websocket_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
-        let test_path =
-            std::env::temp_dir().join(format!("orbitdock-browse-{}", orbitdock_protocol::new_id()));
-        std::fs::create_dir_all(&test_path).expect("create browse test dir");
-        std::fs::write(test_path.join("README.md"), "hello").expect("create test file");
 
         handle_client_message(
             ClientMessage::BrowseDirectory {
-                path: Some(test_path.to_string_lossy().to_string()),
+                path: Some("/tmp".to_string()),
                 request_id: "req-browse-dir".to_string(),
             },
             &client_tx,
@@ -5954,40 +5734,28 @@ mod tests {
         )
         .await;
 
-        let outbound = recv_json(&mut client_rx).await;
-        std::fs::remove_dir_all(&test_path).expect("remove browse test dir");
-
-        match outbound {
-            ServerMessage::DirectoryListing {
-                request_id,
-                path: listed_path,
-                entries,
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
             } => {
-                assert_eq!(request_id, "req-browse-dir");
-                assert_eq!(listed_path, test_path.to_string_lossy().to_string());
-                assert!(entries.iter().any(|entry| entry.name == "README.md"));
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("GET /api/fs/browse"));
+                assert_eq!(session_id, None);
             }
-            other => panic!("expected DirectoryListing, got {:?}", other),
+            other => panic!("expected http_only_endpoint error, got {:?}", other),
         }
     }
 
     #[tokio::test]
-    async fn browse_directory_error_still_returns_correlated_listing() {
+    async fn browse_directory_missing_path_over_websocket_still_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
-        let missing_path = std::env::temp_dir().join(format!(
-            "orbitdock-missing-{}",
-            orbitdock_protocol::new_id()
-        ));
-        assert!(
-            !missing_path.exists(),
-            "test path unexpectedly exists: {}",
-            missing_path.display()
-        );
 
         handle_client_message(
             ClientMessage::BrowseDirectory {
-                path: Some(missing_path.to_string_lossy().to_string()),
+                path: Some("/definitely/missing/path".to_string()),
                 request_id: "req-browse-missing".to_string(),
             },
             &client_tx,
@@ -6002,27 +5770,11 @@ mod tests {
                 message,
                 session_id,
             } => {
-                assert_eq!(code, "browse_error");
-                assert!(message.contains("Cannot read directory"));
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("GET /api/fs/browse"));
                 assert_eq!(session_id, None);
             }
-            other => panic!("expected browse error first, got {:?}", other),
-        }
-
-        match recv_json(&mut client_rx).await {
-            ServerMessage::DirectoryListing {
-                request_id,
-                path,
-                entries,
-            } => {
-                assert_eq!(request_id, "req-browse-missing");
-                assert_eq!(path, missing_path.to_string_lossy().to_string());
-                assert!(entries.is_empty());
-            }
-            other => panic!(
-                "expected correlated empty DirectoryListing, got {:?}",
-                other
-            ),
+            other => panic!("expected http_only_endpoint error, got {:?}", other),
         }
     }
 
@@ -6106,23 +5858,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_usage_rejected_for_secondary_client_claim() {
+    async fn codex_usage_over_websocket_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
-
-        handle_client_message(
-            ClientMessage::SetClientPrimaryClaim {
-                client_id: "device-2".to_string(),
-                device_name: "Work Mac".to_string(),
-                is_primary: false,
-            },
-            &client_tx,
-            &state,
-            11,
-        )
-        .await;
-        // initial server_info emitted for claim update
-        let _ = recv_json(&mut client_rx).await;
 
         handle_client_message(
             ClientMessage::FetchCodexUsage {
@@ -6135,40 +5873,23 @@ mod tests {
         .await;
 
         match recv_json(&mut client_rx).await {
-            ServerMessage::CodexUsageResult {
-                request_id,
-                usage,
-                error_info,
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
             } => {
-                assert_eq!(request_id, "req-codex");
-                assert!(usage.is_none());
-                assert_eq!(
-                    error_info.as_ref().map(|v| v.code.as_str()),
-                    Some("not_control_plane_for_client")
-                );
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("GET /api/usage/codex"));
+                assert_eq!(session_id, None);
             }
-            other => panic!("expected CodexUsageResult, got {:?}", other),
+            other => panic!("expected http_only_endpoint error, got {:?}", other),
         }
     }
 
     #[tokio::test]
-    async fn claude_usage_rejected_for_secondary_client_claim() {
+    async fn claude_usage_over_websocket_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
-
-        handle_client_message(
-            ClientMessage::SetClientPrimaryClaim {
-                client_id: "device-3".to_string(),
-                device_name: "Work Mac".to_string(),
-                is_primary: false,
-            },
-            &client_tx,
-            &state,
-            15,
-        )
-        .await;
-        // initial server_info emitted for claim update
-        let _ = recv_json(&mut client_rx).await;
 
         handle_client_message(
             ClientMessage::FetchClaudeUsage {
@@ -6181,19 +5902,16 @@ mod tests {
         .await;
 
         match recv_json(&mut client_rx).await {
-            ServerMessage::ClaudeUsageResult {
-                request_id,
-                usage,
-                error_info,
+            ServerMessage::Error {
+                code,
+                message,
+                session_id,
             } => {
-                assert_eq!(request_id, "req-claude");
-                assert!(usage.is_none());
-                assert_eq!(
-                    error_info.as_ref().map(|v| v.code.as_str()),
-                    Some("not_control_plane_for_client")
-                );
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("GET /api/usage/claude"));
+                assert_eq!(session_id, None);
             }
-            other => panic!("expected ClaudeUsageResult, got {:?}", other),
+            other => panic!("expected http_only_endpoint error, got {:?}", other),
         }
     }
 
@@ -6235,7 +5953,7 @@ mod tests {
         assert_eq!(snap.work_status, WorkStatus::Ended);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn claude_tool_event_bootstraps_session_with_transcript_path() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
@@ -6436,7 +6154,7 @@ mod tests {
         assert_eq!(snapshot.work_status, WorkStatus::Waiting);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn send_message_dispatches_extracted_images_to_codex_connector() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
@@ -6482,7 +6200,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn send_message_dispatches_extracted_images_to_claude_connector() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
@@ -6528,7 +6246,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn steer_turn_dispatches_extracted_images_and_mentions_to_codex_connector() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
@@ -6579,7 +6297,7 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn steer_turn_dispatches_extracted_images_to_claude_connector() {
         let state = new_test_state();
         let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);

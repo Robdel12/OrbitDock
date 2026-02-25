@@ -841,10 +841,35 @@ final class ServerAppState {
   func subscribeToSession(_ sessionId: String) {
     guard !subscribedSessions.contains(sessionId) else { return }
     subscribedSessions.insert(sessionId)
-    let sinceRev = lastRevision[sessionId]
-    connection.subscribeSession(sessionId, sinceRevision: sinceRev)
-    connection.listApprovals(sessionId: sessionId, limit: 200)
-    logger.debug("Subscribed to session \(sessionId) (sinceRevision: \(sinceRev.map(String.init) ?? "nil"))")
+
+    Task { @MainActor in
+      var sinceRev = lastRevision[sessionId]
+      var includeSnapshot = true
+
+      do {
+        let snapshot = try await connection.fetchSessionSnapshot(sessionId)
+        guard subscribedSessions.contains(sessionId) else { return }
+        handleSessionSnapshot(snapshot)
+        if let revision = snapshot.revision {
+          sinceRev = revision
+          includeSnapshot = false
+        }
+      } catch {
+        logger.warning("HTTP snapshot bootstrap failed for \(sessionId): \(error.localizedDescription)")
+      }
+
+      guard subscribedSessions.contains(sessionId) else { return }
+
+      connection.subscribeSession(
+        sessionId,
+        sinceRevision: sinceRev,
+        includeSnapshot: includeSnapshot
+      )
+      connection.listApprovals(sessionId: sessionId, limit: 200)
+      logger.debug(
+        "Subscribed to session \(sessionId) (sinceRevision: \(sinceRev.map(String.init) ?? "nil"), includeSnapshot: \(includeSnapshot))"
+      )
+    }
   }
 
   /// Unsubscribe from a session (called when navigating away)
@@ -1539,7 +1564,7 @@ final class ServerAppState {
     let obs = session(sessionId)
     let currentPendingRequestId =
       sessions.first(where: { $0.id == sessionId })?.pendingApprovalId
-      ?? obs.pendingApproval?.id
+        ?? obs.pendingApproval?.id
     let shouldPromoteAsActive = currentPendingRequestId == nil || currentPendingRequestId == request.id
 
     if shouldPromoteAsActive {

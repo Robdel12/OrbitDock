@@ -24,6 +24,9 @@ enum ConnectionStatus: Equatable {
 enum ServerRequestError: LocalizedError {
   case notConnected
   case connectionLost
+  case invalidEndpoint
+  case invalidResponse
+  case httpStatus(Int)
 
   var errorDescription: String? {
     switch self {
@@ -31,15 +34,154 @@ enum ServerRequestError: LocalizedError {
         "Server is not connected."
       case .connectionLost:
         "Server connection was lost before the request completed."
+      case .invalidEndpoint:
+        "Server endpoint URL is invalid."
+      case .invalidResponse:
+        "Server returned an invalid response."
+      case let .httpStatus(status):
+        "Server request failed with status \(status)."
     }
+  }
+}
+
+private struct SessionSnapshotHTTPResponse: Decodable {
+  let session: ServerSessionState
+}
+
+private struct SessionsListHTTPResponse: Decodable {
+  let sessions: [ServerSessionSummary]
+}
+
+private struct ApprovalsHTTPResponse: Decodable {
+  let sessionId: String?
+  let approvals: [ServerApprovalHistoryItem]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case approvals
+  }
+}
+
+private struct DeleteApprovalHTTPResponse: Decodable {
+  let approvalId: Int64
+  let deleted: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case approvalId = "approval_id"
+    case deleted
+  }
+}
+
+private struct OpenAiKeyHTTPResponse: Decodable {
+  let configured: Bool
+}
+
+private struct CodexUsageHTTPResponse: Decodable {
+  let usage: ServerCodexUsageSnapshot?
+  let errorInfo: ServerUsageErrorInfo?
+
+  enum CodingKeys: String, CodingKey {
+    case usage
+    case errorInfo = "error_info"
+  }
+}
+
+private struct ClaudeUsageHTTPResponse: Decodable {
+  let usage: ServerClaudeUsageSnapshot?
+  let errorInfo: ServerUsageErrorInfo?
+
+  enum CodingKeys: String, CodingKey {
+    case usage
+    case errorInfo = "error_info"
+  }
+}
+
+private struct RecentProjectsHTTPResponse: Decodable {
+  let projects: [ServerRecentProject]
+}
+
+private struct DirectoryListingHTTPResponse: Decodable {
+  let path: String
+  let entries: [ServerDirectoryEntry]
+}
+
+private struct CodexModelsHTTPResponse: Decodable {
+  let models: [ServerCodexModelOption]
+}
+
+private struct ClaudeModelsHTTPResponse: Decodable {
+  let models: [ServerClaudeModelOption]
+}
+
+private struct CodexAccountHTTPResponse: Decodable {
+  let status: ServerCodexAccountStatus
+}
+
+private struct ReviewCommentsHTTPResponse: Decodable {
+  let sessionId: String
+  let comments: [ServerReviewComment]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case comments
+  }
+}
+
+private struct SubagentToolsHTTPResponse: Decodable {
+  let sessionId: String
+  let subagentId: String
+  let tools: [ServerSubagentTool]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case subagentId = "subagent_id"
+    case tools
+  }
+}
+
+private struct SkillsHTTPResponse: Decodable {
+  let sessionId: String
+  let skills: [ServerSkillsListEntry]
+  let errors: [ServerSkillErrorInfo]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case skills
+    case errors
+  }
+}
+
+private struct RemoteSkillsHTTPResponse: Decodable {
+  let sessionId: String
+  let skills: [ServerRemoteSkillSummary]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case skills
+  }
+}
+
+private struct McpToolsHTTPResponse: Decodable {
+  let sessionId: String
+  let tools: [String: ServerMcpTool]
+  let resources: [String: [ServerMcpResource]]
+  let resourceTemplates: [String: [ServerMcpResourceTemplate]]
+  let authStatuses: [String: ServerMcpAuthStatus]
+
+  enum CodingKeys: String, CodingKey {
+    case sessionId = "session_id"
+    case tools
+    case resources
+    case resourceTemplates = "resource_templates"
+    case authStatuses = "auth_statuses"
   }
 }
 
 /// WebSocket connection to OrbitDock server
 @MainActor
 class ServerConnection: ObservableObject {
-  // Keep aligned with orbitdock-server WS_MAX_TEXT_MESSAGE_BYTES.
-  private static let maxInboundWebSocketMessageBytes = 1 * 1024 * 1024
+  /// Keep aligned with orbitdock-server WS_MAX_TEXT_MESSAGE_BYTES.
+  private static let maxInboundWebSocketMessageBytes = 1 * 1_024 * 1_024
 
   let endpointId: UUID
   let endpointName: String
@@ -57,21 +199,6 @@ class ServerConnection: ObservableObject {
   private var serverURL: URL
   private var connectAttempts = 0
   private var lastSentClientPrimaryClaim: (clientId: String, deviceName: String, isPrimary: Bool)?
-
-  private var pendingDirectoryListingContinuations: [String: CheckedContinuation<
-    (path: String, entries: [ServerDirectoryEntry]),
-    Error
-  >] = [:]
-  private var pendingRecentProjectsContinuations: [String: CheckedContinuation<[ServerRecentProject], Error>] = [:]
-  private var pendingOpenAiKeyStatusContinuations: [String: CheckedContinuation<Bool, Error>] = [:]
-  private var pendingCodexUsageContinuations: [String: CheckedContinuation<
-    (usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?),
-    Error
-  >] = [:]
-  private var pendingClaudeUsageContinuations: [String: CheckedContinuation<
-    (usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?),
-    Error
-  >] = [:]
 
   /// Whether we're connecting to a non-localhost server
   private var isRemote: Bool {
@@ -503,15 +630,15 @@ class ServerConnection: ObservableObject {
         onSessionForked?(sourceSessionId, newSessionId, forkedFromThreadId)
 
       case let .turnDiffSnapshot(
-        sessionId,
-        turnId,
-        diff,
-        inputTokens,
-        outputTokens,
-        cachedTokens,
-        contextWindow,
-        snapshotKind
-      ):
+      sessionId,
+      turnId,
+      diff,
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      contextWindow,
+      snapshotKind
+    ):
         onTurnDiffSnapshot?(
           sessionId,
           turnId,
@@ -544,30 +671,8 @@ class ServerConnection: ObservableObject {
       case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs):
         onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs)
 
-      case let .directoryListing(requestId, path, entries):
-        if let continuation = pendingDirectoryListingContinuations.removeValue(forKey: requestId) {
-          continuation.resume(returning: (path, entries))
-        }
-
-      case let .recentProjectsList(requestId, projects):
-        if let continuation = pendingRecentProjectsContinuations.removeValue(forKey: requestId) {
-          continuation.resume(returning: projects)
-        }
-
-      case let .openAiKeyStatus(requestId, configured):
-        if let continuation = pendingOpenAiKeyStatusContinuations.removeValue(forKey: requestId) {
-          continuation.resume(returning: configured)
-        }
-
-      case let .codexUsageResult(requestId, usage, errorInfo):
-        if let continuation = pendingCodexUsageContinuations.removeValue(forKey: requestId) {
-          continuation.resume(returning: (usage: usage, errorInfo: errorInfo))
-        }
-
-      case let .claudeUsageResult(requestId, usage, errorInfo):
-        if let continuation = pendingClaudeUsageContinuations.removeValue(forKey: requestId) {
-          continuation.resume(returning: (usage: usage, errorInfo: errorInfo))
-        }
+      case .directoryListing, .recentProjectsList, .openAiKeyStatus, .codexUsageResult, .claudeUsageResult:
+        break
 
       case let .serverInfo(isPrimary, clientPrimaryClaims):
         applyServerInfo(isPrimary: isPrimary, clientPrimaryClaims: clientPrimaryClaims)
@@ -649,8 +754,12 @@ class ServerConnection: ObservableObject {
   }
 
   /// Subscribe to a specific session, optionally resuming from a known revision
-  func subscribeSession(_ sessionId: String, sinceRevision: UInt64? = nil) {
-    send(.subscribeSession(sessionId: sessionId, sinceRevision: sinceRevision))
+  func subscribeSession(_ sessionId: String, sinceRevision: UInt64? = nil, includeSnapshot: Bool = true) {
+    send(.subscribeSession(
+      sessionId: sessionId,
+      sinceRevision: sinceRevision,
+      includeSnapshot: includeSnapshot
+    ))
   }
 
   /// Unsubscribe from a session
@@ -798,67 +907,49 @@ class ServerConnection: ObservableObject {
 
   /// Request OpenAI key status for this endpoint as a one-shot response.
   func checkOpenAiKeyStatus() async throws -> Bool {
-    guard case .connected = status else {
-      throw ServerRequestError.notConnected
-    }
+    let response: OpenAiKeyHTTPResponse = try await fetchAPIJSON(path: "/api/server/openai-key")
+    return response.configured
+  }
 
-    return try await withCheckedThrowingContinuation { continuation in
-      let requestId = UUID().uuidString
-      pendingOpenAiKeyStatusContinuations[requestId] = continuation
-      send(.checkOpenAiKey(requestId: requestId))
-    }
+  /// Fetch full server session summaries over HTTP (bootstrap/read path).
+  func fetchSessionsList() async throws -> [ServerSessionSummary] {
+    let response: SessionsListHTTPResponse = try await fetchAPIJSON(path: "/api/sessions")
+    return response.sessions
+  }
+
+  /// Fetch a full session snapshot over HTTP (bootstrap/read path).
+  func fetchSessionSnapshot(_ sessionId: String) async throws -> ServerSessionState {
+    let escapedSessionId = encodePathComponent(sessionId)
+    let response: SessionSnapshotHTTPResponse = try await fetchAPIJSON(path: "/api/sessions/\(escapedSessionId)")
+    return response.session
   }
 
   /// Fetch Codex rate-limit usage from this endpoint.
   func fetchCodexUsage() async throws -> (usage: ServerCodexUsageSnapshot?, errorInfo: ServerUsageErrorInfo?) {
-    guard case .connected = status else {
-      throw ServerRequestError.notConnected
-    }
-
-    return try await withCheckedThrowingContinuation { continuation in
-      let requestId = UUID().uuidString
-      pendingCodexUsageContinuations[requestId] = continuation
-      send(.fetchCodexUsage(requestId: requestId))
-    }
+    let response: CodexUsageHTTPResponse = try await fetchAPIJSON(path: "/api/usage/codex")
+    return (usage: response.usage, errorInfo: response.errorInfo)
   }
 
   /// Fetch Claude subscription usage from this endpoint.
   func fetchClaudeUsage() async throws -> (usage: ServerClaudeUsageSnapshot?, errorInfo: ServerUsageErrorInfo?) {
-    guard case .connected = status else {
-      throw ServerRequestError.notConnected
-    }
-
-    return try await withCheckedThrowingContinuation { continuation in
-      let requestId = UUID().uuidString
-      pendingClaudeUsageContinuations[requestId] = continuation
-      send(.fetchClaudeUsage(requestId: requestId))
-    }
+    let response: ClaudeUsageHTTPResponse = try await fetchAPIJSON(path: "/api/usage/claude")
+    return (usage: response.usage, errorInfo: response.errorInfo)
   }
 
   /// Request recent projects for this endpoint as a one-shot response.
   func listRecentProjects() async throws -> [ServerRecentProject] {
-    guard case .connected = status else {
-      throw ServerRequestError.notConnected
-    }
-
-    return try await withCheckedThrowingContinuation { continuation in
-      let requestId = UUID().uuidString
-      pendingRecentProjectsContinuations[requestId] = continuation
-      send(.listRecentProjects(requestId: requestId))
-    }
+    let response: RecentProjectsHTTPResponse = try await fetchAPIJSON(path: "/api/fs/recent-projects")
+    return response.projects
   }
 
   /// Request a directory listing as a one-shot response.
   func browseDirectory(path: String? = nil) async throws -> (path: String, entries: [ServerDirectoryEntry]) {
-    guard case .connected = status else {
-      throw ServerRequestError.notConnected
+    var queryItems: [URLQueryItem] = []
+    if let path, !path.isEmpty {
+      queryItems.append(URLQueryItem(name: "path", value: path))
     }
-
-    return try await withCheckedThrowingContinuation { continuation in
-      let requestId = UUID().uuidString
-      pendingDirectoryListingContinuations[requestId] = continuation
-      send(.browseDirectory(path: path, requestId: requestId))
-    }
+    let response: DirectoryListingHTTPResponse = try await fetchAPIJSON(path: "/api/fs/browse", queryItems: queryItems)
+    return (path: response.path, entries: response.entries)
   }
 
   /// Resume an ended session
@@ -886,27 +977,78 @@ class ServerConnection: ObservableObject {
 
   /// Load approval history
   func listApprovals(sessionId: String?, limit: Int? = 200) {
-    send(.listApprovals(sessionId: sessionId, limit: limit))
+    Task { @MainActor in
+      do {
+        var queryItems: [URLQueryItem] = []
+        if let sessionId {
+          queryItems.append(URLQueryItem(name: "session_id", value: sessionId))
+        }
+        if let limit {
+          queryItems.append(URLQueryItem(name: "limit", value: String(limit)))
+        }
+
+        let response: ApprovalsHTTPResponse = try await fetchAPIJSON(path: "/api/approvals", queryItems: queryItems)
+        onApprovalsList?(response.sessionId ?? sessionId, response.approvals)
+      } catch {
+        onError?("approval_list_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// Delete one approval history row
   func deleteApproval(_ approvalId: Int64) {
-    send(.deleteApproval(approvalId: approvalId))
+    Task { @MainActor in
+      do {
+        let response: DeleteApprovalHTTPResponse =
+          try await requestAPIJSON(path: "/api/approvals/\(approvalId)", method: "DELETE")
+        if response.deleted {
+          onApprovalDeleted?(response.approvalId)
+        }
+      } catch {
+        onError?("approval_delete_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Load codex model options discovered by the server
   func listModels() {
-    send(.listModels)
+    Task { @MainActor in
+      do {
+        let response: CodexModelsHTTPResponse = try await fetchAPIJSON(path: "/api/models/codex")
+        onModelsList?(response.models)
+      } catch {
+        onError?("model_list_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Load cached Claude models from DB (populated when Claude sessions are created)
   func listClaudeModels() {
-    send(.listClaudeModels)
+    Task { @MainActor in
+      do {
+        let response: ClaudeModelsHTTPResponse = try await fetchAPIJSON(path: "/api/models/claude")
+        onClaudeModelsList?(response.models)
+      } catch {
+        onError?("claude_model_list_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Read Codex account/auth state.
   func readCodexAccount(refreshToken: Bool = false) {
-    send(.codexAccountRead(refreshToken: refreshToken))
+    Task { @MainActor in
+      do {
+        var queryItems: [URLQueryItem] = []
+        if refreshToken {
+          queryItems.append(URLQueryItem(name: "refresh_token", value: "true"))
+        }
+        let response: CodexAccountHTTPResponse =
+          try await fetchAPIJSON(path: "/api/codex/account", queryItems: queryItems)
+        onCodexAccountStatus?(response.status)
+      } catch {
+        onError?("codex_auth_error", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Start the ChatGPT browser login flow for Codex.
@@ -926,12 +1068,37 @@ class ServerConnection: ObservableObject {
 
   /// List skills available for a session
   func listSkills(sessionId: String, cwds: [String] = [], forceReload: Bool = false) {
-    send(.listSkills(sessionId: sessionId, cwds: cwds, forceReload: forceReload))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        var queryItems = cwds.map { URLQueryItem(name: "cwd", value: $0) }
+        if forceReload {
+          queryItems.append(URLQueryItem(name: "force_reload", value: "true"))
+        }
+        let response: SkillsHTTPResponse = try await fetchAPIJSON(
+          path: "/api/sessions/\(escapedSessionId)/skills",
+          queryItems: queryItems
+        )
+        onSkillsList?(response.sessionId, response.skills, response.errors)
+      } catch {
+        onError?("skills_list_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// List remote skills available for download
   func listRemoteSkills(sessionId: String) {
-    send(.listRemoteSkills(sessionId: sessionId))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        let response: RemoteSkillsHTTPResponse = try await fetchAPIJSON(
+          path: "/api/sessions/\(escapedSessionId)/skills/remote"
+        )
+        onRemoteSkillsList?(response.sessionId, response.skills)
+      } catch {
+        onError?("remote_skills_list_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// Download a remote skill by hazelnut ID
@@ -941,7 +1108,23 @@ class ServerConnection: ObservableObject {
 
   /// List MCP tools for a session
   func listMcpTools(sessionId: String) {
-    send(.listMcpTools(sessionId: sessionId))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        let response: McpToolsHTTPResponse = try await fetchAPIJSON(
+          path: "/api/sessions/\(escapedSessionId)/mcp/tools"
+        )
+        onMcpToolsList?(
+          response.sessionId,
+          response.tools,
+          response.resources,
+          response.resourceTemplates,
+          response.authStatuses
+        )
+      } catch {
+        onError?("mcp_tools_list_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// Refresh MCP servers for a session
@@ -1012,12 +1195,39 @@ class ServerConnection: ObservableObject {
 
   /// List review comments for a session
   func listReviewComments(sessionId: String, turnId: String? = nil) {
-    send(.listReviewComments(sessionId: sessionId, turnId: turnId))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        var queryItems: [URLQueryItem] = []
+        if let turnId {
+          queryItems.append(URLQueryItem(name: "turn_id", value: turnId))
+        }
+
+        let response: ReviewCommentsHTTPResponse = try await fetchAPIJSON(
+          path: "/api/sessions/\(escapedSessionId)/review-comments",
+          queryItems: queryItems
+        )
+        onReviewCommentsList?(response.sessionId, response.comments)
+      } catch {
+        onError?("review_comments_list_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// Request subagent tools for a specific subagent
   func getSubagentTools(sessionId: String, subagentId: String) {
-    send(.getSubagentTools(sessionId: sessionId, subagentId: subagentId))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        let escapedSubagentId = encodePathComponent(subagentId)
+        let response: SubagentToolsHTTPResponse = try await fetchAPIJSON(
+          path: "/api/sessions/\(escapedSessionId)/subagents/\(escapedSubagentId)/tools"
+        )
+        onSubagentToolsList?(response.sessionId, response.subagentId, response.tools)
+      } catch {
+        onError?("subagent_tools_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// Execute a shell command in a session's working directory
@@ -1051,34 +1261,70 @@ class ServerConnection: ObservableObject {
   }
 
   private func failPendingRequests(with error: Error) {
-    let pendingDirectory = Array(pendingDirectoryListingContinuations.values)
-    pendingDirectoryListingContinuations.removeAll()
-    for continuation in pendingDirectory {
-      continuation.resume(throwing: error)
+    _ = error
+  }
+
+  private func requestAPIJSON<Response: Decodable>(
+    path: String,
+    method: String,
+    queryItems: [URLQueryItem] = []
+  ) async throws -> Response {
+    guard let url = apiURL(path: path, queryItems: queryItems) else {
+      throw ServerRequestError.invalidEndpoint
     }
 
-    let pendingProjects = Array(pendingRecentProjectsContinuations.values)
-    pendingRecentProjectsContinuations.removeAll()
-    for continuation in pendingProjects {
-      continuation.resume(throwing: error)
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.timeoutInterval = 15
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw ServerRequestError.invalidResponse
+    }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      throw ServerRequestError.httpStatus(http.statusCode)
+    }
+    return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func fetchAPIJSON<Response: Decodable>(
+    path: String,
+    queryItems: [URLQueryItem] = []
+  ) async throws -> Response {
+    try await requestAPIJSON(path: path, method: "GET", queryItems: queryItems)
+  }
+
+  private func encodePathComponent(_ value: String) -> String {
+    value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+  }
+
+  private func apiURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
+    guard var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false) else {
+      return nil
     }
 
-    let pendingOpenAi = Array(pendingOpenAiKeyStatusContinuations.values)
-    pendingOpenAiKeyStatusContinuations.removeAll()
-    for continuation in pendingOpenAi {
-      continuation.resume(throwing: error)
+    if components.scheme == "wss" {
+      components.scheme = "https"
+    } else {
+      components.scheme = "http"
     }
 
-    let pendingCodexUsage = Array(pendingCodexUsageContinuations.values)
-    pendingCodexUsageContinuations.removeAll()
-    for continuation in pendingCodexUsage {
-      continuation.resume(throwing: error)
+    var basePath = components.path
+    if basePath.hasSuffix("/ws") {
+      basePath = String(basePath.dropLast(3))
     }
 
-    let pendingClaudeUsage = Array(pendingClaudeUsageContinuations.values)
-    pendingClaudeUsageContinuations.removeAll()
-    for continuation in pendingClaudeUsage {
-      continuation.resume(throwing: error)
+    let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
+    if basePath.isEmpty || basePath == "/" {
+      components.path = normalizedPath
+    } else {
+      if basePath.hasSuffix("/") {
+        basePath.removeLast()
+      }
+      components.path = "\(basePath)\(normalizedPath)"
     }
+
+    components.queryItems = queryItems.isEmpty ? nil : queryItems
+    return components.url
   }
 }

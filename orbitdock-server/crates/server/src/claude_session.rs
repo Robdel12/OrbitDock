@@ -138,6 +138,7 @@ impl ClaudeSession {
     /// Create a new Claude session by spawning a CLI subprocess.
     /// If `resume_id` is provided, the CLI will resume that session.
     /// Accepts `ProviderSessionId` to prevent accidentally passing an OrbitDock ID.
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         session_id: String,
         cwd: &str,

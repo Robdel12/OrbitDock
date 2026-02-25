@@ -37,7 +37,8 @@ struct ApprovalPermissionPreviewTests {
     #expect(preview?.showsProjectPath == true)
     #expect(preview?.text.contains("APPROVAL REQUEST") == true)
     #expect(preview?.text.contains("request_id: req-preview") == true)
-    #expect(preview?.text.contains("decision_scope: approve/deny applies to all command segments in this request.") == true)
+    #expect(preview?.text
+      .contains("decision_scope: approve/deny applies to all command segments in this request.") == true)
     #expect(preview?.text.contains("[2] (||, if previous fails) echo \"Table empty or doesn't exist\"") == true)
   }
 
@@ -58,7 +59,8 @@ struct ApprovalPermissionPreviewTests {
     #expect(preview?.showsProjectPath == true)
     #expect(preview?.text.contains("APPROVAL REQUEST") == true)
     #expect(preview?.text.contains("request_id: req-preview") == true)
-    #expect(preview?.text.contains("decision_scope: approve/deny applies to all command segments in this request.") == true)
+    #expect(preview?.text
+      .contains("decision_scope: approve/deny applies to all command segments in this request.") == true)
     #expect(preview?.text.contains("[2] (||, if previous fails) echo two") == true)
   }
 

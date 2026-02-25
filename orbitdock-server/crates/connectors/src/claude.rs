@@ -872,7 +872,7 @@ impl ClaudeConnector {
         }
 
         let mut events = match msg_type {
-            "system" => Self::handle_system_message(raw, session_id_slot, &models).await,
+            "system" => Self::handle_system_message(raw, session_id_slot, models).await,
 
             "assistant" => Self::handle_assistant_message(
                 raw,
@@ -1050,6 +1050,7 @@ impl ClaudeConnector {
     }
 
     /// Handle `assistant` messages — extract content blocks into ConnectorEvents.
+    #[allow(clippy::too_many_arguments)]
     fn handle_assistant_message(
         raw: &Value,
         session_id: &str,

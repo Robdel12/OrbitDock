@@ -1924,15 +1924,15 @@ enum ServerToClientMessage: Codable {
         try container.encodeIfPresent(forkedFromThreadId, forKey: .forkedFromThreadId)
 
       case let .turnDiffSnapshot(
-        sessionId,
-        turnId,
-        diff,
-        inputTokens,
-        outputTokens,
-        cachedTokens,
-        contextWindow,
-        snapshotKind
-      ):
+      sessionId,
+      turnId,
+      diff,
+      inputTokens,
+      outputTokens,
+      cachedTokens,
+      contextWindow,
+      snapshotKind
+    ):
         try container.encode("turn_diff_snapshot", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(turnId, forKey: .turnId)
@@ -2032,7 +2032,7 @@ enum ServerToClientMessage: Codable {
 
 enum ClientToServerMessage: Codable {
   case subscribeList
-  case subscribeSession(sessionId: String, sinceRevision: UInt64? = nil)
+  case subscribeSession(sessionId: String, sinceRevision: UInt64? = nil, includeSnapshot: Bool = true)
   case unsubscribeSession(sessionId: String)
   case createSession(
     provider: ServerProvider,
@@ -2178,6 +2178,7 @@ enum ClientToServerMessage: Codable {
     case numTurns = "num_turns"
     case nthUserMessage = "nth_user_message"
     case sinceRevision = "since_revision"
+    case includeSnapshot = "include_snapshot"
     case turnId = "turn_id"
     case filePath = "file_path"
     case lineStart = "line_start"
@@ -2208,10 +2209,13 @@ enum ClientToServerMessage: Codable {
       case .subscribeList:
         try container.encode("subscribe_list", forKey: .type)
 
-      case let .subscribeSession(sessionId, sinceRevision):
+      case let .subscribeSession(sessionId, sinceRevision, includeSnapshot):
         try container.encode("subscribe_session", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encodeIfPresent(sinceRevision, forKey: .sinceRevision)
+        if !includeSnapshot {
+          try container.encode(false, forKey: .includeSnapshot)
+        }
 
       case let .unsubscribeSession(sessionId):
         try container.encode("unsubscribe_session", forKey: .type)
@@ -2516,7 +2520,8 @@ enum ClientToServerMessage: Codable {
       case "subscribe_session":
         self = try .subscribeSession(
           sessionId: container.decode(String.self, forKey: .sessionId),
-          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision)
+          sinceRevision: container.decodeIfPresent(UInt64.self, forKey: .sinceRevision),
+          includeSnapshot: container.decodeIfPresent(Bool.self, forKey: .includeSnapshot) ?? true
         )
       case "unsubscribe_session":
         self = try .unsubscribeSession(sessionId: container.decode(String.self, forKey: .sessionId))

@@ -170,7 +170,9 @@ fn parse_question_prompt(
         question,
         options: parse_question_options(payload),
         allows_multiple_selection: parse_bool_value(
-            payload.get("multiSelect").or_else(|| payload.get("multi_select")),
+            payload
+                .get("multiSelect")
+                .or_else(|| payload.get("multi_select")),
         ),
         allows_other: parse_bool_value(payload.get("isOther").or_else(|| payload.get("is_other"))),
         is_secret: parse_bool_value(payload.get("isSecret").or_else(|| payload.get("is_secret"))),
@@ -185,7 +187,9 @@ fn extract_question_prompts(
         .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
         .and_then(|value| value.as_object().cloned())
         .map(|payload| {
-            if let Some(questions) = payload.get("questions").and_then(serde_json::Value::as_array)
+            if let Some(questions) = payload
+                .get("questions")
+                .and_then(serde_json::Value::as_array)
             {
                 return questions
                     .iter()
@@ -1335,6 +1339,7 @@ impl SessionHandle {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use crate::transition::WorkPhase;

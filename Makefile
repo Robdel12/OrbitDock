@@ -90,7 +90,7 @@ rust-check:
 	cd $(RUST_WORKSPACE_DIR) && cargo check --workspace
 
 rust-test:
-	cd $(RUST_WORKSPACE_DIR) && cargo test --workspace
+	cd $(RUST_WORKSPACE_DIR) && cargo test --workspace -- --test-threads=1
 
 rust-fmt:
 	cd $(RUST_WORKSPACE_DIR) && cargo fmt --all

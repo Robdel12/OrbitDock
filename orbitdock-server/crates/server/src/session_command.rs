@@ -29,6 +29,7 @@ pub enum PersistOp {
 
 /// A command that can be sent to a session actor.
 #[allow(dead_code)]
+#[allow(clippy::large_enum_variant)]
 pub enum SessionCommand {
     // -- Queries (use oneshot reply channels) --
     /// Get the full session state

@@ -184,7 +184,8 @@ enum ApprovalCardModelBuilder {
     pendingApproval: ServerApprovalRequest?,
     serverState: ServerAppState
   ) -> ApprovalCardModel? {
-    let queueHeadRequestId = serverState.nextPendingApprovalRequestId(sessionId: session.id) ?? session.pendingApprovalId
+    let queueHeadRequestId = serverState.nextPendingApprovalRequestId(sessionId: session.id) ?? session
+      .pendingApprovalId
     let pendingHistory = unresolvedApproval(
       in: serverState.session(session.id).approvalHistory,
       requestId: queueHeadRequestId

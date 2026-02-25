@@ -1,8 +1,8 @@
 # OrbitDock Server
 
-The Rust backend behind OrbitDock. Handles real-time session management over WebSocket, runs Codex sessions directly via codex-core, and keeps all business logic in a pure state machine.
+The Rust backend behind OrbitDock. Handles realtime session management over WebSocket, serves REST APIs for bootstrap/read flows, runs Codex sessions directly via codex-core, and keeps business logic in a pure state machine.
 
-Runs as a **standalone binary** you can drop on any macOS or Linux box. OrbitDock macOS and iOS clients connect over WebSocket and may connect to multiple servers at once.
+Runs as a **standalone binary** you can drop on any macOS or Linux box. OrbitDock macOS and iOS clients use HTTP + WebSocket and may connect to multiple servers at once.
 
 ## Getting Started
 
@@ -45,14 +45,19 @@ This generates a launchd plist on macOS or a systemd unit on Linux.
 
 ### OrbitDock Client Connectivity
 
-Clients connect over WebSocket (default local endpoint: `ws://127.0.0.1:4000/ws`) and can keep multiple endpoints connected simultaneously.
+Clients connect to:
+
+- WebSocket (default local endpoint: `ws://127.0.0.1:4000/ws`) for realtime subscriptions/events
+- HTTP (default local endpoint: `http://127.0.0.1:4000/api/...`) for bootstrap/read requests
+
+Clients can keep multiple endpoints connected simultaneously.
 
 The server also accepts control-plane metadata from clients:
 
 - `set_server_role` - mark this server as primary/secondary server metadata
 - `set_client_primary_claim` - register whether a specific client device currently treats this server as its control plane
 
-Provider usage probes are gated by client claims. If a client that does not hold the control-plane claim calls usage RPCs, the server returns `not_control_plane_for_client`.
+Usage reads are served via HTTP (`GET /api/usage/*`) and return `not_control_plane_endpoint` when the endpoint is not primary.
 
 ## CLI Reference
 
@@ -89,6 +94,11 @@ orbitdock-server --bind 127.0.0.1:4000   # same as: orbitdock-server start --bin
 │  │                 Axum HTTP + WebSocket                     │  │
 │  │  GET /ws      → WebSocket upgrade                        │  │
 │  │  POST /api/hook → Claude Code hook events                │  │
+│  │  GET /api/sessions → Session summaries (REST bootstrap)  │  │
+│  │  GET /api/sessions/:id → Full session state (REST load)  │  │
+│  │  GET /api/approvals, DELETE /api/approvals/:id           │  │
+│  │  GET /api/server/openai-key, /api/usage/*, /api/models/* │  │
+│  │  GET /api/codex/account, /api/fs/*, /api/sessions/*/...  │  │
 │  │  GET /health  → Health check                             │  │
 │  └────────────────────────┬────────────────────────────────┘  │
 │                           │                                    │
@@ -213,6 +223,18 @@ These map to the wire `WorkStatus` that clients see:
 
 JSON over WebSocket at `ws://127.0.0.1:4000/ws`.
 
+For the HTTP contract (endpoints + payloads), see `docs/API.md`.
+For transport rationale and migration notes, see `docs/api-transport-split.md`.
+
+WebSocket is reserved for:
+
+- subscriptions (`subscribe_list`, `subscribe_session`, `unsubscribe_session`)
+- command/actions (create/send/approve/interrupt/etc.)
+- realtime events (`session_delta`, `message_appended`, `approval_requested`, ...)
+
+Read/list utility requests now live on HTTP. Legacy WS request/response variants return
+`error.code = "http_only_endpoint"`.
+
 ### Handshake
 
 The server sends a `hello` immediately on connect:
@@ -234,6 +256,7 @@ ws://127.0.0.1:4000/ws?token=<your-token>
 ```json
 { "type": "subscribe_list" }
 { "type": "subscribe_session", "session_id": "...", "since_revision": 42 }
+{ "type": "subscribe_session", "session_id": "...", "since_revision": 42, "include_snapshot": false }
 { "type": "unsubscribe_session", "session_id": "..." }
 ```
 
@@ -269,9 +292,14 @@ ws://127.0.0.1:4000/ws?token=<your-token>
 
 ```json
 { "type": "create_review_comment", "session_id": "...", "file_path": "src/main.rs", "line_start": 42, "body": "This needs error handling" }
-{ "type": "list_review_comments", "session_id": "..." }
 { "type": "update_review_comment", "comment_id": "...", "status": "resolved" }
 { "type": "delete_review_comment", "comment_id": "..." }
+```
+
+List review comments over HTTP:
+
+```http
+GET /api/sessions/:session_id/review-comments
 ```
 
 **Claude hook transport** (how `hook.sh` delivers events):

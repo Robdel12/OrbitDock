@@ -117,12 +117,6 @@ impl SessionRegistry {
         self.client_primary_claims.remove(&conn_id).is_some()
     }
 
-    pub fn connection_primary_claim(&self, conn_id: u64) -> Option<bool> {
-        self.client_primary_claims
-            .get(&conn_id)
-            .map(|entry| entry.is_primary)
-    }
-
     pub fn active_client_primary_claims(&self) -> Vec<ClientPrimaryClaim> {
         let mut by_client: BTreeMap<String, String> = BTreeMap::new();
         for claim in self.client_primary_claims.iter() {

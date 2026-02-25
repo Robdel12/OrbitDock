@@ -777,10 +777,8 @@ pub fn transition(
                 ApprovalType::Patch => "Edit".to_string(),
                 ApprovalType::Question => "Question".to_string(),
             });
-            let question_prompts = extract_question_prompts_for_approval(
-                tool_input.as_deref(),
-                question.as_deref(),
-            );
+            let question_prompts =
+                extract_question_prompts_for_approval(tool_input.as_deref(), question.as_deref());
             let resolved_question = question.or_else(|| {
                 question_prompts
                     .first()
@@ -1520,6 +1518,7 @@ fn normalize_command_for_risk(command: Option<&str>) -> Option<String> {
     Some(format!(" {normalized} "))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compose_approval_preview(
     request_id: &str,
     approval_type: ApprovalType,
@@ -1575,6 +1574,7 @@ fn decision_scope_for_preview(preview_type: ApprovalPreviewType) -> &'static str
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_manifest_for_preview(
     request_id: &str,
     approval_type: ApprovalType,
@@ -2328,8 +2328,13 @@ mod tests {
             ),
         ];
 
-        for (tool_input, approval_type, expected_preview_type, expected_manifest_line, expected_scope) in
-            cases
+        for (
+            tool_input,
+            approval_type,
+            expected_preview_type,
+            expected_manifest_line,
+            expected_scope,
+        ) in cases
         {
             let preview = build_approval_preview(
                 "req-matrix",
@@ -2418,7 +2423,10 @@ mod tests {
         if let Effect::Emit(message) = &effects[1] {
             match message.as_ref() {
                 ServerMessage::ApprovalRequested { request, .. } => {
-                    assert_eq!(request.question.as_deref(), Some("How do you want to launch?"));
+                    assert_eq!(
+                        request.question.as_deref(),
+                        Some("How do you want to launch?")
+                    );
                     assert_eq!(request.question_prompts.len(), 1);
                     let prompt = &request.question_prompts[0];
                     assert_eq!(prompt.id, "launch_mode");

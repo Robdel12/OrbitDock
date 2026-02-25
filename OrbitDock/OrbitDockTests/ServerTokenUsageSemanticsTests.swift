@@ -1,6 +1,6 @@
-import Testing
 import Foundation
 @testable import OrbitDock
+import Testing
 
 @MainActor
 struct ServerTokenUsageSemanticsTests {
@@ -18,7 +18,7 @@ struct ServerTokenUsageSemanticsTests {
     switch message {
       case let .tokensUpdated(sessionId, usage, snapshotKind):
         #expect(sessionId == "session-1")
-        #expect(usage.inputTokens == 1200)
+        #expect(usage.inputTokens == 1_200)
         #expect(snapshotKind == .mixedLegacy)
       default:
         Issue.record("Expected tokens_updated")
@@ -43,18 +43,18 @@ struct ServerTokenUsageSemanticsTests {
     let message = try JSONDecoder().decode(ServerToClientMessage.self, from: Data(json.utf8))
     switch message {
       case let .turnDiffSnapshot(
-        sessionId,
-        turnId,
-        _,
-        inputTokens,
-        _,
-        cachedTokens,
-        _,
-        snapshotKind
-      ):
+      sessionId,
+      turnId,
+      _,
+      inputTokens,
+      _,
+      cachedTokens,
+      _,
+      snapshotKind
+    ):
         #expect(sessionId == "session-1")
         #expect(turnId == "turn-42")
-        #expect(inputTokens == 2500)
+        #expect(inputTokens == 2_500)
         #expect(cachedTokens == 600)
         #expect(snapshotKind == .contextTurn)
       default:

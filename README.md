@@ -118,7 +118,7 @@ Codex sessions are picked up automatically — no hook config needed.
 
 ## Architecture
 
-Two main pieces: **SwiftUI clients** (macOS + iOS) and a **Rust WebSocket server**. The server runs standalone — as a launchd/systemd service, via `cargo run`, or on a remote machine. Clients connect over WebSocket to one or many configured endpoints.
+Two main pieces: **SwiftUI clients** (macOS + iOS) and a **Rust server**. The server runs standalone — as a launchd/systemd service, via `cargo run`, or on a remote machine. Clients use HTTP for bootstrap/read paths and WebSocket for realtime updates across one or many configured endpoints.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -127,7 +127,7 @@ Two main pieces: **SwiftUI clients** (macOS + iOS) and a **Rust WebSocket server
 │  Dashboard ←→ Session Detail ←→ Review Canvas            │
 │       │              │                │                   │
 │       └──────────────┴────────────────┘                   │
-│                      │ WebSocket                          │
+│                      │ HTTP + WebSocket                   │
 │                      ▼                                    │
 │  ┌──────────────────────────────────────────────────┐    │
 │  │        orbitdock-server (Rust + Tokio)            │    │

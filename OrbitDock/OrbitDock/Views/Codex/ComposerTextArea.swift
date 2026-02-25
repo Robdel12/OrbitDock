@@ -352,11 +352,9 @@ struct ComposerTextArea: View {
         }
       }
 
-      func textDidBeginEditing(_ notification: Notification) {
-      }
+      func textDidBeginEditing(_ notification: Notification) {}
 
-      func textDidEndEditing(_ notification: Notification) {
-      }
+      func textDidEndEditing(_ notification: Notification) {}
 
       func textDidChange(_ notification: Notification) {
         guard let textView = notification.object as? NSTextView else { return }

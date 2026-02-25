@@ -31,7 +31,7 @@ struct ServerAppStateApprovalQueueTests {
     let sessionId = "session-summary-head"
 
     state.connection.onSessionsList?([
-      makeSessionSummary(id: sessionId, pendingApprovalId: "req-head")
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-head"),
     ])
     await Task.yield()
     state.session(sessionId).pendingApproval = makeApprovalRequest(
@@ -87,7 +87,7 @@ struct ServerAppStateApprovalQueueTests {
     let sessionId = "session-approval-resolve"
 
     state.connection.onSessionsList?([
-      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1")
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
     ])
     await Task.yield()
 
@@ -113,7 +113,7 @@ struct ServerAppStateApprovalQueueTests {
           proposedAmendment: nil,
           createdAt: "2026-02-24T00:00:00Z",
           decidedAt: "2026-02-24T00:00:01Z"
-        )
+        ),
       ]
     )
     await Task.yield()
@@ -132,7 +132,7 @@ struct ServerAppStateApprovalQueueTests {
     let sessionId = "session-approval-queue-head"
 
     state.connection.onSessionsList?([
-      makeSessionSummary(id: sessionId, pendingApprovalId: "req-2")
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-2"),
     ])
     await Task.yield()
 

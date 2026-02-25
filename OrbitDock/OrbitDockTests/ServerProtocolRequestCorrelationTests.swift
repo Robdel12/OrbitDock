@@ -21,6 +21,46 @@ struct ServerProtocolRequestCorrelationTests {
     }
   }
 
+  @Test func subscribeSessionOmitsIncludeSnapshotByDefault() throws {
+    let message = ClientToServerMessage.subscribeSession(sessionId: "session-1", sinceRevision: 42)
+    let data = try JSONEncoder().encode(message)
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(payload["type"] as? String == "subscribe_session")
+    #expect(payload["session_id"] as? String == "session-1")
+    #expect(payload["since_revision"] as? UInt64 == 42)
+    #expect(payload["include_snapshot"] == nil)
+  }
+
+  @Test func subscribeSessionSupportsReplayOnlyEncodingAndDecoding() throws {
+    let message = ClientToServerMessage.subscribeSession(
+      sessionId: "session-2",
+      sinceRevision: 100,
+      includeSnapshot: false
+    )
+    let data = try JSONEncoder().encode(message)
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(payload["include_snapshot"] as? Bool == false)
+
+    let parsed = try JSONDecoder().decode(ClientToServerMessage.self, from: data)
+    switch parsed {
+      case let .subscribeSession(sessionId, sinceRevision, includeSnapshot):
+        #expect(sessionId == "session-2")
+        #expect(sinceRevision == 100)
+        #expect(includeSnapshot == false)
+      default:
+        Issue.record("Expected subscribe_session")
+    }
+
+    let defaultPayload = #"{"type":"subscribe_session","session_id":"session-3"}"#
+    let defaultParsed = try JSONDecoder().decode(ClientToServerMessage.self, from: Data(defaultPayload.utf8))
+    switch defaultParsed {
+      case let .subscribeSession(_, _, includeSnapshot):
+        #expect(includeSnapshot == true)
+      default:
+        Issue.record("Expected subscribe_session")
+    }
+  }
+
   @Test func serverResponseMessagesDecodeRequestId() throws {
     let directoryJson = #"{"type":"directory_listing","request_id":"req-dir","path":"/tmp","entries":[]}"#
     let projectsJson = #"{"type":"recent_projects_list","request_id":"req-projects","projects":[]}"#

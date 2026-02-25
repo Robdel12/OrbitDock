@@ -679,9 +679,10 @@
 
     private func approveMenuActions(_ model: ApprovalCardModel) -> [UIAction] {
       var children: [UIAction] = []
-      children.append(UIAction(title: "Approve Request Once", image: UIImage(systemName: "checkmark")) { [weak self] _ in
-        self?.onDecision?("approved", nil, nil)
-      })
+      children
+        .append(UIAction(title: "Approve Request Once", image: UIImage(systemName: "checkmark")) { [weak self] _ in
+          self?.onDecision?("approved", nil, nil)
+        })
       children
         .append(UIAction(title: "Allow for Session", image: UIImage(systemName: "checkmark.seal")) { [weak self] _ in
           self?.onDecision?("approved_for_session", nil, nil)

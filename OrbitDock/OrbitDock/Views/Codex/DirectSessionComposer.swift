@@ -811,7 +811,7 @@ struct DirectSessionComposer: View {
   // MARK: - Composer Action Button
 
   private var modelEffortControlButton: some View {
-    return Button {
+    Button {
       showModelEffortPopover.toggle()
     } label: {
       HStack(spacing: isCompactLayout ? 5 : 6) {
@@ -1473,8 +1473,8 @@ struct DirectSessionComposer: View {
             .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
             .foregroundStyle(Color.textTertiary)
             .lineLimit(1)
-          .padding(.horizontal, Spacing.xs)
-          .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
+            .padding(.horizontal, Spacing.xs)
+            .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
         } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
           Text(shortModelName(effectiveClaudeModel))
             .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))

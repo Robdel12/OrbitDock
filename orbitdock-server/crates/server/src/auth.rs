@@ -1,6 +1,6 @@
 //! Optional auth token middleware.
 //!
-//! When `--auth-token` is configured, all requests to `/ws` and `/api/hook`
+//! When `--auth-token` is configured, all requests except `/health`
 //! must include `Authorization: Bearer <token>` (or `?token=<token>` for WebSocket).
 //! The `/health` endpoint remains unauthenticated.
 

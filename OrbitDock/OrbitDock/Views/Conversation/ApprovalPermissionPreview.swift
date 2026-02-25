@@ -111,9 +111,9 @@ enum ApprovalPermissionPreviewBuilder {
   private static func previewValue(for model: ApprovalCardModel) -> String? {
     switch model.previewType {
       case .filePath:
-        return trimmed(model.filePath)
+        trimmed(model.filePath)
       default:
-        return trimmed(model.command)
+        trimmed(model.command)
     }
   }
 
@@ -170,16 +170,15 @@ enum ApprovalPermissionPreviewBuilder {
   private static func shellOperatorPrefix(_ leadingOperator: String?) -> String {
     guard let op = trimmed(leadingOperator) else { return "" }
 
-    let meaning: String
-    switch op {
+    let meaning = switch op {
       case "||":
-        meaning = "if previous fails"
+        "if previous fails"
       case "&&":
-        meaning = "if previous succeeds"
+        "if previous succeeds"
       case "|":
-        meaning = "pipe output from previous"
+        "pipe output from previous"
       default:
-        meaning = "then"
+        "then"
     }
     return "(\(op), \(meaning)) "
   }
