@@ -13,7 +13,7 @@ final class DictationAudioCapture {
   private var converter: AVAudioConverter?
   private var onSamples: SamplesHandler?
 
-  private let whisperInputFormat: AVAudioFormat = AVAudioFormat(
+  private let whisperInputFormat: AVAudioFormat = .init(
     commonFormat: .pcmFormatFloat32,
     sampleRate: 16_000,
     channels: 1,

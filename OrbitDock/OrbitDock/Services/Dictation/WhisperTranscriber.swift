@@ -13,6 +13,7 @@ import Foundation
 protocol LocalWhisperTranscribing: Sendable {
   var isSupported: Bool { get }
   func transcribe(samples: [Float]) async throws -> String
+  func releaseResources() async
 }
 
 enum WhisperDictationError: LocalizedError, Equatable {
@@ -68,6 +69,8 @@ struct UnsupportedWhisperTranscriber: LocalWhisperTranscribing {
   func transcribe(samples: [Float]) async throws -> String {
     throw WhisperDictationError.whisperPackageMissing
   }
+
+  func releaseResources() async {}
 }
 
 #if canImport(whisper) || canImport(Whisper)
@@ -104,17 +107,17 @@ struct UnsupportedWhisperTranscriber: LocalWhisperTranscribing {
       }
     }
 
+    func releaseResources() async {
+      releaseContextIfNeeded()
+    }
+
     private func loadContextIfNeeded() throws -> OpaquePointer {
       let modelPath = try locator.resolveModelPath()
       if let context, loadedModelPath == modelPath {
         return context
       }
 
-      if let context {
-        whisper_free(context)
-        self.context = nil
-        loadedModelPath = nil
-      }
+      releaseContextIfNeeded()
 
       var params = whisper_context_default_params()
       params.use_gpu = true
@@ -132,6 +135,14 @@ struct UnsupportedWhisperTranscriber: LocalWhisperTranscribing {
       context = newContext
       loadedModelPath = modelPath
       return newContext
+    }
+
+    private func releaseContextIfNeeded() {
+      if let context {
+        whisper_free(context)
+        self.context = nil
+        loadedModelPath = nil
+      }
     }
 
     private func runTranscription(context: OpaquePointer, samples: [Float]) throws -> String {
@@ -159,7 +170,7 @@ struct UnsupportedWhisperTranscriber: LocalWhisperTranscribing {
       var segments: [String] = []
       segments.reserveCapacity(segmentCount)
 
-      for segmentIndex in 0..<segmentCount {
+      for segmentIndex in 0 ..< segmentCount {
         guard let segmentTextPointer = whisper_full_get_segment_text(context, Int32(segmentIndex)) else {
           continue
         }

@@ -27,10 +27,12 @@ final class WhisperDictationController {
   private var partialTranscriptionInFlight = false
   private var lastPartialSampleCount = 0
   private var activeStartToken: UUID?
+  private var pendingResourceReleaseTask: Task<Void, Never>?
 
   // Trigger partial updates every second of additional audio.
   private let partialSampleStride = 16_000
   private let minimumSamplesForPartial = 8_000
+  private let resourceReleaseDelay: Duration = .seconds(30)
 
   init(
     transcriber: (any LocalWhisperTranscribing)? = nil,
@@ -63,6 +65,7 @@ final class WhisperDictationController {
       errorMessage = WhisperDictationError.whisperPackageMissing.localizedDescription
       return
     }
+    cancelPendingResourceRelease()
 
     let startToken = UUID()
     activeStartToken = startToken
@@ -113,6 +116,7 @@ final class WhisperDictationController {
     guard !snapshot.isEmpty else {
       state = .idle
       liveTranscript = ""
+      scheduleDelayedResourceRelease()
       return nil
     }
 
@@ -121,12 +125,14 @@ final class WhisperDictationController {
       let transcript = try await transcriber.transcribe(samples: snapshot)
       state = .idle
       liveTranscript = ""
+      scheduleDelayedResourceRelease()
       return DictationTextFormatter.normalizeTranscription(transcript)
     } catch {
       state = .idle
       liveTranscript = ""
       isMicrophonePermissionDenied = false
       errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+      await releaseResourcesNow()
       return nil
     }
   }
@@ -138,6 +144,7 @@ final class WhisperDictationController {
     liveTranscript = ""
     isMicrophonePermissionDenied = false
     state = .idle
+    await releaseResourcesNow()
   }
 
   private func handleIncomingSamples(_ samples: [Float]) {
@@ -178,5 +185,31 @@ final class WhisperDictationController {
     capturedSamples.removeAll(keepingCapacity: false)
     partialTranscriptionInFlight = false
     lastPartialSampleCount = 0
+  }
+
+  private func scheduleDelayedResourceRelease() {
+    cancelPendingResourceRelease()
+    let delay = resourceReleaseDelay
+    pendingResourceReleaseTask = Task { @MainActor [weak self] in
+      do {
+        try await Task.sleep(for: delay)
+      } catch {
+        return
+      }
+
+      guard let self, self.state == .idle else { return }
+      await self.transcriber.releaseResources()
+      self.pendingResourceReleaseTask = nil
+    }
+  }
+
+  private func cancelPendingResourceRelease() {
+    pendingResourceReleaseTask?.cancel()
+    pendingResourceReleaseTask = nil
+  }
+
+  private func releaseResourcesNow() async {
+    cancelPendingResourceRelease()
+    await transcriber.releaseResources()
   }
 }
