@@ -8,88 +8,366 @@
 import SwiftUI
 import UserNotifications
 
+private enum SettingsPane: String, CaseIterable, Identifiable {
+  case workspace
+  case integrations
+  case servers
+  case notifications
+  case diagnostics
+
+  var id: String {
+    rawValue
+  }
+
+  var title: String {
+    switch self {
+      case .workspace:
+        "Workspace"
+      case .integrations:
+        "Integrations"
+      case .servers:
+        "Servers"
+      case .notifications:
+        "Notifications"
+      case .diagnostics:
+        "Diagnostics"
+    }
+  }
+
+  var subtitle: String {
+    switch self {
+      case .workspace:
+        "Editor, naming, and local dictation"
+      case .integrations:
+        "Claude hooks and Codex account"
+      case .servers:
+        "Endpoints, runtime, and connection"
+      case .notifications:
+        "Alerts, sounds, and previews"
+      case .diagnostics:
+        "Logs, database, and support paths"
+    }
+  }
+
+  var icon: String {
+    switch self {
+      case .workspace:
+        "slider.horizontal.3"
+      case .integrations:
+        "puzzlepiece.extension"
+      case .servers:
+        "server.rack"
+      case .notifications:
+        "bell.badge"
+      case .diagnostics:
+        "stethoscope"
+    }
+  }
+}
+
 struct SettingsView: View {
-  @State private var selectedTab = 0
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(\.dismiss) private var dismiss
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  #endif
+
+  private let showsCloseButton: Bool
+  @State private var selectedPane: SettingsPane = .workspace
+
+  init(showsCloseButton: Bool = false) {
+    self.showsCloseButton = showsCloseButton
+  }
+
+  private var enabledEndpointCount: Int {
+    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+  }
+
+  private var connectedEndpointCount: Int {
+    runtimeRegistry.runtimes.filter { runtime in
+      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status
+      if case .connected = status {
+        return true
+      }
+      return false
+    }.count
+  }
+
+  private var endpointHealthColor: Color {
+    if enabledEndpointCount > 0, connectedEndpointCount == enabledEndpointCount {
+      return Color.statusSuccess
+    }
+    if connectedEndpointCount > 0 {
+      return Color.statusQuestion
+    }
+    return Color.statusPermission
+  }
+
+  private var endpointHealthText: String {
+    if enabledEndpointCount == 0 {
+      return "No enabled endpoints"
+    }
+    return "\(connectedEndpointCount)/\(enabledEndpointCount) connected"
+  }
+
+  private var usesCompactLayout: Bool {
+    #if os(iOS)
+      horizontalSizeClass == .compact
+    #else
+      false
+    #endif
+  }
 
   var body: some View {
-    VStack(spacing: 0) {
-      // Tab bar
-      HStack(spacing: 2) {
-        SettingsTabButton(
-          title: "General",
-          icon: "gear",
-          isSelected: selectedTab == 0
-        ) { selectedTab = 0 }
-
-        SettingsTabButton(
-          title: "Notifications",
-          icon: "bell.badge",
-          isSelected: selectedTab == 1
-        ) { selectedTab = 1 }
-
-        SettingsTabButton(
-          title: "Setup",
-          icon: "wrench.and.screwdriver",
-          isSelected: selectedTab == 2
-        ) { selectedTab = 2 }
-
-        SettingsTabButton(
-          title: "Debug",
-          icon: "ladybug",
-          isSelected: selectedTab == 3
-        ) { selectedTab = 3 }
+    Group {
+      if usesCompactLayout {
+        compactLayout
+      } else {
+        splitLayout
       }
-      .padding(.horizontal, 16)
+    }
+    #if os(macOS)
+    .frame(width: 860, height: 560)
+    #else
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    #endif
+    .background(
+      ZStack {
+        Color.backgroundPrimary
+        LinearGradient(
+          colors: [
+            Color.accent.opacity(0.10),
+            Color.clear,
+            Color.statusQuestion.opacity(0.08),
+          ],
+          startPoint: .topLeading,
+          endPoint: .bottomTrailing
+        )
+      }
+    )
+    .animation(.spring(response: 0.24, dampingFraction: 0.86), value: selectedPane)
+  }
+
+  private var splitLayout: some View {
+    HStack(spacing: 0) {
+      sidebar
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+      detailPane
+    }
+  }
+
+  private var sidebar: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      VStack(alignment: .leading, spacing: 6) {
+        Text("OrbitDock")
+          .font(.system(size: 12, weight: .semibold, design: .rounded))
+          .foregroundStyle(Color.accent)
+        Text("Preferences")
+          .font(.system(size: 22, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.textPrimary)
+      }
+
+      VStack(spacing: 6) {
+        ForEach(SettingsPane.allCases) { pane in
+          SettingsSidebarButton(
+            title: pane.title,
+            subtitle: pane.subtitle,
+            icon: pane.icon,
+            isSelected: selectedPane == pane
+          ) {
+            selectedPane = pane
+          }
+        }
+      }
+
+      Spacer()
+
+      VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
+          Circle()
+            .fill(endpointHealthColor)
+            .frame(width: 7, height: 7)
+          Text("Endpoint Health")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.textSecondary)
+        }
+
+        Text(endpointHealthText)
+          .font(.system(size: 10, weight: .semibold, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+      }
+      .padding(12)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(Color.backgroundTertiary.opacity(0.8), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .overlay(
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+          .strokeBorder(Color.panelBorder, lineWidth: 1)
+      )
+    }
+    .padding(18)
+    .frame(width: 280)
+    .frame(maxHeight: .infinity, alignment: .topLeading)
+    .background(Color.backgroundSecondary.opacity(0.8))
+  }
+
+  private var compactLayout: some View {
+    VStack(spacing: 0) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        Text("Preferences")
+          .font(.system(size: 20, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.textPrimary)
+        Spacer()
+        #if os(iOS)
+          if showsCloseButton {
+            Button("Done") {
+              dismiss()
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.accent)
+          }
+        #endif
+      }
+      .padding(.horizontal, 18)
       .padding(.top, 16)
+      .padding(.bottom, 12)
+
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          ForEach(SettingsPane.allCases) { pane in
+            Button {
+              selectedPane = pane
+            } label: {
+              HStack(spacing: 6) {
+                Image(systemName: pane.icon)
+                  .font(.system(size: 10, weight: .semibold))
+                Text(pane.title)
+                  .font(.system(size: 11, weight: .semibold))
+              }
+              .foregroundStyle(selectedPane == pane ? Color.accent : Color.textSecondary)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
+              .background(
+                Capsule(style: .continuous)
+                  .fill(selectedPane == pane ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.8))
+              )
+              .overlay(
+                Capsule(style: .continuous)
+                  .strokeBorder(selectedPane == pane ? Color.surfaceBorder : Color.clear, lineWidth: 1)
+              )
+            }
+            .buttonStyle(.plain)
+          }
+        }
+        .padding(.horizontal, 18)
+      }
       .padding(.bottom, 12)
 
       Divider()
         .foregroundStyle(Color.panelBorder)
 
-      // Content
       Group {
-        switch selectedTab {
-          case 0:
+        switch selectedPane {
+          case .workspace:
             GeneralSettingsView()
-          case 1:
-            NotificationSettingsView()
-          case 2:
+          case .integrations:
             SetupSettingsView()
-          case 3:
+          case .servers:
             DebugSettingsView()
-          default:
-            GeneralSettingsView()
+          case .notifications:
+            NotificationSettingsView()
+          case .diagnostics:
+            DiagnosticsSettingsView()
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .frame(width: 520, height: 480)
-    .background(Color.backgroundPrimary)
+  }
+
+  private var detailPane: some View {
+    VStack(spacing: 0) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        Text(selectedPane.title)
+          .font(.system(size: 20, weight: .bold, design: .rounded))
+          .foregroundStyle(Color.textPrimary)
+        Text(selectedPane.subtitle)
+          .font(.system(size: 12))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(1)
+        Spacer()
+        #if os(iOS)
+          if showsCloseButton {
+            Button("Done") {
+              dismiss()
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.accent)
+          }
+        #endif
+      }
+      .padding(.horizontal, 22)
+      .padding(.top, 18)
+      .padding(.bottom, 14)
+
+      Divider()
+        .foregroundStyle(Color.panelBorder)
+
+      Group {
+        switch selectedPane {
+          case .workspace:
+            GeneralSettingsView()
+          case .integrations:
+            SetupSettingsView()
+          case .servers:
+            DebugSettingsView()
+          case .notifications:
+            NotificationSettingsView()
+          case .diagnostics:
+            DiagnosticsSettingsView()
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
   }
 }
 
-// MARK: - Tab Button
+// MARK: - Sidebar Button
 
-struct SettingsTabButton: View {
+struct SettingsSidebarButton: View {
   let title: String
+  let subtitle: String
   let icon: String
   let isSelected: Bool
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
-      HStack(spacing: 6) {
+      HStack(spacing: 10) {
         Image(systemName: icon)
-          .font(.system(size: 12, weight: .medium))
-        Text(title)
-          .font(.system(size: 13, weight: .medium))
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(isSelected ? Color.accent : Color.textTertiary)
+          .frame(width: 18)
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.textPrimary : Color.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+          Text(subtitle)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(Color.textQuaternary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
       }
-      .foregroundStyle(isSelected ? Color.accent : .secondary)
-      .padding(.horizontal, 14)
-      .padding(.vertical, 8)
+      .padding(.horizontal, 12)
+      .padding(.vertical, 9)
       .background(
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
           .fill(isSelected ? Color.surfaceSelected : Color.clear)
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+          .strokeBorder(isSelected ? Color.surfaceBorder : Color.clear, lineWidth: 1)
       )
     }
     .buttonStyle(.plain)
@@ -367,8 +645,8 @@ struct GeneralSettingsView: View {
                   then falls back to Application Support.
                   """
                 )
-                  .font(.system(size: 11))
-                  .foregroundStyle(.tertiary)
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
               case let .unavailable(message):
                 Text(message)
                   .font(.system(size: 11))
@@ -575,11 +853,13 @@ struct NotificationSettingsView: View {
     guard notificationSound != "none" else { return }
     guard Platform.services.capabilities.canPlaySystemSounds else { return }
 
-    if notificationSound == "default" {
-      NSSound.beep()
-    } else if let sound = NSSound(named: NSSound.Name(notificationSound)) {
-      sound.play()
-    }
+    #if os(macOS)
+      if notificationSound == "default" {
+        NSSound.beep()
+      } else if let sound = NSSound(named: NSSound.Name(notificationSound)) {
+        sound.play()
+      }
+    #endif
   }
 
   private func sendTestNotification() {
@@ -908,9 +1188,75 @@ struct DebugSettingsView: View {
     runtimeRegistry.activeConnectionStatus
   }
 
+  private var endpointCount: Int {
+    runtimeRegistry.runtimes.count
+  }
+
+  private var enabledEndpointCount: Int {
+    runtimeRegistry.runtimes.filter(\.endpoint.isEnabled).count
+  }
+
+  private var connectedEndpointCount: Int {
+    runtimeRegistry.runtimes.filter { runtime in
+      let status = runtimeRegistry.connectionStatusByEndpointId[runtime.endpoint.id] ?? runtime.connection.status
+      if case .connected = status {
+        return true
+      }
+      return false
+    }.count
+  }
+
+  private var endpointStatusColor: Color {
+    if enabledEndpointCount > 0, connectedEndpointCount == enabledEndpointCount {
+      return Color.statusSuccess
+    }
+    if connectedEndpointCount > 0 {
+      return Color.statusQuestion
+    }
+    return Color.statusPermission
+  }
+
+  private var endpointStatusText: String {
+    if enabledEndpointCount == 0 {
+      return "No enabled endpoints"
+    }
+    return "\(connectedEndpointCount) of \(enabledEndpointCount) enabled connected"
+  }
+
   var body: some View {
     ScrollView {
       VStack(spacing: 20) {
+        SettingsSection(title: "ENDPOINTS", icon: "network") {
+          HStack(spacing: 10) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+              .font(.system(size: 12, weight: .semibold))
+              .foregroundStyle(endpointStatusColor)
+
+            VStack(alignment: .leading, spacing: 3) {
+              Text(endpointStatusText)
+                .font(.system(size: 13))
+                .foregroundStyle(.primary)
+              Text("\(endpointCount) total endpoints configured")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.textTertiary)
+            }
+
+            Spacer()
+
+            Button("Manage Endpoints") {
+              showEndpointSettings = true
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.accent)
+          }
+
+          Text(
+            "Choose one control-plane endpoint for this Mac while keeping additional endpoints connected in parallel."
+          )
+          .font(.system(size: 11))
+          .foregroundStyle(.tertiary)
+        }
+
         // Server install state
         SettingsSection(title: "SERVER", icon: "server.rack") {
           HStack {
@@ -945,11 +1291,6 @@ struct DebugSettingsView: View {
 
             Spacer()
 
-            Button("Endpoints") {
-              showEndpointSettings = true
-            }
-            .buttonStyle(.bordered)
-
             Button("Test View") {
               showServerTest = true
             }
@@ -973,51 +1314,6 @@ struct DebugSettingsView: View {
             .buttonStyle(.bordered)
           }
         }
-
-        SettingsSection(title: "LOGS", icon: "doc.text") {
-          VStack(alignment: .leading, spacing: 14) {
-            HStack {
-              VStack(alignment: .leading, spacing: 4) {
-                Text("Codex Logs")
-                  .font(.system(size: 13))
-                Text("~/.orbitdock/logs/codex.log")
-                  .font(.system(size: 11).monospaced())
-                  .foregroundStyle(Color.textTertiary)
-              }
-
-              Spacer()
-
-              Button("Open in Finder") {
-                let path = PlatformPaths.orbitDockLogsDirectory
-                _ = Platform.services.revealInFileBrowser(path.path)
-              }
-              .buttonStyle(.bordered)
-            }
-          }
-        }
-
-        SettingsSection(title: "DATABASE", icon: "cylinder") {
-          VStack(alignment: .leading, spacing: 14) {
-            HStack {
-              VStack(alignment: .leading, spacing: 4) {
-                Text("OrbitDock Database")
-                  .font(.system(size: 13))
-                Text("~/.orbitdock/orbitdock.db")
-                  .font(.system(size: 11).monospaced())
-                  .foregroundStyle(Color.textTertiary)
-              }
-
-              Spacer()
-
-              Button("Open in Finder") {
-                let path = PlatformPaths.orbitDockBaseDirectory
-                _ = Platform.services.revealInFileBrowser(path.path)
-              }
-              .buttonStyle(.bordered)
-            }
-          }
-        }
-
       }
       .padding(20)
     }
@@ -1124,6 +1420,72 @@ struct DebugSettingsView: View {
       case let .failed(reason):
         "Failed: \(reason)"
     }
+  }
+}
+
+// MARK: - Diagnostics Settings
+
+struct DiagnosticsSettingsView: View {
+  var body: some View {
+    ScrollView {
+      VStack(spacing: 20) {
+        SettingsSection(title: "LOGS", icon: "doc.text") {
+          VStack(alignment: .leading, spacing: 12) {
+            diagnosticsPathRow(
+              label: "Codex Log",
+              path: "~/.orbitdock/logs/codex.log"
+            ) {
+              reveal(PlatformPaths.orbitDockLogsDirectory)
+            }
+
+            diagnosticsPathRow(
+              label: "Server Log",
+              path: "~/.orbitdock/logs/server.log"
+            ) {
+              reveal(PlatformPaths.orbitDockLogsDirectory)
+            }
+
+            diagnosticsPathRow(
+              label: "CLI Log",
+              path: "~/.orbitdock/cli.log"
+            ) {
+              reveal(PlatformPaths.orbitDockBaseDirectory)
+            }
+          }
+        }
+
+        SettingsSection(title: "DATABASE", icon: "cylinder") {
+          diagnosticsPathRow(
+            label: "OrbitDock Database",
+            path: "~/.orbitdock/orbitdock.db"
+          ) {
+            reveal(PlatformPaths.orbitDockBaseDirectory)
+          }
+        }
+      }
+      .padding(20)
+    }
+  }
+
+  private func diagnosticsPathRow(label: String, path: String, action: @escaping () -> Void) -> some View {
+    HStack {
+      VStack(alignment: .leading, spacing: 4) {
+        Text(label)
+          .font(.system(size: 13))
+        Text(path)
+          .font(.system(size: 11).monospaced())
+          .foregroundStyle(Color.textTertiary)
+      }
+
+      Spacer()
+
+      Button("Open in Finder", action: action)
+        .buttonStyle(.bordered)
+    }
+  }
+
+  private func reveal(_ url: URL) {
+    _ = Platform.services.revealInFileBrowser(url.path)
   }
 }
 
