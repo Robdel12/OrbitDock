@@ -5,10 +5,13 @@
   //
 
   import AppKit
+  import ImageIO
   import SwiftUI
   import UniformTypeIdentifiers
 
   extension DirectSessionComposer {
+    private static let thumbnailMaxPixelSize = 160
+
     var canPasteImageFromClipboard: Bool {
       let pasteboard = NSPasteboard.general
       if pasteboard.availableType(from: [.tiff, .png]) != nil {
@@ -32,10 +35,9 @@
       let encodeAsDataURI = shouldEncodeLocalFileImagesAsDataURI
 
       for url in panel.urls {
-        guard let nsImage = NSImage(contentsOf: url),
+        guard let thumbnail = createThumbnail(from: url),
               let input = serverInputForImageFile(url: url, encodeAsDataURI: encodeAsDataURI)
         else { continue }
-        let thumbnail = createThumbnail(from: nsImage)
         appendAttachedImage(AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input))
       }
     }
@@ -46,11 +48,10 @@
 
       if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
         for url in urls where url.isFileURL && isImageFileURL(url) {
-          guard let nsImage = NSImage(contentsOf: url),
+          guard let thumbnail = createThumbnail(from: url),
                 let input = serverInputForImageFile(url: url, encodeAsDataURI: encodeAsDataURI)
           else { continue }
 
-          let thumbnail = createThumbnail(from: nsImage)
           appendAttachedImage(AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input))
           return true
         }
@@ -58,15 +59,12 @@
 
       guard let imageType = pasteboard.availableType(from: [.tiff, .png]),
             let data = pasteboard.data(forType: imageType),
-            let nsImage = NSImage(data: data),
-            let tiffData = nsImage.tiffRepresentation,
-            let bitmapRep = NSBitmapImageRep(data: tiffData),
-            let pngData = bitmapRep.representation(using: .png, properties: [:])
+            let thumbnail = createThumbnail(from: data),
+            let pngData = normalizedPNGImageData(from: data)
       else {
         return false
       }
 
-      let thumbnail = createThumbnail(from: nsImage)
       appendImageAttachment(thumbnail: thumbnail, imageData: pngData, mimeType: "image/png")
       return true
     }
@@ -80,11 +78,10 @@
           provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { data, _ in
             guard let urlData = data as? Data,
                   let url = URL(dataRepresentation: urlData, relativeTo: nil),
-                  let nsImage = NSImage(contentsOf: url),
+                  let thumbnail = createThumbnail(from: url),
                   let input = serverInputForImageFile(url: url, encodeAsDataURI: encodeAsDataURI)
             else { return }
 
-            let thumbnail = createThumbnail(from: nsImage)
             let attached = AttachedImage(id: UUID().uuidString, thumbnail: thumbnail, serverInput: input)
 
             DispatchQueue.main.async {
@@ -95,13 +92,10 @@
         } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
           provider.loadItem(forTypeIdentifier: UTType.image.identifier, options: nil) { data, _ in
             guard let imageData = data as? Data,
-                  let nsImage = NSImage(data: imageData),
-                  let tiffData = nsImage.tiffRepresentation,
-                  let bitmapRep = NSBitmapImageRep(data: tiffData),
-                  let pngData = bitmapRep.representation(using: .png, properties: [:])
+                  let thumbnail = createThumbnail(from: imageData),
+                  let pngData = normalizedPNGImageData(from: imageData)
             else { return }
 
-            let thumbnail = createThumbnail(from: nsImage)
             DispatchQueue.main.async {
               appendImageAttachment(thumbnail: thumbnail, imageData: pngData, mimeType: "image/png")
             }
@@ -113,19 +107,48 @@
       return handled
     }
 
-    func createThumbnail(from image: NSImage) -> NSImage {
-      let size = NSSize(width: 80, height: 80)
-      let thumbnail = NSImage(size: size)
-      thumbnail.lockFocus()
-      NSGraphicsContext.current?.imageInterpolation = .high
-      image.draw(
-        in: NSRect(origin: .zero, size: size),
-        from: NSRect(origin: .zero, size: image.size),
-        operation: .copy,
-        fraction: 1.0
-      )
-      thumbnail.unlockFocus()
-      return thumbnail
+    private func createThumbnail(from fileURL: URL) -> NSImage? {
+      let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+      guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, sourceOptions) else { return nil }
+      return createThumbnail(from: source)
+    }
+
+    private func createThumbnail(from data: Data) -> NSImage? {
+      let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+      guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+      return createThumbnail(from: source)
+    }
+
+    private func createThumbnail(from source: CGImageSource) -> NSImage? {
+      let thumbnailOptions: [CFString: Any] = [
+        kCGImageSourceCreateThumbnailFromImageAlways: true,
+        kCGImageSourceThumbnailMaxPixelSize: Self.thumbnailMaxPixelSize,
+        kCGImageSourceCreateThumbnailWithTransform: true,
+        kCGImageSourceShouldCacheImmediately: true,
+      ]
+      guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
+        return nil
+      }
+      return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    private func normalizedPNGImageData(from data: Data) -> Data? {
+      let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+      guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
+            let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil)
+      else { return nil }
+
+      let outputData = NSMutableData()
+      guard let destination = CGImageDestinationCreateWithData(
+        outputData,
+        UTType.png.identifier as CFString,
+        1,
+        nil
+      ) else { return nil }
+
+      CGImageDestinationAddImage(destination, cgImage, nil)
+      guard CGImageDestinationFinalize(destination) else { return nil }
+      return outputData as Data
     }
   }
 #endif
