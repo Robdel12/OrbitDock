@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Force a known-good env so an exported empty wrapper doesn't disable sccache.
+unset RUSTC_WRAPPER
+unset CARGO_BUILD_RUSTC_WRAPPER
+export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
+
 usage() {
   echo "Usage: $0 <darwin|linux> [output_dir]"
   echo "  darwin: build universal macOS binary and package orbitdock-server-darwin-universal.zip"

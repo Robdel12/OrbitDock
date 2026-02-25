@@ -17,11 +17,13 @@ XCODEBUILD_ENV = CLANG_MODULE_CACHE_PATH="$(abspath $(XCODE_CLANG_MODULE_CACHE_D
 XCODEBUILD = $(XCODEBUILD_ENV) $(XCODEBUILD_BASE) $(XCODEBUILD_ARGS)
 XCODEBUILD_IOS = $(XCODEBUILD_ENV) $(XCODEBUILD_IOS_BASE) $(XCODEBUILD_ARGS)
 RUST_WORKSPACE_DIR ?= orbitdock-server
+SCCACHE_CACHE_SIZE ?= 20G
+RUST_ENV_CLEAN = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE)
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint rust-release-darwin rust-release-linux release whisper-model xcode-cache-dirs
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-clean rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs
 
 help:
 	@echo "make build      Build the macOS app"
@@ -40,10 +42,18 @@ help:
 	@echo "make rust-check Run cargo check for Rust workspace"
 	@echo "make rust-test  Run Rust workspace tests"
 	@echo "make rust-fmt   Format Rust with cargo fmt"
-	@echo "make rust-lint  Run cargo clippy for Rust workspace"
+	@echo "make rust-lint  Lint Rust workspace"
+	@echo "make rust-run   Run orbitdock-server in dev mode"
+	@echo "make rust-run-debug Run orbitdock-server with debug logs"
 	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-universal.zip"
 	@echo "make rust-release-linux  Build + package orbitdock-server-linux-x86_64.zip"
 	@echo "make release             Alias for rust-release-darwin"
+	@echo "make rust-sccache-start  Start sccache server"
+	@echo "make rust-sccache-stats  Show sccache stats"
+	@echo "make rust-sccache-zero   Reset sccache stats"
+	@echo "make rust-env            Show Rust/sccache env state"
+	@echo "make rust-clean          Clean all Rust build artifacts"
+	@echo "make rust-clean-release  Clean Rust release artifacts only"
 	@echo "make whisper-model Download ggml-base.en.bin into app resources"
 
 build:
@@ -86,28 +96,64 @@ swift-fmt:
 swift-lint:
 	swiftformat --lint OrbitDock
 
+rust-env:
+	@echo "RUSTC_WRAPPER=$$RUSTC_WRAPPER"
+	@echo "CARGO_BUILD_RUSTC_WRAPPER=$$CARGO_BUILD_RUSTC_WRAPPER"
+	@echo "SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE)"
+	@echo "Using sanitized Rust env: $(RUST_ENV_CLEAN)"
+
+rust-sccache-start:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --start-server >/dev/null 2>&1 || true
+
+rust-sccache-stop:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --stop-server >/dev/null 2>&1 || true
+
+rust-sccache-zero:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --zero-stats
+
+rust-sccache-stats:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --show-stats
+
 rust-build:
-	cd $(RUST_WORKSPACE_DIR) && cargo build -p orbitdock-server
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo build -p orbitdock-server
 
 rust-check:
-	cd $(RUST_WORKSPACE_DIR) && cargo check --workspace
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo check --workspace
 
 rust-test:
-	cd $(RUST_WORKSPACE_DIR) && cargo test --workspace -- --test-threads=1
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo test --workspace -- --test-threads=1
 
 rust-fmt:
-	cd $(RUST_WORKSPACE_DIR) && cargo fmt --all
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo fmt --all
 
 rust-lint:
-	cd $(RUST_WORKSPACE_DIR) && cargo clippy --workspace --all-targets
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clippy --workspace --all-targets
+
+rust-run:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo run -p orbitdock-server
+
+rust-run-debug:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server
 
 rust-release-darwin:
-	cd $(RUST_WORKSPACE_DIR) && ./package-release-assets.sh darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) ./package-release-assets.sh darwin
 
 rust-release-linux:
-	cd $(RUST_WORKSPACE_DIR) && ./package-release-assets.sh linux
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) ./package-release-assets.sh linux
 
 release: rust-release-darwin
+
+rust-clean:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean
+
+rust-clean-release-darwin:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean --profile release --target aarch64-apple-darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean --profile release --target x86_64-apple-darwin
+
+rust-clean-release-linux:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean --profile release --target x86_64-unknown-linux-gnu
+
+rust-clean-release: rust-clean-release-darwin rust-clean-release-linux
 
 whisper-model:
 	@./OrbitDock/Scripts/download-whisper-model.sh

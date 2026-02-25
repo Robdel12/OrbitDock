@@ -22,14 +22,23 @@ make build-all  # Build both macOS and iOS
 make test-unit  # Run unit tests only (OrbitDockTests)
 make test-ui    # Run UI tests only (OrbitDockUITests)
 make test-all   # Run both unit + UI tests
-make rust-build # Build orbitdock-server
-make rust-check # cargo check --workspace (orbitdock-server)
-make rust-test  # cargo test --workspace (orbitdock-server)
-make fmt        # Format Swift + Rust (swiftformat + cargo fmt)
-make lint       # Lint Swift + Rust (swiftformat --lint + cargo clippy)
+make rust-build       # Build orbitdock-server
+make rust-check       # Check Rust workspace
+make rust-test        # Run Rust workspace tests
+make rust-run         # Run orbitdock-server in dev mode
+make rust-run-debug   # Run orbitdock-server with debug logs
+make release          # Build + package macOS server release zip
+make rust-release-linux # Build + package Linux server release zip
+make rust-sccache-start # Start sccache server
+make rust-sccache-stats # Show sccache stats
+make rust-clean-release # Clean Rust release artifacts only
+make fmt              # Format Swift + Rust
+make lint             # Lint Swift + Rust
 ```
 
 `make test-unit` intentionally excludes UI tests so local unit-test runs do not trigger the UI automation flow.
+
+For Rust workflows, prefer Makefile targets over direct `cargo` commands to keep caching, release packaging, and cleanup behavior consistent.
 
 ## Key Patterns
 
@@ -93,7 +102,7 @@ The app doesn't embed the server — it connects over WebSocket. Endpoint config
 
 On launch, `ServerManager` still checks local install state for onboarding, while `ServerRuntimeRegistry` manages active endpoint runtimes and connection state:
 
-1. **Health check** `localhost:4000/health` → `.running` (covers `cargo run`, brew, launchd)
+1. **Health check** `localhost:4000/health` → `.running` (covers `make rust-run`, brew, launchd)
 2. **Launchd plist** at `~/Library/LaunchAgents/com.orbitdock.server.plist` → `.installed` (stopped)
 3. **Configured endpoints** in `ServerEndpointSettings` are loaded and connected by runtime registry
 4. Otherwise → `.notConfigured` (shows `ServerSetupView`)
@@ -117,7 +126,7 @@ On launch, `ServerManager` still checks local install state for onboarding, whil
 6. Wait for health check → connect WebSocket
 
 ### Development
-In dev, run `cargo run -p orbitdock-server` — the app detects it via health check and skips setup. Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
+In dev, run `make rust-run` — the app detects it via health check and skips setup. Set `ORBITDOCK_SERVER_PATH` in Xcode scheme to test the install flow with a debug binary.
 
 ## File Locations
 
@@ -240,8 +249,8 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.filename | strings | test("co
 ### Verbose Debug Logs
 Default log level is `info`. For verbose output, set `ORBITDOCK_SERVER_LOG_FILTER` (or `RUST_LOG`) before launching:
 ```bash
-ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server
-RUST_LOG=debug cargo run -p orbitdock-server
+make rust-run-debug
+RUST_LOG=debug make rust-run
 ```
 
 ### Log Controls
