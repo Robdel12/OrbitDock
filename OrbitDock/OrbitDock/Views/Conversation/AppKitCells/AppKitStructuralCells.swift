@@ -415,9 +415,12 @@
           }
 
         case .waiting:
-          primaryLabel.stringValue = "Type a message\u{2026}"
-          primaryLabel.textColor = NSColor(Color.textTertiary).withAlphaComponent(0.8)
-          primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .regular)
+          staticBar.isHidden = false
+          staticBar.layer?.backgroundColor = NSColor(Color.statusReply).withAlphaComponent(0.4).cgColor
+
+          primaryLabel.stringValue = "Waiting for reply"
+          primaryLabel.textColor = NSColor(Color.statusReply).withAlphaComponent(0.8)
+          primaryLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .medium)
           updateLabelLeadingConstraint(hasIcon: false)
 
         case .permission:

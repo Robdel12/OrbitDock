@@ -51,13 +51,6 @@ struct ConversationView: View {
     let nthUserMessage: Int?
   }
 
-  /// Whether the server snapshot has been received for the current session.
-  /// If no session is selected, consider it "ready" so we don't show a spinner.
-  private var snapshotReady: Bool {
-    guard let sid = sessionId else { return true }
-    return serverState.session(sid).hasReceivedSnapshot
-  }
-
   private var effectiveDisplayedCount: Int {
     guard !messages.isEmpty else { return 0 }
     if displayedCount <= 0 { return messages.count }
@@ -80,10 +73,12 @@ struct ConversationView: View {
       Color.backgroundPrimary
         .ignoresSafeArea()
 
-      if isLoading || (messages.isEmpty && !snapshotReady) {
+      if isLoading {
         ConversationLoadingView()
+          .transition(.opacity)
       } else if messages.isEmpty {
         ConversationEmptyStateView()
+          .transition(.opacity)
       } else {
         VStack(spacing: 0) {
           // Fork origin banner (persistent, above scroll)
@@ -100,8 +95,11 @@ struct ConversationView: View {
 
           conversationThread
         }
+        .transition(.opacity)
       }
     }
+    .animation(.easeOut(duration: 0.25), value: isLoading)
+    .animation(.easeOut(duration: 0.25), value: messages.isEmpty)
     .onAppear {
       loadMessagesIfNeeded()
       queueRefreshFromServerState()
@@ -176,17 +174,24 @@ struct ConversationView: View {
       return
     }
 
-    let serverMessages = serverState.session(sid).messages
+    let obs = serverState.session(sid)
+    let serverMessages = obs.messages
     messages = serverMessages
     displayedCount = min(pageSize, serverMessages.count)
 
-    isLoading = false
+    // Only clear loading if we already have messages or the snapshot confirmed empty.
+    // Otherwise keep loading visible until the refresh loop copies snapshot data.
+    if !serverMessages.isEmpty || obs.hasReceivedSnapshot {
+      isLoading = false
+    }
     logDebugState("load_messages")
   }
 
   private func refreshFromServerStateIfNeeded() {
     guard let sid = sessionId else { return }
-    let serverMessages = serverState.session(sid).messages
+    let obs = serverState.session(sid)
+    let serverMessages = obs.messages
+    let snapshotReceived = obs.hasReceivedSnapshot
     let previousRefreshCount = messages.count
 
     // Fast path: nothing changed at a render-relevant level.
@@ -200,7 +205,7 @@ struct ConversationView: View {
         displayedCount = min(pageSize, messages.count)
         logDebugState("fast_path_repair_displayed_count")
       }
-      isLoading = false
+      if snapshotReceived { isLoading = false }
       return
     }
 
@@ -241,7 +246,7 @@ struct ConversationView: View {
       displayedCount = 0
     }
 
-    isLoading = false
+    if snapshotReceived { isLoading = false }
     logDebugState("refresh_messages")
   }
 
