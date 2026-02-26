@@ -616,6 +616,9 @@ async fn async_main(
         }
     }
 
+    // Backfill claude_models from historical session model values
+    persistence::backfill_claude_models_from_sessions().await;
+
     // Drain spooled hook events from when the server was offline
     drain_spool(&state).await;
 

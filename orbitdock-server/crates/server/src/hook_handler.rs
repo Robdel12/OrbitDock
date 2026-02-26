@@ -148,6 +148,16 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         persist_op: None,
                     })
                     .await;
+                // Seed the model into claude_models if not already present
+                if let Some(ref m) = model {
+                    let _ = state
+                        .persist()
+                        .send(PersistCommand::UpsertClaudeModelIfAbsent {
+                            value: m.clone(),
+                            display_name: crate::persistence::display_name_from_model_string(m),
+                        })
+                        .await;
+                }
                 let _ = state
                     .persist()
                     .send(PersistCommand::ClaudeSessionUpsert {
@@ -1259,6 +1269,16 @@ async fn materialize_claude_session(
         .await;
     if let Ok(summary) = sum_rx.await {
         state.broadcast_to_list(ServerMessage::SessionCreated { session: summary });
+    }
+
+    // Seed the model into claude_models if not already present
+    if let Some(ref m) = model {
+        let _ = persist_tx
+            .send(PersistCommand::UpsertClaudeModelIfAbsent {
+                value: m.clone(),
+                display_name: crate::persistence::display_name_from_model_string(m),
+            })
+            .await;
     }
 
     // Persist full upsert with all cached metadata
