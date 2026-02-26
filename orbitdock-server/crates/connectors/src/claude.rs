@@ -564,8 +564,25 @@ impl ClaudeConnector {
                 if matches!(decision, "approved_for_session" | "approved_always") {
                     if let Some(ref suggestions) = p.permission_suggestions {
                         allow["updatedPermissions"] = suggestions.clone();
+                    } else {
+                        warn!(
+                            component = "claude_connector",
+                            event = "claude.approval.missing_permission_suggestions",
+                            request_id = %request_id,
+                            decision = %decision,
+                            tool_use_id = ?p.tool_use_id,
+                            "Session-scoped approval missing permission suggestions; CLI may reprompt the same command"
+                        );
                     }
                 }
+            } else if matches!(decision, "approved_for_session" | "approved_always") {
+                warn!(
+                    component = "claude_connector",
+                    event = "claude.approval.missing_pending_context",
+                    request_id = %request_id,
+                    decision = %decision,
+                    "Session-scoped approval missing pending request context; cannot attach permission updates"
+                );
             }
             allow
         };
@@ -928,8 +945,8 @@ impl ClaudeConnector {
 
             "control_cancel_request" => {
                 // CLI cancelled a pending approval — clean up stored data
-                if let Some(req_id) = raw.get("request_id").and_then(|v| v.as_str()) {
-                    pending_approvals.lock().await.remove(req_id);
+                if let Some(req_id) = string_field(raw, "request_id", "requestId") {
+                    pending_approvals.lock().await.remove(req_id.as_str());
                     debug!(
                         component = "claude_connector",
                         event = "claude.control.cancelled",
@@ -1479,15 +1496,14 @@ impl ClaudeConnector {
         raw: &Value,
         pending_approvals: &Arc<Mutex<HashMap<String, PendingApproval>>>,
     ) -> Vec<ConnectorEvent> {
-        let request = match raw.get("request") {
+        let request = match value_field(raw, "request", "request") {
             Some(r) => r,
             None => return vec![],
         };
 
-        let subtype = request
-            .get("subtype")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let subtype = string_field(request, "subtype", "subtype")
+            .or_else(|| string_field(request, "sub_type", "subType"))
+            .unwrap_or_default();
 
         if subtype != "can_use_tool" {
             debug!(
@@ -1499,21 +1515,29 @@ impl ClaudeConnector {
             return vec![];
         }
 
-        let request_id = raw
-            .get("request_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let tool_name = request
-            .get("tool_name")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-        let input = request.get("input").cloned();
-        let tool_use_id = request
-            .get("tool_use_id")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-        let permission_suggestions = request.get("permission_suggestions").cloned();
+        let request_id = string_field(raw, "request_id", "requestId").unwrap_or_default();
+        let tool_name = string_field(request, "tool_name", "toolName");
+        let input = value_field(request, "input", "input").cloned();
+        let tool_use_id = string_field(request, "tool_use_id", "toolUseID")
+            .or_else(|| string_field(request, "toolUseId", "toolUseId"));
+        let permission_suggestions =
+            value_field(request, "permission_suggestions", "permissionSuggestions")
+                .cloned()
+                .or_else(|| {
+                    value_field(raw, "permission_suggestions", "permissionSuggestions").cloned()
+                });
+        let has_permission_suggestions = permission_suggestions.is_some();
+
+        if request_id.is_empty() {
+            warn!(
+                component = "claude_connector",
+                event = "claude.control_request.missing_request_id",
+                tool_name = ?tool_name,
+                tool_use_id = ?tool_use_id,
+                "Claude can_use_tool request missing request_id; cannot correlate approval response"
+            );
+            return vec![];
+        }
 
         // Store for echoing back in approve_tool response
         pending_approvals.lock().await.insert(
@@ -1569,6 +1593,7 @@ impl ClaudeConnector {
             tool_name = ?tool_name,
             tool_use_id = ?tool_use_id,
             approval_type = ?approval_type,
+            has_permission_suggestions,
             "CLI requesting tool approval"
         );
 
@@ -1666,22 +1691,19 @@ impl ClaudeConnector {
         raw: &Value,
         pending_controls: &Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
     ) {
-        let response = match raw.get("response") {
+        let response = match value_field(raw, "response", "response") {
             Some(r) => r,
             None => return,
         };
 
-        let request_id = response
-            .get("request_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let request_id = string_field(response, "request_id", "requestId").unwrap_or_default();
 
         if request_id.is_empty() {
             return;
         }
 
         let mut pending = pending_controls.lock().await;
-        if let Some(tx) = pending.remove(request_id) {
+        if let Some(tx) = pending.remove(request_id.as_str()) {
             let _ = tx.send(response.clone());
         }
     }
@@ -1690,6 +1712,16 @@ impl ClaudeConnector {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn value_field<'a>(value: &'a Value, snake_key: &str, camel_key: &str) -> Option<&'a Value> {
+    value.get(snake_key).or_else(|| value.get(camel_key))
+}
+
+fn string_field(value: &Value, snake_key: &str, camel_key: &str) -> Option<String> {
+    value_field(value, snake_key, camel_key)
+        .and_then(|v| v.as_str())
+        .map(String::from)
+}
 
 fn now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1824,7 +1856,17 @@ fn resolve_claude_binary() -> Result<String, ConnectorError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_data_uri_base64, transform_image, ImageSource, UserContentBlock};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use serde_json::{json, Value};
+    use tokio::sync::Mutex;
+
+    use super::{
+        parse_data_uri_base64, transform_image, ClaudeConnector, ImageSource, PendingApproval,
+        UserContentBlock,
+    };
+    use crate::ConnectorEvent;
 
     #[test]
     fn parse_data_uri_base64_extracts_media_type_and_payload() {
@@ -1865,5 +1907,113 @@ mod tests {
             } => assert_eq!(url, "https://example.com/image.png"),
             other => panic!("expected url image source, got {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_cli_control_request_accepts_camel_case_permission_fields() {
+        let pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let permission_suggestions = json!([
+            {
+                "type": "addRules",
+                "behavior": "allow",
+                "destination": "session",
+                "rules": [{ "toolName": "Bash", "ruleContent": "npm test" }]
+            }
+        ]);
+
+        let raw = json!({
+            "type": "control_request",
+            "requestId": "req-camel-1",
+            "request": {
+                "subtype": "can_use_tool",
+                "toolName": "Bash",
+                "toolUseID": "toolu-camel-1",
+                "input": { "command": "npm test" },
+                "permissionSuggestions": permission_suggestions
+            }
+        });
+
+        let events = ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals).await;
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            ConnectorEvent::ApprovalRequested {
+                request_id,
+                tool_name,
+                command,
+                ..
+            } => {
+                assert_eq!(request_id, "req-camel-1");
+                assert_eq!(tool_name.as_deref(), Some("Bash"));
+                assert_eq!(command.as_deref(), Some("npm test"));
+            }
+            other => panic!("expected ApprovalRequested event, got {:?}", other),
+        }
+
+        let pending = pending_approvals.lock().await;
+        let stored = pending
+            .get("req-camel-1")
+            .expect("pending approval should be stored");
+        assert_eq!(stored.tool_use_id.as_deref(), Some("toolu-camel-1"));
+        assert_eq!(
+            stored.permission_suggestions,
+            Some(raw["request"]["permissionSuggestions"].clone())
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_cli_control_request_uses_top_level_permission_suggestions_fallback() {
+        let pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+        let permission_suggestions: Value = json!([
+            {
+                "type": "addRules",
+                "behavior": "allow",
+                "destination": "session",
+                "rules": [{ "toolName": "Bash", "ruleContent": "git status" }]
+            }
+        ]);
+
+        let raw = json!({
+            "type": "control_request",
+            "request_id": "req-top-level-1",
+            "permissionSuggestions": permission_suggestions,
+            "request": {
+                "subtype": "can_use_tool",
+                "tool_name": "Bash",
+                "input": { "command": "git status" }
+            }
+        });
+
+        let events = ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals).await;
+        assert_eq!(events.len(), 1);
+
+        let pending = pending_approvals.lock().await;
+        let stored = pending
+            .get("req-top-level-1")
+            .expect("pending approval should be stored");
+        assert_eq!(
+            stored.permission_suggestions,
+            Some(raw["permissionSuggestions"].clone())
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_cli_control_request_rejects_missing_request_id() {
+        let pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
+        let raw = json!({
+            "type": "control_request",
+            "request": {
+                "subtype": "can_use_tool",
+                "tool_name": "Bash",
+                "input": { "command": "pwd" }
+            }
+        });
+
+        let events = ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals).await;
+        assert!(events.is_empty(), "missing request id should be ignored");
+        assert!(pending_approvals.lock().await.is_empty());
     }
 }

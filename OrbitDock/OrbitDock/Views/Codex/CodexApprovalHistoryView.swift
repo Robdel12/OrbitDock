@@ -19,18 +19,59 @@ struct CodexApprovalHistoryView: View {
   @Environment(ServerAppState.self) private var serverState
   @State private var scope: Scope = .session
 
+  private var currentSession: Session? {
+    serverState.sessions.first(where: { $0.id == sessionId })
+  }
+
+  private var sessionApprovals: [ServerApprovalHistoryItem] {
+    serverState.session(sessionId).approvalHistory.sorted { $0.id > $1.id }
+  }
+
   private var approvals: [ServerApprovalHistoryItem] {
     let source: [ServerApprovalHistoryItem] = switch scope {
       case .session:
-        serverState.session(sessionId).approvalHistory
+        sessionApprovals
       case .global:
         serverState.globalApprovalHistory
     }
     return source.sorted { $0.id > $1.id }
   }
 
+  private var activeScopeGrants: [ServerApprovalHistoryItem] {
+    var deduped: [ServerApprovalHistoryItem] = []
+    var seen = Set<String>()
+
+    for approval in sessionApprovals {
+      guard let decision = approval.decision,
+            decision == "approved_for_session" || decision == "approved_always"
+      else { continue }
+
+      let key = [
+        decision,
+        approval.toolName ?? "",
+        approval.command ?? "",
+        approval.filePath ?? "",
+      ].joined(separator: "|")
+
+      if seen.contains(key) {
+        continue
+      }
+
+      seen.insert(key)
+      deduped.append(approval)
+    }
+
+    return deduped
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
+      permissionPosture
+
+      if !activeScopeGrants.isEmpty {
+        activeGrantList
+      }
+
       HStack {
         Text("Approval History")
           .font(.headline)
@@ -61,6 +102,125 @@ struct CodexApprovalHistoryView: View {
       }
     }
     .padding(Spacing.md)
+    .onAppear {
+      serverState.loadApprovalHistory(sessionId: sessionId)
+      serverState.loadGlobalApprovalHistory()
+    }
+    .onChange(of: scope) { _, newScope in
+      switch newScope {
+        case .session:
+          serverState.loadApprovalHistory(sessionId: sessionId)
+        case .global:
+          serverState.loadGlobalApprovalHistory()
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var permissionPosture: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Permission Posture")
+        .font(.headline)
+
+      if let session = currentSession {
+        if session.isDirectCodex {
+          let autonomyBinding = Binding(
+            get: { serverState.session(sessionId).autonomy },
+            set: { newValue in
+              serverState.updateSessionConfig(sessionId: sessionId, autonomy: newValue)
+            }
+          )
+
+          VStack(alignment: .leading, spacing: 6) {
+            Picker("Autonomy", selection: autonomyBinding) {
+              ForEach(AutonomyLevel.allCases) { level in
+                Text(level.displayName).tag(level)
+              }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+
+            Text(autonomyBinding.wrappedValue.description)
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+        } else if session.isDirectClaude {
+          let permissionBinding = Binding(
+            get: { serverState.session(sessionId).permissionMode },
+            set: { newValue in
+              serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newValue)
+            }
+          )
+
+          VStack(alignment: .leading, spacing: 6) {
+            Picker("Permission Mode", selection: permissionBinding) {
+              ForEach(ClaudePermissionMode.allCases) { mode in
+                Text(mode.displayName).tag(mode)
+              }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+
+            Text(permissionBinding.wrappedValue.description)
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+        }
+      } else {
+        Text("Session controls unavailable")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Text("Session-scoped and always-allow grants are shown below when available.")
+        .font(.caption2)
+        .foregroundStyle(Color.textTertiary)
+    }
+    .padding(10)
+    .background(Color.backgroundPrimary)
+    .clipShape(RoundedRectangle(cornerRadius: 10))
+  }
+
+  private var activeGrantList: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text("Active Grants")
+        .font(.subheadline.weight(.semibold))
+
+      ForEach(activeScopeGrants) { approval in
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(spacing: 8) {
+            Text(approval.toolName ?? approval.approvalType.rawValue.uppercased())
+              .font(.caption.bold())
+              .padding(.horizontal, 8)
+              .padding(.vertical, 2)
+              .background(Color.backgroundTertiary)
+              .clipShape(Capsule())
+
+            if let decision = approval.decision {
+              Text(decisionLabel(decision))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+          }
+
+          if let command = approval.command, !command.isEmpty {
+            Text(command)
+              .font(.system(.caption, design: .monospaced))
+              .lineLimit(2)
+          } else if let filePath = approval.filePath, !filePath.isEmpty {
+            Text(filePath)
+              .font(.system(.caption, design: .monospaced))
+              .lineLimit(1)
+              .truncationMode(.middle)
+          }
+        }
+        .padding(8)
+        .background(Color.backgroundPrimary)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+      }
+    }
   }
 
   private func approvalRow(_ approval: ServerApprovalHistoryItem) -> some View {

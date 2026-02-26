@@ -79,6 +79,10 @@ struct CodexTurnSidebar: View {
     !serverState.session(sessionId).approvalHistory.isEmpty
   }
 
+  private var hasApprovalSection: Bool {
+    true
+  }
+
   private var approvalCount: Int {
     serverState.session(sessionId).approvalHistory.count
   }
@@ -89,7 +93,7 @@ struct CodexTurnSidebar: View {
   }
 
   private var hasAnyContent: Bool {
-    hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasApprovals || hasTokens
+    hasPlan || hasDiff || hasMcp || hasSkills || hasComments || hasApprovalSection || hasTokens
   }
 
   var body: some View {
@@ -163,12 +167,12 @@ struct CodexTurnSidebar: View {
             }
 
             // Approvals section
-            if hasApprovals {
+            if hasApprovalSection {
               CollapsibleSection(
                 title: "Approvals",
                 icon: "checkmark.shield.fill",
                 isExpanded: $expandApprovals,
-                badge: "\(approvalCount)",
+                badge: hasApprovals ? "\(approvalCount)" : nil,
                 badgeColor: .statusPermission
               ) {
                 CodexApprovalHistoryView(sessionId: sessionId)
