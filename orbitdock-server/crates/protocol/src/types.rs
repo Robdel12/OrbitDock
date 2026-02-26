@@ -80,6 +80,8 @@ pub struct Message {
     pub tool_input: Option<String>,
     pub tool_output: Option<String>,
     pub is_error: bool,
+    #[serde(default, skip_serializing_if = "bool_is_false")]
+    pub is_in_progress: bool,
     pub timestamp: String,
     pub duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -219,6 +221,7 @@ pub struct ApprovalPreview {
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalPreviewType {
     ShellCommand,
+    Diff,
     Url,
     SearchQuery,
     Pattern,
@@ -496,6 +499,8 @@ pub struct MessageChanges {
     pub tool_output: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_in_progress: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<u64>,
 }

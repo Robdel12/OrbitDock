@@ -793,11 +793,13 @@ import SwiftUI
             if let message = messagesByID[id] {
               let summary = CompactToolHelpers.summary(for: message)
               let preview = CompactToolHelpers.diffPreview(for: message)
+              let livePreview = CompactToolHelpers.liveOutputPreview(for: message)
               height = UIKitCompactToolCell.requiredHeight(
                 for: width,
                 summary: summary,
                 hasDiffPreview: preview != nil,
-                hasContextLine: preview?.contextLine != nil
+                hasContextLine: preview?.contextLine != nil,
+                hasLivePreview: livePreview != nil
               )
             } else {
               height = ConversationLayout.compactToolRowHeight

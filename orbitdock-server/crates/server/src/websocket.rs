@@ -2166,6 +2166,7 @@ async fn handle_client_message_impl(
                     tool_input: None,
                     tool_output: None,
                     is_error: false,
+                    is_in_progress: false,
                     timestamp: iso_timestamp(ts_millis),
                     duration_ms: None,
                     images: images.clone(),
@@ -2293,6 +2294,7 @@ async fn handle_client_message_impl(
                     tool_input: None,
                     tool_output: None,
                     is_error: false,
+                    is_in_progress: false,
                     timestamp: iso_timestamp(ts_millis),
                     duration_ms: None,
                     images: images.clone(),
@@ -4734,7 +4736,6 @@ async fn handle_client_message_impl(
                 None => return,
             };
 
-            // Broadcast ShellStarted immediately
             actor
                 .send(SessionCommand::Broadcast {
                     msg: ServerMessage::ShellStarted {
@@ -4745,7 +4746,6 @@ async fn handle_client_message_impl(
                 })
                 .await;
 
-            // Append an in-progress shell message
             let shell_msg = orbitdock_protocol::Message {
                 id: rid.clone(),
                 session_id: sid.clone(),
@@ -4755,6 +4755,7 @@ async fn handle_client_message_impl(
                 tool_input: None,
                 tool_output: None,
                 is_error: false,
+                is_in_progress: true,
                 timestamp: iso_timestamp(
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -4765,23 +4766,72 @@ async fn handle_client_message_impl(
                 images: vec![],
             };
 
-            let _ = state
-                .persist()
-                .send(PersistCommand::MessageAppend {
-                    session_id: sid.clone(),
-                    message: shell_msg.clone(),
+            actor
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::transition::Input::MessageCreated(shell_msg),
                 })
                 .await;
 
-            actor
-                .send(SessionCommand::AddMessageAndBroadcast { message: shell_msg })
-                .await;
-
-            // Spawn execution task
             let state_ref = state.clone();
-            let persist_tx = state.persist().clone();
             tokio::spawn(async move {
-                let result = crate::shell::execute(&cmd_clone, &resolved_cwd, timeout_secs).await;
+                let (chunk_tx, mut chunk_rx) =
+                    mpsc::unbounded_channel::<crate::shell::ShellChunk>();
+
+                let command_for_exec = cmd_clone.clone();
+                let cwd_for_exec = resolved_cwd.clone();
+                let exec_handle = tokio::spawn(async move {
+                    crate::shell::execute_with_stream(
+                        &command_for_exec,
+                        &cwd_for_exec,
+                        timeout_secs,
+                        Some(chunk_tx),
+                    )
+                    .await
+                });
+
+                let mut streamed_output = String::new();
+                let mut last_stream_emit = std::time::Instant::now();
+                const SHELL_STREAM_THROTTLE_MS: u128 = 120;
+
+                while let Some(chunk) = chunk_rx.recv().await {
+                    if !chunk.stdout.is_empty() {
+                        streamed_output.push_str(&chunk.stdout);
+                    }
+                    if !chunk.stderr.is_empty() {
+                        streamed_output.push_str(&chunk.stderr);
+                    }
+
+                    let now = std::time::Instant::now();
+                    if now.duration_since(last_stream_emit).as_millis() < SHELL_STREAM_THROTTLE_MS {
+                        continue;
+                    }
+                    last_stream_emit = now;
+
+                    if let Some(actor) = state_ref.get_session(&sid) {
+                        actor
+                            .send(SessionCommand::ProcessEvent {
+                                event: crate::transition::Input::MessageUpdated {
+                                    message_id: rid.clone(),
+                                    content: None,
+                                    tool_output: Some(streamed_output.clone()),
+                                    is_error: None,
+                                    is_in_progress: Some(true),
+                                    duration_ms: None,
+                                },
+                            })
+                            .await;
+                    }
+                }
+
+                let result = match exec_handle.await {
+                    Ok(result) => result,
+                    Err(join_err) => crate::shell::ShellResult {
+                        stdout: String::new(),
+                        stderr: format!("Shell execution task failed: {join_err}"),
+                        exit_code: None,
+                        duration_ms: 0,
+                    },
+                };
 
                 let is_error = result.exit_code != Some(0);
                 let combined_output = if result.stderr.is_empty() {
@@ -4791,34 +4841,22 @@ async fn handle_client_message_impl(
                 } else {
                     format!("{}\n{}", result.stdout, result.stderr)
                 };
+                let final_output = if combined_output.is_empty() {
+                    streamed_output
+                } else {
+                    combined_output
+                };
 
-                // Persist the message update
-                let _ = persist_tx
-                    .send(PersistCommand::MessageUpdate {
-                        session_id: sid.clone(),
-                        message_id: rid.clone(),
-                        content: None,
-                        tool_output: Some(combined_output.clone()),
-                        duration_ms: Some(result.duration_ms),
-                        is_error: Some(is_error),
-                    })
-                    .await;
-
-                // Broadcast the message update and shell output via session actor
                 if let Some(actor) = state_ref.get_session(&sid) {
-                    let changes = MessageChanges {
-                        content: None,
-                        tool_output: Some(combined_output),
-                        is_error: Some(is_error),
-                        duration_ms: Some(result.duration_ms),
-                    };
-
                     actor
-                        .send(SessionCommand::Broadcast {
-                            msg: ServerMessage::MessageUpdated {
-                                session_id: sid.clone(),
+                        .send(SessionCommand::ProcessEvent {
+                            event: crate::transition::Input::MessageUpdated {
                                 message_id: rid.clone(),
-                                changes,
+                                content: None,
+                                tool_output: Some(final_output),
+                                is_error: Some(is_error),
+                                is_in_progress: Some(false),
+                                duration_ms: Some(result.duration_ms),
                             },
                         })
                         .await;
@@ -5316,6 +5354,7 @@ mod tests {
                 tool_input: Some("B".repeat(20_000)),
                 tool_output: Some("C".repeat(20_000)),
                 is_error: false,
+                is_in_progress: false,
                 timestamp: "2026-01-01T00:00:00Z".to_string(),
                 duration_ms: Some(123),
                 images: vec![],
@@ -5412,6 +5451,7 @@ mod tests {
             tool_input: None,
             tool_output: None,
             is_error: false,
+            is_in_progress: false,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             duration_ms: None,
             images: vec![ImageInput {
@@ -5443,6 +5483,7 @@ mod tests {
             tool_input: None,
             tool_output: None,
             is_error: false,
+            is_in_progress: false,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             duration_ms: None,
             images: vec![ImageInput {
@@ -5481,6 +5522,7 @@ mod tests {
             tool_input: None,
             tool_output: None,
             is_error: false,
+            is_in_progress: false,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             duration_ms: None,
             images: vec![oversized_image],
@@ -5684,6 +5726,7 @@ mod tests {
             tool_input: None,
             tool_output: None,
             is_error: false,
+            is_in_progress: false,
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             duration_ms: None,
             images: vec![],

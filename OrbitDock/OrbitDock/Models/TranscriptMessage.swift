@@ -109,7 +109,10 @@ struct TranscriptMessage: Identifiable, Hashable {
     lhs.id == rhs.id
       && lhs.content == rhs.content
       && lhs.toolOutput == rhs.toolOutput
+      && lhs.isError == rhs.isError
       && lhs.isInProgress == rhs.isInProgress
+      && lhs.images == rhs.images
+      && lhs.thinking == rhs.thinking
   }
 
   var preview: String {

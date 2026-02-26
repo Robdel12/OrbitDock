@@ -794,6 +794,13 @@ impl WatcherRuntime {
                 if self.saw_agent_event(path) {
                     return;
                 }
+
+                if let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) {
+                    let command = parse_exec_command(payload.get("command"));
+                    self.append_rollout_shell_message(&session_id, call_id, command)
+                        .await;
+                }
+
                 self.mark_working(&session_id, Some("Shell".to_string()))
                     .await;
             }
@@ -801,6 +808,38 @@ impl WatcherRuntime {
                 if self.saw_agent_event(path) {
                     return;
                 }
+
+                if let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) {
+                    let output = payload
+                        .get("aggregated_output")
+                        .or_else(|| payload.get("output"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    let is_error = payload
+                        .get("exit_code")
+                        .and_then(|v| v.as_i64())
+                        .map(|code| code != 0);
+                    let duration_ms =
+                        payload
+                            .get("duration_ms")
+                            .and_then(|v| v.as_u64())
+                            .or_else(|| {
+                                payload
+                                    .get("duration")
+                                    .and_then(|v| v.as_f64())
+                                    .map(|secs| (secs * 1000.0) as u64)
+                            });
+
+                    self.finish_rollout_shell_message(
+                        &session_id,
+                        call_id,
+                        output,
+                        is_error,
+                        duration_ms,
+                    )
+                    .await;
+                }
+
                 self.mark_tool_completed(&session_id, Some("Shell".to_string()))
                     .await;
             }
@@ -1079,6 +1118,7 @@ impl WatcherRuntime {
             tool_input: None,
             tool_output: None,
             is_error: false,
+            is_in_progress: false,
             timestamp: current_time_rfc3339(),
             duration_ms: None,
             images,
@@ -1099,6 +1139,74 @@ impl WatcherRuntime {
             .send(PersistCommand::MessageAppend {
                 session_id: session_id.to_string(),
                 message,
+            })
+            .await;
+    }
+
+    async fn append_rollout_shell_message(
+        &mut self,
+        session_id: &str,
+        call_id: &str,
+        command: String,
+    ) {
+        let message = Message {
+            id: format!("rollout-tool-{call_id}"),
+            session_id: session_id.to_string(),
+            message_type: MessageType::Tool,
+            content: if command.trim().is_empty() {
+                "Shell".to_string()
+            } else {
+                command
+            },
+            tool_name: Some("Bash".to_string()),
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: true,
+            timestamp: current_time_rfc3339(),
+            duration_ms: None,
+            images: vec![],
+        };
+
+        if let Some(actor) = self.app_state.get_session(session_id) {
+            actor
+                .send(SessionCommand::AddMessageAndBroadcast {
+                    message: message.clone(),
+                })
+                .await;
+        }
+
+        let _ = self
+            .persist_tx
+            .send(PersistCommand::MessageAppend {
+                session_id: session_id.to_string(),
+                message,
+            })
+            .await;
+    }
+
+    async fn finish_rollout_shell_message(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        output: Option<String>,
+        is_error: Option<bool>,
+        duration_ms: Option<u64>,
+    ) {
+        let Some(actor) = self.app_state.get_session(session_id) else {
+            return;
+        };
+
+        actor
+            .send(SessionCommand::ProcessEvent {
+                event: crate::transition::Input::MessageUpdated {
+                    message_id: format!("rollout-tool-{call_id}"),
+                    content: None,
+                    tool_output: output,
+                    is_error,
+                    is_in_progress: Some(false),
+                    duration_ms,
+                },
             })
             .await;
     }
@@ -1819,6 +1927,26 @@ fn tool_label(raw: Option<&str>) -> Option<String> {
         "mcp_tool_call" => "MCP".to_string(),
         other => other.to_string(),
     })
+}
+
+fn parse_exec_command(raw: Option<&Value>) -> String {
+    let Some(raw) = raw else {
+        return String::new();
+    };
+
+    if let Some(cmd) = raw.as_str() {
+        return cmd.to_string();
+    }
+
+    if let Some(parts) = raw.as_array() {
+        return parts
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+    }
+
+    String::new()
 }
 
 #[cfg(test)]

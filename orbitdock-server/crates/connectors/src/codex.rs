@@ -362,6 +362,7 @@ impl CodexConnector {
                     tool_input: None,
                     tool_output: None,
                     is_error: false,
+                    is_in_progress: false,
                     timestamp: iso_now(),
                     duration_ms: None,
                     images,
@@ -417,6 +418,7 @@ impl CodexConnector {
                         content: Some(e.message),
                         tool_output: None,
                         is_error: None,
+                        is_in_progress: Some(false),
                         duration_ms: None,
                     }]
                 } else {
@@ -430,6 +432,7 @@ impl CodexConnector {
                         tool_input: None,
                         tool_output: None,
                         is_error: false,
+                        is_in_progress: false,
                         timestamp: iso_now(),
                         duration_ms: None,
                         images: vec![],
@@ -449,6 +452,7 @@ impl CodexConnector {
                     tool_input: None,
                     tool_output: None,
                     is_error: false,
+                    is_in_progress: false,
                     timestamp: iso_now(),
                     duration_ms: None,
                     images: vec![],
@@ -501,6 +505,7 @@ impl CodexConnector {
                     ),
                     tool_output: None,
                     is_error: false,
+                    is_in_progress: true,
                     timestamp: iso_now(),
                     duration_ms: None,
                     images: vec![],
@@ -510,15 +515,28 @@ impl CodexConnector {
             }
 
             EventMsg::ExecCommandOutputDelta(e) => {
-                // Accumulate output — don't emit an event
                 let chunk_str = String::from_utf8_lossy(&e.chunk).to_string();
+                let mut accumulated = String::new();
                 {
                     let mut buffers = output_buffers.lock().await;
                     if let Some(buf) = buffers.get_mut(&e.call_id) {
                         buf.push_str(&chunk_str);
+                        accumulated = buf.clone();
                     }
                 }
-                vec![]
+
+                if accumulated.is_empty() {
+                    vec![]
+                } else {
+                    vec![ConnectorEvent::MessageUpdated {
+                        message_id: e.call_id,
+                        content: None,
+                        tool_output: Some(accumulated),
+                        is_error: None,
+                        is_in_progress: Some(true),
+                        duration_ms: None,
+                    }]
+                }
             }
 
             EventMsg::ExecCommandEnd(e) => {
@@ -541,6 +559,7 @@ impl CodexConnector {
                     content: None,
                     tool_output: Some(output_str),
                     is_error: Some(e.exit_code != 0),
+                    is_in_progress: Some(false),
                     duration_ms: Some(e.duration.as_millis() as u64),
                 }]
             }
@@ -606,6 +625,7 @@ impl CodexConnector {
                     tool_input: Some(tool_input),
                     tool_output: None,
                     is_error: false,
+                    is_in_progress: true,
                     timestamp: iso_now(),
                     duration_ms: None,
                     images: vec![],
@@ -625,6 +645,7 @@ impl CodexConnector {
                     content: None,
                     tool_output: Some(output),
                     is_error: Some(!e.success),
+                    is_in_progress: Some(false),
                     duration_ms: None,
                 }]
             }
@@ -646,6 +667,7 @@ impl CodexConnector {
                     tool_input: input_str,
                     tool_output: None,
                     is_error: false,
+                    is_in_progress: true,
                     timestamp: iso_now(),
                     duration_ms: None,
                     images: vec![],
@@ -664,6 +686,7 @@ impl CodexConnector {
                     content: None,
                     tool_output: Some(output),
                     is_error: Some(is_error),
+                    is_in_progress: Some(false),
                     duration_ms: Some(e.duration.as_millis() as u64),
                 }]
             }
@@ -824,6 +847,7 @@ impl CodexConnector {
                             tool_input: None,
                             tool_output: None,
                             is_error: false,
+                            is_in_progress: true,
                             timestamp: iso_now(),
                             duration_ms: None,
                             images: vec![],
@@ -849,6 +873,7 @@ impl CodexConnector {
                                 content: Some(s.content.clone()),
                                 tool_output: None,
                                 is_error: None,
+                                is_in_progress: Some(true),
                                 duration_ms: None,
                             }]
                         } else {
@@ -874,6 +899,7 @@ impl CodexConnector {
                             tool_input: None,
                             tool_output: None,
                             is_error: false,
+                            is_in_progress: true,
                             timestamp: iso_now(),
                             duration_ms: None,
                             images: vec![],
@@ -902,6 +928,7 @@ impl CodexConnector {
                             content: Some(s.content.clone()),
                             tool_output: None,
                             is_error: None,
+                            is_in_progress: Some(true),
                             duration_ms: None,
                         }]
                     }

@@ -62,6 +62,7 @@ pub enum PersistCommand {
         tool_output: Option<String>,
         duration_ms: Option<u64>,
         is_error: Option<bool>,
+        is_in_progress: Option<bool>,
     },
 
     /// Update token usage
@@ -602,8 +603,8 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             };
 
             conn.execute(
-                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_in_progress, images_json)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT OR IGNORE INTO messages (id, session_id, type, content, timestamp, sequence, tool_name, tool_input, tool_output, tool_duration, is_error, is_in_progress, images_json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
                 params![
                     message.id,
                     session_id,
@@ -616,6 +617,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     message.tool_output,
                     message.duration_ms.map(|d| d as f64 / 1000.0),
                     if message.is_error { 1 } else { 0 },
+                    if message.is_in_progress { 1 } else { 0 },
                     images_json,
                 ],
             )?;
@@ -640,6 +642,7 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             tool_output,
             duration_ms,
             is_error,
+            is_in_progress,
         } => {
             let mut updates = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -657,12 +660,13 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 params_vec.push(Box::new(d as f64 / 1000.0));
             }
             if let Some(e) = is_error {
-                updates.push("is_in_progress = ?");
+                updates.push("is_error = ?");
                 params_vec.push(Box::new(if e { 1 } else { 0 }));
             }
-
-            // Always mark as no longer in progress when updating
-            updates.push("is_in_progress = 0");
+            if let Some(in_progress) = is_in_progress {
+                updates.push("is_in_progress = ?");
+                params_vec.push(Box::new(if in_progress { 1 } else { 0 }));
+            }
 
             if !updates.is_empty() {
                 let sql = format!(
@@ -2050,7 +2054,7 @@ fn load_messages_from_db(
     session_id: &str,
 ) -> Result<Vec<Message>, anyhow::Error> {
     let mut msg_stmt = conn.prepare(
-        "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_in_progress, images_json
+        "SELECT id, type, content, timestamp, tool_name, tool_input, tool_output, tool_duration, is_error, is_in_progress, images_json
          FROM messages
          WHERE session_id = ?
          ORDER BY sequence",
@@ -2072,7 +2076,8 @@ fn load_messages_from_db(
 
             let duration_secs: Option<f64> = row.get(7)?;
             let is_error_int: i32 = row.get(8)?;
-            let images_json: Option<String> = row.get(9)?;
+            let is_in_progress_int: i32 = row.get(9)?;
+            let images_json: Option<String> = row.get(10)?;
             let images: Vec<orbitdock_protocol::ImageInput> = images_json
                 .and_then(|j| serde_json::from_str(&j).ok())
                 .unwrap_or_default();
@@ -2088,6 +2093,7 @@ fn load_messages_from_db(
                 tool_output: row.get(6)?,
                 duration_ms: duration_secs.map(|s| (s * 1000.0) as u64),
                 is_error: is_error_int != 0,
+                is_in_progress: is_in_progress_int != 0,
                 images,
             })
         })?
@@ -2396,6 +2402,7 @@ fn load_messages_from_transcript(
                 tool_output: item.tool_output,
                 duration_ms: None,
                 is_error: false,
+                is_in_progress: false,
                 images: item.images,
             });
             msg_counter += 1;
@@ -5252,6 +5259,7 @@ mod tests {
                         tool_input: None,
                         tool_output: None,
                         is_error: false,
+                        is_in_progress: false,
                         timestamp: "2026-02-22T00:00:00Z".into(),
                         duration_ms: None,
                         images: vec![],

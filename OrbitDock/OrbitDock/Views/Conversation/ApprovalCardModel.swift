@@ -10,6 +10,7 @@ import Foundation
 
 enum ApprovalPreviewType: Hashable, Sendable {
   case shellCommand
+  case diff
   case url
   case searchQuery
   case pattern
@@ -22,6 +23,8 @@ enum ApprovalPreviewType: Hashable, Sendable {
     switch self {
       case .shellCommand:
         "Shell Command"
+      case .diff:
+        "Diff"
       case .url:
         "URL"
       case .searchQuery:
@@ -45,6 +48,8 @@ extension ServerApprovalPreviewType {
     switch self {
       case .shellCommand:
         .shellCommand
+      case .diff:
+        .diff
       case .url:
         .url
       case .searchQuery:
@@ -269,6 +274,10 @@ enum ApprovalCardModelBuilder {
 
     let fallbackPreview: (command: String?, filePath: String?, previewType: ApprovalPreviewType)? = {
       guard previewFromServer == nil else { return nil }
+
+      if let diff = ApprovalPermissionPreviewHelpers.trimmed(pendingApproval?.diff) {
+        return (command: diff, filePath: nil, previewType: .diff)
+      }
 
       let rawCommand = pendingApproval?.command ?? nil
       let command = String.shellCommandDisplay(from: rawCommand)

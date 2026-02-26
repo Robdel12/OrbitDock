@@ -72,6 +72,7 @@ struct ServerMessage: Codable, Identifiable {
   let toolInput: String? // JSON string
   let toolOutput: String?
   let isError: Bool
+  let isInProgress: Bool
   let timestamp: String
   let durationMs: UInt64?
   let images: [ServerImageInput]
@@ -85,6 +86,7 @@ struct ServerMessage: Codable, Identifiable {
     case toolInput = "tool_input"
     case toolOutput = "tool_output"
     case isError = "is_error"
+    case isInProgress = "is_in_progress"
     case timestamp
     case durationMs = "duration_ms"
     case images
@@ -100,6 +102,7 @@ struct ServerMessage: Codable, Identifiable {
     toolInput = try container.decodeIfPresent(String.self, forKey: .toolInput)
     toolOutput = try container.decodeIfPresent(String.self, forKey: .toolOutput)
     isError = try container.decode(Bool.self, forKey: .isError)
+    isInProgress = try container.decodeIfPresent(Bool.self, forKey: .isInProgress) ?? false
     timestamp = try container.decode(String.self, forKey: .timestamp)
     durationMs = try container.decodeIfPresent(UInt64.self, forKey: .durationMs)
     images = try container.decodeIfPresent([ServerImageInput].self, forKey: .images) ?? []
@@ -115,6 +118,9 @@ struct ServerMessage: Codable, Identifiable {
     try container.encodeIfPresent(toolInput, forKey: .toolInput)
     try container.encodeIfPresent(toolOutput, forKey: .toolOutput)
     try container.encode(isError, forKey: .isError)
+    if isInProgress {
+      try container.encode(isInProgress, forKey: .isInProgress)
+    }
     try container.encode(timestamp, forKey: .timestamp)
     try container.encodeIfPresent(durationMs, forKey: .durationMs)
     if !images.isEmpty {
@@ -160,6 +166,7 @@ struct ServerTokenUsage: Codable {
 
 enum ServerApprovalPreviewType: String, Codable {
   case shellCommand = "shell_command"
+  case diff
   case url
   case searchQuery = "search_query"
   case pattern
@@ -869,12 +876,14 @@ struct ServerMessageChanges: Codable {
   let content: String?
   let toolOutput: String?
   let isError: Bool?
+  let isInProgress: Bool?
   let durationMs: UInt64?
 
   enum CodingKeys: String, CodingKey {
     case content
     case toolOutput = "tool_output"
     case isError = "is_error"
+    case isInProgress = "is_in_progress"
     case durationMs = "duration_ms"
   }
 }

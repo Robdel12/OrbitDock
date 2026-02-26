@@ -73,6 +73,7 @@ fn fallback_tool_input(approval: &ApprovalRequest) -> Option<String> {
                 orbitdock_protocol::ApprovalPreviewType::SearchQuery => "query",
                 orbitdock_protocol::ApprovalPreviewType::Pattern => "pattern",
                 orbitdock_protocol::ApprovalPreviewType::Prompt => "prompt",
+                orbitdock_protocol::ApprovalPreviewType::Diff => "diff",
                 orbitdock_protocol::ApprovalPreviewType::FilePath => "file_path",
                 orbitdock_protocol::ApprovalPreviewType::Value
                 | orbitdock_protocol::ApprovalPreviewType::Action => "value",

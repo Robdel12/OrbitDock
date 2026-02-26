@@ -1569,8 +1569,6 @@
             h += CGFloat(Spacing.xs) + 12 // scope row
           }
 
-          if model.diff != nil { h += 120 }
-
           h += CGFloat(Spacing.sm) + 1 // divider
           h += CGFloat(Spacing.sm) + Layout.primaryButtonHeight // primary buttons
           h += CGFloat(Spacing.xs) + Layout.secondaryRowHeight // secondary row

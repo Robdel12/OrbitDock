@@ -153,6 +153,7 @@ impl CodexSession {
                                         tool_output: Some(status.to_string()),
                                         duration_ms: None,
                                         is_error: None,
+                                        is_in_progress: None,
                                     })
                                     .await;
 
@@ -164,6 +165,7 @@ impl CodexSession {
                                             content: None,
                                             tool_output: Some(status.to_string()),
                                             is_error: None,
+                                            is_in_progress: None,
                                             duration_ms: None,
                                         },
                                     });

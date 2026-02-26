@@ -1076,6 +1076,7 @@ mod tests {
             tool_input: None,
             tool_output: None,
             is_error: false,
+            is_in_progress: false,
             timestamp: "2024-01-01T00:00:00Z".to_string(),
             duration_ms: None,
             images: vec![],

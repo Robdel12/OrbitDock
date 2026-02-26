@@ -94,6 +94,7 @@ pub enum Input {
         content: Option<String>,
         tool_output: Option<String>,
         is_error: Option<bool>,
+        is_in_progress: Option<bool>,
         duration_ms: Option<u64>,
     },
     ApprovalRequested {
@@ -183,12 +184,14 @@ impl From<ConnectorEvent> for Input {
                 content,
                 tool_output,
                 is_error,
+                is_in_progress,
                 duration_ms,
             } => Input::MessageUpdated {
                 message_id,
                 content,
                 tool_output,
                 is_error,
+                is_in_progress,
                 duration_ms,
             },
             ConnectorEvent::ApprovalRequested {
@@ -323,6 +326,7 @@ pub enum PersistOp {
         tool_output: Option<String>,
         duration_ms: Option<u64>,
         is_error: Option<bool>,
+        is_in_progress: Option<bool>,
     },
     TokensUpdate {
         session_id: String,
@@ -408,6 +412,7 @@ impl PersistOp {
                 tool_output,
                 duration_ms,
                 is_error,
+                is_in_progress,
             } => PersistCommand::MessageUpdate {
                 session_id,
                 message_id,
@@ -415,6 +420,7 @@ impl PersistOp {
                 tool_output,
                 duration_ms,
                 is_error,
+                is_in_progress,
             },
             PersistOp::TokensUpdate {
                 session_id,
@@ -642,6 +648,7 @@ pub fn transition(
                 tool_input: None,
                 tool_output: None,
                 is_error: true,
+                is_in_progress: false,
                 timestamp: now.to_string(),
                 duration_ms: None,
                 images: vec![],
@@ -711,6 +718,7 @@ pub fn transition(
             content,
             tool_output,
             is_error,
+            is_in_progress,
             duration_ms,
         } => {
             if let Some(existing) = state
@@ -730,6 +738,9 @@ pub fn transition(
                 if let Some(duration_ms) = duration_ms {
                     existing.duration_ms = Some(duration_ms);
                 }
+                if let Some(is_in_progress) = is_in_progress {
+                    existing.is_in_progress = is_in_progress;
+                }
             }
 
             effects.push(Effect::Persist(Box::new(PersistOp::MessageUpdate {
@@ -739,6 +750,7 @@ pub fn transition(
                 tool_output: tool_output.clone(),
                 duration_ms,
                 is_error,
+                is_in_progress,
             })));
             effects.push(Effect::Emit(Box::new(ServerMessage::MessageUpdated {
                 session_id: sid,
@@ -747,6 +759,7 @@ pub fn transition(
                     content,
                     tool_output,
                     is_error,
+                    is_in_progress,
                     duration_ms,
                 },
             })));
@@ -792,6 +805,7 @@ pub fn transition(
                 tool_input.as_deref(),
                 command.as_deref(),
                 file_path.as_deref(),
+                diff.as_deref(),
                 resolved_question.as_deref(),
             );
 
@@ -1104,6 +1118,7 @@ pub fn transition(
                 tool_input: None,
                 tool_output: None,
                 is_error: false,
+                is_in_progress: false,
                 timestamp: now.to_string(),
                 duration_ms: None,
                 images: vec![],
@@ -1208,6 +1223,7 @@ fn build_approval_preview(
     tool_input: Option<&str>,
     command: Option<&str>,
     file_path: Option<&str>,
+    diff: Option<&str>,
     question: Option<&str>,
 ) -> Option<ApprovalPreview> {
     let input = parse_tool_input_object(tool_input);
@@ -1256,6 +1272,26 @@ fn build_approval_preview(
     });
     let fallback_input_value = input.as_ref().and_then(first_string_value_from_json_object);
     let question = trim_non_empty(question);
+    let patch_diff = trim_non_empty(diff).or_else(|| {
+        input
+            .as_ref()
+            .and_then(|dict| diff_preview_from_patch_input(dict, file_path.as_deref()))
+    });
+
+    if approval_type == ApprovalType::Patch {
+        if let Some(diff_preview) = patch_diff {
+            return Some(compose_approval_preview(
+                request_id,
+                approval_type,
+                tool_name,
+                normalized_tool_name.as_str(),
+                ApprovalPreviewType::Diff,
+                normalize_diff_preview(diff_preview.as_str()),
+                vec![],
+                &risk_assessment,
+            ));
+        }
+    }
 
     if let Some(command) = command {
         let shell_segments = shell_segments_for_preview(&command);
@@ -1565,7 +1601,9 @@ fn decision_scope_for_preview(preview_type: ApprovalPreviewType) -> &'static str
         ApprovalPreviewType::ShellCommand => {
             "approve/deny applies to all command segments in this request."
         }
-        ApprovalPreviewType::FilePath => "approve/deny applies to this full file action.",
+        ApprovalPreviewType::Diff | ApprovalPreviewType::FilePath => {
+            "approve/deny applies to this full file action."
+        }
         ApprovalPreviewType::Action
         | ApprovalPreviewType::Value
         | ApprovalPreviewType::Url
@@ -1637,6 +1675,25 @@ fn manifest_content_lines(
                 format!("[{}] {}{}", index + 1, prefix, segment.command)
             }));
             lines
+        }
+        ApprovalPreviewType::Diff => {
+            let lines: Vec<&str> = value.lines().collect();
+            let mut content = vec![format!("diff_lines: {}", lines.len())];
+            if let Some(target_file) = diff_target_file(value) {
+                content.push(format!("target_file: {target_file}"));
+            }
+            content.push("diff_preview:".to_string());
+            let preview_limit = 40usize;
+            content.extend(
+                lines
+                    .iter()
+                    .take(preview_limit)
+                    .map(|line| (*line).to_string()),
+            );
+            if lines.len() > preview_limit {
+                content.push(format!("... +{} more lines", lines.len() - preview_limit));
+            }
+            content
         }
         ApprovalPreviewType::FilePath => vec![format!("target_file: {value}")],
         ApprovalPreviewType::Url => vec![format!("target_url: {value}")],
@@ -1842,6 +1899,112 @@ fn first_string_value_from_json_object(dict: &JsonMap<String, JsonValue>) -> Opt
     None
 }
 
+const APPROVAL_DIFF_PREVIEW_MAX_CHARS: usize = 12_000;
+
+fn diff_preview_from_patch_input(
+    dict: &JsonMap<String, JsonValue>,
+    fallback_file_path: Option<&str>,
+) -> Option<String> {
+    if let Some(explicit_diff) = dict
+        .get("diff")
+        .and_then(JsonValue::as_str)
+        .and_then(trim_non_empty_str)
+    {
+        return Some(explicit_diff);
+    }
+
+    let file_path = dict
+        .get("file_path")
+        .and_then(JsonValue::as_str)
+        .and_then(trim_non_empty_str)
+        .or_else(|| fallback_file_path.and_then(trim_non_empty_str))
+        .unwrap_or_else(|| "file".to_string());
+
+    let old_string = dict.get("old_string").and_then(JsonValue::as_str);
+    let new_string = dict.get("new_string").and_then(JsonValue::as_str);
+
+    if old_string.is_some() || new_string.is_some() {
+        return Some(render_patch_diff(
+            file_path.as_str(),
+            file_path.as_str(),
+            old_string.unwrap_or_default(),
+            new_string.unwrap_or_default(),
+        ));
+    }
+
+    if let Some(content) = dict
+        .get("content")
+        .and_then(JsonValue::as_str)
+        .and_then(trim_non_empty_str)
+    {
+        return Some(render_patch_diff(
+            "/dev/null",
+            file_path.as_str(),
+            "",
+            content.as_str(),
+        ));
+    }
+
+    None
+}
+
+fn render_patch_diff(old_path: &str, new_path: &str, old_text: &str, new_text: &str) -> String {
+    let mut lines = vec![
+        format!("--- {old_path}"),
+        format!("+++ {new_path}"),
+        "@@".to_string(),
+    ];
+
+    lines.extend(old_text.lines().map(|line| format!("-{line}")));
+    lines.extend(new_text.lines().map(|line| format!("+{line}")));
+
+    if old_text.is_empty() && new_text.is_empty() {
+        lines.push("(no textual changes provided)".to_string());
+    }
+
+    lines.join("\n")
+}
+
+fn normalize_diff_preview(diff: &str) -> String {
+    let trimmed = diff.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let char_count = trimmed.chars().count();
+    if char_count <= APPROVAL_DIFF_PREVIEW_MAX_CHARS {
+        return trimmed.to_string();
+    }
+
+    let preview_len = APPROVAL_DIFF_PREVIEW_MAX_CHARS.saturating_sub(64);
+    let preview: String = trimmed.chars().take(preview_len).collect();
+    format!("{preview}\n... diff preview truncated ({char_count} chars total)")
+}
+
+fn diff_target_file(diff: &str) -> Option<String> {
+    for line in diff.lines() {
+        let Some(candidate) = line.strip_prefix("+++ ") else {
+            continue;
+        };
+        let candidate = candidate.trim();
+        if candidate.is_empty() || candidate == "/dev/null" {
+            continue;
+        }
+
+        let normalized = candidate
+            .strip_prefix("b/")
+            .or_else(|| candidate.strip_prefix("a/"))
+            .unwrap_or(candidate)
+            .trim();
+
+        if !normalized.is_empty() {
+            return Some(normalized.to_string());
+        }
+    }
+
+    None
+}
+
 fn compact_detail_for_preview(
     preview_type: ApprovalPreviewType,
     value: &str,
@@ -1864,6 +2027,18 @@ fn compact_detail_for_preview(
                 format!("{first} +{remaining} {noun}")
             } else {
                 value.to_string()
+            }
+        }
+        ApprovalPreviewType::Diff => {
+            let diff_lines = value.lines().count();
+            if let Some(target_file) = diff_target_file(value) {
+                let leaf = Path::new(target_file.as_str())
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(target_file.as_str());
+                format!("{leaf} ({diff_lines} lines)")
+            } else {
+                format!("diff ({diff_lines} lines)")
             }
         }
         ApprovalPreviewType::Url => format!("url: {value}"),
@@ -2082,6 +2257,7 @@ mod tests {
             tool_input: None,
             tool_output: None,
             is_error: false,
+            is_in_progress: false,
             timestamp: "0Z".to_string(),
             duration_ms: None,
             images: vec![],
@@ -2283,8 +2459,63 @@ mod tests {
     }
 
     #[test]
+    fn approval_requested_preview_uses_diff_for_patch_requests_with_text_changes() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+
+        let (_, effects) = transition(
+            state,
+            Input::ApprovalRequested {
+                request_id: "req-edit-diff".to_string(),
+                approval_type: ApprovalType::Patch,
+                tool_name: Some("Edit".to_string()),
+                tool_input: Some(
+                    r#"{"file_path":"/tmp/OrbitDock/docs/approvals.md","old_string":"line one","new_string":"line two"}"#
+                        .to_string(),
+                ),
+                command: None,
+                file_path: None,
+                diff: None,
+                question: None,
+                proposed_amendment: None,
+            },
+            NOW,
+        );
+
+        if let Effect::Emit(message) = &effects[1] {
+            match message.as_ref() {
+                ServerMessage::ApprovalRequested { request, .. } => {
+                    let preview = request.preview.as_ref().expect("expected preview");
+                    assert_eq!(preview.preview_type, ApprovalPreviewType::Diff);
+                    assert!(preview
+                        .value
+                        .contains("--- /tmp/OrbitDock/docs/approvals.md"));
+                    assert!(preview
+                        .value
+                        .contains("+++ /tmp/OrbitDock/docs/approvals.md"));
+                    assert!(preview.value.contains("-line one"));
+                    assert!(preview.value.contains("+line two"));
+                    assert!(preview
+                        .compact
+                        .as_deref()
+                        .is_some_and(|compact| compact.contains("approvals.md")));
+                    assert_eq!(
+                        preview.decision_scope.as_deref(),
+                        Some("approve/deny applies to this full file action.")
+                    );
+                    assert!(preview
+                        .manifest
+                        .as_deref()
+                        .is_some_and(|manifest| manifest.contains("diff_preview:")));
+                }
+                other => panic!("expected approval_requested emit, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn build_approval_preview_covers_supported_non_shell_preview_types() {
-        let cases: [(&str, ApprovalType, ApprovalPreviewType, &str, &str); 6] = [
+        let cases: [(&str, ApprovalType, ApprovalPreviewType, &str, &str); 7] = [
             (
                 r#"{"url":"https://example.com/docs"}"#,
                 ApprovalType::Exec,
@@ -2321,6 +2552,13 @@ mod tests {
                 "approve/deny applies to this full file action.",
             ),
             (
+                r#"{"file_path":"/tmp/OrbitDock/README.md","old_string":"alpha","new_string":"beta"}"#,
+                ApprovalType::Patch,
+                ApprovalPreviewType::Diff,
+                "diff_preview:",
+                "approve/deny applies to this full file action.",
+            ),
+            (
                 r#"{"foo":"bar"}"#,
                 ApprovalType::Exec,
                 ApprovalPreviewType::Value,
@@ -2345,6 +2583,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .expect("expected preview");
 
@@ -2363,6 +2602,7 @@ mod tests {
             "req-question",
             ApprovalType::Question,
             Some("AskUserQuestion"),
+            None,
             None,
             None,
             None,
@@ -2469,6 +2709,7 @@ mod tests {
                 content: Some("I'm now cross-checking the highest-risk claims".to_string()),
                 tool_output: Some("new output".to_string()),
                 is_error: Some(false),
+                is_in_progress: Some(false),
                 duration_ms: Some(420),
             },
             NOW,

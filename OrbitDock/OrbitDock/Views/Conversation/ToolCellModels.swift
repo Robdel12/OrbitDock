@@ -29,6 +29,7 @@ struct NativeCompactToolRowModel {
   let rightMeta: String?
   let isInProgress: Bool
   let diffPreview: DiffPreviewInfo?
+  let liveOutputPreview: String?
 }
 
 // MARK: - Tool Glyph Info
@@ -122,7 +123,7 @@ enum CompactToolHelpers {
           let prefix = message.bashHasError ? "\u{2717}" : "\u{2713}"
           return "\(prefix) \(dur)"
         }
-        if message.isInProgress { return "\u{2026}" }
+        if message.isInProgress { return "LIVE" }
         return nil
       case "read":
         if let count = message.outputLineCount { return "\(count) lines" }
@@ -299,6 +300,28 @@ enum CompactToolHelpers {
     }
     return nil
   }
+
+  static func liveOutputPreview(for message: TranscriptMessage) -> String? {
+    guard message.toolName?.lowercased() == "bash", message.isInProgress else { return nil }
+
+    let output = (message.sanitizedToolOutput ?? "")
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+
+    let lastLine = output
+      .components(separatedBy: "\n")
+      .reversed()
+      .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    let preview = (lastLine ?? "running...")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard !preview.isEmpty else { return "running..." }
+    if preview.count > 96 {
+      return String(preview.prefix(96)) + "\u{2026}"
+    }
+    return preview
+  }
 }
 
 // MARK: - Shared Model Builders
@@ -372,6 +395,7 @@ enum SharedModelBuilders {
     let summary = CompactToolHelpers.summary(for: message)
     let meta = CompactToolHelpers.rightMeta(for: message)
     let preview = CompactToolHelpers.diffPreview(for: message)
+    let liveOutputPreview = CompactToolHelpers.liveOutputPreview(for: message)
 
     return NativeCompactToolRowModel(
       timestamp: message.timestamp,
@@ -380,7 +404,8 @@ enum SharedModelBuilders {
       summary: summary,
       rightMeta: meta,
       isInProgress: message.isInProgress,
-      diffPreview: preview
+      diffPreview: preview,
+      liveOutputPreview: liveOutputPreview
     )
   }
 

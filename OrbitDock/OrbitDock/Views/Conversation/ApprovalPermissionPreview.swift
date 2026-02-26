@@ -40,6 +40,8 @@ enum ApprovalPermissionPreviewHelpers {
         "folder"
       case .filePath:
         filePreviewIconName(for: model.toolName)
+      case .diff:
+        "text.alignleft"
       case .action:
         "questionmark.circle"
       default:

@@ -180,7 +180,8 @@
       for width: CGFloat,
       summary: String,
       hasDiffPreview: Bool = false,
-      hasContextLine: Bool = false
+      hasContextLine: Bool = false,
+      hasLivePreview: Bool = false
     ) -> CGFloat {
       let inset = ConversationLayout.laneHorizontalInset
       let font = UIFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -192,6 +193,9 @@
       if hasDiffPreview {
         let contextExtra: CGFloat = hasContextLine ? 14 : 0
         return baseHeight + 22 + contextExtra
+      }
+      if hasLivePreview {
+        return baseHeight + 16
       }
       return baseHeight
     }
@@ -254,6 +258,27 @@
         diffBarRemoved.backgroundColor = ExpandedToolLayout.removedAccentColor.withAlphaComponent(0.6)
         diffBarRemoved.isHidden = preview.deletions == 0
         diffBarContainer.isHidden = false
+      } else if let livePreview = model.liveOutputPreview {
+        contextLabel.isHidden = true
+        diffBarContainer.isHidden = true
+        let color = PlatformColor(Color.toolBash).withAlphaComponent(0.75)
+        let attributed = NSMutableAttributedString()
+        attributed.append(NSAttributedString(
+          string: "> ",
+          attributes: [
+            .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .bold),
+            .foregroundColor: color,
+          ]
+        ))
+        attributed.append(NSAttributedString(
+          string: livePreview,
+          attributes: [
+            .font: UIFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: color,
+          ]
+        ))
+        snippetLabel.attributedText = attributed
+        snippetLabel.isHidden = false
       } else {
         contextLabel.isHidden = true
         snippetLabel.isHidden = true

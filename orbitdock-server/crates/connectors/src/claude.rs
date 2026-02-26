@@ -364,6 +364,11 @@ impl ClaudeConnector {
             Arc::new(Mutex::new(Vec::new()));
         let models_clone = models.clone();
 
+        // Keep a clone of event_tx so we can emit models after send_initialize()
+        // completes. The system init message arrives on stdout before the
+        // control_response, so the event loop would read an empty models mutex.
+        let init_event_tx = event_tx.clone();
+
         tokio::spawn(async move {
             Self::event_loop(
                 stdout,
@@ -427,7 +432,19 @@ impl ClaudeConnector {
                         "Parsed models from initialize response"
                     );
 
-                    *models.lock().await = parsed_models;
+                    *models.lock().await = parsed_models.clone();
+
+                    // Emit models via the event channel. The system init message
+                    // was already processed by the event loop with an empty models
+                    // vec (race condition), so we send a follow-up event here.
+                    let _ = init_event_tx
+                        .send(ConnectorEvent::ClaudeInitialized {
+                            slash_commands: vec![],
+                            skills: vec![],
+                            tools: vec![],
+                            models: parsed_models,
+                        })
+                        .await;
                 }
             }
             Err(e) => {
@@ -928,10 +945,7 @@ impl ClaudeConnector {
                 vec![]
             }
 
-            "tool_progress" => {
-                // Could emit MessageUpdated for progress, but ignore for now
-                vec![]
-            }
+            "tool_progress" => Self::handle_tool_progress(raw),
 
             "keep_alive" | "auth_status" => vec![],
 
@@ -971,7 +985,7 @@ impl ClaudeConnector {
     async fn handle_system_message(
         raw: &Value,
         session_id_slot: &Arc<Mutex<Option<String>>>,
-        models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
+        _models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
     ) -> Vec<ConnectorEvent> {
         let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -1012,12 +1026,15 @@ impl ClaudeConnector {
                         events.push(ConnectorEvent::ModelUpdated(m.to_string()));
                     }
 
-                    let models_list = models.lock().await.clone();
+                    // Don't read models from the mutex here — the system init
+                    // message arrives on stdout before the control_response that
+                    // populates the models mutex. Models are emitted separately
+                    // from new() after send_initialize() completes.
                     events.push(ConnectorEvent::ClaudeInitialized {
                         slash_commands,
                         skills,
                         tools,
-                        models: models_list,
+                        models: vec![],
                     });
                 }
                 events
@@ -1131,6 +1148,7 @@ impl ClaudeConnector {
                             tool_input: None,
                             tool_output: None,
                             is_error: false,
+                            is_in_progress: false,
                             timestamp: now_iso(),
                             duration_ms: None,
                             images: vec![],
@@ -1143,9 +1161,11 @@ impl ClaudeConnector {
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
                     let input = block.get("input").map(|v| v.to_string());
+                    let tool_use_id = block.get("id").and_then(|v| v.as_str());
+                    let message_id = tool_use_id.map(str::to_string).unwrap_or(id);
                     events.push(ConnectorEvent::MessageCreated(
                         orbitdock_protocol::Message {
-                            id,
+                            id: message_id,
                             session_id: session_id.to_string(),
                             message_type: orbitdock_protocol::MessageType::Tool,
                             content: String::new(),
@@ -1153,6 +1173,7 @@ impl ClaudeConnector {
                             tool_input: input,
                             tool_output: None,
                             is_error: false,
+                            is_in_progress: true,
                             timestamp: now_iso(),
                             duration_ms: None,
                             images: vec![],
@@ -1171,6 +1192,7 @@ impl ClaudeConnector {
                             tool_input: None,
                             tool_output: None,
                             is_error: false,
+                            is_in_progress: false,
                             timestamp: now_iso(),
                             duration_ms: None,
                             images: vec![],
@@ -1251,6 +1273,17 @@ impl ClaudeConnector {
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
 
+                if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                    events.push(ConnectorEvent::MessageUpdated {
+                        message_id: tool_use_id.to_string(),
+                        content: None,
+                        tool_output: Some(content.clone()),
+                        is_error: Some(is_error),
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    });
+                }
+
                 let id = format!(
                     "claude-msg-{}-{}",
                     &session_id[..8.min(session_id.len())],
@@ -1266,6 +1299,7 @@ impl ClaudeConnector {
                         tool_input: None,
                         tool_output: None,
                         is_error,
+                        is_in_progress: false,
                         timestamp: now_iso(),
                         duration_ms: None,
                         images: vec![],
@@ -1321,6 +1355,7 @@ impl ClaudeConnector {
                                 tool_input: None,
                                 tool_output: None,
                                 is_error: false,
+                                is_in_progress: true,
                                 timestamp: now_iso(),
                                 duration_ms: None,
                                 images: vec![],
@@ -1333,6 +1368,7 @@ impl ClaudeConnector {
                             content: Some(streaming_content.clone()),
                             tool_output: None,
                             is_error: None,
+                            is_in_progress: Some(true),
                             duration_ms: None,
                         });
                     }
@@ -1341,6 +1377,31 @@ impl ClaudeConnector {
         }
 
         events
+    }
+
+    /// Handle `tool_progress` updates for long-running tool executions.
+    fn handle_tool_progress(raw: &Value) -> Vec<ConnectorEvent> {
+        let Some(tool_use_id) = raw.get("tool_use_id").and_then(|v| v.as_str()) else {
+            return vec![];
+        };
+
+        let tool_name = raw
+            .get("tool_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Tool");
+        let elapsed = raw
+            .get("elapsed_time_seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        vec![ConnectorEvent::MessageUpdated {
+            message_id: tool_use_id.to_string(),
+            content: None,
+            tool_output: Some(format!("{} running ({}s)", tool_name, elapsed)),
+            is_error: None,
+            is_in_progress: Some(true),
+            duration_ms: None,
+        }]
     }
 
     /// Handle `result` messages — turn completed/aborted with usage.
@@ -1482,11 +1543,9 @@ impl ClaudeConnector {
             .and_then(|i| i.get("file_path"))
             .and_then(|v| v.as_str())
             .map(String::from);
-        let diff = input
-            .as_ref()
-            .and_then(|i| i.get("new_string"))
-            .and_then(|v| v.as_str())
-            .map(String::from);
+        let diff = input.as_ref().and_then(|payload| {
+            Self::patch_diff_for_approval(tool_name.as_deref(), payload, file_path.as_deref())
+        });
         let question = input
             .as_ref()
             .and_then(|i| i.get("question"))
@@ -1526,6 +1585,80 @@ impl ClaudeConnector {
             question,
             proposed_amendment: None,
         }]
+    }
+
+    fn patch_diff_for_approval(
+        tool_name: Option<&str>,
+        payload: &Value,
+        fallback_file_path: Option<&str>,
+    ) -> Option<String> {
+        let is_patch_tool = matches!(tool_name, Some("Edit" | "Write" | "NotebookEdit"));
+        if !is_patch_tool {
+            return payload
+                .get("new_string")
+                .and_then(|value| value.as_str())
+                .and_then(Self::trim_non_empty_str)
+                .map(str::to_string);
+        }
+
+        let file_path = payload
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .and_then(Self::trim_non_empty_str)
+            .or_else(|| fallback_file_path.and_then(Self::trim_non_empty_str))
+            .unwrap_or("file");
+
+        let old_string = payload.get("old_string").and_then(|value| value.as_str());
+        let new_string = payload.get("new_string").and_then(|value| value.as_str());
+
+        if old_string.is_some() || new_string.is_some() {
+            return Some(Self::render_patch_diff(
+                file_path,
+                file_path,
+                old_string.unwrap_or_default(),
+                new_string.unwrap_or_default(),
+            ));
+        }
+
+        if let Some(content) = payload
+            .get("content")
+            .and_then(|value| value.as_str())
+            .and_then(Self::trim_non_empty_str)
+        {
+            return Some(Self::render_patch_diff("/dev/null", file_path, "", content));
+        }
+
+        payload
+            .get("new_string")
+            .and_then(|value| value.as_str())
+            .and_then(Self::trim_non_empty_str)
+            .map(str::to_string)
+    }
+
+    fn render_patch_diff(old_path: &str, new_path: &str, old_text: &str, new_text: &str) -> String {
+        let mut lines = vec![
+            format!("--- {old_path}"),
+            format!("+++ {new_path}"),
+            "@@".to_string(),
+        ];
+
+        lines.extend(old_text.lines().map(|line| format!("-{line}")));
+        lines.extend(new_text.lines().map(|line| format!("+{line}")));
+
+        if old_text.is_empty() && new_text.is_empty() {
+            lines.push("(no textual changes provided)".to_string());
+        }
+
+        lines.join("\n")
+    }
+
+    fn trim_non_empty_str(value: &str) -> Option<&str> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
     }
 
     /// Handle `control_response` from CLI — resolve pending control requests.
@@ -1580,6 +1713,7 @@ fn flush_streaming(
                 content: Some(std::mem::take(streaming_content)),
                 tool_output: None,
                 is_error: None,
+                is_in_progress: Some(false),
                 duration_ms: None,
             });
         }

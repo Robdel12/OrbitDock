@@ -1332,8 +1332,6 @@
             h += CGFloat(Spacing.xs) + 12
           }
 
-          if model.diff != nil { h += 120 }
-
           h += CGFloat(Spacing.sm) + 1 // divider
           h += CGFloat(Spacing.sm) + Layout.primaryButtonHeight // primary buttons (44pt touch targets)
           h += CGFloat(Spacing.xs) + Layout.actionFooterHeight

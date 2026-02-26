@@ -50,6 +50,7 @@ pub enum ConnectorEvent {
         content: Option<String>,
         tool_output: Option<String>,
         is_error: Option<bool>,
+        is_in_progress: Option<bool>,
         duration_ms: Option<u64>,
     },
 

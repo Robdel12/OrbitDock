@@ -330,9 +330,15 @@ final class ServerAppState {
       Task { @MainActor in
         guard let self else { return }
         let obs = self.session(sessionId)
-        obs.slashCommands = Set(slashCommands)
-        obs.claudeSkillNames = skills
-        obs.claudeToolNames = tools
+        if !slashCommands.isEmpty {
+          obs.slashCommands = Set(slashCommands)
+        }
+        if !skills.isEmpty {
+          obs.claudeSkillNames = skills
+        }
+        if !tools.isEmpty {
+          obs.claudeToolNames = tools
+        }
         if !models.isEmpty {
           self.claudeModels = models
         }
@@ -1354,7 +1360,8 @@ final class ServerAppState {
       toolDuration: incoming.toolDuration ?? existing.toolDuration,
       inputTokens: incoming.inputTokens ?? existing.inputTokens,
       outputTokens: incoming.outputTokens ?? existing.outputTokens,
-      isInProgress: incoming.isInProgress || existing.isInProgress,
+      isError: incoming.isError || existing.isError,
+      isInProgress: incoming.isInProgress,
       images: incoming.images.isEmpty ? existing.images : incoming.images,
       thinking: mergedThinking
     )
@@ -1372,6 +1379,7 @@ final class ServerAppState {
       toolDuration: message.toolDuration,
       inputTokens: message.inputTokens,
       outputTokens: message.outputTokens,
+      isError: message.isError,
       isInProgress: message.isInProgress,
       images: message.images,
       thinking: message.thinking
@@ -1511,7 +1519,8 @@ final class ServerAppState {
         toolDuration: changes.durationMs.map { Double($0) / 1_000.0 },
         inputTokens: nil,
         outputTokens: nil,
-        isInProgress: false
+        isError: changes.isError ?? false,
+        isInProgress: changes.isInProgress ?? false
       )
       messages.append(fallback)
       obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "update-fallback")
@@ -1533,13 +1542,24 @@ final class ServerAppState {
         toolDuration: changes.durationMs.map { Double($0) / 1_000.0 } ?? msg.toolDuration,
         inputTokens: msg.inputTokens,
         outputTokens: msg.outputTokens,
-        isInProgress: false
+        isError: changes.isError ?? msg.isError,
+        isInProgress: changes.isInProgress ?? msg.isInProgress,
+        images: msg.images,
+        thinking: msg.thinking
       )
     } else {
       if let output = changes.toolOutput {
         msg.toolOutput = output
       }
-      msg.isInProgress = false
+      if let durationMs = changes.durationMs {
+        msg.toolDuration = Double(durationMs) / 1_000.0
+      }
+      if let isError = changes.isError {
+        msg.isError = isError
+      }
+      if let isInProgress = changes.isInProgress {
+        msg.isInProgress = isInProgress
+      }
     }
     messages[idx] = msg
     obs.messages = normalizedTranscriptMessages(messages, sessionId: sessionId, source: "update")

@@ -223,7 +223,7 @@ extension ServerMessage {
       inputTokens: nil,
       outputTokens: nil,
       isError: isError,
-      isInProgress: false
+      isInProgress: isInProgress
     )
     msg.images = messageImages
     return msg
