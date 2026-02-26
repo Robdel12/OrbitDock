@@ -540,8 +540,8 @@
       summaryField.translatesAutoresizingMaskIntoConstraints = false
       summaryField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
       summaryField.textColor = NSColor(Color.textTertiary)
-      summaryField.lineBreakMode = .byCharWrapping
-      summaryField.maximumNumberOfLines = 0
+      summaryField.lineBreakMode = .byTruncatingTail
+      summaryField.maximumNumberOfLines = 1
       summaryField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       addSubview(summaryField)
 

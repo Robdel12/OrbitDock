@@ -84,6 +84,29 @@ struct ToolGlyphInfo {
 // MARK: - Compact Tool Helpers
 
 enum CompactToolHelpers {
+  static func compactSingleLineSummary(_ value: String, maxLength: Int = 180) -> String {
+    let normalizedLines = value
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+      .components(separatedBy: .newlines)
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+
+    let collapsed = normalizedLines
+      .replacingOccurrences(
+        of: #"\s{2,}"#,
+        with: " ",
+        options: .regularExpression
+      )
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    guard !collapsed.isEmpty else { return "tool" }
+    guard collapsed.count > maxLength else { return collapsed }
+    let truncated = String(collapsed.prefix(maxLength)).trimmingCharacters(in: .whitespaces)
+    return truncated + "..."
+  }
+
   static func summary(for message: TranscriptMessage) -> String {
     if message.isShell {
       return String.shellCommandDisplay(from: message.content) ?? message.content
@@ -406,7 +429,9 @@ enum SharedModelBuilders {
 
   static func compactToolModel(from message: TranscriptMessage) -> NativeCompactToolRowModel {
     let glyph = ToolGlyphInfo.from(message: message)
-    let summary = CompactToolHelpers.summary(for: message)
+    let summary = CompactToolHelpers.compactSingleLineSummary(
+      CompactToolHelpers.summary(for: message)
+    )
     let meta = CompactToolHelpers.rightMeta(for: message)
     let preview = CompactToolHelpers.diffPreview(for: message)
     let liveOutputPreview = CompactToolHelpers.liveOutputPreview(for: message)

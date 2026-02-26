@@ -111,6 +111,10 @@ final class ServerAppState {
   /// Client-side idempotency for approval/question decisions.
   private var inFlightApprovalDispatches: Set<ApprovalDispatchKey> = []
 
+  /// Request details received for queued approvals that are not yet the active queue head.
+  /// Keyed by `sessionId` then normalized `requestId`.
+  private var queuedApprovalRequests: [String: [String: ServerApprovalRequest]] = [:]
+
   private struct SessionsCachePayload: Codable {
     let cachedAt: Date
     let summaries: [ServerSessionSummary]
@@ -1087,8 +1091,14 @@ final class ServerAppState {
 
     if let approval = state.pendingApproval {
       obs.pendingApproval = approval
+      if let normalized = normalizedApprovalRequestId(approval.id) {
+        queuedApprovalRequests[state.id]?.removeValue(forKey: normalized)
+      }
     } else {
       obs.pendingApproval = nil
+      if state.pendingApprovalId == nil {
+        queuedApprovalRequests[state.id] = nil
+      }
     }
     if let version = state.approvalVersion {
       obs.approvalVersion = version
@@ -1179,15 +1189,21 @@ final class ServerAppState {
 
         if let approval = approvalOuter {
           obs.pendingApproval = approval
+          if let normalized = normalizedApprovalRequestId(approval.id) {
+            queuedApprovalRequests[sessionId]?.removeValue(forKey: normalized)
+          }
           sess.pendingApprovalId = approval.id
           sess.pendingToolName = approval.toolNameForDisplay
           sess.pendingToolInput = approval.toolInputForDisplay
           sess.pendingPermissionDetail = approval.preview?.compact
+            ?? String.shellCommandDisplay(from: approval.command)
+            ?? approval.command
           sess.pendingQuestion = approval.questionPrompts.first?.question ?? approval.question
           sess.attentionReason = approval.type == .question ? .awaitingQuestion : .awaitingPermission
           sess.workStatus = .permission
         } else {
           obs.pendingApproval = nil
+          queuedApprovalRequests[sessionId] = nil
           sess.pendingApprovalId = nil
           sess.pendingToolName = nil
           sess.pendingToolInput = nil
@@ -1581,6 +1597,15 @@ final class ServerAppState {
     approvalVersion: UInt64?
   ) {
     let obs = session(sessionId)
+    guard let normalizedRequestId = normalizedApprovalRequestId(request.id) else {
+      logger.warning("[approval] ignoring request with empty request id for session \(sessionId)")
+      return
+    }
+    let sessionIndex = sessions.firstIndex(where: { $0.id == sessionId })
+    let sessionPendingId = sessionIndex.flatMap { index in
+      normalizedApprovalRequestId(sessions[index].pendingApprovalId)
+    }
+    let currentActiveRequestId = normalizedApprovalRequestId(obs.pendingApproval?.id) ?? sessionPendingId
 
     // Version gating: discard events older than what we already have
     if let version = approvalVersion, version <= obs.approvalVersion {
@@ -1597,16 +1622,32 @@ final class ServerAppState {
       obs.approvalVersion = version
     }
 
-    // Always set as active — the server determines queue head
+    if let currentActiveRequestId, currentActiveRequestId != normalizedRequestId {
+      logger.info(
+        "[approval] queued request observed: session=\(sessionId) active=\(currentActiveRequestId) queued=\(normalizedRequestId)"
+      )
+      var queued = queuedApprovalRequests[sessionId] ?? [:]
+      queued[normalizedRequestId] = request
+      queuedApprovalRequests[sessionId] = queued
+      reconcileApprovalDispatchState(
+        sessionId: sessionId,
+        activeRequestId: currentActiveRequestId
+      )
+      return
+    }
+
+    queuedApprovalRequests[sessionId]?.removeValue(forKey: normalizedRequestId)
+
     obs.pendingApproval = request
 
-    if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+    if let idx = sessionIndex {
       var sess = sessions[idx]
-      let normalizedRequestId = normalizedApprovalRequestId(request.id)
       sess.pendingApprovalId = normalizedRequestId
       sess.pendingToolName = request.toolNameForDisplay
       sess.pendingToolInput = request.toolInputForDisplay
       sess.pendingPermissionDetail = request.preview?.compact
+        ?? String.shellCommandDisplay(from: request.command)
+        ?? request.command
       sess.pendingQuestion = request.questionPrompts.first?.question ?? request.question
       sess.attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
       sess.workStatus = .permission
@@ -1637,10 +1678,16 @@ final class ServerAppState {
     // Clear in-flight tracking for the decided request
     clearApprovalDispatchForRequest(sessionId: sessionId, requestId: requestId)
 
+    let normalizedDecided = normalizedApprovalRequestId(requestId)
+    if let normalizedDecided {
+      queuedApprovalRequests[sessionId]?.removeValue(forKey: normalizedDecided)
+    }
+
+    let normalizedActiveRequestId = normalizedApprovalRequestId(activeRequestId)
+
     // Eagerly clear the pending approval if it matches the decided request so the
     // approval card disappears immediately rather than lingering until the next
     // session state delta arrives.
-    let normalizedDecided = normalizedApprovalRequestId(requestId)
     if let pending = obs.pendingApproval, normalizedApprovalRequestId(pending.id) == normalizedDecided {
       obs.pendingApproval = nil
 
@@ -1660,6 +1707,39 @@ final class ServerAppState {
         sessions[idx] = sess
       }
     }
+
+    if
+      let normalizedActiveRequestId,
+      normalizedApprovalRequestId(obs.pendingApproval?.id) != normalizedActiveRequestId,
+      let promoted = queuedApprovalRequests[sessionId]?[normalizedActiveRequestId]
+    {
+      logger.info(
+        "[approval] promoted queued request after decision: session=\(sessionId) request=\(normalizedActiveRequestId)"
+      )
+      queuedApprovalRequests[sessionId]?.removeValue(forKey: normalizedActiveRequestId)
+      obs.pendingApproval = promoted
+
+      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+        var sess = sessions[idx]
+        sess.pendingApprovalId = normalizedActiveRequestId
+        sess.pendingToolName = promoted.toolNameForDisplay
+        sess.pendingToolInput = promoted.toolInputForDisplay
+        sess.pendingPermissionDetail = promoted.preview?.compact
+          ?? String.shellCommandDisplay(from: promoted.command)
+          ?? promoted.command
+        sess.pendingQuestion = promoted.questionPrompts.first?.question ?? promoted.question
+        sess.attentionReason = promoted.type == .question ? .awaitingQuestion : .awaitingPermission
+        sess.workStatus = .permission
+        sessions[idx] = sess
+      }
+    } else if normalizedActiveRequestId == nil, obs.pendingApproval == nil {
+      queuedApprovalRequests[sessionId] = nil
+    }
+
+    reconcileApprovalDispatchState(
+      sessionId: sessionId,
+      activeRequestId: normalizedActiveRequestId
+    )
 
     // Refresh approval history for the history panel
     refreshApprovalHistory(sessionId: sessionId)
@@ -1785,6 +1865,7 @@ final class ServerAppState {
     approvalPolicies.removeValue(forKey: sessionId)
     sandboxModes.removeValue(forKey: sessionId)
     permissionModes.removeValue(forKey: sessionId)
+    queuedApprovalRequests.removeValue(forKey: sessionId)
     clearApprovalDispatchState(sessionId: sessionId)
     // Keep SessionObservable alive — user may still be viewing the conversation
   }

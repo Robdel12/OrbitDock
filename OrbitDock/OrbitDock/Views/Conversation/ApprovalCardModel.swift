@@ -208,10 +208,16 @@ enum ApprovalCardModelBuilder {
     pendingApproval: ServerApprovalRequest?,
     serverState: ServerAppState
   ) -> ApprovalCardModel? {
-    let approvalId = normalizedRequestId(pendingApproval?.id)
-      ?? normalizedRequestId(serverState.nextPendingApprovalRequestId(sessionId: session.id))
+    let serverPendingApprovalId = normalizedRequestId(serverState.nextPendingApprovalRequestId(sessionId: session.id))
+    let approvalId = serverPendingApprovalId
+      ?? normalizedRequestId(pendingApproval?.id)
       ?? normalizedRequestId(session.pendingApprovalId)
-    let approvalType = pendingApproval?.type
+    let activePendingApproval: ServerApprovalRequest? = {
+      guard let pendingApproval else { return nil }
+      guard let approvalId else { return pendingApproval }
+      return normalizedRequestId(pendingApproval.id) == approvalId ? pendingApproval : nil
+    }()
+    let approvalType = activePendingApproval?.type
 
     let mode = ApprovalCardModeResolver.resolve(
       for: session,
@@ -223,12 +229,12 @@ enum ApprovalCardModelBuilder {
       return nil
     }
 
-    let resolvedApprovalTypeForRisk = pendingApproval?.type ?? approvalType
+    let resolvedApprovalTypeForRisk = activePendingApproval?.type ?? approvalType
     let risk = ApprovalRisk.fromServer(
-      level: pendingApproval?.preview?.riskLevel,
+      level: activePendingApproval?.preview?.riskLevel,
       approvalType: resolvedApprovalTypeForRisk
     )
-    let riskFindings = pendingApproval?.preview?.riskFindings ?? []
+    let riskFindings = activePendingApproval?.preview?.riskFindings ?? []
 
     let previewFromServer: (
       command: String?,
@@ -238,7 +244,7 @@ enum ApprovalCardModelBuilder {
       manifest: String?,
       decisionScope: String?
     )? = {
-      guard let preview = pendingApproval?.preview else { return nil }
+      guard let preview = activePendingApproval?.preview else { return nil }
 
       let normalizedValue = preview.value.trimmingCharacters(in: .whitespacesAndNewlines)
       let valueForDisplay = normalizedValue.isEmpty ? nil : normalizedValue
@@ -275,14 +281,17 @@ enum ApprovalCardModelBuilder {
     let fallbackPreview: (command: String?, filePath: String?, previewType: ApprovalPreviewType)? = {
       guard previewFromServer == nil else { return nil }
 
-      if let diff = ApprovalPermissionPreviewHelpers.trimmed(pendingApproval?.diff) {
+      if let diff = ApprovalPermissionPreviewHelpers.trimmed(activePendingApproval?.diff) {
         return (command: diff, filePath: nil, previewType: .diff)
       }
 
-      let rawCommand = pendingApproval?.command ?? nil
-      let command = String.shellCommandDisplay(from: rawCommand)
+      let rawCommand = activePendingApproval?.command ?? nil
+      let commandFromApproval = String.shellCommandDisplay(from: rawCommand)
         ?? ApprovalPermissionPreviewHelpers.trimmed(rawCommand)
-      let filePath = ApprovalPermissionPreviewHelpers.trimmed(pendingApproval?.filePath ?? nil)
+      let commandFromSession = String.shellCommandDisplay(from: session.pendingToolInput)
+        ?? ApprovalPermissionPreviewHelpers.trimmed(session.pendingToolInput)
+      let command = commandFromApproval ?? commandFromSession
+      let filePath = ApprovalPermissionPreviewHelpers.trimmed(activePendingApproval?.filePath ?? nil)
 
       if let command {
         return (
@@ -301,7 +310,7 @@ enum ApprovalCardModelBuilder {
 
     let command = previewFromServer?.command ?? fallbackPreview?.command
     let filePath = previewFromServer?.filePath ?? fallbackPreview?.filePath
-    let toolName = pendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? nil
+    let toolName = activePendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? nil
     let previewType: ApprovalPreviewType = {
       if let serverPreview = previewFromServer {
         return serverPreview.previewType
@@ -315,7 +324,7 @@ enum ApprovalCardModelBuilder {
     let serverManifest = previewFromServer?.manifest
     let decisionScope = previewFromServer?.decisionScope
 
-    let prompts = mapQuestionPrompts(pendingApproval?.questionPrompts ?? [])
+    let prompts = mapQuestionPrompts(activePendingApproval?.questionPrompts ?? [])
 
     return ApprovalCardModel(
       mode: mode,
@@ -328,9 +337,9 @@ enum ApprovalCardModelBuilder {
       filePath: filePath,
       risk: risk,
       riskFindings: riskFindings,
-      diff: pendingApproval?.diff,
+      diff: activePendingApproval?.diff,
       questions: prompts,
-      hasAmendment: pendingApproval?.proposedAmendment != nil || nil != nil,
+      hasAmendment: activePendingApproval?.proposedAmendment != nil || nil != nil,
       approvalType: approvalType,
       projectPath: session.projectPath,
       approvalId: approvalId,

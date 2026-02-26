@@ -66,8 +66,8 @@
       // Summary
       summaryLabel.font = UIFont.monospacedSystemFont(ofSize: 11, weight: .regular)
       summaryLabel.textColor = UIColor.white.withAlphaComponent(0.58)
-      summaryLabel.lineBreakMode = .byCharWrapping
-      summaryLabel.numberOfLines = 0
+      summaryLabel.lineBreakMode = .byTruncatingTail
+      summaryLabel.numberOfLines = 1
       summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       summaryLabel.translatesAutoresizingMaskIntoConstraints = false
       contentView.addSubview(summaryLabel)

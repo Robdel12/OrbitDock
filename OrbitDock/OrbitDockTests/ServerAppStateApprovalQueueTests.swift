@@ -4,7 +4,7 @@ import Testing
 
 struct ServerAppStateApprovalQueueTests {
   @MainActor
-  @Test func approvalRequestedDoesNotOverrideActiveQueueHead() {
+  @Test func approvalRequestedDoesNotOverrideActiveQueueHead() async {
     let state = ServerAppState()
     state.setup()
     let sessionId = "session-approval-request-order"
@@ -20,6 +20,7 @@ struct ServerAppStateApprovalQueueTests {
       makeApprovalRequest(id: "req-2", sessionId: sessionId, type: .exec),
       nil
     )
+    await Task.yield()
 
     #expect(state.session(sessionId).pendingApproval?.id == "req-1")
     #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-1")
@@ -196,6 +197,39 @@ struct ServerAppStateApprovalQueueTests {
     #expect(obs.pendingApproval == nil)
     #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == nil)
     #expect(state.sessions.first(where: { $0.id == sessionId })?.attentionReason == Session.AttentionReason.none)
+  }
+
+  @MainActor
+  @Test func approvalDecisionResultPromotesQueuedRequestFromCache() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-decision-promotes-queued"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
+    await Task.yield()
+
+    let obs = state.session(sessionId)
+    obs.pendingApproval = makeApprovalRequest(id: "req-1", sessionId: sessionId, type: .exec)
+
+    state.connection.onApprovalRequested?(
+      sessionId,
+      makeApprovalRequest(id: "req-2", sessionId: sessionId, type: .exec),
+      9
+    )
+    await Task.yield()
+
+    #expect(obs.pendingApproval?.id == "req-1")
+
+    state.connection.onApprovalDecisionResult?(sessionId, "req-1", "applied", "req-2", 10)
+    await Task.yield()
+
+    #expect(obs.approvalVersion == 10)
+    #expect(obs.pendingApproval?.id == "req-2")
+    #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingApprovalId == "req-2")
+    #expect(state.sessions.first(where: { $0.id == sessionId })?.pendingPermissionDetail == "echo test")
+    #expect(state.sessions.first(where: { $0.id == sessionId })?.attentionReason == .awaitingPermission)
   }
 
   @MainActor

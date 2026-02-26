@@ -122,6 +122,45 @@ struct ApprovalCardModelTests {
     #expect(model?.previewType == .shellCommand)
   }
 
+  @Test func builderFallsBackToSessionPendingToolInputWhenApprovalCommandMissing() {
+    let session = Session(
+      id: "session-tool-input-fallback",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .permission,
+      attentionReason: .awaitingPermission,
+      pendingToolName: "Bash",
+      pendingToolInput: "/bin/zsh -lc pwd",
+      provider: .codex,
+      codexIntegrationMode: .direct,
+      pendingApprovalId: "req-fallback"
+    )
+
+    let pendingApproval = ServerApprovalRequest(
+      id: "req-fallback",
+      sessionId: session.id,
+      type: .exec,
+      toolName: "Bash",
+      toolInput: nil,
+      command: nil,
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      preview: nil,
+      proposedAmendment: nil
+    )
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: pendingApproval,
+      serverState: ServerAppState()
+    )
+
+    #expect(model?.mode == .permission)
+    #expect(model?.command == "pwd")
+    #expect(model?.previewType == .shellCommand)
+  }
+
   @Test func builderSurfacesRiskFindingsForDestructiveExecCommand() {
     let session = makeDirectSession(
       id: "session-risk-findings",
