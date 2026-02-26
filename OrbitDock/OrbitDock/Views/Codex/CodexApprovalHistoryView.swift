@@ -116,7 +116,6 @@ struct CodexApprovalHistoryView: View {
     }
   }
 
-  @ViewBuilder
   private var permissionPosture: some View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Permission Posture")

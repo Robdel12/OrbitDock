@@ -111,7 +111,7 @@ nonisolated enum ConversationTimelineProjector {
           case let .workGroup(messages):
             let groupID = "\(TimelineRowID.turnRollupKey(turn.id)):g\(groupIndex)"
             let isExpanded = context.ui.expandedRollups.contains(groupID)
-            let toolCount = messages.filter { $0.type == .tool }.count
+            let toolCount = messages.filter(isToolLikeMessage).count
 
             guard messages.count >= focusedCollapseThreshold else {
               // Too few items — show all, no rollup
@@ -123,7 +123,7 @@ nonisolated enum ConversationTimelineProjector {
 
             let visibleTailCount = min(focusedVisibleToolTail, max(1, messages.count - 1))
             let hiddenCount = messages.count - visibleTailCount
-            let hiddenToolCount = messages.prefix(hiddenCount).filter { $0.type == .tool }.count
+            let hiddenToolCount = messages.prefix(hiddenCount).filter(isToolLikeMessage).count
             let breakdown = toolBreakdown(from: Array(messages.prefix(hiddenCount)))
 
             rows.append(
@@ -168,7 +168,7 @@ nonisolated enum ConversationTimelineProjector {
       return
     }
 
-    let isToolRow = toolRowsEnabled && message.type == .tool
+    let isToolRow = toolRowsEnabled && isToolLikeMessage(message)
     rows.append(
       makeRow(
         id: isToolRow ? .tool(message.id) : .message(message.id),
@@ -186,8 +186,8 @@ nonisolated enum ConversationTimelineProjector {
     guard metadata.needsApprovalCard, metadata.approvalMode == .permission else { return false }
     guard let pendingCommand = pendingApprovalCommand(from: metadata) else { return false }
 
-    if message.type == .tool {
-      guard (message.toolName?.lowercased() ?? "") == "bash" else { return false }
+    if isToolLikeMessage(message) {
+      guard ((message.toolName?.lowercased() ?? "") == "bash") || message.type == .shell else { return false }
       let hasOutput = !(message.toolOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
       guard !hasOutput else { return false }
       let messageCommand = commandFromToolMessage(message)
@@ -214,6 +214,10 @@ nonisolated enum ConversationTimelineProjector {
 
   private static func commandFromToolMessage(_ message: TranscriptMessage) -> String {
     stripKnownShellWrapperPrefix(message.content)
+  }
+
+  private static func isToolLikeMessage(_ message: TranscriptMessage) -> Bool {
+    message.type == .tool || message.type == .shell
   }
 
   private static func stripKnownShellWrapperPrefix(_ value: String) -> String {
@@ -278,13 +282,13 @@ nonisolated enum ConversationTimelineProjector {
     var lastToolIndex = -1
     var toolCount = 0
 
-    for (index, message) in messages.enumerated() where message.type == .tool {
+    for (index, message) in messages.enumerated() where isToolLikeMessage(message) {
       lastToolIndex = index
       toolCount += 1
     }
 
     for (index, message) in messages.enumerated() {
-      if message.type == .tool {
+      if isToolLikeMessage(message) {
         foundFirstTool = true
         toolZone.append(message)
       } else if !foundFirstTool {
@@ -306,7 +310,7 @@ nonisolated enum ConversationTimelineProjector {
     var currentGroup: [TranscriptMessage] = []
 
     for message in messages {
-      if message.type == .tool || message.type == .thinking {
+      if isToolLikeMessage(message) || message.type == .thinking {
         currentGroup.append(message)
       } else {
         // Breaker: assistant / user / steer
@@ -331,8 +335,8 @@ nonisolated enum ConversationTimelineProjector {
     var iconMap: [String: String] = [:]
     var colorMap: [String: String] = [:]
 
-    for msg in messages where msg.type == .tool {
-      let name = msg.toolName ?? "tool"
+    for msg in messages where isToolLikeMessage(msg) {
+      let name = msg.toolName ?? (msg.type == .shell ? "bash" : "tool")
       countMap[name, default: 0] += 1
       if iconMap[name] == nil {
         iconMap[name] = resolveToolIcon(name)

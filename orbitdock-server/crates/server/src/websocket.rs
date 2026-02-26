@@ -19,8 +19,8 @@ use tracing::{debug, error, info, warn};
 
 use orbitdock_protocol::{
     new_id, ClaudeIntegrationMode, ClientMessage, CodexIntegrationMode, MessageChanges,
-    MessageType, Provider, ServerMessage, SessionState, SessionStatus, StateChanges, TokenUsage,
-    TokenUsageSnapshotKind, WorkStatus,
+    MessageType, Provider, ServerMessage, SessionState, SessionStatus, ShellExecutionOutcome,
+    StateChanges, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
 };
 
 use crate::claude_session::{ClaudeAction, ClaudeSession};
@@ -105,7 +105,7 @@ fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::Work
     let normalized = decision.trim().to_lowercase();
     if matches!(
         normalized.as_str(),
-        "approved" | "approved_for_session" | "approved_always"
+        "approved" | "approved_for_session" | "approved_always" | "denied" | "deny"
     ) {
         orbitdock_protocol::WorkStatus::Working
     } else {
@@ -4639,6 +4639,18 @@ async fn handle_client_message_impl(
                 false
             };
 
+            let canceled_shells = state.shell_service().cancel_session(&session_id);
+            if canceled_shells > 0 {
+                info!(
+                    component = "shell",
+                    event = "shell.cancel.session_end",
+                    connection_id = conn_id,
+                    session_id = %session_id,
+                    canceled_shells,
+                    "Canceled active shell commands while ending session"
+                );
+            }
+
             // Tell direct connectors to shutdown gracefully.
             if !is_passive_rollout {
                 if let Some(tx) = state.get_codex_action_tx(&session_id) {
@@ -4772,22 +4784,32 @@ async fn handle_client_message_impl(
                 })
                 .await;
 
+            let shell_execution = match state.shell_service().start(
+                rid.clone(),
+                sid.clone(),
+                cmd_clone.clone(),
+                resolved_cwd.clone(),
+                timeout_secs,
+            ) {
+                Ok(execution) => execution,
+                Err(crate::shell::ShellStartError::DuplicateRequestId) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "shell_duplicate_request_id".to_string(),
+                            message: format!("Shell request {rid} is already active"),
+                            session_id: Some(sid.clone()),
+                        },
+                    )
+                    .await;
+                    return;
+                }
+            };
+
             let state_ref = state.clone();
             tokio::spawn(async move {
-                let (chunk_tx, mut chunk_rx) =
-                    mpsc::unbounded_channel::<crate::shell::ShellChunk>();
-
-                let command_for_exec = cmd_clone.clone();
-                let cwd_for_exec = resolved_cwd.clone();
-                let exec_handle = tokio::spawn(async move {
-                    crate::shell::execute_with_stream(
-                        &command_for_exec,
-                        &cwd_for_exec,
-                        timeout_secs,
-                        Some(chunk_tx),
-                    )
-                    .await
-                });
+                let mut chunk_rx = shell_execution.chunk_rx;
+                let completion_rx = shell_execution.completion_rx;
 
                 let mut streamed_output = String::new();
                 let mut last_stream_emit = std::time::Instant::now();
@@ -4823,17 +4845,24 @@ async fn handle_client_message_impl(
                     }
                 }
 
-                let result = match exec_handle.await {
+                let result = match completion_rx.await {
                     Ok(result) => result,
-                    Err(join_err) => crate::shell::ShellResult {
+                    Err(recv_err) => crate::shell::ShellResult {
                         stdout: String::new(),
-                        stderr: format!("Shell execution task failed: {join_err}"),
+                        stderr: format!("Shell execution completion channel failed: {recv_err}"),
                         exit_code: None,
                         duration_ms: 0,
+                        outcome: crate::shell::ShellOutcome::Failed,
                     },
                 };
 
-                let is_error = result.exit_code != Some(0);
+                let is_error = match result.outcome {
+                    crate::shell::ShellOutcome::Completed => result.exit_code != Some(0),
+                    crate::shell::ShellOutcome::Failed | crate::shell::ShellOutcome::TimedOut => {
+                        true
+                    }
+                    crate::shell::ShellOutcome::Canceled => false,
+                };
                 let combined_output = if result.stderr.is_empty() {
                     result.stdout.clone()
                 } else if result.stdout.is_empty() {
@@ -4845,6 +4874,12 @@ async fn handle_client_message_impl(
                     streamed_output
                 } else {
                     combined_output
+                };
+                let outcome = match result.outcome {
+                    crate::shell::ShellOutcome::Completed => ShellExecutionOutcome::Completed,
+                    crate::shell::ShellOutcome::Failed => ShellExecutionOutcome::Failed,
+                    crate::shell::ShellOutcome::TimedOut => ShellExecutionOutcome::TimedOut,
+                    crate::shell::ShellOutcome::Canceled => ShellExecutionOutcome::Canceled,
                 };
 
                 if let Some(actor) = state_ref.get_session(&sid) {
@@ -4870,11 +4905,65 @@ async fn handle_client_message_impl(
                                 stderr: result.stderr,
                                 exit_code: result.exit_code,
                                 duration_ms: result.duration_ms,
+                                outcome,
                             },
                         })
                         .await;
                 }
             });
+        }
+
+        ClientMessage::CancelShell {
+            session_id,
+            request_id,
+        } => {
+            info!(
+                component = "shell",
+                event = "shell.cancel.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                request_id = %request_id,
+                "Shell cancel requested"
+            );
+
+            if state.get_session(&session_id).is_none() {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".to_string(),
+                        message: format!("Session {session_id} not found"),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+                return;
+            }
+
+            match state.shell_service().cancel(&session_id, &request_id) {
+                crate::shell::ShellCancelStatus::Canceled => {
+                    info!(
+                        component = "shell",
+                        event = "shell.cancel.accepted",
+                        connection_id = conn_id,
+                        session_id = %session_id,
+                        request_id = %request_id,
+                        "Shell cancel accepted"
+                    );
+                }
+                crate::shell::ShellCancelStatus::NotFound => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::Error {
+                            code: "shell_not_found".to_string(),
+                            message: format!(
+                                "No active shell request {request_id} found for session {session_id}"
+                            ),
+                            session_id: Some(session_id),
+                        },
+                    )
+                    .await;
+                }
+            }
         }
 
         ClientMessage::BrowseDirectory { .. } => {
@@ -5102,14 +5191,15 @@ mod tests {
             work_status_for_approval_decision("  approved  "),
             WorkStatus::Working
         );
+        assert_eq!(
+            work_status_for_approval_decision("denied"),
+            WorkStatus::Working
+        );
+        assert_eq!(work_status_for_approval_decision("deny"), WorkStatus::Working);
     }
 
     #[test]
-    fn approval_decisions_that_stop_or_reject_return_to_waiting() {
-        assert_eq!(
-            work_status_for_approval_decision("denied"),
-            WorkStatus::Waiting
-        );
+    fn approval_decisions_that_stop_return_to_waiting() {
         assert_eq!(
             work_status_for_approval_decision("abort"),
             WorkStatus::Waiting
@@ -5204,6 +5294,87 @@ mod tests {
         assert_eq!(snapshot.work_status, WorkStatus::Permission);
 
         // The server now sends an ApprovalDecisionResult on success
+        match recv_json(&mut client_rx).await {
+            ServerMessage::ApprovalDecisionResult {
+                outcome,
+                request_id,
+                ..
+            } => {
+                assert_eq!(outcome, "applied");
+                assert_eq!(request_id, "req-1");
+            }
+            other => panic!("expected ApprovalDecisionResult, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn approve_tool_denied_keeps_session_working_until_turn_finishes() {
+        let state = new_test_state();
+        let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "approve-tool-denied-working".to_string();
+        let (action_tx, mut action_rx) = mpsc::channel(8);
+
+        state.add_session(SessionHandle::new(
+            session_id.clone(),
+            Provider::Codex,
+            "/Users/tester/repo".to_string(),
+        ));
+        state.set_codex_action_tx(&session_id, action_tx);
+
+        queue_codex_exec_approval(&state, &session_id, "req-1").await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        assert_eq!(
+            actor.snapshot().pending_approval_id.as_deref(),
+            Some("req-1")
+        );
+
+        handle_client_message(
+            ClientMessage::ApproveTool {
+                session_id: session_id.clone(),
+                request_id: "req-1".to_string(),
+                decision: "denied".to_string(),
+                message: None,
+                interrupt: None,
+                updated_input: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        match action_rx
+            .recv()
+            .await
+            .expect("expected codex approval action")
+        {
+            CodexAction::ApproveExec {
+                request_id,
+                decision,
+                ..
+            } => {
+                assert_eq!(request_id, "req-1");
+                assert_eq!(decision, "denied");
+            }
+            other => panic!("expected ApproveExec action, got {:?}", other),
+        }
+
+        tokio::task::yield_now().await;
+
+        let snapshot = actor.snapshot();
+        assert_eq!(
+            snapshot.pending_approval_id, None,
+            "pending approval should be cleared after decision"
+        );
+        assert_eq!(
+            snapshot.work_status,
+            WorkStatus::Working,
+            "denied decisions should stay working until connector emits turn completion/abort"
+        );
+
         match recv_json(&mut client_rx).await {
             ServerMessage::ApprovalDecisionResult {
                 outcome,

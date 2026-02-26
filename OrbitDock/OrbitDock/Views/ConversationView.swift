@@ -51,6 +51,13 @@ struct ConversationView: View {
     let nthUserMessage: Int?
   }
 
+  /// Whether the server snapshot has been received for the current session.
+  /// If no session is selected, consider it "ready" so we don't show a spinner.
+  private var snapshotReady: Bool {
+    guard let sid = sessionId else { return true }
+    return serverState.session(sid).hasReceivedSnapshot
+  }
+
   private var effectiveDisplayedCount: Int {
     guard !messages.isEmpty else { return 0 }
     if displayedCount <= 0 { return messages.count }
@@ -73,7 +80,7 @@ struct ConversationView: View {
       Color.backgroundPrimary
         .ignoresSafeArea()
 
-      if isLoading {
+      if isLoading || (messages.isEmpty && !snapshotReady) {
         ConversationLoadingView()
       } else if messages.isEmpty {
         ConversationEmptyStateView()

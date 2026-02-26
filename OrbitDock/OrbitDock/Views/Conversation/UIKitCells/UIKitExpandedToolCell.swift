@@ -62,6 +62,7 @@
     private let statsLabel = UILabel()
     private let durationLabel = UILabel()
     private let collapseChevron = UIImageView()
+    private let cancelButton = UIButton(type: .system)
     private let contentContainer = UIView()
     private let spinner = UIActivityIndicatorView(style: .medium)
 
@@ -69,6 +70,7 @@
 
     private var model: NativeExpandedToolModel?
     var onCollapse: ((String) -> Void)?
+    var onCancel: ((String) -> Void)?
 
     // ── Init ──
 
@@ -148,6 +150,14 @@
       spinner.transform = CGAffineTransform(scaleX: 0.7, y: 0.7)
       cardBackground.addSubview(spinner)
 
+      // Cancel button (shell-only)
+      cancelButton.setTitle("Stop", for: .normal)
+      cancelButton.titleLabel?.font = UIFont.systemFont(ofSize: 11, weight: .semibold)
+      cancelButton.setTitleColor(UIColor(Color.statusError), for: .normal)
+      cancelButton.isHidden = true
+      cancelButton.addTarget(self, action: #selector(handleCancelTap), for: .touchUpInside)
+      cardBackground.addSubview(cancelButton)
+
       // Content container
       contentContainer.clipsToBounds = true
       cardBackground.addSubview(contentContainer)
@@ -159,15 +169,24 @@
 
     @objc private func handleHeaderTap(_ gesture: UITapGestureRecognizer) {
       let location = gesture.location(in: cardBackground)
+      if !cancelButton.isHidden, cancelButton.frame.contains(location) {
+        return
+      }
       let headerHeight = EL.headerHeight(for: model)
       if location.y <= headerHeight, let messageID = model?.messageID {
         onCollapse?(messageID)
       }
     }
 
+    @objc private func handleCancelTap() {
+      guard let messageID = model?.messageID else { return }
+      onCancel?(messageID)
+    }
+
     override func prepareForReuse() {
       super.prepareForReuse()
       onCollapse = nil
+      onCancel = nil
       model = nil
       contentContainer.subviews.forEach { $0.removeFromSuperview() }
     }
@@ -222,8 +241,11 @@
       // Progress spinner
       if model.isInProgress {
         spinner.startAnimating()
+        let spinnerX = model.canCancel
+          ? cardWidth - EL.headerHPad - 72
+          : cardWidth - EL.headerHPad - 16
         spinner.frame = CGRect(
-          x: cardWidth - EL.headerHPad - 16,
+          x: spinnerX,
           y: EL.headerVPad + 2,
           width: 16, height: 16
         )
@@ -231,8 +253,20 @@
         spinner.stopAnimating()
       }
 
+      if model.canCancel {
+        cancelButton.isHidden = false
+        cancelButton.frame = CGRect(
+          x: cardWidth - EL.headerHPad - 52,
+          y: EL.headerVPad,
+          width: 52,
+          height: 20
+        )
+      } else {
+        cancelButton.isHidden = true
+      }
+
       // Collapse chevron
-      if !model.isInProgress {
+      if !model.isInProgress, !model.canCancel {
         collapseChevron.isHidden = false
         collapseChevron.frame = CGRect(
           x: cardWidth - EL.headerHPad - 12,
@@ -244,7 +278,7 @@
       }
 
       // Duration
-      if let dur = model.duration, !model.isInProgress {
+      if let dur = model.duration, !model.isInProgress, !model.canCancel {
         durationLabel.isHidden = false
         durationLabel.text = dur
         durationLabel.sizeToFit()

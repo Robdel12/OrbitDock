@@ -452,11 +452,12 @@ final class ServerAppState {
       }
     }
 
-    conn.onShellOutput = { [weak self] sessionId, requestId, stdout, stderr, exitCode, durationMs in
+    conn.onShellOutput = { [weak self] sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome in
       Task { @MainActor in
         guard let self else { return }
         let obs = self.session(sessionId)
         let output = stderr.isEmpty ? stdout : (stdout.isEmpty ? stderr : "\(stdout)\n\(stderr)")
+        let isError = self.shellOutputIsError(outcome: outcome, exitCode: exitCode)
         // Find the shell message to get the command
         let command = obs.messages.first(where: { $0.id == requestId })?.content ?? ""
         obs.bufferShellContext(command: command, output: output, exitCode: exitCode)
@@ -465,6 +466,7 @@ final class ServerAppState {
         if let idx = obs.messages.firstIndex(where: { $0.id == requestId }) {
           obs.messages[idx].toolOutput = output
           obs.messages[idx].toolDuration = Double(durationMs) / 1_000.0
+          obs.messages[idx].isError = isError
           obs.messages[idx].isInProgress = false
           obs.bumpMessagesRevision()
         }
@@ -818,6 +820,12 @@ final class ServerAppState {
     connection.executeShell(sessionId: sessionId, command: command, cwd: cwd)
   }
 
+  /// Cancel an in-flight shell command by request ID
+  func cancelShell(sessionId: String, requestId: String) {
+    logger.info("Canceling shell command in \(sessionId): \(requestId)")
+    connection.cancelShell(sessionId: sessionId, requestId: requestId)
+  }
+
   /// Interrupt a session
   func interruptSession(_ sessionId: String) {
     logger.info("Interrupting session \(sessionId)")
@@ -1074,6 +1082,7 @@ final class ServerAppState {
     let obs = session(state.id)
     let snapshotMessages = state.messages.map { $0.toTranscriptMessage() }
     obs.messages = normalizedTranscriptMessages(snapshotMessages, sessionId: state.id, source: "snapshot")
+    obs.hasReceivedSnapshot = true
     obs.bumpMessagesRevision()
 
     if let approval = state.pendingApproval {
@@ -1659,6 +1668,17 @@ final class ServerAppState {
   private func clearApprovalDispatchForRequest(sessionId: String, requestId: String) {
     let key = ApprovalDispatchKey(sessionId: sessionId, requestId: requestId)
     inFlightApprovalDispatches.remove(key)
+  }
+
+  private func shellOutputIsError(outcome: ServerShellExecutionOutcome, exitCode: Int32?) -> Bool {
+    switch outcome {
+      case .completed:
+        exitCode != 0
+      case .failed, .timedOut:
+        true
+      case .canceled:
+        false
+    }
   }
 
   private func handleTokensUpdated(

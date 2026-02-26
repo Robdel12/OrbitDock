@@ -1,14 +1,68 @@
 import SwiftUI
 
 struct ConversationLoadingView: View {
+  @State private var shimmer = false
+
   var body: some View {
-    VStack(spacing: 16) {
-      ProgressView()
-        .controlSize(.regular)
-      Text("Loading conversation...")
-        .font(.system(size: 13, weight: .medium))
-        .foregroundStyle(Color.textTertiary)
+    VStack(alignment: .leading, spacing: 24) {
+      // Simulated user message
+      skeletonBubble(alignment: .trailing, widths: [0.55])
+
+      // Simulated assistant response
+      skeletonBubble(alignment: .leading, widths: [0.85, 0.7, 0.45])
+
+      // Simulated tool call
+      skeletonBubble(alignment: .leading, widths: [0.6, 0.5])
     }
+    .padding(.horizontal, 40)
+    .frame(maxWidth: 720, maxHeight: .infinity)
+    .mask(
+      LinearGradient(
+        stops: [
+          .init(color: .clear, location: 0),
+          .init(color: .black, location: 0.15),
+          .init(color: .black, location: 0.85),
+          .init(color: .clear, location: 1),
+        ],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+    )
+    .overlay {
+      // Shimmer sweep
+      Rectangle()
+        .fill(
+          LinearGradient(
+            colors: [.clear, Color.accent.opacity(0.04), .clear],
+            startPoint: .leading,
+            endPoint: .trailing
+          )
+        )
+        .offset(x: shimmer ? 400 : -400)
+        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: false), value: shimmer)
+    }
+    .onAppear { shimmer = true }
+  }
+
+  private func skeletonBubble(alignment: HorizontalAlignment, widths: [CGFloat]) -> some View {
+    VStack(alignment: .leading, spacing: 8) {
+      ForEach(Array(widths.enumerated()), id: \.offset) { _, fraction in
+        RoundedRectangle(cornerRadius: 4)
+          .fill(Color.textQuaternary.opacity(0.25))
+          .frame(maxWidth: .infinity)
+          .frame(height: 12)
+          .frame(maxWidth: .infinity, alignment: alignment == .trailing ? .trailing : .leading)
+          .scaleEffect(x: fraction, anchor: alignment == .trailing ? .trailing : .leading)
+      }
+    }
+    .padding(.vertical, 12)
+    .padding(.horizontal, 16)
+    .background(
+      RoundedRectangle(cornerRadius: 10)
+        .fill(Color.backgroundSecondary.opacity(0.6))
+    )
+    .frame(maxWidth: .infinity, alignment: alignment == .trailing ? .trailing : .leading)
+    .frame(maxWidth: alignment == .trailing ? 280 : nil)
   }
 }
 

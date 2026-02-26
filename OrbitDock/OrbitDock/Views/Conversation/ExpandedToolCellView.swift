@@ -38,6 +38,7 @@ struct NativeExpandedToolModel {
   let iconName: String
   let hasError: Bool
   let isInProgress: Bool
+  let canCancel: Bool
   let duration: String?
   let content: NativeToolContent
 }
@@ -439,6 +440,7 @@ enum ExpandedToolLayout {
     private let statsField = NSTextField(labelWithString: "")
     private let durationField = NSTextField(labelWithString: "")
     private let collapseChevron = NSImageView()
+    private let cancelButton = NSButton(title: "Stop", target: nil, action: nil)
     private let contentContainer = FlippedContentView()
     private let progressIndicator = NSProgressIndicator()
 
@@ -446,6 +448,7 @@ enum ExpandedToolLayout {
 
     private var model: NativeExpandedToolModel?
     var onCollapse: ((String) -> Void)?
+    var onCancel: ((String) -> Void)?
 
     // ── Init ──
 
@@ -532,6 +535,15 @@ enum ExpandedToolLayout {
       progressIndicator.isHidden = true
       cardBackground.addSubview(progressIndicator)
 
+      // Cancel button (shell-only)
+      cancelButton.bezelStyle = .rounded
+      cancelButton.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+      cancelButton.contentTintColor = NSColor(Color.statusError)
+      cancelButton.target = self
+      cancelButton.action = #selector(handleCancelTap(_:))
+      cancelButton.isHidden = true
+      cardBackground.addSubview(cancelButton)
+
       // Content container — on top of content background
       contentContainer.wantsLayer = true
       cardBackground.addSubview(contentContainer)
@@ -543,10 +555,18 @@ enum ExpandedToolLayout {
 
     @objc private func handleHeaderTap(_ gesture: NSClickGestureRecognizer) {
       let location = gesture.location(in: cardBackground)
+      if !cancelButton.isHidden, cancelButton.frame.contains(location) {
+        return
+      }
       let headerHeight = Self.headerHeight(for: model)
       if location.y <= headerHeight, let messageID = model?.messageID {
         onCollapse?(messageID)
       }
+    }
+
+    @objc private func handleCancelTap(_ sender: NSButton) {
+      guard let messageID = model?.messageID else { return }
+      onCancel?(messageID)
     }
 
     // ── Configure ──
@@ -605,8 +625,11 @@ enum ExpandedToolLayout {
       if model.isInProgress {
         progressIndicator.isHidden = false
         progressIndicator.startAnimation(nil)
+        let spinnerX = model.canCancel
+          ? cardWidth - Self.headerHPad - 72
+          : cardWidth - Self.headerHPad - 16
         progressIndicator.frame = NSRect(
-          x: cardWidth - Self.headerHPad - 16,
+          x: spinnerX,
           y: Self.headerVPad + 2,
           width: 16, height: 16
         )
@@ -615,8 +638,20 @@ enum ExpandedToolLayout {
         progressIndicator.stopAnimation(nil)
       }
 
+      if model.canCancel {
+        cancelButton.isHidden = false
+        cancelButton.frame = NSRect(
+          x: cardWidth - Self.headerHPad - 52,
+          y: Self.headerVPad,
+          width: 52,
+          height: 20
+        )
+      } else {
+        cancelButton.isHidden = true
+      }
+
       // Collapse chevron
-      if !model.isInProgress {
+      if !model.isInProgress, !model.canCancel {
         collapseChevron.isHidden = false
         collapseChevron.frame = NSRect(
           x: cardWidth - Self.headerHPad - 12,
@@ -628,7 +663,7 @@ enum ExpandedToolLayout {
       }
 
       // Duration
-      if let dur = model.duration, !model.isInProgress {
+      if let dur = model.duration, !model.isInProgress, !model.canCancel {
         durationField.isHidden = false
         durationField.stringValue = dur
         durationField.sizeToFit()

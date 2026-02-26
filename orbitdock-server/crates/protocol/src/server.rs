@@ -223,6 +223,7 @@ pub enum ServerMessage {
         stderr: String,
         exit_code: Option<i32>,
         duration_ms: u64,
+        outcome: ShellExecutionOutcome,
     },
 
     // Remote filesystem browsing
@@ -372,6 +373,39 @@ mod tests {
                     }
                     other => panic!("expected Failed, got {:?}", other),
                 }
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn roundtrip_shell_output() {
+        let msg = ServerMessage::ShellOutput {
+            session_id: "sess-shell".to_string(),
+            request_id: "req-shell".to_string(),
+            stdout: "hello".to_string(),
+            stderr: String::new(),
+            exit_code: Some(0),
+            duration_ms: 42,
+            outcome: ShellExecutionOutcome::Completed,
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialize");
+        let reparsed: ServerMessage = serde_json::from_str(&json).expect("deserialize");
+        match reparsed {
+            ServerMessage::ShellOutput {
+                session_id,
+                request_id,
+                exit_code,
+                duration_ms,
+                outcome,
+                ..
+            } => {
+                assert_eq!(session_id, "sess-shell");
+                assert_eq!(request_id, "req-shell");
+                assert_eq!(exit_code, Some(0));
+                assert_eq!(duration_ms, 42);
+                assert_eq!(outcome, ShellExecutionOutcome::Completed);
             }
             other => panic!("unexpected variant: {:?}", other),
         }

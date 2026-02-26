@@ -16,6 +16,7 @@ use crate::hook_handler::PendingClaudeSession;
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
+use crate::shell::ShellService;
 
 #[derive(Clone)]
 struct ClientPrimaryClaimState {
@@ -55,6 +56,9 @@ pub struct SessionRegistry {
     /// Keyed by Claude SDK session_id from SessionStart.
     pending_claude_sessions: DashMap<String, PendingClaudeSession>,
 
+    /// Provider-agnostic shell runtime service for user-initiated commands.
+    shell_service: Arc<ShellService>,
+
     /// True when this server should act as the primary control-plane endpoint.
     is_primary: AtomicBool,
 
@@ -82,6 +86,7 @@ impl SessionRegistry {
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),
+            shell_service: Arc::new(ShellService::new()),
             is_primary: AtomicBool::new(is_primary),
             client_primary_claims: DashMap::new(),
         }
@@ -149,6 +154,10 @@ impl SessionRegistry {
     /// Get naming guard for AI session naming dedup
     pub fn naming_guard(&self) -> &Arc<NamingGuard> {
         &self.naming_guard
+    }
+
+    pub fn shell_service(&self) -> Arc<ShellService> {
+        self.shell_service.clone()
     }
 
     /// Store a Codex action sender

@@ -150,22 +150,22 @@ enum MarkdownAttributedStringRenderer {
   }
 
   /// Body copy leading tuned for dense chat transcripts.
-  /// Standard keeps multi-line passages open enough to scan.
-  /// Thinking stays compact but avoids cramped 3+ line blocks.
+  /// Keep line spacing and paragraph spacing on a consistent 2pt rhythm
+  /// so prose, lists, and headings don't feel visually jumpy.
   static var textLineSpacing: CGFloat {
-    activeStyle == .thinking ? 5.5 : 7.5
+    activeStyle == .thinking ? 4 : 6
   }
 
   static var paragraphSpacing: CGFloat {
-    activeStyle == .thinking ? 10 : 16
+    activeStyle == .thinking ? 8 : 14
   }
 
   static var listParagraphSpacingBefore: CGFloat {
-    activeStyle == .thinking ? 2 : 4
+    activeStyle == .thinking ? 1 : 2
   }
 
   static var listParagraphSpacing: CGFloat {
-    activeStyle == .thinking ? 4 : 8
+    activeStyle == .thinking ? 3 : 4
   }
 
   // MARK: - Thinking Font Scale
@@ -238,17 +238,6 @@ enum MarkdownAttributedStringRenderer {
 
     static let link = PlatformColor.calibrated(red: 0.5, green: 0.72, blue: 0.95, alpha: 1)
     static let blockquoteText = PlatformColor(Color.textSecondary).withAlphaComponent(0.9)
-  }
-
-  // MARK: - Helpers
-
-  private static func newlineSpacer(_ points: CGFloat) -> NSAttributedString {
-    let para = NSMutableParagraphStyle()
-    para.paragraphSpacingBefore = points
-    return NSAttributedString(string: "\n", attributes: [
-      .font: PlatformFont.systemFont(ofSize: 1),
-      .paragraphStyle: para,
-    ])
   }
 
   // MARK: - Block Visitor
@@ -346,14 +335,14 @@ enum MarkdownAttributedStringRenderer {
       let level = min(heading.level, 3)
       let isThinking = activeStyle == .thinking
 
-      let (fontSize, weight, color, topMargin, bottomMargin, kern): (
-        CGFloat, PlatformFont.Weight, PlatformColor, CGFloat, CGFloat, CGFloat
+      let (fontSize, weight, color, topMargin, bottomMargin): (
+        CGFloat, PlatformFont.Weight, PlatformColor, CGFloat, CGFloat
       ) = switch level {
         case 1:
           (
             isThinking ? 18 : TypeScale.chatHeading1, .bold,
             isThinking ? PlatformColor(Color.textSecondary) : PlatformColor(Color.textPrimary),
-            isThinking ? 16 : 22, isThinking ? 7 : 12, isThinking ? 0 : 0.2
+            isThinking ? 14 : 20, isThinking ? 6 : 10
           )
         case 2:
           (
@@ -361,13 +350,13 @@ enum MarkdownAttributedStringRenderer {
             isThinking
               ? PlatformColor(Color.textSecondary).withAlphaComponent(0.9)
               : PlatformColor(Color.textPrimary).withAlphaComponent(0.95),
-            isThinking ? 12 : 18, isThinking ? 5 : 9, isThinking ? 0 : 0.15
+            isThinking ? 10 : 16, isThinking ? 4 : 8
           )
         default:
           (
             isThinking ? 13 : TypeScale.chatHeading3, .bold,
             isThinking ? PlatformColor(Color.textSecondary) : PlatformColor(Color.textPrimary).withAlphaComponent(0.88),
-            isThinking ? 8 : 14, isThinking ? 3 : 7, isThinking ? 0 : 0.12
+            isThinking ? 6 : 12, isThinking ? 2 : 6
           )
       }
 
@@ -383,10 +372,6 @@ enum MarkdownAttributedStringRenderer {
       let result = NSMutableAttributedString(attributedString: inlineVisitor.renderInlines(heading.inlineChildren))
       let fullRange = NSRange(location: 0, length: result.length)
       result.addAttribute(.paragraphStyle, value: para, range: fullRange)
-      // Editorial kerning — gives headings a crafted, typeset quality
-      if kern > 0 {
-        result.addAttribute(.kern, value: kern, range: fullRange)
-      }
       return result
     }
 
@@ -414,7 +399,7 @@ enum MarkdownAttributedStringRenderer {
       let result = NSMutableAttributedString()
       for (idx, item) in list.listItems.enumerated() {
         let number = Int(list.startIndex) + idx
-        if result.length > 0 { result.append(newlineSpacer(2)) }
+        if result.length > 0 { result.append(NSAttributedString(string: "\n")) }
         result.append(renderListItem(item, bullet: "\(number). ", indentLevel: indentLevel))
       }
       return result
@@ -423,7 +408,7 @@ enum MarkdownAttributedStringRenderer {
     private func renderUnorderedList(_ list: UnorderedList, indentLevel: Int = 0) -> NSAttributedString {
       let result = NSMutableAttributedString()
       for item in list.listItems {
-        if result.length > 0 { result.append(newlineSpacer(2)) }
+        if result.length > 0 { result.append(NSAttributedString(string: "\n")) }
 
         // Check for task list checkbox
         if let checkbox = item.checkbox {

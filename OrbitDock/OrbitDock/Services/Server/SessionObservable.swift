@@ -49,6 +49,9 @@ final class SessionObservable {
   /// Shell context buffer — auto-prepended to next sendMessage
   var pendingShellContext: [ShellContextEntry] = []
 
+  /// Lifecycle
+  var hasReceivedSnapshot: Bool = false
+
   // Operation flags
   var undoInProgress: Bool = false
   var forkInProgress: Bool = false
@@ -149,6 +152,7 @@ final class SessionObservable {
   /// Keep lightweight identity/config fields so list UI remains stable.
   func clearConversationPayloadsForCaching() {
     messages = []
+    hasReceivedSnapshot = false
     bumpMessagesRevision()
     turnDiffs = []
     diff = nil

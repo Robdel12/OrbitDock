@@ -313,6 +313,7 @@ ws://127.0.0.1:4000/ws?token=<your-token>
 
 ```json
 { "type": "execute_shell", "session_id": "...", "command": "ls -la", "timeout_secs": 30 }
+{ "type": "cancel_shell", "session_id": "...", "request_id": "..." }
 ```
 
 **Review comments:**
@@ -352,6 +353,8 @@ GET /api/sessions/{session_id}/review-comments
 { "type": "tokens_updated", "session_id": "...", "usage": {...} }
 { "type": "session_created", "session": {...} }
 { "type": "session_ended", "session_id": "...", "reason": "..." }
+{ "type": "shell_started", "session_id": "...", "request_id": "...", "command": "..." }
+{ "type": "shell_output", "session_id": "...", "request_id": "...", "stdout": "...", "stderr": "...", "exit_code": 0, "duration_ms": 1234, "outcome": "completed" }
 { "type": "error", "code": "...", "message": "...", "session_id": "..." }
 ```
 

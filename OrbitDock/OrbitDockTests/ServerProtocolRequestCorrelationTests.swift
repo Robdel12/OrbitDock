@@ -11,6 +11,7 @@ struct ServerProtocolRequestCorrelationTests {
       .fetchClaudeUsage(requestId: "req-claude-usage"),
       .listRecentProjects(requestId: "req-projects"),
       .browseDirectory(path: "/tmp", requestId: "req-browse"),
+      .cancelShell(sessionId: "session-1", requestId: "req-shell-cancel"),
     ]
 
     for message in messages {
@@ -18,6 +19,37 @@ struct ServerProtocolRequestCorrelationTests {
       let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
       let requestId = try #require(payload["request_id"] as? String)
       #expect(requestId.hasPrefix("req-"))
+    }
+  }
+
+  @Test func shellMessagesEncodeAndDecodeOutcome() throws {
+    let message = ServerToClientMessage.shellOutput(
+      sessionId: "session-1",
+      requestId: "shell-1",
+      stdout: "output",
+      stderr: "",
+      exitCode: 124,
+      durationMs: 1_500,
+      outcome: .timedOut
+    )
+
+    let data = try JSONEncoder().encode(message)
+    let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(payload["type"] as? String == "shell_output")
+    #expect(payload["outcome"] as? String == "timed_out")
+
+    let parsed = try JSONDecoder().decode(ServerToClientMessage.self, from: data)
+    switch parsed {
+      case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome):
+        #expect(sessionId == "session-1")
+        #expect(requestId == "shell-1")
+        #expect(stdout == "output")
+        #expect(stderr.isEmpty)
+        #expect(exitCode == 124)
+        #expect(durationMs == 1_500)
+        #expect(outcome == .timedOut)
+      default:
+        Issue.record("Expected shell_output")
     }
   }
 
@@ -127,6 +159,7 @@ struct ServerProtocolRequestCorrelationTests {
       #"{"type":"fetch_claude_usage"}"#,
       #"{"type":"list_recent_projects"}"#,
       #"{"type":"browse_directory","path":"/tmp"}"#,
+      #"{"type":"cancel_shell","session_id":"session-1"}"#,
     ]
 
     for payload in missingRequestIdPayloads {

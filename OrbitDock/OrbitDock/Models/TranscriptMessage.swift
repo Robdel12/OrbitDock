@@ -75,6 +75,10 @@ struct TranscriptMessage: Identifiable, Hashable {
     type == .tool
   }
 
+  var isToolLike: Bool {
+    type == .tool || type == .shell
+  }
+
   var isThinking: Bool {
     type == .thinking
   }
@@ -85,6 +89,10 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   var isShell: Bool {
     type == .shell
+  }
+
+  var isBashLikeCommand: Bool {
+    isShell || toolName?.lowercased() == "bash"
   }
 
   /// Hashable conformance - exclude toolInput since [String: Any] isn't Hashable
@@ -163,9 +171,14 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   /// Extract command from Bash tool
   var bashCommand: String? {
-    guard toolName?.lowercased() == "bash", let input = toolInput else { return nil }
-    return String.shellCommandDisplay(from: input["command"])
-      ?? String.shellCommandDisplay(from: input["cmd"])
+    guard isBashLikeCommand else { return nil }
+    if let input = toolInput {
+      return String.shellCommandDisplay(from: input["command"])
+        ?? String.shellCommandDisplay(from: input["cmd"])
+        ?? String.shellCommandDisplay(from: content)
+        ?? content
+    }
+    return String.shellCommandDisplay(from: content) ?? content
   }
 
   /// Extract edit details
@@ -319,7 +332,7 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   /// Detect if bash command likely errored
   var bashHasError: Bool {
-    guard toolName?.lowercased() == "bash", let output = toolOutput else { return false }
+    guard isBashLikeCommand, let output = toolOutput else { return false }
     let lowerOutput = output.lowercased()
     return lowerOutput.contains("error:") ||
       lowerOutput.contains("error[") ||

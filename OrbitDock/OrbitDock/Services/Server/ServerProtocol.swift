@@ -33,6 +33,13 @@ enum ServerTokenUsageSnapshotKind: String, Codable, Hashable, Sendable {
   case compactionReset = "compaction_reset"
 }
 
+enum ServerShellExecutionOutcome: String, Codable {
+  case completed
+  case failed
+  case timedOut = "timed_out"
+  case canceled
+}
+
 // MARK: - Session Status
 
 enum ServerSessionStatus: String, Codable {
@@ -1398,7 +1405,8 @@ enum ServerToClientMessage: Codable {
     stdout: String,
     stderr: String,
     exitCode: Int32?,
-    durationMs: UInt64
+    durationMs: UInt64,
+    outcome: ServerShellExecutionOutcome
   )
   case directoryListing(requestId: String, path: String, entries: [ServerDirectoryEntry])
   case recentProjectsList(requestId: String, projects: [ServerRecentProject])
@@ -1729,9 +1737,11 @@ enum ServerToClientMessage: Codable {
         let stderr = try container.decode(String.self, forKey: .stderr)
         let exitCode = try container.decodeIfPresent(Int32.self, forKey: .exitCode)
         let durationMs = try container.decode(UInt64.self, forKey: .durationMs)
+        let outcome = try container.decodeIfPresent(ServerShellExecutionOutcome.self, forKey: .outcome)
+          ?? ((exitCode == 0) ? .completed : .failed)
         self = .shellOutput(
           sessionId: sessionId, requestId: requestId,
-          stdout: stdout, stderr: stderr, exitCode: exitCode, durationMs: durationMs
+          stdout: stdout, stderr: stderr, exitCode: exitCode, durationMs: durationMs, outcome: outcome
         )
 
       case "directory_listing":
@@ -2017,7 +2027,7 @@ enum ServerToClientMessage: Codable {
         try container.encode(requestId, forKey: .requestId)
         try container.encode(command, forKey: .command)
 
-      case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs):
+      case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome):
         try container.encode("shell_output", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(requestId, forKey: .requestId)
@@ -2025,6 +2035,7 @@ enum ServerToClientMessage: Codable {
         try container.encode(stderr, forKey: .stderr)
         try container.encodeIfPresent(exitCode, forKey: .exitCode)
         try container.encode(durationMs, forKey: .durationMs)
+        try container.encode(outcome, forKey: .outcome)
 
       case let .directoryListing(requestId, path, entries):
         try container.encode("directory_listing", forKey: .type)
@@ -2195,6 +2206,7 @@ enum ClientToServerMessage: Codable {
   case fetchCodexUsage(requestId: String)
   case fetchClaudeUsage(requestId: String)
   case executeShell(sessionId: String, command: String, cwd: String? = nil, timeoutSecs: UInt64 = 30)
+  case cancelShell(sessionId: String, requestId: String)
   case browseDirectory(path: String? = nil, requestId: String)
   case listRecentProjects(requestId: String)
 
@@ -2549,6 +2561,11 @@ enum ClientToServerMessage: Codable {
           try container.encode(timeoutSecs, forKey: .timeoutSecs)
         }
 
+      case let .cancelShell(sessionId, requestId):
+        try container.encode("cancel_shell", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(requestId, forKey: .requestId)
+
       case let .browseDirectory(path, requestId):
         try container.encode("browse_directory", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
@@ -2770,6 +2787,11 @@ enum ClientToServerMessage: Codable {
           command: container.decode(String.self, forKey: .command),
           cwd: container.decodeIfPresent(String.self, forKey: .cwd),
           timeoutSecs: container.decodeIfPresent(UInt64.self, forKey: .timeoutSecs) ?? 30
+        )
+      case "cancel_shell":
+        self = try .cancelShell(
+          sessionId: container.decode(String.self, forKey: .sessionId),
+          requestId: container.decode(String.self, forKey: .requestId)
         )
       case "browse_directory":
         self = try .browseDirectory(

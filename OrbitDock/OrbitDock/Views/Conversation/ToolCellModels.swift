@@ -39,6 +39,9 @@ struct ToolGlyphInfo {
   let color: PlatformColor
 
   static func from(message: TranscriptMessage) -> ToolGlyphInfo {
+    if message.isShell {
+      return ToolGlyphInfo(symbol: "terminal", color: PlatformColor(Color.toolBash))
+    }
     guard let name = message.toolName else {
       return ToolGlyphInfo(symbol: "gearshape", color: PlatformColor.secondaryLabelCompat)
     }
@@ -82,6 +85,9 @@ struct ToolGlyphInfo {
 
 enum CompactToolHelpers {
   static func summary(for message: TranscriptMessage) -> String {
+    if message.isShell {
+      return String.shellCommandDisplay(from: message.content) ?? message.content
+    }
     guard let name = message.toolName else { return "tool" }
     let lowercased = name.lowercased()
     if name.hasPrefix("mcp__") {
@@ -115,6 +121,14 @@ enum CompactToolHelpers {
   }
 
   static func rightMeta(for message: TranscriptMessage) -> String? {
+    if message.isShell {
+      if let dur = message.formattedDuration {
+        let prefix = message.bashHasError ? "\u{2717}" : "\u{2713}"
+        return "\(prefix) \(dur)"
+      }
+      if message.isInProgress { return "LIVE" }
+      return nil
+    }
     guard let name = message.toolName else { return nil }
     let lowercased = name.lowercased()
     switch lowercased {
@@ -302,7 +316,7 @@ enum CompactToolHelpers {
   }
 
   static func liveOutputPreview(for message: TranscriptMessage) -> String? {
-    guard message.toolName?.lowercased() == "bash", message.isInProgress else { return nil }
+    guard message.toolName?.lowercased() == "bash" || message.isShell, message.isInProgress else { return nil }
 
     let output = (message.sanitizedToolOutput ?? "")
       .replacingOccurrences(of: "\r\n", with: "\n")
@@ -416,7 +430,7 @@ enum SharedModelBuilders {
     messageID: String
   ) -> NativeExpandedToolModel {
     let glyph = ToolGlyphInfo.from(message: message)
-    let toolName = message.toolName ?? "tool"
+    let toolName = message.toolName ?? (message.isShell ? "bash" : "tool")
     let content = expandedToolContent(from: message, toolName: toolName)
 
     return NativeExpandedToolModel(
@@ -425,6 +439,7 @@ enum SharedModelBuilders {
       iconName: ToolCardStyle.icon(for: toolName),
       hasError: message.bashHasError,
       isInProgress: message.isInProgress,
+      canCancel: message.isShell && message.isInProgress,
       duration: message.formattedDuration,
       content: content
     )

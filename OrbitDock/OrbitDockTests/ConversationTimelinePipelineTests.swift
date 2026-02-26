@@ -152,6 +152,18 @@ struct ConversationTimelinePipelineTests {
     #expect(expanded.dirtyRowIDs.contains(.tool("t1")))
   }
 
+  @Test func projectorTreatsShellMessagesAsToolRows() {
+    let messages = [
+      makeMessage(id: "u1", type: .user, content: "run it"),
+      makeMessage(id: "s1", type: .shell, content: "pwd"),
+      makeMessage(id: "a1", type: .assistant, content: "done"),
+    ]
+    let source = makeSource(messages: messages, chatViewMode: .verbose)
+
+    let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
+    #expect(projected.rows.map(\.id) == [.message("u1"), .tool("s1"), .message("a1"), .bottomSpacer])
+  }
+
   @Test func projectorSuppressesRedundantEscalatedApprovalNarrationWhenCardIsVisible() {
     let pendingWrapped = "/bin/zsh -lc xcodebuild -project OrbitDock.xcodeproj -scheme OrbitDock -showdestinations"
     let narration = """

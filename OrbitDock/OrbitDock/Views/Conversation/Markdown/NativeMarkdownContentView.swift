@@ -23,14 +23,14 @@ final class NativeMarkdownContentView: PlatformView {
 
   /// Minimum gap between consecutive .text blocks when the trailing
   /// paragraphSpacing from the attributed string is smaller.
-  private static let minimumTextBlockSpacing: CGFloat = 8
+  private static let minimumTextBlockSpacing: CGFloat = 4
   private static let blockquoteBarWidth: CGFloat = 3
   private static let blockquoteBarColor = PlatformColor(Color.accentMuted).withAlphaComponent(0.9)
   private static let blockquoteLeadingPad: CGFloat = 14
   private static let thematicBreakHeight: CGFloat = 28 // 14pt top + 4pt dots + 14pt bottom (approx)
-  private static let codeBlockVerticalMargin: CGFloat = 12
-  private static let tableVerticalMargin: CGFloat = 12
-  private static let blockquoteVerticalMargin: CGFloat = 10
+  private static let codeBlockVerticalMargin: CGFloat = 8
+  private static let tableVerticalMargin: CGFloat = 8
+  private static let blockquoteVerticalMargin: CGFloat = 8
 
   #if os(macOS)
     override var isFlipped: Bool {

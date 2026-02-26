@@ -54,8 +54,8 @@ struct MarkdownParsingTests {
 
     let paragraphStyle = firstText?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
     #expect(paragraphStyle != nil)
-    #expect((paragraphStyle?.lineSpacing ?? 0) >= 7)
-    #expect((paragraphStyle?.paragraphSpacing ?? 0) >= 16)
+    #expect((paragraphStyle?.lineSpacing ?? 0) >= 6)
+    #expect((paragraphStyle?.paragraphSpacing ?? 0) >= 14)
   }
 
   @Test func listContinuationLinesRenderAsNestedBullets() {

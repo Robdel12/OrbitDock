@@ -362,6 +362,10 @@ pub enum ClientMessage {
         #[serde(default = "default_shell_timeout")]
         timeout_secs: u64,
     },
+    CancelShell {
+        session_id: String,
+        request_id: String,
+    },
 
     // Remote filesystem browsing (for iOS project picker)
     BrowseDirectory {
@@ -683,6 +687,24 @@ mod tests {
         let parsed: ClientMessage = serde_json::from_str(json).expect("parse codex_account_logout");
         match &parsed {
             ClientMessage::CodexAccountLogout => {}
+            other => panic!("unexpected variant: {:?}", other),
+        }
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let _: ClientMessage = serde_json::from_str(&serialized).expect("roundtrip");
+    }
+
+    #[test]
+    fn roundtrip_cancel_shell() {
+        let json = r#"{"type":"cancel_shell","session_id":"sess-shell","request_id":"req-shell"}"#;
+        let parsed: ClientMessage = serde_json::from_str(json).expect("parse cancel_shell");
+        match &parsed {
+            ClientMessage::CancelShell {
+                session_id,
+                request_id,
+            } => {
+                assert_eq!(session_id, "sess-shell");
+                assert_eq!(request_id, "req-shell");
+            }
             other => panic!("unexpected variant: {:?}", other),
         }
         let serialized = serde_json::to_string(&parsed).expect("serialize");

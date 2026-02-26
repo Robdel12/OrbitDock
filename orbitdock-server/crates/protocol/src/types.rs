@@ -69,6 +69,16 @@ pub enum MessageType {
     Shell,
 }
 
+/// Terminal outcome of a shell command execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShellExecutionOutcome {
+    Completed,
+    Failed,
+    TimedOut,
+    Canceled,
+}
+
 /// A message in the conversation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {

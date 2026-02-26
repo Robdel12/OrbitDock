@@ -304,305 +304,147 @@ But native blockquote text uses `Fonts.blockquoteBody` which is `PlatformFont.sy
 
 ## Plan — The Fix
 
-### Phase 1: Unified Style System
+### Updated Direction (Feb 26, 2026)
 
-**Goal:** Single source of truth for all markdown typography and color tokens. Eliminate all hardcoded color literals and mutable static state.
+We are keeping the timeline-native rendering shell for performance, and removing the custom markdown semantics/rendering logic that keeps drifting.
 
-**Files touched:** `MarkdownTheme.swift` (new), `MarkdownAttributedStringRenderer.swift`, `MarkdownView.swift`, `NativeMarkdownContentView.swift`, `NativeCodeBlockView.swift`, `Theme.swift`
+- **Use Apple markdown parsing as source of truth** for markdown semantics and inline attributes.
+- **Keep a thin native timeline renderer** for deterministic height measurement, recycling, and streaming updates.
+- **Eliminate duplicate markdown engines** across native + SwiftUI surfaces.
 
-1. **Create `Markdown/MarkdownTheme.swift`** — a struct that owns all typography and color values:
-   ```swift
-   struct MarkdownTheme: Sendable {
-     // Text
-     let bodyFont: PlatformFont
-     let bodyBoldFont: PlatformFont
-     let bodyItalicFont: PlatformFont
-     let bodyBoldItalicFont: PlatformFont
-     let inlineCodeFont: PlatformFont
-     let blockquoteFont: PlatformFont
+This gives us the best of both worlds:
+- we stop writing our own markdown engine
+- we keep the 60 FPS timeline behavior this app depends on
 
-     let textColor: PlatformColor
-     let inlineCodeColor: PlatformColor
-     let inlineCodeBgColor: PlatformColor
-     let linkColor: PlatformColor
-     let blockquoteBarColor: PlatformColor
-     let blockquoteTextColor: PlatformColor
+### Phase 0: Parser Capability Spike
 
-     // Spacing
-     let lineSpacing: CGFloat
-     let paragraphSpacing: CGFloat
-     let listSpacingBefore: CGFloat
-     let listSpacing: CGFloat
+**Goal:** Validate parser behavior against real OrbitDock transcript content before migration.
 
-     // Headings (per level 1-3)
-     let headings: [HeadingStyle]  // index 0 = H1, 1 = H2, 2 = H3
+**Files touched:** `docs/markdown-capability-matrix.md` (new), `MarkdownParsingTests.swift`
 
-     struct HeadingStyle: Sendable {
-       let font: PlatformFont
-       let color: PlatformColor
-       let topMargin: CGFloat
-       let bottomMargin: CGFloat
-       let kerning: CGFloat
-     }
+1. Build a fixture set from real transcripts: long lists, nested lists, task checkboxes, tables, code fences, inline links, bare URLs, block quotes, mixed heading levels.
+2. Capture parser output from the APIs we can rely on in production (`AttributedString(markdown:)` / `NSAttributedString(markdown:)`) and document edge-case behavior.
+3. Record a support matrix:
+   - Supported directly by system parsing
+   - Needs light post-processing
+   - Needs explicit fallback rendering
+4. Define ship criteria for migration (no regressions on links, lists, code blocks, and tables).
 
-     // SwiftUI accessors (computed)
-     var bodySwiftUIFont: Font { ... }
-     var textSwiftUIColor: Color { ... }
-     // etc.
+### Phase 1: Introduce a Single Markdown Adapter
 
-     static let standard = MarkdownTheme(...)
-     static let thinking = MarkdownTheme(...)
-   }
-   ```
-2. **Fix Theme.swift markdown tokens** — `Color.markdownInlineCode` currently has wrong green channel (`0.7` vs actual `0.68`). `Color.markdownLink` uses `accent` (cyan `0.35, 0.78, 0.95`) but the actual hardcoded link color is `(0.5, 0.72, 0.95)`. Either update the theme tokens to match the actual values, or decide the canonical colors and update everything.
-3. **Pass `MarkdownTheme` explicitly** to `MarkdownAttributedStringRenderer.parse()` as a parameter instead of using `activeStyle` static var. Delete `activeStyle`, `ContentStyle`, `MarkdownStyle`, and `StreamingMarkdownView.Style`.
-4. **Delete all hardcoded RGB literals** from `MarkdownView.swift` and `NativeMarkdownContentView.swift`. Replace with theme token references.
-5. **Add thinking-mode theme token for inline code** — currently the native renderer uses `alpha: 0.7` on the same tan, while SwiftUI uses a completely different hue (`0.85, 0.6, 0.4`). Decide on one approach.
+**Goal:** Replace ad-hoc AST walkers with one shared adapter layer.
 
-### Phase 2: Syntax Highlighting Consolidation
+**Files touched:** `MarkdownAttributedStringRenderer.swift` (rewrite), new `MarkdownSystemParser.swift`, `MarkdownView.swift`
 
-**Goal:** One set of language definitions. One highlighting engine. One cache. Delete ~600 lines.
+1. Add `MarkdownSystemParser` as the only markdown parsing entry point.
+2. Parse once and emit a shared `MarkdownIR`:
+   - `text(NSAttributedString)` for prose/list/heading/blockquote content
+   - `codeBlock(language, code)`
+   - `table(headers, rows)`
+   - `thematicBreak`
+3. Delete custom inline walkers and style branching currently duplicated across native and SwiftUI paths.
+4. Keep style tokens centralized (`MarkdownTheme` or equivalent) so typography stays consistent.
 
-**Files touched:** `SyntaxHighlighter.swift`, `NativeSyntaxHighlighter.swift` (delete), `LanguageDefinition.swift` (new), `NativeCodeBlockView.swift`, `CodeBlockView` in `MarkdownView.swift`, `OrbitDockApp.swift`
+### Phase 2: Thin Native Renderer for Conversation Timeline
 
-1. **Extract language definitions** into a data-driven `LanguageDefinition` struct:
-   ```swift
-   struct LanguageDefinition {
-     let keywords: [String]
-     let types: [String]
-     let stringPattern: String
-     let commentPattern: String
-     let numberPattern: String
-     let specialPatterns: [(pattern: String, tokenType: SyntaxTokenType)]
+**Goal:** Preserve deterministic timeline behavior while removing markdown semantic ownership from native views.
 
-     /// Normalized name (e.g., "javascript" not "js")
-     let canonicalName: String
-     /// All aliases (e.g., ["js", "jsx"])
-     let aliases: [String]
-     /// Badge dot color
-     let badgeColor: Color
-   }
-   ```
-   This consolidates: keyword lists, normalization aliases, and badge colors into one place per language.
+**Files touched:** `NativeMarkdownContentView.swift`, `NativeRichMessageCellView.swift`, `UIKitRichMessageCell.swift`
 
-2. **Delete all 11 full-code highlighter functions** (`highlightSwift()`, `highlightJavaScript()`, etc.) and the dead `highlight()` entry point. ~550 lines removed.
+1. Keep `NativeMarkdownContentView.requiredHeight(...)` and TextKit measurement as-is for deterministic row sizing.
+2. Render from shared `MarkdownIR` only; no markdown parsing logic inside timeline views.
+3. Keep code blocks/tables as dedicated native blocks where interaction and layout need explicit control.
+4. Ensure prepend anchor + height cache behavior remains unchanged in `ConversationCollectionView`.
 
-3. **Refactor `SyntaxHighlighter` to produce `NSAttributedString` as primary output** — the native path (conversation timeline) is the primary consumer. Add a thin `toSwiftUIAttributedString()` adapter for the 4 SwiftUI callsites (EditCard, ReadCard, DiffHunkView, CodeReviewFeedbackCard).
+### Phase 3: Move SwiftUI Surfaces to the Same IR
 
-4. **Delete `NativeSyntaxHighlighter.swift`** entirely. Move its cache into `SyntaxHighlighter` (now producing `NSAttributedString` directly). Update `OrbitDockApp.swift` memory pressure handler.
+**Goal:** Eliminate the second markdown engine entirely.
 
-5. **Consolidate language normalization** — one `LanguageDefinition.resolve(_ alias: String) -> LanguageDefinition?` lookup, used by both pipelines and the badge color mapping.
+**Files touched:** `MarkdownView.swift`, `WorkStreamEntry.swift`, `TaskCard.swift`, `UserBashCard.swift`
 
-6. **Fix `CodeBlockView` language colors** — replace raw system colors (`.orange`, `.yellow`, `.blue`) with `languageDefinition.badgeColor` which uses the themed `Color.langSwift`, etc.
+1. Replace `Document(parsing:)` + custom block walkers in `MarkdownView.swift` with shared `MarkdownIR` rendering.
+2. Keep `StreamingMarkdownView` behavior, but feed it through the shared parser output path.
+3. Remove the link/no-link split logic and custom inline rendering branches.
+4. Reuse the same code block and table components/configuration used by native where possible.
 
-### Phase 3: Consolidate Rendering Pipelines
+### Phase 4: Syntax Highlighting + Code Block Consolidation
 
-**Goal:** SwiftUI path consumes `[MarkdownBlock]` from the same parser. Delete 200+ lines of duplicate AST walking.
+**Goal:** Keep one syntax highlighter path and one language definition source.
 
-**Files touched:** `MarkdownView.swift` (major rewrite), `MarkdownAttributedStringRenderer.swift` (minor)
+**Files touched:** `SyntaxHighlighter.swift`, `NativeSyntaxHighlighter.swift` (delete), `NativeCodeBlockView.swift`, `MarkdownView.swift`
 
-1. **Rewrite `MarkdownView.swift`** to consume `[MarkdownBlock]` instead of walking the `Document` AST independently:
-   ```swift
-   struct MarkdownContentView: View {
-     let content: String
-     var theme: MarkdownTheme = .standard
+1. Consolidate language normalization and badge colors in one data model.
+2. Remove dead duplicate highlight functions and duplicate caches.
+3. Make one output type primary (`NSAttributedString`) with adapters for SwiftUI callsites.
+4. Ensure code block styling tokens come from theme values, not inline color literals.
 
-     var body: some View {
-       let blocks = MarkdownAttributedStringRenderer.parse(content, theme: theme)
-       VStack(alignment: .leading, spacing: 0) {
-         ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-           MarkdownBlockView(block: block, theme: theme)
-         }
-       }
-     }
-   }
-   ```
-2. **Delete the duplicate inline walkers**: `inlineText()`, `inlineSegment()`, `attributedString()`, `inlineAttributedString()` — all 200+ lines. The `.text(NSAttributedString)` blocks render via `Text(AttributedString(nsAttributedString))` in SwiftUI.
-3. **Delete `MarkdownDocumentView`** and its `blockView(for:)` dispatcher.
-4. **Unify code blocks** — the SwiftUI `CodeBlockView` should use the same `LanguageDefinition` data and theme tokens. It can remain a pure SwiftUI view (wrapping in NSViewRepresentable would be overkill for the ~5 callsites that use it), but it shares all configuration with the native `NativeCodeBlockView`.
-5. **Unify table rendering** — `MarkdownTableView` (SwiftUI) should use theme tokens instead of raw `.white.opacity()` values.
-6. **Fix link handling** — with the unified block model, every `.text(NSAttributedString)` block already has bare URLs auto-detected (via `NSDataDetector` in the native parser). The SwiftUI path gets this for free. Delete the `hasLinks` conditional split in `MarkdownParagraphView`.
+### Phase 5: Caching, Reliability, and Test Coverage
 
-### Phase 4: Fix List Rendering
+**Goal:** Make markdown behavior stable under long sessions and rapid streaming updates.
 
-**Goal:** Remove the hand-rolled re-parser. Properly walk the AST for all list item content types.
+**Files touched:** `MarkdownParsingTests.swift`, `OrbitDockApp.swift`, parser/highlighter cache files
 
-**Files touched:** `MarkdownAttributedStringRenderer.swift`
-
-1. **Delete `parseListContinuation()`** and `ListContinuationLine` enum (~80 lines).
-2. **Audit `swift-markdown` AST output** for common Claude list patterns — capture actual AST structures for:
-   - Simple bullet list
-   - Nested bullets (2-3 levels deep)
-   - Ordered list within unordered
-   - Code block inside list item
-   - Continuation paragraph (soft-wrapped long content)
-   - Task list with checkboxes
-3. **Fix `renderListItem()`** to handle all child block types:
-   - `BlockQuote` inside list items (currently falls to plaintext)
-   - Multiple `Paragraph` children (continuation paragraphs) — render with proper indent
-   - `ThematicBreak` inside list items
-   - Nested `Table` inside list items
-4. **Add regression tests** for each pattern above.
-
-### Phase 5: Reduce Platform Branching
-
-**Goal:** Reduce the 18 `#if os()` blocks in `NativeCodeBlockView` through platform abstraction.
-
-**Files touched:** `NativeCodeBlockView.swift`, potentially `PlatformTypes.swift` or similar
-
-1. **Create factory methods** for platform-specific view setup:
-   ```swift
-   // Instead of 18 #if os() blocks for NSTextField vs UILabel:
-   private func makeLabel(_ text: String, font: PlatformFont, color: PlatformColor) -> PlatformView
-   private func makeButton(title: String, action: Selector) -> PlatformView
-   ```
-2. **Consolidate button action patterns** — `NSButton(target:action:)` vs `UIButton.addTarget(_:action:for:)` into a shared protocol or helper.
-3. **Target: reduce from 18 to ~4-6 `#if os()` blocks** (setup, scroll view, clipboard, layout-specific).
-
-### Phase 6: Improve Caching
-
-**Goal:** Smarter eviction, unified caches, macOS memory handling.
-
-**Files touched:** `MarkdownAttributedStringRenderer.swift`, `SyntaxHighlighter.swift`, `OrbitDockApp.swift`
-
-1. **Replace nuclear eviction** with partial eviction — when at capacity, remove the oldest 25% of entries. Use an `OrderedDictionary` (from swift-collections) or a simple array-backed LRU:
-   ```swift
-   struct LRUCache<Key: Hashable, Value> {
-     private var storage: [Key: (value: Value, accessOrder: Int)] = [:]
-     private var accessCounter = 0
-     let maxSize: Int
-
-     mutating func get(_ key: Key) -> Value? { ... }
-     mutating func set(_ key: Key, _ value: Value) { ... }
-   }
-   ```
-2. **Merge highlight caches** — after Phase 2, there's only one `SyntaxHighlighter` cache producing `NSAttributedString` directly. One cache, one eviction path.
-3. **Add macOS memory pressure handling** — use `DispatchSource.makeMemoryPressureSource()` to clear caches on macOS, matching the existing iOS behavior.
-4. **Add cache statistics logging** (debug builds) — hit rate, eviction count, cache size. Write to timeline log for performance tuning.
-
-### Phase 7: Expand Test Coverage
-
-**Goal:** Comprehensive tests for the parsing and rendering layer.
-
-**Files touched:** `MarkdownParsingTests.swift` (major expansion)
-
-Tests organized by category:
-
-**Inline Elements:**
-- `testBoldRendering` — verify font weight
-- `testItalicRendering` — verify italic trait
-- `testBoldItalicNesting` — `***text***` gets bold+italic
-- `testInlineCodeStyling` — verify font (monospaced), color (theme token), background color
-- `testStrikethroughAttribute` — verify `.strikethroughStyle` attribute
-- `testExplicitLinkWithURL` — verify `.link` attribute with correct URL
-- `testBareURLAutoDetection` — verify NSDataDetector finds and linkifies bare URLs
-- `testImageAltTextRendering` — verify alt text displayed, linked to source
-- `testInlineHTMLRenderedAsPlainText` — verify HTML tags rendered as text
-
-**Block Elements:**
-- `testHeadingLevels` — H1/H2/H3 font sizes, weights, kerning per level
-- `testHeadingSpacing` — top/bottom margins per level
-- `testBlockquoteStyles` — italic font, accent color, paragraph style
-- `testCodeBlockParsing` — language extraction, trailing newline trimming
-- `testCodeBlockHeight` — deterministic height for known line counts
-- `testCodeBlockCollapseThreshold` — 15+ lines triggers collapse
-- `testTableHeaderAndRowExtraction` — column/row parsing
-- `testTablePadding` — cells padded to header count
-- `testThematicBreakBlock` — produces `.thematicBreak`
-
-**Lists:**
-- `testOrderedListNumbering` — start index, sequential numbering
-- `testUnorderedListBullets` — bullet character
-- `testTaskListCheckboxes` — checked/unchecked markers
-- `testNestedListIndentation` — headIndent increases per level
-- `testCodeBlockInsideListItem` — fenced code in list items
-- `testMultipleParagraphsInListItem` — continuation paragraphs
-
-**Style Variants:**
-- `testThinkingModeFontSizes` — verify all font sizes are smaller than standard
-- `testThinkingModeColors` — verify muted text color, reduced opacity
-- `testThinkingModeSpacing` — verify tighter line/paragraph spacing
-- `testStandardVsThinkingConsistency` — same content parsed with both, verify structural equivalence (same block types)
-
-**Language Handling:**
-- `testLanguageNormalization` — all aliases map to canonical names
-- `testLanguageBadgeColors` — each language has a themed badge color
-- `testUnknownLanguageFallback` — unknown languages get generic highlighting
-
-**Caching:**
-- `testParseCacheHit` — same content+style returns cached result (reference equality)
-- `testParseCacheMissOnDifferentStyle` — same content, different style → cache miss
-- `testParseCacheEviction` — verify cache doesn't grow unbounded
-- `testHighlightCacheHit` — same line+language returns cached result
-
-**Height Calculation:**
-- `testTextBlockHeight` — measured height matches NSLayoutManager
-- `testCodeBlockHeightCollapsed` — 8 visible lines + header + expand button
-- `testCodeBlockHeightExpanded` — all lines + header
-- `testMixedBlocksHeight` — text + code + table produces correct total
+1. Replace full cache nukes with bounded eviction (LRU or partial eviction).
+2. Add macOS memory pressure handling to clear markdown/syntax caches safely.
+3. Expand tests with fixture-driven cases:
+   - Links + bare URL detection
+   - Nested lists + task lists
+   - Tables with uneven rows
+   - Code fence language mapping
+   - Deterministic text/row height expectations
+4. Add regression tests ensuring native and SwiftUI paths render equivalent structure from the same `MarkdownIR`.
 
 ---
 
-## File Impact Summary
+## File Impact Summary (Updated)
 
-| File | Action | Lines Changed (est.) |
-|------|--------|---------------------|
-| **New: `Markdown/MarkdownTheme.swift`** | Unified typography + color tokens | +150 |
-| **New: `Markdown/LanguageDefinition.swift`** | Data-driven language definitions + normalization + badge colors | +200 |
-| `MarkdownAttributedStringRenderer.swift` | Accept `MarkdownTheme`, delete `activeStyle`/`ContentStyle`/`Fonts`/`Colors` nested enums | ~-100, +50 |
-| `MarkdownView.swift` | Major rewrite: consume `[MarkdownBlock]`, delete duplicate walkers | ~-400, +80 |
-| `SyntaxHighlighter.swift` | Delete 550 lines of full-code duplicates, refactor to `NSAttributedString` output | ~-600, +30 |
-| `NativeSyntaxHighlighter.swift` | **Delete entirely** | -87 |
-| `NativeCodeBlockView.swift` | Use `LanguageDefinition`, reduce `#if os()` blocks | ~-60, +40 |
-| `NativeMarkdownContentView.swift` | Use theme tokens for link colors | ~-10, +5 |
-| `NativeRichMessageCellView.swift` | Pass theme to parse calls | ~5 |
-| `UIKitRichMessageCell.swift` | Pass theme to parse calls | ~5 |
-| `Theme.swift` | Fix `markdownInlineCode`/`markdownLink` values, possibly remove if all tokens move to `MarkdownTheme` | ~5 |
-| `OrbitDockApp.swift` | Update cache clearing calls, add macOS memory pressure | ~10 |
-| `MarkdownParsingTests.swift` | Major expansion | +400 |
-
-**Net effect:** ~-700 lines removed, ~+975 lines added. But the added lines are mostly tests (+400), a well-structured theme (+150), and language definitions (+200). Actual rendering code decreases by ~700 lines.
+| File | Action |
+|------|--------|
+| **New: `docs/markdown-capability-matrix.md`** | Parser feature matrix + migration guardrails |
+| **New: `MarkdownSystemParser.swift`** | Single parsing adapter and IR builder |
+| `MarkdownAttributedStringRenderer.swift` | Convert to thin adapter over system parsing (or replace entirely) |
+| `MarkdownView.swift` | Remove custom AST walkers; render shared IR |
+| `NativeMarkdownContentView.swift` | Render-only responsibilities, no parsing semantics |
+| `NativeSyntaxHighlighter.swift` | Delete |
+| `SyntaxHighlighter.swift` | Single highlighter path + unified cache |
+| `MarkdownParsingTests.swift` | Fixture-driven parser and rendering regression tests |
 
 ---
 
-## Execution Order & Dependencies
+## Execution Order & Dependencies (Updated)
 
 ```
-Phase 1 (Style System) ─────┐
-                              ├── Phase 3 (Pipeline Consolidation) ── Phase 4 (Lists)
-Phase 2 (Syntax Highlight) ──┘
-
-Phase 5 (Platform Branching) ── independent, anytime
-Phase 6 (Caching) ── after Phase 2 (merged caches)
-Phase 7 (Tests) ── after each phase, incrementally
+Phase 0 (Capability Spike)
+  -> Phase 1 (Single Parser Adapter)
+    -> Phase 2 (Native Timeline Integration)
+    -> Phase 3 (SwiftUI Integration)
+      -> Phase 4 (Syntax/CodeBlock Consolidation)
+        -> Phase 5 (Caching + Tests)
 ```
 
-Recommended order: **1 → 2 → 3 → 4 → 5 → 6**, with Phase 7 tests added at the end of each phase.
+Recommended order: **0 → 1 → 2 → 3 → 4 → 5**.
 
-Each phase is self-contained and shippable. No phase leaves the app in a broken state.
-
----
-
-## Non-Goals
-
-- **Tree-sitter / TextMate grammars** — regex is fine for 11 languages. This plan is about architecture, not adding an engine.
-- **Markdown editing** — read-only renderer for AI conversation output.
-- **LaTeX / math rendering** — not needed for coding agent output.
-- **Image rendering in markdown** — images are handled at the message level (`NativeRichMessageCellView`), not the markdown level.
-- **Replacing `swift-markdown`** — the Apple library is solid. The problems are in our code, not the parser.
-- **Server-side rendering** — markdown is always rendered client-side in Swift.
+Each phase remains shippable. Phase 0 is mandatory before broad migration.
 
 ---
 
-## Success Criteria
+## Non-Goals (Updated)
+
+- Building a full custom markdown engine.
+- Replacing native timeline virtualization with SwiftUI hosting.
+- Markdown editing support.
+- LaTeX/math rendering.
+- Server-side markdown rendering.
+
+---
+
+## Success Criteria (Updated)
 
 After all phases:
-1. **One color change = one file edit** — any markdown color/font tweak only requires updating `MarkdownTheme`
-2. **Zero hardcoded RGB in rendering code** — all colors come from theme tokens
-3. **Content looks identical** across SwiftUI and native renderers (same spacing, colors, fonts)
-4. **`SyntaxHighlighter.swift` < 600 lines** (down from 1108)
-5. **`NativeSyntaxHighlighter.swift` deleted**
-6. **`MarkdownView.swift` < 400 lines** (down from 941)
-7. **40+ markdown parsing tests** (up from 5)
-8. **No `#if os()` in `NativeCodeBlockView` setup** (down from 18)
-9. **One language definition = one data struct** — adding a new language is adding one static constant
+1. **One parser entry point** for all markdown content.
+2. **Zero custom inline markdown walkers** in app code.
+3. **One shared markdown IR** consumed by native timeline and SwiftUI surfaces.
+4. **Conversation timeline keeps deterministic height + anchor behavior** under streaming/prepend updates.
+5. **`NativeSyntaxHighlighter.swift` is deleted** and highlight caching is unified.
+6. **No raw system colors in markdown rendering** (`.blue`, `.green`, etc.).
+7. **Fixture-driven markdown tests cover real transcript edge cases** and prevent regressions.

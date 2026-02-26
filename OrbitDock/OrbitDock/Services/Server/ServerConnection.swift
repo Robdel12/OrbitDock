@@ -301,8 +301,8 @@ class ServerConnection: ObservableObject {
   var onReviewCommentsList: ((String, [ServerReviewComment]) -> Void)?
   var onSubagentToolsList: ((String, String, [ServerSubagentTool]) -> Void)? // sessionId, subagentId, tools
   var onShellStarted: ((String, String, String) -> Void)? // sessionId, requestId, command
-  var onShellOutput: ((String, String, String, String, Int32?, UInt64)
-    -> Void)? // sessionId, requestId, stdout, stderr, exitCode, durationMs
+  var onShellOutput: ((String, String, String, String, Int32?, UInt64, ServerShellExecutionOutcome)
+    -> Void)? // sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
   var onDisconnected: (() -> Void)?
@@ -702,8 +702,8 @@ class ServerConnection: ObservableObject {
       case let .shellStarted(sessionId, requestId, command):
         onShellStarted?(sessionId, requestId, command)
 
-      case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs):
-        onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs)
+      case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome):
+        onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome)
 
       case .directoryListing, .recentProjectsList, .openAiKeyStatus, .codexUsageResult, .claudeUsageResult:
         break
@@ -1304,6 +1304,11 @@ class ServerConnection: ObservableObject {
   /// Execute a shell command in a session's working directory
   func executeShell(sessionId: String, command: String, cwd: String? = nil, timeout: UInt64 = 30) {
     send(.executeShell(sessionId: sessionId, command: command, cwd: cwd, timeoutSecs: timeout))
+  }
+
+  /// Cancel an in-flight shell command by request ID
+  func cancelShell(sessionId: String, requestId: String) {
+    send(.cancelShell(sessionId: sessionId, requestId: requestId))
   }
 
   /// Fork a session (creates a new session with conversation history)

@@ -276,6 +276,9 @@ import SwiftUI
         cell.onCollapse = { [weak self] id in
           self?.toggleToolExpansion(messageID: id)
         }
+        cell.onCancel = { [weak self] requestID in
+          self?.cancelShellCommand(requestID: requestID)
+        }
       }
 
       turnHeaderCellReg = UICollectionView.CellRegistration<UIKitTurnHeaderCell, String> {
@@ -522,7 +525,15 @@ import SwiftUI
           approvalType: resolvedApprovalType
         )
       }()
-      let shouldShowApprovalCard = approvalMode != .none || needsApproval
+      let hasRenderableApprovalCard = {
+        guard let session, let serverState else { return false }
+        return ApprovalCardModelBuilder.build(
+          session: session,
+          pendingApproval: observable?.pendingApproval,
+          serverState: serverState
+        ) != nil
+      }()
+      let shouldShowApprovalCard = hasRenderableApprovalCard && (approvalMode != .none || needsApproval)
 
       let metadata = ConversationSourceState.SessionMetadata(
         chatViewMode: chatViewMode,
@@ -861,7 +872,7 @@ import SwiftUI
 
     private func buildCompactToolModel(for messageId: String) -> NativeCompactToolRowModel? {
       guard let message = messagesByID[messageId] else { return nil }
-      guard message.isTool else { return nil }
+      guard message.isToolLike else { return nil }
       return SharedModelBuilders.compactToolModel(from: message)
     }
 
@@ -870,7 +881,7 @@ import SwiftUI
         logger.debug("expandedToolModel[\(messageId.prefix(8))] — message not found")
         return nil
       }
-      guard message.isTool else {
+      guard message.isToolLike else {
         logger.debug("expandedToolModel[\(messageId.prefix(8))] — not a tool (type=\(message.type.rawValue))")
         return nil
       }
@@ -918,6 +929,11 @@ import SwiftUI
     private func toggleRollup(id: String) {
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleRollup(id))
       applyProjectionUpdate()
+    }
+
+    private func cancelShellCommand(requestID: String) {
+      guard let serverState, let sessionId else { return }
+      serverState.cancelShell(sessionId: sessionId, requestId: requestID)
     }
   }
 

@@ -480,7 +480,15 @@ import SwiftUI
           approvalType: resolvedApprovalType
         )
       }()
-      let shouldShowApprovalCard = approvalMode != .none || needsApproval
+      let hasRenderableApprovalCard = {
+        guard let session, let serverState else { return false }
+        return ApprovalCardModelBuilder.build(
+          session: session,
+          pendingApproval: observable?.pendingApproval,
+          serverState: serverState
+        ) != nil
+      }()
+      let shouldShowApprovalCard = hasRenderableApprovalCard && (approvalMode != .none || needsApproval)
 
       let metadata = ConversationSourceState.SessionMetadata(
         chatViewMode: chatViewMode,
@@ -1075,6 +1083,9 @@ import SwiftUI
         expandedCell.onCollapse = { [weak self] messageID in
           self?.setToolRowExpansion(messageID: messageID, expanded: false)
         }
+        expandedCell.onCancel = { [weak self] requestID in
+          self?.cancelShellCommand(requestID: requestID)
+        }
         expandedCell.configure(model: expandedModel, width: width)
         logger
           .debug("viewFor[\(row)] \(timelineRow.id.rawValue) native-expanded-tool w=\(String(format: "%.0f", width))")
@@ -1228,6 +1239,11 @@ import SwiftUI
     private func toggleRollup(id: String) {
       ConversationTimelineReducer.reduce(source: &sourceState, ui: &uiState, action: .toggleRollup(id))
       applyProjectionUpdate(preserveAnchor: true)
+    }
+
+    private func cancelShellCommand(requestID: String) {
+      guard let serverState, let sessionId else { return }
+      serverState.cancelShell(sessionId: sessionId, requestId: requestID)
     }
 
     // MARK: - Scroll
