@@ -403,7 +403,7 @@ struct DirectSessionComposer: View {
   var body: some View {
     VStack(spacing: 0) {
       // ━━━ Command Deck (/ trigger) ━━━
-      if shouldShowCommandDeck, !isSessionWorking {
+      if shouldShowCommandDeck {
         ComposerCommandDeckList(
           items: commandDeckItems,
           selectedIndex: commandDeckIndex,
@@ -416,7 +416,7 @@ struct DirectSessionComposer: View {
       }
 
       // ━━━ Skill completion ($ trigger) ━━━
-      if shouldShowCompletion, !isSessionWorking, !shouldShowCommandDeck {
+      if shouldShowCompletion, !shouldShowCommandDeck {
         SkillCompletionList(
           skills: filteredSkills,
           selectedIndex: completionIndex,
@@ -429,7 +429,7 @@ struct DirectSessionComposer: View {
       }
 
       // ━━━ Mention completion (@ trigger) ━━━
-      if shouldShowMentionCompletion, !isSessionWorking, !shouldShowCommandDeck {
+      if shouldShowMentionCompletion, !shouldShowCommandDeck {
         MentionCompletionList(
           files: filteredFiles,
           selectedIndex: mentionIndex,
@@ -679,6 +679,10 @@ struct DirectSessionComposer: View {
         ClaudePermissionPill(sessionId: sessionId)
       }
 
+      if isSessionWorking {
+        workingSteerLabel
+      }
+
       if session.hasTokenUsage {
         footerTokenLabel
       }
@@ -706,6 +710,10 @@ struct DirectSessionComposer: View {
           AutonomyPill(sessionId: sessionId)
         } else if session.isDirectClaude {
           ClaudePermissionPill(sessionId: sessionId)
+        }
+
+        if isSessionWorking {
+          workingSteerLabel
         }
 
         if session.hasTokenUsage {
@@ -737,6 +745,25 @@ struct DirectSessionComposer: View {
     .help(cwd)
   }
 
+  private var workingSteerLabel: some View {
+    HStack(spacing: 4) {
+      Circle()
+        .fill(Color.composerSteer)
+        .frame(width: 6, height: 6)
+      Text("Working - Steering enabled")
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(Color.composerSteer)
+        .lineLimit(1)
+    }
+    .padding(.horizontal, 6)
+    .padding(.vertical, 3)
+    .background(
+      Color.composerSteer.opacity(OpacityTier.light),
+      in: Capsule()
+    )
+    .help("Model is currently working. You can keep steering with full composer tools.")
+  }
+
   // MARK: - Action Footer (actions + follow + send)
 
   @ViewBuilder
@@ -756,24 +783,20 @@ struct DirectSessionComposer: View {
           CodexInterruptButton(sessionId: sessionId)
         }
 
-        if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
+        if session.isDirectCodex || session.isDirectClaude {
           providerModelControlButton
         }
 
-        if !isSessionWorking {
-          fileMentionControlButton
-          commandDeckControlButton
-        }
+        fileMentionControlButton
+        commandDeckControlButton
 
-        if shouldShowDictation, !isSessionWorking {
+        if shouldShowDictation {
           dictationControlButton
         }
 
-        if !isSessionWorking {
-          desktopWorkflowOverflowMenu
-        }
+        desktopWorkflowOverflowMenu
 
-        if inputMode == .shell || inputMode == .reviewNotes, !isSessionWorking {
+        if inputMode == .shell || inputMode == .reviewNotes {
           Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
               if inputMode == .shell { manualShellMode = false }
@@ -807,21 +830,17 @@ struct DirectSessionComposer: View {
             CodexInterruptButton(sessionId: sessionId, isCompact: true)
           }
 
-          if !isSessionWorking, session.isDirectCodex || session.isDirectClaude {
+          if session.isDirectCodex || session.isDirectClaude {
             providerModelControlButton
           }
 
-          if !isSessionWorking {
-            commandDeckControlButton
-          }
+          commandDeckControlButton
 
-          if shouldShowDictation, !isSessionWorking {
+          if shouldShowDictation {
             dictationControlButton
           }
 
-          if !isSessionWorking {
-            compactWorkflowOverflowMenu
-          }
+          compactWorkflowOverflowMenu
         }
         .padding(.trailing, 4)
       }
@@ -1212,20 +1231,18 @@ struct DirectSessionComposer: View {
           }
         }
 
-        if !isSessionWorking {
-          Button {
-            pickImages()
-          } label: {
-            Label("Attach Images", systemImage: "photo")
-          }
-
-          Button {
-            _ = pasteImageFromClipboard()
-          } label: {
-            Label("Paste Image", systemImage: "doc.on.clipboard")
-          }
-          .disabled(!canPasteImageFromClipboard)
+        Button {
+          pickImages()
+        } label: {
+          Label("Attach Images", systemImage: "photo")
         }
+
+        Button {
+          _ = pasteImageFromClipboard()
+        } label: {
+          Label("Paste Image", systemImage: "doc.on.clipboard")
+        }
+        .disabled(!canPasteImageFromClipboard)
 
         if hasMcpData {
           Button {
@@ -1235,18 +1252,16 @@ struct DirectSessionComposer: View {
           }
         }
 
-        if !isSessionWorking {
-          Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              manualShellMode.toggle()
-              if manualShellMode { manualReviewMode = false }
-            }
-          } label: {
-            Label(
-              manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
-              systemImage: "terminal"
-            )
+        Button {
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            manualShellMode.toggle()
+            if manualShellMode { manualReviewMode = false }
           }
+        } label: {
+          Label(
+            manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
+            systemImage: "terminal"
+          )
         }
       }
 
@@ -1303,20 +1318,18 @@ struct DirectSessionComposer: View {
           }
         }
 
-        if !isSessionWorking {
-          Button {
-            pickImages()
-          } label: {
-            Label("Attach Images", systemImage: "photo")
-          }
-
-          Button {
-            _ = pasteImageFromClipboard()
-          } label: {
-            Label("Paste Image", systemImage: "doc.on.clipboard")
-          }
-          .disabled(!canPasteImageFromClipboard)
+        Button {
+          pickImages()
+        } label: {
+          Label("Attach Images", systemImage: "photo")
         }
+
+        Button {
+          _ = pasteImageFromClipboard()
+        } label: {
+          Label("Paste Image", systemImage: "doc.on.clipboard")
+        }
+        .disabled(!canPasteImageFromClipboard)
 
         if hasMcpData {
           Button {
@@ -1326,18 +1339,16 @@ struct DirectSessionComposer: View {
           }
         }
 
-        if !isSessionWorking {
-          Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-              manualShellMode.toggle()
-              if manualShellMode { manualReviewMode = false }
-            }
-          } label: {
-            Label(
-              manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
-              systemImage: "terminal"
-            )
+        Button {
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            manualShellMode.toggle()
+            if manualShellMode { manualReviewMode = false }
           }
+        } label: {
+          Label(
+            manualShellMode ? "Disable Shell Mode" : "Enable Shell Mode",
+            systemImage: "terminal"
+          )
         }
       }
 
