@@ -14,7 +14,6 @@ mod cmd_pair;
 mod cmd_setup;
 mod cmd_status;
 mod cmd_tunnel;
-mod codex_auth;
 mod codex_session;
 pub(crate) mod crypto;
 mod git;

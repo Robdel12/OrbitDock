@@ -10,13 +10,13 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::ai_naming::NamingGuard;
 use crate::claude_session::ClaudeAction;
-use crate::codex_auth::CodexAuthService;
 use crate::codex_session::CodexAction;
 use crate::hook_handler::PendingClaudeSession;
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::shell::ShellService;
+use orbitdock_connector_codex::auth::CodexAuthService;
 
 #[derive(Clone)]
 struct ClientPrimaryClaimState {

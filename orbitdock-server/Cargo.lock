@@ -4941,6 +4941,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "codex-core",
+ "codex-login",
  "codex-protocol",
  "orbitdock-connector-core",
  "orbitdock-protocol",
@@ -4983,7 +4984,6 @@ dependencies = [
  "clap",
  "codex-arg0",
  "codex-core",
- "codex-login",
  "dashmap",
  "dirs",
  "futures",

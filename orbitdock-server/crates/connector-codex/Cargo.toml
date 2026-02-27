@@ -10,6 +10,7 @@ description = "Codex connector for OrbitDock"
 orbitdock-protocol = { workspace = true }
 orbitdock-connector-core = { workspace = true }
 codex-core = { workspace = true }
+codex-login = { workspace = true }
 codex-protocol = { workspace = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }

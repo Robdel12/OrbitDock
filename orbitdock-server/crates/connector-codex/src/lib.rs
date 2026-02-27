@@ -3,6 +3,8 @@
 //! Direct integration with codex-core library.
 //! No subprocess, no JSON-RPC — just Rust function calls.
 
+pub mod auth;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
