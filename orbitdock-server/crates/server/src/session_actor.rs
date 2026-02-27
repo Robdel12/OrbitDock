@@ -97,7 +97,7 @@ impl SessionActorHandle {
 }
 
 /// Simple actor loop for passive sessions (no CodexConnector).
-/// Reuses the shared `handle_session_command` from codex_session.rs.
+/// Reuses the shared `handle_session_command` from session_command_handler.
 /// Exits early on `TakeHandle` — the handle is sent back to the caller
 /// so it can be handed off to a connector's event loop.
 async fn passive_actor_loop(
@@ -110,7 +110,7 @@ async fn passive_actor_loop(
             let _ = reply.send(handle);
             return; // Stop the passive loop — handle is now owned by the caller
         }
-        crate::codex_session::handle_session_command(cmd, &mut handle, &persist_tx).await;
+        crate::session_command_handler::handle_session_command(cmd, &mut handle, &persist_tx).await;
     }
 }
 

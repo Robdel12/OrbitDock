@@ -30,6 +30,7 @@ mod rollout_watcher;
 mod session;
 mod session_actor;
 mod session_command;
+mod session_command_handler;
 mod session_naming;
 mod shell;
 mod state;

@@ -1,0 +1,352 @@
+//! Shared session command handler
+//!
+//! Processes `SessionCommand`s against a `SessionHandle`, handling queries,
+//! mutations, persistence effects, and broadcasts. Used by both provider
+//! event loops (Claude, Codex) and the passive session actor.
+
+use orbitdock_protocol::{MessageType, ServerMessage, SessionStatus, StateChanges, WorkStatus};
+use tokio::sync::mpsc;
+use tracing::warn;
+
+use crate::persistence::PersistCommand;
+use crate::session::SessionHandle;
+use crate::session_command::{
+    PendingApprovalResolution, PersistOp, SessionCommand, SubscribeResult,
+};
+use crate::transition;
+
+/// Inject approval_version into ApprovalRequested and SessionDelta messages.
+pub(crate) fn inject_approval_version(msg: &mut ServerMessage, version: u64) {
+    match msg {
+        ServerMessage::ApprovalRequested {
+            approval_version, ..
+        } => {
+            *approval_version = Some(version);
+        }
+        ServerMessage::SessionDelta { changes, .. } => {
+            if changes.pending_approval.is_some() && changes.approval_version.is_none() {
+                changes.approval_version = Some(version);
+            }
+        }
+        _ => {}
+    }
+}
+
+async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistCommand>) {
+    let cmd = match op {
+        PersistOp::SessionUpdate {
+            id,
+            status,
+            work_status,
+            last_activity_at,
+        } => PersistCommand::SessionUpdate {
+            id,
+            status,
+            work_status,
+            last_activity_at,
+        },
+        PersistOp::SetCustomName { session_id, name } => PersistCommand::SetCustomName {
+            session_id,
+            custom_name: name,
+        },
+        PersistOp::SetSessionConfig {
+            session_id,
+            approval_policy,
+            sandbox_mode,
+            permission_mode,
+        } => PersistCommand::SetSessionConfig {
+            session_id,
+            approval_policy,
+            sandbox_mode,
+            permission_mode,
+        },
+    };
+    let _ = persist_tx.send(cmd).await;
+}
+
+/// Handle a SessionCommand on the owned SessionHandle.
+/// This is used by both the CodexSession event loop and the passive SessionActor.
+pub async fn handle_session_command(
+    cmd: SessionCommand,
+    handle: &mut SessionHandle,
+    persist_tx: &mpsc::Sender<PersistCommand>,
+) {
+    match cmd {
+        SessionCommand::GetState { reply } => {
+            let _ = reply.send(handle.state());
+        }
+        SessionCommand::GetSummary { reply } => {
+            let _ = reply.send(handle.summary());
+        }
+        SessionCommand::Subscribe {
+            since_revision,
+            reply,
+        } => {
+            if let Some(since_rev) = since_revision {
+                if let Some(events) = handle.replay_since(since_rev) {
+                    let rx = handle.subscribe();
+                    if events.is_empty() {
+                        // Prefer full snapshot when replay would be empty so websocket
+                        // can run snapshot hydration paths (e.g. transcript backfill).
+                        let state = handle.state();
+                        let _ = reply.send(SubscribeResult::Snapshot {
+                            state: Box::new(state),
+                            rx,
+                        });
+                    } else {
+                        let _ = reply.send(SubscribeResult::Replay { events, rx });
+                    }
+                    return;
+                }
+            }
+            let rx = handle.subscribe();
+            let state = handle.state();
+            let _ = reply.send(SubscribeResult::Snapshot {
+                state: Box::new(state),
+                rx,
+            });
+        }
+        SessionCommand::GetWorkStatus { reply } => {
+            let _ = reply.send(handle.work_status());
+        }
+        SessionCommand::GetLastTool { reply } => {
+            let _ = reply.send(handle.last_tool().map(String::from));
+        }
+        SessionCommand::GetCustomName { reply } => {
+            let _ = reply.send(handle.custom_name().map(String::from));
+        }
+        SessionCommand::GetProvider { reply } => {
+            let _ = reply.send(handle.provider());
+        }
+        SessionCommand::GetProjectPath { reply } => {
+            let _ = reply.send(handle.project_path().to_string());
+        }
+        SessionCommand::GetMessageCount { reply } => {
+            let _ = reply.send(handle.message_count());
+        }
+        SessionCommand::ProcessEvent { event } => {
+            let now = chrono_now();
+            let state = handle.extract_state();
+            let (new_state, effects) = transition::transition(state, event, &now);
+            handle.apply_state(new_state);
+
+            for effect in effects {
+                match effect {
+                    transition::Effect::Persist(op) => {
+                        let _ = persist_tx.send((*op).into_persist_command()).await;
+                    }
+                    transition::Effect::Emit(msg) => {
+                        let mut msg = *msg;
+                        inject_approval_version(&mut msg, handle.approval_version());
+                        handle.broadcast(msg);
+                    }
+                }
+            }
+        }
+        SessionCommand::SetCustomName { name } => {
+            handle.set_custom_name(name);
+        }
+        SessionCommand::SetWorkStatus { status } => {
+            handle.set_work_status(status);
+        }
+        SessionCommand::SetModel { model } => {
+            handle.set_model(model);
+        }
+        SessionCommand::SetConfig {
+            approval_policy,
+            sandbox_mode,
+        } => {
+            handle.set_config(approval_policy, sandbox_mode);
+        }
+        SessionCommand::SetTranscriptPath { path } => {
+            handle.set_transcript_path(path);
+        }
+        SessionCommand::SetProjectName { name } => {
+            handle.set_project_name(name);
+        }
+        SessionCommand::SetStatus { status } => {
+            handle.set_status(status);
+        }
+        SessionCommand::SetStartedAt { ts } => {
+            handle.set_started_at(ts);
+        }
+        SessionCommand::SetLastActivityAt { ts } => {
+            handle.set_last_activity_at(ts);
+        }
+        SessionCommand::SetCodexIntegrationMode { mode } => {
+            handle.set_codex_integration_mode(mode);
+        }
+        SessionCommand::SetClaudeIntegrationMode { mode } => {
+            handle.set_claude_integration_mode(mode);
+        }
+        SessionCommand::SetForkedFrom { source_id } => {
+            handle.set_forked_from(source_id);
+        }
+        SessionCommand::SetLastTool { tool } => {
+            handle.set_last_tool(tool);
+        }
+
+        // -- Compound operations --
+        SessionCommand::ApplyDelta {
+            changes,
+            persist_op,
+        } => {
+            let session_id = handle.id().to_string();
+            handle.apply_changes(&changes);
+            if let Some(op) = persist_op {
+                execute_persist_op(op, persist_tx).await;
+            }
+            handle.broadcast(ServerMessage::SessionDelta {
+                session_id,
+                changes,
+            });
+        }
+        SessionCommand::EndLocally => {
+            let session_id = handle.id().to_string();
+            let now = chrono_now();
+            handle.set_status(SessionStatus::Ended);
+            handle.set_work_status(WorkStatus::Ended);
+            handle.set_last_activity_at(Some(now.clone()));
+            handle.broadcast(ServerMessage::SessionDelta {
+                session_id,
+                changes: StateChanges {
+                    status: Some(SessionStatus::Ended),
+                    work_status: Some(WorkStatus::Ended),
+                    last_activity_at: Some(now),
+                    ..Default::default()
+                },
+            });
+        }
+        SessionCommand::SetCustomNameAndNotify {
+            name,
+            persist_op,
+            reply,
+        } => {
+            let session_id = handle.id().to_string();
+            handle.set_custom_name(name.clone());
+            if let Some(op) = persist_op {
+                execute_persist_op(op, persist_tx).await;
+            }
+            handle.broadcast(ServerMessage::SessionDelta {
+                session_id,
+                changes: StateChanges {
+                    custom_name: Some(name),
+                    last_activity_at: Some(chrono_now()),
+                    ..Default::default()
+                },
+            });
+            let _ = reply.send(handle.summary());
+        }
+
+        // -- Message operations --
+        SessionCommand::AddMessage { message } => {
+            handle.add_message(message);
+        }
+        SessionCommand::ReplaceMessages { messages } => {
+            handle.replace_messages(messages);
+        }
+        SessionCommand::AddMessageAndBroadcast { message } => {
+            let session_id = handle.id().to_string();
+            // Update last_message for dashboard context lines
+            if matches!(
+                message.message_type,
+                MessageType::User | MessageType::Assistant
+            ) {
+                let truncated: String = message.content.chars().take(200).collect();
+                handle.set_last_message(Some(truncated));
+            }
+            handle.add_message(message.clone());
+            handle.broadcast(ServerMessage::MessageAppended {
+                session_id,
+                message,
+            });
+        }
+        SessionCommand::ResolvePendingApproval {
+            request_id,
+            fallback_work_status,
+            reply,
+        } => {
+            let (approval_type, proposed_amendment, next_pending_approval, work_status) =
+                handle.resolve_pending_approval(&request_id, fallback_work_status);
+
+            let approval_version = handle.approval_version();
+            if approval_type.is_some() {
+                let session_id = handle.id().to_string();
+                handle.broadcast(ServerMessage::SessionDelta {
+                    session_id,
+                    changes: StateChanges {
+                        work_status: Some(work_status),
+                        pending_approval: Some(next_pending_approval.clone()),
+                        approval_version: Some(approval_version),
+                        ..Default::default()
+                    },
+                });
+            }
+
+            let _ = reply.send(PendingApprovalResolution {
+                approval_type,
+                proposed_amendment,
+                next_pending_approval,
+                work_status,
+                approval_version,
+            });
+        }
+        SessionCommand::SetPendingApproval {
+            request_id,
+            approval_type,
+            proposed_amendment,
+        } => {
+            handle.set_pending_approval(request_id, approval_type, proposed_amendment);
+        }
+        SessionCommand::Broadcast { msg } => {
+            handle.broadcast(msg);
+        }
+        SessionCommand::TakeHandle { reply: _ } => {
+            // TakeHandle is only meaningful in passive_actor_loop — if it arrives
+            // here (active event loop), drop it. The oneshot will fail on the caller side.
+            warn!(
+                component = "session",
+                session_id = %handle.id(),
+                "TakeHandle received on active session actor — ignoring"
+            );
+        }
+        SessionCommand::LoadTranscriptAndSync {
+            path,
+            session_id,
+            reply,
+        } => {
+            let state = handle.state();
+            if state.messages.is_empty() {
+                match crate::persistence::load_messages_from_transcript_path(&path, &session_id)
+                    .await
+                {
+                    Ok(messages) if !messages.is_empty() => {
+                        handle.replace_messages(messages);
+                        let _ = reply.send(Some(handle.state()));
+                    }
+                    _ => {
+                        let _ = reply.send(Some(state));
+                    }
+                }
+            } else {
+                let _ = reply.send(Some(state));
+            }
+        }
+    }
+
+    // Unconditional snapshot refresh — ensures the ArcSwap is always current
+    // regardless of which command ran above.
+    handle.refresh_snapshot();
+}
+
+/// Get current time as ISO 8601 string
+fn chrono_now() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    format!("{}Z", secs)
+}

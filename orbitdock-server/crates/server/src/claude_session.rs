@@ -12,11 +12,11 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
-use crate::codex_session::handle_session_command;
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::SessionCommand;
+use crate::session_command_handler::handle_session_command;
 use crate::state::SessionRegistry;
 use crate::transition::{self, Effect, Input};
 
