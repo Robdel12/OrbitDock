@@ -8,7 +8,8 @@
 import SwiftUI
 
 struct HeaderView: View {
-  let session: Session
+  let sessionId: String
+  let endpointId: UUID
   let onOpenSwitcher: () -> Void
   let onFocusTerminal: () -> Void
   let onGoToDashboard: () -> Void
@@ -17,13 +18,16 @@ struct HeaderView: View {
   var hasSidebarContent: Bool = false
   var layoutConfig: Binding<LayoutConfiguration>?
 
+  @Environment(ServerAppState.self) private var serverState
   @State private var isHoveringBack = false
   @State private var isHoveringProject = false
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
+  private var obs: SessionObservable { serverState.session(sessionId) }
+
   private var statusColor: Color {
-    switch session.workStatus {
+    switch obs.workStatus {
       case .working: .statusWorking
       case .waiting: .statusWaiting
       case .permission: .statusPermission
@@ -54,13 +58,13 @@ struct HeaderView: View {
       backButton
 
       // Status dot
-      SessionStatusDot(session: session, size: 10)
+      SessionStatusDot(status: obs.displayStatus, size: 10)
 
       // Session title dropdown
       sessionTitleDropdown
 
       // Model badge
-      UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
+      UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
 
       Spacer()
 
@@ -126,10 +130,10 @@ struct HeaderView: View {
     .buttonStyle(.plain)
     .onHover { isHoveringProject = $0 }
     .contextMenu {
-      if session.endpointName != nil {
-        Text("Endpoint: \(session.endpointName ?? "")")
+      if obs.endpointName != nil {
+        Text("Endpoint: \(obs.endpointName ?? "")")
       }
-      ForEach(SessionCapability.capabilities(for: session)) { cap in
+      ForEach(SessionCapability.capabilities(for: obs)) { cap in
         if let icon = cap.icon {
           Label(cap.label, systemImage: icon)
         } else {
@@ -150,8 +154,8 @@ struct HeaderView: View {
           onFocusTerminal()
         } label: {
           Label(
-            session.isActive ? "Focus Terminal" : "Resume in Terminal",
-            systemImage: session.isActive ? "arrow.up.forward.app" : "terminal"
+            obs.isActive ? "Focus Terminal" : "Resume in Terminal",
+            systemImage: obs.isActive ? "arrow.up.forward.app" : "terminal"
           )
         }
       }
@@ -187,7 +191,7 @@ struct HeaderView: View {
 
       debugContextMenu
 
-      if session.isDirect, session.isActive, let onEnd = onEndSession {
+      if obs.isDirect, obs.isActive, let onEnd = onEndSession {
         Divider()
         Button(role: .destructive) {
           onEnd()
@@ -220,7 +224,7 @@ struct HeaderView: View {
 
         Button(action: onOpenSwitcher) {
           HStack(spacing: Spacing.xs) {
-            SessionStatusDot(session: session, size: 10)
+            SessionStatusDot(status: obs.displayStatus, size: 10)
 
             Text(agentName)
               .font(.system(size: TypeScale.body, weight: .semibold))
@@ -255,17 +259,17 @@ struct HeaderView: View {
 
       ScrollView(.horizontal) {
         HStack(spacing: Spacing.sm) {
-          UnifiedModelBadge(model: session.model, provider: session.provider, size: .compact)
+          UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
 
-          if session.endpointName != nil {
-            EndpointBadge(endpointName: session.endpointName)
+          if obs.endpointName != nil {
+            EndpointBadge(endpointName: obs.endpointName)
           }
 
-          if session.isActive {
-            StatusPillCompact(workStatus: session.workStatus, currentTool: session.lastTool)
+          if obs.isActive {
+            StatusPillCompact(workStatus: obs.workStatus, currentTool: obs.lastTool)
           }
 
-          if let branch = session.branch, !branch.isEmpty {
+          if let branch = obs.branch, !branch.isEmpty {
             HStack(spacing: 4) {
               Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -279,7 +283,7 @@ struct HeaderView: View {
           }
 
           Button {
-            openInEditor(session.projectPath)
+            openInEditor(obs.projectPath)
           } label: {
             HStack(spacing: 4) {
               Image(systemName: "folder")
@@ -310,8 +314,8 @@ struct HeaderView: View {
           onFocusTerminal()
         } label: {
           Label(
-            session.isActive ? "Focus Terminal" : "Resume in Terminal",
-            systemImage: session.isActive ? "arrow.up.forward.app" : "terminal"
+            obs.isActive ? "Focus Terminal" : "Resume in Terminal",
+            systemImage: obs.isActive ? "arrow.up.forward.app" : "terminal"
           )
         }
       }
@@ -344,7 +348,7 @@ struct HeaderView: View {
 
       debugContextMenu
 
-      if session.isDirect, session.isActive, let onEnd = onEndSession {
+      if obs.isDirect, obs.isActive, let onEnd = onEndSession {
         Divider()
         Button(role: .destructive) {
           onEnd()
@@ -418,28 +422,28 @@ struct HeaderView: View {
   @ViewBuilder
   private var debugContextMenu: some View {
     Button("Copy Session ID") {
-      copyToClipboard(session.id)
+      copyToClipboard(sessionId)
     }
 
-    if let threadId = session.codexThreadId {
+    if let threadId = obs.codexThreadId {
       Button("Copy Thread ID") {
         copyToClipboard(threadId)
       }
     }
 
     Button("Copy Project Path") {
-      copyToClipboard(session.projectPath)
+      copyToClipboard(obs.projectPath)
     }
 
     Divider()
 
-    if let mode = session.codexIntegrationMode {
+    if let mode = obs.codexIntegrationMode {
       Text("Integration: \(String(describing: mode))")
     }
-    if let mode = session.claudeIntegrationMode {
+    if let mode = obs.claudeIntegrationMode {
       Text("Integration: \(String(describing: mode))")
     }
-    Text("Provider: \(session.provider.rawValue)")
+    Text("Provider: \(obs.provider.rawValue)")
 
     Divider()
 
@@ -447,7 +451,7 @@ struct HeaderView: View {
       _ = Platform.services.openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/server.log").expandingTildeInPath))
     }
 
-    if session.provider == .codex {
+    if obs.provider == .codex {
       Button("Open Codex Log") {
         _ = Platform.services
           .openURL(URL(fileURLWithPath: NSString("~/.orbitdock/logs/codex.log").expandingTildeInPath))
@@ -466,15 +470,15 @@ struct HeaderView: View {
   // MARK: - Helpers
 
   private var agentName: String {
-    session.displayName
+    obs.displayName
   }
 
   private var compactProjectLabel: String {
-    if let name = session.projectName, !name.isEmpty {
+    if let name = obs.projectName, !name.isEmpty {
       return name
     }
-    let components = session.projectPath.split(separator: "/")
-    return components.last.map(String.init) ?? session.projectPath
+    let components = obs.projectPath.split(separator: "/")
+    return components.last.map(String.init) ?? obs.projectPath
   }
 
   private func compactBranchLabel(_ branch: String) -> String {
@@ -622,12 +626,15 @@ struct ContextGaugeCompact: View {
 }
 
 struct CodexTokenBadge: View {
-  let session: Session
+  let sessionId: String
+  @Environment(ServerAppState.self) private var serverState
+
+  private var obs: SessionObservable { serverState.session(sessionId) }
 
   var body: some View {
     HStack(spacing: 8) {
       // Context fill percentage
-      if let window = session.contextWindow, window > 0 {
+      if let window = obs.contextWindow, window > 0 {
         Text("\(contextPercent)%")
           .font(.system(size: 11, weight: .semibold, design: .monospaced))
           .foregroundStyle(contextColor)
@@ -637,7 +644,7 @@ struct CodexTokenBadge: View {
           .foregroundStyle(Color.textTertiary)
       } else {
         // Fallback if no window info yet
-        Text(formatTokenCount(session.effectiveContextInputTokens))
+        Text(formatTokenCount(obs.effectiveContextInputTokens))
           .font(.system(size: 11, weight: .medium, design: .monospaced))
           .foregroundStyle(.secondary)
         Text("tokens")
@@ -664,7 +671,7 @@ struct CodexTokenBadge: View {
 
   /// Context fill: input tokens / context window
   private var contextPercent: Int {
-    min(100, Int(session.contextFillPercent))
+    min(100, Int(obs.contextFillPercent))
   }
 
   private var contextColor: Color {
@@ -675,25 +682,25 @@ struct CodexTokenBadge: View {
 
   /// Cache savings as percentage of input tokens
   private var cacheSavingsPercent: Int {
-    Int(session.effectiveCacheHitPercent)
+    Int(obs.effectiveCacheHitPercent)
   }
 
   private var tokenTooltip: String {
     var parts: [String] = []
 
-    if let input = session.inputTokens {
+    if let input = obs.inputTokens {
       parts.append("Input: \(formatTokenCount(input))")
     }
-    if let output = session.outputTokens {
+    if let output = obs.outputTokens {
       parts.append("Output: \(formatTokenCount(output))")
     }
-    if let cached = session.cachedTokens, cached > 0,
-       session.effectiveContextInputTokens > 0
+    if let cached = obs.cachedTokens, cached > 0,
+       obs.effectiveContextInputTokens > 0
     {
-      let percent = Int(session.effectiveCacheHitPercent)
+      let percent = Int(obs.effectiveCacheHitPercent)
       parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
     }
-    if let window = session.contextWindow {
+    if let window = obs.contextWindow {
       parts.append("Context window: \(formatTokenCount(window))")
     }
 
@@ -715,29 +722,8 @@ struct CodexTokenBadge: View {
 #Preview {
   VStack(spacing: 0) {
     HeaderView(
-      session: Session(
-        id: "test-123",
-        projectPath: "/Users/developer/Developer/vizzly-cli",
-        projectName: "vizzly-cli",
-        branch: "feat/auth-system",
-        model: "claude-opus-4-5-20251101",
-        contextLabel: "Auth refactor",
-        transcriptPath: nil,
-        status: .active,
-        workStatus: .working,
-        startedAt: Date().addingTimeInterval(-3_600),
-        endedAt: nil,
-        endReason: nil,
-        totalTokens: 50_000,
-        totalCostUSD: 1.23,
-        lastActivityAt: Date(),
-        lastTool: "Edit",
-        lastToolAt: Date(),
-        promptCount: 45,
-        toolCount: 123,
-        terminalSessionId: nil,
-        terminalApp: nil
-      ),
+      sessionId: "test-123",
+      endpointId: UUID(),
       onOpenSwitcher: {},
       onFocusTerminal: {},
       onGoToDashboard: {}
@@ -750,4 +736,5 @@ struct CodexTokenBadge: View {
   }
   .frame(width: 900)
   .background(Color.backgroundPrimary)
+  .environment(ServerAppState())
 }

@@ -34,8 +34,7 @@ jobs:
         run: swift --version
 
       - name: Resolve Swift Packages
-        working-directory: CommandCenter
-        run: xcodebuild -resolvePackageDependencies -project CommandCenter.xcodeproj -scheme CommandCenter
+        run: xcodebuild -resolvePackageDependencies -project OrbitDock/OrbitDock.xcodeproj -scheme OrbitDock
 
       - name: Run Visual Tests
         env:

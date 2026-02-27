@@ -318,10 +318,7 @@ pub enum PersistCommand {
 
     /// Insert a single Claude model if it doesn't already exist.
     /// Preserves richer metadata from direct connector sessions.
-    UpsertClaudeModelIfAbsent {
-        value: String,
-        display_name: String,
-    },
+    UpsertClaudeModelIfAbsent { value: String, display_name: String },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -5539,10 +5536,22 @@ mod tests {
 
     #[test]
     fn display_name_new_style() {
-        assert_eq!(display_name_from_model_string("claude-opus-4-6"), "Opus 4.6");
-        assert_eq!(display_name_from_model_string("claude-sonnet-4-5"), "Sonnet 4.5");
-        assert_eq!(display_name_from_model_string("claude-haiku-3-5"), "Haiku 3.5");
-        assert_eq!(display_name_from_model_string("claude-sonnet-4-6"), "Sonnet 4.6");
+        assert_eq!(
+            display_name_from_model_string("claude-opus-4-6"),
+            "Opus 4.6"
+        );
+        assert_eq!(
+            display_name_from_model_string("claude-sonnet-4-5"),
+            "Sonnet 4.5"
+        );
+        assert_eq!(
+            display_name_from_model_string("claude-haiku-3-5"),
+            "Haiku 3.5"
+        );
+        assert_eq!(
+            display_name_from_model_string("claude-sonnet-4-6"),
+            "Sonnet 4.6"
+        );
     }
 
     #[test]
@@ -5575,7 +5584,10 @@ mod tests {
 
     #[test]
     fn display_name_unknown_format() {
-        assert_eq!(display_name_from_model_string("custom-model"), "custom-model");
+        assert_eq!(
+            display_name_from_model_string("custom-model"),
+            "custom-model"
+        );
         assert_eq!(display_name_from_model_string("claude-unknown"), "unknown");
         assert_eq!(display_name_from_model_string("gpt-4o"), "gpt-4o");
     }

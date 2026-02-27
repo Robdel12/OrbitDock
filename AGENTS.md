@@ -19,8 +19,10 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Rust workspace tests: `make rust-test`.
 - Rust dev server run: `make rust-run` (or `make rust-run-debug` for verbose logs).
 - Rust release packaging: `make release` (Darwin zip) and `make rust-release-linux` (Linux zip).
-- Rust cache/cleanup: `make rust-sccache-start`, `make rust-sccache-stats`, `make rust-clean-release`.
-- Prefer Makefile targets for Rust workflows. Avoid direct `cargo` commands unless a required target does not exist yet.
+- Rust cache/cleanup: `make rust-env`, `make rust-size`, `make rust-clean-incremental`, `make rust-clean-debug`, `make rust-clean-sccache`, `make rust-clean-release`.
+- Rust workflow policy (required): use `make rust-*` targets for build/check/test/run/lint/format.
+- Do not run direct `cargo` commands in normal development; they can bypass repo cache settings and create duplicate `target` trees.
+- If a needed Rust command has no Make target yet, add the Make target first, then use it.
 - Format all code: `make fmt` (or `make swift-fmt` / `make rust-fmt`).
 - Lint all code: `make lint` (or `make swift-lint` / `make rust-lint`).
 - SwiftUI app in Xcode: open `OrbitDock/OrbitDock.xcodeproj` and build/run (Cmd+R).

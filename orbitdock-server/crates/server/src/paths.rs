@@ -74,6 +74,10 @@ pub fn encryption_key_path() -> PathBuf {
     data_dir().join("encryption.key")
 }
 
+pub fn cloudflared_binary_path() -> PathBuf {
+    data_dir().join("bin/cloudflared")
+}
+
 /// Create all required subdirectories under the data dir.
 pub fn ensure_dirs() -> io::Result<()> {
     let base = data_dir();

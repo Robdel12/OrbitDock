@@ -93,6 +93,26 @@ enum SessionCapability: Identifiable {
 
     return []
   }
+
+  /// Derive capabilities from a SessionObservable
+  static func capabilities(for obs: SessionObservable) -> [SessionCapability] {
+    if obs.isDirect {
+      var caps: [SessionCapability] = [.direct]
+      if obs.isActive, obs.workStatus == .working {
+        caps.append(.canSteer)
+      }
+      if obs.canApprove {
+        caps.append(.canApprove)
+      }
+      return caps
+    }
+
+    if obs.provider == .codex {
+      return [.passive]
+    }
+
+    return []
+  }
 }
 
 #Preview {

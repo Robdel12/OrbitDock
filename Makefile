@@ -17,13 +17,26 @@ XCODEBUILD_ENV = CLANG_MODULE_CACHE_PATH="$(abspath $(XCODE_CLANG_MODULE_CACHE_D
 XCODEBUILD = $(XCODEBUILD_ENV) $(XCODEBUILD_BASE) $(XCODEBUILD_ARGS)
 XCODEBUILD_IOS = $(XCODEBUILD_ENV) $(XCODEBUILD_IOS_BASE) $(XCODEBUILD_ARGS)
 RUST_WORKSPACE_DIR ?= orbitdock-server
-SCCACHE_CACHE_SIZE ?= 20G
-RUST_ENV_CLEAN = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE)
+RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
+SCCACHE_DIR ?= $(abspath .cache/rust/sccache)
+SCCACHE_CACHE_SIZE ?= 10G
+RUST_SCCACHE ?= off
+SCCACHE_BIN := $(shell command -v sccache 2>/dev/null)
+RUST_ENV_BASE = SCCACHE_DIR="$(SCCACHE_DIR)" SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE) CARGO_TARGET_DIR="$(RUST_TARGET_DIR)" CARGO_INCREMENTAL=0
+ifeq ($(RUST_SCCACHE),on)
+RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER=sccache CARGO_BUILD_RUSTC_WRAPPER=sccache
+else ifeq ($(RUST_SCCACHE),off)
+RUST_ENV = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER $(RUST_ENV_BASE)
+else ifneq ($(strip $(SCCACHE_BIN)),)
+RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER="$(SCCACHE_BIN)" CARGO_BUILD_RUSTC_WRAPPER="$(SCCACHE_BIN)"
+else
+RUST_ENV = env -u RUSTC_WRAPPER -u CARGO_BUILD_RUSTC_WRAPPER $(RUST_ENV_BASE)
+endif
 SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-build rust-check rust-test rust-fmt rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-clean rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs
 
 help:
 	@echo "make build      Build the macOS app"
@@ -41,17 +54,23 @@ help:
 	@echo "make rust-build Build Rust server crate"
 	@echo "make rust-check Run cargo check for Rust workspace"
 	@echo "make rust-test  Run Rust workspace tests"
+	@echo "make rust-ci    Run Rust fmt check + clippy + tests"
 	@echo "make rust-fmt   Format Rust with cargo fmt"
+	@echo "make rust-fmt-check Check Rust formatting with cargo fmt --check"
 	@echo "make rust-lint  Lint Rust workspace"
 	@echo "make rust-run   Run orbitdock-server in dev mode"
 	@echo "make rust-run-debug Run orbitdock-server with debug logs"
 	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-universal.zip"
 	@echo "make rust-release-linux  Build + package orbitdock-server-linux-x86_64.zip"
 	@echo "make release             Alias for rust-release-darwin"
+	@echo "make rust-size           Show Rust target/sccache disk usage"
 	@echo "make rust-sccache-start  Start sccache server"
 	@echo "make rust-sccache-stats  Show sccache stats"
 	@echo "make rust-sccache-zero   Reset sccache stats"
 	@echo "make rust-env            Show Rust/sccache env state"
+	@echo "make rust-clean-debug    Clean only dev/test Rust artifacts"
+	@echo "make rust-clean-incremental Remove incremental caches only"
+	@echo "make rust-clean-sccache  Remove local sccache files"
 	@echo "make rust-clean          Clean all Rust build artifacts"
 	@echo "make rust-clean-release  Clean Rust release artifacts only"
 	@echo "make whisper-model Download ggml-base.en.bin into app resources"
@@ -97,61 +116,129 @@ swift-lint:
 	swiftformat --lint OrbitDock
 
 rust-env:
+	@echo "RUST_SCCACHE=$(RUST_SCCACHE)"
+	@echo "SCCACHE_BIN=$(if $(strip $(SCCACHE_BIN)),$(SCCACHE_BIN),<not found>)"
+	@echo "RUST_TARGET_DIR=$(RUST_TARGET_DIR)"
+	@echo "SCCACHE_DIR=$(SCCACHE_DIR)"
+	@echo "CARGO_INCREMENTAL=0"
 	@echo "RUSTC_WRAPPER=$$RUSTC_WRAPPER"
 	@echo "CARGO_BUILD_RUSTC_WRAPPER=$$CARGO_BUILD_RUSTC_WRAPPER"
 	@echo "SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE)"
-	@echo "Using sanitized Rust env: $(RUST_ENV_CLEAN)"
+	@if [[ -d "$(abspath $(RUST_WORKSPACE_DIR)/target)" ]]; then \
+		echo "LEGACY_TARGET_DIR=$(abspath $(RUST_WORKSPACE_DIR)/target) (present)"; \
+	else \
+		echo "LEGACY_TARGET_DIR=<none>"; \
+	fi
+	@echo "Using Rust env: $(RUST_ENV)"
+
+rust-size:
+	@if [[ -d "$(RUST_TARGET_DIR)" ]]; then \
+		echo "Rust target dir size:"; \
+		du -sh "$(RUST_TARGET_DIR)"; \
+		echo ""; \
+		echo "Largest target subdirs:"; \
+		du -sh "$(RUST_TARGET_DIR)"/* 2>/dev/null | sort -h | tail -n 30; \
+	else \
+		echo "Rust target dir not found: $(RUST_TARGET_DIR)"; \
+	fi
+	@if [[ -d "$(SCCACHE_DIR)" ]]; then \
+		echo ""; \
+		echo "sccache dir size:"; \
+		du -sh "$(SCCACHE_DIR)"; \
+	fi
+	@if [[ -d "$(abspath $(RUST_WORKSPACE_DIR)/target)" ]]; then \
+		echo ""; \
+		echo "legacy target dir size:"; \
+		du -sh "$(abspath $(RUST_WORKSPACE_DIR)/target)"; \
+	fi
 
 rust-sccache-start:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --start-server >/dev/null 2>&1 || true
+	@if command -v sccache >/dev/null 2>&1; then \
+		cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) sccache --start-server >/dev/null 2>&1 || true; \
+	else \
+		echo "sccache not found (install with: brew install sccache)"; \
+	fi
 
 rust-sccache-stop:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --stop-server >/dev/null 2>&1 || true
+	@if command -v sccache >/dev/null 2>&1; then \
+		cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) sccache --stop-server >/dev/null 2>&1 || true; \
+	else \
+		echo "sccache not found (install with: brew install sccache)"; \
+	fi
 
 rust-sccache-zero:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --zero-stats
+	@if command -v sccache >/dev/null 2>&1; then \
+		cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) sccache --zero-stats; \
+	else \
+		echo "sccache not found (install with: brew install sccache)"; \
+	fi
 
 rust-sccache-stats:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) sccache --show-stats
+	@if command -v sccache >/dev/null 2>&1; then \
+		cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) sccache --show-stats; \
+	else \
+		echo "sccache not found (install with: brew install sccache)"; \
+	fi
+
+rust-ci: rust-fmt-check rust-lint rust-test
 
 rust-build:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo build -p orbitdock-server
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server
 
 rust-check:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo check --workspace
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo check --workspace
 
 rust-test:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo test --workspace -- --test-threads=1
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo test --workspace -- --test-threads=1
 
 rust-fmt:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo fmt --all
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo fmt --all
+
+rust-fmt-check:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo fmt --all -- --check
 
 rust-lint:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clippy --workspace --all-targets
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clippy --workspace --all-targets -- -D warnings
 
 rust-run:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo run -p orbitdock-server
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo run -p orbitdock-server -- --bind 0.0.0.0:4000
 
 rust-run-debug:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ORBITDOCK_SERVER_LOG_FILTER=debug cargo run -p orbitdock-server
 
 rust-release-darwin:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) ./package-release-assets.sh darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ./package-release-assets.sh darwin
 
 rust-release-linux:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) ./package-release-assets.sh linux
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ./package-release-assets.sh linux
 
 release: rust-release-darwin
 
 rust-clean:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean
+
+rust-clean-debug:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile dev
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile test
+
+rust-clean-incremental:
+	@if [[ -d "$(RUST_TARGET_DIR)" ]]; then \
+		find "$(RUST_TARGET_DIR)" -type d -name incremental -prune -exec rm -rf {} +; \
+		echo "Removed incremental caches under $(RUST_TARGET_DIR)"; \
+	else \
+		echo "Rust target dir not found: $(RUST_TARGET_DIR)"; \
+	fi
+
+rust-clean-sccache:
+	@rm -rf "$(SCCACHE_DIR)"
+	@echo "Removed sccache dir: $(SCCACHE_DIR)"
 
 rust-clean-release-darwin:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean --profile release --target aarch64-apple-darwin
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean --profile release --target x86_64-apple-darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target aarch64-apple-darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target x86_64-apple-darwin
 
 rust-clean-release-linux:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV_CLEAN) cargo clean --profile release --target x86_64-unknown-linux-gnu
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target x86_64-unknown-linux-gnu
 
 rust-clean-release: rust-clean-release-darwin rust-clean-release-linux
 

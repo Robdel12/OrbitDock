@@ -5,45 +5,62 @@ on:
     branches: [main]
     paths:
       - 'orbitdock-server/**'
+      - 'Makefile'
+      - 'orbitdock-server/Cargo.toml'
+      - 'orbitdock-server/build-universal.sh'
+      - 'orbitdock-server/package-release-assets.sh'
       - '.github/workflows/rust-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'orbitdock-server/**'
+      - 'Makefile'
+      - 'orbitdock-server/Cargo.toml'
+      - 'orbitdock-server/build-universal.sh'
+      - 'orbitdock-server/package-release-assets.sh'
       - '.github/workflows/rust-ci.yml'
+
+concurrency:
+  group: rust-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
 
 jobs:
   check:
     name: Check, Lint & Test
     runs-on: macos-15
-    timeout-minutes: 8
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache Cargo
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo artifacts
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            orbitdock-server/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('orbitdock-server/Cargo.lock') }}
+            ~/.cargo/git/checkouts/
+            .cache/rust/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('orbitdock-server/Cargo.lock', 'orbitdock-server/Cargo.toml', '.github/workflows/rust-ci.yml', 'Makefile') }}
           restore-keys: |
+            ${{ runner.os }}-cargo-${{ hashFiles('orbitdock-server/Cargo.lock') }}-
             ${{ runner.os }}-cargo-
 
-      - name: cargo fmt
-        run: cd orbitdock-server && cargo fmt --all -- --check
+      - name: rust fmt check
+        run: make rust-fmt-check
 
-      - name: cargo clippy
-        run: cd orbitdock-server && cargo clippy --workspace --all-targets -- -D warnings
+      - name: rust clippy
+        run: make rust-lint
 
-      - name: cargo test
-        run: cd orbitdock-server && cargo test --workspace
+      - name: rust test
+        run: make rust-test

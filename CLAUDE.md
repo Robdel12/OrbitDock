@@ -16,29 +16,40 @@ OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI c
 
 ```bash
 # From repo root
-make build      # Build macOS app (xcbeautify output)
-make build-ios  # Build iOS app
-make build-all  # Build both macOS and iOS
-make test-unit  # Run unit tests only (OrbitDockTests)
-make test-ui    # Run UI tests only (OrbitDockUITests)
-make test-all   # Run both unit + UI tests
+make build            # Build macOS app (xcbeautify output)
+make build-ios        # Build iOS app
+make build-all        # Build both macOS and iOS
+make test-unit        # Run unit tests only (OrbitDockTests)
+make test-ui          # Run UI tests only (OrbitDockUITests)
+make test-all         # Run both unit + UI tests
 make rust-build       # Build orbitdock-server
 make rust-check       # Check Rust workspace
 make rust-test        # Run Rust workspace tests
+make rust-ci          # fmt + clippy + tests
+make rust-fmt         # Format Rust workspace
+make rust-fmt-check   # Validate Rust formatting
+make rust-lint        # Clippy with warnings denied
 make rust-run         # Run orbitdock-server in dev mode
 make rust-run-debug   # Run orbitdock-server with debug logs
+make rust-env         # Print active Rust cache/build env
+make rust-size        # Inspect Rust cache disk usage
+make rust-clean-incremental # Remove incremental caches only
+make rust-clean-debug # Remove dev/test artifacts only
+make rust-clean-sccache # Clear local sccache files
+make rust-clean-release # Clean Rust release artifacts only
 make release          # Build + package macOS server release zip
 make rust-release-linux # Build + package Linux server release zip
-make rust-sccache-start # Start sccache server
-make rust-sccache-stats # Show sccache stats
-make rust-clean-release # Clean Rust release artifacts only
 make fmt              # Format Swift + Rust
 make lint             # Lint Swift + Rust
 ```
 
 `make test-unit` intentionally excludes UI tests so local unit-test runs do not trigger the UI automation flow.
 
-For Rust workflows, prefer Makefile targets over direct `cargo` commands to keep caching, release packaging, and cleanup behavior consistent.
+Rust workflow policy (required): use `make rust-*` targets for normal development.
+
+Do not run plain `cargo` commands unless you are adding or fixing a Make target; plain cargo can bypass repo cache settings and create duplicate `target` directories.
+
+If a Rust command is missing, add it to `Makefile` first and then run it via `make`.
 
 ## Key Patterns
 

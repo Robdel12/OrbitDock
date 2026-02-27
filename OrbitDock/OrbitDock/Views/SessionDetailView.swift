@@ -9,9 +9,12 @@ import SwiftUI
 struct SessionDetailView: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-  let session: Session
+  let sessionId: String
+  let endpointId: UUID
   let onOpenSwitcher: () -> Void
   let onGoToDashboard: () -> Void
+
+  private var obs: SessionObservable { serverState.session(sessionId) }
 
   @State private var terminalActionFailed = false
   @State private var copiedResume = false
@@ -42,14 +45,15 @@ struct SessionDetailView: View {
     VStack(spacing: 0) {
       // Compact header
       HeaderView(
-        session: session,
+        sessionId: sessionId,
+        endpointId: endpointId,
         onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
         onGoToDashboard: onGoToDashboard,
-        onEndSession: session.isDirect ? { endDirectSession() } : nil,
-        showTurnSidebar: session.isDirect ? $showTurnSidebar : nil,
+        onEndSession: obs.isDirect ? { endDirectSession() } : nil,
+        showTurnSidebar: obs.isDirect ? $showTurnSidebar : nil,
         hasSidebarContent: hasSidebarContent,
-        layoutConfig: session.isDirect ? $layoutConfig : nil
+        layoutConfig: obs.isDirect ? $layoutConfig : nil
       )
 
       Divider()
@@ -74,9 +78,9 @@ struct SessionDetailView: View {
             .foregroundStyle(Color.panelBorder)
 
           ReviewCanvas(
-            sessionId: session.id,
-            projectPath: session.projectPath,
-            isSessionActive: session.isActive,
+            sessionId: sessionId,
+            projectPath: obs.projectPath,
+            isSessionActive: obs.isActive,
             compact: layoutConfig == .split,
             navigateToFileId: $reviewFileId,
             onDismiss: {
@@ -91,13 +95,13 @@ struct SessionDetailView: View {
         }
 
         // Turn sidebar - plan + diff + servers + skills (Codex direct only)
-        if session.isDirect, showTurnSidebar {
+        if obs.isDirect, showTurnSidebar {
           Divider()
             .foregroundStyle(Color.panelBorder)
 
           CodexTurnSidebar(
-            sessionId: session.id,
-            sessionScopedId: session.scopedID,
+            sessionId: sessionId,
+            sessionScopedId: obs.scopedID,
             onClose: {
               withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                 showTurnSidebar = false
@@ -114,10 +118,8 @@ struct SessionDetailView: View {
             onNavigateToSession: { id in
               let normalizedID: String = if let scoped = SessionRef(scopedID: id)?.scopedID {
                 scoped
-              } else if let endpointId = session.endpointId {
-                SessionRef(endpointId: endpointId, sessionId: id).scopedID
               } else {
-                id
+                SessionRef(endpointId: endpointId, sessionId: id).scopedID
               }
               NotificationCenter.default.post(
                 name: .selectSession,
@@ -144,9 +146,9 @@ struct SessionDetailView: View {
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: showTurnSidebar)
 
       // Action bar (unified composer for direct sessions, simpler bar for passive sessions)
-      if session.isDirect {
+      if obs.isDirect {
         DirectSessionComposer(
-          session: session,
+          sessionId: sessionId,
           selectedSkills: $selectedSkills,
           isPinned: $isPinned,
           unreadCount: $unreadCount,
@@ -158,9 +160,9 @@ struct SessionDetailView: View {
           }
         )
       } else {
-        if session.canTakeOver, !session.needsApprovalOverlay {
+        if obs.canTakeOver, !obs.needsApprovalOverlay {
           TakeOverInputBar {
-            serverState.takeoverSession(session.id)
+            serverState.takeoverSession(sessionId)
           }
         }
         actionBar
@@ -169,47 +171,23 @@ struct SessionDetailView: View {
     .background(Color.backgroundPrimary)
     .onAppear {
       if shouldSubscribeToServerSession {
-        serverState.subscribeToSession(session.id)
-        if session.isDirect {
-          serverState.loadApprovalHistory(sessionId: session.id)
+        serverState.subscribeToSession(sessionId)
+        if obs.isDirect {
+          serverState.loadApprovalHistory(sessionId: sessionId)
           serverState.loadGlobalApprovalHistory()
-          serverState.listMcpTools(sessionId: session.id)
-          serverState.listSkills(sessionId: session.id)
-          serverState.listReviewComments(sessionId: session.id)
+          serverState.listMcpTools(sessionId: sessionId)
+          serverState.listSkills(sessionId: sessionId)
+          serverState.listReviewComments(sessionId: sessionId)
         }
       }
     }
     .onDisappear {
       if shouldSubscribeToServerSession {
-        serverState.unsubscribeFromSession(session.id)
+        serverState.unsubscribeFromSession(sessionId)
       }
-    }
-    .onChange(of: session.id) { oldId, newId in
-      // Unsubscribe from old session if it was server-managed
-      if serverState.isServerSession(oldId) {
-        serverState.unsubscribeFromSession(oldId)
-      }
-      if shouldSubscribeToServerSession {
-        serverState.subscribeToSession(newId)
-        if session.isDirect {
-          serverState.loadApprovalHistory(sessionId: newId)
-          serverState.loadGlobalApprovalHistory()
-          serverState.listMcpTools(sessionId: newId)
-          serverState.listSkills(sessionId: newId)
-          serverState.listReviewComments(sessionId: newId)
-        }
-      }
-      // Reset state for new session
-      isPinned = true
-      unreadCount = 0
-      selectedSkills = []
-      railPreset = .planFocused
-      layoutConfig = .conversationOnly
-      showDiffBanner = false
-      navigateToComment = nil
     }
     .alert("Terminal Not Found", isPresented: $terminalActionFailed) {
-      Button("Open New") { Task { await TerminalService.shared.focusSession(session) } }
+      Button("Open New") { Task { await TerminalService.shared.focusSession(terminalSession) } }
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Couldn't find the terminal. Open a new iTerm window to resume?")
@@ -252,7 +230,7 @@ struct SessionDetailView: View {
     }
     // Layout keyboard shortcuts
     .onKeyPress(phases: .down) { keyPress in
-      guard session.isDirect else { return .ignored }
+      guard obs.isDirect else { return .ignored }
 
       // Cmd+D: Toggle conversation ↔ split
       if keyPress.modifiers == .command, keyPress.key == KeyEquivalent("d") {
@@ -276,8 +254,8 @@ struct SessionDetailView: View {
       return .ignored
     }
     // Diff-available banner trigger
-    .onChange(of: serverState.session(session.id).diff) { oldDiff, newDiff in
-      guard session.isDirect else { return }
+    .onChange(of: serverState.session(sessionId).diff) { oldDiff, newDiff in
+      guard obs.isDirect else { return }
       if oldDiff == nil, newDiff != nil, layoutConfig == .conversationOnly {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
           showDiffBanner = true
@@ -321,23 +299,23 @@ struct SessionDetailView: View {
           openInITerm()
         } label: {
           HStack(spacing: Spacing.xs) {
-            Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
+            Image(systemName: obs.isActive ? "arrow.up.forward.app" : "terminal")
               .font(.system(size: TypeScale.caption, weight: .semibold))
-            Text(session.isActive ? "Focus" : "Resume")
+            Text(obs.isActive ? "Focus" : "Resume")
               .font(.system(size: TypeScale.caption, weight: .medium))
           }
           .foregroundStyle(Color.textSecondary)
         }
         .buttonStyle(.plain)
         .keyboardShortcut("t", modifiers: .command)
-        .help(session.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
+        .help(obs.isActive ? "Focus terminal (⌘T)" : "Resume in iTerm (⌘T)")
         .padding(.horizontal, Spacing.md)
 
         stripDivider
       }
 
       // Git branch
-      if let branch = session.branch, !branch.isEmpty {
+      if let branch = obs.branch, !branch.isEmpty {
         HStack(spacing: 4) {
           Image(systemName: "arrow.triangle.branch")
             .font(.system(size: TypeScale.micro, weight: .semibold))
@@ -351,7 +329,7 @@ struct SessionDetailView: View {
       }
 
       // Project path
-      Text(compactProjectPath(session.projectPath))
+      Text(compactProjectPath(obs.projectPath))
         .font(.system(size: TypeScale.caption, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
@@ -431,9 +409,9 @@ struct SessionDetailView: View {
             openInITerm()
           } label: {
             HStack(spacing: Spacing.xs) {
-              Image(systemName: session.isActive ? "arrow.up.forward.app" : "terminal")
+              Image(systemName: obs.isActive ? "arrow.up.forward.app" : "terminal")
                 .font(.system(size: TypeScale.code, weight: .medium))
-              Text(session.isActive ? "Focus" : "Resume")
+              Text(obs.isActive ? "Focus" : "Resume")
                 .font(.system(size: TypeScale.code, weight: .medium))
             }
             .padding(.horizontal, Spacing.md)
@@ -458,7 +436,7 @@ struct SessionDetailView: View {
 
         if Platform.services.capabilities.canRevealInFileBrowser {
           Button {
-            _ = Platform.services.revealInFileBrowser(session.projectPath)
+            _ = Platform.services.revealInFileBrowser(obs.projectPath)
           } label: {
             Image(systemName: "folder")
               .font(.system(size: TypeScale.code, weight: .medium))
@@ -531,7 +509,7 @@ struct SessionDetailView: View {
               .background(Color.backgroundTertiary, in: Capsule())
           }
 
-          if let branch = session.branch, !branch.isEmpty {
+          if let branch = obs.branch, !branch.isEmpty {
             HStack(spacing: 4) {
               Image(systemName: "arrow.triangle.branch")
                 .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -544,7 +522,7 @@ struct SessionDetailView: View {
             .background(Color.backgroundTertiary, in: Capsule())
           }
 
-          if let lastActivity = session.lastActivityAt {
+          if let lastActivity = obs.lastActivityAt {
             Text(lastActivity, style: .relative)
               .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
               .foregroundStyle(Color.textTertiary)
@@ -567,22 +545,22 @@ struct SessionDetailView: View {
 
   private var conversationContent: some View {
     ConversationView(
-      sessionId: session.id,
-      endpointId: session.endpointId,
-      isSessionActive: session.isActive,
-      workStatus: session.workStatus,
+      sessionId: sessionId,
+      endpointId: endpointId,
+      isSessionActive: obs.isActive,
+      workStatus: obs.workStatus,
       currentTool: currentTool,
-      pendingToolName: session.pendingToolName,
-      pendingPermissionDetail: session.pendingPermissionDetail,
-      provider: session.provider,
-      model: session.model,
+      pendingToolName: obs.pendingToolName,
+      pendingPermissionDetail: obs.pendingPermissionDetail,
+      provider: obs.provider,
+      model: obs.model,
       onNavigateToReviewFile: { filePath, lineNumber in
         // Navigate to the file in the review canvas and jump to the line
         reviewFileId = filePath
         // Create a synthetic comment to navigate to the specific line
         navigateToComment = ServerReviewComment(
           id: "nav-\(filePath)-\(lineNumber)",
-          sessionId: session.id,
+          sessionId: sessionId,
           turnId: nil,
           filePath: filePath,
           lineStart: UInt32(lineNumber),
@@ -603,10 +581,10 @@ struct SessionDetailView: View {
       unreadCount: $unreadCount,
       scrollToBottomTrigger: $scrollToBottomTrigger
     )
-    .environment(\.openFileInReview, session.isDirect ? { filePath in
+    .environment(\.openFileInReview, obs.isDirect ? { filePath in
       // Extract the relative file path (strip project path prefix if present)
-      let relative = filePath.hasPrefix(session.projectPath)
-        ? String(filePath.dropFirst(session.projectPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+      let relative = filePath.hasPrefix(obs.projectPath)
+        ? String(filePath.dropFirst(obs.projectPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         : filePath
       reviewFileId = relative
       withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -649,7 +627,7 @@ struct SessionDetailView: View {
   }
 
   private var diffFileCount: Int {
-    let obs = serverState.session(session.id)
+    let obs = serverState.session(sessionId)
     // Build cumulative diff from all turn snapshots + current live diff
     var parts: [String] = []
     for td in obs.turnDiffs {
@@ -669,8 +647,8 @@ struct SessionDetailView: View {
 
   /// Whether any sidebar tab has content (for header badge indicator)
   private var hasSidebarContent: Bool {
-    guard session.isDirect else { return false }
-    let obs = serverState.session(session.id)
+    guard obs.isDirect else { return false }
+    let obs = serverState.session(sessionId)
     let hasPlan = obs.getPlanSteps() != nil
     let hasDiff = obs.diff != nil
     let hasMcp = obs.hasMcpData
@@ -683,7 +661,7 @@ struct SessionDetailView: View {
   }
 
   private var currentTool: String? {
-    session.lastTool
+    obs.lastTool
   }
 
   private func compactBranchLabel(_ branch: String) -> String {
@@ -703,12 +681,12 @@ struct SessionDetailView: View {
 
   private var usageStats: TranscriptUsageStats {
     var stats = TranscriptUsageStats()
-    stats.model = session.model
+    stats.model = obs.model
 
-    let input = session.inputTokens ?? 0
-    let output = session.outputTokens ?? 0
-    let cached = session.cachedTokens ?? 0
-    let context = session.effectiveContextInputTokens
+    let input = obs.inputTokens ?? 0
+    let output = obs.outputTokens ?? 0
+    let cached = obs.cachedTokens ?? 0
+    let context = obs.effectiveContextInputTokens
     let hasServerUsage = input > 0 || output > 0 || cached > 0 || context > 0
 
     if hasServerUsage {
@@ -717,7 +695,7 @@ struct SessionDetailView: View {
       stats.cacheReadTokens = cached
       stats.contextUsed = context
     } else {
-      stats.outputTokens = max(session.totalTokens, 0)
+      stats.outputTokens = max(obs.totalTokens, 0)
     }
 
     return stats
@@ -725,14 +703,24 @@ struct SessionDetailView: View {
 
   // MARK: - Helpers
 
+  /// Construct a minimal Session struct for TerminalService (which still takes Session)
+  private var terminalSession: Session {
+    Session(
+      id: sessionId,
+      projectPath: obs.projectPath,
+      status: obs.status,
+      workStatus: obs.workStatus
+    )
+  }
+
   private var shouldSubscribeToServerSession: Bool {
     // Any server-managed session (direct or passive) needs snapshot/message subscription.
     // Restricting this to direct sessions causes passive Codex sessions to render "No messages yet".
-    serverState.isServerSession(session.id)
+    serverState.isServerSession(sessionId)
   }
 
   private func copyResumeCommand() {
-    let command = "claude --resume \(session.id)"
+    let command = "claude --resume \(sessionId)"
     Platform.services.copyToClipboard(command)
     copiedResume = true
 
@@ -748,10 +736,10 @@ struct SessionDetailView: View {
   private func openInITerm() {
     logger
       .info(
-        "focus terminal clicked session=\(session.id, privacy: .public) provider=\(String(describing: session.provider), privacy: .public)"
+        "focus terminal clicked session=\(sessionId, privacy: .public) provider=\(String(describing: obs.provider), privacy: .public)"
       )
     Task {
-      let success = await TerminalService.shared.focusSession(session)
+      let success = await TerminalService.shared.focusSession(terminalSession)
       if !success {
         terminalActionFailed = true
       }
@@ -759,7 +747,7 @@ struct SessionDetailView: View {
   }
 
   private func endDirectSession() {
-    serverState.endSession(session.id)
+    serverState.endSession(sessionId)
   }
 
   // MARK: - Send Review
@@ -768,7 +756,7 @@ struct SessionDetailView: View {
   /// Uses selected comments if any, otherwise all open. Includes diff content
   /// and embeds comment IDs for transcript traceability.
   private func sendReviewToModel() {
-    let obs = serverState.session(session.id)
+    let obs = serverState.session(sessionId)
     let openComments = obs.reviewComments.filter { $0.status == .open }
     guard !openComments.isEmpty else { return }
 
@@ -859,7 +847,7 @@ struct SessionDetailView: View {
 
     let message = lines.joined(separator: "\n")
 
-    serverState.sendMessage(sessionId: session.id, content: message)
+    serverState.sendMessage(sessionId: sessionId, content: message)
 
     // Resolve sent comments
     for comment in commentsToSend {
@@ -878,13 +866,8 @@ struct SessionDetailView: View {
 
 #Preview {
   SessionDetailView(
-    session: Session(
-      id: "preview-123",
-      projectPath: "/Users/test/project",
-      model: "opus",
-      status: .active,
-      workStatus: .working
-    ),
+    sessionId: "preview-123",
+    endpointId: UUID(),
     onOpenSwitcher: {},
     onGoToDashboard: {}
   )

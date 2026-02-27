@@ -47,11 +47,11 @@ make build
 open OrbitDock/OrbitDock.xcodeproj
 ```
 
-Hit Cmd+R. On first launch, the app checks if the server is reachable. If it is (you're running `cargo run`, brew, or launchd), you'll go straight to the dashboard. If not, you'll see a setup view that walks you through installation.
+Hit Cmd+R. On first launch, the app checks if the server is reachable. If it is (you're running `make rust-run`, brew, or launchd), you'll go straight to the dashboard. If not, you'll see a setup view that walks you through installation.
 
 ### Server Setup
 
-The server runs separately from the app — as a background service, a manual `cargo run`, or on a remote machine.
+The server runs separately from the app — as a background service, a manual `make rust-run`, or on a remote machine.
 
 **One-liner install (server only):**
 
@@ -59,18 +59,20 @@ The server runs separately from the app — as a background service, a manual `c
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-This installs to `~/.orbitdock/bin/`, runs `init`, installs Claude hooks, and enables launchd/systemd. It downloads a prebuilt binary from GitHub Releases when available, then falls back to Cargo source install.
+This downloads a prebuilt binary (macOS / Linux x86_64) or builds from source as a fallback. Installs to `~/.orbitdock/bin/`, runs `init`, installs Claude hooks, and enables launchd/systemd.
 
 **From the app:** Click "Install Locally" in the setup view. It copies the binary to `~/.orbitdock/bin/`, runs `init` and `install-hooks`, and registers a launchd service that auto-starts at login.
 
-**From the CLI:** Build and set up manually if you prefer:
+**From the CLI (repo dev workflow):** Build and set up manually if you prefer:
 
 ```bash
-cd orbitdock-server && cargo build --release
+# From repo root
+make rust-build
 
-orbitdock-server init             # create data dir, database, hook script
-orbitdock-server install-hooks    # wire up Claude Code hooks
-orbitdock-server start            # start listening on :4000
+# Then run the built binary directly
+./.cache/rust/target/debug/orbitdock-server init          # create data dir, database, hook script
+./.cache/rust/target/debug/orbitdock-server install-hooks # wire up Claude Code hooks
+./.cache/rust/target/debug/orbitdock-server start         # start listening on :4000
 ```
 
 **As a system service:**
@@ -79,7 +81,7 @@ orbitdock-server start            # start listening on :4000
 orbitdock-server install-service --enable   # launchd on macOS, systemd on Linux
 ```
 
-**For development:** Just `cargo run -p orbitdock-server` — the app detects it via health check and connects.
+**For development:** use `make rust-run` — the app detects it via health check and connects.
 
 You'll need [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed already — `install-hooks` writes to its settings file.
 
@@ -126,7 +128,7 @@ Codex sessions are picked up automatically — no hook config needed.
 
 ## Architecture
 
-Two main pieces: **SwiftUI clients** (macOS + iOS) and a **Rust server**. The server runs standalone — as a launchd/systemd service, via `cargo run`, or on a remote machine. Clients use HTTP for bootstrap/read paths and WebSocket for realtime updates across one or many configured endpoints.
+Two main pieces: **SwiftUI clients** (macOS + iOS) and a **Rust server**. The server runs standalone — as a launchd/systemd service, via `make rust-run`, or on a remote machine. Clients use HTTP for bootstrap/read paths and WebSocket for realtime updates across one or many configured endpoints.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -196,15 +198,21 @@ For the server internals (actor model, state machine, registry), see [orbitdock-
 ## Development
 
 ```bash
-make build        # Build the macOS app
-make test-unit    # Unit tests (no UI automation)
-make test-all     # Everything
+make build             # Build the macOS app
+make test-unit         # Unit tests (no UI automation)
+make test-all          # Everything
 
-make rust-check   # cargo check
-make rust-test    # Server tests
-make fmt          # Format Swift + Rust
-make lint         # Lint Swift + Rust
+make rust-check        # Rust workspace check
+make rust-test         # Rust workspace tests
+make rust-ci           # fmt + clippy + tests
+make rust-run          # Run orbitdock-server locally
+make rust-env          # Show Rust cache/build configuration
+make rust-size         # Inspect Rust cache disk usage
+make fmt               # Format Swift + Rust
+make lint              # Lint Swift + Rust
 ```
+
+Rust workflow policy: use `make rust-*` targets for normal development and avoid plain `cargo` commands, which can bypass repo cache settings and create duplicate `target` trees.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 

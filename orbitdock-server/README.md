@@ -14,10 +14,8 @@ Install the server without building or running the macOS app:
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-The installer:
+The installer downloads a prebuilt binary for macOS and Linux x86_64. Falls back to building from source if no prebuilt is available (requires the [Rust toolchain](https://rustup.rs)).
 
-- Downloads a prebuilt binary from GitHub Releases when available
-- Verifies SHA-256 checksums when checksum files are present
 - Installs `orbitdock-server` to `~/.orbitdock/bin/`
 - Runs `orbitdock-server init`
 - Runs `orbitdock-server install-hooks`
@@ -25,11 +23,11 @@ The installer:
 
 Optional flags:
 
-- `ORBITDOCK_SKIP_HOOKS=1` skip Claude hook setup
-- `ORBITDOCK_SKIP_SERVICE=1` skip launchd/systemd install
-- `ORBITDOCK_SERVER_VERSION=<tag>` install a specific release (for example `v1.2.3`)
-- `ORBITDOCK_FORCE_SOURCE=1` skip prebuilt download and build from source with Cargo
-- `ORBITDOCK_SERVER_REF=<branch>` source fallback branch (default: `main`)
+- `--skip-hooks` skip Claude hook setup
+- `--skip-service` skip launchd/systemd install
+- `--server-url <url>` hooks-only mode for a remote server (skips service install)
+- `--version <tag>` install a specific release tag (for example `v1.2.3`)
+- `--force-source` skip prebuilt download and build from source with Cargo
 
 ### Standalone Setup
 
@@ -53,11 +51,20 @@ That's it. Codex direct sessions work immediately — the server embeds codex-co
 For a dev server or headless machine:
 
 ```bash
-# Generate an auth token first
-orbitdock-server generate-token
+# Interactive setup (generates token, binds 0.0.0.0)
+orbitdock-server setup --remote
 
-# Bind to all interfaces with auth
+# Or manually:
+orbitdock-server generate-token
 orbitdock-server start --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-token)
+```
+
+Connect a remote developer machine (hooks only — no local server needed):
+
+```bash
+orbitdock-server install-hooks \
+  --server-url https://your-server:4000 \
+  --auth-token <token>
 ```
 
 Or run it as a system service so it survives reboots:
@@ -66,7 +73,36 @@ Or run it as a system service so it survives reboots:
 orbitdock-server install-service --enable --bind 0.0.0.0:4000
 ```
 
-This generates a launchd plist on macOS or a systemd unit on Linux.
+### Cloudflare Tunnel
+
+Zero-config HTTPS exposure with no firewall changes:
+
+```bash
+# Quick tunnel (temporary URL, no account)
+orbitdock-server tunnel
+
+# Named tunnel (persistent URL, requires cloudflared login)
+orbitdock-server tunnel --name my-tunnel
+```
+
+### Native TLS
+
+```bash
+orbitdock-server start \
+  --bind 0.0.0.0:4000 \
+  --tls-cert /path/to/cert.pem \
+  --tls-key /path/to/key.pem
+```
+
+### Client Pairing
+
+Generate a connection URL and QR code:
+
+```bash
+orbitdock-server pair --tunnel-url https://your-tunnel.trycloudflare.com
+```
+
+For the full deployment guide covering all topologies, security, and operations, see [DEPLOYMENT.md](../DEPLOYMENT.md).
 
 ### OrbitDock Client Connectivity
 
@@ -93,11 +129,15 @@ orbitdock-server [--data-dir PATH] <command>
 | Command | What it does |
 |---------|-------------|
 | `start` | Start the server (also the default when you omit the subcommand) |
+| `setup` | Interactive wizard (init + hooks + token + service) |
 | `init` | Create data directory, run migrations, install hook script |
 | `install-hooks` | Merge OrbitDock hooks into `~/.claude/settings.json` |
 | `install-service` | Generate a launchd plist (macOS) or systemd unit (Linux) |
 | `status` | Check if the server is running |
 | `generate-token` | Create a random auth token |
+| `doctor` | Run diagnostics and check system health |
+| `tunnel` | Expose the server via Cloudflare Tunnel |
+| `pair` | Generate a connection URL and QR code for clients |
 
 `--data-dir` is global — it applies to every subcommand. You can also set it via `ORBITDOCK_DATA_DIR`.
 
@@ -200,6 +240,11 @@ The main binary. Key modules:
 | `cmd_install_hooks.rs` | `install-hooks` — merge into Claude settings.json |
 | `cmd_install_service.rs` | `install-service` — launchd/systemd generation |
 | `cmd_status.rs` | `status` + `generate-token` |
+| `cmd_setup.rs` | `setup` — interactive wizard |
+| `cmd_doctor.rs` | `doctor` — diagnostics checklist |
+| `cmd_tunnel.rs` | `tunnel` — Cloudflare Tunnel integration |
+| `cmd_pair.rs` | `pair` — connection URL + QR code |
+| `metrics.rs` | `/metrics` — Prometheus text format endpoint |
 
 ### protocol
 
@@ -409,11 +454,29 @@ tail -f ~/.orbitdock/logs/server.log | jq 'select(.level == "ERROR")'
 ## Building
 
 ```bash
-cargo build                   # dev build
-cargo run -- start            # run locally
-cargo run -- status           # check if running
-cargo test --workspace        # all tests
+make rust-build               # dev build
+make rust-run                 # run locally
+make rust-check               # fast compile check
+make rust-ci                  # fmt + clippy + tests
 ```
+
+Use `make rust-*` targets for routine development. Avoid plain `cargo` commands unless you're adding a missing Make target, because direct cargo invocations can bypass repo cache settings and create duplicate `target` directories.
+
+### Build Cache + Disk Hygiene
+
+Rust artifacts now live in `.cache/rust/target` (gitignored), and optional sccache data lives in `.cache/rust/sccache`.
+
+```bash
+make rust-env                 # print active Rust build/caching settings
+make rust-size                # inspect target + sccache disk usage
+make rust-clean-incremental   # remove only incremental caches
+make rust-clean-debug         # remove dev/test artifacts only
+make rust-clean-sccache       # clear sccache files
+```
+
+`sccache` is opt-in (`RUST_SCCACHE=on`) so local builds remain stable even when wrapper tooling is unavailable.
+
+You usually do not need `cargo clean`. Use the partial-clean targets above first.
 
 ### Universal Binary (macOS)
 
@@ -421,7 +484,7 @@ cargo test --workspace        # all tests
 ./build-universal.sh
 ```
 
-Produces `target/universal/orbitdock-server` for both Intel and Apple Silicon.
+Produces `${CARGO_TARGET_DIR:-target}/universal/orbitdock-server` for both Intel and Apple Silicon.
 
 ## Dependencies
 
@@ -435,4 +498,6 @@ Produces `target/universal/orbitdock-server` for both Intel and Apple Silicon.
 | `rusqlite` | SQLite (bundled, no system dep) |
 | `serde` / `serde_json` | JSON serialization |
 | `codex-core` | Direct Codex integration |
+| `axum-server` | TLS support via rustls |
+| `qrcode` | QR code generation for `pair` command |
 | `tracing` | Structured logging |

@@ -59,7 +59,8 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
+/// Create a new auth token and write it to disk. Returns the token string.
+pub fn create_token(data_dir: &Path) -> anyhow::Result<String> {
     let token = uuid::Uuid::new_v4().to_string();
     let token_path = paths::token_file_path();
 
@@ -68,6 +69,13 @@ pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
 
     std::fs::write(&token_path, &token)?;
     std::fs::set_permissions(&token_path, std::fs::Permissions::from_mode(0o600))?;
+
+    Ok(token)
+}
+
+pub fn generate_token(data_dir: &Path) -> anyhow::Result<()> {
+    let token = create_token(data_dir)?;
+    let token_path = paths::token_file_path();
 
     println!();
     println!(

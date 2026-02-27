@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Force a known-good env so an exported empty wrapper doesn't disable sccache.
-unset RUSTC_WRAPPER
-unset CARGO_BUILD_RUSTC_WRAPPER
+# Normalize empty wrapper vars while preserving intentional wrapper settings.
+if [[ -z "${RUSTC_WRAPPER:-}" ]]; then
+  unset RUSTC_WRAPPER
+fi
+if [[ -z "${CARGO_BUILD_RUSTC_WRAPPER:-}" ]]; then
+  unset CARGO_BUILD_RUSTC_WRAPPER
+fi
 export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
+TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 
 usage() {
   echo "Usage: $0 <darwin|linux> [output_dir]"
@@ -39,7 +44,7 @@ sha256_file() {
 case "$TARGET" in
   darwin)
     ./build-universal.sh
-    cp target/universal/orbitdock-server "$OUTPUT_DIR/orbitdock-server"
+    cp "$TARGET_DIR/universal/orbitdock-server" "$OUTPUT_DIR/orbitdock-server"
     chmod +x "$OUTPUT_DIR/orbitdock-server"
     (
       cd "$OUTPUT_DIR"
@@ -51,7 +56,7 @@ case "$TARGET" in
     ;;
   linux)
     cargo build -p orbitdock-server --release
-    cp target/release/orbitdock-server "$OUTPUT_DIR/orbitdock-server"
+    cp "$TARGET_DIR/release/orbitdock-server" "$OUTPUT_DIR/orbitdock-server"
     chmod +x "$OUTPUT_DIR/orbitdock-server"
     (
       cd "$OUTPUT_DIR"

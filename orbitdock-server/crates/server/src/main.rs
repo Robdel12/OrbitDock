@@ -6,10 +6,14 @@
 mod ai_naming;
 mod auth;
 mod claude_session;
+mod cmd_doctor;
 mod cmd_init;
 mod cmd_install_hooks;
 mod cmd_install_service;
+mod cmd_pair;
+mod cmd_setup;
 mod cmd_status;
+mod cmd_tunnel;
 mod codex_auth;
 mod codex_session;
 pub(crate) mod crypto;
@@ -18,6 +22,7 @@ mod hook_handler;
 mod http_api;
 pub(crate) mod images;
 mod logging;
+mod metrics;
 mod migration_runner;
 pub(crate) mod paths;
 mod persistence;
@@ -90,6 +95,14 @@ enum Command {
         /// Bootstrap initial role as secondary when no persisted role exists yet
         #[arg(long, env = "ORBITDOCK_SERVER_SECONDARY", default_value_t = false)]
         secondary: bool,
+
+        /// Path to TLS certificate file (PEM format)
+        #[arg(long, env = "ORBITDOCK_TLS_CERT")]
+        tls_cert: Option<PathBuf>,
+
+        /// Path to TLS private key file (PEM format)
+        #[arg(long, env = "ORBITDOCK_TLS_KEY")]
+        tls_key: Option<PathBuf>,
     },
 
     /// Bootstrap a fresh machine (create dirs, run migrations, install hook script)
@@ -104,6 +117,14 @@ enum Command {
         /// Path to settings.json (default: ~/.claude/settings.json)
         #[arg(long)]
         settings_path: Option<PathBuf>,
+
+        /// Remote server URL for hooks (generates hook script targeting this URL)
+        #[arg(long)]
+        server_url: Option<String>,
+
+        /// Auth token for the remote server
+        #[arg(long)]
+        auth_token: Option<String>,
     },
 
     /// Generate and install a launchd/systemd service file
@@ -122,6 +143,58 @@ enum Command {
 
     /// Generate a random auth token and write it to data_dir/auth-token
     GenerateToken,
+
+    /// Run diagnostics and check system health
+    Doctor,
+
+    /// Interactive setup wizard (init + hooks + token + service)
+    Setup {
+        /// Deploy as local-only server
+        #[arg(long, conflicts_with = "remote")]
+        local: bool,
+
+        /// Deploy as remotely-accessible server (generates auth token, binds 0.0.0.0)
+        #[arg(long, conflicts_with = "local")]
+        remote: bool,
+
+        /// Bind address
+        #[arg(long)]
+        bind: Option<SocketAddr>,
+
+        /// Public URL for hooks (e.g. https://my-server.example.com:4000)
+        #[arg(long)]
+        server_url: Option<String>,
+
+        /// Skip system service installation
+        #[arg(long)]
+        skip_service: bool,
+
+        /// Skip Claude Code hook installation
+        #[arg(long)]
+        skip_hooks: bool,
+    },
+
+    /// Expose the server via Cloudflare Tunnel
+    Tunnel {
+        /// Local server port to tunnel
+        #[arg(long, default_value = "4000")]
+        port: u16,
+
+        /// Named tunnel (requires cloudflared login). Omit for a quick temporary URL.
+        #[arg(long)]
+        name: Option<String>,
+    },
+
+    /// Generate a connection URL and QR code for pairing clients
+    Pair {
+        /// Override the detected URL (e.g. your tunnel URL)
+        #[arg(long)]
+        tunnel_url: Option<String>,
+
+        /// Suppress QR code output
+        #[arg(long)]
+        no_qr: bool,
+    },
 }
 
 use crate::logging::init_logging;
@@ -149,8 +222,16 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Init { server_url }) => {
             return cmd_init::run(&data_dir, server_url);
         }
-        Some(Command::InstallHooks { settings_path }) => {
-            return cmd_install_hooks::run(settings_path.as_deref());
+        Some(Command::InstallHooks {
+            settings_path,
+            server_url,
+            auth_token,
+        }) => {
+            return cmd_install_hooks::run(
+                settings_path.as_deref(),
+                server_url.as_deref(),
+                auth_token.as_deref(),
+            );
         }
         Some(Command::InstallService { bind, enable }) => {
             return cmd_install_service::run(&data_dir, *bind, *enable);
@@ -161,21 +242,60 @@ fn main() -> anyhow::Result<()> {
         Some(Command::GenerateToken) => {
             return cmd_status::generate_token(&data_dir);
         }
+        Some(Command::Doctor) => {
+            return cmd_doctor::run(&data_dir);
+        }
+        Some(Command::Tunnel { port, name }) => {
+            return cmd_tunnel::run(*port, name.as_deref());
+        }
+        Some(Command::Pair { tunnel_url, no_qr }) => {
+            return cmd_pair::run(tunnel_url.as_deref(), !*no_qr);
+        }
+        Some(Command::Setup {
+            local,
+            remote,
+            bind,
+            server_url,
+            skip_service,
+            skip_hooks,
+        }) => {
+            let mode = if *remote {
+                Some(cmd_setup::Mode::Remote)
+            } else if *local {
+                Some(cmd_setup::Mode::Local)
+            } else {
+                None
+            };
+            return cmd_setup::run(
+                &data_dir,
+                cmd_setup::SetupOptions {
+                    mode,
+                    bind: *bind,
+                    server_url: server_url.clone(),
+                    skip_service: *skip_service,
+                    skip_hooks: *skip_hooks,
+                },
+            );
+        }
         _ => {}
     }
 
     // Resolve bind address: subcommand --bind > top-level --bind > default
-    let (bind_addr, auth_token, startup_is_primary) = match cli.command {
+    let (bind_addr, auth_token, startup_is_primary, tls_cert, tls_key) = match cli.command {
         Some(Command::Start {
             bind,
             auth_token,
             secondary,
-        }) => (bind, auth_token, !secondary),
+            tls_cert,
+            tls_key,
+        }) => (bind, auth_token, !secondary, tls_cert, tls_key),
         _ => (
             cli.bind
                 .unwrap_or_else(|| "127.0.0.1:4000".parse().unwrap()),
             None,
             true,
+            None,
+            None,
         ),
     };
 
@@ -185,6 +305,8 @@ fn main() -> anyhow::Result<()> {
         auth_token,
         startup_is_primary,
         &data_dir,
+        tls_cert,
+        tls_key,
     ))
 }
 
@@ -201,6 +323,8 @@ async fn async_main(
     auth_token: Option<String>,
     startup_is_primary: bool,
     data_dir: &std::path::Path,
+    tls_cert: Option<PathBuf>,
+    tls_key: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     // Ensure directories exist
     paths::ensure_dirs()?;
@@ -714,7 +838,8 @@ async fn async_main(
             "/api/fs/recent-projects",
             get(http_api::list_recent_projects),
         )
-        .route("/health", get(health_handler));
+        .route("/health", get(health_handler))
+        .route("/metrics", get(metrics::metrics_handler));
 
     // Apply auth middleware if token configured
     if let Some(ref token) = auth_token {
@@ -734,22 +859,56 @@ async fn async_main(
         )
         .with_state(state);
 
-    // Bind listener
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-
-    info!(
-        component = "server",
-        event = "server.listening",
-        bind_address = %bind_addr,
-        "Listening for connections"
-    );
-
     // Write PID file after successful bind
-    write_pid_file();
+    let use_tls = tls_cert.is_some() && tls_key.is_some();
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
-        .await?;
+    if use_tls {
+        let cert_path = tls_cert.unwrap();
+        let key_path = tls_key.unwrap();
+
+        let tls_config =
+            axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path).await?;
+
+        info!(
+            component = "server",
+            event = "server.listening",
+            bind_address = %bind_addr,
+            tls = true,
+            cert = %cert_path.display(),
+            "Listening for TLS connections"
+        );
+
+        write_pid_file();
+
+        // Wire graceful shutdown via axum_server::Handle
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+        tokio::spawn(async move {
+            shutdown_signal(shutdown_state, shutdown_persist).await;
+            shutdown_handle.graceful_shutdown(Some(std::time::Duration::from_secs(5)));
+        });
+
+        axum_server::bind_rustls(bind_addr, tls_config)
+            .handle(handle)
+            .serve(app.into_make_service())
+            .await?;
+    } else {
+        let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+
+        info!(
+            component = "server",
+            event = "server.listening",
+            bind_address = %bind_addr,
+            tls = false,
+            "Listening for connections"
+        );
+
+        write_pid_file();
+
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal(shutdown_state, shutdown_persist))
+            .await?;
+    }
 
     Ok(())
 }

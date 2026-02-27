@@ -1,0 +1,5 @@
+[build]
+target-dir = "../.cache/rust/target"
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/ld", "-C", "link-arg=-ld_new"]

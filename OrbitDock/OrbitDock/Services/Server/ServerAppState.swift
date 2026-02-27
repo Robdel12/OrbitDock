@@ -84,6 +84,52 @@ final class ServerAppState {
     return obs
   }
 
+  /// Copy all Session struct fields to the per-session observable so detail views
+  /// can read from the observable instead of the struct.
+  func hydrateObservable(_ obs: SessionObservable, from sess: Session) {
+    obs.endpointId = sess.endpointId
+    obs.endpointName = sess.endpointName
+    obs.projectPath = sess.projectPath
+    obs.projectName = sess.projectName
+    obs.branch = sess.branch
+    obs.model = sess.model
+    obs.effort = sess.effort
+    obs.summary = sess.summary
+    obs.customName = sess.customName
+    obs.firstPrompt = sess.firstPrompt
+    obs.lastMessage = sess.lastMessage
+    obs.transcriptPath = sess.transcriptPath
+    obs.status = sess.status
+    obs.workStatus = sess.workStatus
+    obs.attentionReason = sess.attentionReason
+    obs.lastActivityAt = sess.lastActivityAt
+    obs.lastTool = sess.lastTool
+    obs.lastToolAt = sess.lastToolAt
+    obs.inputTokens = sess.inputTokens
+    obs.outputTokens = sess.outputTokens
+    obs.cachedTokens = sess.cachedTokens
+    obs.contextWindow = sess.contextWindow
+    obs.totalTokens = sess.totalTokens
+    obs.totalCostUSD = sess.totalCostUSD
+    obs.provider = sess.provider
+    obs.codexIntegrationMode = sess.codexIntegrationMode
+    obs.claudeIntegrationMode = sess.claudeIntegrationMode
+    obs.codexThreadId = sess.codexThreadId
+    obs.pendingApprovalId = sess.pendingApprovalId
+    obs.pendingToolName = sess.pendingToolName
+    obs.pendingToolInput = sess.pendingToolInput
+    obs.pendingPermissionDetail = sess.pendingPermissionDetail
+    obs.pendingQuestion = sess.pendingQuestion
+    obs.promptCount = sess.promptCount
+    obs.toolCount = sess.toolCount
+    obs.startedAt = sess.startedAt
+    obs.endedAt = sess.endedAt
+    obs.endReason = sess.endReason
+    obs.tokenUsageSnapshotKind = sess.tokenUsageSnapshotKind
+    obs.gitSha = sess.gitSha
+    obs.currentCwd = sess.currentCwd
+  }
+
   // MARK: - Private Internal State
 
   /// Last known server revision per session (for incremental reconnection)
@@ -1023,6 +1069,12 @@ final class ServerAppState {
       return summary.toSession()
     }
 
+    // Hydrate observables for non-subscribed sessions (subscribed ones get
+    // hydrated via snapshot/delta, so skip them to avoid overwriting richer state)
+    for sess in sessions where !subscribedSessions.contains(sess.id) {
+      hydrateObservable(session(sess.id), from: sess)
+    }
+
     for summary in summaries {
       if summary.provider == .codex {
         setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
@@ -1082,8 +1134,9 @@ final class ServerAppState {
     sess.customName = state.customName
     updateSessionInList(sess)
 
-    // Update per-session observable
+    // Hydrate observable with session-level fields
     let obs = session(state.id)
+    hydrateObservable(obs, from: sess)
     let snapshotMessages = state.messages.map { $0.toTranscriptMessage() }
     obs.messages = normalizedTranscriptMessages(snapshotMessages, sessionId: state.id, source: "snapshot")
     obs.hasReceivedSnapshot = true
@@ -1167,11 +1220,17 @@ final class ServerAppState {
     let hadPendingApproval = obs.pendingApproval != nil
 
     if let status = changes.status {
-      sess.status = status == .active ? .active : .ended
+      let mapped: Session.SessionStatus = status == .active ? .active : .ended
+      sess.status = mapped
+      obs.status = mapped
     }
     if let workStatus = changes.workStatus {
-      sess.workStatus = workStatus.toSessionWorkStatus()
-      sess.attentionReason = workStatus.toAttentionReason()
+      let mapped = workStatus.toSessionWorkStatus()
+      let attention = workStatus.toAttentionReason()
+      sess.workStatus = mapped
+      sess.attentionReason = attention
+      obs.workStatus = mapped
+      obs.attentionReason = attention
     }
     if let approvalOuter = changes.pendingApproval {
       let incomingVersion = changes.approvalVersion ?? 0
@@ -1192,15 +1251,29 @@ final class ServerAppState {
           if let normalized = normalizedApprovalRequestId(approval.id) {
             queuedApprovalRequests[sessionId]?.removeValue(forKey: normalized)
           }
-          sess.pendingApprovalId = approval.id
-          sess.pendingToolName = approval.toolNameForDisplay
-          sess.pendingToolInput = approval.toolInputForDisplay
-          sess.pendingPermissionDetail = approval.preview?.compact
+          let toolName = approval.toolNameForDisplay
+          let toolInput = approval.toolInputForDisplay
+          let permDetail = approval.preview?.compact
             ?? String.shellCommandDisplay(from: approval.command)
             ?? approval.command
-          sess.pendingQuestion = approval.questionPrompts.first?.question ?? approval.question
-          sess.attentionReason = approval.type == .question ? .awaitingQuestion : .awaitingPermission
+          let question = approval.questionPrompts.first?.question ?? approval.question
+          let attention: Session.AttentionReason = approval.type == .question ? .awaitingQuestion : .awaitingPermission
+
+          sess.pendingApprovalId = approval.id
+          sess.pendingToolName = toolName
+          sess.pendingToolInput = toolInput
+          sess.pendingPermissionDetail = permDetail
+          sess.pendingQuestion = question
+          sess.attentionReason = attention
           sess.workStatus = .permission
+
+          obs.pendingApprovalId = approval.id
+          obs.pendingToolName = toolName
+          obs.pendingToolInput = toolInput
+          obs.pendingPermissionDetail = permDetail
+          obs.pendingQuestion = question
+          obs.attentionReason = attention
+          obs.workStatus = .permission
         } else {
           obs.pendingApproval = nil
           queuedApprovalRequests[sessionId] = nil
@@ -1209,16 +1282,32 @@ final class ServerAppState {
           sess.pendingToolInput = nil
           sess.pendingPermissionDetail = nil
           sess.pendingQuestion = nil
+
+          obs.pendingApprovalId = nil
+          obs.pendingToolName = nil
+          obs.pendingToolInput = nil
+          obs.pendingPermissionDetail = nil
+          obs.pendingQuestion = nil
         }
       }
     }
     if let usage = changes.tokenUsage {
       obs.tokenUsage = usage
-      sess.totalTokens = Int(usage.inputTokens + usage.outputTokens)
-      sess.inputTokens = Int(usage.inputTokens)
-      sess.outputTokens = Int(usage.outputTokens)
-      sess.cachedTokens = Int(usage.cachedTokens)
-      sess.contextWindow = Int(usage.contextWindow)
+      let total = Int(usage.inputTokens + usage.outputTokens)
+      let input = Int(usage.inputTokens)
+      let output = Int(usage.outputTokens)
+      let cached = Int(usage.cachedTokens)
+      let window = Int(usage.contextWindow)
+      sess.totalTokens = total
+      sess.inputTokens = input
+      sess.outputTokens = output
+      sess.cachedTokens = cached
+      sess.contextWindow = window
+      obs.totalTokens = total
+      obs.inputTokens = input
+      obs.outputTokens = output
+      obs.cachedTokens = cached
+      obs.contextWindow = window
     }
     if let snapshotKind = changes.tokenUsageSnapshotKind {
       obs.tokenUsageSnapshotKind = snapshotKind
@@ -1241,46 +1330,34 @@ final class ServerAppState {
       }
     }
     if let nameOuter = changes.customName {
-      if let name = nameOuter {
-        sess.customName = name
-      } else {
-        sess.customName = nil
-      }
+      let val = nameOuter
+      sess.customName = val
+      obs.customName = val
     }
     if let summaryOuter = changes.summary {
-      if let summaryText = summaryOuter {
-        sess.summary = summaryText
-      } else {
-        sess.summary = nil
-      }
+      let val = summaryOuter
+      sess.summary = val
+      obs.summary = val
     }
     if let firstPromptOuter = changes.firstPrompt {
-      if let prompt = firstPromptOuter {
-        sess.firstPrompt = prompt
-      } else {
-        sess.firstPrompt = nil
-      }
+      let val = firstPromptOuter
+      sess.firstPrompt = val
+      obs.firstPrompt = val
     }
     if let lastMessageOuter = changes.lastMessage {
-      if let message = lastMessageOuter {
-        sess.lastMessage = message
-      } else {
-        sess.lastMessage = nil
-      }
+      let val = lastMessageOuter
+      sess.lastMessage = val
+      obs.lastMessage = val
     }
     if let modeOuter = changes.codexIntegrationMode {
-      if let mode = modeOuter {
-        sess.codexIntegrationMode = mode.toSessionMode()
-      } else {
-        sess.codexIntegrationMode = nil
-      }
+      let val = modeOuter.flatMap { $0.toSessionMode() }
+      sess.codexIntegrationMode = val
+      obs.codexIntegrationMode = val
     }
     if let modeOuter = changes.claudeIntegrationMode {
-      if let mode = modeOuter {
-        sess.claudeIntegrationMode = mode.toSessionMode()
-      } else {
-        sess.claudeIntegrationMode = nil
-      }
+      let val = modeOuter.flatMap { $0.toSessionMode() }
+      sess.claudeIntegrationMode = val
+      obs.claudeIntegrationMode = val
     }
     if let approvalOuter = changes.approvalPolicy {
       setConfigCache(
@@ -1313,18 +1390,23 @@ final class ServerAppState {
     }
     if let branchOuter = changes.gitBranch {
       sess.branch = branchOuter
+      obs.branch = branchOuter
     }
     if let shaOuter = changes.gitSha {
       sess.gitSha = shaOuter
+      obs.gitSha = shaOuter
     }
     if let cwdOuter = changes.currentCwd {
       sess.currentCwd = cwdOuter
+      obs.currentCwd = cwdOuter
     }
     if let modelOuter = changes.model {
       sess.model = modelOuter
+      obs.model = modelOuter
     }
     if let effortOuter = changes.effort {
       sess.effort = effortOuter
+      obs.effort = effortOuter
     }
     if let pmOuter = changes.permissionMode {
       if let pm = pmOuter {
@@ -1337,7 +1419,9 @@ final class ServerAppState {
     if let lastActivity = changes.lastActivityAt {
       let stripped = lastActivity.hasSuffix("Z") ? String(lastActivity.dropLast()) : lastActivity
       if let secs = TimeInterval(stripped) {
-        sess.lastActivityAt = Date(timeIntervalSince1970: secs)
+        let date = Date(timeIntervalSince1970: secs)
+        sess.lastActivityAt = date
+        obs.lastActivityAt = date
       }
     }
 
@@ -1640,16 +1724,30 @@ final class ServerAppState {
 
     obs.pendingApproval = request
 
+    let toolName = request.toolNameForDisplay
+    let toolInput = request.toolInputForDisplay
+    let permDetail = request.preview?.compact
+      ?? String.shellCommandDisplay(from: request.command)
+      ?? request.command
+    let question = request.questionPrompts.first?.question ?? request.question
+    let attention: Session.AttentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
+
+    obs.pendingApprovalId = normalizedRequestId
+    obs.pendingToolName = toolName
+    obs.pendingToolInput = toolInput
+    obs.pendingPermissionDetail = permDetail
+    obs.pendingQuestion = question
+    obs.attentionReason = attention
+    obs.workStatus = .permission
+
     if let idx = sessionIndex {
       var sess = sessions[idx]
       sess.pendingApprovalId = normalizedRequestId
-      sess.pendingToolName = request.toolNameForDisplay
-      sess.pendingToolInput = request.toolInputForDisplay
-      sess.pendingPermissionDetail = request.preview?.compact
-        ?? String.shellCommandDisplay(from: request.command)
-        ?? request.command
-      sess.pendingQuestion = request.questionPrompts.first?.question ?? request.question
-      sess.attentionReason = request.type == .question ? .awaitingQuestion : .awaitingPermission
+      sess.pendingToolName = toolName
+      sess.pendingToolInput = toolInput
+      sess.pendingPermissionDetail = permDetail
+      sess.pendingQuestion = question
+      sess.attentionReason = attention
       sess.workStatus = .permission
       sessions[idx] = sess
     }
@@ -1690,6 +1788,17 @@ final class ServerAppState {
     // session state delta arrives.
     if let pending = obs.pendingApproval, normalizedApprovalRequestId(pending.id) == normalizedDecided {
       obs.pendingApproval = nil
+      obs.pendingApprovalId = nil
+      obs.pendingToolName = nil
+      obs.pendingToolInput = nil
+      obs.pendingPermissionDetail = nil
+      obs.pendingQuestion = nil
+      if obs.attentionReason == .awaitingPermission || obs.attentionReason == .awaitingQuestion {
+        obs.attentionReason = .none
+      }
+      if obs.workStatus == .permission {
+        obs.workStatus = .working
+      }
 
       if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
         var sess = sessions[idx]
@@ -1719,16 +1828,30 @@ final class ServerAppState {
       queuedApprovalRequests[sessionId]?.removeValue(forKey: normalizedActiveRequestId)
       obs.pendingApproval = promoted
 
+      let toolName = promoted.toolNameForDisplay
+      let toolInput = promoted.toolInputForDisplay
+      let permDetail = promoted.preview?.compact
+        ?? String.shellCommandDisplay(from: promoted.command)
+        ?? promoted.command
+      let question = promoted.questionPrompts.first?.question ?? promoted.question
+      let attention: Session.AttentionReason = promoted.type == .question ? .awaitingQuestion : .awaitingPermission
+
+      obs.pendingApprovalId = normalizedActiveRequestId
+      obs.pendingToolName = toolName
+      obs.pendingToolInput = toolInput
+      obs.pendingPermissionDetail = permDetail
+      obs.pendingQuestion = question
+      obs.attentionReason = attention
+      obs.workStatus = .permission
+
       if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
         var sess = sessions[idx]
         sess.pendingApprovalId = normalizedActiveRequestId
-        sess.pendingToolName = promoted.toolNameForDisplay
-        sess.pendingToolInput = promoted.toolInputForDisplay
-        sess.pendingPermissionDetail = promoted.preview?.compact
-          ?? String.shellCommandDisplay(from: promoted.command)
-          ?? promoted.command
-        sess.pendingQuestion = promoted.questionPrompts.first?.question ?? promoted.question
-        sess.attentionReason = promoted.type == .question ? .awaitingQuestion : .awaitingPermission
+        sess.pendingToolName = toolName
+        sess.pendingToolInput = toolInput
+        sess.pendingPermissionDetail = permDetail
+        sess.pendingQuestion = question
+        sess.attentionReason = attention
         sess.workStatus = .permission
         sessions[idx] = sess
       }
@@ -1769,6 +1892,11 @@ final class ServerAppState {
     let obs = session(sessionId)
     obs.tokenUsage = usage
     obs.tokenUsageSnapshotKind = snapshotKind
+    obs.totalTokens = Int(usage.inputTokens + usage.outputTokens)
+    obs.inputTokens = Int(usage.inputTokens)
+    obs.outputTokens = Int(usage.outputTokens)
+    obs.cachedTokens = Int(usage.cachedTokens)
+    obs.contextWindow = Int(usage.contextWindow)
 
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].totalTokens = Int(usage.inputTokens + usage.outputTokens)
@@ -1798,6 +1926,11 @@ final class ServerAppState {
     )
     obs.tokenUsage = resetUsage
     obs.tokenUsageSnapshotKind = .compactionReset
+    obs.totalTokens = Int(outputTokens)
+    obs.inputTokens = 0
+    obs.outputTokens = Int(outputTokens)
+    obs.cachedTokens = 0
+    obs.contextWindow = Int(contextWindow)
 
     if let idx = sessionIndex {
       sessions[idx].totalTokens = Int(outputTokens)
@@ -1818,6 +1951,8 @@ final class ServerAppState {
     } else {
       sessions.append(sess)
     }
+
+    hydrateObservable(session(summary.id), from: sess)
 
     if let autonomy = pendingCreationAutonomy {
       session(summary.id).autonomy = autonomy
@@ -1850,14 +1985,18 @@ final class ServerAppState {
   private func handleSessionEnded(_ sessionId: String, _ reason: String) {
     logger.info("Session ended: \(sessionId) (\(reason))")
 
+    let obs = session(sessionId)
     if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
       sessions[idx].status = .ended
       sessions[idx].workStatus = .unknown
       sessions[idx].attentionReason = .none
     }
+    obs.status = .ended
+    obs.workStatus = .unknown
+    obs.endReason = reason
 
     // Clear transient per-session state (keeps messages/tokens/history for viewing)
-    session(sessionId).clearTransientState()
+    obs.clearTransientState()
 
     // Clean up internal tracking
     subscribedSessions.remove(sessionId)

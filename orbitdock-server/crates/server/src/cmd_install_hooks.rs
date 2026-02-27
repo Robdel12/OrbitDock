@@ -1,10 +1,15 @@
 //! `orbitdock-server install-hooks` — configure Claude Code hooks.
 //!
 //! Safely merges OrbitDock hook entries into `~/.claude/settings.json`.
+//! When `--server-url` is provided, generates the hook script inline
+//! (no `init` required) targeting the remote server.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::paths;
+
+const HOOK_TEMPLATE: &str = include_str!("../../../../scripts/hook.sh.template");
 
 /// All Claude Code hook types we register for.
 const HOOK_TYPES: &[(&str, &str)] = &[
@@ -22,20 +27,31 @@ const HOOK_TYPES: &[(&str, &str)] = &[
     ("hooks.SubagentStop", "claude_subagent_event"),
 ];
 
-pub fn run(settings_path: Option<&Path>) -> anyhow::Result<()> {
+pub fn run(
+    settings_path: Option<&Path>,
+    server_url: Option<&str>,
+    auth_token: Option<&str>,
+) -> anyhow::Result<()> {
     let settings_file = settings_path.map(PathBuf::from).unwrap_or_else(|| {
         dirs::home_dir()
             .expect("HOME not found")
             .join(".claude/settings.json")
     });
 
-    let hook_script = paths::hook_script_path();
-    if !hook_script.exists() {
-        anyhow::bail!(
-            "Hook script not found at {}. Run `orbitdock-server init` first.",
-            hook_script.display()
-        );
-    }
+    // Resolve hook script path — generate inline when targeting a remote server
+    let hook_script = if let Some(url) = server_url {
+        generate_remote_hook_script(url, auth_token)?
+    } else {
+        let path = paths::hook_script_path();
+        if !path.exists() {
+            anyhow::bail!(
+                "Hook script not found at {}. Run `orbitdock-server init` first, \
+                 or use `--server-url` to point hooks at a remote server.",
+                path.display()
+            );
+        }
+        path
+    };
 
     // Read existing settings or start with empty object
     let existing = if settings_file.exists() {
@@ -148,7 +164,35 @@ pub fn run(settings_path: Option<&Path>) -> anyhow::Result<()> {
     }
     println!();
     println!("  Settings written to {}", settings_file.display());
+    if server_url.is_some() {
+        println!("  Hook script at {}", hook_script.display());
+    }
     println!();
 
     Ok(())
+}
+
+/// Generate a hook script targeting a remote server URL.
+/// Writes to `~/.orbitdock/hook.sh` (creates `~/.orbitdock/` if needed).
+fn generate_remote_hook_script(
+    server_url: &str,
+    auth_token: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    let orbitdock_dir = dirs::home_dir().expect("HOME not found").join(".orbitdock");
+    std::fs::create_dir_all(&orbitdock_dir)?;
+
+    let spool_dir = orbitdock_dir.join("spool");
+    std::fs::create_dir_all(&spool_dir)?;
+
+    let hook_path = orbitdock_dir.join("hook.sh");
+
+    let rendered = HOOK_TEMPLATE
+        .replace("{{SERVER_URL}}", server_url.trim_end_matches('/'))
+        .replace("{{SPOOL_DIR}}", &spool_dir.to_string_lossy())
+        .replace("{{AUTH_HEADER}}", auth_token.unwrap_or(""));
+
+    std::fs::write(&hook_path, &rendered)?;
+    std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755))?;
+
+    Ok(hook_path)
 }

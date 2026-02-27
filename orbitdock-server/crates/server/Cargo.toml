@@ -18,6 +18,7 @@ codex-core = { workspace = true }
 codex-login = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
+axum-server = { workspace = true }
 tower-http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -39,3 +40,4 @@ dirs = { workspace = true }
 base64 = { workspace = true }
 ring = { workspace = true }
 libc = { workspace = true }
+qrcode = { workspace = true }

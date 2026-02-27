@@ -57,6 +57,8 @@ struct CommandBar: View {
       }
 
       Spacer(minLength: 16)
+
+      UsageGaugesPanel()
     }
     .padding(.horizontal, 2)
     .padding(.vertical, 8)

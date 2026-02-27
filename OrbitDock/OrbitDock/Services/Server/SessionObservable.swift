@@ -63,8 +63,161 @@ final class SessionObservable {
   var mcpAuthStatuses: [String: ServerMcpAuthStatus] = [:]
   var mcpStartupState: McpStartupState?
 
+  // MARK: - Session-level fields (mirrored from Session struct for detail views)
+
+  var endpointId: UUID?
+  var endpointName: String?
+  var projectPath: String = ""
+  var projectName: String?
+  var branch: String?
+  var model: String?
+  var effort: String?
+  var summary: String?
+  var customName: String?
+  var firstPrompt: String?
+  var lastMessage: String?
+  var transcriptPath: String?
+  var status: Session.SessionStatus = .active
+  var workStatus: Session.WorkStatus = .unknown
+  var attentionReason: Session.AttentionReason = .none
+  var lastActivityAt: Date?
+  var lastTool: String?
+  var lastToolAt: Date?
+  var inputTokens: Int?
+  var outputTokens: Int?
+  var cachedTokens: Int?
+  var contextWindow: Int?
+  var totalTokens: Int = 0
+  var totalCostUSD: Double = 0
+  var provider: Provider = .claude
+  var codexIntegrationMode: CodexIntegrationMode?
+  var claudeIntegrationMode: ClaudeIntegrationMode?
+  var codexThreadId: String?
+  var pendingApprovalId: String?
+  var pendingToolName: String?
+  var pendingToolInput: String?
+  var pendingPermissionDetail: String?
+  var pendingQuestion: String?
+  var promptCount: Int = 0
+  var toolCount: Int = 0
+  var startedAt: Date?
+  var endedAt: Date?
+  var endReason: String?
+  var gitSha: String?
+  var currentCwd: String?
+
   init(id: String) {
     self.id = id
+  }
+
+  // MARK: - Computed properties (mirror Session computed logic)
+
+  var isActive: Bool { status == .active }
+
+  var displayStatus: SessionDisplayStatus {
+    guard isActive else { return .ended }
+    switch attentionReason {
+      case .awaitingPermission: return .permission
+      case .awaitingQuestion: return .question
+      case .awaitingReply: return .reply
+      case .none: return workStatus == .working ? .working : .reply
+    }
+  }
+
+  var isDirect: Bool { isDirectCodex || isDirectClaude }
+
+  var isDirectCodex: Bool {
+    provider == .codex && codexIntegrationMode == .direct
+  }
+
+  var isDirectClaude: Bool {
+    provider == .claude && claudeIntegrationMode == .direct
+  }
+
+  var canSendInput: Bool {
+    guard isActive else { return false }
+    return isDirect
+  }
+
+  var canTakeOver: Bool {
+    guard !isDirect else { return false }
+    switch provider {
+      case .codex: return codexIntegrationMode == .passive
+      case .claude: return claudeIntegrationMode != .direct
+    }
+  }
+
+  var canApprove: Bool {
+    canSendInput && attentionReason == .awaitingPermission && pendingApprovalId != nil
+  }
+
+  var canAnswer: Bool {
+    canSendInput && attentionReason == .awaitingQuestion && pendingApprovalId != nil
+  }
+
+  var needsApprovalOverlay: Bool {
+    guard isActive else { return false }
+    return attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion
+  }
+
+  var displayName: String {
+    let raw = customName ?? summary ?? firstPrompt ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
+    return raw.strippingXMLTags()
+  }
+
+  var scopedID: String {
+    guard let endpointId else { return id }
+    return SessionRef(endpointId: endpointId, sessionId: id).scopedID
+  }
+
+  var effectiveContextInputTokens: Int {
+    let input = max(inputTokens ?? 0, 0)
+    let cached = max(cachedTokens ?? 0, 0)
+
+    switch tokenUsageSnapshotKind {
+      case .mixedLegacy:
+        return input + cached
+      case .compactionReset:
+        return 0
+      case .contextTurn:
+        return provider == .claude ? input + cached : input
+      case .lifetimeTotals:
+        return input
+      case .unknown:
+        return provider == .codex ? input : input + cached
+    }
+  }
+
+  var contextFillFraction: Double {
+    guard let window = contextWindow, window > 0 else { return 0 }
+    guard effectiveContextInputTokens > 0 else { return 0 }
+    return min(Double(effectiveContextInputTokens) / Double(window), 1.0)
+  }
+
+  var contextFillPercent: Double {
+    contextFillFraction * 100
+  }
+
+  var effectiveCacheHitPercent: Double {
+    let cached = max(cachedTokens ?? 0, 0)
+    guard cached > 0 else { return 0 }
+
+    switch tokenUsageSnapshotKind {
+      case .mixedLegacy:
+        let denominator = effectiveContextInputTokens
+        guard denominator > 0 else { return 0 }
+        return Double(cached) / Double(denominator) * 100
+      case .compactionReset:
+        return 0
+      case .contextTurn, .lifetimeTotals, .unknown:
+        let input = max(inputTokens ?? 0, 0)
+        guard input > 0 else { return 0 }
+        return Double(cached) / Double(input) * 100
+    }
+  }
+
+  var hasTokenUsage: Bool {
+    (inputTokens ?? 0) > 0 || (outputTokens ?? 0) > 0 || (cachedTokens ?? 0) > 0
   }
 
   func bumpMessagesRevision() {
@@ -131,6 +284,11 @@ final class SessionObservable {
   /// Clear transient state on session end. Keep messages/tokens/history for viewing.
   func clearTransientState() {
     pendingApproval = nil
+    pendingApprovalId = nil
+    pendingToolName = nil
+    pendingToolInput = nil
+    pendingPermissionDetail = nil
+    pendingQuestion = nil
     undoInProgress = false
     forkInProgress = false
     pendingShellContext = []
@@ -146,6 +304,7 @@ final class SessionObservable {
     plan = nil
     currentTurnId = nil
     permissionMode = .default
+    attentionReason = .none
   }
 
   /// Drop heavy conversation payloads when a session is no longer observed.

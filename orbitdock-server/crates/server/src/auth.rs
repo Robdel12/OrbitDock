@@ -21,8 +21,8 @@ pub async fn auth_middleware(
 ) -> Result<Response, StatusCode> {
     let path = req.uri().path();
 
-    // /health is always unauthenticated
-    if path == "/health" {
+    // /health and /metrics are always unauthenticated
+    if path == "/health" || path == "/metrics" {
         return Ok(next.run(req).await);
     }
 

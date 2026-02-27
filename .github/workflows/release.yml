@@ -110,22 +110,16 @@ jobs:
           body: |
             ## ${{ env.APP_NAME }} v${{ steps.version.outputs.version }}
 
-            Build and sign locally, then upload the DMG to this release.
+            **Server binaries** are attached (darwin-universal, linux-x86_64).
 
-            ```
-            make rust-build
-            # Archive in Xcode → Product → Archive
-            # Export with Developer ID
-            # Notarize and staple
-            # Upload DMG here
-            ```
+            **macOS app** — build, sign, and upload the DMG manually.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  release-linux-server-asset:
+  release-linux-server:
     needs: release
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
 
     steps:
       - name: Checkout tagged release
@@ -141,7 +135,7 @@ jobs:
           cd orbitdock-server
           cargo build -p orbitdock-server --release
 
-      - name: Package orbitdock-server (linux x86_64)
+      - name: Package and upload
         run: |
           mkdir -p dist
           cp orbitdock-server/target/release/orbitdock-server dist/orbitdock-server
@@ -150,7 +144,7 @@ jobs:
           zip -q orbitdock-server-linux-x86_64.zip orbitdock-server
           sha256sum orbitdock-server-linux-x86_64.zip > orbitdock-server-linux-x86_64.zip.sha256
 
-      - name: Upload linux server asset
+      - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.release.outputs.version }}
@@ -159,3 +153,4 @@ jobs:
             dist/orbitdock-server-linux-x86_64.zip.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -23,6 +23,11 @@ class ProjectFileIndex {
     cache[projectPath] ?? []
   }
 
+  /// Returns true if files are already cached or loading for this path.
+  func isReady(for projectPath: String) -> Bool {
+    cache[projectPath] != nil || loading.contains(projectPath)
+  }
+
   func loadIfNeeded(_ projectPath: String) async {
     guard cache[projectPath] == nil, !loading.contains(projectPath) else { return }
     loading.insert(projectPath)

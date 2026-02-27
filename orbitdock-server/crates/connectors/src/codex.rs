@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use codex_core::auth::AuthCredentialsStoreMode;
 use codex_core::config::{find_codex_home, Config, ConfigOverrides};
-use codex_core::features::Feature;
+use codex_core::models_manager::collaboration_mode_presets::CollaborationModesConfig;
 use codex_core::models_manager::manager::RefreshStrategy;
 use codex_core::{AuthManager, CodexThread, SteerInputError, ThreadManager};
 use codex_protocol::protocol::{
@@ -90,6 +90,8 @@ impl CodexConnector {
             codex_home.clone(),
             auth_manager.clone(),
             SessionSource::Mcp,
+            None,
+            CollaborationModesConfig::default(),
         ));
 
         let config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
@@ -145,6 +147,8 @@ impl CodexConnector {
             codex_home.clone(),
             auth_manager.clone(),
             SessionSource::Mcp,
+            None,
+            CollaborationModesConfig::default(),
         ));
 
         let config = Self::build_config(cwd, model, approval_policy, sandbox_mode).await?;
@@ -191,6 +195,7 @@ impl CodexConnector {
         // cwd is a ConfigOverrides field, not a TOML config field
         let harness_overrides = ConfigOverrides {
             cwd: Some(std::path::PathBuf::from(cwd)),
+            codex_linux_sandbox_exe: None,
             ..Default::default()
         };
 
@@ -272,7 +277,7 @@ impl CodexConnector {
 
         let new_thread = self
             .thread_manager
-            .fork_thread(nth, config, rollout_path)
+            .fork_thread(nth, config, rollout_path, false)
             .await
             .map_err(|e| ConnectorError::ProviderError(format!("Failed to fork thread: {}", e)))?;
 
@@ -298,13 +303,16 @@ impl CodexConnector {
         loop {
             match thread.next_event().await {
                 Ok(event) => {
-                    let events = Self::translate_event(
+                    // Box::pin keeps the large translate_event future (driven
+                    // by the ever-growing EventMsg enum) on the heap so it
+                    // doesn't blow the default tokio thread stack.
+                    let events = Box::pin(Self::translate_event(
                         event,
                         &output_buffers,
                         &streaming_message,
                         &msg_counter,
                         &env_tracker,
-                    )
+                    ))
                     .await;
                     for ev in events {
                         if tx.send(ev).await.is_err() {
@@ -1374,7 +1382,12 @@ impl CodexConnector {
 
     /// List remote skills available via ChatGPT sharing
     pub async fn list_remote_skills(&self) -> Result<(), ConnectorError> {
-        let op = Op::ListRemoteSkills;
+        use codex_protocol::protocol::{RemoteSkillHazelnutScope, RemoteSkillProductSurface};
+        let op = Op::ListRemoteSkills {
+            hazelnut_scope: RemoteSkillHazelnutScope::AllShared,
+            product_surface: RemoteSkillProductSurface::Codex,
+            enabled: None,
+        };
         self.thread.submit(op).await.map_err(|e| {
             ConnectorError::ProviderError(format!("Failed to list remote skills: {}", e))
         })?;
@@ -1386,7 +1399,6 @@ impl CodexConnector {
     pub async fn download_remote_skill(&self, hazelnut_id: &str) -> Result<(), ConnectorError> {
         let op = Op::DownloadRemoteSkill {
             hazelnut_id: hazelnut_id.to_string(),
-            is_preload: false,
         };
         self.thread.submit(op).await.map_err(|e| {
             ConnectorError::ProviderError(format!("Failed to download skill: {}", e))
@@ -1457,6 +1469,7 @@ impl CodexConnector {
 
         let op = Op::ExecApproval {
             id: request_id.to_string(),
+            turn_id: None,
             decision: review,
         };
 
@@ -1551,15 +1564,19 @@ impl CodexConnector {
 
         let sandbox = sandbox_mode.map(|s| match s {
             "danger-full-access" => SandboxPolicy::DangerFullAccess,
-            "read-only" => SandboxPolicy::ReadOnly,
+            "read-only" => SandboxPolicy::ReadOnly {
+                access: Default::default(),
+            },
             "workspace-write" => SandboxPolicy::WorkspaceWrite {
                 writable_roots: Vec::new(),
+                read_only_access: Default::default(),
                 network_access: false,
                 exclude_tmpdir_env_var: false,
                 exclude_slash_tmp: false,
             },
             _ => SandboxPolicy::WorkspaceWrite {
                 writable_roots: Vec::new(),
+                read_only_access: Default::default(),
                 network_access: false,
                 exclude_tmpdir_env_var: false,
                 exclude_slash_tmp: false,
@@ -1650,21 +1667,12 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         codex_home,
         auth_manager,
         SessionSource::Mcp,
+        None,
+        CollaborationModesConfig::default(),
     ));
 
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let harness_overrides = ConfigOverrides {
-        cwd: Some(cwd),
-        ..Default::default()
-    };
-    let mut config =
-        Config::load_with_cli_overrides_and_harness_overrides(Vec::new(), harness_overrides)
-            .await
-            .map_err(|e| ConnectorError::ProviderError(format!("Failed to load config: {}", e)))?;
-    config.features.enable(Feature::RemoteModels);
-
     let models = thread_manager
-        .list_models(&config, RefreshStrategy::OnlineIfUncached)
+        .list_models(RefreshStrategy::OnlineIfUncached)
         .await
         .into_iter()
         // codex-core already applies auth-aware filtering in list_models:
