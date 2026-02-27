@@ -12,19 +12,21 @@ use orbitdock_protocol::{
     ApprovalHistoryItem, ClaudeIntegrationMode, ClaudeModelOption, ClaudeUsageSnapshot,
     CodexAccountStatus, CodexIntegrationMode, CodexModelOption, CodexUsageSnapshot, DirectoryEntry,
     McpAuthStatus, McpResource, McpResourceTemplate, McpTool, Provider, RecentProject,
-    RemoteSkillSummary, ReviewComment, ServerMessage, SessionState, SessionStatus, SessionSummary,
-    SkillErrorInfo, SkillsListEntry, SubagentTool, TokenUsage, TurnDiff, UsageErrorInfo,
-    WorkStatus,
+    RemoteSkillSummary, ReviewComment, ReviewCommentStatus, ReviewCommentTag, ServerMessage,
+    SessionState, SessionStatus, SessionSummary, SkillErrorInfo, SkillsListEntry, SubagentTool,
+    TokenUsage, TurnDiff, UsageErrorInfo, WorkStatus, WorktreeOrigin, WorktreeStatus,
+    WorktreeSummary,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, oneshot};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::codex_session::CodexAction;
 use crate::persistence::{
     delete_approval, list_approvals, list_review_comments as load_review_comments,
     load_cached_claude_models, load_messages_for_session, load_messages_from_transcript_path,
-    load_session_by_id, load_subagent_transcript_path, load_subagents_for_session, RestoredSession,
+    load_session_by_id, load_subagent_transcript_path, load_subagents_for_session, PersistCommand,
+    RestoredSession,
 };
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::{SessionCommand, SubscribeResult};
@@ -128,6 +130,130 @@ pub struct McpToolsResponse {
     pub resources: HashMap<String, Vec<McpResource>>,
     pub resource_templates: HashMap<String, Vec<McpResourceTemplate>>,
     pub auth_statuses: HashMap<String, McpAuthStatus>,
+}
+
+// ── Worktree types ────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct WorktreesListResponse {
+    pub repo_root: Option<String>,
+    pub worktrees: Vec<WorktreeSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorktreeCreatedResponse {
+    pub worktree: WorktreeSummary,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct WorktreesQuery {
+    #[serde(default)]
+    pub repo_root: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateWorktreeRequest {
+    pub repo_path: String,
+    pub branch_name: String,
+    #[serde(default)]
+    pub base_branch: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DiscoverWorktreesRequest {
+    pub repo_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GitInitRequest {
+    pub path: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GitInitResponse {
+    ok: bool,
+}
+
+// ── Review comment mutation types ─────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct CreateReviewCommentRequest {
+    pub turn_id: Option<String>,
+    pub file_path: String,
+    pub line_start: u32,
+    pub line_end: Option<u32>,
+    pub body: String,
+    #[serde(default)]
+    pub tag: Option<ReviewCommentTag>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateReviewCommentRequest {
+    #[serde(default)]
+    pub body: Option<String>,
+    #[serde(default)]
+    pub tag: Option<ReviewCommentTag>,
+    #[serde(default)]
+    pub status: Option<ReviewCommentStatus>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReviewCommentMutationResponse {
+    pub comment_id: String,
+    pub ok: bool,
+}
+
+// ── Config mutation types ─────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct SetOpenAiKeyRequest {
+    pub key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetServerRoleRequest {
+    pub is_primary: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ServerRoleResponse {
+    pub is_primary: bool,
+}
+
+// ── Codex auth types ──────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct CodexLoginStartedResponse {
+    pub login_id: String,
+    pub auth_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CodexLoginCancelRequest {
+    pub login_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CodexLoginCanceledResponse {
+    pub login_id: String,
+    pub status: orbitdock_protocol::CodexLoginCancelStatus,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CodexLogoutResponse {
+    pub status: CodexAccountStatus,
+}
+
+// ── Async action types ────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct DownloadRemoteSkillRequest {
+    pub hazelnut_id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AcceptedResponse {
+    pub accepted: bool,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -491,6 +617,436 @@ pub async fn list_mcp_tools_endpoint(
         auth_statuses,
     }))
 }
+
+// ── Group A: Pure operations ──────────────────────────────────
+
+pub async fn set_open_ai_key(
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<SetOpenAiKeyRequest>,
+) -> ApiResult<OpenAiKeyStatusResponse> {
+    info!(
+        component = "api",
+        event = "api.openai_key.set",
+        "OpenAI API key set via REST"
+    );
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::SetConfig {
+            key: "openai_api_key".into(),
+            value: body.key,
+        })
+        .await;
+
+    Ok(Json(OpenAiKeyStatusResponse { configured: true }))
+}
+
+pub async fn list_worktrees(
+    Query(query): Query<WorktreesQuery>,
+) -> ApiResult<WorktreesListResponse> {
+    let worktrees = if let Some(ref root) = query.repo_root {
+        match crate::git::discover_worktrees(root).await {
+            Ok(discovered) => discovered
+                .into_iter()
+                .map(|w| WorktreeSummary {
+                    id: orbitdock_protocol::new_id(),
+                    repo_root: root.clone(),
+                    worktree_path: w.path,
+                    branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
+                    base_branch: None,
+                    status: WorktreeStatus::Active,
+                    active_session_count: 0,
+                    total_session_count: 0,
+                    created_at: String::new(),
+                    last_session_ended_at: None,
+                    disk_present: true,
+                    auto_prune: true,
+                    custom_name: None,
+                    created_by: WorktreeOrigin::Discovered,
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+
+    Ok(Json(WorktreesListResponse {
+        repo_root: query.repo_root,
+        worktrees,
+    }))
+}
+
+pub async fn discover_worktrees(
+    Json(body): Json<DiscoverWorktreesRequest>,
+) -> ApiResult<WorktreesListResponse> {
+    let worktrees = match crate::git::discover_worktrees(&body.repo_path).await {
+        Ok(discovered) => discovered
+            .into_iter()
+            .map(|w| WorktreeSummary {
+                id: orbitdock_protocol::new_id(),
+                repo_root: body.repo_path.clone(),
+                worktree_path: w.path,
+                branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
+                base_branch: None,
+                status: WorktreeStatus::Active,
+                active_session_count: 0,
+                total_session_count: 0,
+                created_at: String::new(),
+                last_session_ended_at: None,
+                disk_present: true,
+                auto_prune: true,
+                custom_name: None,
+                created_by: WorktreeOrigin::Discovered,
+            })
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+
+    Ok(Json(WorktreesListResponse {
+        repo_root: Some(body.repo_path),
+        worktrees,
+    }))
+}
+
+pub async fn create_worktree(
+    Json(body): Json<CreateWorktreeRequest>,
+) -> ApiResult<WorktreeCreatedResponse> {
+    let worktree_path = format!(
+        "{}/.orbitdock-worktrees/{}",
+        body.repo_path.trim_end_matches('/'),
+        body.branch_name
+    );
+    match crate::git::create_worktree(
+        &body.repo_path,
+        &worktree_path,
+        &body.branch_name,
+        body.base_branch.as_deref(),
+    )
+    .await
+    {
+        Ok(_branch) => {
+            let summary = WorktreeSummary {
+                id: orbitdock_protocol::new_id(),
+                repo_root: body.repo_path,
+                worktree_path,
+                branch: body.branch_name,
+                base_branch: body.base_branch,
+                status: WorktreeStatus::Active,
+                active_session_count: 0,
+                total_session_count: 0,
+                created_at: crate::session_utils::chrono_now(),
+                last_session_ended_at: None,
+                disk_present: true,
+                auto_prune: true,
+                custom_name: None,
+                created_by: WorktreeOrigin::User,
+            };
+            Ok(Json(WorktreeCreatedResponse { worktree: summary }))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiErrorResponse {
+                code: "create_failed",
+                error: e,
+            }),
+        )),
+    }
+}
+
+pub async fn remove_worktree(
+    Path(worktree_id): Path<String>,
+) -> (StatusCode, Json<ApiErrorResponse>) {
+    // TODO: look up worktree_path from DB by worktree_id
+    (
+        StatusCode::NOT_FOUND,
+        Json(ApiErrorResponse {
+            code: "not_found",
+            error: format!("worktree {worktree_id} not found (persistence pending)"),
+        }),
+    )
+}
+
+pub async fn git_init_endpoint(Json(body): Json<GitInitRequest>) -> ApiResult<GitInitResponse> {
+    // Verify the directory exists
+    if tokio::fs::metadata(&body.path).await.is_err() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiErrorResponse {
+                code: "path_not_found",
+                error: format!("directory does not exist: {}", body.path),
+            }),
+        ));
+    }
+
+    crate::git::git_init(&body.path)
+        .await
+        .map(|_| Json(GitInitResponse { ok: true }))
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorResponse {
+                    code: "git_init_failed",
+                    error: e,
+                }),
+            )
+        })
+}
+
+pub async fn update_review_comment(
+    Path(comment_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<UpdateReviewCommentRequest>,
+) -> ApiResult<ReviewCommentMutationResponse> {
+    let tag_str = body.tag.map(|t| match t {
+        ReviewCommentTag::Clarity => "clarity".to_string(),
+        ReviewCommentTag::Scope => "scope".to_string(),
+        ReviewCommentTag::Risk => "risk".to_string(),
+        ReviewCommentTag::Nit => "nit".to_string(),
+    });
+    let status_str = body.status.map(|s| match s {
+        ReviewCommentStatus::Open => "open".to_string(),
+        ReviewCommentStatus::Resolved => "resolved".to_string(),
+    });
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::ReviewCommentUpdate {
+            id: comment_id.clone(),
+            body: body.body,
+            tag: tag_str,
+            status: status_str,
+        })
+        .await;
+
+    Ok(Json(ReviewCommentMutationResponse {
+        comment_id,
+        ok: true,
+    }))
+}
+
+pub async fn delete_review_comment_by_id(
+    Path(comment_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<ReviewCommentMutationResponse> {
+    let _ = state
+        .persist()
+        .send(PersistCommand::ReviewCommentDelete {
+            id: comment_id.clone(),
+        })
+        .await;
+
+    Ok(Json(ReviewCommentMutationResponse {
+        comment_id,
+        ok: true,
+    }))
+}
+
+// ── Group B: Operations with broadcast ────────────────────────
+
+pub async fn set_server_role(
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<SetServerRoleRequest>,
+) -> ApiResult<ServerRoleResponse> {
+    info!(
+        component = "api",
+        event = "api.server_role.set",
+        is_primary = body.is_primary,
+        "Server role updated via REST"
+    );
+
+    let _changed = state.set_primary(body.is_primary);
+
+    let role_value = if body.is_primary {
+        "primary".to_string()
+    } else {
+        "secondary".to_string()
+    };
+    let _ = state
+        .persist()
+        .send(PersistCommand::SetConfig {
+            key: "server_role".into(),
+            value: role_value,
+        })
+        .await;
+
+    let update = crate::websocket::server_info_message(&state);
+    state.broadcast_to_list(update);
+
+    Ok(Json(ServerRoleResponse {
+        is_primary: body.is_primary,
+    }))
+}
+
+pub async fn create_review_comment_endpoint(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<CreateReviewCommentRequest>,
+) -> ApiResult<ReviewCommentMutationResponse> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let comment_id = format!(
+        "rc-{}-{}",
+        &session_id[..8.min(session_id.len())],
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+
+    let tag_str = body.tag.map(|t| {
+        match t {
+            ReviewCommentTag::Clarity => "clarity",
+            ReviewCommentTag::Scope => "scope",
+            ReviewCommentTag::Risk => "risk",
+            ReviewCommentTag::Nit => "nit",
+        }
+        .to_string()
+    });
+
+    let now = crate::session_utils::chrono_now();
+
+    let comment = ReviewComment {
+        id: comment_id.clone(),
+        session_id: session_id.clone(),
+        turn_id: body.turn_id.clone(),
+        file_path: body.file_path.clone(),
+        line_start: body.line_start,
+        line_end: body.line_end,
+        body: body.body.clone(),
+        tag: body.tag,
+        status: ReviewCommentStatus::Open,
+        created_at: now,
+        updated_at: None,
+    };
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::ReviewCommentCreate {
+            id: comment_id.clone(),
+            session_id: session_id.clone(),
+            turn_id: body.turn_id,
+            file_path: body.file_path,
+            line_start: body.line_start,
+            line_end: body.line_end,
+            body: body.body,
+            tag: tag_str,
+        })
+        .await;
+
+    // Broadcast to session subscribers
+    if let Some(actor) = state.get_session(&session_id) {
+        actor
+            .send(crate::session_command::SessionCommand::Broadcast {
+                msg: ServerMessage::ReviewCommentCreated {
+                    session_id,
+                    comment,
+                },
+            })
+            .await;
+    }
+
+    Ok(Json(ReviewCommentMutationResponse {
+        comment_id,
+        ok: true,
+    }))
+}
+
+pub async fn codex_login_start(
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<CodexLoginStartedResponse> {
+    let auth = state.codex_auth();
+    match auth.start_chatgpt_login().await {
+        Ok((login_id, auth_url)) => {
+            if let Ok(status) = auth.read_account(false).await {
+                state.broadcast_to_list(ServerMessage::CodexAccountStatus { status });
+            }
+            Ok(Json(CodexLoginStartedResponse { login_id, auth_url }))
+        }
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse {
+                code: "codex_auth_login_start_failed",
+                error: err,
+            }),
+        )),
+    }
+}
+
+pub async fn codex_login_cancel(
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<CodexLoginCancelRequest>,
+) -> Json<CodexLoginCanceledResponse> {
+    let auth = state.codex_auth();
+    let status = auth.cancel_chatgpt_login(body.login_id.clone()).await;
+    if let Ok(account_status) = auth.read_account(false).await {
+        state.broadcast_to_list(ServerMessage::CodexAccountStatus {
+            status: account_status,
+        });
+    }
+    Json(CodexLoginCanceledResponse {
+        login_id: body.login_id,
+        status,
+    })
+}
+
+pub async fn codex_logout(
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<CodexLogoutResponse> {
+    let auth = state.codex_auth();
+    match auth.logout().await {
+        Ok(status) => {
+            let updated = ServerMessage::CodexAccountUpdated {
+                status: status.clone(),
+            };
+            state.broadcast_to_list(updated);
+            Ok(Json(CodexLogoutResponse { status }))
+        }
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiErrorResponse {
+                code: "codex_auth_logout_failed",
+                error: err,
+            }),
+        )),
+    }
+}
+
+// ── Group C: Async fire-and-forget (202 Accepted) ─────────────
+
+pub async fn download_remote_skill(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<DownloadRemoteSkillRequest>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+    dispatch_codex_action(
+        &state,
+        &session_id,
+        CodexAction::DownloadRemoteSkill {
+            hazelnut_id: body.hazelnut_id,
+        },
+    )
+    .await?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(AcceptedResponse { accepted: true }),
+    ))
+}
+
+pub async fn refresh_mcp_servers(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+    dispatch_codex_action(&state, &session_id, CodexAction::RefreshMcpServers).await?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(AcceptedResponse { accepted: true }),
+    ))
+}
+
+// ── Private helpers ───────────────────────────────────────────
 
 async fn load_session_state(
     state: &Arc<SessionRegistry>,

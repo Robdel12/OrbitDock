@@ -236,6 +236,11 @@ pub async fn remove_worktree(
     run_git_checked(&args, repo_path).await
 }
 
+/// Initialize a new git repository at the given path.
+pub async fn git_init(path: &str) -> Result<(), String> {
+    run_git_checked(&["init"], path).await
+}
+
 /// Check if a worktree path exists on disk.
 #[allow(dead_code)] // Used in Phase 8 (health check cycle)
 pub async fn worktree_exists_on_disk(path: &str) -> bool {

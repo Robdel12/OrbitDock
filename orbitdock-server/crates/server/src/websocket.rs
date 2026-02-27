@@ -450,30 +450,9 @@ fn handle_client_message<'a>(
                 crate::ws_handlers::approvals::handle(msg, client_tx, state, conn_id).await;
             }
 
-            // ── Config ───────────────────────────────────────────────
-            ClientMessage::SetServerRole { .. }
-            | ClientMessage::SetClientPrimaryClaim { .. }
-            | ClientMessage::SetOpenAiKey { .. }
-            | ClientMessage::ListModels
-            | ClientMessage::ListClaudeModels => {
+            // ── Config (WS-only: SetClientPrimaryClaim) ────────────
+            ClientMessage::SetClientPrimaryClaim { .. } => {
                 crate::ws_handlers::config::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Codex account ────────────────────────────────────────
-            ClientMessage::CodexAccountRead { .. }
-            | ClientMessage::CodexLoginChatgptStart
-            | ClientMessage::CodexLoginChatgptCancel { .. }
-            | ClientMessage::CodexAccountLogout => {
-                crate::ws_handlers::codex_account::handle(msg, client_tx, state).await;
-            }
-
-            // ── Skills / MCP ─────────────────────────────────────────
-            ClientMessage::ListSkills { .. }
-            | ClientMessage::ListRemoteSkills { .. }
-            | ClientMessage::DownloadRemoteSkill { .. }
-            | ClientMessage::ListMcpTools { .. }
-            | ClientMessage::RefreshMcpServers { .. } => {
-                crate::ws_handlers::skills::handle(msg, client_tx, state).await;
             }
 
             // ── Claude hooks ─────────────────────────────────────────
@@ -486,25 +465,9 @@ fn handle_client_message<'a>(
                 crate::ws_handlers::claude_hooks::handle(msg, client_tx, state).await;
             }
 
-            // ── Review comments ──────────────────────────────────────
-            ClientMessage::CreateReviewComment { .. }
-            | ClientMessage::UpdateReviewComment { .. }
-            | ClientMessage::DeleteReviewComment { .. }
-            | ClientMessage::ListReviewComments { .. } => {
-                crate::ws_handlers::review_comments::handle(msg, client_tx, state, conn_id).await;
-            }
-
             // ── Shell execution ──────────────────────────────────────
             ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => {
                 crate::ws_handlers::shell::handle(msg, client_tx, state, conn_id).await;
-            }
-
-            // ── Worktree management ──────────────────────────────────
-            ClientMessage::ListWorktrees { .. }
-            | ClientMessage::CreateWorktree { .. }
-            | ClientMessage::RemoveWorktree { .. }
-            | ClientMessage::DiscoverWorktrees { .. } => {
-                crate::ws_handlers::worktree::handle(msg, client_tx).await;
             }
 
             // ── REST-only stubs ──────────────────────────────────────
@@ -512,7 +475,28 @@ fn handle_client_message<'a>(
             | ClientMessage::ListRecentProjects { .. }
             | ClientMessage::CheckOpenAiKey { .. }
             | ClientMessage::FetchCodexUsage { .. }
-            | ClientMessage::FetchClaudeUsage { .. } => {
+            | ClientMessage::FetchClaudeUsage { .. }
+            | ClientMessage::SetServerRole { .. }
+            | ClientMessage::SetOpenAiKey { .. }
+            | ClientMessage::ListModels
+            | ClientMessage::ListClaudeModels
+            | ClientMessage::CodexAccountRead { .. }
+            | ClientMessage::CodexLoginChatgptStart
+            | ClientMessage::CodexLoginChatgptCancel { .. }
+            | ClientMessage::CodexAccountLogout
+            | ClientMessage::ListSkills { .. }
+            | ClientMessage::ListRemoteSkills { .. }
+            | ClientMessage::DownloadRemoteSkill { .. }
+            | ClientMessage::ListMcpTools { .. }
+            | ClientMessage::RefreshMcpServers { .. }
+            | ClientMessage::ListWorktrees { .. }
+            | ClientMessage::CreateWorktree { .. }
+            | ClientMessage::RemoveWorktree { .. }
+            | ClientMessage::DiscoverWorktrees { .. }
+            | ClientMessage::CreateReviewComment { .. }
+            | ClientMessage::UpdateReviewComment { .. }
+            | ClientMessage::DeleteReviewComment { .. }
+            | ClientMessage::ListReviewComments { .. } => {
                 crate::ws_handlers::rest_only::handle(msg, client_tx).await;
             }
         }
@@ -1429,7 +1413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_open_ai_key_does_not_emit_unsolicited_status() {
+    async fn set_open_ai_key_over_websocket_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
 
@@ -1443,17 +1427,19 @@ mod tests {
         )
         .await;
 
-        assert!(
-            client_rx.try_recv().is_err(),
-            "set_open_ai_key should not emit websocket messages"
-        );
+        match recv_json(&mut client_rx).await {
+            ServerMessage::Error { code, message, .. } => {
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("POST /api/server/openai-key"));
+            }
+            other => panic!("expected rest_only Error, got {:?}", other),
+        }
     }
 
     #[tokio::test]
-    async fn set_server_role_updates_state_and_emits_server_info() {
+    async fn set_server_role_over_websocket_returns_rest_only_error() {
         let state = new_test_state();
         let (client_tx, mut client_rx) = mpsc::channel::<OutboundMessage>(16);
-        assert!(state.is_primary());
 
         handle_client_message(
             ClientMessage::SetServerRole { is_primary: false },
@@ -1463,16 +1449,12 @@ mod tests {
         )
         .await;
 
-        assert!(!state.is_primary());
         match recv_json(&mut client_rx).await {
-            ServerMessage::ServerInfo {
-                is_primary,
-                client_primary_claims,
-            } => {
-                assert!(!is_primary);
-                assert!(client_primary_claims.is_empty());
+            ServerMessage::Error { code, message, .. } => {
+                assert_eq!(code, "http_only_endpoint");
+                assert!(message.contains("PUT /api/server/role"));
             }
-            other => panic!("expected ServerInfo, got {:?}", other),
+            other => panic!("expected rest_only Error, got {:?}", other),
         }
     }
 

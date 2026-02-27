@@ -50,7 +50,7 @@ use std::time::UNIX_EPOCH;
 
 use axum::{
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post, put},
     Router,
 };
 use clap::{Parser, Subcommand};
@@ -812,15 +812,30 @@ async fn async_main(
             "/api/approvals/{approval_id}",
             delete(http_api::delete_approval_endpoint),
         )
-        .route("/api/server/openai-key", get(http_api::check_open_ai_key))
+        .route(
+            "/api/server/openai-key",
+            get(http_api::check_open_ai_key).post(http_api::set_open_ai_key),
+        )
+        .route("/api/server/role", put(http_api::set_server_role))
         .route("/api/usage/codex", get(http_api::fetch_codex_usage))
         .route("/api/usage/claude", get(http_api::fetch_claude_usage))
         .route("/api/models/codex", get(http_api::list_codex_models))
         .route("/api/models/claude", get(http_api::list_claude_models))
         .route("/api/codex/account", get(http_api::read_codex_account))
+        .route("/api/codex/login/start", post(http_api::codex_login_start))
+        .route(
+            "/api/codex/login/cancel",
+            post(http_api::codex_login_cancel),
+        )
+        .route("/api/codex/logout", post(http_api::codex_logout))
         .route(
             "/api/sessions/{session_id}/review-comments",
-            get(http_api::list_review_comments_endpoint),
+            get(http_api::list_review_comments_endpoint)
+                .post(http_api::create_review_comment_endpoint),
+        )
+        .route(
+            "/api/review-comments/{comment_id}",
+            patch(http_api::update_review_comment).delete(http_api::delete_review_comment_by_id),
         )
         .route(
             "/api/sessions/{session_id}/subagents/{subagent_id}/tools",
@@ -838,6 +853,27 @@ async fn async_main(
             "/api/sessions/{session_id}/mcp/tools",
             get(http_api::list_mcp_tools_endpoint),
         )
+        .route(
+            "/api/worktrees",
+            get(http_api::list_worktrees).post(http_api::create_worktree),
+        )
+        .route(
+            "/api/worktrees/discover",
+            post(http_api::discover_worktrees),
+        )
+        .route(
+            "/api/worktrees/{worktree_id}",
+            delete(http_api::remove_worktree),
+        )
+        .route(
+            "/api/sessions/{session_id}/skills/download",
+            post(http_api::download_remote_skill),
+        )
+        .route(
+            "/api/sessions/{session_id}/mcp/refresh",
+            post(http_api::refresh_mcp_servers),
+        )
+        .route("/api/git/init", post(http_api::git_init_endpoint))
         .route("/api/fs/browse", get(http_api::browse_directory))
         .route(
             "/api/fs/recent-projects",
