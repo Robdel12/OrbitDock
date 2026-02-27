@@ -1,0 +1,12 @@
+[package]
+name = "orbitdock-connector-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Shared event and error types for OrbitDock connectors"
+
+[dependencies]
+orbitdock-protocol = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

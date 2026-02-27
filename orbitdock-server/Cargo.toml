@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/server",
     "crates/protocol",
+    "crates/connector-core",
     "crates/connectors",
 ]
 
@@ -62,6 +63,7 @@ qrcode = "0.14"
 
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }
+orbitdock-connector-core = { path = "crates/connector-core" }
 orbitdock-connectors = { path = "crates/connectors" }
 
 # Patches required by codex-core transitive dependencies

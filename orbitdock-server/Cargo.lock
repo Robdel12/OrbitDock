@@ -4922,12 +4922,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
+name = "orbitdock-connector-core"
+version = "0.1.0"
+dependencies = [
+ "orbitdock-protocol",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "orbitdock-connectors"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "codex-core",
  "codex-protocol",
+ "orbitdock-connector-core",
  "orbitdock-protocol",
  "serde",
  "serde_json",
@@ -4966,6 +4976,7 @@ dependencies = [
  "futures",
  "libc",
  "notify 7.0.0",
+ "orbitdock-connector-core",
  "orbitdock-connectors",
  "orbitdock-protocol",
  "qrcode",

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use orbitdock_connectors::{ApprovalType as ConnectorApprovalType, ConnectorEvent};
+use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::{
     ApprovalPreview, ApprovalPreviewSegment, ApprovalPreviewType, ApprovalQuestionOption,
     ApprovalQuestionPrompt, ApprovalRequest, ApprovalRiskLevel, ApprovalType, McpAuthStatus,
@@ -206,11 +206,7 @@ impl From<ConnectorEvent> for Input {
                 proposed_amendment,
             } => Input::ApprovalRequested {
                 request_id,
-                approval_type: match approval_type {
-                    ConnectorApprovalType::Exec => ApprovalType::Exec,
-                    ConnectorApprovalType::Patch => ApprovalType::Patch,
-                    ConnectorApprovalType::Question => ApprovalType::Question,
-                },
+                approval_type,
                 tool_name,
                 tool_input,
                 command,

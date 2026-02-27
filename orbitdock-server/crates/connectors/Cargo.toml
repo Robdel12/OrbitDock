@@ -8,6 +8,7 @@ description = "Connectors for AI providers (Claude, Codex)"
 
 [dependencies]
 orbitdock-protocol = { workspace = true }
+orbitdock-connector-core = { workspace = true }
 codex-core = { workspace = true }
 codex-protocol = { workspace = true }
 tokio = { workspace = true }
