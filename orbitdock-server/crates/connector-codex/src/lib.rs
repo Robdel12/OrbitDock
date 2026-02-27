@@ -4,6 +4,7 @@
 //! No subprocess, no JSON-RPC — just Rust function calls.
 
 pub mod auth;
+pub mod session;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

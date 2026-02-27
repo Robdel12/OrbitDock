@@ -5,9 +5,8 @@
 
 use std::sync::Arc;
 
-use orbitdock_connector_claude::ClaudeConnector;
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::{ProviderSessionId, ServerMessage};
+use orbitdock_protocol::ServerMessage;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -20,540 +19,303 @@ use crate::session_command_handler::handle_session_command;
 use crate::state::SessionRegistry;
 use crate::transition::{self, Effect, Input};
 
-/// Actions that can be sent to a Claude session
-#[allow(dead_code)]
-pub enum ClaudeAction {
-    SendMessage {
-        content: String,
-        model: Option<String>,
-        effort: Option<String>,
-        images: Vec<orbitdock_protocol::ImageInput>,
-    },
-    Interrupt,
-    ApproveTool {
-        request_id: String,
-        decision: String,
-        message: Option<String>,
-        interrupt: Option<bool>,
-        updated_input: Option<serde_json::Value>,
-    },
-    AnswerQuestion {
-        request_id: String,
-        answer: String,
-    },
-    Compact,
-    Undo,
-    Resume {
-        session_id: String,
-    },
-    Fork {
-        session_id: Option<String>,
-    },
-    SetModel {
-        model: String,
-    },
-    SetMaxThinking {
-        tokens: u64,
-    },
-    SetPermissionMode {
-        mode: String,
-    },
-    SteerTurn {
-        content: String,
-        message_id: String,
-        images: Vec<orbitdock_protocol::ImageInput>,
-    },
-    EndSession,
-}
+// Re-export so existing server code doesn't break
+pub use orbitdock_connector_claude::session::{
+    should_remove_shadow_runtime_session, ClaudeAction, ClaudeSession,
+};
 
-impl std::fmt::Debug for ClaudeAction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::SendMessage {
-                content,
-                model,
-                effort,
-                images,
-            } => f
-                .debug_struct("SendMessage")
-                .field("content_len", &content.len())
-                .field("model", model)
-                .field("effort", effort)
-                .field("images_count", &images.len())
-                .finish(),
-            Self::Interrupt => write!(f, "Interrupt"),
-            Self::ApproveTool {
-                request_id,
-                decision,
-                ..
-            } => f
-                .debug_struct("ApproveTool")
-                .field("request_id", request_id)
-                .field("decision", decision)
-                .finish(),
-            Self::AnswerQuestion { request_id, answer } => f
-                .debug_struct("AnswerQuestion")
-                .field("request_id", request_id)
-                .field("answer_len", &answer.len())
-                .finish(),
-            Self::Compact => write!(f, "Compact"),
-            Self::Undo => write!(f, "Undo"),
-            Self::Resume { session_id } => f
-                .debug_struct("Resume")
-                .field("session_id", session_id)
-                .finish(),
-            Self::Fork { session_id } => f
-                .debug_struct("Fork")
-                .field("session_id", session_id)
-                .finish(),
-            Self::SetModel { model } => f.debug_struct("SetModel").field("model", model).finish(),
-            Self::SetMaxThinking { tokens } => f
-                .debug_struct("SetMaxThinking")
-                .field("tokens", tokens)
-                .finish(),
-            Self::SetPermissionMode { mode } => f
-                .debug_struct("SetPermissionMode")
-                .field("mode", mode)
-                .finish(),
-            Self::SteerTurn {
-                content,
-                message_id,
-                images,
-            } => f
-                .debug_struct("SteerTurn")
-                .field("content_len", &content.len())
-                .field("message_id", message_id)
-                .field("images_count", &images.len())
-                .finish(),
-            Self::EndSession => write!(f, "EndSession"),
-        }
-    }
-}
+/// Start the Claude session event forwarding loop.
+///
+/// The actor owns the `SessionHandle` directly — no `Arc<Mutex>`.
+/// Returns `(SessionActorHandle, mpsc::Sender<ClaudeAction>)`.
+pub fn start_event_loop(
+    mut session: ClaudeSession,
+    handle: SessionHandle,
+    persist_tx: mpsc::Sender<PersistCommand>,
+    list_tx: broadcast::Sender<ServerMessage>,
+    state: Arc<SessionRegistry>,
+) -> (SessionActorHandle, mpsc::Sender<ClaudeAction>) {
+    let (action_tx, mut action_rx) = mpsc::channel::<ClaudeAction>(100);
+    let (command_tx, mut command_rx) = mpsc::channel::<SessionCommand>(256);
 
-/// Manages a Claude session with its connector
-pub struct ClaudeSession {
-    pub session_id: String,
-    pub connector: ClaudeConnector,
-}
+    let snapshot = handle.snapshot_arc();
+    let id = handle.id().to_string();
+    handle.refresh_snapshot();
 
-impl ClaudeSession {
-    /// Create a new Claude session by spawning a CLI subprocess.
-    /// If `resume_id` is provided, the CLI will resume that session.
-    /// Accepts `ProviderSessionId` to prevent accidentally passing an OrbitDock ID.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn new(
-        session_id: String,
-        cwd: &str,
-        model: Option<&str>,
-        resume_id: Option<&ProviderSessionId>,
-        permission_mode: Option<&str>,
-        allowed_tools: &[String],
-        disallowed_tools: &[String],
-        effort: Option<&str>,
-    ) -> Result<Self, orbitdock_connector_core::ConnectorError> {
-        let connector = ClaudeConnector::new(
-            cwd,
-            model,
-            resume_id.map(|id| id.as_str()),
-            permission_mode,
-            allowed_tools,
-            disallowed_tools,
-            effort,
-        )
-        .await?;
-        Ok(Self {
-            session_id,
-            connector,
-        })
-    }
+    let actor_handle = SessionActorHandle::new(id.clone(), command_tx, snapshot);
 
-    /// Start the event forwarding loop.
-    ///
-    /// The actor owns the `SessionHandle` directly — no `Arc<Mutex>`.
-    /// Returns `(SessionActorHandle, mpsc::Sender<ClaudeAction>)`.
-    pub fn start_event_loop(
-        mut self,
-        handle: SessionHandle,
-        persist_tx: mpsc::Sender<PersistCommand>,
-        list_tx: broadcast::Sender<ServerMessage>,
-        state: Arc<SessionRegistry>,
-    ) -> (SessionActorHandle, mpsc::Sender<ClaudeAction>) {
-        let (action_tx, mut action_rx) = mpsc::channel::<ClaudeAction>(100);
-        let (command_tx, mut command_rx) = mpsc::channel::<SessionCommand>(256);
+    let mut event_rx = session.connector.take_event_rx().unwrap();
+    let session_id = session.session_id.clone();
 
-        let snapshot = handle.snapshot_arc();
-        let id = handle.id().to_string();
-        handle.refresh_snapshot();
+    let mut session_handle = handle;
+    let persist = persist_tx.clone();
+    let mut claude_sdk_session_persisted = false;
+    let mut first_prompt_captured = false;
+    let actor_for_naming = actor_handle.clone();
 
-        let actor_handle = SessionActorHandle::new(id.clone(), command_tx, snapshot);
+    tokio::spawn(async move {
+        // Watchdog channel for synthetic events (interrupt timeout)
+        let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
+        let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
-        let mut event_rx = self.connector.take_event_rx().unwrap();
-        let session_id = self.session_id.clone();
-
-        let mut session_handle = handle;
-        let persist = persist_tx.clone();
-        let mut claude_sdk_session_persisted = false;
-        let mut first_prompt_captured = false;
-        let actor_for_naming = actor_handle.clone();
-
-        tokio::spawn(async move {
-            // Watchdog channel for synthetic events (interrupt timeout)
-            let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
-            let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
-
-            loop {
-                tokio::select! {
-                    // Handle events from Claude connector
-                    Some(event) = event_rx.recv() => {
-                        // Cancel watchdog on turn-ending events
-                        if matches!(
-                            event,
-                            ConnectorEvent::TurnAborted { .. }
-                            | ConnectorEvent::TurnCompleted
-                            | ConnectorEvent::SessionEnded { .. }
-                        ) {
-                            if let Some(handle) = interrupt_watchdog.take() {
-                                handle.abort();
-                            }
-                        }
-
-                        // Register hook session IDs as managed threads so the hook
-                        // handler doesn't create duplicate passive sessions. On --resume
-                        // the CLI creates a new session_id for hooks.
-                        if let ConnectorEvent::HookSessionId(ref hook_sid) = event {
-                            if hook_sid != &session_id {
-                                info!(
-                                    component = "claude_connector",
-                                    event = "claude.hook_session_id.registered",
-                                    session_id = %session_id,
-                                    hook_session_id = %hook_sid,
-                                    "Registering hook session ID as managed thread"
-                                );
-                                state.register_claude_thread(&session_id, hook_sid);
-                                // Clean up any shadow row the hook handler already created
-                                let _ = persist
-                                    .send(PersistCommand::CleanupClaudeShadowSession {
-                                        claude_sdk_session_id: hook_sid.clone(),
-                                        reason: "managed_direct_session".to_string(),
-                                    })
-                                    .await;
-                                if state.remove_session(hook_sid).is_some() {
-                                    state.broadcast_to_list(ServerMessage::SessionEnded {
-                                        session_id: hook_sid.clone(),
-                                        reason: "managed_direct_session".to_string(),
-                                    });
-                                }
-                            }
-                        }
-
-                        // Persist the Claude SDK session ID on first opportunity
-                        if !claude_sdk_session_persisted {
-                            if let Some(sdk_sid) = self.connector.claude_session_id().await {
-                                claude_sdk_session_persisted = true;
-                                info!(
-                                    component = "claude_connector",
-                                    event = "claude.session_id.persisted",
-                                    session_id = %session_id,
-                                    claude_sdk_session_id = %sdk_sid,
-                                    "Persisting Claude SDK session ID"
-                                );
-                                let _ = persist
-                                    .send(PersistCommand::SetClaudeSdkSessionId {
-                                        session_id: session_id.clone(),
-                                        claude_sdk_session_id: sdk_sid.clone(),
-                                    })
-                                    .await;
-                                // Register so hook handlers can recognize this thread
-                                state.register_claude_thread(&session_id, &sdk_sid);
-                                // End the shadow row created by hooks using the SDK session ID
-                                let _ = persist
-                                    .send(PersistCommand::CleanupClaudeShadowSession {
-                                        claude_sdk_session_id: sdk_sid.clone(),
-                                        reason: "managed_direct_session".to_string(),
-                                    })
-                                    .await;
-                                // Remove the shadow session from runtime if it exists.
-                                // Guard against deleting the owning direct session when
-                                // the SDK session id is identical to the OrbitDock session id.
-                                if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
-                                    && state.remove_session(&sdk_sid).is_some()
-                                {
-                                    state.broadcast_to_list(ServerMessage::SessionEnded {
-                                        session_id: sdk_sid,
-                                        reason: "managed_direct_session".to_string(),
-                                    });
-                                }
-                            }
-                        }
-
-                        // HookSessionId is fully handled above; skip transition
-                        if !matches!(event, ConnectorEvent::HookSessionId(_)) {
-                            Self::handle_event_direct(
-                                &session_id,
-                                event,
-                                &mut session_handle,
-                                &persist,
-                            ).await;
+        loop {
+            tokio::select! {
+                // Handle events from Claude connector
+                Some(event) = event_rx.recv() => {
+                    // Cancel watchdog on turn-ending events
+                    if matches!(
+                        event,
+                        ConnectorEvent::TurnAborted { .. }
+                        | ConnectorEvent::TurnCompleted
+                        | ConnectorEvent::SessionEnded { .. }
+                    ) {
+                        if let Some(handle) = interrupt_watchdog.take() {
+                            handle.abort();
                         }
                     }
 
-                    // Handle synthetic events from watchdog
-                    Some(event) = watchdog_rx.recv() => {
-                        Self::handle_event_direct(
+                    // Register hook session IDs as managed threads so the hook
+                    // handler doesn't create duplicate passive sessions. On --resume
+                    // the CLI creates a new session_id for hooks.
+                    if let ConnectorEvent::HookSessionId(ref hook_sid) = event {
+                        if hook_sid != &session_id {
+                            info!(
+                                component = "claude_connector",
+                                event = "claude.hook_session_id.registered",
+                                session_id = %session_id,
+                                hook_session_id = %hook_sid,
+                                "Registering hook session ID as managed thread"
+                            );
+                            state.register_claude_thread(&session_id, hook_sid);
+                            // Clean up any shadow row the hook handler already created
+                            let _ = persist
+                                .send(PersistCommand::CleanupClaudeShadowSession {
+                                    claude_sdk_session_id: hook_sid.clone(),
+                                    reason: "managed_direct_session".to_string(),
+                                })
+                                .await;
+                            if state.remove_session(hook_sid).is_some() {
+                                state.broadcast_to_list(ServerMessage::SessionEnded {
+                                    session_id: hook_sid.clone(),
+                                    reason: "managed_direct_session".to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    // Persist the Claude SDK session ID on first opportunity
+                    if !claude_sdk_session_persisted {
+                        if let Some(sdk_sid) = session.connector.claude_session_id().await {
+                            claude_sdk_session_persisted = true;
+                            info!(
+                                component = "claude_connector",
+                                event = "claude.session_id.persisted",
+                                session_id = %session_id,
+                                claude_sdk_session_id = %sdk_sid,
+                                "Persisting Claude SDK session ID"
+                            );
+                            let _ = persist
+                                .send(PersistCommand::SetClaudeSdkSessionId {
+                                    session_id: session_id.clone(),
+                                    claude_sdk_session_id: sdk_sid.clone(),
+                                })
+                                .await;
+                            // Register so hook handlers can recognize this thread
+                            state.register_claude_thread(&session_id, &sdk_sid);
+                            // End the shadow row created by hooks using the SDK session ID
+                            let _ = persist
+                                .send(PersistCommand::CleanupClaudeShadowSession {
+                                    claude_sdk_session_id: sdk_sid.clone(),
+                                    reason: "managed_direct_session".to_string(),
+                                })
+                                .await;
+                            // Remove the shadow session from runtime if it exists.
+                            if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
+                                && state.remove_session(&sdk_sid).is_some()
+                            {
+                                state.broadcast_to_list(ServerMessage::SessionEnded {
+                                    session_id: sdk_sid,
+                                    reason: "managed_direct_session".to_string(),
+                                });
+                            }
+                        }
+                    }
+
+                    // HookSessionId is fully handled above; skip transition
+                    if !matches!(event, ConnectorEvent::HookSessionId(_)) {
+                        handle_event_direct(
                             &session_id,
                             event,
                             &mut session_handle,
                             &persist,
                         ).await;
                     }
+                }
 
-                    // Handle actions from WebSocket
-                    Some(action) = action_rx.recv() => {
-                        // Capture first user message as first_prompt
-                        if !first_prompt_captured {
-                            if let ClaudeAction::SendMessage { ref content, .. } = action {
-                                first_prompt_captured = true;
-                                let prompt = content.clone();
-                                let _ = persist
-                                    .send(PersistCommand::ClaudePromptIncrement {
-                                        id: session_id.clone(),
-                                        first_prompt: Some(prompt.clone()),
-                                    })
-                                    .await;
+                // Handle synthetic events from watchdog
+                Some(event) = watchdog_rx.recv() => {
+                    handle_event_direct(
+                        &session_id,
+                        event,
+                        &mut session_handle,
+                        &persist,
+                    ).await;
+                }
 
-                                // Broadcast first_prompt delta to UI
-                                let changes = orbitdock_protocol::StateChanges {
-                                    first_prompt: Some(Some(prompt.clone())),
-                                    ..Default::default()
-                                };
-                                let _ = actor_for_naming
-                                    .send(crate::session_command::SessionCommand::ApplyDelta {
-                                        changes,
-                                        persist_op: None,
-                                    })
-                                    .await;
+                // Handle actions from WebSocket
+                Some(action) = action_rx.recv() => {
+                    // Capture first user message as first_prompt
+                    if !first_prompt_captured {
+                        if let ClaudeAction::SendMessage { ref content, .. } = action {
+                            first_prompt_captured = true;
+                            let prompt = content.clone();
+                            let _ = persist
+                                .send(PersistCommand::ClaudePromptIncrement {
+                                    id: session_id.clone(),
+                                    first_prompt: Some(prompt.clone()),
+                                })
+                                .await;
 
-                                // Trigger AI naming (fire-and-forget)
-                                crate::ai_naming::spawn_naming_task(
-                                    session_id.clone(),
-                                    prompt,
-                                    actor_for_naming.clone(),
-                                    persist.clone(),
-                                    list_tx.clone(),
-                                );
-                            }
-                        }
+                            // Broadcast first_prompt delta to UI
+                            let changes = orbitdock_protocol::StateChanges {
+                                first_prompt: Some(Some(prompt.clone())),
+                                ..Default::default()
+                            };
+                            let _ = actor_for_naming
+                                .send(crate::session_command::SessionCommand::ApplyDelta {
+                                    changes,
+                                    persist_op: None,
+                                })
+                                .await;
 
-                        if matches!(action, ClaudeAction::Interrupt) {
-                            match self.connector.interrupt().await {
-                                Ok(()) => {
-                                    // Cancel any previous watchdog
-                                    if let Some(handle) = interrupt_watchdog.take() {
-                                        handle.abort();
-                                    }
-                                    // Spawn watchdog: if no turn-ending event within 10s,
-                                    // inject synthetic TurnAborted
-                                    let wd_tx = watchdog_tx.clone();
-                                    let wd_sid = session_id.clone();
-                                    interrupt_watchdog = Some(tokio::spawn(async move {
-                                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                                        warn!(
-                                            component = "claude_connector",
-                                            event = "claude.interrupt.watchdog_fired",
-                                            session_id = %wd_sid,
-                                            "Interrupt watchdog fired — forcing TurnAborted"
-                                        );
-                                        let _ = wd_tx.send(ConnectorEvent::TurnAborted {
-                                            reason: "interrupt_timeout".to_string(),
-                                        }).await;
-                                    }));
-                                }
-                                Err(e) => {
-                                    error!(
-                                        component = "claude_connector",
-                                        event = "claude.interrupt.failed",
-                                        session_id = %session_id,
-                                        error = %e,
-                                        "Interrupt failed, injecting error event"
-                                    );
-                                    Self::handle_event_direct(
-                                        &session_id,
-                                        ConnectorEvent::Error(format!("Interrupt failed: {}", e)),
-                                        &mut session_handle,
-                                        &persist,
-                                    ).await;
-                                }
-                            }
-                        } else if let Err(e) = Self::handle_action(&self.connector, action).await {
-                            error!(
-                                component = "claude_connector",
-                                event = "claude.action.failed",
-                                session_id = %session_id,
-                                error = %e,
-                                "Failed to handle Claude action"
+                            // Trigger AI naming (fire-and-forget)
+                            crate::ai_naming::spawn_naming_task(
+                                session_id.clone(),
+                                prompt,
+                                actor_for_naming.clone(),
+                                persist.clone(),
+                                list_tx.clone(),
                             );
                         }
                     }
 
-                    // Handle session commands from external callers
-                    Some(cmd) = command_rx.recv() => {
-                        handle_session_command(cmd, &mut session_handle, &persist).await;
+                    if matches!(action, ClaudeAction::Interrupt) {
+                        match session.connector.interrupt().await {
+                            Ok(()) => {
+                                // Cancel any previous watchdog
+                                if let Some(handle) = interrupt_watchdog.take() {
+                                    handle.abort();
+                                }
+                                // Spawn watchdog: if no turn-ending event within 10s,
+                                // inject synthetic TurnAborted
+                                let wd_tx = watchdog_tx.clone();
+                                let wd_sid = session_id.clone();
+                                interrupt_watchdog = Some(tokio::spawn(async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                                    warn!(
+                                        component = "claude_connector",
+                                        event = "claude.interrupt.watchdog_fired",
+                                        session_id = %wd_sid,
+                                        "Interrupt watchdog fired — forcing TurnAborted"
+                                    );
+                                    let _ = wd_tx.send(ConnectorEvent::TurnAborted {
+                                        reason: "interrupt_timeout".to_string(),
+                                    }).await;
+                                }));
+                            }
+                            Err(e) => {
+                                error!(
+                                    component = "claude_connector",
+                                    event = "claude.interrupt.failed",
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "Interrupt failed, injecting error event"
+                                );
+                                handle_event_direct(
+                                    &session_id,
+                                    ConnectorEvent::Error(format!("Interrupt failed: {}", e)),
+                                    &mut session_handle,
+                                    &persist,
+                                ).await;
+                            }
+                        }
+                    } else if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
+                        error!(
+                            component = "claude_connector",
+                            event = "claude.action.failed",
+                            session_id = %session_id,
+                            error = %e,
+                            "Failed to handle Claude action"
+                        );
                     }
-
-                    else => break,
                 }
+
+                // Handle session commands from external callers
+                Some(cmd) = command_rx.recv() => {
+                    handle_session_command(cmd, &mut session_handle, &persist).await;
+                }
+
+                else => break,
             }
+        }
 
-            // Clean up on exit
-            if let Some(handle) = interrupt_watchdog.take() {
-                handle.abort();
-            }
-            state.remove_claude_action_tx(&session_id);
+        // Clean up on exit
+        if let Some(handle) = interrupt_watchdog.take() {
+            handle.abort();
+        }
+        state.remove_claude_action_tx(&session_id);
 
-            info!(
-                component = "claude_connector",
-                event = "claude.event_loop.ended",
-                session_id = %session_id,
-                "Claude session event loop ended"
-            );
-        });
-
-        (actor_handle, action_tx)
-    }
-
-    /// Handle an event from the connector using the transition function.
-    async fn handle_event_direct(
-        session_id: &str,
-        event: ConnectorEvent,
-        handle: &mut SessionHandle,
-        persist_tx: &mpsc::Sender<PersistCommand>,
-    ) {
-        let event_desc = format!("{:?}", &event);
-        let input = Input::from(event);
-        let now = chrono_now();
-
-        let state = handle.extract_state();
-        let (new_state, effects) = transition::transition(state, input, &now);
-        handle.apply_state(new_state);
-
-        // Truncate at a safe UTF-8 char boundary
-        let safe_end = (0..=120.min(event_desc.len()))
-            .rev()
-            .find(|&i| event_desc.is_char_boundary(i))
-            .unwrap_or(0);
-        tracing::debug!(
-            component = "claude_session",
-            event = "claude.transition.processed",
+        info!(
+            component = "claude_connector",
+            event = "claude.event_loop.ended",
             session_id = %session_id,
-            connector_event = %&event_desc[..safe_end],
-            effect_count = effects.len(),
-            "Transition processed"
+            "Claude session event loop ended"
         );
+    });
 
-        for effect in effects {
-            match effect {
-                Effect::Persist(op) => {
-                    let _ = persist_tx
-                        .send(transition::persist_op_to_command(*op))
-                        .await;
-                }
-                Effect::Emit(msg) => {
-                    handle.broadcast(*msg);
-                }
+    (actor_handle, action_tx)
+}
+
+/// Handle an event from the connector using the transition function.
+async fn handle_event_direct(
+    session_id: &str,
+    event: ConnectorEvent,
+    handle: &mut SessionHandle,
+    persist_tx: &mpsc::Sender<PersistCommand>,
+) {
+    let event_desc = format!("{:?}", &event);
+    let input = Input::from(event);
+    let now = chrono_now();
+
+    let state = handle.extract_state();
+    let (new_state, effects) = transition::transition(state, input, &now);
+    handle.apply_state(new_state);
+
+    // Truncate at a safe UTF-8 char boundary
+    let safe_end = (0..=120.min(event_desc.len()))
+        .rev()
+        .find(|&i| event_desc.is_char_boundary(i))
+        .unwrap_or(0);
+    tracing::debug!(
+        component = "claude_session",
+        event = "claude.transition.processed",
+        session_id = %session_id,
+        connector_event = %&event_desc[..safe_end],
+        effect_count = effects.len(),
+        "Transition processed"
+    );
+
+    for effect in effects {
+        match effect {
+            Effect::Persist(op) => {
+                let _ = persist_tx
+                    .send(transition::persist_op_to_command(*op))
+                    .await;
+            }
+            Effect::Emit(msg) => {
+                handle.broadcast(*msg);
             }
         }
-    }
-
-    /// Handle an action from the WebSocket.
-    async fn handle_action(
-        connector: &ClaudeConnector,
-        action: ClaudeAction,
-    ) -> Result<(), orbitdock_connector_core::ConnectorError> {
-        match action {
-            ClaudeAction::SendMessage {
-                content,
-                model,
-                effort,
-                images,
-            } => {
-                connector
-                    .send_message(&content, model.as_deref(), effort.as_deref(), &images)
-                    .await?;
-            }
-            ClaudeAction::Interrupt => {
-                connector.interrupt().await?;
-            }
-            ClaudeAction::ApproveTool {
-                request_id,
-                decision,
-                message,
-                interrupt,
-                updated_input,
-            } => {
-                connector
-                    .approve_tool(
-                        &request_id,
-                        &decision,
-                        message.as_deref(),
-                        interrupt,
-                        updated_input.as_ref(),
-                    )
-                    .await?;
-            }
-            ClaudeAction::AnswerQuestion { request_id, answer } => {
-                connector.answer_question(&request_id, &answer).await?;
-            }
-            ClaudeAction::Compact => {
-                // Send /compact as a user message — the CLI handles it as a slash command.
-                // See: https://platform.claude.com/docs/en/agent-sdk/slash-commands
-                connector.send_message("/compact", None, None, &[]).await?;
-            }
-            ClaudeAction::Undo => {
-                // Send /undo as a slash command — only shown in UI if the CLI
-                // reported "undo" in the init message's slash_commands array.
-                connector.send_message("/undo", None, None, &[]).await?;
-            }
-            ClaudeAction::Resume { .. } => {
-                // Resume is handled at spawn time via --resume flag.
-                // This action is kept for API compatibility but is a no-op at runtime.
-                warn!(
-                    component = "claude_connector",
-                    event = "claude.action.resume_noop",
-                    "Resume action received but resume is handled at spawn time"
-                );
-            }
-            ClaudeAction::Fork { .. } => {
-                // Fork is handled at spawn time via --resume --fork-session flags.
-                warn!(
-                    component = "claude_connector",
-                    event = "claude.action.fork_noop",
-                    "Fork action received but fork is handled at spawn time"
-                );
-            }
-            ClaudeAction::SetModel { model } => {
-                connector.set_model(&model).await?;
-            }
-            ClaudeAction::SetMaxThinking { tokens } => {
-                connector.set_max_thinking(tokens).await?;
-            }
-            ClaudeAction::SetPermissionMode { mode } => {
-                connector.set_permission_mode(&mode).await?;
-            }
-            ClaudeAction::SteerTurn {
-                content, images, ..
-            } => {
-                // Claude SDK has no native steer_input — interrupt the active
-                // turn and resend the guidance as a new user message.
-                connector.interrupt().await?;
-                connector
-                    .send_message(&content, None, None, &images)
-                    .await?;
-            }
-            ClaudeAction::EndSession => {
-                connector.shutdown().await?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -565,32 +327,4 @@ fn chrono_now() -> String {
         .unwrap_or_default()
         .as_secs();
     format!("{}Z", secs)
-}
-
-fn should_remove_shadow_runtime_session(
-    owning_session_id: &str,
-    observed_sdk_session_id: &str,
-) -> bool {
-    owning_session_id != observed_sdk_session_id
-}
-
-#[cfg(test)]
-mod tests {
-    use super::should_remove_shadow_runtime_session;
-
-    #[test]
-    fn shadow_cleanup_skips_owning_session_id() {
-        assert!(!should_remove_shadow_runtime_session(
-            "owning-session",
-            "owning-session"
-        ));
-    }
-
-    #[test]
-    fn shadow_cleanup_allows_distinct_shadow_session_id() {
-        assert!(should_remove_shadow_runtime_session(
-            "owning-session",
-            "hook-shadow-session"
-        ));
-    }
 }

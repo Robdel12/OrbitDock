@@ -1265,11 +1265,13 @@ fn handle_client_message<'a>(
                                             "legacy_codex_thread_row_cleanup",
                                         )
                                         .await;
-                                        let (actor_handle, action_tx) = codex.start_event_loop(
-                                            handle,
-                                            persist_tx,
-                                            state.clone(),
-                                        );
+                                        let (actor_handle, action_tx) =
+                                            crate::codex_session::start_event_loop(
+                                                codex,
+                                                handle,
+                                                persist_tx,
+                                                state.clone(),
+                                            );
                                         state.add_session_actor(actor_handle);
                                         state.set_codex_action_tx(&session_id, action_tx);
                                         info!(
@@ -1354,8 +1356,9 @@ fn handle_client_message<'a>(
                                 match tokio::time::timeout(connector_timeout, connector_task).await
                                 {
                                     Ok(Ok(Ok(claude_session))) => {
-                                        let (actor_handle, action_tx) = claude_session
-                                            .start_event_loop(
+                                        let (actor_handle, action_tx) =
+                                            crate::claude_session::start_event_loop(
+                                                claude_session,
                                                 handle,
                                                 persist_tx,
                                                 state.list_tx(),
@@ -1856,8 +1859,12 @@ fn handle_client_message<'a>(
                             .await;
 
                             handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) =
-                                codex_session.start_event_loop(handle, persist_tx, state.clone());
+                            let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
+                                codex_session,
+                                handle,
+                                persist_tx,
+                                state.clone(),
+                            );
                             state.add_session_actor(actor_handle);
                             state.set_codex_action_tx(&session_id, action_tx);
                             info!(
@@ -1921,7 +1928,8 @@ fn handle_client_message<'a>(
                     {
                         Ok(claude_session) => {
                             handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) = claude_session.start_event_loop(
+                            let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
+                                claude_session,
                                 handle,
                                 persist_tx,
                                 state.list_tx(),
@@ -3371,7 +3379,8 @@ fn handle_client_message<'a>(
 
                             handle.set_list_tx(state.list_tx());
 
-                            let (actor_handle, action_tx) = claude_session.start_event_loop(
+                            let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
+                                claude_session,
                                 handle,
                                 persist_tx.clone(),
                                 state.list_tx(),
@@ -3527,8 +3536,12 @@ fn handle_client_message<'a>(
                             .await;
 
                             handle.set_list_tx(state.list_tx());
-                            let (actor_handle, action_tx) =
-                                codex_session.start_event_loop(handle, persist_tx, state.clone());
+                            let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
+                                codex_session,
+                                handle,
+                                persist_tx,
+                                state.clone(),
+                            );
                             state.add_session_actor(actor_handle);
                             state.set_codex_action_tx(&session_id, action_tx);
                             info!(
@@ -3788,8 +3801,12 @@ fn handle_client_message<'a>(
                             )
                             .await;
 
-                            let (actor_handle, action_tx) =
-                                codex.start_event_loop(handle, persist_tx.clone(), state.clone());
+                            let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
+                                codex,
+                                handle,
+                                persist_tx.clone(),
+                                state.clone(),
+                            );
                             state.add_session_actor(actor_handle);
                             state.set_codex_action_tx(&session_id, action_tx);
 
@@ -3961,7 +3978,8 @@ fn handle_client_message<'a>(
                                 state.register_claude_thread(&session_id, sdk_id.as_str());
                             }
 
-                            let (actor_handle, action_tx) = claude_session.start_event_loop(
+                            let (actor_handle, action_tx) = crate::claude_session::start_event_loop(
+                                claude_session,
                                 handle,
                                 persist_tx.clone(),
                                 state.list_tx(),
@@ -4274,12 +4292,14 @@ fn handle_client_message<'a>(
                                     .await;
 
                                 handle.set_list_tx(state.list_tx());
-                                let (actor_handle, action_tx) = claude_session.start_event_loop(
-                                    handle,
-                                    persist_tx,
-                                    state.list_tx(),
-                                    state.clone(),
-                                );
+                                let (actor_handle, action_tx) =
+                                    crate::claude_session::start_event_loop(
+                                        claude_session,
+                                        handle,
+                                        persist_tx,
+                                        state.list_tx(),
+                                        state.clone(),
+                                    );
                                 state.add_session_actor(actor_handle);
                                 state.set_claude_action_tx(&new_id, action_tx);
 
@@ -4518,8 +4538,12 @@ fn handle_client_message<'a>(
                             connector: new_connector,
                         };
                         handle.set_list_tx(state.list_tx());
-                        let (actor_handle, action_tx) =
-                            codex_session.start_event_loop(handle, persist_tx, state.clone());
+                        let (actor_handle, action_tx) = crate::codex_session::start_event_loop(
+                            codex_session,
+                            handle,
+                            persist_tx,
+                            state.clone(),
+                        );
                         state.add_session_actor(actor_handle);
                         state.set_codex_action_tx(&new_id, action_tx);
 

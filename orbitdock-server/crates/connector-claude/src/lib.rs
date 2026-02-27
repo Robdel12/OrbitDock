@@ -5,6 +5,8 @@
 //!
 //! Protocol reference: docs/claude-agent-sdk-protocol.md
 
+pub mod session;
+
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
