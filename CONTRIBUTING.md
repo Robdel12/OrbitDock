@@ -1,6 +1,6 @@
 # Contributing to OrbitDock
 
-Thanks for your interest in contributing. OrbitDock has two main codebases: SwiftUI clients (macOS + iOS) and a Rust WebSocket server.
+Thanks for your interest in contributing. OrbitDock has two main codebases: SwiftUI clients (macOS + iOS) and a Rust server (REST API + WebSocket).
 
 ## Prerequisites
 
@@ -45,7 +45,7 @@ echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-s
 ## Project Layout
 
 ```
-├── orbitdock-server/            # Rust WebSocket server
+├── orbitdock-server/            # Rust server (REST API + WebSocket)
 │   └── crates/
 │       ├── server/              # Actors, registry, transitions, persistence
 │       ├── protocol/            # Client ↔ server message types
@@ -64,7 +64,7 @@ echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-s
 │   │   ├── Services/            # Business logic
 │   │   │   ├── ServerAppState.swift      # Server connection + state
 │   │   │   ├── SessionObservable.swift   # Per-session @Observable
-│   │   │   └── ServerConnection.swift    # WebSocket client
+│   │   │   └── ServerConnection.swift    # REST + WebSocket client
 │   │   └── Models/              # Data models + protocol types
 │   └── OrbitDockCore/           # Swift Package (shared code)
 │       └── Sources/

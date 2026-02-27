@@ -4,9 +4,9 @@ This file is intentionally narrow: routes, payloads, and transport rules.
 
 ## Transport Rules
 
-- Use **HTTP REST** for state bootstrap and one-shot reads.
-- Use **WebSocket (`/ws`)** for realtime subscription updates and streaming events.
-- New clients should prefer HTTP for request/response flows.
+- Use **HTTP REST** for reads, mutations, and fire-and-forget actions.
+- Use **WebSocket (`/ws`)** for subscriptions, real-time session interaction (create, send, approve, interrupt), and server-pushed events.
+- New clients should default to REST. Only use WS for operations that need the persistent connection.
 - Legacy WS request/response utilities now return:
 
 ```json
@@ -17,10 +17,15 @@ This file is intentionally narrow: routes, payloads, and transport rules.
 }
 ```
 
-Affected WS requests include `check_openai_key`, `fetch_codex_usage`, `fetch_claude_usage`,
-`browse_directory`, `list_recent_projects`, `list_approvals`, `delete_approval`,
-`list_models`, `list_claude_models`, `codex_account_read`, `list_review_comments`,
-`get_subagent_tools`, `list_skills`, `list_remote_skills`, and `list_mcp_tools`.
+Affected WS requests include all read/utility requests (`check_openai_key`, `fetch_codex_usage`,
+`fetch_claude_usage`, `browse_directory`, `list_recent_projects`, `list_approvals`,
+`delete_approval`, `list_models`, `list_claude_models`, `codex_account_read`,
+`list_review_comments`, `get_subagent_tools`, `list_skills`, `list_remote_skills`,
+`list_mcp_tools`) and all mutation requests (`set_openai_key`, `set_server_role`,
+`list_worktrees`, `create_worktree`, `remove_worktree`, `discover_worktrees`,
+`create_review_comment`, `update_review_comment`, `delete_review_comment`,
+`codex_login_chatgpt_start`, `codex_login_chatgpt_cancel`, `codex_account_logout`,
+`download_remote_skill`, `refresh_mcp_servers`).
 
 ## Auth
 
@@ -369,6 +374,243 @@ Notes:
 
 - Hidden entries (`.` prefix) are omitted.
 - Results are sorted with directories first, then case-insensitive name.
+
+### `POST /api/server/openai-key`
+
+Request:
+
+```json
+{
+  "key": "sk-..."
+}
+```
+
+Response:
+
+```json
+{"configured": true}
+```
+
+### `PUT /api/server/role`
+
+Request:
+
+```json
+{
+  "is_primary": true
+}
+```
+
+Response:
+
+```json
+{"is_primary": true}
+```
+
+Notes:
+
+- Server broadcasts `server_info` to all WS clients after the role change.
+
+### `GET /api/worktrees?repo_root=<path>`
+
+Query params:
+
+- `repo_root` optional
+
+Response:
+
+```json
+{
+  "repo_root": "/path/to/repo",
+  "worktrees": []
+}
+```
+
+### `POST /api/worktrees`
+
+Request:
+
+```json
+{
+  "repo_path": "/path/to/repo",
+  "branch_name": "feature-x",
+  "base_branch": "main"
+}
+```
+
+Response:
+
+```json
+{
+  "worktree": {
+    "id": "...",
+    "repo_root": "/path/to/repo",
+    "worktree_path": "/path/to/repo/.orbitdock-worktrees/feature-x",
+    "branch": "feature-x",
+    "status": "active"
+  }
+}
+```
+
+### `POST /api/worktrees/discover`
+
+Request:
+
+```json
+{
+  "repo_path": "/path/to/repo"
+}
+```
+
+Response: same shape as `GET /api/worktrees`.
+
+### `DELETE /api/worktrees/{worktree_id}`
+
+Currently returns `404` (persistence pending).
+
+### `POST /api/sessions/{session_id}/review-comments`
+
+Request:
+
+```json
+{
+  "turn_id": "turn-...",
+  "file_path": "src/main.rs",
+  "line_start": 42,
+  "line_end": 45,
+  "body": "This needs error handling",
+  "tag": "risk"
+}
+```
+
+Response:
+
+```json
+{
+  "comment_id": "rc-...",
+  "ok": true
+}
+```
+
+Notes:
+
+- Server broadcasts `review_comment_created` to session subscribers via WS.
+
+### `PATCH /api/review-comments/{comment_id}`
+
+Request:
+
+```json
+{
+  "body": "Updated text",
+  "tag": "nit",
+  "status": "resolved"
+}
+```
+
+All fields are optional.
+
+Response:
+
+```json
+{
+  "comment_id": "rc-...",
+  "ok": true
+}
+```
+
+### `DELETE /api/review-comments/{comment_id}`
+
+Response:
+
+```json
+{
+  "comment_id": "rc-...",
+  "ok": true
+}
+```
+
+### `POST /api/codex/login/start`
+
+Starts the ChatGPT browser login flow.
+
+Response:
+
+```json
+{
+  "login_id": "...",
+  "auth_url": "https://..."
+}
+```
+
+### `POST /api/codex/login/cancel`
+
+Request:
+
+```json
+{
+  "login_id": "..."
+}
+```
+
+Response:
+
+```json
+{
+  "login_id": "...",
+  "status": "canceled"
+}
+```
+
+Status values: `canceled`, `not_found`, `invalid_id`.
+
+### `POST /api/codex/logout`
+
+Response:
+
+```json
+{
+  "status": { ... }
+}
+```
+
+Notes:
+
+- Server broadcasts `codex_account_updated` to all WS clients.
+
+### `POST /api/sessions/{session_id}/skills/download`
+
+Request:
+
+```json
+{
+  "hazelnut_id": "..."
+}
+```
+
+Response (`202 Accepted`):
+
+```json
+{"accepted": true}
+```
+
+Notes:
+
+- Fire-and-forget. Skill download result is delivered via WS event (`remote_skill_downloaded`).
+
+### `POST /api/sessions/{session_id}/mcp/refresh`
+
+No request body required.
+
+Response (`202 Accepted`):
+
+```json
+{"accepted": true}
+```
+
+Notes:
+
+- Fire-and-forget. MCP tool updates are delivered via WS events (`mcp_tools_list`, `mcp_startup_update`).
 
 ## WebSocket Endpoint
 

@@ -2,12 +2,12 @@
 
 ## Project Overview
 
-OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and serves real-time updates to clients over WebSocket.
+OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI coding agents. A Rust server (`orbitdock-server`) is the central hub: it owns the SQLite database, receives events from Claude Code hooks via HTTP POST (`/api/hook`), manages Codex sessions via codex-core, and pushes real-time events to clients over WebSocket. Client-initiated mutations and queries use REST endpoints; WebSocket is reserved for server-pushed events and real-time session interaction (subscribe, send message, approve, interrupt).
 
 ## Tech Stack
 
 - **SwiftUI** - macOS 14+ with NavigationSplitView
-- **Rust / Axum** - orbitdock-server (session management, persistence, WebSocket + HTTP)
+- **Rust / Axum** - orbitdock-server (session management, persistence, REST API + WebSocket)
 - **rusqlite + SQLite WAL** - Database access, concurrent reads/writes
 - **Shell hook script** - `~/.orbitdock/hook.sh` forwards Claude Code hooks via HTTP POST
 - **codex-core** - Embedded Codex runtime for direct sessions
@@ -54,9 +54,31 @@ If a Rust command is missing, add it to `Makefile` first and then run it via `ma
 ## Key Patterns
 
 ### Server-Authoritative State
-- The Rust server is the **single source of truth** for all session and approval state. Clients (Swift app) should never derive, infer, or reconcile business-logic state locally — they receive it from the server via WebSocket events and display it.
+- The Rust server is the **single source of truth** for all session and approval state. Clients (Swift app) should never derive, infer, or reconcile business-logic state locally — they receive state from the server via WebSocket events and display it.
 - Never add client-side logic that scans history or computes queue heads. If the server doesn't provide the data the client needs, fix the server to emit it.
 - Prefer functional, stateless transforms on the server side (its own state machine drives transitions). The client's job is rendering, not reasoning about state.
+
+### REST vs WebSocket Split
+The Swift client uses a **hybrid networking model**: REST for client-initiated operations, WebSocket for server-pushed events.
+
+**REST (HTTP)** — used for all queries, mutations, and fire-and-forget actions:
+- Config: `GET/POST /api/server/openai-key`, `PUT /api/server/role`
+- Worktrees: `GET /api/worktrees`, `POST /api/worktrees`, `POST /api/worktrees/discover`, `DELETE /api/worktrees/{id}`
+- Review comments: `POST /api/sessions/{id}/review-comments`, `PATCH/DELETE /api/review-comments/{id}`
+- Codex auth: `POST /api/codex/login/start`, `POST /api/codex/login/cancel`, `POST /api/codex/logout`
+- Skills/MCP: `POST /api/sessions/{id}/skills/download`, `POST /api/sessions/{id}/mcp/refresh`
+- Read paths: sessions, approvals, usage, models, directory browsing, skills list, MCP tools list
+
+**WebSocket** — reserved for real-time bidirectional communication:
+- Session lifecycle: subscribe, unsubscribe, create, resume, end, fork, takeover
+- Conversation: sendMessage, approveTool, answerQuestion, interruptSession, steerTurn
+- Context: compactContext, undoLastTurn, rollbackTurns
+- Server-pushed events: sessionDelta, messageAppended, approvalRequested, tokensUpdated, etc.
+- Server broadcasts after REST mutations (e.g. `ReviewCommentCreated` after `POST /api/sessions/{id}/review-comments`)
+
+**Key pattern:** REST methods in `ServerConnection.swift` use `Task { @MainActor in ... }` to call the endpoint and invoke the existing callback (e.g. `onWorktreeCreated?`). WS response handlers remain in place because the server still broadcasts events after mutations. The `requestAPIJSON(path:method:body:)` overload handles JSON-body POST/PUT/PATCH requests with `convertToSnakeCase` encoding.
+
+**When adding new client operations:** Default to REST. Only use WS for operations that need the persistent connection (subscriptions, streaming turn interaction). If the server needs to notify all clients after a mutation, add a REST endpoint that broadcasts the result via WS — do not send the mutation itself over WS.
 
 ### Approval Version Gating
 - Each session has a monotonic `approval_version` counter (`sessions.approval_version` in SQLite, `SessionHandle.approval_version` in memory)
@@ -118,7 +140,7 @@ If a Rust command is missing, add it to `Makefile` first and then run it via `ma
 
 ## Server Setup Flow
 
-The app doesn't embed the server — it connects over WebSocket. Endpoint configuration is multi-server and persisted in `ServerEndpointSettings`/`ServerEndpointStore`.
+The app doesn't embed the server — it connects over WebSocket for real-time events and uses REST for queries/mutations. Endpoint configuration is multi-server and persisted in `ServerEndpointSettings`/`ServerEndpointStore`.
 
 On launch, `ServerManager` still checks local install state for onboarding, while `ServerRuntimeRegistry` manages active endpoint runtimes and connection state:
 
@@ -393,21 +415,23 @@ Migrations run when: Rust server starts (`migration_runner::run_migrations` in `
 
 ### Message Storage Architecture
 
-- Rust server receives events via WebSocket (CLI) or codex-core (Codex)
+- Rust server receives events via HTTP hooks (CLI) or codex-core (Codex)
 - `persistence.rs` batches writes through PersistCommand channel
 - Messages stored in SQLite `messages` table
-- Swift app receives messages in real-time via WebSocket — does NOT read SQLite directly
+- Swift app receives messages in real-time via WebSocket push — does NOT read SQLite directly
+- Client-initiated reads (session snapshot, approvals, etc.) use REST endpoints
 
 ## Database Conventions
 
 ### Single writer: the Rust server
 Only `orbitdock-server` reads from and writes to SQLite. The Swift app and CLI
-never touch the database directly. All data flows through WebSocket.
+never touch the database directly. All data flows through REST + WebSocket.
 
 ### Data flow
 ```
 Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
-                                           ↓ WebSocket
+                                           ↕ REST (queries + mutations)
+                                           ↓ WebSocket (real-time events)
                                      Swift app (read-only client)
 ```
 
@@ -436,7 +460,9 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 - `orbitdock-server/crates/server/src/paths.rs` — Central path resolution (data dir, db, logs, spool, etc.)
 - `orbitdock-server/crates/server/src/persistence.rs` — All CRUD operations
 - `orbitdock-server/crates/server/src/migration_runner.rs` — Embedded migrations via `include_str!`
-- `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol
+- `orbitdock-server/crates/server/src/http_api.rs` — REST API endpoints (queries, mutations, fire-and-forget actions)
+- `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol (subscriptions, real-time session interaction)
+- `orbitdock-server/crates/server/src/ws_handlers/` — Domain-scoped WS message handlers (config, rest_only rejections)
 - `orbitdock-server/crates/server/src/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
 - `orbitdock-server/crates/server/src/git.rs` — Git detection (GitInfo, classify_common_dir, worktree CRUD)
 - `orbitdock-server/crates/server/src/worktree.rs` — Pure worktree health assessment + lifecycle
@@ -471,7 +497,7 @@ Sensitive values in the `config` table (like the OpenAI API key) are encrypted a
 
 ### Multi-Provider Usage APIs
 
-Usage is fetched through orbitdock-server over WebSocket RPCs and is scoped to the current control-plane endpoint selected on each client device.
+Usage is fetched through orbitdock-server over REST endpoints and is scoped to the current control-plane endpoint selected on each client device.
 
 **Claude** (`SubscriptionUsageService.swift`):
 - Calls `fetch_claude_usage` on the selected control-plane endpoint
@@ -482,10 +508,10 @@ Usage is fetched through orbitdock-server over WebSocket RPCs and is scoped to t
 - Calls `fetch_codex_usage` on the selected control-plane endpoint
 - Tracks primary and secondary rate-limit windows
 
-**Server-side usage RPCs**:
-- Implemented in `orbitdock-server/crates/server/src/websocket.rs`
-- Returned as `claude_usage_result` / `codex_usage_result`
-- Requests from non-primary client claims are rejected with `not_control_plane_for_client`
+**Server-side usage endpoints**:
+- Implemented in `orbitdock-server/crates/server/src/http_api.rs`
+- `GET /api/usage/codex` and `GET /api/usage/claude`
+- Non-primary endpoints return `error_info` with `not_control_plane_for_client`
 
 **Unified Access** (`UsageServiceRegistry.swift`):
 - Coordinates provider services

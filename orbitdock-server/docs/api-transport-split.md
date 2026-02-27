@@ -72,8 +72,21 @@ Result: large bootstrap payloads no longer need WS transport compaction/truncati
   direct connector is not yet available; clients should treat this as transient availability,
   not as an MCP auth/startup failure.
 
+## Phase 3 (implemented)
+
+- Added mutation REST endpoints for 14 operations that were previously WS-only:
+  - Config: `POST /api/server/openai-key`, `PUT /api/server/role`
+  - Worktrees: `GET /api/worktrees`, `POST /api/worktrees`, `POST /api/worktrees/discover`, `DELETE /api/worktrees/{id}`
+  - Review comments: `POST /api/sessions/{id}/review-comments`, `PATCH /api/review-comments/{id}`, `DELETE /api/review-comments/{id}`
+  - Codex auth: `POST /api/codex/login/start`, `POST /api/codex/login/cancel`, `POST /api/codex/logout`
+  - Async actions: `POST /api/sessions/{id}/skills/download` (202), `POST /api/sessions/{id}/mcp/refresh` (202)
+- Swift client now calls REST for all mutations. `ServerConnection.swift` uses `requestAPIJSON(path:method:body:)` with `convertToSnakeCase` encoding.
+- WS handlers for these variants now return `error.code = "http_only_endpoint"` (via `ws_handlers/rest_only.rs`).
+- Server still broadcasts events (e.g. `ReviewCommentCreated`, `ServerInfo`) via WS after REST mutations — WS response handlers in the client remain in place.
+- `ClientToServerMessage` enum cases are dead code but kept for protocol backward compatibility. Prune in follow-up.
+
 ## Next Migration Steps
 
 1. Add paged message/history endpoints (`limit` + cursor/revision) for very large sessions.
-2. Keep WS event-only protocol small and stable; remove obsolete read/list message variants from protocol once all clients are on current builds.
-3. Add explicit API versioning (`/api/v1`) before introducing REST write endpoints.
+2. Keep WS event-only protocol small and stable; remove obsolete WS message variants from protocol once all clients are on current builds.
+3. Consider moving session commands (create, send, approve, interrupt) to REST for HTTP ack semantics.

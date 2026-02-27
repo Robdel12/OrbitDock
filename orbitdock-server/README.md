@@ -1,6 +1,6 @@
 # OrbitDock Server
 
-The Rust backend behind OrbitDock. Handles realtime session management over WebSocket, serves REST APIs for bootstrap/read flows, runs Codex sessions directly via codex-core, and keeps business logic in a pure state machine.
+The Rust backend behind OrbitDock. Handles realtime session management over WebSocket, serves REST APIs for reads, mutations, and async actions, runs Codex sessions directly via codex-core, and keeps business logic in a pure state machine.
 
 Runs as a **standalone binary** you can drop on any macOS or Linux box. OrbitDock macOS and iOS clients use HTTP + WebSocket and may connect to multiple servers at once.
 
@@ -108,15 +108,15 @@ For the full deployment guide covering all topologies, security, and operations,
 
 Clients connect to:
 
-- WebSocket (default local endpoint: `ws://127.0.0.1:4000/ws`) for realtime subscriptions/events
-- HTTP (default local endpoint: `http://127.0.0.1:4000/api/...`) for bootstrap/read requests
+- **WebSocket** (`ws://127.0.0.1:4000/ws`) for real-time subscriptions, session interaction (create, send, approve, interrupt), and server-pushed events
+- **REST** (`http://127.0.0.1:4000/api/...`) for reads, mutations (config, worktrees, review comments, codex auth), and async fire-and-forget actions (skill download, MCP refresh)
 
 Clients can keep multiple endpoints connected simultaneously.
 
-The server also accepts control-plane metadata from clients:
+Control-plane metadata:
 
-- `set_server_role` - mark this server as primary/secondary server metadata
-- `set_client_primary_claim` - register whether a specific client device currently treats this server as its control plane
+- `PUT /api/server/role` — mark this server as primary/secondary (broadcasts `server_info` via WS)
+- `set_client_primary_claim` (WS) — register whether a specific client device currently treats this server as its control plane
 
 Usage reads are served via HTTP (`GET /api/usage/*`) and return `not_control_plane_endpoint` when the endpoint is not primary.
 
@@ -227,7 +227,9 @@ The main binary. Provider-agnostic orchestration — it doesn't import codex-cor
 | `main.rs` | CLI subcommands, startup, session restoration, Axum routing |
 | `paths.rs` | Central data dir resolution (`--data-dir` / env / default) |
 | `auth.rs` | Optional Bearer token middleware for `/ws` and `/api/hook` |
-| `websocket.rs` | WebSocket message handling — routing, no locks |
+| `http_api.rs` | REST API endpoints — reads, mutations, async actions |
+| `websocket.rs` | WebSocket message handling — subscriptions, session commands, routing |
+| `ws_handlers/` | Domain-scoped WS handlers (config, rest_only rejections) |
 | `session_actor.rs` | Per-session actor (passive sessions, command dispatch) |
 | `session_command_handler.rs` | Shared command + event dispatch (used by both providers) |
 | `codex_session.rs` | Codex event loop (thin — delegates to shared dispatch) |
@@ -372,19 +374,16 @@ ws://127.0.0.1:4000/ws?token=<your-token>
 { "type": "cancel_shell", "session_id": "...", "request_id": "..." }
 ```
 
-**Review comments:**
-
-```json
-{ "type": "create_review_comment", "session_id": "...", "file_path": "src/main.rs", "line_start": 42, "body": "This needs error handling" }
-{ "type": "update_review_comment", "comment_id": "...", "status": "resolved" }
-{ "type": "delete_review_comment", "comment_id": "..." }
-```
-
-List review comments over HTTP:
+**Review comments** (REST — see API.md for payloads):
 
 ```http
-GET /api/sessions/{session_id}/review-comments
+POST   /api/sessions/{session_id}/review-comments
+PATCH  /api/review-comments/{comment_id}
+DELETE /api/review-comments/{comment_id}
+GET    /api/sessions/{session_id}/review-comments
 ```
+
+Server broadcasts `review_comment_created` / `review_comment_updated` / `review_comment_deleted` via WS after mutations.
 
 **Claude hook transport** (how `hook.sh` delivers events):
 
