@@ -71,6 +71,9 @@ final class ServerAppState {
   /// Most recent unhandled server error — surfaced as a toast/alert so errors are never silent
   private(set) var lastServerError: (code: String, message: String)?
 
+  /// Worktrees keyed by repo_root (or "all" for unscoped lists)
+  private(set) var worktreesByRepo: [String: [ServerWorktreeSummary]] = [:]
+
   // MARK: - Per-Session Observable Registry
 
   @ObservationIgnored
@@ -131,6 +134,11 @@ final class ServerAppState {
     obs.repositoryRoot = sess.repositoryRoot
     obs.isWorktree = sess.isWorktree
     obs.worktreeId = sess.worktreeId
+  }
+
+  /// Worktrees for a given repo root
+  func worktrees(for repoRoot: String) -> [ServerWorktreeSummary] {
+    worktreesByRepo[repoRoot] ?? []
   }
 
   // MARK: - Private Internal State
@@ -561,6 +569,46 @@ final class ServerAppState {
           object: nil,
           userInfo: ["sessionId": SessionRef(endpointId: self.endpointId, sessionId: newSessionId).scopedID]
         )
+      }
+    }
+
+    // Worktree management
+    conn.onWorktreesList = { [weak self] _, repoRoot, worktrees in
+      Task { @MainActor in
+        guard let self else { return }
+        let key = repoRoot ?? "all"
+        self.worktreesByRepo[key] = worktrees
+      }
+    }
+
+    conn.onWorktreeCreated = { [weak self] _, worktree in
+      Task { @MainActor in
+        guard let self else { return }
+        self.worktreesByRepo[worktree.repoRoot, default: []].append(worktree)
+      }
+    }
+
+    conn.onWorktreeRemoved = { [weak self] _, worktreeId in
+      Task { @MainActor in
+        guard let self else { return }
+        for key in self.worktreesByRepo.keys {
+          self.worktreesByRepo[key]?.removeAll { $0.id == worktreeId }
+        }
+      }
+    }
+
+    conn.onWorktreeStatusChanged = { [weak self] worktreeId, status, repoRoot in
+      Task { @MainActor in
+        guard let self else { return }
+        if let idx = self.worktreesByRepo[repoRoot]?.firstIndex(where: { $0.id == worktreeId }) {
+          self.worktreesByRepo[repoRoot]![idx].status = status
+        }
+      }
+    }
+
+    conn.onWorktreeError = { [weak self] _, code, message in
+      Task { @MainActor in
+        self?.lastServerError = (code: code, message: message)
       }
     }
 

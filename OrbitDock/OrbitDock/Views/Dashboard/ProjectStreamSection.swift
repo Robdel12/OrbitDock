@@ -11,6 +11,7 @@ import SwiftUI
 
 struct ProjectStreamSection: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(ServerAppState.self) private var serverState
 
   let sessions: [Session]
   let onSelectSession: (String) -> Void
@@ -18,6 +19,8 @@ struct ProjectStreamSection: View {
   @Binding var filter: ActiveSessionWorkbenchFilter
   @Binding var sort: ActiveSessionSort
   @Binding var providerFilter: ActiveSessionProviderFilter
+
+  @State private var worktreeSheetGroup: WorktreeSheetIdentifier?
 
   private var projectGroups: [ProjectGroup] {
     Self.makeProjectGroups(from: orderedSessions, sort: sort)
@@ -97,6 +100,21 @@ struct ProjectStreamSection: View {
         }
         .padding(.top, 4)
       }
+    }
+    .sheet(item: $worktreeSheetGroup) { group in
+      WorktreeListView(
+        repoRoot: group.repoRoot,
+        projectName: group.projectName,
+        onDismiss: { worktreeSheetGroup = nil },
+        onCreateClaudeSession: { cwd in
+          worktreeSheetGroup = nil
+          serverState.createClaudeSession(cwd: cwd)
+        },
+        onCreateCodexSession: { cwd in
+          worktreeSheetGroup = nil
+          serverState.createSession(cwd: cwd)
+        }
+      )
     }
   }
 
@@ -867,6 +885,7 @@ struct ProjectStreamSection: View {
     let sharedBranch = group.sharedBranch
     let projectSignals = projectSignalCounts(for: group.sessions)
     let worktreeCount = group.sessions.filter(\.isWorktree).count
+    let repoRoot = group.sessions.compactMap(\.repositoryRoot).first
 
     return VStack(alignment: .leading, spacing: 0) {
       // Project divider rule
@@ -937,12 +956,8 @@ struct ProjectStreamSection: View {
                   )
                 }
 
-                if worktreeCount > 0 {
-                  projectSignalChip(
-                    icon: "arrow.triangle.branch",
-                    count: worktreeCount,
-                    color: .gitBranch
-                  )
+                if let repoRoot {
+                  worktreeButton(repoRoot: repoRoot, projectName: group.projectName, count: worktreeCount)
                 }
               }
             }
@@ -996,12 +1011,8 @@ struct ProjectStreamSection: View {
               )
             }
 
-            if worktreeCount > 0 {
-              projectSignalChip(
-                icon: "arrow.triangle.branch",
-                count: worktreeCount,
-                color: .gitBranch
-              )
+            if let repoRoot {
+              worktreeButton(repoRoot: repoRoot, projectName: group.projectName, count: worktreeCount)
             }
 
             Spacer()
@@ -1068,6 +1079,30 @@ struct ProjectStreamSection: View {
     .padding(.horizontal, 6)
     .padding(.vertical, 3)
     .background(color.opacity(0.10), in: Capsule())
+  }
+
+  private func worktreeButton(repoRoot: String, projectName: String, count: Int) -> some View {
+    let color: Color = count > 0 ? .gitBranch : .textQuaternary
+    return Button {
+      worktreeSheetGroup = WorktreeSheetIdentifier(
+        repoRoot: repoRoot,
+        projectName: projectName
+      )
+    } label: {
+      HStack(spacing: 3) {
+        Image(systemName: "arrow.triangle.branch")
+          .font(.system(size: 8, weight: .bold))
+        if count > 0 {
+          Text("\(count)")
+            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+        }
+      }
+      .foregroundStyle(color)
+      .padding(.horizontal, 6)
+      .padding(.vertical, 3)
+      .background(color.opacity(0.10), in: Capsule())
+    }
+    .buttonStyle(.plain)
   }
 
   // MARK: - Empty State
@@ -1334,6 +1369,16 @@ extension View {
 
 // Filter types defined in ActiveSessionsSection.swift
 
+// MARK: - Worktree Sheet Identifier
+
+private struct WorktreeSheetIdentifier: Identifiable {
+  let repoRoot: String
+  let projectName: String
+  var id: String {
+    repoRoot
+  }
+}
+
 // MARK: - Preview
 
 #Preview {
@@ -1410,4 +1455,5 @@ extension View {
   }
   .background(Color.backgroundPrimary)
   .frame(width: 900, height: 600)
+  .environment(ServerAppState())
 }

@@ -25,6 +25,54 @@ enum ServerClaudeIntegrationMode: String, Codable {
   case passive
 }
 
+// MARK: - Worktree Types
+
+enum ServerWorktreeStatus: String, Codable {
+  case active
+  case orphaned
+  case stale
+  case removing
+  case removed
+}
+
+enum ServerWorktreeOrigin: String, Codable {
+  case user
+  case agent
+  case discovered
+}
+
+struct ServerWorktreeSummary: Codable, Identifiable {
+  var id: String
+  var repoRoot: String
+  var worktreePath: String
+  var branch: String
+  var baseBranch: String?
+  var status: ServerWorktreeStatus
+  var activeSessionCount: UInt32
+  var totalSessionCount: UInt32
+  var createdAt: String
+  var lastSessionEndedAt: String?
+  var diskPresent: Bool
+  var autoPrune: Bool
+  var customName: String?
+  var createdBy: ServerWorktreeOrigin
+
+  enum CodingKeys: String, CodingKey {
+    case id, branch, status
+    case repoRoot = "repo_root"
+    case worktreePath = "worktree_path"
+    case baseBranch = "base_branch"
+    case activeSessionCount = "active_session_count"
+    case totalSessionCount = "total_session_count"
+    case createdAt = "created_at"
+    case lastSessionEndedAt = "last_session_ended_at"
+    case diskPresent = "disk_present"
+    case autoPrune = "auto_prune"
+    case customName = "custom_name"
+    case createdBy = "created_by"
+  }
+}
+
 enum ServerTokenUsageSnapshotKind: String, Codable, Hashable, Sendable {
   case unknown
   case contextTurn = "context_turn"
@@ -1440,6 +1488,11 @@ enum ServerToClientMessage: Codable {
     activeRequestId: String?,
     approvalVersion: UInt64
   )
+  case worktreesList(requestId: String, repoRoot: String?, worktrees: [ServerWorktreeSummary])
+  case worktreeCreated(requestId: String, worktree: ServerWorktreeSummary)
+  case worktreeRemoved(requestId: String, worktreeId: String)
+  case worktreeStatusChanged(worktreeId: String, status: ServerWorktreeStatus, repoRoot: String)
+  case worktreeError(requestId: String, code: String, message: String)
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1506,6 +1559,11 @@ enum ServerToClientMessage: Codable {
     case approvalVersion = "approval_version"
     case outcome
     case activeRequestId = "active_request_id"
+    case worktrees
+    case worktree
+    case worktreeId = "worktree_id"
+    case repoRoot = "repo_root"
+    case force
   }
 
   init(from decoder: Decoder) throws {
@@ -1811,6 +1869,34 @@ enum ServerToClientMessage: Codable {
           approvalVersion: approvalVersion
         )
 
+      case "worktrees_list":
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let repoRoot = try container.decodeIfPresent(String.self, forKey: .repoRoot)
+        let worktrees = try container.decode([ServerWorktreeSummary].self, forKey: .worktrees)
+        self = .worktreesList(requestId: requestId, repoRoot: repoRoot, worktrees: worktrees)
+
+      case "worktree_created":
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let worktree = try container.decode(ServerWorktreeSummary.self, forKey: .worktree)
+        self = .worktreeCreated(requestId: requestId, worktree: worktree)
+
+      case "worktree_removed":
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let worktreeId = try container.decode(String.self, forKey: .worktreeId)
+        self = .worktreeRemoved(requestId: requestId, worktreeId: worktreeId)
+
+      case "worktree_status_changed":
+        let worktreeId = try container.decode(String.self, forKey: .worktreeId)
+        let status = try container.decode(ServerWorktreeStatus.self, forKey: .status)
+        let repoRoot = try container.decode(String.self, forKey: .repoRoot)
+        self = .worktreeStatusChanged(worktreeId: worktreeId, status: status, repoRoot: repoRoot)
+
+      case "worktree_error":
+        let requestId = try container.decode(String.self, forKey: .requestId)
+        let code = try container.decode(String.self, forKey: .code)
+        let message = try container.decode(String.self, forKey: .message)
+        self = .worktreeError(requestId: requestId, code: code, message: message)
+
       case "error":
         let code = try container.decode(String.self, forKey: .code)
         let message = try container.decode(String.self, forKey: .message)
@@ -2099,6 +2185,34 @@ enum ServerToClientMessage: Codable {
         try container.encodeIfPresent(activeRequestId, forKey: .activeRequestId)
         try container.encode(approvalVersion, forKey: .approvalVersion)
 
+      case let .worktreesList(requestId, repoRoot, worktrees):
+        try container.encode("worktrees_list", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encodeIfPresent(repoRoot, forKey: .repoRoot)
+        try container.encode(worktrees, forKey: .worktrees)
+
+      case let .worktreeCreated(requestId, worktree):
+        try container.encode("worktree_created", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(worktree, forKey: .worktree)
+
+      case let .worktreeRemoved(requestId, worktreeId):
+        try container.encode("worktree_removed", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(worktreeId, forKey: .worktreeId)
+
+      case let .worktreeStatusChanged(worktreeId, status, repoRoot):
+        try container.encode("worktree_status_changed", forKey: .type)
+        try container.encode(worktreeId, forKey: .worktreeId)
+        try container.encode(status, forKey: .status)
+        try container.encode(repoRoot, forKey: .repoRoot)
+
+      case let .worktreeError(requestId, code, message):
+        try container.encode("worktree_error", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(code, forKey: .code)
+        try container.encode(message, forKey: .message)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -2228,6 +2342,10 @@ enum ClientToServerMessage: Codable {
   case cancelShell(sessionId: String, requestId: String)
   case browseDirectory(path: String? = nil, requestId: String)
   case listRecentProjects(requestId: String)
+  case listWorktrees(requestId: String, repoRoot: String? = nil)
+  case createWorktree(requestId: String, repoPath: String, branchName: String, baseBranch: String? = nil)
+  case removeWorktree(requestId: String, worktreeId: String, force: Bool = false)
+  case discoverWorktrees(requestId: String, repoPath: String)
 
   enum CodingKeys: String, CodingKey {
     case type
@@ -2281,6 +2399,12 @@ enum ClientToServerMessage: Codable {
     case isPrimary = "is_primary"
     case clientId = "client_id"
     case deviceName = "device_name"
+    case repoRoot = "repo_root"
+    case repoPath = "repo_path"
+    case branchName = "branch_name"
+    case baseBranch = "base_branch"
+    case worktreeId = "worktree_id"
+    case force
   }
 
   func encode(to encoder: Encoder) throws {
@@ -2593,6 +2717,31 @@ enum ClientToServerMessage: Codable {
       case let .listRecentProjects(requestId):
         try container.encode("list_recent_projects", forKey: .type)
         try container.encode(requestId, forKey: .requestId)
+
+      case let .listWorktrees(requestId, repoRoot):
+        try container.encode("list_worktrees", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encodeIfPresent(repoRoot, forKey: .repoRoot)
+
+      case let .createWorktree(requestId, repoPath, branchName, baseBranch):
+        try container.encode("create_worktree", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(repoPath, forKey: .repoPath)
+        try container.encode(branchName, forKey: .branchName)
+        try container.encodeIfPresent(baseBranch, forKey: .baseBranch)
+
+      case let .removeWorktree(requestId, worktreeId, force):
+        try container.encode("remove_worktree", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(worktreeId, forKey: .worktreeId)
+        if force {
+          try container.encode(force, forKey: .force)
+        }
+
+      case let .discoverWorktrees(requestId, repoPath):
+        try container.encode("discover_worktrees", forKey: .type)
+        try container.encode(requestId, forKey: .requestId)
+        try container.encode(repoPath, forKey: .repoPath)
     }
   }
 
@@ -2820,6 +2969,29 @@ enum ClientToServerMessage: Codable {
       case "list_recent_projects":
         self = try .listRecentProjects(
           requestId: container.decode(String.self, forKey: .requestId)
+        )
+      case "list_worktrees":
+        self = try .listWorktrees(
+          requestId: container.decode(String.self, forKey: .requestId),
+          repoRoot: container.decodeIfPresent(String.self, forKey: .repoRoot)
+        )
+      case "create_worktree":
+        self = try .createWorktree(
+          requestId: container.decode(String.self, forKey: .requestId),
+          repoPath: container.decode(String.self, forKey: .repoPath),
+          branchName: container.decode(String.self, forKey: .branchName),
+          baseBranch: container.decodeIfPresent(String.self, forKey: .baseBranch)
+        )
+      case "remove_worktree":
+        self = try .removeWorktree(
+          requestId: container.decode(String.self, forKey: .requestId),
+          worktreeId: container.decode(String.self, forKey: .worktreeId),
+          force: container.decodeIfPresent(Bool.self, forKey: .force) ?? false
+        )
+      case "discover_worktrees":
+        self = try .discoverWorktrees(
+          requestId: container.decode(String.self, forKey: .requestId),
+          repoPath: container.decode(String.self, forKey: .repoPath)
         )
       default:
         throw DecodingError.dataCorrupted(

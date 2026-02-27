@@ -14,6 +14,7 @@ struct NewClaudeSessionSheet: View {
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   @State private var selectedPath: String = ""
+  @State private var selectedPathIsGit: Bool = true
   @State private var selectedEndpointId: UUID = ServerEndpointSettings.defaultEndpoint.id
   @State private var selectedModelId: String = ""
   @State private var customModelInput: String = ""
@@ -24,9 +25,16 @@ struct NewClaudeSessionSheet: View {
   @State private var disallowedToolsText: String = ""
   @State private var showToolConfig = false
   @State private var selectedEffort: String? = nil
+  @State private var useWorktree = false
+  @State private var worktreeBranch = ""
+  @State private var worktreeBaseBranch = ""
+  @State private var showGitInitConfirmation = false
+  @State private var worktreeError: String?
 
   private var canCreateSession: Bool {
-    !selectedPath.isEmpty && !isCreating && isEndpointConnected
+    let pathReady = !selectedPath.isEmpty
+    let worktreeReady = !useWorktree || !worktreeBranch.trimmingCharacters(in: .whitespaces).isEmpty
+    return pathReady && worktreeReady && !isCreating && isEndpointConnected
   }
 
   private var availableModels: [ServerClaudeModelOption] {
@@ -80,6 +88,9 @@ struct NewClaudeSessionSheet: View {
           endpointSection
         }
         directorySection
+        if !selectedPath.isEmpty {
+          worktreeSection
+        }
         configurationCard
         toolRestrictionsCard
       }
@@ -103,6 +114,12 @@ struct NewClaudeSessionSheet: View {
       normalizeEndpointSelection()
       // Load cached models (populated when Claude sessions are created)
       endpointAppState.refreshClaudeModels()
+    }
+    .onChange(of: selectedPath) { _, _ in
+      useWorktree = false
+      worktreeBranch = ""
+      worktreeBaseBranch = ""
+      worktreeError = nil
     }
     .onChange(of: selectedEndpointId) { _, _ in
       selectedPath = ""
@@ -181,10 +198,140 @@ struct NewClaudeSessionSheet: View {
 
   private var directorySection: some View {
     #if os(iOS)
-      RemoteProjectPicker(selectedPath: $selectedPath, endpointId: selectedEndpointId)
+      RemoteProjectPicker(
+        selectedPath: $selectedPath,
+        selectedPathIsGit: $selectedPathIsGit,
+        endpointId: selectedEndpointId
+      )
     #else
-      ProjectPicker(selectedPath: $selectedPath, endpointId: selectedEndpointId)
+      ProjectPicker(
+        selectedPath: $selectedPath,
+        selectedPathIsGit: $selectedPathIsGit,
+        endpointId: selectedEndpointId
+      )
     #endif
+  }
+
+  // MARK: - Worktree Section
+
+  private var worktreeSection: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      // Toggle row
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "arrow.triangle.branch")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(useWorktree ? Color.accent : Color.textTertiary)
+
+        Text("Use Worktree")
+          .font(.system(size: TypeScale.body, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+
+        Spacer()
+
+        Toggle("", isOn: $useWorktree)
+          .labelsHidden()
+          .toggleStyle(.switch)
+          .controlSize(.small)
+      }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
+
+      if useWorktree {
+        Divider()
+          .padding(.horizontal, Spacing.lg)
+
+        VStack(alignment: .leading, spacing: Spacing.md) {
+          VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text("Branch Name")
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+              .foregroundStyle(Color.textSecondary)
+            TextField("feat/my-feature", text: $worktreeBranch)
+              .textFieldStyle(.roundedBorder)
+              .font(.system(size: TypeScale.body, design: .monospaced))
+          }
+
+          VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(spacing: Spacing.xs) {
+              Text("Base Branch")
+                .font(.system(size: TypeScale.caption, weight: .semibold))
+                .foregroundStyle(Color.textSecondary)
+              Text("optional")
+                .font(.system(size: TypeScale.micro))
+                .foregroundStyle(Color.textQuaternary)
+            }
+            TextField("main", text: $worktreeBaseBranch)
+              .textFieldStyle(.roundedBorder)
+              .font(.system(size: TypeScale.body, design: .monospaced))
+          }
+
+          // Preview path
+          let branchTrimmed = worktreeBranch.trimmingCharacters(in: .whitespaces)
+          if !branchTrimmed.isEmpty {
+            HStack(spacing: Spacing.xs) {
+              Image(systemName: "folder.badge.gearshape")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.textQuaternary)
+              Text("\(selectedPath)/.orbitdock-worktrees/\(branchTrimmed)/")
+                .font(.system(size: TypeScale.micro, design: .monospaced))
+                .foregroundStyle(Color.textQuaternary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            }
+          }
+
+          if let error = worktreeError {
+            HStack(spacing: Spacing.xs) {
+              Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.statusPermission)
+              Text(error)
+                .font(.system(size: TypeScale.caption))
+                .foregroundStyle(Color.statusPermission)
+            }
+          }
+        }
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.md)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+      }
+    }
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.surfaceBorder, lineWidth: 1)
+    )
+    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: useWorktree)
+    .onChange(of: useWorktree) { _, isOn in
+      if isOn, !selectedPathIsGit {
+        // Directory isn't a git repo — prompt to init
+        useWorktree = false
+        showGitInitConfirmation = true
+      }
+      worktreeError = nil
+    }
+    .alert("Initialize Git Repository?", isPresented: $showGitInitConfirmation) {
+      Button("Initialize") {
+        initGitAndEnableWorktree()
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("This directory is not a git repository. Initialize one to use worktrees?")
+    }
+  }
+
+  private func initGitAndEnableWorktree() {
+    guard let connection = runtimeRegistry.connection(for: selectedEndpointId) else { return }
+    isCreating = true
+    Task { @MainActor in
+      defer { isCreating = false }
+      do {
+        try await connection.gitInit(path: selectedPath)
+        selectedPathIsGit = true
+        useWorktree = true
+      } catch {
+        worktreeError = "Failed to initialize git: \(error.localizedDescription)"
+      }
+    }
   }
 
   // MARK: - Configuration Card (Model + Permission)
@@ -471,15 +618,46 @@ struct NewClaudeSessionSheet: View {
 
   private func createSession() {
     guard !selectedPath.isEmpty else { return }
-    endpointAppState.createClaudeSession(
-      cwd: selectedPath,
-      model: resolvedModel,
-      permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
-      allowedTools: parseToolList(allowedToolsText),
-      disallowedTools: parseToolList(disallowedToolsText),
-      effort: selectedEffort
-    )
-    dismiss()
+
+    let branch = worktreeBranch.trimmingCharacters(in: .whitespaces)
+    if useWorktree, !branch.isEmpty {
+      // Async flow: create worktree first, then launch session in it
+      isCreating = true
+      worktreeError = nil
+      guard let connection = runtimeRegistry.connection(for: selectedEndpointId) else { return }
+      Task { @MainActor in
+        do {
+          let baseBranch = worktreeBaseBranch.trimmingCharacters(in: .whitespaces)
+          let worktree = try await connection.createWorktreeAsync(
+            repoPath: selectedPath,
+            branchName: branch,
+            baseBranch: baseBranch.isEmpty ? nil : baseBranch
+          )
+          endpointAppState.createClaudeSession(
+            cwd: worktree.worktreePath,
+            model: resolvedModel,
+            permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
+            allowedTools: parseToolList(allowedToolsText),
+            disallowedTools: parseToolList(disallowedToolsText),
+            effort: selectedEffort
+          )
+          dismiss()
+        } catch {
+          isCreating = false
+          worktreeError = error.localizedDescription
+        }
+      }
+    } else {
+      endpointAppState.createClaudeSession(
+        cwd: selectedPath,
+        model: resolvedModel,
+        permissionMode: selectedPermissionMode == .default ? nil : selectedPermissionMode.rawValue,
+        allowedTools: parseToolList(allowedToolsText),
+        disallowedTools: parseToolList(disallowedToolsText),
+        effort: selectedEffort
+      )
+      dismiss()
+    }
   }
 }
 

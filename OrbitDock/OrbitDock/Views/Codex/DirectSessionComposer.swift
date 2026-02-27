@@ -64,7 +64,9 @@ struct DirectSessionComposer: View {
   @State private var dictationController = WhisperDictationController()
   @State private var dictationDraftBaseMessage: String?
 
-  private var obs: SessionObservable { serverState.session(sessionId) }
+  private var obs: SessionObservable {
+    serverState.session(sessionId)
+  }
 
   private var inputMode: InputMode {
     if manualShellMode { return .shell }
@@ -2163,7 +2165,7 @@ struct CodexInterruptButton: View {
     .animation(.easeOut(duration: 0.15), value: isHovering)
     .help("Stop")
     .onChange(of: workStatus) { _, newValue in
-      if isInterrupting && newValue != .working {
+      if isInterrupting, newValue != .working {
         isInterrupting = false
       }
     }

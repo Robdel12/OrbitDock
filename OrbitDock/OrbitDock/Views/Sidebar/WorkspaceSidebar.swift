@@ -194,7 +194,7 @@ struct WorkspaceSidebar: View {
       }
 
       // Empty state
-      if activeSessions.isEmpty && attentionSessions.isEmpty {
+      if activeSessions.isEmpty, attentionSessions.isEmpty {
         emptyState
       }
 
@@ -465,7 +465,7 @@ struct WorkspaceSidebar: View {
       case .connected: "Connected"
       case .connecting: "Connecting..."
       case .disconnected: "Disconnected"
-      case .failed(let msg): "Failed: \(msg)"
+      case let .failed(msg): "Failed: \(msg)"
     }
   }
 }

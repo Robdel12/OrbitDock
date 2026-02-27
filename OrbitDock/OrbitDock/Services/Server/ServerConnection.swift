@@ -205,6 +205,122 @@ private struct McpToolsHTTPResponse: Decodable {
   }
 }
 
+// MARK: - REST Mutation Request Types
+
+private struct SetOpenAiKeyHTTPRequest: Encodable {
+  let key: String
+}
+
+private struct SetServerRoleHTTPRequest: Encodable {
+  let isPrimary: Bool
+}
+
+private struct CreateWorktreeHTTPRequest: Encodable {
+  let repoPath: String
+  let branchName: String
+  let baseBranch: String?
+}
+
+private struct DiscoverWorktreesHTTPRequest: Encodable {
+  let repoPath: String
+}
+
+private struct CreateReviewCommentHTTPRequest: Encodable {
+  let turnId: String?
+  let filePath: String
+  let lineStart: UInt32
+  let lineEnd: UInt32?
+  let body: String
+  let tag: ServerReviewCommentTag?
+}
+
+private struct UpdateReviewCommentHTTPRequest: Encodable {
+  let body: String?
+  let tag: ServerReviewCommentTag?
+  let status: ServerReviewCommentStatus?
+}
+
+private struct CodexLoginCancelHTTPRequest: Encodable {
+  let loginId: String
+}
+
+private struct DownloadRemoteSkillHTTPRequest: Encodable {
+  let hazelnutId: String
+}
+
+private struct GitInitHTTPRequest: Encodable {
+  let path: String
+}
+
+/// Empty body for POST endpoints that take no request payload.
+private struct EmptyBody: Encodable {}
+
+// MARK: - REST Mutation Response Types
+
+private struct GitInitHTTPResponse: Decodable {
+  let ok: Bool
+}
+
+private struct ServerRoleHTTPResponse: Decodable {
+  let isPrimary: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case isPrimary = "is_primary"
+  }
+}
+
+private struct WorktreesListHTTPResponse: Decodable {
+  let repoRoot: String?
+  let worktrees: [ServerWorktreeSummary]
+
+  enum CodingKeys: String, CodingKey {
+    case repoRoot = "repo_root"
+    case worktrees
+  }
+}
+
+private struct WorktreeCreatedHTTPResponse: Decodable {
+  let worktree: ServerWorktreeSummary
+}
+
+private struct ReviewCommentMutationHTTPResponse: Decodable {
+  let commentId: String
+  let ok: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case commentId = "comment_id"
+    case ok
+  }
+}
+
+private struct CodexLoginStartedHTTPResponse: Decodable {
+  let loginId: String
+  let authUrl: String
+
+  enum CodingKeys: String, CodingKey {
+    case loginId = "login_id"
+    case authUrl = "auth_url"
+  }
+}
+
+private struct CodexLoginCanceledHTTPResponse: Decodable {
+  let loginId: String
+  let status: ServerCodexLoginCancelStatus
+
+  enum CodingKeys: String, CodingKey {
+    case loginId = "login_id"
+    case status
+  }
+}
+
+private struct CodexLogoutHTTPResponse: Decodable {
+  let status: ServerCodexAccountStatus
+}
+
+private struct AcceptedHTTPResponse: Decodable {
+  let accepted: Bool
+}
+
 private struct APIErrorHTTPResponse: Decodable {
   let code: String
   let error: String
@@ -303,6 +419,11 @@ class ServerConnection: ObservableObject {
   var onShellStarted: ((String, String, String) -> Void)? // sessionId, requestId, command
   var onShellOutput: ((String, String, String, String, Int32?, UInt64, ServerShellExecutionOutcome)
     -> Void)? // sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome
+  var onWorktreesList: ((String, String?, [ServerWorktreeSummary]) -> Void)?
+  var onWorktreeCreated: ((String, ServerWorktreeSummary) -> Void)?
+  var onWorktreeRemoved: ((String, String) -> Void)?
+  var onWorktreeStatusChanged: ((String, ServerWorktreeStatus, String) -> Void)?
+  var onWorktreeError: ((String, String, String) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
   var onDisconnected: (() -> Void)?
@@ -705,6 +826,21 @@ class ServerConnection: ObservableObject {
       case let .shellOutput(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome):
         onShellOutput?(sessionId, requestId, stdout, stderr, exitCode, durationMs, outcome)
 
+      case let .worktreesList(requestId, repoRoot, worktrees):
+        onWorktreesList?(requestId, repoRoot, worktrees)
+
+      case let .worktreeCreated(requestId, worktree):
+        onWorktreeCreated?(requestId, worktree)
+
+      case let .worktreeRemoved(requestId, worktreeId):
+        onWorktreeRemoved?(requestId, worktreeId)
+
+      case let .worktreeStatusChanged(worktreeId, status, repoRoot):
+        onWorktreeStatusChanged?(worktreeId, status, repoRoot)
+
+      case let .worktreeError(requestId, code, message):
+        onWorktreeError?(requestId, code, message)
+
       case .directoryListing, .recentProjectsList, .openAiKeyStatus, .codexUsageResult, .claudeUsageResult:
         break
 
@@ -917,7 +1053,18 @@ class ServerConnection: ObservableObject {
 
   /// Update this server's runtime role for control-plane routing.
   func setServerRole(isPrimary: Bool) {
-    send(.setServerRole(isPrimary: isPrimary))
+    Task { @MainActor in
+      do {
+        let _: ServerRoleHTTPResponse = try await requestAPIJSON(
+          path: "/api/server/role",
+          method: "PUT",
+          body: SetServerRoleHTTPRequest(isPrimary: isPrimary)
+        )
+        // Server broadcasts ServerInfo via WS — the WS handler updates serverIsPrimary
+      } catch {
+        onError?("server_role_set_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Advertise whether this endpoint is the control-plane endpoint for the current client device.
@@ -940,7 +1087,17 @@ class ServerConnection: ObservableObject {
 
   /// Set the OpenAI API key for AI session naming
   func setOpenAiKey(_ key: String) {
-    send(.setOpenAiKey(key: key))
+    Task { @MainActor in
+      do {
+        let _: OpenAiKeyHTTPResponse = try await requestAPIJSON(
+          path: "/api/server/openai-key",
+          method: "POST",
+          body: SetOpenAiKeyHTTPRequest(key: key)
+        )
+      } catch {
+        onError?("openai_key_set_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Request OpenAI key status for this endpoint as a one-shot response.
@@ -1097,17 +1254,50 @@ class ServerConnection: ObservableObject {
 
   /// Start the ChatGPT browser login flow for Codex.
   func startCodexChatgptLogin() {
-    send(.codexLoginChatgptStart)
+    Task { @MainActor in
+      do {
+        let response: CodexLoginStartedHTTPResponse = try await requestAPIJSON(
+          path: "/api/codex/login/start",
+          method: "POST",
+          body: EmptyBody()
+        )
+        onCodexLoginChatgptStarted?(response.loginId, response.authUrl)
+      } catch {
+        onError?("codex_auth_login_start_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Cancel an in-progress ChatGPT browser login flow.
   func cancelCodexChatgptLogin(loginId: String) {
-    send(.codexLoginChatgptCancel(loginId: loginId))
+    Task { @MainActor in
+      do {
+        let response: CodexLoginCanceledHTTPResponse = try await requestAPIJSON(
+          path: "/api/codex/login/cancel",
+          method: "POST",
+          body: CodexLoginCancelHTTPRequest(loginId: loginId)
+        )
+        onCodexLoginChatgptCanceled?(response.loginId, response.status)
+      } catch {
+        onError?("codex_auth_login_cancel_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Log out the current Codex account.
   func logoutCodexAccount() {
-    send(.codexAccountLogout)
+    Task { @MainActor in
+      do {
+        let response: CodexLogoutHTTPResponse = try await requestAPIJSON(
+          path: "/api/codex/logout",
+          method: "POST",
+          body: EmptyBody()
+        )
+        onCodexAccountUpdated?(response.status)
+      } catch {
+        onError?("codex_auth_logout_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// List skills available for a session
@@ -1165,7 +1355,19 @@ class ServerConnection: ObservableObject {
 
   /// Download a remote skill by hazelnut ID
   func downloadRemoteSkill(sessionId: String, hazelnutId: String) {
-    send(.downloadRemoteSkill(sessionId: sessionId, hazelnutId: hazelnutId))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        try await fireAndForgetAPI(
+          path: "/api/sessions/\(escapedSessionId)/skills/download",
+          method: "POST",
+          body: DownloadRemoteSkillHTTPRequest(hazelnutId: hazelnutId)
+        )
+      } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) { return }
+        onError?("remote_skill_download_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// List MCP tools for a session
@@ -1200,7 +1402,19 @@ class ServerConnection: ObservableObject {
 
   /// Refresh MCP servers for a session
   func refreshMcpServers(sessionId: String) {
-    send(.refreshMcpServers(sessionId: sessionId))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        try await fireAndForgetAPI(
+          path: "/api/sessions/\(escapedSessionId)/mcp/refresh",
+          method: "POST",
+          body: EmptyBody()
+        )
+      } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) { return }
+        onError?("mcp_refresh_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// Steer the active turn with additional guidance
@@ -1238,15 +1452,26 @@ class ServerConnection: ObservableObject {
     body: String,
     tag: ServerReviewCommentTag?
   ) {
-    send(.createReviewComment(
-      sessionId: sessionId,
-      turnId: turnId,
-      filePath: filePath,
-      lineStart: lineStart,
-      lineEnd: lineEnd,
-      body: body,
-      tag: tag
-    ))
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        let _: ReviewCommentMutationHTTPResponse = try await requestAPIJSON(
+          path: "/api/sessions/\(escapedSessionId)/review-comments",
+          method: "POST",
+          body: CreateReviewCommentHTTPRequest(
+            turnId: turnId,
+            filePath: filePath,
+            lineStart: lineStart,
+            lineEnd: lineEnd,
+            body: body,
+            tag: tag
+          )
+        )
+        // Server broadcasts ReviewCommentCreated via WS
+      } catch {
+        onError?("review_comment_create_failed", error.localizedDescription, sessionId)
+      }
+    }
   }
 
   /// Update a review comment
@@ -1256,12 +1481,33 @@ class ServerConnection: ObservableObject {
     tag: ServerReviewCommentTag?,
     status: ServerReviewCommentStatus?
   ) {
-    send(.updateReviewComment(commentId: commentId, body: body, tag: tag, status: status))
+    Task { @MainActor in
+      do {
+        let escapedCommentId = encodePathComponent(commentId)
+        let _: ReviewCommentMutationHTTPResponse = try await requestAPIJSON(
+          path: "/api/review-comments/\(escapedCommentId)",
+          method: "PATCH",
+          body: UpdateReviewCommentHTTPRequest(body: body, tag: tag, status: status)
+        )
+      } catch {
+        onError?("review_comment_update_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// Delete a review comment
   func deleteReviewComment(commentId: String) {
-    send(.deleteReviewComment(commentId: commentId))
+    Task { @MainActor in
+      do {
+        let escapedCommentId = encodePathComponent(commentId)
+        let _: ReviewCommentMutationHTTPResponse = try await requestAPIJSON(
+          path: "/api/review-comments/\(escapedCommentId)",
+          method: "DELETE"
+        )
+      } catch {
+        onError?("review_comment_delete_failed", error.localizedDescription, nil)
+      }
+    }
   }
 
   /// List review comments for a session
@@ -1336,6 +1582,114 @@ class ServerConnection: ObservableObject {
     ))
   }
 
+  // MARK: - Worktree Management
+
+  func listWorktrees(repoRoot: String? = nil) {
+    Task { @MainActor in
+      do {
+        var queryItems: [URLQueryItem] = []
+        if let repoRoot {
+          queryItems.append(URLQueryItem(name: "repo_root", value: repoRoot))
+        }
+        let response: WorktreesListHTTPResponse = try await fetchAPIJSON(
+          path: "/api/worktrees",
+          queryItems: queryItems
+        )
+        onWorktreesList?("", response.repoRoot, response.worktrees)
+      } catch {
+        onError?("worktree_list_failed", error.localizedDescription, nil)
+      }
+    }
+  }
+
+  func createWorktree(repoPath: String, branchName: String, baseBranch: String? = nil) {
+    Task { @MainActor in
+      do {
+        let response: WorktreeCreatedHTTPResponse = try await requestAPIJSON(
+          path: "/api/worktrees",
+          method: "POST",
+          body: CreateWorktreeHTTPRequest(
+            repoPath: repoPath,
+            branchName: branchName,
+            baseBranch: baseBranch
+          )
+        )
+        onWorktreeCreated?("", response.worktree)
+      } catch {
+        let requestError = error as? ServerRequestError
+        let code = requestError?.apiErrorCode ?? "create_failed"
+        let message = requestError?.errorDescription ?? error.localizedDescription
+        onWorktreeError?("", code, message)
+      }
+    }
+  }
+
+  func removeWorktree(worktreeId: String, force: Bool = false) {
+    Task { @MainActor in
+      do {
+        let escapedId = encodePathComponent(worktreeId)
+        var queryItems: [URLQueryItem] = []
+        if force {
+          queryItems.append(URLQueryItem(name: "force", value: "true"))
+        }
+        let _: ReviewCommentMutationHTTPResponse = try await requestAPIJSON(
+          path: "/api/worktrees/\(escapedId)",
+          method: "DELETE",
+          queryItems: queryItems
+        )
+      } catch {
+        let requestError = error as? ServerRequestError
+        let code = requestError?.apiErrorCode ?? "remove_failed"
+        let message = requestError?.errorDescription ?? error.localizedDescription
+        onWorktreeError?("", code, message)
+      }
+    }
+  }
+
+  func discoverWorktrees(repoPath: String) {
+    Task { @MainActor in
+      do {
+        let response: WorktreesListHTTPResponse = try await requestAPIJSON(
+          path: "/api/worktrees/discover",
+          method: "POST",
+          body: DiscoverWorktreesHTTPRequest(repoPath: repoPath)
+        )
+        onWorktreesList?("", response.repoRoot, response.worktrees)
+      } catch {
+        onError?("worktree_discover_failed", error.localizedDescription, nil)
+      }
+    }
+  }
+
+  /// Initialize a git repository at the given path.
+  func gitInit(path: String) async throws {
+    let _: GitInitHTTPResponse = try await requestAPIJSON(
+      path: "/api/git/init",
+      method: "POST",
+      body: GitInitHTTPRequest(path: path)
+    )
+  }
+
+  /// Create a worktree and return the summary directly (async variant for inline flows).
+  func createWorktreeAsync(
+    repoPath: String,
+    branchName: String,
+    baseBranch: String? = nil
+  ) async throws -> ServerWorktreeSummary {
+    let response: WorktreeCreatedHTTPResponse = try await requestAPIJSON(
+      path: "/api/worktrees",
+      method: "POST",
+      body: CreateWorktreeHTTPRequest(
+        repoPath: repoPath,
+        branchName: branchName,
+        baseBranch: baseBranch
+      )
+    )
+    // Also trigger the callback so ServerAppState updates its worktreesByRepo
+    onWorktreeCreated?("", response.worktree)
+    return response.worktree
+  }
+
   private func failPendingRequests(with error: Error) {
     _ = error
   }
@@ -1366,6 +1720,73 @@ class ServerConnection: ObservableObject {
       )
     }
     return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func requestAPIJSON<Response: Decodable>(
+    path: String,
+    method: String,
+    body: some Encodable,
+    queryItems: [URLQueryItem] = []
+  ) async throws -> Response {
+    guard let url = apiURL(path: path, queryItems: queryItems) else {
+      throw ServerRequestError.invalidEndpoint
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.timeoutInterval = 15
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    let encoder = JSONEncoder()
+    encoder.keyEncodingStrategy = .convertToSnakeCase
+    request.httpBody = try encoder.encode(body)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw ServerRequestError.invalidResponse
+    }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      let apiError = try? JSONDecoder().decode(APIErrorHTTPResponse.self, from: data)
+      throw ServerRequestError.httpStatus(
+        http.statusCode,
+        code: apiError?.code,
+        message: apiError?.error
+      )
+    }
+    return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func fireAndForgetAPI(
+    path: String,
+    method: String,
+    body: some Encodable,
+    queryItems: [URLQueryItem] = []
+  ) async throws {
+    guard let url = apiURL(path: path, queryItems: queryItems) else {
+      throw ServerRequestError.invalidEndpoint
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.timeoutInterval = 15
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+    let encoder = JSONEncoder()
+    encoder.keyEncodingStrategy = .convertToSnakeCase
+    request.httpBody = try encoder.encode(body)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw ServerRequestError.invalidResponse
+    }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      let apiError = try? JSONDecoder().decode(APIErrorHTTPResponse.self, from: data)
+      throw ServerRequestError.httpStatus(
+        http.statusCode,
+        code: apiError?.code,
+        message: apiError?.error
+      )
+    }
   }
 
   private func fetchAPIJSON<Response: Decodable>(

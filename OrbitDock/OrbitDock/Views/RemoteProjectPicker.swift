@@ -13,6 +13,7 @@ private let logger = Logger(subsystem: "com.orbitdock", category: "remote-projec
 
 struct RemoteProjectPicker: View {
   @Binding var selectedPath: String
+  @Binding var selectedPathIsGit: Bool
   let endpointId: UUID?
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @State private var recentProjects: [ServerRecentProject] = []
@@ -26,8 +27,13 @@ struct RemoteProjectPicker: View {
   @State private var recentProjectsRequestId = UUID()
   @State private var browseRequestId = UUID()
 
-  init(selectedPath: Binding<String>, endpointId: UUID? = nil) {
+  init(
+    selectedPath: Binding<String>,
+    selectedPathIsGit: Binding<Bool> = .constant(true),
+    endpointId: UUID? = nil
+  ) {
     _selectedPath = selectedPath
+    _selectedPathIsGit = selectedPathIsGit
     self.endpointId = endpointId
   }
 
@@ -86,6 +92,7 @@ struct RemoteProjectPicker: View {
 
       Button {
         selectedPath = ""
+        selectedPathIsGit = true
       } label: {
         Image(systemName: "xmark.circle.fill")
           .font(.system(size: 14))
@@ -164,6 +171,7 @@ struct RemoteProjectPicker: View {
   private func recentProjectRow(_ project: ServerRecentProject) -> some View {
     Button {
       selectedPath = project.path
+      selectedPathIsGit = true
     } label: {
       HStack(spacing: Spacing.md) {
         Image(systemName: "folder.fill")
@@ -233,6 +241,7 @@ struct RemoteProjectPicker: View {
         if !currentBrowsePath.isEmpty {
           Button {
             selectedPath = currentBrowsePath
+            selectedPathIsGit = false
           } label: {
             Text("Use This")
               .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -275,6 +284,7 @@ struct RemoteProjectPicker: View {
       if entry.isGit {
         // Git repo — select it as the project path
         selectedPath = newPath
+        selectedPathIsGit = true
       } else {
         // Regular dir — navigate into it
         browseDirectory(newPath)
@@ -337,6 +347,7 @@ struct RemoteProjectPicker: View {
           let trimmed = manualPathText.trimmingCharacters(in: .whitespacesAndNewlines)
           guard !trimmed.isEmpty else { return }
           selectedPath = trimmed
+          selectedPathIsGit = false // Unknown — let the sheet handle verification
         } label: {
           Text("Use")
             .font(.system(size: TypeScale.body, weight: .semibold))

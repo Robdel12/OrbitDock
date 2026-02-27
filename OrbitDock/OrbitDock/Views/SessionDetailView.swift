@@ -14,7 +14,9 @@ struct SessionDetailView: View {
   let onOpenSwitcher: () -> Void
   let onGoToDashboard: () -> Void
 
-  private var obs: SessionObservable { serverState.session(sessionId) }
+  private var obs: SessionObservable {
+    serverState.session(sessionId)
+  }
 
   @State private var terminalActionFailed = false
   @State private var copiedResume = false
