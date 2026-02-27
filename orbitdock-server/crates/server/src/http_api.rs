@@ -7,7 +7,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use orbitdock_connectors::discover_models;
+use orbitdock_connector_codex::discover_models;
 use orbitdock_protocol::{
     ApprovalHistoryItem, ClaudeIntegrationMode, ClaudeModelOption, ClaudeUsageSnapshot,
     CodexAccountStatus, CodexIntegrationMode, CodexModelOption, CodexUsageSnapshot, DirectoryEntry,

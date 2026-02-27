@@ -4,7 +4,8 @@ members = [
     "crates/server",
     "crates/protocol",
     "crates/connector-core",
-    "crates/connectors",
+    "crates/connector-claude",
+    "crates/connector-codex",
 ]
 
 [workspace.package]
@@ -64,7 +65,8 @@ qrcode = "0.14"
 # Internal crates
 orbitdock-protocol = { path = "crates/protocol" }
 orbitdock-connector-core = { path = "crates/connector-core" }
-orbitdock-connectors = { path = "crates/connectors" }
+orbitdock-connector-claude = { path = "crates/connector-claude" }
+orbitdock-connector-codex = { path = "crates/connector-codex" }
 
 # Patches required by codex-core transitive dependencies
 [patch.crates-io]

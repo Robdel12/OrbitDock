@@ -5,7 +5,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use orbitdock_connectors::{CodexConnector, ConnectorError, ConnectorEvent, SteerOutcome};
+use orbitdock_connector_codex::{CodexConnector, SteerOutcome};
+use orbitdock_connector_core::{ConnectorError, ConnectorEvent};
 use orbitdock_protocol::{MessageType, ServerMessage};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -51,7 +52,7 @@ impl CodexSession {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
-    ) -> Result<Self, orbitdock_connectors::ConnectorError> {
+    ) -> Result<Self, orbitdock_connector_core::ConnectorError> {
         let connector = CodexConnector::new(cwd, model, approval_policy, sandbox_mode).await?;
 
         Ok(Self {
@@ -68,7 +69,7 @@ impl CodexSession {
         model: Option<&str>,
         approval_policy: Option<&str>,
         sandbox_mode: Option<&str>,
-    ) -> Result<Self, orbitdock_connectors::ConnectorError> {
+    ) -> Result<Self, orbitdock_connector_core::ConnectorError> {
         let connector =
             CodexConnector::resume(cwd, thread_id, model, approval_policy, sandbox_mode).await?;
 
@@ -325,7 +326,7 @@ impl CodexSession {
     async fn handle_action(
         connector: &mut CodexConnector,
         action: CodexAction,
-    ) -> Result<(), orbitdock_connectors::ConnectorError> {
+    ) -> Result<(), orbitdock_connector_core::ConnectorError> {
         match action {
             CodexAction::SendMessage {
                 content,

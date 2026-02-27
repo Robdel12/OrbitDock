@@ -19,7 +19,7 @@ use tokio::process::Child;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
-use crate::{ApprovalType, ConnectorError, ConnectorEvent};
+use orbitdock_connector_core::{ApprovalType, ConnectorError, ConnectorEvent};
 
 // ---------------------------------------------------------------------------
 // Stdin messages (Rust → CLI)

@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use orbitdock_connectors::{ClaudeConnector, ConnectorEvent};
+use orbitdock_connector_claude::ClaudeConnector;
+use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::{ProviderSessionId, ServerMessage};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -149,7 +150,7 @@ impl ClaudeSession {
         allowed_tools: &[String],
         disallowed_tools: &[String],
         effort: Option<&str>,
-    ) -> Result<Self, orbitdock_connectors::ConnectorError> {
+    ) -> Result<Self, orbitdock_connector_core::ConnectorError> {
         let connector = ClaudeConnector::new(
             cwd,
             model,
@@ -465,7 +466,7 @@ impl ClaudeSession {
     async fn handle_action(
         connector: &ClaudeConnector,
         action: ClaudeAction,
-    ) -> Result<(), orbitdock_connectors::ConnectorError> {
+    ) -> Result<(), orbitdock_connector_core::ConnectorError> {
         match action {
             ClaudeAction::SendMessage {
                 content,
