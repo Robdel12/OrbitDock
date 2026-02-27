@@ -866,6 +866,7 @@ struct ProjectStreamSection: View {
   private func projectSection(_ group: ProjectGroup) -> some View {
     let sharedBranch = group.sharedBranch
     let projectSignals = projectSignalCounts(for: group.sessions)
+    let worktreeCount = group.sessions.filter(\.isWorktree).count
 
     return VStack(alignment: .leading, spacing: 0) {
       // Project divider rule
@@ -935,6 +936,14 @@ struct ProjectStreamSection: View {
                     color: .providerCodex
                   )
                 }
+
+                if worktreeCount > 0 {
+                  projectSignalChip(
+                    icon: "arrow.triangle.branch",
+                    count: worktreeCount,
+                    color: .gitBranch
+                  )
+                }
               }
             }
           }
@@ -984,6 +993,14 @@ struct ProjectStreamSection: View {
                 icon: "chevron.left.forwardslash.chevron.right",
                 count: projectSignals.direct,
                 color: .providerCodex
+              )
+            }
+
+            if worktreeCount > 0 {
+              projectSignalChip(
+                icon: "arrow.triangle.branch",
+                count: worktreeCount,
+                color: .gitBranch
               )
             }
 

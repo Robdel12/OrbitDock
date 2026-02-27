@@ -196,10 +196,17 @@ struct FlatSessionRow: View {
 
           // Branch badge — subtle, after the name
           if let branch = inlineBranch {
-            Text(branch)
-              .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
-              .foregroundStyle(Color.gitBranch.opacity(0.7))
-              .lineLimit(1)
+            HStack(spacing: 3) {
+              Text(branch)
+                .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color.gitBranch.opacity(0.7))
+                .lineLimit(1)
+              if session.isWorktree {
+                WorktreeBadge()
+              }
+            }
+          } else if session.isWorktree {
+            WorktreeBadge()
           }
 
           // Attention context (inline pill)
@@ -295,7 +302,8 @@ struct FlatSessionRow: View {
   }
 
   private var hasCompactSecondaryMeta: Bool {
-    session.endpointName != nil || serverState.session(session.id).forkedFrom != nil || inlineBranch != nil
+    session.endpointName != nil || serverState.session(session.id).forkedFrom != nil || inlineBranch != nil || session
+      .isWorktree
   }
 
   private var compactSecondaryMetaRow: some View {
@@ -313,6 +321,10 @@ struct FlatSessionRow: View {
           .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
           .foregroundStyle(Color.gitBranch.opacity(0.72))
           .lineLimit(1)
+      }
+
+      if session.isWorktree {
+        WorktreeBadge()
       }
     }
   }

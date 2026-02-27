@@ -93,6 +93,15 @@ If a Rust command is missing, add it to `Makefile` first and then run it via `ma
 - Auto-dismisses after 5 seconds, max 3 visible
 - Key files: `ToastManager.swift`, `ToastView.swift`
 
+### Git Worktree Detection
+- Server resolves `repository_root` via `git rev-parse --git-common-dir` for every session
+- `classify_common_dir` (pure function) derives the canonical repo root from git's common-dir output
+- Sessions set `repository_root`, `is_worktree`, and `worktree_id` on creation and environment changes
+- `Session.groupingPath` (`repositoryRoot ?? projectPath`) is used for dashboard grouping — worktree sessions automatically group with their parent repo
+- Git info (branch, SHA, repository_root, is_worktree) is re-resolved on every `UserPromptSubmit` hook for branch freshness (~10ms)
+- `assess_worktree_health` is a pure function for lifecycle management (Active → Orphaned → Stale → Removed)
+- Key files: `git.rs` (detection + CRUD), `worktree.rs` (health assessment), `hook_handler.rs` (enrichment)
+
 ### Cosmic Harbor Theme
 - Use custom colors from Theme.swift - deep space backgrounds with nebula undertones
 - `Color.backgroundPrimary` (void black), `Color.backgroundSecondary` (nebula purple), etc.
@@ -403,7 +412,7 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 ```
 
 ### Schema changes
-1. Add a numbered migration in `migrations/` (currently 001–008)
+1. Add a numbered migration in `migrations/` (currently 001–010)
 2. Add `include_str!` entry in `migration_runner.rs` `EMBEDDED_MIGRATIONS` array
 3. Use `IF NOT EXISTS` for safety
 4. Add the corresponding PersistCommand in `persistence.rs`
@@ -413,12 +422,13 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 ### Tables
 | Table | Purpose |
 |-------|---------|
-| `sessions` | Core session tracking — one row per Claude/Codex session. Includes `pending_approval_id` (queue head) and `approval_version` (monotonic counter for client gating) |
+| `sessions` | Core session tracking — one row per Claude/Codex session. Includes `pending_approval_id` (queue head), `approval_version` (monotonic counter), `repository_root`, `is_worktree`, `worktree_id` |
 | `messages` | Conversation messages per session |
 | `subagents` | Spawned Task agents (Explore, Plan, etc.) |
 | `turn_diffs` | Per-turn git diff snapshots + token usage |
 | `approval_history` | Tool approval requests and decisions |
 | `review_comments` | Code review annotations for workbench |
+| `worktrees` | Git worktree lifecycle tracking (status, health, auto-prune). Independent of sessions. |
 | `config` | Key-value settings (API keys stored encrypted) |
 | `schema_versions` | Migration tracking |
 
@@ -428,11 +438,14 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 - `orbitdock-server/crates/server/src/migration_runner.rs` — Embedded migrations via `include_str!`
 - `orbitdock-server/crates/server/src/websocket.rs` — WebSocket protocol
 - `orbitdock-server/crates/server/src/hook_handler.rs` — HTTP POST `/api/hook` endpoint for Claude Code hooks
+- `orbitdock-server/crates/server/src/git.rs` — Git detection (GitInfo, classify_common_dir, worktree CRUD)
+- `orbitdock-server/crates/server/src/worktree.rs` — Pure worktree health assessment + lifecycle
 - `orbitdock-server/crates/server/src/crypto.rs` — AES-256-GCM encryption for config secrets
 - `orbitdock-server/crates/server/src/auth.rs` — Optional Bearer token middleware
 - `orbitdock-server/crates/protocol/` — Shared types between server components
 - `migrations/001_baseline.sql` — Complete schema definition
 - `migrations/008_approval_version.sql` — Adds `approval_version` column to `sessions`
+- `migrations/010_worktree_support.sql` — Adds `worktrees` table, `repository_root`/`is_worktree`/`worktree_id` to `sessions`
 - `scripts/hook.sh` — Dev-time hook script
 - `scripts/hook.sh.template` — Templated hook script for standalone deploy
 

@@ -24,6 +24,12 @@ struct SidebarSessionRow: View {
       HStack(spacing: 8) {
         SessionStatusDot(status: displayStatus, size: 8)
 
+        if session.isWorktree {
+          Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(Color.gitBranch.opacity(0.6))
+        }
+
         Text(session.displayName)
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(isSelected ? .primary : .secondary)
