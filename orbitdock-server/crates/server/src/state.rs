@@ -3,7 +3,7 @@
 use dashmap::DashMap;
 use orbitdock_protocol::{ClientPrimaryClaim, SessionSummary};
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
@@ -64,6 +64,12 @@ pub struct SessionRegistry {
 
     /// Per-WebSocket-connection primary claim state from connected client devices.
     client_primary_claims: DashMap<u64, ClientPrimaryClaimState>,
+
+    /// Active WebSocket connection count (for metrics).
+    ws_connections: AtomicU64,
+
+    /// Server start time (for uptime metrics).
+    started_at: Instant,
 }
 
 impl SessionRegistry {
@@ -89,6 +95,8 @@ impl SessionRegistry {
             shell_service: Arc::new(ShellService::new()),
             is_primary: AtomicBool::new(is_primary),
             client_primary_claims: DashMap::new(),
+            ws_connections: AtomicU64::new(0),
+            started_at: Instant::now(),
         }
     }
 
@@ -99,6 +107,22 @@ impl SessionRegistry {
     pub fn set_primary(&self, is_primary: bool) -> bool {
         let previous = self.is_primary.swap(is_primary, Ordering::SeqCst);
         previous != is_primary
+    }
+
+    pub fn ws_connect(&self) -> u64 {
+        self.ws_connections.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn ws_disconnect(&self) -> u64 {
+        self.ws_connections.fetch_sub(1, Ordering::Relaxed) - 1
+    }
+
+    pub fn ws_connection_count(&self) -> u64 {
+        self.ws_connections.load(Ordering::Relaxed)
+    }
+
+    pub fn uptime_seconds(&self) -> u64 {
+        self.started_at.elapsed().as_secs()
     }
 
     pub fn set_client_primary_claim(
@@ -175,9 +199,19 @@ impl SessionRegistry {
         self.claude_actions.insert(session_id.to_string(), tx);
     }
 
+    /// Remove a Codex action sender (stale channel cleanup)
+    pub fn remove_codex_action_tx(&self, session_id: &str) {
+        self.codex_actions.remove(session_id);
+    }
+
     /// Get a Claude action sender (cloned)
     pub fn get_claude_action_tx(&self, session_id: &str) -> Option<mpsc::Sender<ClaudeAction>> {
         self.claude_actions.get(session_id).map(|r| r.clone())
+    }
+
+    /// Remove a Claude action sender (stale channel cleanup)
+    pub fn remove_claude_action_tx(&self, session_id: &str) {
+        self.claude_actions.remove(session_id);
     }
 
     /// Get all session summaries (lock-free via snapshots)

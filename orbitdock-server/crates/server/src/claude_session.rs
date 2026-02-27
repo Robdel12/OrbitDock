@@ -8,6 +8,7 @@ use std::sync::Arc;
 use orbitdock_connectors::{ClaudeConnector, ConnectorEvent};
 use orbitdock_protocol::{ProviderSessionId, ServerMessage};
 use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
 use crate::codex_session::handle_session_command;
@@ -195,10 +196,26 @@ impl ClaudeSession {
         let actor_for_naming = actor_handle.clone();
 
         tokio::spawn(async move {
+            // Watchdog channel for synthetic events (interrupt timeout)
+            let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
+            let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
+
             loop {
                 tokio::select! {
                     // Handle events from Claude connector
                     Some(event) = event_rx.recv() => {
+                        // Cancel watchdog on turn-ending events
+                        if matches!(
+                            event,
+                            ConnectorEvent::TurnAborted { .. }
+                            | ConnectorEvent::TurnCompleted
+                            | ConnectorEvent::SessionEnded { .. }
+                        ) {
+                            if let Some(handle) = interrupt_watchdog.take() {
+                                handle.abort();
+                            }
+                        }
+
                         // Register hook session IDs as managed threads so the hook
                         // handler doesn't create duplicate passive sessions. On --resume
                         // the CLI creates a new session_id for hooks.
@@ -279,6 +296,16 @@ impl ClaudeSession {
                         }
                     }
 
+                    // Handle synthetic events from watchdog
+                    Some(event) = watchdog_rx.recv() => {
+                        Self::handle_event_direct(
+                            &session_id,
+                            event,
+                            &mut session_handle,
+                            &persist,
+                        ).await;
+                    }
+
                     // Handle actions from WebSocket
                     Some(action) = action_rx.recv() => {
                         // Capture first user message as first_prompt
@@ -316,7 +343,47 @@ impl ClaudeSession {
                             }
                         }
 
-                        if let Err(e) = Self::handle_action(&self.connector, action).await {
+                        if matches!(action, ClaudeAction::Interrupt) {
+                            match self.connector.interrupt().await {
+                                Ok(()) => {
+                                    // Cancel any previous watchdog
+                                    if let Some(handle) = interrupt_watchdog.take() {
+                                        handle.abort();
+                                    }
+                                    // Spawn watchdog: if no turn-ending event within 10s,
+                                    // inject synthetic TurnAborted
+                                    let wd_tx = watchdog_tx.clone();
+                                    let wd_sid = session_id.clone();
+                                    interrupt_watchdog = Some(tokio::spawn(async move {
+                                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                                        warn!(
+                                            component = "claude_connector",
+                                            event = "claude.interrupt.watchdog_fired",
+                                            session_id = %wd_sid,
+                                            "Interrupt watchdog fired — forcing TurnAborted"
+                                        );
+                                        let _ = wd_tx.send(ConnectorEvent::TurnAborted {
+                                            reason: "interrupt_timeout".to_string(),
+                                        }).await;
+                                    }));
+                                }
+                                Err(e) => {
+                                    error!(
+                                        component = "claude_connector",
+                                        event = "claude.interrupt.failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "Interrupt failed, injecting error event"
+                                    );
+                                    Self::handle_event_direct(
+                                        &session_id,
+                                        ConnectorEvent::Error(format!("Interrupt failed: {}", e)),
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                            }
+                        } else if let Err(e) = Self::handle_action(&self.connector, action).await {
                             error!(
                                 component = "claude_connector",
                                 event = "claude.action.failed",
@@ -335,6 +402,12 @@ impl ClaudeSession {
                     else => break,
                 }
             }
+
+            // Clean up on exit
+            if let Some(handle) = interrupt_watchdog.take() {
+                handle.abort();
+            }
+            state.remove_claude_action_tx(&session_id);
 
             info!(
                 component = "claude_connector",

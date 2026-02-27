@@ -512,9 +512,8 @@ impl ClaudeConnector {
 
     /// Interrupt the current turn.
     pub async fn interrupt(&self) -> Result<(), ConnectorError> {
-        let _ = self
-            .send_control_request(ControlRequestBody::Interrupt)
-            .await;
+        self.send_control_request(ControlRequestBody::Interrupt)
+            .await?;
         Ok(())
     }
 

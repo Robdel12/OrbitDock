@@ -613,25 +613,29 @@ pub fn transition(
         }
 
         Input::TurnAborted { .. } => {
-            state.phase = WorkPhase::Idle;
-            state.last_activity_at = Some(now.to_string());
-            state.current_turn_id = None;
+            // Guard: only transition if we're actually in an active phase.
+            // A second TurnAborted (e.g. from watchdog after provider already aborted) is a no-op.
+            if !matches!(state.phase, WorkPhase::Idle | WorkPhase::Ended { .. }) {
+                state.phase = WorkPhase::Idle;
+                state.last_activity_at = Some(now.to_string());
+                state.current_turn_id = None;
 
-            effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
-                id: sid.clone(),
-                status: None,
-                work_status: Some(WorkStatus::Waiting),
-                last_activity_at: Some(now.to_string()),
-            })));
-            effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
-                session_id: sid,
-                changes: StateChanges {
+                effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
+                    id: sid.clone(),
+                    status: None,
                     work_status: Some(WorkStatus::Waiting),
                     last_activity_at: Some(now.to_string()),
-                    current_turn_id: Some(None),
-                    ..Default::default()
-                },
-            })));
+                })));
+                effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+                    session_id: sid,
+                    changes: StateChanges {
+                        work_status: Some(WorkStatus::Waiting),
+                        last_activity_at: Some(now.to_string()),
+                        current_turn_id: Some(None),
+                        ..Default::default()
+                    },
+                })));
+            }
         }
 
         Input::Error(msg) => {
@@ -798,16 +802,16 @@ pub fn transition(
                     .map(|prompt| prompt.question.clone())
                     .filter(|text| !text.is_empty())
             });
-            let preview = build_approval_preview(
-                request_id.as_str(),
+            let preview = build_approval_preview(ApprovalPreviewInput {
+                request_id: request_id.as_str(),
                 approval_type,
-                Some(resolved_tool_name.as_str()),
-                tool_input.as_deref(),
-                command.as_deref(),
-                file_path.as_deref(),
-                diff.as_deref(),
-                resolved_question.as_deref(),
-            );
+                tool_name: Some(resolved_tool_name.as_str()),
+                tool_input: tool_input.as_deref(),
+                command: command.as_deref(),
+                file_path: file_path.as_deref(),
+                diff: diff.as_deref(),
+                question: resolved_question.as_deref(),
+            });
 
             let request = ApprovalRequest {
                 id: request_id.clone(),
@@ -1216,16 +1220,29 @@ pub fn transition(
     (state, effects)
 }
 
-fn build_approval_preview(
-    request_id: &str,
+struct ApprovalPreviewInput<'a> {
+    request_id: &'a str,
     approval_type: ApprovalType,
-    tool_name: Option<&str>,
-    tool_input: Option<&str>,
-    command: Option<&str>,
-    file_path: Option<&str>,
-    diff: Option<&str>,
-    question: Option<&str>,
-) -> Option<ApprovalPreview> {
+    tool_name: Option<&'a str>,
+    tool_input: Option<&'a str>,
+    command: Option<&'a str>,
+    file_path: Option<&'a str>,
+    diff: Option<&'a str>,
+    question: Option<&'a str>,
+}
+
+fn build_approval_preview(input_data: ApprovalPreviewInput<'_>) -> Option<ApprovalPreview> {
+    let ApprovalPreviewInput {
+        request_id,
+        approval_type,
+        tool_name,
+        tool_input,
+        command,
+        file_path,
+        diff,
+        question,
+    } = input_data;
+
     let input = parse_tool_input_object(tool_input);
     let normalized_tool_name = trim_non_empty(tool_name)
         .map(|name| name.to_lowercase())
@@ -2575,16 +2592,16 @@ mod tests {
             expected_scope,
         ) in cases
         {
-            let preview = build_approval_preview(
-                "req-matrix",
+            let preview = build_approval_preview(ApprovalPreviewInput {
+                request_id: "req-matrix",
                 approval_type,
-                Some("Bash"),
-                Some(tool_input),
-                None,
-                None,
-                None,
-                None,
-            )
+                tool_name: Some("Bash"),
+                tool_input: Some(tool_input),
+                command: None,
+                file_path: None,
+                diff: None,
+                question: None,
+            })
             .expect("expected preview");
 
             assert_eq!(preview.preview_type, expected_preview_type);
@@ -2598,16 +2615,16 @@ mod tests {
 
     #[test]
     fn build_approval_preview_uses_prompt_preview_with_scope_and_low_risk_for_question() {
-        let preview = build_approval_preview(
-            "req-question",
-            ApprovalType::Question,
-            Some("AskUserQuestion"),
-            None,
-            None,
-            None,
-            None,
-            Some("How should we continue?"),
-        )
+        let preview = build_approval_preview(ApprovalPreviewInput {
+            request_id: "req-question",
+            approval_type: ApprovalType::Question,
+            tool_name: Some("AskUserQuestion"),
+            tool_input: None,
+            command: None,
+            file_path: None,
+            diff: None,
+            question: Some("How should we continue?"),
+        })
         .expect("expected preview");
 
         assert_eq!(preview.preview_type, ApprovalPreviewType::Prompt);

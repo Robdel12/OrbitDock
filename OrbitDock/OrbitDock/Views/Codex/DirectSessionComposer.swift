@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 #endif
 
 struct DirectSessionComposer: View {
-  let session: Session
+  let sessionId: String
   @Binding var selectedSkills: Set<String>
   @Binding var isPinned: Bool
   @Binding var unreadCount: Int
@@ -64,9 +64,7 @@ struct DirectSessionComposer: View {
   @State private var dictationController = WhisperDictationController()
   @State private var dictationDraftBaseMessage: String?
 
-  private var sessionId: String {
-    session.id
-  }
+  private var obs: SessionObservable { serverState.session(sessionId) }
 
   private var inputMode: InputMode {
     if manualShellMode { return .shell }
@@ -85,18 +83,18 @@ struct DirectSessionComposer: View {
   }
 
   private var isSessionWorking: Bool {
-    session.workStatus == .working
+    obs.workStatus == .working
   }
 
   private var isSessionActive: Bool {
-    session.isActive
+    obs.isActive
   }
 
   private var hasOverrides: Bool {
-    if session.isDirectCodex {
+    if obs.isDirectCodex {
       return selectedEffort != .default || selectedModel != defaultCodexModelSelection
     }
-    if session.isDirectClaude {
+    if obs.isDirectClaude {
       return !selectedClaudeModel.isEmpty && selectedClaudeModel != defaultClaudeModelSelection
     }
     return false
@@ -140,7 +138,7 @@ struct DirectSessionComposer: View {
   }
 
   private var defaultCodexModelSelection: String {
-    if let current = session.model,
+    if let current = obs.model,
        codexModelOptions.contains(where: { $0.model == current })
     {
       return current
@@ -152,26 +150,26 @@ struct DirectSessionComposer: View {
   }
 
   private var defaultClaudeModelSelection: String {
-    if let current = session.model,
+    if let current = obs.model,
        claudeModelOptions.contains(where: { $0.value == current })
     {
       return current
     }
-    return claudeModelOptions.first?.value ?? session.model ?? ""
+    return claudeModelOptions.first?.value ?? obs.model ?? ""
   }
 
   private var effectiveClaudeModel: String {
     if !selectedClaudeModel.isEmpty {
       return selectedClaudeModel
     }
-    if let sessionModel = session.model, !sessionModel.isEmpty {
+    if let sessionModel = obs.model, !sessionModel.isEmpty {
       return sessionModel
     }
     return defaultClaudeModelSelection
   }
 
   private var projectPath: String? {
-    session.projectPath
+    obs.projectPath
   }
 
   private var filteredFiles: [ProjectFileIndex.ProjectFile] {
@@ -188,7 +186,7 @@ struct DirectSessionComposer: View {
   }
 
   private var hasSkillsPanel: Bool {
-    session.isDirectCodex || serverState.session(sessionId).hasClaudeSkills
+    obs.isDirectCodex || serverState.session(sessionId).hasClaudeSkills
   }
 
   private var hasMcpData: Bool {
@@ -474,16 +472,16 @@ struct DirectSessionComposer: View {
         handleDrop(providers)
       }
       .task(id: sessionId) {
-        if session.isDirectCodex {
+        if obs.isDirectCodex {
           serverState.refreshCodexModels()
           if selectedModel.isEmpty {
             selectedModel = defaultCodexModelSelection
           }
           // Restore persisted effort level from server state
-          if let saved = session.effort, let level = EffortLevel(rawValue: saved) {
+          if let saved = obs.effort, let level = EffortLevel(rawValue: saved) {
             selectedEffort = level
           }
-        } else if session.isDirectClaude {
+        } else if obs.isDirectClaude {
           serverState.refreshClaudeModels()
           if selectedClaudeModel.isEmpty {
             selectedClaudeModel = defaultClaudeModelSelection
@@ -494,13 +492,13 @@ struct DirectSessionComposer: View {
         }
       }
       .onChange(of: codexModelOptionsSignature) { _, _ in
-        guard session.isDirectCodex else { return }
+        guard obs.isDirectCodex else { return }
         if selectedModel.isEmpty || !codexModelOptions.contains(where: { $0.model == selectedModel }) {
           selectedModel = defaultCodexModelSelection
         }
       }
       .onChange(of: claudeModelOptionsSignature) { _, _ in
-        guard session.isDirectClaude else { return }
+        guard obs.isDirectClaude else { return }
         if selectedClaudeModel.isEmpty || !claudeModelOptions.contains(where: { $0.value == selectedClaudeModel }) {
           selectedClaudeModel = defaultClaudeModelSelection
         }
@@ -560,24 +558,24 @@ struct DirectSessionComposer: View {
   }
 
   private var tokenContextPercentage: Double {
-    session.contextFillFraction
+    obs.contextFillFraction
   }
 
   private var tokenTooltipText: String {
     var parts: [String] = []
-    if let input = session.inputTokens {
+    if let input = obs.inputTokens {
       parts.append("Input: \(formatTokenCount(input))")
     }
-    if let output = session.outputTokens {
+    if let output = obs.outputTokens {
       parts.append("Output: \(formatTokenCount(output))")
     }
-    if let cached = session.cachedTokens, cached > 0,
-       session.effectiveContextInputTokens > 0
+    if let cached = obs.cachedTokens, cached > 0,
+       obs.effectiveContextInputTokens > 0
     {
-      let percent = Int(session.effectiveCacheHitPercent)
+      let percent = Int(obs.effectiveCacheHitPercent)
       parts.append("Cached: \(formatTokenCount(cached)) (\(percent)% savings)")
     }
-    if let window = session.contextWindow {
+    if let window = obs.contextWindow {
       parts.append("Context: \(formatTokenCount(window))")
     }
     return parts.isEmpty ? "Token usage" : parts.joined(separator: "\n")
@@ -673,9 +671,9 @@ struct DirectSessionComposer: View {
 
   private var desktopStatusBar: some View {
     HStack(spacing: 8) {
-      if session.isDirectCodex {
+      if obs.isDirectCodex {
         AutonomyPill(sessionId: sessionId)
-      } else if session.isDirectClaude {
+      } else if obs.isDirectClaude {
         ClaudePermissionPill(sessionId: sessionId)
       }
 
@@ -683,18 +681,18 @@ struct DirectSessionComposer: View {
         workingSteerLabel
       }
 
-      if session.hasTokenUsage {
+      if obs.hasTokenUsage {
         footerTokenLabel
       }
 
       footerModelLabel
 
-      if let branch = session.branch, !branch.isEmpty {
+      if let branch = obs.branch, !branch.isEmpty {
         footerBranchLabel(branch)
       }
 
-      if !session.projectPath.isEmpty {
-        statusBarCwdLabel(session.projectPath)
+      if !obs.projectPath.isEmpty {
+        statusBarCwdLabel(obs.projectPath)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -706,9 +704,9 @@ struct DirectSessionComposer: View {
   private var compactStatusBar: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 6) {
-        if session.isDirectCodex {
+        if obs.isDirectCodex {
           AutonomyPill(sessionId: sessionId)
-        } else if session.isDirectClaude {
+        } else if obs.isDirectClaude {
           ClaudePermissionPill(sessionId: sessionId)
         }
 
@@ -716,13 +714,13 @@ struct DirectSessionComposer: View {
           workingSteerLabel
         }
 
-        if session.hasTokenUsage {
+        if obs.hasTokenUsage {
           compactFooterTokenChip
         }
 
         footerModelLabel
 
-        if let branch = session.branch, !branch.isEmpty {
+        if let branch = obs.branch, !branch.isEmpty {
           footerBranchLabel(branch)
         }
       }
@@ -779,11 +777,11 @@ struct DirectSessionComposer: View {
     HStack(spacing: 4) {
       // Ghost action icons
       HStack(spacing: 2) {
-        if session.workStatus == .working {
+        if obs.workStatus == .working {
           CodexInterruptButton(sessionId: sessionId)
         }
 
-        if session.isDirectCodex || session.isDirectClaude {
+        if obs.isDirectCodex || obs.isDirectClaude {
           providerModelControlButton
         }
 
@@ -826,11 +824,11 @@ struct DirectSessionComposer: View {
     HStack(spacing: 6) {
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 4) {
-          if session.workStatus == .working {
+          if obs.workStatus == .working {
             CodexInterruptButton(sessionId: sessionId, isCompact: true)
           }
 
-          if session.isDirectCodex || session.isDirectClaude {
+          if obs.isDirectCodex || obs.isDirectClaude {
             providerModelControlButton
           }
 
@@ -864,8 +862,8 @@ struct DirectSessionComposer: View {
     return HStack(spacing: 3) {
       Text("\(displayPct)%")
         .foregroundStyle(color)
-      if let window = session.contextWindow {
-        let total = session.effectiveContextInputTokens
+      if let window = obs.contextWindow {
+        let total = obs.effectiveContextInputTokens
         Text("·")
           .foregroundStyle(Color.textQuaternary)
         Text("\(formatTokenCount(total))/\(formatTokenCount(window))")
@@ -878,13 +876,13 @@ struct DirectSessionComposer: View {
 
   @ViewBuilder
   private var footerModelLabel: some View {
-    if session.isDirectCodex, !selectedModel.isEmpty {
+    if obs.isDirectCodex, !selectedModel.isEmpty {
       Text(shortModelName(selectedModel))
         .font(.system(size: 10, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
         .lineLimit(1)
         .help("Model: \(selectedModel)\nEffort: \(selectedEffort.displayName)")
-    } else if session.isDirectClaude, !effectiveClaudeModel.isEmpty {
+    } else if obs.isDirectClaude, !effectiveClaudeModel.isEmpty {
       Text(shortModelName(effectiveClaudeModel))
         .font(.system(size: 10, weight: .medium, design: .monospaced))
         .foregroundStyle(Color.textTertiary)
@@ -971,9 +969,9 @@ struct DirectSessionComposer: View {
     let pct = Int(tokenContextPercentage * 100)
     let color: Color = pct > 90 ? .statusError : pct > 70 ? .statusReply : .accent
     let displayPct = if tokenContextPercentage > 0, pct == 0 { "< 1" } else { "\(pct)" }
-    let total = session.effectiveContextInputTokens
+    let total = obs.effectiveContextInputTokens
 
-    let text = if total > 0, let window = session.contextWindow {
+    let text = if total > 0, let window = obs.contextWindow {
       "\(displayPct)%·\(formatTokenCount(total))/\(formatTokenCount(window))"
     } else {
       "\(displayPct)%"
@@ -1043,9 +1041,9 @@ struct DirectSessionComposer: View {
 
   @ViewBuilder
   private var providerModelControlButton: some View {
-    if session.isDirectCodex {
+    if obs.isDirectCodex {
       modelEffortControlButton
-    } else if session.isDirectClaude {
+    } else if obs.isDirectClaude {
       claudeModelControlButton
     }
   }
@@ -1165,7 +1163,7 @@ struct DirectSessionComposer: View {
 
   @ViewBuilder
   private var turnActionsMenuContent: some View {
-    if session.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
+    if obs.isDirectCodex || serverState.session(sessionId).hasSlashCommand("undo") {
       Button {
         serverState.undoLastTurn(sessionId: sessionId)
       } label: {
@@ -1181,7 +1179,7 @@ struct DirectSessionComposer: View {
     }
     .disabled(serverState.session(sessionId).forkInProgress)
 
-    if session.hasTokenUsage {
+    if obs.hasTokenUsage {
       Button {
         serverState.compactContext(sessionId: sessionId)
       } label: {
@@ -1421,7 +1419,7 @@ struct DirectSessionComposer: View {
 
       Spacer()
 
-      if let lastActivity = session.lastActivityAt {
+      if let lastActivity = obs.lastActivityAt {
         Text(lastActivity, style: .relative)
           .font(.system(size: TypeScale.body, design: .monospaced))
           .foregroundStyle(Color.textTertiary)
@@ -1501,12 +1499,12 @@ struct DirectSessionComposer: View {
     let hasContent = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     if inputMode == .shell { return !isSending && hasContent }
     if isSessionWorking { return !isSending && (hasContent || hasAttachments) }
-    let hasModel: Bool = if session.isDirectCodex {
+    let hasModel: Bool = if obs.isDirectCodex {
       !selectedModel.isEmpty
-    } else if session.isDirectClaude {
+    } else if obs.isDirectClaude {
       !effectiveClaudeModel.isEmpty
     } else {
-      session.model != nil
+      obs.model != nil
     }
     return !isSending && (hasContent || hasAttachments) && hasModel
   }
@@ -1556,20 +1554,20 @@ struct DirectSessionComposer: View {
     }
 
     let effectiveModel: String
-    if session.isDirectCodex {
+    if obs.isDirectCodex {
       guard !selectedModel.isEmpty else {
         errorMessage = "No model available yet. Wait for model list to load."
         return
       }
       effectiveModel = selectedModel
-    } else if session.isDirectClaude {
+    } else if obs.isDirectClaude {
       guard !effectiveClaudeModel.isEmpty else {
         errorMessage = "No Claude model available yet. Wait for model list to load."
         return
       }
       effectiveModel = effectiveClaudeModel
     } else {
-      effectiveModel = session.model ?? ""
+      effectiveModel = obs.model ?? ""
     }
 
     let effort = selectedEffort.serialized
@@ -1588,7 +1586,6 @@ struct DirectSessionComposer: View {
     }
 
     // Prepend any pending shell context
-    let obs = serverState.session(sessionId)
     if let shellContext = obs.consumeShellContext() {
       expandedContent = "\(shellContext)\n\n\(expandedContent)"
     }
@@ -1752,8 +1749,8 @@ struct DirectSessionComposer: View {
     mentionIndex = 0
     mentionActive = true
 
-    if let path = projectPath {
-      Task { await fileIndex.loadIfNeeded(path) }
+    if let path = projectPath, !fileIndex.isReady(for: path) {
+      Task { [weak fileIndex] in await fileIndex?.loadIfNeeded(path) }
     }
   }
 
@@ -1796,8 +1793,8 @@ struct DirectSessionComposer: View {
       return
     }
     filePickerQuery = ""
-    if let path = projectPath {
-      Task { await fileIndex.loadIfNeeded(path) }
+    if let path = projectPath, !fileIndex.isReady(for: path) {
+      Task { [weak fileIndex] in await fileIndex?.loadIfNeeded(path) }
     }
     showFilePickerPopover = true
   }
@@ -1840,8 +1837,8 @@ struct DirectSessionComposer: View {
     if serverState.session(sessionId).mcpTools.isEmpty {
       serverState.listMcpTools(sessionId: sessionId)
     }
-    if let path = projectPath {
-      Task { await fileIndex.loadIfNeeded(path) }
+    if let path = projectPath, !fileIndex.isReady(for: path) {
+      Task { [weak fileIndex] in await fileIndex?.loadIfNeeded(path) }
     }
   }
 
@@ -2165,10 +2162,20 @@ struct CodexInterruptButton: View {
     .platformHover($isHovering)
     .animation(.easeOut(duration: 0.15), value: isHovering)
     .help("Stop")
+    .onChange(of: workStatus) { _, newValue in
+      if isInterrupting && newValue != .working {
+        isInterrupting = false
+      }
+    }
   }
 
   private func interrupt() {
+    isInterrupting = true
     serverState.interruptSession(sessionId)
+  }
+
+  private var workStatus: Session.WorkStatus {
+    serverState.session(sessionId).workStatus
   }
 }
 
@@ -2519,13 +2526,7 @@ private struct ComposerClaudeModelPopover: View {
   @Previewable @State var unread = 0
   @Previewable @State var scroll = 0
   DirectSessionComposer(
-    session: Session(
-      id: "test-session",
-      projectPath: "/Users/test/project",
-      model: "o3",
-      status: .active,
-      workStatus: .working
-    ),
+    sessionId: "test-session",
     selectedSkills: $skills,
     isPinned: $pinned,
     unreadCount: $unread,
