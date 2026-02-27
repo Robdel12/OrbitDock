@@ -1139,10 +1139,12 @@ struct ProjectStreamSection: View {
     // Merge subdirectory paths into their parent project.
     // e.g., sessions in /foo/bar and /foo/bar/sub both group under /foo/bar.
     // But don't merge into overly generic parent paths like ~/Developer.
+    // Use groupingPath (repositoryRoot ?? projectPath) so worktree sessions
+    // group with their parent repo instead of appearing as separate projects.
     let pathsByEndpointScope = Dictionary(grouping: sessions) { $0.endpointId?.uuidString ?? "single-endpoint" }
-      .mapValues { Set($0.map(\.projectPath)) }
+      .mapValues { Set($0.map(\.groupingPath)) }
     let canonicalPath: (Session) -> String = { session in
-      let path = session.projectPath
+      let path = session.groupingPath
       let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
       let allPaths = pathsByEndpointScope[endpointScope] ?? []
       // If this path is a subdirectory of another session's path, merge up
@@ -1183,7 +1185,7 @@ struct ProjectStreamSection: View {
         }
       }
 
-      let path = first.projectPath
+      let path = first.groupingPath
       let projectName = first.projectName ?? path.components(separatedBy: "/").last ?? "Unknown"
       let endpointScope = first.endpointId?.uuidString ?? "single-endpoint"
       let groupKey = "\(endpointScope)::\(path)"

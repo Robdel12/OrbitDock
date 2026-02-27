@@ -58,6 +58,9 @@ extension ServerSessionSummary {
     session.gitSha = gitSha
     session.currentCwd = currentCwd
     session.effort = effort
+    session.repositoryRoot = repositoryRoot
+    session.isWorktree = isWorktree ?? false
+    session.worktreeId = worktreeId
     return session
   }
 }
@@ -124,6 +127,9 @@ extension ServerSessionState {
     session.effort = effort
     session.terminalSessionId = terminalSessionId
     session.terminalApp = terminalApp
+    session.repositoryRoot = repositoryRoot
+    session.isWorktree = isWorktree ?? false
+    session.worktreeId = worktreeId
     return session
   }
 }

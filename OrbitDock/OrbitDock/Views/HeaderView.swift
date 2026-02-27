@@ -24,7 +24,9 @@ struct HeaderView: View {
   @AppStorage("preferredEditor") private var preferredEditor: String = ""
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  private var obs: SessionObservable { serverState.session(sessionId) }
+  private var obs: SessionObservable {
+    serverState.session(sessionId)
+  }
 
   private var statusColor: Color {
     switch obs.workStatus {
@@ -275,6 +277,11 @@ struct HeaderView: View {
                 .font(.system(size: TypeScale.caption, weight: .semibold))
               Text(compactBranchLabel(branch))
                 .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+              if obs.isWorktree {
+                Text("worktree")
+                  .font(.system(size: TypeScale.caption - 1, weight: .medium))
+                  .foregroundStyle(Color.textTertiary)
+              }
             }
             .foregroundStyle(Color.gitBranch)
             .padding(.horizontal, Spacing.sm)
@@ -629,7 +636,9 @@ struct CodexTokenBadge: View {
   let sessionId: String
   @Environment(ServerAppState.self) private var serverState
 
-  private var obs: SessionObservable { serverState.session(sessionId) }
+  private var obs: SessionObservable {
+    serverState.session(sessionId)
+  }
 
   var body: some View {
     HStack(spacing: 8) {

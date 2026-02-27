@@ -128,6 +128,9 @@ final class ServerAppState {
     obs.tokenUsageSnapshotKind = sess.tokenUsageSnapshotKind
     obs.gitSha = sess.gitSha
     obs.currentCwd = sess.currentCwd
+    obs.repositoryRoot = sess.repositoryRoot
+    obs.isWorktree = sess.isWorktree
+    obs.worktreeId = sess.worktreeId
   }
 
   // MARK: - Private Internal State
@@ -1423,6 +1426,14 @@ final class ServerAppState {
         sess.lastActivityAt = date
         obs.lastActivityAt = date
       }
+    }
+    if let repoRootOuter = changes.repositoryRoot {
+      sess.repositoryRoot = repoRootOuter
+      obs.repositoryRoot = repoRootOuter
+    }
+    if let isWt = changes.isWorktree {
+      sess.isWorktree = isWt
+      obs.isWorktree = isWt
     }
 
     sessions[idx] = sess

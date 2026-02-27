@@ -76,6 +76,12 @@ struct Session: Identifiable, Hashable, Sendable {
   var currentCwd: String? // Agent's current working directory
   var effort: String? // Last-used reasoning effort level
 
+  // MARK: - Worktree Detection
+
+  var repositoryRoot: String? // Canonical repo root (from git-common-dir)
+  var isWorktree: Bool = false // True if session runs in a linked worktree
+  var worktreeId: String? // Links to worktrees table record
+
   var currentDiff: String? // Aggregated diff for current turn
   var currentPlan: [PlanStep]? // Agent's plan for current turn
 
@@ -235,6 +241,11 @@ struct Session: Identifiable, Hashable, Sendable {
   var displayName: String {
     let raw = customName ?? summary ?? firstPrompt ?? projectName ?? projectPath.components(separatedBy: "/").last ?? "Unknown"
     return raw.strippingXMLTags()
+  }
+
+  /// Path used for project grouping — worktree sessions group with their parent repo.
+  var groupingPath: String {
+    repositoryRoot ?? projectPath
   }
 
   /// For backward compatibility

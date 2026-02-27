@@ -105,6 +105,9 @@ final class SessionObservable {
   var endReason: String?
   var gitSha: String?
   var currentCwd: String?
+  var repositoryRoot: String?
+  var isWorktree: Bool = false
+  var worktreeId: String?
 
   init(id: String) {
     self.id = id
@@ -112,7 +115,9 @@ final class SessionObservable {
 
   // MARK: - Computed properties (mirror Session computed logic)
 
-  var isActive: Bool { status == .active }
+  var isActive: Bool {
+    status == .active
+  }
 
   var displayStatus: SessionDisplayStatus {
     guard isActive else { return .ended }
@@ -124,7 +129,9 @@ final class SessionObservable {
     }
   }
 
-  var isDirect: Bool { isDirectCodex || isDirectClaude }
+  var isDirect: Bool {
+    isDirectCodex || isDirectClaude
+  }
 
   var isDirectCodex: Bool {
     provider == .codex && codexIntegrationMode == .direct
@@ -168,6 +175,10 @@ final class SessionObservable {
   var scopedID: String {
     guard let endpointId else { return id }
     return SessionRef(endpointId: endpointId, sessionId: id).scopedID
+  }
+
+  var groupingPath: String {
+    repositoryRoot ?? projectPath
   }
 
   var effectiveContextInputTokens: Int {

@@ -359,7 +359,10 @@ struct ServerAppStateApprovalQueueTests {
       firstPrompt: nil,
       lastMessage: nil,
       effort: nil,
-      approvalVersion: nil
+      approvalVersion: nil,
+      repositoryRoot: nil,
+      isWorktree: nil,
+      worktreeId: nil
     )
   }
 }

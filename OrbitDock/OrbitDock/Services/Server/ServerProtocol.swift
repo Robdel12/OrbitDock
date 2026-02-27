@@ -475,6 +475,9 @@ struct ServerSessionSummary: Codable, Identifiable {
   let lastMessage: String?
   let effort: String?
   let approvalVersion: UInt64?
+  let repositoryRoot: String?
+  let isWorktree: Bool?
+  let worktreeId: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -508,6 +511,9 @@ struct ServerSessionSummary: Codable, Identifiable {
     case firstPrompt = "first_prompt"
     case lastMessage = "last_message"
     case effort
+    case repositoryRoot = "repository_root"
+    case isWorktree = "is_worktree"
+    case worktreeId = "worktree_id"
   }
 }
 
@@ -724,6 +730,9 @@ struct ServerSessionState: Codable, Identifiable {
   let terminalSessionId: String?
   let terminalApp: String?
   let approvalVersion: UInt64?
+  let repositoryRoot: String?
+  let isWorktree: Bool?
+  let worktreeId: String?
 
   enum CodingKeys: String, CodingKey {
     case id
@@ -768,6 +777,9 @@ struct ServerSessionState: Codable, Identifiable {
     case terminalSessionId = "terminal_session_id"
     case terminalApp = "terminal_app"
     case approvalVersion = "approval_version"
+    case repositoryRoot = "repository_root"
+    case isWorktree = "is_worktree"
+    case worktreeId = "worktree_id"
   }
 
   init(from decoder: Decoder) throws {
@@ -818,6 +830,9 @@ struct ServerSessionState: Codable, Identifiable {
     terminalSessionId = try container.decodeIfPresent(String.self, forKey: .terminalSessionId)
     terminalApp = try container.decodeIfPresent(String.self, forKey: .terminalApp)
     approvalVersion = try container.decodeIfPresent(UInt64.self, forKey: .approvalVersion)
+    repositoryRoot = try container.decodeIfPresent(String.self, forKey: .repositoryRoot)
+    isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree)
+    worktreeId = try container.decodeIfPresent(String.self, forKey: .worktreeId)
   }
 }
 
@@ -849,6 +864,8 @@ struct ServerStateChanges: Codable {
   let effort: String??
   let permissionMode: String??
   let approvalVersion: UInt64?
+  let repositoryRoot: String??
+  let isWorktree: Bool?
 
   enum CodingKeys: String, CodingKey {
     case status
@@ -876,6 +893,8 @@ struct ServerStateChanges: Codable {
     case effort
     case permissionMode = "permission_mode"
     case approvalVersion = "approval_version"
+    case repositoryRoot = "repository_root"
+    case isWorktree = "is_worktree"
   }
 }
 

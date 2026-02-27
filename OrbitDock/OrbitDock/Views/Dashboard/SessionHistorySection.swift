@@ -74,12 +74,12 @@ struct SessionHistorySection: View {
   private var projectGroups: [SessionHistoryGroup] {
     let grouped = Dictionary(grouping: endedSessions) { session in
       let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
-      return "\(endpointScope)::\(session.projectPath)"
+      return "\(endpointScope)::\(session.groupingPath)"
     }
 
     return grouped.compactMap { _, sessions in
       guard let first = sessions.first else { return nil }
-      let path = first.projectPath
+      let path = first.groupingPath
       let endpointScope = first.endpointId?.uuidString ?? "single-endpoint"
       let projectName = sessions.first?.projectName
         ?? path.components(separatedBy: "/").last
