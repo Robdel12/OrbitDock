@@ -1,6 +1,6 @@
 # OrbitDock
 
-Mission control for AI coding agents. Native macOS and iOS clients that monitor your Claude Code and Codex sessions from one dashboard — live status, conversations, code review, approvals, and usage tracking.
+Mission control for AI coding agents. One dashboard for all your Claude Code and Codex sessions — live status, conversations, code review, approvals, and usage tracking.
 
 ![macOS](https://img.shields.io/badge/macOS-14.0+-blue)
 ![iOS](https://img.shields.io/badge/iOS-17.0+-blue)
@@ -10,211 +10,66 @@ Mission control for AI coding agents. Native macOS and iOS clients that monitor 
 
 https://github.com/user-attachments/assets/58be4f6e-55f9-43fe-9336-d3db99c4471c
 
+## Why
 
-## Why This Exists
+I don't write code anymore — agents do. My job is review, management, and guidance at the right time. But with multiple repos and a bunch of agents running across all of them, keeping track of it all was chaos. OrbitDock is how I wrangle that.
 
-I don't write code anymore — agents do. My job is review, management, and guidance at the right time.
+## What You Get
 
-The problem? I've got multiple products, lots of repos, and a bunch of LLM agents running across all of them. Keeping track of it all was chaos. Which session needs permission? Did that refactor finish? Is Claude waiting on me or still working? I'd cycle through terminal tabs trying to figure out what was happening where.
-
-OrbitDock is how I wrangle all that. One dashboard to track every session across every project — live status, conversation history, code review, usage limits, and direct agent control.
-
-## Features
-
-- **Multi-Provider** — Claude Code and Codex sessions in one place
-- **Multi-Server** — Connect to multiple `orbitdock-server` endpoints at once (local, laptop, Pi, cloud)
-- **Live Monitoring** — Watch conversations unfold with real-time status (Working, Permission, Question, Reply, Ended)
-- **Review Canvas** — Magit-style code review with inline comments that steer the agent
-- **Approval Oversight** — Diff previews, risk cues, keyboard triage (y/n/!/N)
-- **Shell Execution** — Run shell commands in Codex sessions directly from the app
-- **Direct Codex Control** — Create sessions, send messages, approve tools — no terminal needed
-- **Usage Tracking** — Rate limit monitoring for both Claude and Codex
-- **Quick Switcher (Cmd+K)** — Jump between sessions or run commands instantly
-- **Focus Terminal (Cmd+T)** — Jump to the iTerm2 tab running a session
-- **MCP Bridge** — Control Codex sessions from Claude Code via MCP tools
-- **Local-First** — All data stays on your machine in SQLite
+- **Live monitoring** — Watch every session across every project in real time
+- **Code review** — Magit-style diffs with inline comments that steer the agent
+- **Approval triage** — Diff previews, risk cues, keyboard shortcuts (y/n/!/N)
+- **Direct control** — Create sessions, send messages, approve tools, run shell commands
+- **Usage tracking** — Rate limit monitoring for Claude and Codex
+- **Multi-server** — Connect to local, remote, and cloud endpoints at once
 
 See [FEATURES.md](FEATURES.md) for the full list.
 
-## Quick Start
+## Get Started
 
-### macOS App
-
-```bash
-git clone https://github.com/Robdel12/OrbitDock.git
-cd OrbitDock
-make build
-open OrbitDock/OrbitDock.xcodeproj
-```
-
-Hit Cmd+R. On first launch, the app checks if the server is reachable. If it is (you're running `make rust-run`, brew, or launchd), you'll go straight to the dashboard. If not, you'll see a setup view that walks you through installation.
-
-### Server Setup
-
-The server runs separately from the app — as a background service, a manual `make rust-run`, or on a remote machine.
-
-**One-liner install (server only):**
+### 1. Install the server
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-This downloads a prebuilt binary (macOS / Linux x86_64) or builds from source as a fallback. Installs to `~/.orbitdock/bin/`, runs `init`, installs Claude hooks, and enables launchd/systemd.
+This downloads a prebuilt binary (macOS / Linux x86_64) or builds from source as a fallback. It handles everything — data directory, database, Claude Code hooks, and a background service.
 
-**From the app:** Click "Install Locally" in the setup view. It copies the binary to `~/.orbitdock/bin/`, runs `init` and `install-hooks`, and registers a launchd service that auto-starts at login.
+### 2. Run the app
 
-**From the CLI (repo dev workflow):** Build and set up manually if you prefer:
-
-```bash
-# From repo root
-make rust-build
-
-# Then run the built binary directly
-./.cache/rust/target/debug/orbitdock-server init          # create data dir, database, hook script
-./.cache/rust/target/debug/orbitdock-server install-hooks # wire up Claude Code hooks
-./.cache/rust/target/debug/orbitdock-server start         # start listening on :4000
-```
-
-**As a system service:**
+Download from [Releases](https://github.com/Robdel12/OrbitDock/releases), or build from source:
 
 ```bash
-orbitdock-server install-service --enable   # launchd on macOS, systemd on Linux
+git clone https://github.com/Robdel12/OrbitDock.git
+cd OrbitDock
+make build
+open OrbitDock/OrbitDock.xcodeproj   # Cmd+R
 ```
 
-**For development:** use `make rust-run` — the app detects it via health check and connects.
+The app detects the server automatically. Start a Claude Code or Codex session and it shows up in the dashboard.
 
-You'll need [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed already — `install-hooks` writes to its settings file.
+### Remote server
 
-Codex direct sessions work out of the box. The server embeds codex-core, so you can create and control Codex sessions without a separate CLI.
-
-**Remote setups:**
+For running the server on a VPS, Raspberry Pi, or another machine:
 
 ```bash
-orbitdock-server generate-token
-orbitdock-server start --bind 0.0.0.0:4000 --auth-token $(cat ~/.orbitdock/auth-token)
+orbitdock-server setup --remote
 ```
 
-In the app, use "Connect to Remote Server" and enter the IP address.
-
-Usage polling is routed through the control-plane endpoint selected on each device. If that endpoint reports an auth error (for example expired Claude token), OrbitDock keeps the usage card visible and shows the error state directly in UI.
-
-See [orbitdock-server/README.md](orbitdock-server/README.md) for the full CLI reference.
-
-### Hook Setup
-
-If you ran `orbitdock-server install-hooks`, you're already set.
-
-Otherwise, add to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_session_start"}]}],
-    "SessionEnd": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_session_end"}]}],
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_status_event"}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_status_event"}]}],
-    "Notification": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_status_event"}]}],
-    "PreToolUse": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_tool_event"}]}],
-    "PostToolUse": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_tool_event"}]}],
-    "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_tool_event"}]}],
-    "SubagentStart": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_subagent_event"}]}],
-    "SubagentStop": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_subagent_event"}]}],
-    "PreCompact": [{"hooks": [{"type": "command", "command": "~/.orbitdock/hook.sh claude_status_event"}]}]
-  }
-}
-```
-
-Codex sessions are picked up automatically — no hook config needed.
-
-## Architecture
-
-Two main pieces: **SwiftUI clients** (macOS + iOS) and a **Rust server**. The server runs standalone — as a launchd/systemd service, via `make rust-run`, or on a remote machine. Clients use HTTP for bootstrap/read paths and WebSocket for realtime updates across one or many configured endpoints.
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                   OrbitDock.app (SwiftUI)                │
-│                                                          │
-│  Dashboard ←→ Session Detail ←→ Review Canvas            │
-│       │              │                │                   │
-│       └──────────────┴────────────────┘                   │
-│                      │ HTTP + WebSocket                   │
-│                      ▼                                    │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │        orbitdock-server (Rust + Tokio)            │    │
-│  │                                                    │    │
-│  │  SessionRegistry ──► SessionActor (per session)    │    │
-│  │       │                    │                       │    │
-│  │       │              TransitionFn (pure)           │    │
-│  │       │                    │                       │    │
-│  │       └──── Persistence ───┘                       │    │
-│  │                    │                               │    │
-│  │             CodexConnector (codex-core)            │    │
-│  └──────────────────────────────────────────────────┘    │
-│                                                          │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │  Claude Code ← hook.sh (HTTP POST to server)      │    │
-│  │  Codex CLI   ← FSEvents watcher                   │    │
-│  └──────────────────────────────────────────────────┘    │
-│                                                          │
-│  SQLite + WAL  (~/.orbitdock/orbitdock.db)                │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Claude Code** sessions are tracked via `~/.orbitdock/hook.sh`, which POSTs events to the server. If the server is offline, events get spooled to disk and drained on next startup.
-
-**Codex** sessions are tracked two ways:
-- **Passive** — A file watcher monitors `~/.codex/sessions/` for rollout files
-- **Direct** — The server connects to codex-core for full control (send messages, approve tools, run shell commands)
-
-For the server internals (actor model, state machine, registry), see [orbitdock-server/README.md](orbitdock-server/README.md).
+See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and more.
 
 ## Requirements
 
-- macOS 14.0+
-- Xcode 15+ and Rust toolchain (for building from source)
+- macOS 14.0+ (iOS 17.0+ for mobile)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) for Claude session tracking
+- Xcode 15+ and Rust toolchain if building from source
 
-## Project Structure
+## Documentation
 
-```
-├── orbitdock-server/           # Rust server (standalone binary)
-│   └── crates/
-│       ├── server/             # Main binary — actors, persistence, CLI
-│       ├── protocol/           # Shared types (client ↔ server)
-│       └── connectors/         # AI provider connectors (codex-core)
-├── OrbitDock/                  # Xcode project
-│   ├── OrbitDock/              # SwiftUI macOS app
-│   │   ├── Views/              # Dashboard, review canvas, tool cards
-│   │   ├── Services/           # Server connection, business logic
-│   │   └── Models/             # Session, provider, protocol types
-│   └── OrbitDockCore/          # Swift Package (shared code)
-├── orbitdock-debug-mcp/        # MCP server for cross-agent control
-├── migrations/                 # SQL migrations (embedded in server at compile time)
-└── scripts/
-    ├── hook.sh                 # Dev-time hook script
-    └── hook.sh.template        # Template for standalone deploy
-```
-
-## Development
-
-```bash
-make build             # Build the macOS app
-make test-unit         # Unit tests (no UI automation)
-make test-all          # Everything
-
-make rust-check        # Rust workspace check
-make rust-test         # Rust workspace tests
-make rust-ci           # fmt + clippy + tests
-make rust-run          # Run orbitdock-server locally
-make rust-env          # Show Rust cache/build configuration
-make rust-size         # Inspect Rust cache disk usage
-make fmt               # Format Swift + Rust
-make lint              # Lint Swift + Rust
-```
-
-Rust workflow policy: use `make rust-*` targets for normal development and avoid plain `cargo` commands, which can bypass repo cache settings and create duplicate `target` trees.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+- [FEATURES.md](FEATURES.md) — Full feature list with keyboard shortcuts
+- [DEPLOYMENT.md](DEPLOYMENT.md) — Server deployment guide (remote, TLS, tunnels)
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup and architecture
+- [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
 
 ## License
 
