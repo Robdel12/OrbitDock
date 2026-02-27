@@ -1,25 +1,24 @@
 #![allow(clippy::items_after_test_module)]
 
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
-use anyhow::Context;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use orbitdock_connector_codex::rollout_parser::{
+    self, collect_jsonl_files, current_time_rfc3339, current_time_unix_z, is_jsonl_path,
+    is_recent_file, load_persisted_state, matches_supported_event_kind, rollout_session_id_hint,
+    RolloutEvent, RolloutFileProcessor, SessionSource, CATCHUP_SWEEP_SECS, DEBOUNCE_MS,
+    SESSION_TIMEOUT_SECS, STARTUP_SEED_RECENT_SECS,
+};
 use orbitdock_protocol::{
     CodexIntegrationMode, Message, MessageType, Provider, ServerMessage, SessionStatus,
-    StateChanges, TokenUsage, TokenUsageSnapshotKind, WorkStatus,
+    StateChanges, TokenUsageSnapshotKind, WorkStatus,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::persistence::{is_direct_thread_owned_async, PersistCommand};
 use crate::session::SessionHandle;
@@ -27,11 +26,6 @@ use crate::session_command::SessionCommand;
 use crate::session_naming::name_from_first_prompt;
 use crate::state::SessionRegistry;
 use tokio::sync::oneshot;
-
-const DEBOUNCE_MS: u64 = 150;
-const SESSION_TIMEOUT_SECS: u64 = 120;
-const STARTUP_SEED_RECENT_SECS: u64 = 15 * 60;
-const CATCHUP_SWEEP_SECS: u64 = 3;
 
 pub async fn start_rollout_watcher(
     app_state: Arc<SessionRegistry>,
@@ -65,7 +59,7 @@ pub async fn start_rollout_watcher(
     let watcher_tx = tx.clone();
 
     let mut watcher = RecommendedWatcher::new(
-        move |res: Result<Event, notify::Error>| match res {
+        move |res: Result<notify::Event, notify::Error>| match res {
             Ok(event) => {
                 if !matches_supported_event_kind(&event.kind) {
                     return;
@@ -95,25 +89,23 @@ pub async fn start_rollout_watcher(
         "Rollout watcher started"
     );
 
+    let processor = RolloutFileProcessor::new(state_path, persisted_state);
+
     let mut runtime = WatcherRuntime {
         app_state,
         persist_tx,
         tx,
-        state_path,
-        watcher_started_at: SystemTime::now(),
-        file_states: HashMap::new(),
-        persisted_state,
+        processor,
         debounce_tasks: HashMap::new(),
         session_timeouts: HashMap::new(),
     };
 
-    // Prime watcher from existing files on startup so active Codex CLI sessions
-    // appear even when their JSONL files were created before this process launched.
+    // Prime watcher from existing files on startup
     let existing_files = collect_jsonl_files(&sessions_dir);
     let mut seeded = 0usize;
     for path in &existing_files {
-        if let Ok(metadata) = fs::metadata(path) {
-            runtime.ensure_file_state(
+        if let Ok(metadata) = std::fs::metadata(path) {
+            runtime.processor.ensure_file_state(
                 path.to_string_lossy().as_ref(),
                 metadata.len(),
                 metadata.created().ok(),
@@ -121,19 +113,29 @@ pub async fn start_rollout_watcher(
         }
 
         if is_recent_file(path, STARTUP_SEED_RECENT_SECS) {
-            if let Err(err) = runtime
-                .ensure_session_meta(path.to_string_lossy().as_ref())
-                .await
-            {
-                warn!(
-                    component = "rollout_watcher",
-                    event = "rollout_watcher.seed_failed",
-                    path = %path.display(),
-                    error = %err,
-                    "Startup session_meta seed failed"
-                );
-            } else {
-                seeded += 1;
+            let path_string = path.to_string_lossy().to_string();
+            match runtime.processor.ensure_session_meta(&path_string).await {
+                Ok(events) => {
+                    if let Err(err) = runtime.handle_rollout_events(events).await {
+                        warn!(
+                            component = "rollout_watcher",
+                            event = "rollout_watcher.seed_event_failed",
+                            path = %path.display(),
+                            error = %err,
+                            "Startup seed event handling failed"
+                        );
+                    }
+                    seeded += 1;
+                }
+                Err(err) => {
+                    warn!(
+                        component = "rollout_watcher",
+                        event = "rollout_watcher.seed_failed",
+                        path = %path.display(),
+                        error = %err,
+                        "Startup session_meta seed failed"
+                    );
+                }
             }
         }
     }
@@ -145,8 +147,7 @@ pub async fn start_rollout_watcher(
         "Rollout startup seed complete"
     );
 
-    // Backstop for dropped filesystem events: periodically sweep known rollout files
-    // and process any with new bytes.
+    // Backstop sweep
     let sweep_tx = runtime.tx.clone();
     tokio::spawn(async move {
         loop {
@@ -167,9 +168,6 @@ pub async fn start_rollout_watcher(
                         runtime.schedule_file(child);
                     }
                 } else if let Some(parent) = path.parent() {
-                    // Some editors/writers (or platform backends) emit fs events for temp files
-                    // near the target JSONL and not the JSONL path itself. Scan parent dir so
-                    // rollout updates still get picked up.
                     for child in collect_jsonl_files(parent) {
                         runtime.schedule_file(child);
                     }
@@ -216,31 +214,14 @@ struct WatcherRuntime {
     app_state: Arc<SessionRegistry>,
     persist_tx: mpsc::Sender<PersistCommand>,
     tx: mpsc::UnboundedSender<WatcherMessage>,
-    state_path: PathBuf,
-    watcher_started_at: SystemTime,
-    file_states: HashMap<String, FileState>,
-    persisted_state: PersistedState,
+    processor: RolloutFileProcessor,
     debounce_tasks: HashMap<String, JoinHandle<()>>,
     session_timeouts: HashMap<String, JoinHandle<()>>,
 }
 
 impl WatcherRuntime {
     async fn sweep_files(&mut self) -> anyhow::Result<()> {
-        let mut candidates: Vec<PathBuf> = Vec::new();
-
-        for (path, state) in &self.file_states {
-            let path_buf = PathBuf::from(path);
-            if !path_buf.exists() {
-                continue;
-            }
-            let Ok(metadata) = fs::metadata(&path_buf) else {
-                continue;
-            };
-            if metadata.len() != state.offset {
-                candidates.push(path_buf);
-            }
-        }
-
+        let candidates = self.processor.sweep_candidates();
         for path in candidates {
             self.process_file(path).await?;
         }
@@ -270,77 +251,31 @@ impl WatcherRuntime {
         let path_string = path.to_string_lossy().to_string();
         self.debounce_tasks.remove(&path_string);
 
-        // Guard against stale persisted path->session bindings. A stale mapping can route
-        // fresh rollout events to the wrong in-memory session and make the expected session
-        // appear frozen in the UI.
+        // Guard stale path->session bindings
         if let Some(hinted_session_id) = rollout_session_id_hint(&path) {
             let mapped_session_id = self
+                .processor
                 .file_states
                 .get(&path_string)
                 .and_then(|state| state.session_id.clone());
             if let Some(mapped_session_id) = mapped_session_id {
                 if mapped_session_id != hinted_session_id {
-                    if let Some(state) = self.file_states.get_mut(&path_string) {
-                        state.session_id = None;
-                        state.project_path = None;
-                        state.model_provider = None;
-                    }
-                    self.ensure_session_meta(&path_string).await?;
+                    self.processor.reset_session_binding(&path_string);
+                    let events = self.processor.ensure_session_meta(&path_string).await?;
+                    self.handle_rollout_events(events).await?;
                 }
             }
         }
 
-        let metadata = fs::metadata(&path)?;
+        let metadata = std::fs::metadata(&path)?;
         let size = metadata.len();
         let created_at = metadata.created().ok();
+        self.processor
+            .ensure_file_state(&path_string, size, created_at);
 
-        self.ensure_file_state(&path_string, size, created_at);
-
-        let ignore_existing = self
-            .file_states
-            .get(&path_string)
-            .map(|state| state.ignore_existing)
-            .unwrap_or(false);
-
-        if ignore_existing {
-            let offset = self
-                .file_states
-                .get(&path_string)
-                .map(|state| state.offset)
-                .unwrap_or(0);
-            if size > offset {
-                if let Some(state) = self.file_states.get_mut(&path_string) {
-                    state.ignore_existing = false;
-                }
-                self.ensure_session_meta(&path_string).await?;
-            } else {
-                if let Some(state) = self.file_states.get_mut(&path_string) {
-                    state.offset = size;
-                }
-                self.persist_state(&path_string);
-                return Ok(());
-            }
-        }
-
-        if let Some(state) = self.file_states.get_mut(&path_string) {
-            if size < state.offset {
-                state.offset = 0;
-                state.tail.clear();
-            }
-        }
-
-        let offset = self
-            .file_states
-            .get(&path_string)
-            .map(|state| state.offset)
-            .unwrap_or(0);
-
-        if size == offset {
-            self.persist_state(&path_string);
-            return Ok(());
-        }
-
+        // Check if we need a runtime session
         let existing_session_id = self
+            .processor
             .file_states
             .get(&path_string)
             .and_then(|state| state.session_id.clone());
@@ -350,135 +285,154 @@ impl WatcherRuntime {
             false
         };
         if !has_runtime_session {
-            self.ensure_session_meta(&path_string).await?;
+            let events = self.processor.ensure_session_meta(&path_string).await?;
+            self.handle_rollout_events(events).await?;
         }
 
-        let chunk = read_file_chunk(&path, offset)?;
-        if let Some(state) = self.file_states.get_mut(&path_string) {
-            state.offset = size;
-        }
+        let events = self.processor.process_file(&path).await?;
+        self.handle_rollout_events(events).await?;
+        Ok(())
+    }
 
-        if chunk.is_empty() {
-            self.persist_state(&path_string);
-            return Ok(());
-        }
+    // ── Event dispatch ───────────────────────────────────────────────────
 
-        let chunk = String::from_utf8_lossy(&chunk).to_string();
-        if chunk.is_empty() {
-            self.persist_state(&path_string);
-            return Ok(());
-        }
-
-        let mut did_process_lines = false;
-        let old_tail = self
-            .file_states
-            .get(&path_string)
-            .map(|state| state.tail.clone())
-            .unwrap_or_default();
-        let combined = format!("{old_tail}{chunk}");
-        let mut parts: Vec<&str> = combined.split('\n').collect();
-        let next_tail = parts.pop().unwrap_or_default().to_string();
-
-        if let Some(state) = self.file_states.get_mut(&path_string) {
-            state.tail = next_tail;
-        }
-
-        for part in parts {
-            let line = part.trim();
-            if line.is_empty() {
-                continue;
+    async fn handle_rollout_events(&mut self, events: Vec<RolloutEvent>) -> anyhow::Result<()> {
+        for event in events {
+            match event {
+                RolloutEvent::SessionMeta {
+                    session_id,
+                    cwd,
+                    model_provider,
+                    originator,
+                    source,
+                    started_at,
+                    transcript_path,
+                    branch,
+                } => {
+                    self.handle_session_meta_event(
+                        session_id,
+                        cwd,
+                        model_provider,
+                        originator,
+                        source,
+                        started_at,
+                        &transcript_path,
+                        branch,
+                    )
+                    .await;
+                }
+                RolloutEvent::TurnContext {
+                    session_id,
+                    project_path,
+                    model,
+                    effort,
+                } => {
+                    self.handle_turn_context_event(session_id, project_path, model, effort)
+                        .await;
+                }
+                RolloutEvent::WorkStateChange {
+                    session_id,
+                    work_status,
+                    attention_reason,
+                    pending_tool_name,
+                    pending_tool_input,
+                    pending_question,
+                    last_tool,
+                    last_tool_at,
+                } => {
+                    self.update_work_state(
+                        &session_id,
+                        work_status,
+                        attention_reason,
+                        pending_tool_name,
+                        pending_tool_input,
+                        pending_question,
+                        last_tool,
+                        last_tool_at,
+                        None,
+                    )
+                    .await;
+                }
+                RolloutEvent::ClearPending { session_id } => {
+                    self.clear_pending(&session_id).await;
+                }
+                RolloutEvent::UserMessage {
+                    session_id,
+                    message,
+                } => {
+                    self.handle_user_message(&session_id, message).await;
+                }
+                RolloutEvent::AppendChatMessage {
+                    session_id,
+                    message_type,
+                    content,
+                    images,
+                } => {
+                    self.append_chat_message(&session_id, message_type, content, images)
+                        .await;
+                }
+                RolloutEvent::ShellCommandBegin {
+                    session_id,
+                    call_id,
+                    command,
+                } => {
+                    self.append_rollout_shell_message(&session_id, &call_id, command)
+                        .await;
+                }
+                RolloutEvent::ShellCommandEnd {
+                    session_id,
+                    call_id,
+                    output,
+                    is_error,
+                    duration_ms,
+                } => {
+                    self.finish_rollout_shell_message(
+                        &session_id,
+                        &call_id,
+                        output,
+                        is_error,
+                        duration_ms,
+                    )
+                    .await;
+                }
+                RolloutEvent::ToolCompleted { session_id, tool } => {
+                    self.mark_tool_completed(&session_id, tool).await;
+                }
+                RolloutEvent::TokenCount {
+                    session_id,
+                    total_tokens,
+                    token_usage,
+                } => {
+                    self.handle_token_count(&session_id, total_tokens, token_usage)
+                        .await;
+                }
+                RolloutEvent::ThreadNameUpdated { session_id, name } => {
+                    self.set_custom_name(&session_id, Some(name)).await;
+                }
             }
-            self.handle_line(line, &path_string).await;
-            did_process_lines = true;
         }
-
-        if did_process_lines {
-            debug!(
-                component = "rollout_watcher",
-                event = "rollout_watcher.lines_processed",
-                path = %path_string,
-                "Processed rollout lines"
-            );
-        }
-
-        self.persist_state(&path_string);
         Ok(())
     }
 
-    async fn ensure_session_meta(&mut self, path: &str) -> anyhow::Result<()> {
-        let Some(line) = read_first_line(Path::new(path))? else {
-            return Ok(());
-        };
+    // ── Server orchestration (kept from original) ────────────────────────
 
-        let Ok(json) = serde_json::from_str::<Value>(&line) else {
-            warn!(
-                component = "rollout_watcher",
-                event = "rollout_watcher.session_meta_parse_failed",
-                path = %path,
-                "Failed to parse session_meta first line"
-            );
-            return Ok(());
-        };
-
-        if json.get("type").and_then(|v| v.as_str()) != Some("session_meta") {
-            return Ok(());
-        }
-
-        let Some(payload) = json.get("payload").cloned() else {
-            return Ok(());
-        };
-
-        self.handle_session_meta(payload, path).await;
-        Ok(())
-    }
-
-    async fn handle_line(&mut self, line: &str, path: &str) {
-        let Ok(json) = serde_json::from_str::<Value>(line) else {
-            return;
-        };
-
-        let Some(line_type) = json.get("type").and_then(|v| v.as_str()) else {
-            return;
-        };
-
-        let Some(payload) = json.get("payload").cloned() else {
-            return;
-        };
-
-        match line_type {
-            "session_meta" => self.handle_session_meta(payload, path).await,
-            "turn_context" => self.handle_turn_context(payload, path).await,
-            "event_msg" => self.handle_event_msg(payload, path).await,
-            "response_item" => self.handle_response_item(payload, path).await,
-            _ => {}
-        }
-    }
-
-    async fn handle_session_meta(&mut self, payload: Value, path: &str) {
-        let Some(session_id) = payload
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-        else {
-            return;
-        };
-        let Some(cwd) = payload
-            .get("cwd")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-        else {
-            return;
-        };
-
+    #[allow(clippy::too_many_arguments)]
+    async fn handle_session_meta_event(
+        &mut self,
+        session_id: String,
+        cwd: String,
+        model_provider: Option<String>,
+        originator: String,
+        source: SessionSource,
+        started_at: String,
+        transcript_path: &str,
+        branch: Option<String>,
+    ) {
         let is_direct = self.app_state.is_managed_codex_thread(&session_id);
         let is_direct_in_db = is_direct_thread_owned_async(&session_id)
             .await
             .unwrap_or(false);
         if is_direct || is_direct_in_db {
-            // If a stale passive runtime session exists for this thread, evict it.
-            if let Some(state) = self.file_states.get_mut(path) {
-                state.session_id = Some(session_id.clone());
-            }
             if self.app_state.remove_session(&session_id).is_some() {
                 self.app_state
                     .broadcast_to_list(ServerMessage::SessionEnded {
@@ -486,19 +440,11 @@ impl WatcherRuntime {
                         reason: "direct_session_thread_claimed".into(),
                     });
             }
-            if let Some(state) = self.file_states.get_mut(path) {
-                state.session_id = Some(session_id);
-            }
             return;
         }
 
         // Direct Codex sessions emit rollout files with source="mcp".
-        // Ignore them here so the passive watcher never materializes shadow sessions.
-        if payload
-            .get("source")
-            .and_then(|v| v.as_str())
-            .is_some_and(|source| source.eq_ignore_ascii_case("mcp"))
-        {
+        if matches!(source, SessionSource::Mcp) {
             if self.app_state.remove_session(&session_id).is_some() {
                 self.app_state
                     .broadcast_to_list(ServerMessage::SessionEnded {
@@ -515,30 +461,11 @@ impl WatcherRuntime {
                 })
                 .await;
 
-            if let Some(state) = self.file_states.get_mut(path) {
-                state.session_id = None;
-                state.project_path = Some(cwd);
-                state.model_provider = None;
-            }
             return;
         }
 
-        let model_provider = payload
-            .get("model_provider")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let originator = payload
-            .get("originator")
-            .and_then(|v| v.as_str())
-            .unwrap_or("codex")
-            .to_string();
-        let started_at = payload
-            .get("timestamp")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(current_time_rfc3339);
-
-        let (branch, project_name) = resolve_git_info(&cwd).await;
+        let (resolved_branch, project_name) = rollout_parser::resolve_git_info(&cwd).await;
+        let branch = branch.or(resolved_branch);
         let fallback_name = Path::new(&cwd)
             .file_name()
             .map(|s| s.to_string_lossy().to_string());
@@ -549,7 +476,7 @@ impl WatcherRuntime {
         if !exists {
             let mut handle = SessionHandle::new(session_id.clone(), Provider::Codex, cwd.clone());
             handle.set_codex_integration_mode(Some(CodexIntegrationMode::Passive));
-            handle.set_transcript_path(Some(path.to_string()));
+            handle.set_transcript_path(Some(transcript_path.to_string()));
             handle.set_project_name(project_name.clone());
             handle.set_model(model_provider.clone());
             handle.set_started_at(Some(started_at.clone()));
@@ -568,7 +495,7 @@ impl WatcherRuntime {
                 .await;
             actor
                 .send(SessionCommand::SetTranscriptPath {
-                    path: Some(path.to_string()),
+                    path: Some(transcript_path.to_string()),
                 })
                 .await;
             actor
@@ -612,86 +539,32 @@ impl WatcherRuntime {
             .send(PersistCommand::RolloutSessionUpsert {
                 id: session_id.clone(),
                 thread_id: session_id.clone(),
-                project_path: cwd.clone(),
+                project_path: cwd,
                 project_name,
                 branch,
-                model: model_provider.clone(),
+                model: model_provider,
                 context_label: Some(originator),
-                transcript_path: path.to_string(),
+                transcript_path: transcript_path.to_string(),
                 started_at,
             })
             .await;
 
-        if let Some(state) = self.file_states.get_mut(path) {
-            state.session_id = Some(session_id.clone());
-            state.project_path = Some(cwd);
-            state.model_provider = model_provider;
-        }
-
-        // Don't backfill custom_name from first prompt in rollout history.
-        // The UI uses first_prompt directly as a fallback display.
-
         self.schedule_session_timeout(&session_id);
     }
 
-    async fn handle_turn_context(&mut self, payload: Value, path: &str) {
-        let Some(session_id) = self
-            .file_states
-            .get(path)
-            .and_then(|s| s.session_id.clone())
-        else {
-            return;
-        };
-
-        let mut project_path_update = None;
-        let mut model_update = None;
-        let mut effort_update = payload
-            .get("effort")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string);
-
-        if effort_update.is_none() {
-            effort_update = payload
-                .get("collaboration_mode")
-                .and_then(|v| v.get("settings"))
-                .and_then(|v| v.get("reasoning_effort"))
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string);
-        }
-
-        if let Some(model) = payload.get("model").and_then(|v| v.as_str()) {
-            model_update = Some(model.to_string());
-        }
-
-        if let Some(cwd) = payload.get("cwd").and_then(|v| v.as_str()) {
-            let changed = self
-                .file_states
-                .get(path)
-                .and_then(|s| s.project_path.as_deref())
-                .map(|existing| existing != cwd)
-                .unwrap_or(true);
-            if changed {
-                project_path_update = Some(cwd.to_string());
-                if let Some(state) = self.file_states.get_mut(path) {
-                    state.project_path = Some(cwd.to_string());
-                }
-            }
-        }
-
-        if project_path_update.is_none() && model_update.is_none() && effort_update.is_none() {
-            return;
-        }
-
+    async fn handle_turn_context_event(
+        &mut self,
+        session_id: String,
+        project_path: Option<String>,
+        model: Option<String>,
+        effort: Option<String>,
+    ) {
         let _ = self
             .persist_tx
             .send(PersistCommand::RolloutSessionUpdate {
                 id: session_id.clone(),
-                project_path: project_path_update.clone(),
-                model: model_update.clone(),
+                project_path: project_path.clone(),
+                model: model.clone(),
                 status: None,
                 work_status: None,
                 attention_reason: None,
@@ -705,7 +578,7 @@ impl WatcherRuntime {
             })
             .await;
 
-        if let Some(ref effort) = effort_update {
+        if let Some(ref effort) = effort {
             let _ = self
                 .persist_tx
                 .send(PersistCommand::EffortUpdate {
@@ -715,21 +588,21 @@ impl WatcherRuntime {
                 .await;
         }
 
-        if project_path_update.is_some() || model_update.is_some() || effort_update.is_some() {
+        if project_path.is_some() || model.is_some() || effort.is_some() {
             if let Some(actor) = self.app_state.get_session(&session_id) {
-                if project_path_update.is_some() {
+                if project_path.is_some() {
                     actor
                         .send(SessionCommand::SetLastActivityAt {
                             ts: Some(current_time_unix_z()),
                         })
                         .await;
                 }
-                if let Some(model) = model_update {
+                if let Some(model) = model {
                     actor
                         .send(SessionCommand::SetModel { model: Some(model) })
                         .await;
                 }
-                if let Some(effort) = effort_update {
+                if let Some(effort) = effort {
                     actor
                         .send(SessionCommand::ApplyDelta {
                             changes: StateChanges {
@@ -745,351 +618,8 @@ impl WatcherRuntime {
         }
     }
 
-    async fn handle_event_msg(&mut self, payload: Value, path: &str) {
-        let Some(session_id) = self
-            .file_states
-            .get(path)
-            .and_then(|s| s.session_id.clone())
-        else {
-            return;
-        };
-
-        let Some(event_type) = payload.get("type").and_then(|v| v.as_str()) else {
-            return;
-        };
-
-        match event_type {
-            "task_started" | "turn_started" => {
-                if let Some(state) = self.file_states.get_mut(path) {
-                    state.saw_agent_event = false;
-                    state.saw_user_event = false;
-                }
-                self.mark_working(&session_id, None).await;
-                self.clear_pending(&session_id).await;
-            }
-            "task_complete" | "turn_complete" | "turn_aborted" => {
-                if let Some(state) = self.file_states.get_mut(path) {
-                    state.saw_agent_event = true;
-                }
-                self.mark_waiting(&session_id).await;
-            }
-            "user_message" => {
-                if let Some(state) = self.file_states.get_mut(path) {
-                    state.saw_user_event = true;
-                    state.saw_agent_event = false;
-                }
-                let message = payload
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string);
-                self.handle_user_message(&session_id, message).await;
-            }
-            "agent_message" => {
-                if let Some(state) = self.file_states.get_mut(path) {
-                    state.saw_agent_event = true;
-                }
-                self.mark_waiting(&session_id).await;
-            }
-            "exec_command_begin" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-
-                if let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) {
-                    let command = parse_exec_command(payload.get("command"));
-                    self.append_rollout_shell_message(&session_id, call_id, command)
-                        .await;
-                }
-
-                self.mark_working(&session_id, Some("Shell".to_string()))
-                    .await;
-            }
-            "exec_command_end" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-
-                if let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) {
-                    let output = payload
-                        .get("aggregated_output")
-                        .or_else(|| payload.get("output"))
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string);
-                    let is_error = payload
-                        .get("exit_code")
-                        .and_then(|v| v.as_i64())
-                        .map(|code| code != 0);
-                    let duration_ms =
-                        payload
-                            .get("duration_ms")
-                            .and_then(|v| v.as_u64())
-                            .or_else(|| {
-                                payload
-                                    .get("duration")
-                                    .and_then(|v| v.as_f64())
-                                    .map(|secs| (secs * 1000.0) as u64)
-                            });
-
-                    self.finish_rollout_shell_message(
-                        &session_id,
-                        call_id,
-                        output,
-                        is_error,
-                        duration_ms,
-                    )
-                    .await;
-                }
-
-                self.mark_tool_completed(&session_id, Some("Shell".to_string()))
-                    .await;
-            }
-            "patch_apply_begin" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                self.mark_working(&session_id, Some("Edit".to_string()))
-                    .await;
-            }
-            "patch_apply_end" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                self.mark_tool_completed(&session_id, Some("Edit".to_string()))
-                    .await;
-            }
-            "mcp_tool_call_begin" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                let label = mcp_tool_label(payload.get("invocation"));
-                self.mark_working(&session_id, Some(label)).await;
-            }
-            "mcp_tool_call_end" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                let label = mcp_tool_label(payload.get("invocation"));
-                self.mark_tool_completed(&session_id, Some(label)).await;
-            }
-            "web_search_begin" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                self.mark_working(&session_id, Some("WebSearch".to_string()))
-                    .await;
-            }
-            "web_search_end" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                self.mark_tool_completed(&session_id, Some("WebSearch".to_string()))
-                    .await;
-            }
-            "view_image_tool_call" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                self.mark_tool_completed(&session_id, Some("ViewImage".to_string()))
-                    .await;
-            }
-            "exec_approval_request" => {
-                let payload_json = serde_json::to_string(&payload).ok();
-                self.set_permission_pending(&session_id, "ExecCommand", payload_json)
-                    .await;
-            }
-            "apply_patch_approval_request" => {
-                let payload_json = serde_json::to_string(&payload).ok();
-                self.set_permission_pending(&session_id, "ApplyPatch", payload_json)
-                    .await;
-            }
-            "request_user_input" => {
-                let question = extract_question(&payload);
-                self.set_question_pending(&session_id, question).await;
-            }
-            "elicitation_request" => {
-                let question = payload
-                    .get("message")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string)
-                    .or_else(|| {
-                        payload
-                            .get("server_name")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string)
-                    });
-                self.set_question_pending(&session_id, question).await;
-            }
-            "token_count" => {
-                let total_tokens = payload
-                    .get("info")
-                    .and_then(|v| v.get("total_token_usage"))
-                    .and_then(|v| v.get("total_tokens"))
-                    .and_then(as_i64);
-
-                let token_usage = payload
-                    .get("info")
-                    .and_then(|v| v.get("total_token_usage"))
-                    .and_then(Value::as_object)
-                    .map(|total| TokenUsage {
-                        input_tokens: total.get("input_tokens").and_then(as_u64).unwrap_or(0),
-                        output_tokens: total.get("output_tokens").and_then(as_u64).unwrap_or(0),
-                        cached_tokens: total
-                            .get("cached_input_tokens")
-                            .and_then(as_u64)
-                            .unwrap_or(0),
-                        context_window: payload
-                            .get("info")
-                            .and_then(|v| v.get("model_context_window"))
-                            .and_then(as_u64)
-                            .unwrap_or(0),
-                    });
-
-                if let Some(total_tokens) = total_tokens {
-                    let _ = self
-                        .persist_tx
-                        .send(PersistCommand::RolloutSessionUpdate {
-                            id: session_id.clone(),
-                            project_path: None,
-                            model: None,
-                            status: None,
-                            work_status: None,
-                            attention_reason: None,
-                            pending_tool_name: None,
-                            pending_tool_input: None,
-                            pending_question: None,
-                            total_tokens: Some(total_tokens),
-                            last_tool: None,
-                            last_tool_at: None,
-                            custom_name: None,
-                        })
-                        .await;
-                }
-
-                if let Some(usage) = token_usage {
-                    if let Some(actor) = self.app_state.get_session(&session_id) {
-                        actor
-                            .send(SessionCommand::ProcessEvent {
-                                event: crate::transition::Input::TokensUpdated {
-                                    usage,
-                                    snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
-                                },
-                            })
-                            .await;
-                    } else {
-                        let _ = self
-                            .persist_tx
-                            .send(PersistCommand::TokensUpdate {
-                                session_id: session_id.clone(),
-                                usage,
-                                snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
-                            })
-                            .await;
-                    }
-                }
-            }
-            "thread_name_updated" => {
-                if let Some(name) = payload.get("thread_name").and_then(|v| v.as_str()) {
-                    self.set_custom_name(&session_id, Some(name.to_string()))
-                        .await;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    async fn handle_response_item(&mut self, payload: Value, path: &str) {
-        let Some(session_id) = self
-            .file_states
-            .get(path)
-            .and_then(|s| s.session_id.clone())
-        else {
-            return;
-        };
-
-        let Some(payload_type) = payload.get("type").and_then(|v| v.as_str()) else {
-            return;
-        };
-
-        match payload_type {
-            "message" => {
-                let role = payload.get("role").and_then(|v| v.as_str());
-                if role == Some("user") {
-                    if let Some(state) = self.file_states.get_mut(path) {
-                        state.saw_user_event = true;
-                        state.saw_agent_event = false;
-                    }
-                    let message = extract_response_item_message_text(&payload);
-                    let images = extract_response_item_message_images(&payload);
-                    if message.is_some() || !images.is_empty() {
-                        self.append_chat_message(
-                            path,
-                            &session_id,
-                            MessageType::User,
-                            message.clone().unwrap_or_default(),
-                            images,
-                        )
-                        .await;
-                    }
-                    self.handle_user_message(&session_id, message).await;
-                } else if role == Some("assistant") {
-                    if let Some(state) = self.file_states.get_mut(path) {
-                        state.saw_agent_event = true;
-                    }
-                    if let Some(text) = extract_response_item_message_text(&payload) {
-                        self.append_chat_message(
-                            path,
-                            &session_id,
-                            MessageType::Assistant,
-                            text,
-                            vec![],
-                        )
-                        .await;
-                    }
-                    self.mark_waiting(&session_id).await;
-                }
-            }
-            "function_call" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) else {
-                    return;
-                };
-                let tool = tool_label(payload.get("name").and_then(|v| v.as_str()));
-                if let Some(tool) = tool {
-                    if let Some(state) = self.file_states.get_mut(path) {
-                        state
-                            .pending_tool_calls
-                            .insert(call_id.to_string(), tool.clone());
-                    }
-                    self.mark_working(&session_id, Some(tool)).await;
-                }
-            }
-            "function_call_output" => {
-                if self.saw_agent_event(path) {
-                    return;
-                }
-                let Some(call_id) = payload.get("call_id").and_then(|v| v.as_str()) else {
-                    return;
-                };
-
-                let tool_name = if let Some(state) = self.file_states.get_mut(path) {
-                    state.pending_tool_calls.remove(call_id)
-                } else {
-                    None
-                };
-
-                if let Some(tool_name) = tool_name {
-                    self.mark_tool_completed(&session_id, Some(tool_name)).await;
-                }
-            }
-            _ => {}
-        }
-    }
-
     async fn append_chat_message(
         &mut self,
-        path: &str,
         session_id: &str,
         message_type: MessageType,
         content: String,
@@ -1100,12 +630,18 @@ impl WatcherRuntime {
             return;
         }
 
-        let next_seq = if let Some(state) = self.file_states.get_mut(path) {
-            let seq = state.next_message_seq;
-            state.next_message_seq = state.next_message_seq.saturating_add(1);
+        // Allocate next sequence number from processor's file state
+        let next_seq = {
+            // Find the file state for this session to get next_message_seq
+            let mut seq = 0u64;
+            for state in self.processor.file_states.values_mut() {
+                if state.session_id.as_deref() == Some(session_id) {
+                    seq = state.next_message_seq;
+                    state.next_message_seq = state.next_message_seq.saturating_add(1);
+                    break;
+                }
+            }
             seq
-        } else {
-            0
         };
 
         let msg_id = format!("rollout-{session_id}-{next_seq}");
@@ -1212,8 +748,6 @@ impl WatcherRuntime {
     }
 
     async fn handle_user_message(&mut self, session_id: &str, message: Option<String>) {
-        // Store the first prompt for display — don't stuff it into custom_name.
-        // custom_name should only be set by explicit rename or thread_name_updated events.
         let first_prompt = message.as_deref().and_then(name_from_first_prompt);
 
         let _ = self
@@ -1224,7 +758,6 @@ impl WatcherRuntime {
             })
             .await;
 
-        // Broadcast first_prompt delta and trigger AI naming
         if let Some(ref prompt) = first_prompt {
             if let Some(actor) = self.app_state.get_session(session_id) {
                 let changes = StateChanges {
@@ -1264,39 +797,54 @@ impl WatcherRuntime {
         .await;
     }
 
-    async fn set_permission_pending(
+    async fn handle_token_count(
         &mut self,
         session_id: &str,
-        tool_name: &str,
-        payload: Option<String>,
+        total_tokens: Option<i64>,
+        token_usage: Option<orbitdock_protocol::TokenUsage>,
     ) {
-        self.update_work_state(
-            session_id,
-            WorkStatus::Permission,
-            Some("awaitingPermission".to_string()),
-            Some(Some(tool_name.to_string())),
-            Some(payload),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await;
-    }
+        if let Some(total_tokens) = total_tokens {
+            let _ = self
+                .persist_tx
+                .send(PersistCommand::RolloutSessionUpdate {
+                    id: session_id.to_string(),
+                    project_path: None,
+                    model: None,
+                    status: None,
+                    work_status: None,
+                    attention_reason: None,
+                    pending_tool_name: None,
+                    pending_tool_input: None,
+                    pending_question: None,
+                    total_tokens: Some(total_tokens),
+                    last_tool: None,
+                    last_tool_at: None,
+                    custom_name: None,
+                })
+                .await;
+        }
 
-    async fn set_question_pending(&mut self, session_id: &str, question: Option<String>) {
-        self.update_work_state(
-            session_id,
-            WorkStatus::Question,
-            Some("awaitingQuestion".to_string()),
-            None,
-            None,
-            Some(question),
-            None,
-            None,
-            None,
-        )
-        .await;
+        if let Some(usage) = token_usage {
+            if let Some(actor) = self.app_state.get_session(session_id) {
+                actor
+                    .send(SessionCommand::ProcessEvent {
+                        event: crate::transition::Input::TokensUpdated {
+                            usage,
+                            snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+                        },
+                    })
+                    .await;
+            } else {
+                let _ = self
+                    .persist_tx
+                    .send(PersistCommand::TokensUpdate {
+                        session_id: session_id.to_string(),
+                        usage,
+                        snapshot_kind: TokenUsageSnapshotKind::LifetimeTotals,
+                    })
+                    .await;
+            }
+        }
     }
 
     async fn clear_pending(&mut self, session_id: &str) {
@@ -1318,22 +866,6 @@ impl WatcherRuntime {
                 custom_name: None,
             })
             .await;
-    }
-
-    async fn mark_working(&mut self, session_id: &str, tool: Option<String>) {
-        let now = current_time_rfc3339();
-        self.update_work_state(
-            session_id,
-            WorkStatus::Working,
-            Some("none".to_string()),
-            None,
-            None,
-            None,
-            tool.map(Some),
-            Some(Some(now)),
-            None,
-        )
-        .await;
     }
 
     async fn mark_tool_completed(&mut self, session_id: &str, tool: Option<String>) {
@@ -1364,8 +896,7 @@ impl WatcherRuntime {
             })
             .await;
 
-        if let Some(tool_name) = tool {
-            let _ = tool_name;
+        if tool.is_some() {
             self.broadcast_session_delta(
                 session_id,
                 StateChanges {
@@ -1377,21 +908,6 @@ impl WatcherRuntime {
         }
 
         self.schedule_session_timeout(session_id);
-    }
-
-    async fn mark_waiting(&mut self, session_id: &str) {
-        self.update_work_state(
-            session_id,
-            WorkStatus::Waiting,
-            Some("awaitingReply".to_string()),
-            Some(None),
-            Some(None),
-            Some(None),
-            None,
-            None,
-            None,
-        )
-        .await;
     }
 
     async fn set_custom_name(&mut self, session_id: &str, name: Option<String>) {
@@ -1419,7 +935,7 @@ impl WatcherRuntime {
             actor
                 .send(SessionCommand::SetCustomNameAndNotify {
                     name,
-                    persist_op: None, // Already persisted via RolloutSessionUpdate above
+                    persist_op: None,
                     reply: tx,
                 })
                 .await;
@@ -1481,7 +997,6 @@ impl WatcherRuntime {
         if let Some(actor) = self.app_state.get_session(session_id) {
             let was_ended = actor.snapshot().status == SessionStatus::Ended;
 
-            // Ensure status is Active (merge into changes) for reactivation
             let mut merged = changes;
             if merged.status.is_none() {
                 merged.status = Some(SessionStatus::Active);
@@ -1495,7 +1010,6 @@ impl WatcherRuntime {
                 .await;
 
             if was_ended {
-                // Check if reactivation happened by reading snapshot
                 let snap = actor.snapshot();
                 if snap.status == SessionStatus::Active {
                     info!(
@@ -1514,13 +1028,6 @@ impl WatcherRuntime {
                     .broadcast_to_list(ServerMessage::SessionCreated { session: summary });
             }
         }
-    }
-
-    fn saw_agent_event(&self, path: &str) -> bool {
-        self.file_states
-            .get(path)
-            .map(|s| s.saw_agent_event)
-            .unwrap_or(false)
     }
 
     fn schedule_session_timeout(&mut self, session_id: &str) {
@@ -1569,397 +1076,19 @@ impl WatcherRuntime {
                 reason: "timeout".to_string(),
             });
     }
-
-    fn ensure_file_state(&mut self, path: &str, size: u64, created_at: Option<SystemTime>) {
-        if self.file_states.contains_key(path) {
-            return;
-        }
-
-        if let Some(persisted) = self.persisted_state.files.get(path) {
-            self.file_states.insert(
-                path.to_string(),
-                FileState {
-                    offset: persisted.offset,
-                    tail: String::new(),
-                    session_id: persisted.session_id.clone(),
-                    project_path: persisted.project_path.clone(),
-                    model_provider: persisted.model_provider.clone(),
-                    ignore_existing: persisted.ignore_existing.unwrap_or(false),
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            );
-            return;
-        }
-
-        let mut ignore_existing = false;
-        let mut offset = 0;
-
-        if let Some(created_at) = created_at {
-            if created_at < self.watcher_started_at {
-                ignore_existing = true;
-                offset = size;
-            }
-        }
-
-        self.file_states.insert(
-            path.to_string(),
-            FileState {
-                offset,
-                tail: String::new(),
-                session_id: None,
-                project_path: None,
-                model_provider: None,
-                ignore_existing,
-                pending_tool_calls: HashMap::new(),
-                next_message_seq: 0,
-                saw_user_event: false,
-                saw_agent_event: false,
-            },
-        );
-    }
-
-    fn persist_state(&mut self, path: &str) {
-        if let Some(state) = self.file_states.get(path) {
-            self.persisted_state.files.insert(
-                path.to_string(),
-                PersistedFileState {
-                    offset: state.offset,
-                    session_id: state.session_id.clone(),
-                    project_path: state.project_path.clone(),
-                    model_provider: state.model_provider.clone(),
-                    ignore_existing: Some(state.ignore_existing),
-                },
-            );
-            if let Err(err) = save_persisted_state(&self.state_path, &self.persisted_state) {
-                warn!(
-                    component = "rollout_watcher",
-                    event = "rollout_watcher.state_persist_failed",
-                    path = %self.state_path.display(),
-                    error = %err,
-                    "Failed writing rollout state"
-                );
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct FileState {
-    offset: u64,
-    tail: String,
-    session_id: Option<String>,
-    project_path: Option<String>,
-    model_provider: Option<String>,
-    ignore_existing: bool,
-    pending_tool_calls: HashMap<String, String>,
-    next_message_seq: u64,
-    saw_user_event: bool,
-    saw_agent_event: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-struct PersistedState {
-    version: i32,
-    files: HashMap<String, PersistedFileState>,
-}
-
-impl Default for PersistedState {
-    fn default() -> Self {
-        Self {
-            version: 1,
-            files: HashMap::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-struct PersistedFileState {
-    offset: u64,
-    session_id: Option<String>,
-    project_path: Option<String>,
-    model_provider: Option<String>,
-    ignore_existing: Option<bool>,
-}
-
-fn load_persisted_state(path: &Path) -> PersistedState {
-    let Ok(data) = fs::read(path) else {
-        return PersistedState::default();
-    };
-    serde_json::from_slice(&data).unwrap_or_default()
-}
-
-fn save_persisted_state(path: &Path, state: &PersistedState) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let data = serde_json::to_vec(state)?;
-    let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, data)?;
-    fs::rename(&tmp_path, path)?;
-    Ok(())
-}
-
-fn collect_jsonl_files(root: &Path) -> Vec<PathBuf> {
-    let mut result = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-
-    while let Some(dir) = stack.pop() {
-        let Ok(entries) = fs::read_dir(&dir) else {
-            continue;
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if is_jsonl_path(&path) {
-                result.push(path);
-            }
-        }
-    }
-
-    result
-}
-
-fn is_recent_file(path: &Path, within_secs: u64) -> bool {
-    let Ok(meta) = fs::metadata(path) else {
-        return false;
-    };
-    let Ok(modified) = meta.modified() else {
-        return false;
-    };
-    let Ok(age) = SystemTime::now().duration_since(modified) else {
-        return true;
-    };
-    age.as_secs() <= within_secs
-}
-
-fn read_first_line(path: &Path) -> anyhow::Result<Option<String>> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err.into()),
-    };
-
-    let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    let read = reader.read_line(&mut line)?;
-    if read == 0 {
-        return Ok(None);
-    }
-    Ok(Some(line.trim_end_matches(['\r', '\n']).to_string()))
-}
-
-fn read_file_chunk(path: &Path, offset: u64) -> anyhow::Result<Vec<u8>> {
-    let mut file = OpenOptions::new()
-        .read(true)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-
-    file.seek(SeekFrom::Start(offset))?;
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf)?;
-    Ok(buf)
-}
-
-fn is_jsonl_path(path: &Path) -> bool {
-    path.extension().and_then(|s| s.to_str()) == Some("jsonl")
-}
-
-fn rollout_session_id_hint(path: &Path) -> Option<String> {
-    let stem = path.file_stem()?.to_str()?;
-    if stem.len() < 36 {
-        return None;
-    }
-    let tail = &stem[stem.len() - 36..];
-    if is_uuid_like(tail) {
-        Some(tail.to_string())
-    } else {
-        None
-    }
-}
-
-fn is_uuid_like(value: &str) -> bool {
-    if value.len() != 36 {
-        return false;
-    }
-    for (idx, ch) in value.chars().enumerate() {
-        let is_dash = matches!(idx, 8 | 13 | 18 | 23);
-        if is_dash {
-            if ch != '-' {
-                return false;
-            }
-        } else if !ch.is_ascii_hexdigit() {
-            return false;
-        }
-    }
-    true
-}
-
-async fn resolve_git_info(path: &str) -> (Option<String>, Option<String>) {
-    let branch = run_git(&["rev-parse", "--abbrev-ref", "HEAD"], path).await;
-    let repo_root = run_git(&["rev-parse", "--show-toplevel"], path).await;
-    let repo_name = repo_root
-        .as_deref()
-        .and_then(|root| Path::new(root).file_name())
-        .map(|name| name.to_string_lossy().to_string());
-
-    (branch, repo_name)
-}
-
-async fn run_git(args: &[&str], cwd: &str) -> Option<String> {
-    let output = Command::new("/usr/bin/git")
-        .args(args)
-        .current_dir(cwd)
-        .stdin(Stdio::null())
-        .output()
-        .await
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let text = String::from_utf8(output.stdout).ok()?;
-    let text = text.trim();
-    if text.is_empty() {
-        None
-    } else {
-        Some(text.to_string())
-    }
-}
-
-fn extract_response_item_message_text(payload: &Value) -> Option<String> {
-    if let Some(text) = payload.get("content").and_then(|v| v.as_str()) {
-        return Some(text.to_string());
-    }
-
-    let content = payload.get("content")?.as_array()?;
-    let mut parts = Vec::new();
-    for item in content {
-        if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-            if !text.trim().is_empty() {
-                parts.push(text.trim().to_string());
-            }
-            continue;
-        }
-        if let Some(text) = item.get("input_text").and_then(|v| v.as_str()) {
-            if !text.trim().is_empty() {
-                parts.push(text.trim().to_string());
-            }
-        }
-    }
-
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("\n"))
-    }
-}
-
-fn extract_response_item_message_images(payload: &Value) -> Vec<orbitdock_protocol::ImageInput> {
-    let Some(content) = payload.get("content").and_then(|v| v.as_array()) else {
-        return vec![];
-    };
-    let mut images = Vec::new();
-    for item in content {
-        let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if item_type == "input_image" {
-            if let Some(url) = item.get("image_url").and_then(|v| v.as_str()) {
-                images.push(orbitdock_protocol::ImageInput {
-                    input_type: "url".to_string(),
-                    value: url.to_string(),
-                });
-            }
-        }
-    }
-    images
-}
-
-fn extract_question(payload: &Value) -> Option<String> {
-    payload
-        .get("questions")
-        .and_then(|v| v.as_array())
-        .and_then(|questions| questions.first())
-        .and_then(|first| {
-            first
-                .get("question")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .or_else(|| {
-                    first
-                        .get("header")
-                        .and_then(|v| v.as_str())
-                        .map(str::to_string)
-                })
-        })
-}
-
-fn mcp_tool_label(invocation: Option<&Value>) -> String {
-    if let Some(invocation) = invocation {
-        let server = invocation.get("server").and_then(|v| v.as_str());
-        let tool = invocation.get("tool").and_then(|v| v.as_str());
-        if let (Some(server), Some(tool)) = (server, tool) {
-            return format!("MCP:{server}/{tool}");
-        }
-    }
-
-    "MCP".to_string()
-}
-
-fn tool_label(raw: Option<&str>) -> Option<String> {
-    let raw = raw?;
-    if raw.is_empty() {
-        return None;
-    }
-
-    Some(match raw {
-        "exec_command" => "Shell".to_string(),
-        "patch_apply" | "apply_patch" => "Edit".to_string(),
-        "web_search" => "WebSearch".to_string(),
-        "view_image" => "ViewImage".to_string(),
-        "mcp_tool_call" => "MCP".to_string(),
-        other => other.to_string(),
-    })
-}
-
-fn parse_exec_command(raw: Option<&Value>) -> String {
-    let Some(raw) = raw else {
-        return String::new();
-    };
-
-    if let Some(cmd) = raw.as_str() {
-        return cmd.to_string();
-    }
-
-    if let Some(parts) = raw.as_array() {
-        return parts
-            .iter()
-            .filter_map(|v| v.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
-    }
-
-    String::new()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::persistence::flush_batch_for_test;
+    use orbitdock_connector_codex::rollout_parser::{FileState, PersistedState};
     use rusqlite::{params, Connection};
-    use serde_json::json;
     use std::collections::HashMap;
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Once};
-    use std::time::{Duration, SystemTime};
+    use std::time::Duration;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
 
@@ -1973,20 +1102,38 @@ mod tests {
         });
     }
 
-    #[test]
-    fn extracts_text_from_response_item_content_array() {
-        let payload = json!({
-            "type": "message",
-            "role": "user",
-            "content": [
-                { "type": "input_text", "text": "Investigate flaky tests" },
-                { "type": "input_text", "text": "and propose a fix" }
-            ]
-        });
+    fn make_test_runtime(
+        app_state: Arc<SessionRegistry>,
+        persist_tx: mpsc::Sender<PersistCommand>,
+        watcher_tx: mpsc::UnboundedSender<WatcherMessage>,
+        state_path: PathBuf,
+        file_states: HashMap<String, FileState>,
+    ) -> WatcherRuntime {
+        let mut processor = RolloutFileProcessor::new(state_path, PersistedState::default());
+        processor.file_states = file_states;
+        WatcherRuntime {
+            app_state,
+            persist_tx,
+            tx: watcher_tx,
+            processor,
+            debounce_tasks: HashMap::new(),
+            session_timeouts: HashMap::new(),
+        }
+    }
 
-        let text = extract_response_item_message_text(&payload).expect("expected extracted text");
-        assert!(text.contains("Investigate flaky tests"));
-        assert!(text.contains("and propose a fix"));
+    fn default_file_state(session_id: Option<String>, offset: u64) -> FileState {
+        FileState {
+            offset,
+            tail: String::new(),
+            session_id,
+            project_path: None,
+            model_provider: None,
+            ignore_existing: false,
+            pending_tool_calls: HashMap::new(),
+            next_message_seq: 0,
+            saw_user_event: false,
+            saw_agent_event: false,
+        }
     }
 
     #[tokio::test]
@@ -2003,56 +1150,38 @@ mod tests {
         let app_state = Arc::new(SessionRegistry::new(persist_tx.clone()));
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
 
-        let mut runtime = WatcherRuntime {
-            app_state: app_state.clone(),
+        let file_states = HashMap::from([(
+            path_string.clone(),
+            default_file_state(Some(session_id.clone()), 0),
+        )]);
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
             persist_tx,
-            tx: watcher_tx,
-            state_path: tmp_dir.join("state.json"),
-            watcher_started_at: SystemTime::now(),
-            file_states: HashMap::from([(
-                path_string.clone(),
-                FileState {
-                    offset: 0,
-                    tail: String::new(),
-                    session_id: Some(session_id.clone()),
-                    project_path: None,
-                    model_provider: None,
-                    ignore_existing: false,
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            )]),
-            persisted_state: PersistedState::default(),
-            debounce_tasks: HashMap::new(),
-            session_timeouts: HashMap::new(),
-        };
+            watcher_tx,
+            tmp_dir.join("state.json"),
+            file_states,
+        );
+
+        // Simulate a SessionMeta event with MCP source
+        let events = vec![RolloutEvent::SessionMeta {
+            session_id: session_id.clone(),
+            cwd: "/tmp/repo".to_string(),
+            model_provider: None,
+            originator: "codex_cli_rs".to_string(),
+            source: SessionSource::Mcp,
+            started_at: "2026-02-10T00:00:00Z".to_string(),
+            transcript_path: path_string.clone(),
+            branch: None,
+        }];
 
         runtime
-            .handle_session_meta(
-                json!({
-                    "id": session_id.clone(),
-                    "cwd": "/tmp/repo",
-                    "source": "mcp",
-                    "originator": "codex_cli_rs",
-                }),
-                &path_string,
-            )
-            .await;
+            .handle_rollout_events(events)
+            .await
+            .expect("handle events");
 
         assert!(
             app_state.get_session(&session_id).is_none(),
             "mcp session_meta should not create passive runtime sessions"
-        );
-
-        let state = runtime
-            .file_states
-            .get(&path_string)
-            .expect("file state should be tracked");
-        assert!(
-            state.session_id.is_none(),
-            "mcp rollout file should not bind to a passive session id"
         );
 
         match persist_rx.recv().await.expect("expected cleanup command") {
@@ -2104,31 +1233,21 @@ mod tests {
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
-        let mut runtime = WatcherRuntime {
-            app_state: app_state.clone(),
+        let file_states = HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            FileState {
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("openai".to_string()),
+                ..default_file_state(Some(session_id.clone()), initial_size)
+            },
+        )]);
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
             persist_tx,
-            tx: watcher_tx,
-            state_path: tmp_dir.join("state.json"),
-            watcher_started_at: SystemTime::now(),
-            file_states: HashMap::from([(
-                rollout_path.to_string_lossy().to_string(),
-                FileState {
-                    offset: initial_size,
-                    tail: String::new(),
-                    session_id: Some(session_id.clone()),
-                    project_path: Some("/tmp/repo".to_string()),
-                    model_provider: Some("openai".to_string()),
-                    ignore_existing: false,
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            )]),
-            persisted_state: PersistedState::default(),
-            debounce_tasks: HashMap::new(),
-            session_timeouts: HashMap::new(),
-        };
+            watcher_tx,
+            tmp_dir.join("state.json"),
+            file_states,
+        );
 
         let append_line =
             "{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"wake up\"}}\n".to_string();
@@ -2251,31 +1370,21 @@ mod tests {
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
-        let mut runtime = WatcherRuntime {
-            app_state: app_state.clone(),
+        let file_states = HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            FileState {
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("openai".to_string()),
+                ..default_file_state(Some(session_id.clone()), initial_size)
+            },
+        )]);
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
             persist_tx,
-            tx: watcher_tx,
-            state_path: tmp_dir.join("state.json"),
-            watcher_started_at: SystemTime::now(),
-            file_states: HashMap::from([(
-                rollout_path.to_string_lossy().to_string(),
-                FileState {
-                    offset: initial_size,
-                    tail: String::new(),
-                    session_id: Some(session_id.clone()),
-                    project_path: Some("/tmp/repo".to_string()),
-                    model_provider: Some("openai".to_string()),
-                    ignore_existing: false,
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            )]),
-            persisted_state: PersistedState::default(),
-            debounce_tasks: HashMap::new(),
-            session_timeouts: HashMap::new(),
-        };
+            watcher_tx,
+            tmp_dir.join("state.json"),
+            file_states,
+        );
 
         let append_line =
             "{\"timestamp\":\"2026-02-10T03:20:00.000Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"user_message\",\"message\":\"wake up\"}}\n".to_string();
@@ -2357,7 +1466,6 @@ mod tests {
             app_state.add_session(handle);
         }
 
-        // End the session directly via actor command
         {
             let actor = app_state.get_session(&session_id).expect("session exists");
             actor.send(SessionCommand::EndLocally).await;
@@ -2371,31 +1479,21 @@ mod tests {
         assert_eq!(ended_snapshot.status, SessionStatus::Ended);
 
         let (watcher_tx, mut watcher_rx) = mpsc::unbounded_channel();
-        let mut runtime = WatcherRuntime {
-            app_state: app_state.clone(),
+        let file_states = HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            FileState {
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("openai".to_string()),
+                ..default_file_state(Some(session_id.clone()), initial_size)
+            },
+        )]);
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
             persist_tx,
-            tx: watcher_tx,
-            state_path: tmp_dir.join("state.json"),
-            watcher_started_at: SystemTime::now(),
-            file_states: HashMap::from([(
-                rollout_path.to_string_lossy().to_string(),
-                FileState {
-                    offset: initial_size,
-                    tail: String::new(),
-                    session_id: Some(session_id.clone()),
-                    project_path: Some("/tmp/repo".to_string()),
-                    model_provider: Some("openai".to_string()),
-                    ignore_existing: false,
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            )]),
-            persisted_state: PersistedState::default(),
-            debounce_tasks: HashMap::new(),
-            session_timeouts: HashMap::new(),
-        };
+            watcher_tx,
+            tmp_dir.join("state.json"),
+            file_states,
+        );
 
         std::fs::OpenOptions::new()
             .append(true)
@@ -2464,31 +1562,21 @@ mod tests {
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
-        let mut runtime = WatcherRuntime {
-            app_state: app_state.clone(),
+        let file_states = HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            FileState {
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("openai".to_string()),
+                ..default_file_state(Some(session_id.clone()), initial_size)
+            },
+        )]);
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
             persist_tx,
-            tx: watcher_tx,
-            state_path: tmp_dir.join("state.json"),
-            watcher_started_at: SystemTime::now(),
-            file_states: HashMap::from([(
-                rollout_path.to_string_lossy().to_string(),
-                FileState {
-                    offset: initial_size,
-                    tail: String::new(),
-                    session_id: Some(session_id.clone()),
-                    project_path: Some("/tmp/repo".to_string()),
-                    model_provider: Some("openai".to_string()),
-                    ignore_existing: false,
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            )]),
-            persisted_state: PersistedState::default(),
-            debounce_tasks: HashMap::new(),
-            session_timeouts: HashMap::new(),
-        };
+            watcher_tx,
+            tmp_dir.join("state.json"),
+            file_states,
+        );
 
         std::fs::OpenOptions::new()
             .append(true)
@@ -2543,31 +1631,21 @@ mod tests {
         }
 
         let (watcher_tx, _watcher_rx) = mpsc::unbounded_channel();
-        let mut runtime = WatcherRuntime {
-            app_state: app_state.clone(),
+        let file_states = HashMap::from([(
+            rollout_path.to_string_lossy().to_string(),
+            FileState {
+                project_path: Some("/tmp/repo".to_string()),
+                model_provider: Some("openai".to_string()),
+                ..default_file_state(Some(session_id.clone()), initial_size)
+            },
+        )]);
+        let mut runtime = make_test_runtime(
+            app_state.clone(),
             persist_tx,
-            tx: watcher_tx,
-            state_path: tmp_dir.join("state.json"),
-            watcher_started_at: SystemTime::now(),
-            file_states: HashMap::from([(
-                rollout_path.to_string_lossy().to_string(),
-                FileState {
-                    offset: initial_size,
-                    tail: String::new(),
-                    session_id: Some(session_id.clone()),
-                    project_path: Some("/tmp/repo".to_string()),
-                    model_provider: Some("openai".to_string()),
-                    ignore_existing: false,
-                    pending_tool_calls: HashMap::new(),
-                    next_message_seq: 0,
-                    saw_user_event: false,
-                    saw_agent_event: false,
-                },
-            )]),
-            persisted_state: PersistedState::default(),
-            debounce_tasks: HashMap::new(),
-            session_timeouts: HashMap::new(),
-        };
+            watcher_tx,
+            tmp_dir.join("state.json"),
+            file_states,
+        );
 
         std::fs::OpenOptions::new()
             .append(true)
@@ -2601,46 +1679,4 @@ mod tests {
         let _ = std::fs::remove_file(tmp_dir.join("state.json"));
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
-}
-
-fn as_i64(value: &Value) -> Option<i64> {
-    value
-        .as_i64()
-        .or_else(|| value.as_u64().map(|v| v as i64))
-        .or_else(|| value.as_f64().map(|v| v as i64))
-        .or_else(|| value.as_str().and_then(|v| v.parse::<i64>().ok()))
-}
-
-fn as_u64(value: &Value) -> Option<u64> {
-    value
-        .as_u64()
-        .or_else(|| value.as_i64().map(|v| v.max(0) as u64))
-        .or_else(|| value.as_f64().map(|v| v.max(0.0) as u64))
-        .or_else(|| value.as_str().and_then(|v| v.parse::<u64>().ok()))
-}
-
-fn current_time_rfc3339() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}Z", duration.as_secs())
-}
-
-fn current_time_unix_z() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{}Z", secs)
-}
-
-fn matches_supported_event_kind(kind: &EventKind) -> bool {
-    matches!(
-        kind,
-        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Access(_) | EventKind::Any
-    )
 }

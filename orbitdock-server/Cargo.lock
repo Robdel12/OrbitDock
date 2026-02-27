@@ -4939,12 +4939,16 @@ dependencies = [
 name = "orbitdock-connector-codex"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "base64 0.22.1",
+ "codex-arg0",
  "codex-core",
  "codex-login",
  "codex-protocol",
+ "notify 7.0.0",
  "orbitdock-connector-core",
  "orbitdock-protocol",
+ "serde",
  "serde_json",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
@@ -4982,8 +4986,6 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "clap",
- "codex-arg0",
- "codex-core",
  "dashmap",
  "dirs",
  "futures",

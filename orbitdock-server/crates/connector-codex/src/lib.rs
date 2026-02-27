@@ -4,6 +4,7 @@
 //! No subprocess, no JSON-RPC — just Rust function calls.
 
 pub mod auth;
+pub mod rollout_parser;
 pub mod session;
 
 /// Re-export codex-arg0 init for server startup.
