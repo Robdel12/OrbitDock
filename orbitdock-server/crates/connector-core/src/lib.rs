@@ -1,8 +1,7 @@
 //! OrbitDock Connector Core
 //!
-//! Shared event and error types for OrbitDock connectors.
-//! Provider-agnostic vocabulary used by both concrete connector
-//! implementations and the server.
+//! Provider-agnostic vocabulary shared by all connectors and the server.
+//! Includes unified event/error types and the pure transition state machine.
 
 mod error;
 mod event;

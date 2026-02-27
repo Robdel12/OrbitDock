@@ -1,6 +1,7 @@
 # OrbitDock
 
-Mission control for AI coding agents. One dashboard for all your Claude Code and Codex sessions — live status, conversations, code review, approvals, and usage tracking.
+Mission control for AI coding agents. Manage Claude Code and Codex sessions from your Mac or
+your phone — create sessions, review diffs, approve tools, and steer agents from anywhere.
 
 ![macOS](https://img.shields.io/badge/macOS-15.0+-blue)
 ![iOS](https://img.shields.io/badge/iOS-26.0+-blue)
@@ -12,14 +13,22 @@ https://github.com/user-attachments/assets/58be4f6e-55f9-43fe-9336-d3db99c4471c
 
 ## Why
 
-I don't write code anymore — agents do. My job is review, management, and guidance at the right time. But with multiple repos and a bunch of agents running across all of them, keeping track of it all was chaos. OrbitDock is how I wrangle that.
+I don't write code anymore (pretty much) -- agents do. My job is review, management, and provide guidance at
+the right time. But with multiple repos and a bunch of agents running across all of them, keeping
+track of it all was chaos. OrbitDock is how I'm trying to wrangle that.
+
+A Rust server sits at the center. It runs both Claude Code and Codex sessions directly, and
+picks up existing CLI sessions via hooks. Run a server on your laptop, your work machine, a VPS,
+wherever your agents are. The macOS and iOS apps connect to all of them at once, so you get one
+unified view no matter where your sessions are running or what device you're on.
 
 ## What You Get
 
-- **Live monitoring** — Watch every session across every project in real time
+- **Run agents from anywhere** — Create and control Claude and Codex sessions from Mac or iOS
+- **Live monitoring** — Every session across every project, updating in real time
 - **Code review** — Magit-style diffs with inline comments that steer the agent
 - **Approval triage** — Diff previews, risk cues, keyboard shortcuts (y/n/!/N)
-- **Direct control** — Create sessions, send messages, approve tools, run shell commands
+- **Direct control** — Send messages, approve tools, interrupt, run shell commands
 - **Usage tracking** — Rate limit monitoring for Claude and Codex
 - **Multi-server** — Connect to local, remote, and cloud endpoints at once
 
@@ -33,7 +42,8 @@ See [FEATURES.md](FEATURES.md) for the full list.
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-This downloads a prebuilt binary (macOS / Linux x86_64) or builds from source as a fallback. It handles everything — data directory, database, Claude Code hooks, and a background service.
+This downloads a prebuilt binary (macOS / Linux x86_64) or builds from source as a fallback. It
+handles everything — data directory, database, Claude Code hooks, and a background service.
 
 ### 2. Run the app
 
@@ -46,7 +56,8 @@ make build
 open OrbitDock/OrbitDock.xcodeproj   # Cmd+R
 ```
 
-The app detects the server automatically. Start a Claude Code or Codex session and it shows up in the dashboard.
+The app detects the server automatically. Start a Claude Code or Codex session and it shows up in
+the dashboard.
 
 ### Remote server
 

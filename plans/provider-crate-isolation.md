@@ -12,52 +12,36 @@ The server binary can't compile without Codex even if you only want Claude. Prov
 - Provider logic is tangled with orchestration logic — hard to reason about boundaries
 - Adding a third provider means touching server internals instead of just registering a new crate
 
-### Current State (after connector-core + per-provider split)
+### Current State (complete)
 
 ```
 server/
-├── claude_session.rs    (595 lines)  ← Claude event loop, deeply coupled to server
-├── codex_session.rs     (921 lines)  ← Codex event loop, deeply coupled to server
-├── codex_auth.rs        (272 lines)  ← Codex OAuth, uses broadcast channel
-├── rollout_watcher.rs   (2646 lines) ← FSEvents watcher, EXTREME coupling to server
-├── session.rs                        ← SessionHandle (shared state)
-├── session_actor.rs                  ← Actor loop
-├── session_command.rs                ← SessionCommand enum
-├── transition.rs                     ← State machine (shared by both providers)
-├── persistence.rs                    ← PersistCommand channel
-└── state.rs                          ← SessionRegistry (global app state)
-
-connector-claude/src/lib.rs           ← Protocol parsing only (clean)
-connector-codex/src/lib.rs            ← Protocol parsing only (clean)
-connector-core/src/lib.rs             ← ConnectorEvent, ConnectorError, ApprovalType
-```
-
-### Target State
-
-```
-server/
-├── session.rs                        ← SessionHandle (unchanged)
-├── session_actor.rs                  ← Actor loop (provider-agnostic)
-├── session_command.rs                ← SessionCommand enum (unchanged)
-├── transition.rs                     ← State machine (shared, maybe in connector-core)
-├── persistence.rs                    ← PersistCommand channel (unchanged)
-└── state.rs                          ← SessionRegistry (unchanged)
+├── claude_session.rs              ← Thin event loop (~240 lines), delegates to shared dispatch
+├── codex_session.rs               ← Thin event loop (~190 lines), delegates to shared dispatch
+├── session_command_handler.rs     ← Shared event dispatch, command handler, watchdog helpers
+├── rollout_watcher.rs             ← FSEvents driver (~1,080 lines), dispatches parsed RolloutEvents
+├── transition.rs                  ← Re-exports connector-core transition + PersistOp mapping
+├── session.rs                     ← SessionHandle (shared state)
+├── session_actor.rs               ← Actor loop (provider-agnostic)
+├── session_command.rs             ← SessionCommand enum
+├── persistence.rs                 ← PersistCommand channel
+└── state.rs                       ← SessionRegistry (global app state)
 
 connector-claude/
-├── src/lib.rs                        ← Protocol parsing (existing)
-└── src/session.rs                    ← ClaudeSession + ClaudeAction (from server)
+├── src/lib.rs                     ← Protocol parsing, image transforms
+└── src/session.rs                 ← ClaudeSession, ClaudeAction, CLI subprocess
 
 connector-codex/
-├── src/lib.rs                        ← Protocol parsing (existing)
-├── src/session.rs                    ← CodexSession + CodexAction (from server)
-├── src/auth.rs                       ← CodexAuthService (from server)
-└── src/rollout_watcher.rs            ← Passive session watcher (from server)
+├── src/lib.rs                     ← Re-exports, codex-arg0 init
+├── src/session.rs                 ← CodexSession, CodexAction, connector lifecycle
+├── src/auth.rs                    ← CodexAuthService (OAuth via codex-login)
+└── src/rollout_parser.rs          ← Typed JSONL parser (codex-protocol types)
 
 connector-core/
-├── src/lib.rs                        ← Re-exports
-├── src/event.rs                      ← ConnectorEvent (existing)
-├── src/error.rs                      ← ConnectorError (existing)
-└── src/session_loop.rs               ← handle_session_command (shared logic)
+├── src/lib.rs                     ← Re-exports
+├── src/event.rs                   ← ConnectorEvent
+├── src/error.rs                   ← ConnectorError
+└── src/transition.rs              ← Pure state machine (Input, Effect, WorkPhase)
 ```
 
 ---
@@ -124,13 +108,11 @@ Event loops (`start_event_loop`, `handle_event_direct`) stay in the server as fr
 
 ---
 
-## Phase 5: Move rollout_watcher to connector-codex — DEFERRED
+## Phase 5: Split rollout_watcher — Parser/Driver ✅
 
-**Difficulty: Hard | Risk: Medium-High**
+Parser/driver split. Pure parsing logic moved to `connector-codex/src/rollout_parser.rs` (~750 lines) using typed `codex-protocol` deserialization (`RolloutLine`, `RolloutItem`, `EventMsg`, `ResponseItem`). Replaces all raw `serde_json::Value` hand-matching with serde-derived types.
 
-The rollout watcher is 2,646 lines deeply coupled to `SessionHandle`, `PersistCommand`, `SessionCommand`, and `SessionRegistry`. A parser/driver split would be a massive refactor with diminishing returns — the watcher doesn't import codex-core directly (it reads JSON files), so it doesn't block the compile isolation goal.
-
-**Deferred until:** A third provider is added, or rollout_watcher needs significant refactoring for other reasons.
+Server keeps the driver in `rollout_watcher.rs` (~1,080 lines) — dispatches `RolloutEvent`s to `SessionHandle`, `PersistCommand`, and `SessionRegistry`. Net reduction of ~1,500 lines from the server crate.
 
 ---
 

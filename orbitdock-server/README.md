@@ -211,14 +211,16 @@ orbitdock-server --bind 127.0.0.1:4000   # same as: orbitdock-server start --bin
 
 ```
 orbitdock-server/crates/
-├── server/        # Binary — actors, registry, persistence, WebSocket, CLI
-├── protocol/      # Shared types for client ↔ server messages
-└── connectors/    # AI provider connectors (codex-rs integration)
+├── server/            # Binary — orchestration, persistence, WebSocket, CLI
+├── protocol/          # Shared types for client ↔ server messages
+├── connector-core/    # Provider-agnostic event types + transition state machine
+├── connector-codex/   # Codex provider — auth, session types, rollout parser
+└── connector-claude/  # Claude provider — session types, CLI protocol parsing
 ```
 
 ### server
 
-The main binary. Key modules:
+The main binary. Provider-agnostic orchestration — it doesn't import codex-core or Claude SDK directly.
 
 | Module | What it does |
 |--------|---------|
@@ -227,23 +229,17 @@ The main binary. Key modules:
 | `auth.rs` | Optional Bearer token middleware for `/ws` and `/api/hook` |
 | `websocket.rs` | WebSocket message handling — routing, no locks |
 | `session_actor.rs` | Per-session actor (passive sessions, command dispatch) |
-| `codex_session.rs` | Active Codex sessions (connector event loop) |
-| `claude_session.rs` | Claude session management (hook-based) |
-| `transition.rs` | Pure state machine — `transition(state, input) -> effects` |
+| `session_command_handler.rs` | Shared command + event dispatch (used by both providers) |
+| `codex_session.rs` | Codex event loop (thin — delegates to shared dispatch) |
+| `claude_session.rs` | Claude event loop (thin — delegates to shared dispatch) |
+| `transition.rs` | Re-exports connector-core's state machine + `PersistOp` mapping |
 | `session_command.rs` | Actor command enum + persistence ops |
 | `session.rs` | `SessionHandle` — owned state within an actor task |
 | `state.rs` | `SessionRegistry` — DashMap + list broadcast |
 | `persistence.rs` | Async SQLite writer (batched channel) |
 | `migration_runner.rs` | Embedded migrations via `include_str!` |
-| `rollout_watcher.rs` | FSEvents watcher for Codex rollout files |
-| `cmd_init.rs` | `init` — bootstrap dirs, DB, hook script |
-| `cmd_install_hooks.rs` | `install-hooks` — merge into Claude settings.json |
-| `cmd_install_service.rs` | `install-service` — launchd/systemd generation |
-| `cmd_status.rs` | `status` + `generate-token` |
-| `cmd_setup.rs` | `setup` — interactive wizard |
-| `cmd_doctor.rs` | `doctor` — diagnostics checklist |
-| `cmd_tunnel.rs` | `tunnel` — Cloudflare Tunnel integration |
-| `cmd_pair.rs` | `pair` — connection URL + QR code |
+| `rollout_watcher.rs` | FSEvents driver for Codex rollout files (dispatches parsed events) |
+| `cmd_*.rs` | CLI subcommands (`init`, `install-hooks`, `setup`, `doctor`, etc.) |
 | `metrics.rs` | `/metrics` — Prometheus text format endpoint |
 
 ### protocol
@@ -255,15 +251,30 @@ Shared message types for server and client (Swift app):
 - `Message`, `TokenUsage`, `ApprovalRequest`
 - `TokenUsageSnapshotKind` — explicit semantics for token snapshots (context vs totals)
 
-Usage architecture reference:
-- `docs/token-context-architecture.md`
+Usage architecture reference: `docs/token-context-architecture.md`
 
-### connectors
+### connector-core
 
-AI provider integrations:
+Provider-agnostic vocabulary shared by all connectors and the server:
 
-- `codex.rs` — Direct Codex via codex-core. Spawns sessions, translates events to `ConnectorEvent`.
-- `claude.rs` — Claude session types (hook-based, no direct connector)
+- `ConnectorEvent` — unified event enum (turns, messages, approvals, errors)
+- `ConnectorError` — shared error type
+- `transition.rs` — pure state machine: `transition(state, input) -> (state, effects)`
+
+### connector-codex
+
+Codex-specific logic. Depends on `codex-core`, `codex-login`, `codex-protocol`.
+
+- `session.rs` — `CodexSession`, `CodexAction`, connector lifecycle
+- `auth.rs` — `CodexAuthService` (OAuth flow via codex-login)
+- `rollout_parser.rs` — typed JSONL parser using `codex-protocol` types (replaces raw Value matching)
+
+### connector-claude
+
+Claude-specific logic. Depends on `claude-agent-sdk` protocol types.
+
+- `session.rs` — `ClaudeSession`, `ClaudeAction`, CLI subprocess management
+- `lib.rs` — stdin/stdout NDJSON protocol parsing, image transforms
 
 ## State Machine
 
@@ -289,7 +300,7 @@ These map to the wire `WorkStatus` that clients see:
 - `AwaitingApproval` → `Permission` or `Question`
 - `Ended` → `Ended`
 
-Each session maintains a monotonic `approval_version` counter that increments on every approval state change (enqueue, decide, clear). All approval-related messages include this version so clients can reject stale or out-of-order events. See `session.rs` for queue management and `codex_session.rs` for version injection.
+Each session maintains a monotonic `approval_version` counter that increments on every approval state change (enqueue, decide, clear). All approval-related messages include this version so clients can reject stale or out-of-order events. See `session.rs` for queue management and `session_command_handler.rs` for version injection.
 
 ## WebSocket Protocol
 
