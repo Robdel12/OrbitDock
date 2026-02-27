@@ -1,7 +1,8 @@
 use orbitdock_protocol::{ClientMessage, ServerMessage};
 use tokio::sync::mpsc;
 
-use crate::websocket::{chrono_now, send_json, OutboundMessage};
+use crate::session_utils::chrono_now;
+use crate::websocket::{send_json, OutboundMessage};
 
 pub(crate) async fn handle(msg: ClientMessage, client_tx: &mpsc::Sender<OutboundMessage>) {
     match msg {

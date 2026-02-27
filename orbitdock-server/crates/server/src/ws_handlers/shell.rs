@@ -9,8 +9,9 @@ use orbitdock_protocol::{
 };
 
 use crate::session_command::SessionCommand;
+use crate::session_utils::iso_timestamp;
 use crate::state::SessionRegistry;
-use crate::websocket::{iso_timestamp, send_json, OutboundMessage};
+use crate::websocket::{send_json, OutboundMessage};
 
 pub(crate) async fn handle(
     msg: ClientMessage,

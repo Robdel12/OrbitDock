@@ -8,14 +8,16 @@ use orbitdock_protocol::{ClientMessage, ServerMessage, WorkStatus};
 
 use crate::claude_session::ClaudeAction;
 use crate::codex_session::CodexAction;
+use crate::normalization::{
+    normalize_model_override, normalize_non_empty, normalize_question_answers,
+    select_primary_answer,
+};
 use crate::persistence::PersistCommand;
 use crate::session_command::SessionCommand;
 use crate::session_naming::name_from_first_prompt;
+use crate::session_utils::{iso_timestamp, mark_session_working_after_send};
 use crate::state::SessionRegistry;
-use crate::websocket::{
-    iso_timestamp, mark_session_working_after_send, normalize_model_override, normalize_non_empty,
-    normalize_question_answers, select_primary_answer, send_json, OutboundMessage,
-};
+use crate::websocket::{send_json, OutboundMessage};
 
 pub(crate) async fn handle(
     msg: ClientMessage,

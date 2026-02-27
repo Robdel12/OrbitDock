@@ -12,10 +12,9 @@ use crate::codex_session::{CodexAction, CodexSession};
 use crate::persistence::{load_messages_from_transcript_path, PersistCommand};
 use crate::session::SessionHandle;
 use crate::session_command::{PersistOp, SessionCommand};
+use crate::session_utils::claim_codex_thread_for_direct_session;
 use crate::state::SessionRegistry;
-use crate::websocket::{
-    claim_codex_thread_for_direct_session, send_json, spawn_broadcast_forwarder, OutboundMessage,
-};
+use crate::websocket::{send_json, spawn_broadcast_forwarder, OutboundMessage};
 
 pub(crate) async fn handle(
     msg: ClientMessage,

@@ -5,12 +5,11 @@ use tracing::info;
 
 use crate::claude_session::ClaudeAction;
 use crate::codex_session::CodexAction;
+use crate::normalization::work_status_for_approval_decision;
 use crate::persistence::PersistCommand;
 use crate::session_command::SessionCommand;
 use crate::state::SessionRegistry;
-use crate::websocket::{
-    send_json, send_rest_only_error, work_status_for_approval_decision, OutboundMessage,
-};
+use crate::websocket::{send_json, send_rest_only_error, OutboundMessage};
 use orbitdock_protocol::ClientMessage;
 use orbitdock_protocol::ServerMessage;
 

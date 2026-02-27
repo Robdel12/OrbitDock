@@ -16,11 +16,11 @@ use crate::persistence::{
     PersistCommand,
 };
 use crate::session_command::{PersistOp, SessionCommand, SubscribeResult};
+use crate::session_utils::{chrono_now, claim_codex_thread_for_direct_session, parse_unix_z};
 use crate::state::SessionRegistry;
 use crate::websocket::{
-    chrono_now, claim_codex_thread_for_direct_session, parse_unix_z, send_json,
-    send_replay_or_snapshot_fallback, send_snapshot_if_requested, spawn_broadcast_forwarder,
-    OutboundMessage,
+    send_json, send_replay_or_snapshot_fallback, send_snapshot_if_requested,
+    spawn_broadcast_forwarder, OutboundMessage,
 };
 
 pub(crate) async fn handle(

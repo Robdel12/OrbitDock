@@ -23,11 +23,11 @@ use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::SessionCommand;
-use crate::state::SessionRegistry;
-use crate::websocket::{
+use crate::session_utils::{
     chrono_now, claude_transcript_path_from_cwd, is_stale_empty_claude_shell,
     project_name_from_cwd, sync_transcript_messages,
 };
+use crate::state::SessionRegistry;
 
 /// Cached metadata from a `ClaudeSessionStart` hook, held in memory until the
 /// first actionable hook materializes the session (or `SessionEnd` discards it).
