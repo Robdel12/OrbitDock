@@ -38,6 +38,7 @@ mod transition;
 mod usage_probe;
 mod websocket;
 mod worktree;
+mod ws_handlers;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
