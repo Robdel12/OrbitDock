@@ -4,8 +4,12 @@
 //! mutations, persistence effects, and broadcasts. Used by both provider
 //! event loops (Claude, Codex) and the passive session actor.
 
+use std::time::Duration;
+
+use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::{MessageType, ServerMessage, SessionStatus, StateChanges, WorkStatus};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tracing::warn;
 
 use crate::persistence::PersistCommand;
@@ -125,25 +129,8 @@ pub async fn handle_session_command(
             let _ = reply.send(handle.message_count());
         }
         SessionCommand::ProcessEvent { event } => {
-            let now = chrono_now();
-            let state = handle.extract_state();
-            let (new_state, effects) = transition::transition(state, event, &now);
-            handle.apply_state(new_state);
-
-            for effect in effects {
-                match effect {
-                    transition::Effect::Persist(op) => {
-                        let _ = persist_tx
-                            .send(transition::persist_op_to_command(*op))
-                            .await;
-                    }
-                    transition::Effect::Emit(msg) => {
-                        let mut msg = *msg;
-                        inject_approval_version(&mut msg, handle.approval_version());
-                        handle.broadcast(msg);
-                    }
-                }
-            }
+            let session_id = handle.id().to_string();
+            dispatch_transition_input(&session_id, event, handle, persist_tx).await;
         }
         SessionCommand::SetCustomName { name } => {
             handle.set_custom_name(name);
@@ -341,8 +328,8 @@ pub async fn handle_session_command(
     handle.refresh_snapshot();
 }
 
-/// Get current time as ISO 8601 string
-fn chrono_now() -> String {
+/// Get current time as ISO 8601 string.
+pub(crate) fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let secs = SystemTime::now()
@@ -351,4 +338,97 @@ fn chrono_now() -> String {
         .as_secs();
 
     format!("{}Z", secs)
+}
+
+/// Dispatch a `ConnectorEvent` through the transition state machine.
+///
+/// Shared by both provider event loops (Claude, Codex). Converts the event
+/// to a transition `Input`, runs the state machine, applies effects (persist
+/// + broadcast with approval version injection), and refreshes the snapshot.
+pub(crate) async fn dispatch_connector_event(
+    session_id: &str,
+    event: ConnectorEvent,
+    handle: &mut SessionHandle,
+    persist_tx: &mpsc::Sender<PersistCommand>,
+) {
+    let input = transition::Input::from(event);
+    dispatch_transition_input(session_id, input, handle, persist_tx).await;
+}
+
+/// Run a transition `Input` through the state machine and apply effects.
+///
+/// Used by `dispatch_connector_event` (from provider event loops) and
+/// `ProcessEvent` (from session commands).
+async fn dispatch_transition_input(
+    _session_id: &str,
+    input: transition::Input,
+    handle: &mut SessionHandle,
+    persist_tx: &mpsc::Sender<PersistCommand>,
+) {
+    let now = chrono_now();
+    let state = handle.extract_state();
+    let (new_state, effects) = transition::transition(state, input, &now);
+    handle.apply_state(new_state);
+
+    // Update last_message from the latest user/assistant message
+    if let Some(last) = handle
+        .messages()
+        .iter()
+        .rev()
+        .find(|m| matches!(m.message_type, MessageType::User | MessageType::Assistant))
+    {
+        let truncated: String = last.content.chars().take(200).collect();
+        handle.set_last_message(Some(truncated));
+    }
+
+    for effect in effects {
+        match effect {
+            transition::Effect::Persist(op) => {
+                let _ = persist_tx
+                    .send(transition::persist_op_to_command(*op))
+                    .await;
+            }
+            transition::Effect::Emit(msg) => {
+                let mut msg = *msg;
+                inject_approval_version(&mut msg, handle.approval_version());
+                handle.broadcast(msg);
+            }
+        }
+    }
+
+    handle.refresh_snapshot();
+}
+
+/// Returns `true` if the event signals the end of a turn (used to cancel
+/// interrupt watchdogs).
+pub(crate) fn is_turn_ending(event: &ConnectorEvent) -> bool {
+    matches!(
+        event,
+        ConnectorEvent::TurnAborted { .. }
+            | ConnectorEvent::TurnCompleted
+            | ConnectorEvent::SessionEnded { .. }
+    )
+}
+
+/// Spawn an interrupt watchdog that sends a synthetic `TurnAborted` after
+/// 10 seconds if no turn-ending event arrives.
+pub(crate) fn spawn_interrupt_watchdog(
+    tx: mpsc::Sender<ConnectorEvent>,
+    session_id: String,
+    component: &'static str,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        warn!(
+            component = component,
+            event = format_args!("{component}.interrupt.watchdog_fired"),
+            session_id = %session_id,
+            "Interrupt watchdog fired — forcing TurnAborted"
+        );
+        let _ = tx
+            .send(ConnectorEvent::TurnAborted {
+                reason: "interrupt_timeout".to_string(),
+            })
+            .await;
+    })
 }

@@ -4,19 +4,19 @@
 
 use std::sync::Arc;
 
-use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::{MessageType, ServerMessage};
+use orbitdock_protocol::ServerMessage;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::SessionCommand;
-use crate::session_command_handler::{handle_session_command, inject_approval_version};
+use crate::session_command_handler::{
+    dispatch_connector_event, handle_session_command, is_turn_ending, spawn_interrupt_watchdog,
+};
 use crate::state::SessionRegistry;
-use crate::transition::{self, Effect, Input};
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_codex::session::{CodexAction, CodexSession};
@@ -48,44 +48,26 @@ pub fn start_event_loop(
 
     tokio::spawn(async move {
         // Watchdog channel for synthetic events (interrupt timeout)
-        let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
+        let (watchdog_tx, mut watchdog_rx) = mpsc::channel(4);
         let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
         loop {
             tokio::select! {
-                // Handle events from Codex connector
                 Some(event) = event_rx.recv() => {
-                    // Cancel watchdog on turn-ending events
-                    if matches!(
-                        event,
-                        ConnectorEvent::TurnAborted { .. }
-                        | ConnectorEvent::TurnCompleted
-                        | ConnectorEvent::SessionEnded { .. }
-                    ) {
-                        if let Some(handle) = interrupt_watchdog.take() {
-                            handle.abort();
-                        }
+                    if is_turn_ending(&event) {
+                        if let Some(h) = interrupt_watchdog.take() { h.abort(); }
                     }
-
-                    handle_event_direct(
-                        &session_id,
-                        event,
-                        &mut session_handle,
-                        &persist,
+                    dispatch_connector_event(
+                        &session_id, event, &mut session_handle, &persist,
                     ).await;
                 }
 
-                // Handle synthetic events from watchdog
                 Some(event) = watchdog_rx.recv() => {
-                    handle_event_direct(
-                        &session_id,
-                        event,
-                        &mut session_handle,
-                        &persist,
+                    dispatch_connector_event(
+                        &session_id, event, &mut session_handle, &persist,
                     ).await;
                 }
 
-                // Handle actions from WebSocket
                 Some(action) = action_rx.recv() => {
                     match action {
                         CodexAction::SteerTurn {
@@ -141,26 +123,12 @@ pub fn start_event_loop(
                         CodexAction::Interrupt => {
                             match session.connector.interrupt().await {
                                 Ok(()) => {
-                                    // Cancel any previous watchdog
-                                    if let Some(handle) = interrupt_watchdog.take() {
-                                        handle.abort();
-                                    }
-                                    // Spawn watchdog: if no turn-ending event within 10s,
-                                    // inject synthetic TurnAborted
-                                    let wd_tx = watchdog_tx.clone();
-                                    let wd_sid = session_id.clone();
-                                    interrupt_watchdog = Some(tokio::spawn(async move {
-                                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                                        warn!(
-                                            component = "codex_connector",
-                                            event = "codex.interrupt.watchdog_fired",
-                                            session_id = %wd_sid,
-                                            "Interrupt watchdog fired — forcing TurnAborted"
-                                        );
-                                        let _ = wd_tx.send(ConnectorEvent::TurnAborted {
-                                            reason: "interrupt_timeout".to_string(),
-                                        }).await;
-                                    }));
+                                    if let Some(h) = interrupt_watchdog.take() { h.abort(); }
+                                    interrupt_watchdog = Some(spawn_interrupt_watchdog(
+                                        watchdog_tx.clone(),
+                                        session_id.clone(),
+                                        "codex_connector",
+                                    ));
                                 }
                                 Err(e) => {
                                     error!(
@@ -170,9 +138,11 @@ pub fn start_event_loop(
                                         error = %e,
                                         "Interrupt failed, injecting error event"
                                     );
-                                    handle_event_direct(
+                                    dispatch_connector_event(
                                         &session_id,
-                                        ConnectorEvent::Error(format!("Interrupt failed: {}", e)),
+                                        orbitdock_connector_core::ConnectorEvent::Error(
+                                            format!("Interrupt failed: {e}"),
+                                        ),
                                         &mut session_handle,
                                         &persist,
                                     ).await;
@@ -193,7 +163,6 @@ pub fn start_event_loop(
                     }
                 }
 
-                // Handle session commands from external callers
                 Some(cmd) = command_rx.recv() => {
                     handle_session_command(cmd, &mut session_handle, &persist).await;
                 }
@@ -202,9 +171,8 @@ pub fn start_event_loop(
             }
         }
 
-        // Clean up on exit
-        if let Some(handle) = interrupt_watchdog.take() {
-            handle.abort();
+        if let Some(h) = interrupt_watchdog.take() {
+            h.abort();
         }
         state.remove_codex_action_tx(&session_id);
 
@@ -217,58 +185,4 @@ pub fn start_event_loop(
     });
 
     (actor_handle, action_tx)
-}
-
-/// Handle an event from the connector using the transition function.
-/// Directly mutates the owned SessionHandle (no lock needed).
-async fn handle_event_direct(
-    _session_id: &str,
-    event: ConnectorEvent,
-    handle: &mut SessionHandle,
-    persist_tx: &mpsc::Sender<PersistCommand>,
-) {
-    let input = Input::from(event);
-    let now = chrono_now();
-
-    let state = handle.extract_state();
-    let (new_state, effects) = transition::transition(state, input, &now);
-    handle.apply_state(new_state);
-
-    // Update last_message from the latest user/assistant message
-    if let Some(last) = handle
-        .messages()
-        .iter()
-        .rev()
-        .find(|m| matches!(m.message_type, MessageType::User | MessageType::Assistant))
-    {
-        let truncated: String = last.content.chars().take(200).collect();
-        handle.set_last_message(Some(truncated));
-    }
-
-    for effect in effects {
-        match effect {
-            Effect::Persist(op) => {
-                let _ = persist_tx
-                    .send(transition::persist_op_to_command(*op))
-                    .await;
-            }
-            Effect::Emit(msg) => {
-                let mut msg = *msg;
-                inject_approval_version(&mut msg, handle.approval_version());
-                handle.broadcast(msg);
-            }
-        }
-    }
-}
-
-/// Get current time as ISO 8601 string
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    format!("{}Z", secs)
 }

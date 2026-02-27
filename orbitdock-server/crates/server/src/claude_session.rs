@@ -9,15 +9,16 @@ use orbitdock_connector_core::ConnectorEvent;
 use orbitdock_protocol::ServerMessage;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use crate::persistence::PersistCommand;
 use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::SessionCommand;
-use crate::session_command_handler::handle_session_command;
+use crate::session_command_handler::{
+    dispatch_connector_event, handle_session_command, is_turn_ending, spawn_interrupt_watchdog,
+};
 use crate::state::SessionRegistry;
-use crate::transition::{self, Effect, Input};
 
 // Re-export so existing server code doesn't break
 pub use orbitdock_connector_claude::session::{
@@ -55,23 +56,14 @@ pub fn start_event_loop(
 
     tokio::spawn(async move {
         // Watchdog channel for synthetic events (interrupt timeout)
-        let (watchdog_tx, mut watchdog_rx) = mpsc::channel::<ConnectorEvent>(4);
+        let (watchdog_tx, mut watchdog_rx) = mpsc::channel(4);
         let mut interrupt_watchdog: Option<JoinHandle<()>> = None;
 
         loop {
             tokio::select! {
-                // Handle events from Claude connector
                 Some(event) = event_rx.recv() => {
-                    // Cancel watchdog on turn-ending events
-                    if matches!(
-                        event,
-                        ConnectorEvent::TurnAborted { .. }
-                        | ConnectorEvent::TurnCompleted
-                        | ConnectorEvent::SessionEnded { .. }
-                    ) {
-                        if let Some(handle) = interrupt_watchdog.take() {
-                            handle.abort();
-                        }
+                    if is_turn_ending(&event) {
+                        if let Some(h) = interrupt_watchdog.take() { h.abort(); }
                     }
 
                     // Register hook session IDs as managed threads so the hook
@@ -87,7 +79,6 @@ pub fn start_event_loop(
                                 "Registering hook session ID as managed thread"
                             );
                             state.register_claude_thread(&session_id, hook_sid);
-                            // Clean up any shadow row the hook handler already created
                             let _ = persist
                                 .send(PersistCommand::CleanupClaudeShadowSession {
                                     claude_sdk_session_id: hook_sid.clone(),
@@ -120,16 +111,13 @@ pub fn start_event_loop(
                                     claude_sdk_session_id: sdk_sid.clone(),
                                 })
                                 .await;
-                            // Register so hook handlers can recognize this thread
                             state.register_claude_thread(&session_id, &sdk_sid);
-                            // End the shadow row created by hooks using the SDK session ID
                             let _ = persist
                                 .send(PersistCommand::CleanupClaudeShadowSession {
                                     claude_sdk_session_id: sdk_sid.clone(),
                                     reason: "managed_direct_session".to_string(),
                                 })
                                 .await;
-                            // Remove the shadow session from runtime if it exists.
                             if should_remove_shadow_runtime_session(&session_id, &sdk_sid)
                                 && state.remove_session(&sdk_sid).is_some()
                             {
@@ -143,26 +131,18 @@ pub fn start_event_loop(
 
                     // HookSessionId is fully handled above; skip transition
                     if !matches!(event, ConnectorEvent::HookSessionId(_)) {
-                        handle_event_direct(
-                            &session_id,
-                            event,
-                            &mut session_handle,
-                            &persist,
+                        dispatch_connector_event(
+                            &session_id, event, &mut session_handle, &persist,
                         ).await;
                     }
                 }
 
-                // Handle synthetic events from watchdog
                 Some(event) = watchdog_rx.recv() => {
-                    handle_event_direct(
-                        &session_id,
-                        event,
-                        &mut session_handle,
-                        &persist,
+                    dispatch_connector_event(
+                        &session_id, event, &mut session_handle, &persist,
                     ).await;
                 }
 
-                // Handle actions from WebSocket
                 Some(action) = action_rx.recv() => {
                     // Capture first user message as first_prompt
                     if !first_prompt_captured {
@@ -176,7 +156,6 @@ pub fn start_event_loop(
                                 })
                                 .await;
 
-                            // Broadcast first_prompt delta to UI
                             let changes = orbitdock_protocol::StateChanges {
                                 first_prompt: Some(Some(prompt.clone())),
                                 ..Default::default()
@@ -188,7 +167,6 @@ pub fn start_event_loop(
                                 })
                                 .await;
 
-                            // Trigger AI naming (fire-and-forget)
                             crate::ai_naming::spawn_naming_task(
                                 session_id.clone(),
                                 prompt,
@@ -202,26 +180,12 @@ pub fn start_event_loop(
                     if matches!(action, ClaudeAction::Interrupt) {
                         match session.connector.interrupt().await {
                             Ok(()) => {
-                                // Cancel any previous watchdog
-                                if let Some(handle) = interrupt_watchdog.take() {
-                                    handle.abort();
-                                }
-                                // Spawn watchdog: if no turn-ending event within 10s,
-                                // inject synthetic TurnAborted
-                                let wd_tx = watchdog_tx.clone();
-                                let wd_sid = session_id.clone();
-                                interrupt_watchdog = Some(tokio::spawn(async move {
-                                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                                    warn!(
-                                        component = "claude_connector",
-                                        event = "claude.interrupt.watchdog_fired",
-                                        session_id = %wd_sid,
-                                        "Interrupt watchdog fired — forcing TurnAborted"
-                                    );
-                                    let _ = wd_tx.send(ConnectorEvent::TurnAborted {
-                                        reason: "interrupt_timeout".to_string(),
-                                    }).await;
-                                }));
+                                if let Some(h) = interrupt_watchdog.take() { h.abort(); }
+                                interrupt_watchdog = Some(spawn_interrupt_watchdog(
+                                    watchdog_tx.clone(),
+                                    session_id.clone(),
+                                    "claude_connector",
+                                ));
                             }
                             Err(e) => {
                                 error!(
@@ -231,9 +195,9 @@ pub fn start_event_loop(
                                     error = %e,
                                     "Interrupt failed, injecting error event"
                                 );
-                                handle_event_direct(
+                                dispatch_connector_event(
                                     &session_id,
-                                    ConnectorEvent::Error(format!("Interrupt failed: {}", e)),
+                                    ConnectorEvent::Error(format!("Interrupt failed: {e}")),
                                     &mut session_handle,
                                     &persist,
                                 ).await;
@@ -250,7 +214,6 @@ pub fn start_event_loop(
                     }
                 }
 
-                // Handle session commands from external callers
                 Some(cmd) = command_rx.recv() => {
                     handle_session_command(cmd, &mut session_handle, &persist).await;
                 }
@@ -259,9 +222,8 @@ pub fn start_event_loop(
             }
         }
 
-        // Clean up on exit
-        if let Some(handle) = interrupt_watchdog.take() {
-            handle.abort();
+        if let Some(h) = interrupt_watchdog.take() {
+            h.abort();
         }
         state.remove_claude_action_tx(&session_id);
 
@@ -274,57 +236,4 @@ pub fn start_event_loop(
     });
 
     (actor_handle, action_tx)
-}
-
-/// Handle an event from the connector using the transition function.
-async fn handle_event_direct(
-    session_id: &str,
-    event: ConnectorEvent,
-    handle: &mut SessionHandle,
-    persist_tx: &mpsc::Sender<PersistCommand>,
-) {
-    let event_desc = format!("{:?}", &event);
-    let input = Input::from(event);
-    let now = chrono_now();
-
-    let state = handle.extract_state();
-    let (new_state, effects) = transition::transition(state, input, &now);
-    handle.apply_state(new_state);
-
-    // Truncate at a safe UTF-8 char boundary
-    let safe_end = (0..=120.min(event_desc.len()))
-        .rev()
-        .find(|&i| event_desc.is_char_boundary(i))
-        .unwrap_or(0);
-    tracing::debug!(
-        component = "claude_session",
-        event = "claude.transition.processed",
-        session_id = %session_id,
-        connector_event = %&event_desc[..safe_end],
-        effect_count = effects.len(),
-        "Transition processed"
-    );
-
-    for effect in effects {
-        match effect {
-            Effect::Persist(op) => {
-                let _ = persist_tx
-                    .send(transition::persist_op_to_command(*op))
-                    .await;
-            }
-            Effect::Emit(msg) => {
-                handle.broadcast(*msg);
-            }
-        }
-    }
-}
-
-/// Get current time as ISO 8601 string
-fn chrono_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!("{}Z", secs)
 }
