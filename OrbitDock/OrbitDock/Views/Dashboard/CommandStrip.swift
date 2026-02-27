@@ -15,7 +15,6 @@ struct CommandStrip: View {
   let sessions: [Session]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
-  let onOpenPanel: () -> Void
   let onOpenQuickSwitcher: () -> Void
   let onNewClaude: () -> Void
   let onNewCodex: () -> Void
@@ -99,8 +98,6 @@ struct CommandStrip: View {
 
   private var desktopStrip: some View {
     HStack(spacing: 10) {
-      panelButton
-
       Text("OrbitDock")
         .font(.system(size: TypeScale.large, weight: .bold))
         .foregroundStyle(.primary)
@@ -110,8 +107,6 @@ struct CommandStrip: View {
       if !sessions.isEmpty, workingCount + attentionCount + readyCount > 0 {
         statusSummaryPill
       }
-
-      usageGaugeStrip
 
       Spacer()
 
@@ -124,8 +119,6 @@ struct CommandStrip: View {
 
   private var padStrip: some View {
     HStack(spacing: 10) {
-      panelButton
-
       Text("OrbitDock")
         .font(.system(size: TypeScale.large, weight: .bold))
         .foregroundStyle(.primary)
@@ -135,8 +128,6 @@ struct CommandStrip: View {
       if !sessions.isEmpty, workingCount + attentionCount + readyCount > 0 {
         statusSummaryPill
       }
-
-      usageGaugeStrip
 
       Spacer()
 
@@ -152,8 +143,6 @@ struct CommandStrip: View {
   private var compactStrip: some View {
     VStack(spacing: 8) {
       HStack(spacing: 10) {
-        panelButton
-
         Text("OrbitDock")
           .font(.system(size: TypeScale.subhead, weight: .bold))
           .foregroundStyle(.primary)
@@ -183,18 +172,6 @@ struct CommandStrip: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
-  }
-
-  private var panelButton: some View {
-    Button(action: onOpenPanel) {
-      Image(systemName: "sidebar.left")
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(Color.textSecondary)
-        .frame(width: 28, height: 28)
-        .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-    }
-    .buttonStyle(.plain)
-    .help("Toggle panel (⌘1)")
   }
 
   @ViewBuilder
@@ -555,20 +532,6 @@ struct CommandStrip: View {
     .background(Color.surfaceHover.opacity(0.6), in: Capsule())
   }
 
-  private var usageGaugeStrip: some View {
-    HStack(spacing: 12) {
-      ForEach(registry.activeProviders) { provider in
-        ProviderUsageCompact(
-          provider: provider,
-          windows: registry.windows(for: provider),
-          isLoading: registry.isLoading(for: provider),
-          error: registry.error(for: provider),
-          isStale: registry.isStale(for: provider)
-        )
-      }
-    }
-  }
-
   private var compactStatusSummaryPill: some View {
     HStack(spacing: 6) {
       if workingCount > 0 {
@@ -633,7 +596,6 @@ struct CommandStrip: View {
       ],
       isInitialLoading: false,
       isRefreshingCachedSessions: false,
-      onOpenPanel: {},
       onOpenQuickSwitcher: {},
       onNewClaude: {},
       onNewCodex: {}

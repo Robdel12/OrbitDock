@@ -1214,7 +1214,7 @@ struct ProjectStreamSection: View {
     }
   }
 
-  private static func statusPriority(_ status: SessionDisplayStatus) -> Int {
+  static func statusPriority(_ status: SessionDisplayStatus) -> Int {
     switch status {
       case .permission: 0
       case .question: 1
@@ -1224,7 +1224,7 @@ struct ProjectStreamSection: View {
     }
   }
 
-  private static func sortDate(_ session: Session) -> Date {
+  static func sortDate(_ session: Session) -> Date {
     session.lastActivityAt ?? session.startedAt ?? .distantPast
   }
 

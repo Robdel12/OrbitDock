@@ -18,7 +18,7 @@ struct ContentView: View {
   @StateObject private var toastManager = ToastManager.shared
 
   // Panel state
-  @State private var showAgentPanel = false
+  @AppStorage("showSidebar") private var showSidebar = false
   @State private var showQuickSwitcher = false
 
   // New session sheet state (moved from DashboardView for QuickSwitcher access)
@@ -68,15 +68,11 @@ struct ContentView: View {
   }
 
   var body: some View {
-    ZStack(alignment: .leading) {
-      // Main content (conversation-first)
-      mainContent
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-      // Left panel overlay
-      if showAgentPanel {
-        HStack(spacing: 0) {
-          AgentListPanel(
+    ZStack {
+      HStack(spacing: 0) {
+        // Persistent sidebar
+        if showSidebar {
+          WorkspaceSidebar(
             sessions: sessions,
             selectedSessionId: selectedSessionScopedID,
             onSelectSession: { id in
@@ -84,23 +80,22 @@ struct ContentView: View {
                 selectSession(scopedID: id)
               }
             },
-            onClose: {
+            onCollapse: {
               withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                showAgentPanel = false
+                showSidebar = false
               }
-            }
+            },
+            onNewClaude: { showNewClaudeSheet = true },
+            onNewCodex: { showNewCodexSheet = true }
           )
           .transition(.move(edge: .leading).combined(with: .opacity))
 
-          // Click-away area
-          Color.black.opacity(0.4)
-            .onTapGesture {
-              withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                showAgentPanel = false
-              }
-            }
+          Divider()
         }
-        .transition(.opacity)
+
+        // Main content
+        mainContent
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
 
       // Quick switcher overlay
@@ -179,9 +174,9 @@ struct ContentView: View {
         }
         return .handled
       }
-      if showAgentPanel {
+      if showSidebar {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-          showAgentPanel = false
+          showSidebar = false
         }
         return .handled
       }
@@ -203,7 +198,7 @@ struct ContentView: View {
       ToolbarItem(placement: .primaryAction) {
         Button {
           withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showAgentPanel.toggle()
+            showSidebar.toggle()
           }
         } label: {
           Label("Agents", systemImage: "sidebar.left")
@@ -236,9 +231,10 @@ struct ContentView: View {
     Group {
       if shouldShowSetup {
         ServerSetupView()
-      } else if let session = selectedSession {
+      } else if let ref = selectedSessionRef {
         SessionDetailView(
-          session: session,
+          sessionId: ref.sessionId,
+          endpointId: ref.endpointId,
           onOpenSwitcher: {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
               showQuickSwitcher = true
@@ -250,6 +246,7 @@ struct ContentView: View {
             }
           }
         )
+        .id(ref.scopedID)
       } else {
         // Dashboard view when no session selected
         DashboardView(
@@ -265,11 +262,6 @@ struct ContentView: View {
           onOpenQuickSwitcher: {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
               showQuickSwitcher = true
-            }
-          },
-          onOpenPanel: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-              showAgentPanel = true
             }
           },
           onNewClaude: { showNewClaudeSheet = true },

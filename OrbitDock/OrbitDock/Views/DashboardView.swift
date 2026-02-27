@@ -17,7 +17,6 @@ struct DashboardView: View {
   let isRefreshingCachedSessions: Bool
   let onSelectSession: (String) -> Void
   let onOpenQuickSwitcher: () -> Void
-  let onOpenPanel: () -> Void
   let onNewClaude: () -> Void
   let onNewCodex: () -> Void
 
@@ -56,7 +55,6 @@ struct DashboardView: View {
         sessions: sessions,
         isInitialLoading: isInitialLoading,
         isRefreshingCachedSessions: isRefreshingCachedSessions,
-        onOpenPanel: onOpenPanel,
         onOpenQuickSwitcher: onOpenQuickSwitcher,
         onNewClaude: onNewClaude,
         onNewCodex: onNewCodex
@@ -443,7 +441,6 @@ struct DashboardView: View {
     isRefreshingCachedSessions: false,
     onSelectSession: { _ in },
     onOpenQuickSwitcher: {},
-    onOpenPanel: {},
     onNewClaude: {},
     onNewCodex: {}
   )
