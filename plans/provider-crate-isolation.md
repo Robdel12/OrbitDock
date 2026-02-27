@@ -98,201 +98,45 @@ Currently in `codex_session.rs` but **called by both Claude and Codex sessions**
 
 ---
 
-## Phase 1: Extract `handle_session_command` to connector-core
+## Phase 1: Extract `handle_session_command` ✅
 
-**Difficulty: Medium | Risk: Low**
-
-The shared function is the blocking dependency for everything else. Both session files import it, so it must move first.
-
-### What moves
-
-- `handle_session_command()` from `codex_session.rs` → `connector-core/src/session_loop.rs`
-- The `PendingApprovalResolution`, `PersistOp` types it uses (from `session_command.rs`)
-
-### What stays
-
-- `SessionHandle`, `PersistCommand`, `transition` types — these need to become accessible from connector-core (either by moving them or by making the function generic over traits)
-
-### Tasks
-
-- [ ] Audit `handle_session_command` for every type it touches
-- [ ] Decide: move dependent types to connector-core, or make the function generic over trait bounds
-- [ ] Extract the function
-- [ ] Update both `codex_session.rs` and `claude_session.rs` to import from connector-core
-- [ ] `make rust-ci`
+Extracted to `server/src/session_command_handler.rs` (kept in server, not connector-core, because it depends deeply on `SessionHandle`, `PersistCommand`, and `transition`). Both provider event loops import from the shared module.
 
 ---
 
-## Phase 2: Move transition state machine to connector-core
+## Phase 2: Move transition state machine to connector-core ✅
 
-**Difficulty: Medium | Risk: Low**
-
-The transition module maps `ConnectorEvent` → `Input` → state changes + effects. It's already provider-agnostic. Moving it to connector-core means session loops can run their state machine without importing server internals.
-
-### What moves
-
-- `transition.rs` → `connector-core/src/transition.rs`
-- `Input`, `Effect`, `transition()` function
-- The `From<ConnectorEvent> for Input` impl
-
-### Dependencies to resolve
-
-- `SessionHandle` methods (`extract_state()`, `apply_state()`, `broadcast()`) — transition takes a `&mut SessionHandle`
-- `PersistCommand` — `Effect::Persist` wraps persist ops
-- Protocol types — already in `orbitdock-protocol`
-
-### Tasks
-
-- [ ] Audit transition.rs for server-internal type usage
-- [ ] Define trait bounds or move SessionHandle to connector-core
-- [ ] Move transition.rs
-- [ ] Update server + both sessions to import from new location
-- [ ] `make rust-ci`
+Moved to `connector-core/src/transition.rs`. The server keeps a thin shim (`server/src/transition.rs`) that re-exports everything and adds `persist_op_to_command()` — a free function mapping `PersistOp` → `PersistCommand` (orphan rule prevents adding methods to foreign types).
 
 ---
 
-## Phase 3: Move CodexAuthService to connector-codex
+## Phase 3: Move CodexAuthService to connector-codex ✅
 
-**Difficulty: Low | Risk: Low**
-
-`codex_auth.rs` is the most self-contained provider file. It holds a `broadcast::Sender<ServerMessage>` for pushing auth events to WebSocket clients, and imports `codex-login` for the OAuth web server.
-
-### What moves
-
-- `codex_auth.rs` → `connector-codex/src/auth.rs`
-
-### Dependencies to resolve
-
-- `broadcast::Sender<ServerMessage>` — injected at construction, easy to keep
-- `codex-login`, `codex-core::auth` — already Codex deps, move naturally
-- `orbitdock-protocol` types — already a connector-codex dep
-
-### Tasks
-
-- [ ] Move file to connector-codex
-- [ ] Add `codex-login` to connector-codex Cargo.toml
-- [ ] Re-export `CodexAuthService` from connector-codex
-- [ ] Update `state.rs` import
-- [ ] Update `websocket.rs` and `http_api.rs` imports
-- [ ] Remove `codex-login` from server Cargo.toml
-- [ ] `make rust-ci`
+Moved to `connector-codex/src/auth.rs`. Zero server dependencies — purely codex-core, codex-login, and protocol types. `codex-login` removed from server Cargo.toml.
 
 ---
 
-## Phase 4: Move session loops to per-provider crates
+## Phase 4: Move session structs + action enums to per-provider crates ✅
 
-**Difficulty: High | Risk: Medium**
+Moved `ClaudeAction`, `ClaudeSession` (struct + `new()` + `handle_action()`) to `connector-claude/src/session.rs`, and `CodexAction`, `CodexSession` (struct + `new()` + `resume()` + `thread_id()` + `handle_action()`) to `connector-codex/src/session.rs`.
 
-Both `ClaudeSession` and `CodexSession` run event loops that receive `ConnectorEvent`s, feed them through the transition state machine, handle effects, and process `SessionCommand`s. After phases 1-2, the shared machinery lives in connector-core.
-
-### What moves
-
-- `claude_session.rs` → `connector-claude/src/session.rs`
-- `codex_session.rs` → `connector-codex/src/session.rs`
-
-### Dependencies to resolve (per file)
-
-**Both files need:**
-- `SessionHandle` — passed into `start_event_loop()`, mutated throughout
-- `PersistCommand` sender — for persistence effects
-- `SessionRegistry` — for cleanup on exit (remove action_tx, remove_session, register thread)
-- `transition()` — moved in Phase 2
-- `SessionActorHandle` — created in `start_event_loop()`
-
-**Claude-specific:**
-- `session_naming::spawn_naming_task()` — AI-generated session names
-- `PersistCommand::CleanupClaudeShadowSession`, `SetClaudeSdkSessionId`
-
-**Codex-specific:**
-- `PersistCommand::CleanupClaudeShadowSession` (reused for shadow cleanup)
-- Thread ID management
-
-### Strategy
-
-Define a `SessionContext` struct (or trait) in connector-core that bundles the server-provided resources:
-
-```rust
-pub struct SessionContext {
-    pub handle: SessionHandle,
-    pub persist_tx: mpsc::Sender<PersistCommand>,
-    pub list_tx: broadcast::Sender<ServerMessage>,
-    pub on_exit: Box<dyn FnOnce() + Send>,  // cleanup callback
-}
-```
-
-The server constructs this and hands it to the provider crate. The provider crate runs its event loop without knowing about SessionRegistry.
-
-### Tasks
-
-- [ ] Define `SessionContext` in connector-core
-- [ ] Refactor `ClaudeSession::start_event_loop` to accept `SessionContext`
-- [ ] Move `claude_session.rs` to connector-claude
-- [ ] Refactor `CodexSession::start_event_loop` to accept `SessionContext`
-- [ ] Move `codex_session.rs` to connector-codex
-- [ ] Update websocket.rs, state.rs, http_api.rs imports
-- [ ] Remove `ClaudeAction` / `CodexAction` from server — re-export from connector crates
-- [ ] `make rust-ci`
+Event loops (`start_event_loop`, `handle_event_direct`) stay in the server as free functions since they depend deeply on `SessionHandle`, `PersistCommand`, `SessionActorHandle`, and `SessionRegistry`. Server modules re-export types for API compatibility.
 
 ---
 
-## Phase 5: Move rollout_watcher to connector-codex
+## Phase 5: Move rollout_watcher to connector-codex — DEFERRED
 
 **Difficulty: Hard | Risk: Medium-High**
 
-The rollout watcher is 2,646 lines of FSEvents watching, rollout file parsing, offset tracking, and session materialization. It's the most deeply coupled piece — it creates `SessionHandle`s, sends `PersistCommand`s, dispatches `SessionCommand`s to actor handles, and manages the full lifecycle of passive Codex sessions.
+The rollout watcher is 2,646 lines deeply coupled to `SessionHandle`, `PersistCommand`, `SessionCommand`, and `SessionRegistry`. A parser/driver split would be a massive refactor with diminishing returns — the watcher doesn't import codex-core directly (it reads JSON files), so it doesn't block the compile isolation goal.
 
-### What moves
-
-- `rollout_watcher.rs` → `connector-codex/src/rollout_watcher.rs`
-
-### The hard parts
-
-1. **Session materialization** — the watcher creates `SessionHandle::new()` for new rollout files. After phase 4, SessionHandle construction could be behind a factory callback.
-
-2. **Actor communication** — sends `SessionCommand` to actor handles for live sessions. Needs an abstraction layer (trait or callback) so the watcher emits "parsed rollout events" and the server dispatches commands.
-
-3. **Persistence** — sends `RolloutSessionUpsert`, `RolloutSessionUpdate`, `EffortUpdate`, `CleanupThreadShadowSession` directly. Could be mapped through a provider-specific enum.
-
-4. **SessionRegistry queries** — calls `is_managed_codex_thread()`, `get_session()`, `add_session()`, `remove_session()`. Needs trait or callback injection.
-
-### Strategy: Parser + Driver split
-
-Split rollout_watcher into two layers:
-
-**Parser (moves to connector-codex):**
-- File watching, offset tracking, JSON line parsing
-- Emits typed `RolloutEvent`s (session discovered, message appended, status changed, etc.)
-- No server dependencies — pure data transformation
-
-**Driver (stays in server):**
-- Subscribes to `RolloutEvent` stream
-- Creates SessionHandles, sends PersistCommands, dispatches SessionCommands
-- Owns the server-side lifecycle
-
-### Tasks
-
-- [ ] Define `RolloutEvent` enum in connector-codex
-- [ ] Extract parsing logic into connector-codex (file watcher, offset tracker, JSON parser)
-- [ ] Create driver module in server that consumes `RolloutEvent` stream
-- [ ] Wire up: server creates watcher from connector-codex, consumes events
-- [ ] Move test assertions (currently 12+ tests in rollout_watcher)
-- [ ] `make rust-ci`
+**Deferred until:** A third provider is added, or rollout_watcher needs significant refactoring for other reasons.
 
 ---
 
-## Phase 6: Remove direct codex deps from server
+## Phase 6: Remove direct codex deps from server ✅
 
-**Difficulty: Low | Risk: Low**
-
-After phases 3-5, the server should no longer import codex-core, codex-protocol, codex-login, or codex-arg0 directly. These become transitive deps through connector-codex only.
-
-### Tasks
-
-- [ ] Remove `codex-core`, `codex-login` from `crates/server/Cargo.toml`
-- [ ] Move `codex-arg0` initialization to a connector-codex init function called from main.rs
-- [ ] Verify: `cargo tree -p orbitdock-server` shows no direct codex deps
-- [ ] `make rust-ci`
-- [ ] `make release`
+Removed `codex-core` (unused) and `codex-arg0` from server Cargo.toml. `arg0_dispatch()` is re-exported through `connector-codex`. `cargo tree -p orbitdock-server --depth 1` shows zero direct codex crates — only `orbitdock-connector-codex`.
 
 ---
 

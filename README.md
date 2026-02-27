@@ -2,10 +2,10 @@
 
 Mission control for AI coding agents. One dashboard for all your Claude Code and Codex sessions — live status, conversations, code review, approvals, and usage tracking.
 
-![macOS](https://img.shields.io/badge/macOS-14.0+-blue)
-![iOS](https://img.shields.io/badge/iOS-17.0+-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9+-orange)
-![Rust](https://img.shields.io/badge/Rust-1.75+-red)
+![macOS](https://img.shields.io/badge/macOS-15.0+-blue)
+![iOS](https://img.shields.io/badge/iOS-26.0+-blue)
+![Swift](https://img.shields.io/badge/Swift-6.0-orange)
+![Rust](https://img.shields.io/badge/Rust-stable-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 https://github.com/user-attachments/assets/58be4f6e-55f9-43fe-9336-d3db99c4471c
@@ -60,9 +60,10 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and more
 
 ## Requirements
 
-- macOS 14.0+ (iOS 17.0+ for mobile)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) for Claude session tracking
-- Xcode 15+ and Rust toolchain if building from source
+- macOS 15.0+ (iOS 26.0+ for mobile)
+- **Codex** is built in — the server embeds codex-core, so you get it out of the box with an OpenAI API key
+- **Claude Code** requires a separate install and active login — OrbitDock monitors it via hooks
+- Xcode 16+ and Rust stable toolchain if building from source
 
 ## Documentation
 

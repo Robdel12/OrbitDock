@@ -28,6 +28,9 @@ xcuserdata/
 # Node.js (Vizzly CLI)
 node_modules/
 
+# Claude Agent SDK local install (source-of-truth, but generated)
+orbitdock-server/docs/node_modules/
+
 # Vizzly
 .vizzly/
 

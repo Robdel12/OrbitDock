@@ -1,0 +1,8 @@
+{
+  "packageName": "@anthropic-ai/claude-agent-sdk",
+  "sdkVersion": "0.2.62",
+  "claudeCodeVersion": "2.1.62",
+  "sourcePath": "orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk",
+  "officialOverview": "https://platform.claude.com/docs/en/agent-sdk/overview",
+  "auditDoc": "orbitdock-server/docs/claude-agent-sdk-0.2.62-source-audit.md"
+}

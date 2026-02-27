@@ -21,6 +21,10 @@ RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
 SCCACHE_DIR ?= $(abspath .cache/rust/sccache)
 SCCACHE_CACHE_SIZE ?= 10G
 RUST_SCCACHE ?= off
+CLAUDE_SDK_DOCS_DIR ?= orbitdock-server/docs
+CLAUDE_SDK_VERSION ?= 0.2.62
+CLAUDE_SDK_PACKAGE ?= @anthropic-ai/claude-agent-sdk
+CLAUDE_SDK_VERSION_FILE ?= $(CLAUDE_SDK_DOCS_DIR)/claude-agent-sdk-version.json
 SCCACHE_BIN := $(shell command -v sccache 2>/dev/null)
 RUST_ENV_BASE = SCCACHE_DIR="$(SCCACHE_DIR)" SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE) CARGO_TARGET_DIR="$(RUST_TARGET_DIR)" CARGO_INCREMENTAL=0
 ifeq ($(RUST_SCCACHE),on)
@@ -36,7 +40,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -74,6 +78,9 @@ help:
 	@echo "make rust-clean          Clean all Rust build artifacts"
 	@echo "make rust-clean-release  Clean Rust release artifacts only"
 	@echo "make whisper-model Download ggml-base.en.bin into app resources"
+	@echo "make claude-sdk-version  Show installed Claude Agent SDK + Claude Code version"
+	@echo "make claude-sdk-update CLAUDE_SDK_VERSION=0.2.62  Update docs SDK install and version metadata"
+	@echo "make claude-sdk-audit-checklist  Print required source audit checklist"
 
 build:
 	@$(MAKE) xcode-cache-dirs
@@ -247,3 +254,22 @@ whisper-model:
 
 xcode-cache-dirs:
 	@mkdir -p $(XCODE_DERIVED_DATA_DIR) $(XCODE_PACKAGE_CACHE_DIR) $(XCODE_SOURCE_PACKAGES_DIR) $(XCODE_CLANG_MODULE_CACHE_DIR) $(XCODE_SWIFTPM_MODULECACHE_DIR)
+
+claude-sdk-version:
+	@node -e 'const fs=require("fs");const path="$(CLAUDE_SDK_DOCS_DIR)/node_modules/@anthropic-ai/claude-agent-sdk/package.json";if(!fs.existsSync(path)){console.error("Claude Agent SDK not installed: "+path);process.exit(1);}const pkg=JSON.parse(fs.readFileSync(path,"utf8"));console.log(`${pkg.name}@${pkg.version} (claudeCodeVersion=${pkg.claudeCodeVersion??"unknown"})`);'
+
+claude-sdk-update:
+	cd $(CLAUDE_SDK_DOCS_DIR) && npm install $(CLAUDE_SDK_PACKAGE)@$(CLAUDE_SDK_VERSION)
+	@node -e 'const fs=require("fs");const pkgPath="$(CLAUDE_SDK_DOCS_DIR)/node_modules/@anthropic-ai/claude-agent-sdk/package.json";if(!fs.existsSync(pkgPath)){console.error("Missing installed SDK package: "+pkgPath);process.exit(1);}const pkg=JSON.parse(fs.readFileSync(pkgPath,"utf8"));const out={packageName:pkg.name,sdkVersion:pkg.version,claudeCodeVersion:pkg.claudeCodeVersion??null,sourcePath:"orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk",officialOverview:"https://platform.claude.com/docs/en/agent-sdk/overview",auditDoc:`orbitdock-server/docs/claude-agent-sdk-${pkg.version}-source-audit.md`};fs.writeFileSync("$(CLAUDE_SDK_VERSION_FILE)",JSON.stringify(out,null,2)+"\\n");console.log(`Wrote $(CLAUDE_SDK_VERSION_FILE)`);'
+
+claude-sdk-audit-checklist:
+	@echo "Claude Agent SDK audit checklist:"
+	@echo "1. Update local install: make claude-sdk-update CLAUDE_SDK_VERSION=<version>"
+	@echo "2. Inspect source of truth files:"
+	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs"
+	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts"
+	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts"
+	@echo "   - orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/cli.js"
+	@echo "3. Record findings in orbitdock-server/docs/claude-agent-sdk-<version>-source-audit.md"
+	@echo "4. Update orbitdock-server/docs/claude-agent-sdk-version.json"
+	@echo "5. If official docs differ, treat local source as truth"

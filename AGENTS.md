@@ -50,6 +50,17 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Review `README.md` and `CLAUDE.md` for schema, paths, and update flow.
 - `CLAUDE.md` documents UI theme constraints and data consistency rules (e.g., WAL mode, status colors).
 
+## Claude Agent SDK Source of Truth (Required)
+- Canonical source: `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` (installed version currently `0.2.62`).
+- Always inspect local shipped source before implementation decisions involving plan mode, permission handling, tool contracts, hooks, or transport behavior.
+- Primary files to inspect: `sdk.mjs`, `sdk.d.ts`, `sdk-tools.d.ts`, `cli.js`.
+- Official docs are useful context, but local source wins when there is any mismatch.
+- Keep this SDK updated with:
+  - `make claude-sdk-update CLAUDE_SDK_VERSION=<version>`
+- Current installed/versioned metadata:
+  - `orbitdock-server/docs/claude-agent-sdk-version.json`
+- Current deep-dive reference: `orbitdock-server/docs/claude-agent-sdk-0.2.62-source-audit.md`.
+
 ## Debugging Quick Reference
 - Database: `~/.orbitdock/orbitdock.db`
 - CLI log: `~/.orbitdock/cli.log`

@@ -11,6 +11,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.45"
+    "@anthropic-ai/claude-agent-sdk": "0.2.62"
   }
 }

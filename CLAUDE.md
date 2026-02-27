@@ -160,8 +160,19 @@ All server paths are resolved via `paths.rs` from a single data directory (`--da
 - **Codex Watcher State**: `<data_dir>/codex-rollout-state.json` (offset tracking)
 - **Hook Event Spool**: `<data_dir>/spool/` (queued hook events when server is offline, drained on startup)
 - **Timeline Logs**: `<data_dir>/logs/timeline.log` (macOS) / `timeline-ios.log` (iOS) — conversation view height calculations and overflow detection
-- **Claude Agent SDK**: `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` — reference SDK for protocol reverse-engineering
+- **Claude Agent SDK**: `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` — local installed SDK source (currently `0.2.62`) for protocol reverse-engineering
 - **Claude Protocol Docs**: `orbitdock-server/docs/claude-agent-sdk-protocol.md` — stdin/stdout JSON protocol reference
+
+### Claude Agent SDK Source of Truth (Required)
+
+- Treat `orbitdock-server/docs/node_modules/@anthropic-ai/claude-agent-sdk/` as the canonical source of truth for SDK behavior.
+- Before making assumptions about plan mode, permissions, tool schemas, control messages, or hooks, inspect the shipped source directly (`sdk.mjs`, `sdk.d.ts`, `sdk-tools.d.ts`, `cli.js`).
+- Use official docs as secondary context only; resolve conflicts in favor of the installed source.
+- Keep the local SDK current so reverse-engineering stays accurate:
+  - `make claude-sdk-update CLAUDE_SDK_VERSION=<version>`
+- Track current installed/versioned metadata in:
+  - `orbitdock-server/docs/claude-agent-sdk-version.json`
+- Deep-dive notes for the current version are documented in `orbitdock-server/docs/claude-agent-sdk-0.2.62-source-audit.md`.
 
 ## Debugging Codex Integration
 
