@@ -6,6 +6,7 @@
 
 mod error;
 mod event;
+pub mod transition;
 
 pub use error::ConnectorError;
 pub use event::ConnectorEvent;

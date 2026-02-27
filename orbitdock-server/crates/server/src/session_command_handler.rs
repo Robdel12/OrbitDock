@@ -133,7 +133,9 @@ pub async fn handle_session_command(
             for effect in effects {
                 match effect {
                     transition::Effect::Persist(op) => {
-                        let _ = persist_tx.send((*op).into_persist_command()).await;
+                        let _ = persist_tx
+                            .send(transition::persist_op_to_command(*op))
+                            .await;
                     }
                     transition::Effect::Emit(msg) => {
                         let mut msg = *msg;
