@@ -37,6 +37,7 @@ mod subagent_parser;
 mod transition;
 mod usage_probe;
 mod websocket;
+mod worktree;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;

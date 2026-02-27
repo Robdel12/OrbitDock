@@ -196,7 +196,7 @@ rust-check:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo check --workspace
 
 rust-test:
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo test --workspace -- --test-threads=1
+	cd $(RUST_WORKSPACE_DIR) && RUST_MIN_STACK=8388608 $(RUST_ENV) cargo test --workspace -- --test-threads=1
 
 rust-fmt:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo fmt --all

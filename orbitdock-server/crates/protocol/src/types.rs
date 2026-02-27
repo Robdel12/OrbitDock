@@ -334,6 +334,15 @@ pub struct SessionSummary {
     /// Monotonic counter incremented on every approval state change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval_version: Option<u64>,
+    /// Canonical repo root (resolves worktrees to parent repo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_root: Option<String>,
+    /// True if the session's cwd is inside a linked git worktree.
+    #[serde(default)]
+    pub is_worktree: bool,
+    /// ID of the tracked worktree record (if any).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
 }
 
 /// A diff snapshot from a completed turn
@@ -442,6 +451,15 @@ pub struct SessionState {
     /// Monotonic counter incremented on every approval state change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval_version: Option<u64>,
+    /// Canonical repo root (resolves worktrees to parent repo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_root: Option<String>,
+    /// True if the session's cwd is inside a linked git worktree.
+    #[serde(default)]
+    pub is_worktree: bool,
+    /// ID of the tracked worktree record (if any).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
 }
 
 /// Changes to apply to a session state (delta updates)
@@ -498,6 +516,10 @@ pub struct StateChanges {
     /// Monotonic counter incremented on every approval state change.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_version: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_root: Option<Option<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_worktree: Option<bool>,
 }
 
 /// Changes to apply to a message (delta updates)
@@ -837,4 +859,89 @@ pub struct RecentProject {
     pub session_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_active: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Worktree types
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeStatus {
+    Active,
+    Orphaned,
+    Stale,
+    Removing,
+    Removed,
+}
+
+impl WorktreeStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Orphaned => "orphaned",
+            Self::Stale => "stale",
+            Self::Removing => "removing",
+            Self::Removed => "removed",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "active" => Some(Self::Active),
+            "orphaned" => Some(Self::Orphaned),
+            "stale" => Some(Self::Stale),
+            "removing" => Some(Self::Removing),
+            "removed" => Some(Self::Removed),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeOrigin {
+    User,
+    Agent,
+    Discovered,
+}
+
+impl WorktreeOrigin {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::User => "user",
+            Self::Agent => "agent",
+            Self::Discovered => "discovered",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "user" => Some(Self::User),
+            "agent" => Some(Self::Agent),
+            "discovered" => Some(Self::Discovered),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorktreeSummary {
+    pub id: String,
+    pub repo_root: String,
+    pub worktree_path: String,
+    pub branch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_branch: Option<String>,
+    pub status: WorktreeStatus,
+    pub active_session_count: u32,
+    pub total_session_count: u32,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_session_ended_at: Option<String>,
+    pub disk_present: bool,
+    pub auto_prune: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,
+    pub created_by: WorktreeOrigin,
 }

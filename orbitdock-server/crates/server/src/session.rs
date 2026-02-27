@@ -274,6 +274,9 @@ pub struct SessionSnapshot {
     pub terminal_session_id: Option<String>,
     pub terminal_app: Option<String>,
     pub approval_version: u64,
+    pub repository_root: Option<String>,
+    pub is_worktree: bool,
+    pub worktree_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -335,6 +338,12 @@ pub struct SessionHandle {
     pending_approvals: VecDeque<PendingApprovalEntry>,
     /// Monotonic counter incremented on every approval state change (enqueue, decide, clear).
     approval_version: u64,
+    /// Canonical repo root (resolves worktrees to parent repo).
+    repository_root: Option<String>,
+    /// True if the session's cwd is inside a linked git worktree.
+    is_worktree: bool,
+    /// ID of the tracked worktree record (if any).
+    worktree_id: Option<String>,
     broadcast_tx: broadcast::Sender<orbitdock_protocol::ServerMessage>,
     /// Optional sender for list-level broadcasts (dashboard sidebar updates)
     list_tx: Option<broadcast::Sender<orbitdock_protocol::ServerMessage>>,
@@ -387,6 +396,9 @@ impl SessionHandle {
             terminal_session_id: None,
             terminal_app: None,
             approval_version: 0,
+            repository_root: None,
+            is_worktree: false,
+            worktree_id: None,
         };
         Self {
             id,
@@ -432,6 +444,9 @@ impl SessionHandle {
             pending_approval_id: None,
             pending_approvals: VecDeque::new(),
             approval_version: 0,
+            repository_root: None,
+            is_worktree: false,
+            worktree_id: None,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -517,6 +532,9 @@ impl SessionHandle {
             terminal_session_id: terminal_session_id.clone(),
             terminal_app: terminal_app.clone(),
             approval_version,
+            repository_root: None,
+            is_worktree: false,
+            worktree_id: None,
         };
         let mut handle = Self {
             id,
@@ -562,6 +580,9 @@ impl SessionHandle {
             pending_approval_id,
             pending_approvals: VecDeque::new(),
             approval_version,
+            repository_root: None,
+            is_worktree: false,
+            worktree_id: None,
             broadcast_tx,
             list_tx: None,
             revision: 0,
@@ -633,6 +654,9 @@ impl SessionHandle {
             first_prompt: self.first_prompt.clone(),
             last_message: self.last_message.clone(),
             approval_version: Some(self.approval_version),
+            repository_root: self.repository_root.clone(),
+            is_worktree: self.is_worktree,
+            worktree_id: self.worktree_id.clone(),
         }
     }
 
@@ -684,6 +708,9 @@ impl SessionHandle {
             terminal_session_id: self.terminal_session_id.clone(),
             terminal_app: self.terminal_app.clone(),
             approval_version: Some(self.approval_version),
+            repository_root: self.repository_root.clone(),
+            is_worktree: self.is_worktree,
+            worktree_id: self.worktree_id.clone(),
         }
     }
 
@@ -809,6 +836,34 @@ impl SessionHandle {
     ) {
         self.terminal_session_id = terminal_session_id;
         self.terminal_app = terminal_app;
+    }
+
+    /// Set worktree-related fields
+    #[allow(dead_code)] // Used in Phase 6 (hook_handler enrichment)
+    pub fn set_worktree_info(
+        &mut self,
+        repository_root: Option<String>,
+        is_worktree: bool,
+        worktree_id: Option<String>,
+    ) {
+        self.repository_root = repository_root;
+        self.is_worktree = is_worktree;
+        self.worktree_id = worktree_id;
+    }
+
+    #[allow(dead_code)] // Used in Phase 6+
+    pub fn repository_root(&self) -> Option<&str> {
+        self.repository_root.as_deref()
+    }
+
+    #[allow(dead_code)] // Used in Phase 6+
+    pub fn is_worktree(&self) -> bool {
+        self.is_worktree
+    }
+
+    #[allow(dead_code)] // Used in Phase 6+
+    pub fn worktree_id(&self) -> Option<&str> {
+        self.worktree_id.as_deref()
     }
 
     /// Set status
@@ -1262,6 +1317,9 @@ impl SessionHandle {
             terminal_session_id: self.terminal_session_id.clone(),
             terminal_app: self.terminal_app.clone(),
             approval_version: self.approval_version,
+            repository_root: self.repository_root.clone(),
+            is_worktree: self.is_worktree,
+            worktree_id: self.worktree_id.clone(),
         }
     }
 
@@ -1369,6 +1427,8 @@ impl SessionHandle {
             git_sha: self.git_sha.clone(),
             current_cwd: self.current_cwd.clone(),
             pending_approval: self.pending_approval.clone(),
+            repository_root: self.repository_root.clone(),
+            is_worktree: self.is_worktree,
         }
     }
 
@@ -1389,6 +1449,8 @@ impl SessionHandle {
         self.git_branch = state.git_branch;
         self.git_sha = state.git_sha;
         self.current_cwd = state.current_cwd;
+        self.repository_root = state.repository_root;
+        self.is_worktree = state.is_worktree;
 
         if let Some(approval) = state.pending_approval {
             let (approval_type, proposed_amendment) = match &phase {

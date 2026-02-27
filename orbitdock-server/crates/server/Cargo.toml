@@ -40,3 +40,6 @@ base64 = { workspace = true }
 ring = { workspace = true }
 libc = { workspace = true }
 qrcode = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

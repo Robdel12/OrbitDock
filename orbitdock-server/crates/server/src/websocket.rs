@@ -1688,6 +1688,9 @@ fn handle_client_message<'a>(
                                 terminal_session_id: restored.terminal_session_id,
                                 terminal_app: restored.terminal_app,
                                 approval_version: Some(restored.approval_version),
+                                repository_root: None,
+                                is_worktree: false,
+                                worktree_id: None,
                             };
 
                             send_snapshot_if_requested(
@@ -4790,188 +4793,170 @@ fn handle_client_message<'a>(
                 }
             }
 
-            ClientMessage::ExecuteShell {
-                session_id,
-                command,
-                cwd,
-                timeout_secs,
-            } => {
-                info!(
-                    component = "shell",
-                    event = "shell.execute.requested",
-                    connection_id = conn_id,
-                    session_id = %session_id,
-                    command = %command,
-                    "Shell execution requested"
-                );
+            // Shell execution — dispatched to a separate async fn to reduce
+            // the parent future's stack frame size.
+            ClientMessage::ExecuteShell { .. } | ClientMessage::CancelShell { .. } => {
+                handle_shell_message(msg, client_tx, state, conn_id).await;
+            }
 
-                // Resolve cwd: explicit override > session current_cwd > session project_path
-                let resolved_cwd = if let Some(ref explicit) = cwd {
-                    explicit.clone()
-                } else if let Some(actor) = state.get_session(&session_id) {
-                    let snap = actor.snapshot();
-                    snap.current_cwd
-                        .clone()
-                        .unwrap_or_else(|| snap.project_path.clone())
-                } else {
+            ClientMessage::BrowseDirectory { .. } => {
+                send_rest_only_error(client_tx, "GET /api/fs/browse", None).await;
+            }
+
+            ClientMessage::ListRecentProjects { .. } => {
+                send_rest_only_error(client_tx, "GET /api/fs/recent-projects", None).await;
+            }
+
+            // Worktree management — dispatched to a separate async fn to reduce
+            // the parent future's stack frame size (prevents debug-mode overflow).
+            ClientMessage::ListWorktrees { .. }
+            | ClientMessage::CreateWorktree { .. }
+            | ClientMessage::RemoveWorktree { .. }
+            | ClientMessage::DiscoverWorktrees { .. } => {
+                handle_worktree_message(msg, client_tx).await;
+            }
+        }
+    })
+}
+
+/// Handle worktree management messages in a separate async function.
+///
+/// Extracted from `handle_client_message` to keep its future size small enough
+/// for the default 2MB thread stack in debug builds. Each async fn gets its own
+/// independently-sized future, so splitting large match arms out prevents the
+/// compiler from unioning all arms' locals into one oversized frame.
+async fn handle_shell_message(
+    msg: ClientMessage,
+    client_tx: &mpsc::Sender<OutboundMessage>,
+    state: &Arc<SessionRegistry>,
+    conn_id: u64,
+) {
+    match msg {
+        ClientMessage::ExecuteShell {
+            session_id,
+            command,
+            cwd,
+            timeout_secs,
+        } => {
+            info!(
+                component = "shell",
+                event = "shell.execute.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                command = %command,
+                "Shell execution requested"
+            );
+
+            let resolved_cwd = if let Some(ref explicit) = cwd {
+                explicit.clone()
+            } else if let Some(actor) = state.get_session(&session_id) {
+                let snap = actor.snapshot();
+                snap.current_cwd
+                    .clone()
+                    .unwrap_or_else(|| snap.project_path.clone())
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".to_string(),
+                        message: format!("Session {session_id} not found"),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+                return;
+            };
+
+            let request_id = new_id();
+            let sid = session_id.clone();
+            let rid = request_id.clone();
+            let cmd_clone = command.clone();
+
+            let actor = match state.get_session(&sid) {
+                Some(a) => a,
+                None => return,
+            };
+
+            actor
+                .send(SessionCommand::Broadcast {
+                    msg: ServerMessage::ShellStarted {
+                        session_id: sid.clone(),
+                        request_id: rid.clone(),
+                        command: cmd_clone.clone(),
+                    },
+                })
+                .await;
+
+            let shell_msg = orbitdock_protocol::Message {
+                id: rid.clone(),
+                session_id: sid.clone(),
+                message_type: MessageType::Shell,
+                content: cmd_clone.clone(),
+                tool_name: None,
+                tool_input: None,
+                tool_output: None,
+                is_error: false,
+                is_in_progress: true,
+                timestamp: iso_timestamp(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis(),
+                ),
+                duration_ms: None,
+                images: vec![],
+            };
+
+            actor
+                .send(SessionCommand::ProcessEvent {
+                    event: crate::transition::Input::MessageCreated(shell_msg),
+                })
+                .await;
+
+            let shell_execution = match state.shell_service().start(
+                rid.clone(),
+                sid.clone(),
+                cmd_clone.clone(),
+                resolved_cwd.clone(),
+                timeout_secs,
+            ) {
+                Ok(execution) => execution,
+                Err(crate::shell::ShellStartError::DuplicateRequestId) => {
                     send_json(
                         client_tx,
                         ServerMessage::Error {
-                            code: "not_found".to_string(),
-                            message: format!("Session {session_id} not found"),
-                            session_id: Some(session_id),
+                            code: "shell_duplicate_request_id".to_string(),
+                            message: format!("Shell request {rid} is already active"),
+                            session_id: Some(sid.clone()),
                         },
                     )
                     .await;
                     return;
-                };
+                }
+            };
 
-                let request_id = new_id();
-                let sid = session_id.clone();
-                let rid = request_id.clone();
-                let cmd_clone = command.clone();
+            let state_ref = state.clone();
+            tokio::spawn(async move {
+                let mut chunk_rx = shell_execution.chunk_rx;
+                let completion_rx = shell_execution.completion_rx;
 
-                let actor = match state.get_session(&sid) {
-                    Some(a) => a,
-                    None => return,
-                };
+                let mut streamed_output = String::new();
+                let mut last_stream_emit = std::time::Instant::now();
+                const SHELL_STREAM_THROTTLE_MS: u128 = 120;
 
-                actor
-                    .send(SessionCommand::Broadcast {
-                        msg: ServerMessage::ShellStarted {
-                            session_id: sid.clone(),
-                            request_id: rid.clone(),
-                            command: cmd_clone.clone(),
-                        },
-                    })
-                    .await;
-
-                let shell_msg = orbitdock_protocol::Message {
-                    id: rid.clone(),
-                    session_id: sid.clone(),
-                    message_type: MessageType::Shell,
-                    content: cmd_clone.clone(),
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: false,
-                    is_in_progress: true,
-                    timestamp: iso_timestamp(
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis(),
-                    ),
-                    duration_ms: None,
-                    images: vec![],
-                };
-
-                actor
-                    .send(SessionCommand::ProcessEvent {
-                        event: crate::transition::Input::MessageCreated(shell_msg),
-                    })
-                    .await;
-
-                let shell_execution = match state.shell_service().start(
-                    rid.clone(),
-                    sid.clone(),
-                    cmd_clone.clone(),
-                    resolved_cwd.clone(),
-                    timeout_secs,
-                ) {
-                    Ok(execution) => execution,
-                    Err(crate::shell::ShellStartError::DuplicateRequestId) => {
-                        send_json(
-                            client_tx,
-                            ServerMessage::Error {
-                                code: "shell_duplicate_request_id".to_string(),
-                                message: format!("Shell request {rid} is already active"),
-                                session_id: Some(sid.clone()),
-                            },
-                        )
-                        .await;
-                        return;
+                while let Some(chunk) = chunk_rx.recv().await {
+                    if !chunk.stdout.is_empty() {
+                        streamed_output.push_str(&chunk.stdout);
                     }
-                };
-
-                let state_ref = state.clone();
-                tokio::spawn(async move {
-                    let mut chunk_rx = shell_execution.chunk_rx;
-                    let completion_rx = shell_execution.completion_rx;
-
-                    let mut streamed_output = String::new();
-                    let mut last_stream_emit = std::time::Instant::now();
-                    const SHELL_STREAM_THROTTLE_MS: u128 = 120;
-
-                    while let Some(chunk) = chunk_rx.recv().await {
-                        if !chunk.stdout.is_empty() {
-                            streamed_output.push_str(&chunk.stdout);
-                        }
-                        if !chunk.stderr.is_empty() {
-                            streamed_output.push_str(&chunk.stderr);
-                        }
-
-                        let now = std::time::Instant::now();
-                        if now.duration_since(last_stream_emit).as_millis()
-                            < SHELL_STREAM_THROTTLE_MS
-                        {
-                            continue;
-                        }
-                        last_stream_emit = now;
-
-                        if let Some(actor) = state_ref.get_session(&sid) {
-                            actor
-                                .send(SessionCommand::ProcessEvent {
-                                    event: crate::transition::Input::MessageUpdated {
-                                        message_id: rid.clone(),
-                                        content: None,
-                                        tool_output: Some(streamed_output.clone()),
-                                        is_error: None,
-                                        is_in_progress: Some(true),
-                                        duration_ms: None,
-                                    },
-                                })
-                                .await;
-                        }
+                    if !chunk.stderr.is_empty() {
+                        streamed_output.push_str(&chunk.stderr);
                     }
 
-                    let result = match completion_rx.await {
-                        Ok(result) => result,
-                        Err(recv_err) => crate::shell::ShellResult {
-                            stdout: String::new(),
-                            stderr: format!(
-                                "Shell execution completion channel failed: {recv_err}"
-                            ),
-                            exit_code: None,
-                            duration_ms: 0,
-                            outcome: crate::shell::ShellOutcome::Failed,
-                        },
-                    };
-
-                    let is_error = match result.outcome {
-                        crate::shell::ShellOutcome::Completed => result.exit_code != Some(0),
-                        crate::shell::ShellOutcome::Failed
-                        | crate::shell::ShellOutcome::TimedOut => true,
-                        crate::shell::ShellOutcome::Canceled => false,
-                    };
-                    let combined_output = if result.stderr.is_empty() {
-                        result.stdout.clone()
-                    } else if result.stdout.is_empty() {
-                        result.stderr.clone()
-                    } else {
-                        format!("{}\n{}", result.stdout, result.stderr)
-                    };
-                    let final_output = if combined_output.is_empty() {
-                        streamed_output
-                    } else {
-                        combined_output
-                    };
-                    let outcome = match result.outcome {
-                        crate::shell::ShellOutcome::Completed => ShellExecutionOutcome::Completed,
-                        crate::shell::ShellOutcome::Failed => ShellExecutionOutcome::Failed,
-                        crate::shell::ShellOutcome::TimedOut => ShellExecutionOutcome::TimedOut,
-                        crate::shell::ShellOutcome::Canceled => ShellExecutionOutcome::Canceled,
-                    };
+                    let now = std::time::Instant::now();
+                    if now.duration_since(last_stream_emit).as_millis() < SHELL_STREAM_THROTTLE_MS {
+                        continue;
+                    }
+                    last_stream_emit = now;
 
                     if let Some(actor) = state_ref.get_session(&sid) {
                         actor
@@ -4979,70 +4964,123 @@ fn handle_client_message<'a>(
                                 event: crate::transition::Input::MessageUpdated {
                                     message_id: rid.clone(),
                                     content: None,
-                                    tool_output: Some(final_output),
-                                    is_error: Some(is_error),
-                                    is_in_progress: Some(false),
-                                    duration_ms: Some(result.duration_ms),
-                                },
-                            })
-                            .await;
-
-                        actor
-                            .send(SessionCommand::Broadcast {
-                                msg: ServerMessage::ShellOutput {
-                                    session_id: sid,
-                                    request_id: rid,
-                                    stdout: result.stdout,
-                                    stderr: result.stderr,
-                                    exit_code: result.exit_code,
-                                    duration_ms: result.duration_ms,
-                                    outcome,
+                                    tool_output: Some(streamed_output.clone()),
+                                    is_error: None,
+                                    is_in_progress: Some(true),
+                                    duration_ms: None,
                                 },
                             })
                             .await;
                     }
-                });
-            }
-
-            ClientMessage::CancelShell {
-                session_id,
-                request_id,
-            } => {
-                info!(
-                    component = "shell",
-                    event = "shell.cancel.requested",
-                    connection_id = conn_id,
-                    session_id = %session_id,
-                    request_id = %request_id,
-                    "Shell cancel requested"
-                );
-
-                if state.get_session(&session_id).is_none() {
-                    send_json(
-                        client_tx,
-                        ServerMessage::Error {
-                            code: "not_found".to_string(),
-                            message: format!("Session {session_id} not found"),
-                            session_id: Some(session_id),
-                        },
-                    )
-                    .await;
-                    return;
                 }
 
-                match state.shell_service().cancel(&session_id, &request_id) {
-                    crate::shell::ShellCancelStatus::Canceled => {
-                        info!(
-                            component = "shell",
-                            event = "shell.cancel.accepted",
-                            connection_id = conn_id,
-                            session_id = %session_id,
-                            request_id = %request_id,
-                            "Shell cancel accepted"
-                        );
+                let result = match completion_rx.await {
+                    Ok(result) => result,
+                    Err(recv_err) => crate::shell::ShellResult {
+                        stdout: String::new(),
+                        stderr: format!("Shell execution completion channel failed: {recv_err}"),
+                        exit_code: None,
+                        duration_ms: 0,
+                        outcome: crate::shell::ShellOutcome::Failed,
+                    },
+                };
+
+                let is_error = match result.outcome {
+                    crate::shell::ShellOutcome::Completed => result.exit_code != Some(0),
+                    crate::shell::ShellOutcome::Failed | crate::shell::ShellOutcome::TimedOut => {
+                        true
                     }
-                    crate::shell::ShellCancelStatus::NotFound => {
-                        send_json(
+                    crate::shell::ShellOutcome::Canceled => false,
+                };
+                let combined_output = if result.stderr.is_empty() {
+                    result.stdout.clone()
+                } else if result.stdout.is_empty() {
+                    result.stderr.clone()
+                } else {
+                    format!("{}\n{}", result.stdout, result.stderr)
+                };
+                let final_output = if combined_output.is_empty() {
+                    streamed_output
+                } else {
+                    combined_output
+                };
+                let outcome = match result.outcome {
+                    crate::shell::ShellOutcome::Completed => ShellExecutionOutcome::Completed,
+                    crate::shell::ShellOutcome::Failed => ShellExecutionOutcome::Failed,
+                    crate::shell::ShellOutcome::TimedOut => ShellExecutionOutcome::TimedOut,
+                    crate::shell::ShellOutcome::Canceled => ShellExecutionOutcome::Canceled,
+                };
+
+                if let Some(actor) = state_ref.get_session(&sid) {
+                    actor
+                        .send(SessionCommand::ProcessEvent {
+                            event: crate::transition::Input::MessageUpdated {
+                                message_id: rid.clone(),
+                                content: None,
+                                tool_output: Some(final_output),
+                                is_error: Some(is_error),
+                                is_in_progress: Some(false),
+                                duration_ms: Some(result.duration_ms),
+                            },
+                        })
+                        .await;
+
+                    actor
+                        .send(SessionCommand::Broadcast {
+                            msg: ServerMessage::ShellOutput {
+                                session_id: sid,
+                                request_id: rid,
+                                stdout: result.stdout,
+                                stderr: result.stderr,
+                                exit_code: result.exit_code,
+                                duration_ms: result.duration_ms,
+                                outcome,
+                            },
+                        })
+                        .await;
+                }
+            });
+        }
+
+        ClientMessage::CancelShell {
+            session_id,
+            request_id,
+        } => {
+            info!(
+                component = "shell",
+                event = "shell.cancel.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                request_id = %request_id,
+                "Shell cancel requested"
+            );
+
+            if state.get_session(&session_id).is_none() {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".to_string(),
+                        message: format!("Session {session_id} not found"),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+                return;
+            }
+
+            match state.shell_service().cancel(&session_id, &request_id) {
+                crate::shell::ShellCancelStatus::Canceled => {
+                    info!(
+                        component = "shell",
+                        event = "shell.cancel.accepted",
+                        connection_id = conn_id,
+                        session_id = %session_id,
+                        request_id = %request_id,
+                        "Shell cancel accepted"
+                    );
+                }
+                crate::shell::ShellCancelStatus::NotFound => {
+                    send_json(
                         client_tx,
                         ServerMessage::Error {
                             code: "shell_not_found".to_string(),
@@ -5053,19 +5091,177 @@ fn handle_client_message<'a>(
                         },
                     )
                     .await;
-                    }
                 }
             }
+        }
 
-            ClientMessage::BrowseDirectory { .. } => {
-                send_rest_only_error(client_tx, "GET /api/fs/browse", None).await;
-            }
+        _ => {}
+    }
+}
 
-            ClientMessage::ListRecentProjects { .. } => {
-                send_rest_only_error(client_tx, "GET /api/fs/recent-projects", None).await;
+/// Handle worktree management messages in a separate async function (same reason).
+async fn handle_worktree_message(msg: ClientMessage, client_tx: &mpsc::Sender<OutboundMessage>) {
+    match msg {
+        ClientMessage::ListWorktrees {
+            request_id,
+            repo_root,
+        } => {
+            let worktrees = if let Some(ref root) = repo_root {
+                match crate::git::discover_worktrees(root).await {
+                    Ok(discovered) => discovered
+                        .into_iter()
+                        .map(|w| orbitdock_protocol::WorktreeSummary {
+                            id: orbitdock_protocol::new_id(),
+                            repo_root: root.clone(),
+                            worktree_path: w.path,
+                            branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
+                            base_branch: None,
+                            status: orbitdock_protocol::WorktreeStatus::Active,
+                            active_session_count: 0,
+                            total_session_count: 0,
+                            created_at: String::new(),
+                            last_session_ended_at: None,
+                            disk_present: true,
+                            auto_prune: true,
+                            custom_name: None,
+                            created_by: orbitdock_protocol::WorktreeOrigin::Discovered,
+                        })
+                        .collect(),
+                    Err(_) => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            send_json(
+                client_tx,
+                ServerMessage::WorktreesList {
+                    request_id,
+                    repo_root,
+                    worktrees,
+                },
+            )
+            .await;
+        }
+
+        ClientMessage::CreateWorktree {
+            request_id,
+            repo_path,
+            branch_name,
+            base_branch,
+        } => {
+            let worktree_path = format!(
+                "{}/.orbitdock-worktrees/{}",
+                repo_path.trim_end_matches('/'),
+                branch_name
+            );
+            match crate::git::create_worktree(
+                &repo_path,
+                &worktree_path,
+                &branch_name,
+                base_branch.as_deref(),
+            )
+            .await
+            {
+                Ok(_branch) => {
+                    let summary = orbitdock_protocol::WorktreeSummary {
+                        id: orbitdock_protocol::new_id(),
+                        repo_root: repo_path,
+                        worktree_path,
+                        branch: branch_name,
+                        base_branch,
+                        status: orbitdock_protocol::WorktreeStatus::Active,
+                        active_session_count: 0,
+                        total_session_count: 0,
+                        created_at: chrono_now(),
+                        last_session_ended_at: None,
+                        disk_present: true,
+                        auto_prune: true,
+                        custom_name: None,
+                        created_by: orbitdock_protocol::WorktreeOrigin::User,
+                    };
+                    // TODO: persist worktree to DB
+                    send_json(
+                        client_tx,
+                        ServerMessage::WorktreeCreated {
+                            request_id,
+                            worktree: summary,
+                        },
+                    )
+                    .await;
+                }
+                Err(e) => {
+                    send_json(
+                        client_tx,
+                        ServerMessage::WorktreeError {
+                            request_id,
+                            code: "create_failed".to_string(),
+                            message: e,
+                        },
+                    )
+                    .await;
+                }
             }
         }
-    })
+
+        ClientMessage::RemoveWorktree {
+            request_id,
+            worktree_id,
+            force,
+        } => {
+            // TODO: look up worktree_path from DB by worktree_id
+            send_json(
+                client_tx,
+                ServerMessage::WorktreeError {
+                    request_id,
+                    code: "not_found".to_string(),
+                    message: format!(
+                        "worktree {worktree_id} not found (force={force}, persistence pending)"
+                    ),
+                },
+            )
+            .await;
+        }
+
+        ClientMessage::DiscoverWorktrees {
+            request_id,
+            repo_path,
+        } => {
+            let worktrees = match crate::git::discover_worktrees(&repo_path).await {
+                Ok(discovered) => discovered
+                    .into_iter()
+                    .map(|w| orbitdock_protocol::WorktreeSummary {
+                        id: orbitdock_protocol::new_id(),
+                        repo_root: repo_path.clone(),
+                        worktree_path: w.path,
+                        branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
+                        base_branch: None,
+                        status: orbitdock_protocol::WorktreeStatus::Active,
+                        active_session_count: 0,
+                        total_session_count: 0,
+                        created_at: String::new(),
+                        last_session_ended_at: None,
+                        disk_present: true,
+                        auto_prune: true,
+                        custom_name: None,
+                        created_by: orbitdock_protocol::WorktreeOrigin::Discovered,
+                    })
+                    .collect(),
+                Err(_) => Vec::new(),
+            };
+            // TODO: upsert discovered worktrees into DB
+            send_json(
+                client_tx,
+                ServerMessage::WorktreesList {
+                    request_id,
+                    repo_root: Some(repo_path),
+                    worktrees,
+                },
+            )
+            .await;
+        }
+
+        _ => {} // Only worktree messages should reach here
+    }
 }
 
 /// Re-read a session's transcript and broadcast any new messages to subscribers.

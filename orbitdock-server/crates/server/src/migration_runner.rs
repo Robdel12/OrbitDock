@@ -56,6 +56,11 @@ const EMBEDDED_MIGRATIONS: &[(i64, &str, &str)] = &[
         "009_message_error_column",
         include_str!("../../../../migrations/009_message_error_column.sql"),
     ),
+    (
+        10,
+        "010_worktree_support",
+        include_str!("../../../../migrations/010_worktree_support.sql"),
+    ),
 ];
 
 /// Run all pending migrations against the given connection.

@@ -359,7 +359,7 @@ pub(crate) async fn dispatch_connector_event(
 ///
 /// Used by `dispatch_connector_event` (from provider event loops) and
 /// `ProcessEvent` (from session commands).
-async fn dispatch_transition_input(
+pub(crate) async fn dispatch_transition_input(
     _session_id: &str,
     input: transition::Input,
     handle: &mut SessionHandle,

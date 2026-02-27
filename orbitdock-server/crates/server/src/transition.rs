@@ -114,11 +114,15 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             cwd,
             git_branch,
             git_sha,
+            repository_root,
+            is_worktree,
         } => PersistCommand::EnvironmentUpdate {
             session_id,
             cwd,
             git_branch,
             git_sha,
+            repository_root,
+            is_worktree,
         },
         PersistOp::ToolCountIncrement { session_id } => {
             PersistCommand::ToolCountIncrement { session_id }

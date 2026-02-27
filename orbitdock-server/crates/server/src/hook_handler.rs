@@ -136,12 +136,23 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         })
                         .await;
                 }
-                let git_branch = crate::git::resolve_git_branch(&cwd).await;
+                let git_info = crate::git::resolve_git_info(&cwd).await;
+                let git_branch = git_info.as_ref().map(|g| g.branch.clone());
+                let git_sha = git_info.as_ref().map(|g| g.sha.clone());
+                let repository_root = git_info.as_ref().map(|g| g.common_dir_root.clone());
+                let is_worktree = git_info.as_ref().is_some_and(|g| g.is_worktree);
+
+                // Use repository root for grouping so worktree sessions group correctly
+                let effective_project_path = repository_root.clone().unwrap_or_else(|| cwd.clone());
+
                 existing
                     .send(SessionCommand::ApplyDelta {
                         changes: orbitdock_protocol::StateChanges {
                             work_status: Some(orbitdock_protocol::WorkStatus::Waiting),
                             git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                            git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
+                            repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
+                            is_worktree: if is_worktree { Some(true) } else { None },
                             last_activity_at: Some(chrono_now()),
                             ..Default::default()
                         },
@@ -162,8 +173,8 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     .persist()
                     .send(PersistCommand::ClaudeSessionUpsert {
                         id: session_id,
-                        project_path: cwd.clone(),
-                        project_name: project_name_from_cwd(&cwd),
+                        project_path: effective_project_path.clone(),
+                        project_name: project_name_from_cwd(&effective_project_path),
                         branch: git_branch,
                         model,
                         context_label,
@@ -174,6 +185,9 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         terminal_session_id,
                         terminal_app,
                         forked_from_session_id: None,
+                        repository_root,
+                        is_worktree,
+                        git_sha,
                     })
                     .await;
                 return;
@@ -348,22 +362,29 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 .as_deref()
                 .and_then(|path| claude_transcript_path_from_cwd(path, &session_id));
 
-            // Resolve git branch from cwd if available
-            let git_branch = match cwd.as_deref() {
-                Some(path) => crate::git::resolve_git_branch(path).await,
+            // Resolve full git info from cwd if available
+            let git_info = match cwd.as_deref() {
+                Some(path) => crate::git::resolve_git_info(path).await,
                 None => None,
             };
+            let git_branch = git_info.as_ref().map(|g| g.branch.clone());
+            let git_sha = git_info.as_ref().map(|g| g.sha.clone());
+            let repository_root = git_info.as_ref().map(|g| g.common_dir_root.clone());
+            let is_worktree = git_info.as_ref().is_some_and(|g| g.is_worktree);
 
             let actor = if let Some(existing) = state.get_session(&session_id) {
                 if existing.snapshot().provider == Provider::Codex {
                     return;
                 }
-                // Update branch if we have one and it's missing
+                // Update branch/worktree info if we have it and it's missing
                 if git_branch.is_some() && existing.snapshot().git_branch.is_none() {
                     existing
                         .send(SessionCommand::ApplyDelta {
                             changes: orbitdock_protocol::StateChanges {
                                 git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                                git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
+                                repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
+                                is_worktree: if is_worktree { Some(true) } else { None },
                                 ..Default::default()
                             },
                             persist_op: None,
@@ -380,7 +401,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     transcript_path
                         .clone()
                         .or_else(|| derived_transcript_path.clone()),
-                    git_branch.as_deref(),
+                    git_info.as_ref(),
                     state,
                     &persist_tx,
                 )
@@ -398,12 +419,14 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     .await;
             }
 
+            // Use repository root for grouping so worktree sessions group correctly
             if let Some(cwd) = cwd.clone() {
+                let effective_project_path = repository_root.clone().unwrap_or_else(|| cwd.clone());
                 let _ = persist_tx
                     .send(PersistCommand::ClaudeSessionUpsert {
                         id: session_id.clone(),
-                        project_path: cwd.clone(),
-                        project_name: project_name_from_cwd(&cwd),
+                        project_path: effective_project_path.clone(),
+                        project_name: project_name_from_cwd(&effective_project_path),
                         branch: git_branch.clone(),
                         model: None,
                         context_label: None,
@@ -416,6 +439,9 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         terminal_session_id: None,
                         terminal_app: None,
                         forked_from_session_id: None,
+                        repository_root,
+                        is_worktree,
+                        git_sha,
                     })
                     .await;
             }
@@ -508,6 +534,38 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             persist_tx.clone(),
                             state.list_tx(),
                         );
+                    }
+                }
+
+                // Branch freshness: re-resolve git info on every user prompt to catch
+                // branch switches between turns. Cost: ~10ms per user prompt.
+                if let Some(ref prompt_cwd) = cwd {
+                    let fresh_info = crate::git::resolve_git_info(prompt_cwd).await;
+                    if let Some(ref info) = fresh_info {
+                        // Push delta to clients
+                        let _ = actor
+                            .send(SessionCommand::ApplyDelta {
+                                changes: orbitdock_protocol::StateChanges {
+                                    git_branch: Some(Some(info.branch.clone())),
+                                    git_sha: Some(Some(info.sha.clone())),
+                                    repository_root: Some(Some(info.common_dir_root.clone())),
+                                    is_worktree: if info.is_worktree { Some(true) } else { None },
+                                    ..Default::default()
+                                },
+                                persist_op: None,
+                            })
+                            .await;
+                        // Persist updated environment to DB
+                        let _ = persist_tx
+                            .send(PersistCommand::EnvironmentUpdate {
+                                session_id: session_id.clone(),
+                                cwd: Some(prompt_cwd.clone()),
+                                git_branch: Some(info.branch.clone()),
+                                git_sha: Some(info.sha.clone()),
+                                repository_root: Some(info.common_dir_root.clone()),
+                                is_worktree: Some(info.is_worktree),
+                            })
+                            .await;
                     }
                 }
             }
@@ -755,19 +813,26 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             let persist_tx = state.persist().clone();
             let derived_transcript_path = claude_transcript_path_from_cwd(&cwd, &session_id);
 
-            // Resolve git branch from cwd
-            let git_branch = crate::git::resolve_git_branch(&cwd).await;
+            // Resolve full git info from cwd
+            let git_info = crate::git::resolve_git_info(&cwd).await;
+            let git_branch = git_info.as_ref().map(|g| g.branch.clone());
+            let git_sha = git_info.as_ref().map(|g| g.sha.clone());
+            let repository_root = git_info.as_ref().map(|g| g.common_dir_root.clone());
+            let is_worktree = git_info.as_ref().is_some_and(|g| g.is_worktree);
 
             let actor = if let Some(existing) = state.get_session(&session_id) {
                 if existing.snapshot().provider == Provider::Codex {
                     return;
                 }
-                // Update branch if missing
+                // Update branch/worktree info if missing
                 if git_branch.is_some() && existing.snapshot().git_branch.is_none() {
                     existing
                         .send(SessionCommand::ApplyDelta {
                             changes: orbitdock_protocol::StateChanges {
                                 git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                                git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
+                                repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
+                                is_worktree: if is_worktree { Some(true) } else { None },
                                 ..Default::default()
                             },
                             persist_op: None,
@@ -781,18 +846,19 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     &session_id,
                     &cwd,
                     derived_transcript_path.clone(),
-                    git_branch.as_deref(),
+                    git_info.as_ref(),
                     state,
                     &persist_tx,
                 )
                 .await
             };
 
+            let effective_project_path = repository_root.clone().unwrap_or_else(|| cwd.clone());
             let _ = persist_tx
                 .send(PersistCommand::ClaudeSessionUpsert {
                     id: session_id.clone(),
-                    project_path: cwd.clone(),
-                    project_name: project_name_from_cwd(&cwd),
+                    project_path: effective_project_path.clone(),
+                    project_name: project_name_from_cwd(&effective_project_path),
                     branch: git_branch,
                     model: None,
                     context_label: None,
@@ -803,6 +869,9 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     terminal_session_id: None,
                     terminal_app: None,
                     forked_from_session_id: None,
+                    repository_root,
+                    is_worktree,
+                    git_sha,
                 })
                 .await;
 
@@ -1094,13 +1163,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             // Subagent events don't carry cwd, so peek it from the pending entry.
             if state.get_session(&session_id).is_none() {
                 if let Some(pending_cwd) = state.peek_pending_claude_cwd(&session_id) {
-                    let git_branch = crate::git::resolve_git_branch(&pending_cwd).await;
+                    let git_info = crate::git::resolve_git_info(&pending_cwd).await;
                     let derived_tp = claude_transcript_path_from_cwd(&pending_cwd, &session_id);
                     materialize_claude_session(
                         &session_id,
                         &pending_cwd,
                         derived_tp,
-                        git_branch.as_deref(),
+                        git_info.as_ref(),
                         state,
                         &persist_tx,
                     )
@@ -1195,7 +1264,7 @@ async fn materialize_claude_session(
     session_id: &str,
     fallback_cwd: &str,
     fallback_transcript_path: Option<String>,
-    fallback_git_branch: Option<&str>,
+    fallback_git_info: Option<&crate::git::GitInfo>,
     state: &Arc<SessionRegistry>,
     persist_tx: &mpsc::Sender<PersistCommand>,
 ) -> SessionActorHandle {
@@ -1218,43 +1287,62 @@ async fn materialize_claude_session(
     let terminal_session_id = pending.as_ref().and_then(|p| p.terminal_session_id.clone());
     let terminal_app = pending.as_ref().and_then(|p| p.terminal_app.clone());
 
-    // Resolve git branch — prefer cached cwd over fallback
-    let git_branch = if pending.is_some() {
-        crate::git::resolve_git_branch(&cwd).await
+    // Resolve git info — prefer fresh resolution when we have a pending cwd,
+    // fall back to caller-provided info
+    let resolved_git_info = if pending.is_some() {
+        crate::git::resolve_git_info(&cwd).await
     } else {
-        fallback_git_branch.map(|b| b.to_string())
+        fallback_git_info.cloned()
     };
+
+    let git_branch = resolved_git_info.as_ref().map(|g| g.branch.clone());
+    let git_sha = resolved_git_info.as_ref().map(|g| g.sha.clone());
+    let repository_root = resolved_git_info
+        .as_ref()
+        .map(|g| g.common_dir_root.clone());
+    let is_worktree = resolved_git_info.as_ref().is_some_and(|g| g.is_worktree);
+
+    // Use repository root as project path so worktree sessions group with parent repo
+    let effective_project_path = repository_root.clone().unwrap_or_else(|| cwd.clone());
 
     // Detect fork: source "resume" (claude -c) or "clear" (accept plan / clear context)
     // means this session continues from a previous one in the same project.
     let forked_from_session_id = if matches!(source.as_deref(), Some("resume") | Some("clear")) {
-        find_most_recent_claude_session(session_id, &cwd, state)
+        find_most_recent_claude_session(session_id, &effective_project_path, state)
     } else {
         None
     };
 
     // Prune stale empty shells in the same project
-    run_stale_shell_pruning(session_id, &cwd, state, persist_tx).await;
+    run_stale_shell_pruning(session_id, &effective_project_path, state, persist_tx).await;
 
-    // Create the session
-    let mut handle = SessionHandle::new(session_id.to_string(), Provider::Claude, cwd.clone());
+    // Create the session with effective project path for correct grouping
+    let mut handle = SessionHandle::new(
+        session_id.to_string(),
+        Provider::Claude,
+        effective_project_path.clone(),
+    );
     handle.set_claude_integration_mode(Some(orbitdock_protocol::ClaudeIntegrationMode::Passive));
-    handle.set_project_name(project_name_from_cwd(&cwd));
+    handle.set_project_name(project_name_from_cwd(&effective_project_path));
     handle.set_model(model.clone());
     handle.set_transcript_path(transcript_path.clone());
     handle.set_work_status(orbitdock_protocol::WorkStatus::Waiting);
     handle.set_terminal_info(terminal_session_id.clone(), terminal_app.clone());
+    handle.set_worktree_info(repository_root.clone(), is_worktree, None);
     if let Some(ref fork_src) = forked_from_session_id {
         handle.set_forked_from(fork_src.clone());
     }
     let actor = state.add_session(handle);
 
-    // Set branch via delta
-    if git_branch.is_some() {
+    // Set branch + worktree info via delta
+    if git_branch.is_some() || repository_root.is_some() {
         actor
             .send(SessionCommand::ApplyDelta {
                 changes: orbitdock_protocol::StateChanges {
                     git_branch: git_branch.as_ref().map(|b| Some(b.clone())),
+                    git_sha: git_sha.as_ref().map(|s| Some(s.clone())),
+                    repository_root: repository_root.as_ref().map(|r| Some(r.clone())),
+                    is_worktree: if is_worktree { Some(true) } else { None },
                     ..Default::default()
                 },
                 persist_op: None,
@@ -1285,8 +1373,8 @@ async fn materialize_claude_session(
     let _ = persist_tx
         .send(PersistCommand::ClaudeSessionUpsert {
             id: session_id.to_string(),
-            project_path: cwd.clone(),
-            project_name: project_name_from_cwd(&cwd),
+            project_path: effective_project_path.clone(),
+            project_name: project_name_from_cwd(&effective_project_path),
             branch: git_branch,
             model,
             context_label,
@@ -1297,6 +1385,9 @@ async fn materialize_claude_session(
             terminal_session_id,
             terminal_app,
             forked_from_session_id,
+            repository_root,
+            is_worktree,
+            git_sha,
         })
         .await;
 

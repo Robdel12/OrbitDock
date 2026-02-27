@@ -376,6 +376,30 @@ pub enum ClientMessage {
     ListRecentProjects {
         request_id: String,
     },
+
+    // Worktree management
+    ListWorktrees {
+        request_id: String,
+        #[serde(default)]
+        repo_root: Option<String>,
+    },
+    CreateWorktree {
+        request_id: String,
+        repo_path: String,
+        branch_name: String,
+        #[serde(default)]
+        base_branch: Option<String>,
+    },
+    RemoveWorktree {
+        request_id: String,
+        worktree_id: String,
+        #[serde(default)]
+        force: bool,
+    },
+    DiscoverWorktrees {
+        request_id: String,
+        repo_path: String,
+    },
 }
 
 fn default_shell_timeout() -> u64 {

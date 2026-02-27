@@ -272,6 +272,32 @@ pub enum ServerMessage {
         approval_version: u64,
     },
 
+    // Worktree management
+    WorktreesList {
+        request_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        repo_root: Option<String>,
+        worktrees: Vec<crate::WorktreeSummary>,
+    },
+    WorktreeCreated {
+        request_id: String,
+        worktree: crate::WorktreeSummary,
+    },
+    WorktreeRemoved {
+        request_id: String,
+        worktree_id: String,
+    },
+    WorktreeStatusChanged {
+        worktree_id: String,
+        status: crate::WorktreeStatus,
+        repo_root: String,
+    },
+    WorktreeError {
+        request_id: String,
+        code: String,
+        message: String,
+    },
+
     // Errors
     Error {
         code: String,

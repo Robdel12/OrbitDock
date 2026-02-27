@@ -253,6 +253,9 @@ impl SessionRegistry {
                     last_message: snap.last_message.clone(),
                     effort: snap.effort.clone(),
                     approval_version: Some(snap.approval_version),
+                    repository_root: snap.repository_root.clone(),
+                    is_worktree: snap.is_worktree,
+                    worktree_id: snap.worktree_id.clone(),
                 }
             })
             .collect()

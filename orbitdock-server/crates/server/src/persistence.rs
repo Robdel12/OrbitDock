@@ -148,6 +148,9 @@ pub enum PersistCommand {
         terminal_session_id: Option<String>,
         terminal_app: Option<String>,
         forked_from_session_id: Option<String>,
+        repository_root: Option<String>,
+        is_worktree: bool,
+        git_sha: Option<String>,
     },
 
     /// Update Claude session state/metadata from hook events
@@ -300,12 +303,14 @@ pub enum PersistCommand {
         claude_mode: Option<String>,
     },
 
-    /// Update environment info (cwd, git branch, git sha)
+    /// Update environment info (cwd, git branch, git sha, worktree)
     EnvironmentUpdate {
         session_id: String,
         cwd: Option<String>,
         git_branch: Option<String>,
         git_sha: Option<String>,
+        repository_root: Option<String>,
+        is_worktree: Option<bool>,
     },
 
     /// Upsert a key-value config entry
@@ -882,6 +887,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             terminal_session_id,
             terminal_app,
             forked_from_session_id,
+            repository_root,
+            is_worktree,
+            git_sha,
         } => {
             let now = chrono_now();
             conn.execute(
@@ -889,8 +897,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     id, project_path, project_name, branch, model, context_label, transcript_path,
                     provider, status, work_status, source, agent_type, permission_mode,
                     claude_integration_mode, terminal_session_id, terminal_app,
-                    started_at, last_activity_at, forked_from_session_id
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, 'passive', ?11, ?12, ?13, ?13, ?14)
+                    started_at, last_activity_at, forked_from_session_id,
+                    repository_root, is_worktree, git_sha
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'claude', 'active', 'waiting', ?8, ?9, ?10, 'passive', ?11, ?12, ?13, ?13, ?14, ?15, ?16, ?17)
                  ON CONFLICT(id) DO UPDATE SET
                     project_path = excluded.project_path,
                     project_name = COALESCE(excluded.project_name, sessions.project_name),
@@ -907,6 +916,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     terminal_session_id = COALESCE(excluded.terminal_session_id, sessions.terminal_session_id),
                     terminal_app = COALESCE(excluded.terminal_app, sessions.terminal_app),
                     forked_from_session_id = COALESCE(excluded.forked_from_session_id, sessions.forked_from_session_id),
+                    repository_root = COALESCE(excluded.repository_root, sessions.repository_root),
+                    is_worktree = excluded.is_worktree,
+                    git_sha = COALESCE(excluded.git_sha, sessions.git_sha),
                     status = 'active',
                     last_activity_at = excluded.last_activity_at",
                 params![
@@ -924,6 +936,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     terminal_app,
                     now,
                     forked_from_session_id,
+                    repository_root,
+                    is_worktree as i32,
+                    git_sha,
                 ],
             )?;
         }
@@ -1575,6 +1590,8 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             cwd,
             git_branch,
             git_sha,
+            repository_root,
+            is_worktree,
         } => {
             let mut updates = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -1590,6 +1607,14 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             if let Some(s) = git_sha {
                 updates.push("git_sha = ?");
                 params_vec.push(Box::new(s));
+            }
+            if let Some(r) = repository_root {
+                updates.push("repository_root = ?");
+                params_vec.push(Box::new(r));
+            }
+            if let Some(w) = is_worktree {
+                updates.push("is_worktree = ?");
+                params_vec.push(Box::new(w as i32));
             }
 
             if !updates.is_empty() {
@@ -4863,6 +4888,9 @@ mod tests {
                     terminal_session_id: None,
                     terminal_app: None,
                     forked_from_session_id: None,
+                    repository_root: None,
+                    is_worktree: false,
+                    git_sha: None,
                 },
                 // Real session: has first prompt and should remain active.
                 PersistCommand::ClaudeSessionUpsert {
@@ -4879,6 +4907,9 @@ mod tests {
                     terminal_session_id: None,
                     terminal_app: None,
                     forked_from_session_id: None,
+                    repository_root: None,
+                    is_worktree: false,
+                    git_sha: None,
                 },
                 PersistCommand::ClaudePromptIncrement {
                     id: "claude-real".into(),
@@ -5086,6 +5117,9 @@ mod tests {
                     terminal_session_id: None,
                     terminal_app: None,
                     forked_from_session_id: None,
+                    repository_root: None,
+                    is_worktree: false,
+                    git_sha: None,
                 },
                 PersistCommand::ClaudePromptIncrement {
                     id: "claude-1".into(),
@@ -5167,6 +5201,9 @@ mod tests {
                     terminal_session_id: None,
                     terminal_app: None,
                     forked_from_session_id: None,
+                    repository_root: None,
+                    is_worktree: false,
+                    git_sha: None,
                 },
                 PersistCommand::ClaudePromptIncrement {
                     id: "claude-hydrate".into(),

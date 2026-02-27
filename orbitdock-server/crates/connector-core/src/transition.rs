@@ -74,6 +74,8 @@ pub struct TransitionState {
     pub git_sha: Option<String>,
     pub current_cwd: Option<String>,
     pub pending_approval: Option<ApprovalRequest>,
+    pub repository_root: Option<String>,
+    pub is_worktree: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -168,6 +170,8 @@ pub enum Input {
         cwd: Option<String>,
         git_branch: Option<String>,
         git_sha: Option<String>,
+        repository_root: Option<String>,
+        is_worktree: Option<bool>,
     },
     Error(String),
 }
@@ -281,6 +285,8 @@ impl From<ConnectorEvent> for Input {
                 cwd,
                 git_branch,
                 git_sha,
+                repository_root: None,
+                is_worktree: None,
             },
             ConnectorEvent::Error(msg) => Input::Error(msg),
             // Handled in event loop before reaching transitions
@@ -364,6 +370,8 @@ pub enum PersistOp {
         cwd: Option<String>,
         git_branch: Option<String>,
         git_sha: Option<String>,
+        repository_root: Option<String>,
+        is_worktree: Option<bool>,
     },
     ToolCountIncrement {
         session_id: String,
@@ -882,6 +890,8 @@ pub fn transition(
             cwd,
             git_branch,
             git_sha,
+            repository_root,
+            is_worktree,
         } => {
             let mut changed = false;
             if cwd.is_some() && cwd != state.current_cwd {
@@ -896,6 +906,16 @@ pub fn transition(
                 state.git_sha = git_sha.clone();
                 changed = true;
             }
+            if repository_root.is_some() && repository_root != state.repository_root {
+                state.repository_root = repository_root.clone();
+                changed = true;
+            }
+            if let Some(wt) = is_worktree {
+                if wt != state.is_worktree {
+                    state.is_worktree = wt;
+                    changed = true;
+                }
+            }
 
             if changed {
                 state.last_activity_at = Some(now.to_string());
@@ -905,6 +925,8 @@ pub fn transition(
                     cwd: state.current_cwd.clone(),
                     git_branch: state.git_branch.clone(),
                     git_sha: state.git_sha.clone(),
+                    repository_root: state.repository_root.clone(),
+                    is_worktree: Some(state.is_worktree),
                 })));
                 effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
                     session_id: sid,
@@ -913,6 +935,8 @@ pub fn transition(
                         git_branch: Some(state.git_branch.clone()),
                         git_sha: Some(state.git_sha.clone()),
                         last_activity_at: Some(now.to_string()),
+                        repository_root: Some(state.repository_root.clone()),
+                        is_worktree: Some(state.is_worktree),
                         ..Default::default()
                     },
                 })));
@@ -2129,6 +2153,8 @@ mod tests {
             git_sha: None,
             current_cwd: None,
             pending_approval: None,
+            repository_root: None,
+            is_worktree: false,
         }
     }
 

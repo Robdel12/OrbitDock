@@ -14,7 +14,8 @@ use crate::session::SessionHandle;
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::SessionCommand;
 use crate::session_command_handler::{
-    dispatch_connector_event, handle_session_command, is_turn_ending, spawn_interrupt_watchdog,
+    dispatch_connector_event, dispatch_transition_input, handle_session_command, is_turn_ending,
+    spawn_interrupt_watchdog,
 };
 use crate::state::SessionRegistry;
 
@@ -57,8 +58,37 @@ pub fn start_event_loop(
                     if is_turn_ending(&event) {
                         if let Some(h) = interrupt_watchdog.take() { h.abort(); }
                     }
+
+                    // Enrich EnvironmentChanged events with worktree info
+                    let enriched_event = match &event {
+                        orbitdock_connector_core::ConnectorEvent::EnvironmentChanged {
+                            cwd: Some(cwd), ..
+                        } => {
+                            let git_info = crate::git::resolve_git_info(cwd).await;
+                            if let Some(ref info) = git_info {
+                                let mut input = crate::transition::Input::from(event);
+                                if let crate::transition::Input::EnvironmentChanged {
+                                    ref mut repository_root,
+                                    ref mut is_worktree,
+                                    ..
+                                } = input
+                                {
+                                    *repository_root = Some(info.common_dir_root.clone());
+                                    *is_worktree = Some(info.is_worktree);
+                                }
+                                // Dispatch enriched input directly
+                                dispatch_transition_input(
+                                    &session_id, input, &mut session_handle, &persist,
+                                ).await;
+                                continue;
+                            }
+                            event
+                        }
+                        _ => event,
+                    };
+
                     dispatch_connector_event(
-                        &session_id, event, &mut session_handle, &persist,
+                        &session_id, enriched_event, &mut session_handle, &persist,
                     ).await;
                 }
 

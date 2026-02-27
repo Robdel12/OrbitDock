@@ -667,6 +667,9 @@ fn restored_session_to_state(restored: RestoredSession) -> SessionState {
         terminal_session_id: restored.terminal_session_id,
         terminal_app: restored.terminal_app,
         approval_version: Some(restored.approval_version),
+        repository_root: None,
+        is_worktree: false,
+        worktree_id: None,
     }
 }
 
