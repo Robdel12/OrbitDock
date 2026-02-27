@@ -210,7 +210,7 @@ fn main() -> anyhow::Result<()> {
     // Handle codex-core self-invocation (apply_patch, linux-sandbox) and
     // set up PATH so that codex-core can find the apply_patch helper.
     // This MUST run before the tokio runtime starts (modifies env vars).
-    let _arg0_guard = codex_arg0::arg0_dispatch();
+    let _arg0_guard = orbitdock_connector_codex::arg0_dispatch();
 
     let cli = Cli::parse();
 

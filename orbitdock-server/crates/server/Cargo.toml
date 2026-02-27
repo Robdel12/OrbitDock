@@ -15,8 +15,6 @@ orbitdock-protocol = { workspace = true }
 orbitdock-connector-core = { workspace = true }
 orbitdock-connector-claude = { workspace = true }
 orbitdock-connector-codex = { workspace = true }
-codex-arg0 = { workspace = true }
-codex-core = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 axum-server = { workspace = true }

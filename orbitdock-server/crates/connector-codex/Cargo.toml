@@ -9,6 +9,7 @@ description = "Codex connector for OrbitDock"
 [dependencies]
 orbitdock-protocol = { workspace = true }
 orbitdock-connector-core = { workspace = true }
+codex-arg0 = { workspace = true }
 codex-core = { workspace = true }
 codex-login = { workspace = true }
 codex-protocol = { workspace = true }

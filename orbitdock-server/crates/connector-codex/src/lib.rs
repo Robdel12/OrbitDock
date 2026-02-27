@@ -6,6 +6,10 @@
 pub mod auth;
 pub mod session;
 
+/// Re-export codex-arg0 init for server startup.
+/// Must be called before the tokio runtime starts.
+pub use codex_arg0::arg0_dispatch;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
