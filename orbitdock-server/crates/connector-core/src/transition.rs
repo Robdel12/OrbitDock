@@ -386,6 +386,41 @@ pub enum PersistOp {
 }
 
 // ---------------------------------------------------------------------------
+// finalize_in_progress_messages — cleanup helper
+// ---------------------------------------------------------------------------
+
+/// Scans messages for any with `is_in_progress == true`, flips them to `false`,
+/// and returns Persist + Emit effects for each. Called on TurnCompleted,
+/// TurnAborted, and SessionEnded to prevent tool messages stuck at "running...".
+fn finalize_in_progress_messages(sid: &str, messages: &mut [Message]) -> Vec<Effect> {
+    let mut effects = Vec::new();
+    for msg in messages.iter_mut().filter(|m| m.is_in_progress) {
+        msg.is_in_progress = false;
+        effects.push(Effect::Persist(Box::new(PersistOp::MessageUpdate {
+            session_id: sid.to_string(),
+            message_id: msg.id.clone(),
+            content: None,
+            tool_output: None,
+            duration_ms: None,
+            is_error: None,
+            is_in_progress: Some(false),
+        })));
+        effects.push(Effect::Emit(Box::new(ServerMessage::MessageUpdated {
+            session_id: sid.to_string(),
+            message_id: msg.id.clone(),
+            changes: MessageChanges {
+                content: None,
+                tool_output: None,
+                is_error: None,
+                is_in_progress: Some(false),
+                duration_ms: None,
+            },
+        })));
+    }
+    effects
+}
+
+// ---------------------------------------------------------------------------
 // transition() — the pure core
 // ---------------------------------------------------------------------------
 
@@ -464,6 +499,9 @@ pub fn transition(
                 })));
             }
 
+            // Finalize any tool messages stuck at is_in_progress before status change
+            effects.extend(finalize_in_progress_messages(&sid, &mut state.messages));
+
             // Only transition if we're actually working
             if matches!(state.phase, WorkPhase::Working) {
                 state.phase = WorkPhase::Idle;
@@ -492,6 +530,9 @@ pub fn transition(
             // Guard: only transition if we're actually in an active phase.
             // A second TurnAborted (e.g. from watchdog after provider already aborted) is a no-op.
             if !matches!(state.phase, WorkPhase::Idle | WorkPhase::Ended { .. }) {
+                // Finalize any tool messages stuck at is_in_progress before status change
+                effects.extend(finalize_in_progress_messages(&sid, &mut state.messages));
+
                 state.phase = WorkPhase::Idle;
                 state.last_activity_at = Some(now.to_string());
                 state.current_turn_id = None;
@@ -796,6 +837,9 @@ pub fn transition(
 
         // -- Lifecycle --------------------------------------------------------
         Input::SessionEnded { reason } => {
+            // Finalize any tool messages stuck at is_in_progress before ending
+            effects.extend(finalize_in_progress_messages(&sid, &mut state.messages));
+
             state.phase = WorkPhase::Ended {
                 reason: reason.clone(),
             };
@@ -2958,5 +3002,179 @@ mod tests {
         );
 
         assert!(new_state.current_turn_id.is_none());
+    }
+
+    // -- finalize_in_progress_messages tests ---------------------------------
+
+    fn tool_message(id: &str, in_progress: bool) -> Message {
+        Message {
+            id: id.to_string(),
+            session_id: String::new(),
+            message_type: MessageType::Tool,
+            content: String::new(),
+            tool_name: Some("Bash".to_string()),
+            tool_input: None,
+            tool_output: None,
+            is_error: false,
+            is_in_progress: in_progress,
+            timestamp: "0Z".to_string(),
+            duration_ms: None,
+            images: vec![],
+        }
+    }
+
+    #[test]
+    fn turn_completed_finalizes_in_progress_tool_messages() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.messages.push(tool_message("tool-1", true));
+        state.messages.push(tool_message("tool-2", false));
+
+        let (new_state, effects) = transition(state, Input::TurnCompleted, NOW);
+
+        // The in-progress message should now be false
+        assert!(!new_state.messages[0].is_in_progress);
+        // The already-completed one stays false
+        assert!(!new_state.messages[1].is_in_progress);
+
+        // Should have finalize effects (Persist + Emit) for tool-1 only
+        let finalize_persists: Vec<_> = effects
+            .iter()
+            .filter(|e| {
+                matches!(e, Effect::Persist(op) if matches!(
+                    op.as_ref(),
+                    PersistOp::MessageUpdate { message_id, is_in_progress: Some(false), .. }
+                        if message_id == "tool-1"
+                ))
+            })
+            .collect();
+        assert_eq!(finalize_persists.len(), 1);
+
+        let finalize_emits: Vec<_> = effects
+            .iter()
+            .filter(|e| {
+                matches!(e, Effect::Emit(msg) if matches!(
+                    msg.as_ref(),
+                    ServerMessage::MessageUpdated { message_id, .. }
+                        if message_id == "tool-1"
+                ))
+            })
+            .collect();
+        assert_eq!(finalize_emits.len(), 1);
+    }
+
+    #[test]
+    fn turn_aborted_finalizes_in_progress_tool_messages() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.messages.push(tool_message("tool-1", true));
+
+        let (new_state, effects) = transition(
+            state,
+            Input::TurnAborted {
+                reason: "interrupted".to_string(),
+            },
+            NOW,
+        );
+
+        assert!(!new_state.messages[0].is_in_progress);
+
+        let has_finalize = effects.iter().any(|e| {
+            matches!(
+                e, Effect::Persist(op) if matches!(
+                    op.as_ref(),
+                    PersistOp::MessageUpdate { message_id, is_in_progress: Some(false), .. }
+                        if message_id == "tool-1"
+                )
+            )
+        });
+        assert!(
+            has_finalize,
+            "TurnAborted should finalize in-progress tools"
+        );
+    }
+
+    #[test]
+    fn session_ended_finalizes_in_progress_tool_messages() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.messages.push(tool_message("tool-1", true));
+
+        let (new_state, effects) = transition(
+            state,
+            Input::SessionEnded {
+                reason: "done".to_string(),
+            },
+            NOW,
+        );
+
+        assert!(!new_state.messages[0].is_in_progress);
+
+        let has_finalize = effects.iter().any(|e| {
+            matches!(
+                e, Effect::Persist(op) if matches!(
+                    op.as_ref(),
+                    PersistOp::MessageUpdate { message_id, is_in_progress: Some(false), .. }
+                        if message_id == "tool-1"
+                )
+            )
+        });
+        assert!(
+            has_finalize,
+            "SessionEnded should finalize in-progress tools"
+        );
+    }
+
+    #[test]
+    fn no_cleanup_effects_when_no_in_progress_messages() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.messages.push(tool_message("tool-1", false));
+        state.messages.push(tool_message("tool-2", false));
+
+        let (_, effects) = transition(state, Input::TurnCompleted, NOW);
+
+        // Only session status effects (Persist + Emit), no MessageUpdate effects
+        let msg_updates: Vec<_> = effects
+            .iter()
+            .filter(|e| matches!(e, Effect::Persist(op) if matches!(op.as_ref(), PersistOp::MessageUpdate { .. })))
+            .collect();
+        assert!(
+            msg_updates.is_empty(),
+            "no MessageUpdate effects when nothing to finalize"
+        );
+    }
+
+    #[test]
+    fn multiple_in_progress_messages_all_finalized() {
+        let mut state = test_state();
+        state.phase = WorkPhase::Working;
+        state.messages.push(tool_message("tool-1", true));
+        state.messages.push(tool_message("tool-2", true));
+        state.messages.push(tool_message("tool-3", true));
+
+        let (new_state, effects) = transition(state, Input::TurnCompleted, NOW);
+
+        // All three should be finalized
+        for msg in &new_state.messages {
+            assert!(
+                !msg.is_in_progress,
+                "message {} should be finalized",
+                msg.id
+            );
+        }
+
+        // Should have 3 persist + 3 emit = 6 finalize effects
+        let msg_updates: Vec<_> = effects
+            .iter()
+            .filter(|e| matches!(e, Effect::Persist(op) if matches!(op.as_ref(), PersistOp::MessageUpdate { .. })))
+            .collect();
+        assert_eq!(msg_updates.len(), 3);
+
+        let msg_emits: Vec<_> = effects
+            .iter()
+            .filter(|e| matches!(e, Effect::Emit(msg) if matches!(msg.as_ref(), ServerMessage::MessageUpdated { .. })))
+            .collect();
+        assert_eq!(msg_emits.len(), 3);
     }
 }

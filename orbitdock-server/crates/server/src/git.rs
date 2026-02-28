@@ -11,7 +11,6 @@ use tokio::process::Command;
 // ---------------------------------------------------------------------------
 
 /// Full git context for a working directory.
-#[allow(dead_code)] // Used in Phase 6+ (hook_handler enrichment)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitInfo {
     /// The worktree's own root (`git rev-parse --show-toplevel`).
@@ -34,7 +33,6 @@ pub async fn resolve_git_branch(path: &str) -> Option<String> {
 }
 
 /// Resolve full git context for a path, or `None` if not inside a git repo.
-#[allow(dead_code)] // Used in Phase 6+ (hook_handler enrichment)
 pub async fn resolve_git_info(path: &str) -> Option<GitInfo> {
     let (toplevel, common_dir, branch, sha) = tokio::join!(
         run_git(&["rev-parse", "--show-toplevel"], path),
@@ -74,7 +72,6 @@ pub async fn resolve_git_info(path: &str) -> Option<GitInfo> {
 /// containing `.git` (i.e. strip `/worktrees/<name>` then go up one level).
 ///
 /// If parsing fails, falls back to `toplevel`.
-#[allow(dead_code)] // Used by resolve_git_info + unit tests
 pub fn classify_common_dir(toplevel: &str, common_dir: &str) -> String {
     let trimmed = common_dir.trim().trim_end_matches('/');
 
@@ -113,7 +110,6 @@ pub fn classify_common_dir(toplevel: &str, common_dir: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// A worktree discovered via `git worktree list --porcelain`.
-#[allow(dead_code)] // Used in Phase 9 (WebSocket handlers)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredWorktree {
     pub path: String,
@@ -136,7 +132,6 @@ pub struct DiscoveredWorktree {
 /// branch refs/heads/feature
 ///
 /// ```
-#[allow(dead_code)] // Used by discover_worktrees + unit tests
 pub fn parse_worktree_porcelain(output: &str) -> Vec<DiscoveredWorktree> {
     let mut results = Vec::new();
     let mut current_path: Option<String> = None;
@@ -196,7 +191,6 @@ pub fn parse_worktree_porcelain(output: &str) -> Vec<DiscoveredWorktree> {
 // ---------------------------------------------------------------------------
 
 /// Discover all worktrees for a repository.
-#[allow(dead_code)] // Used in Phase 9 (WebSocket handlers)
 pub async fn discover_worktrees(repo_path: &str) -> Result<Vec<DiscoveredWorktree>, String> {
     let output = run_git(&["worktree", "list", "--porcelain"], repo_path)
         .await
@@ -207,7 +201,6 @@ pub async fn discover_worktrees(repo_path: &str) -> Result<Vec<DiscoveredWorktre
 /// Create a new git worktree with a new branch.
 ///
 /// Returns the branch name on success.
-#[allow(dead_code)] // Used in Phase 9 (WebSocket handlers)
 pub async fn create_worktree(
     repo_path: &str,
     worktree_path: &str,
@@ -223,7 +216,6 @@ pub async fn create_worktree(
 }
 
 /// Remove a git worktree.
-#[allow(dead_code)] // Used in Phase 9 (WebSocket handlers)
 pub async fn remove_worktree(
     repo_path: &str,
     worktree_path: &str,
@@ -236,13 +228,17 @@ pub async fn remove_worktree(
     run_git_checked(&args, repo_path).await
 }
 
+/// Delete a local git branch.
+pub async fn delete_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+    run_git_checked(&["branch", "-d", branch], repo_path).await
+}
+
 /// Initialize a new git repository at the given path.
 pub async fn git_init(path: &str) -> Result<(), String> {
     run_git_checked(&["init"], path).await
 }
 
 /// Check if a worktree path exists on disk.
-#[allow(dead_code)] // Used in Phase 8 (health check cycle)
 pub async fn worktree_exists_on_disk(path: &str) -> bool {
     tokio::fs::metadata(path).await.is_ok()
 }
@@ -252,7 +248,6 @@ pub async fn worktree_exists_on_disk(path: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Run a git command and return an error with stderr on failure.
-#[allow(dead_code)] // Used by create_worktree/remove_worktree
 async fn run_git_checked(args: &[&str], cwd: &str) -> Result<(), String> {
     let output = Command::new("/usr/bin/git")
         .args(args)

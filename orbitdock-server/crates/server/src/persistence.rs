@@ -324,6 +324,23 @@ pub enum PersistCommand {
     /// Insert a single Claude model if it doesn't already exist.
     /// Preserves richer metadata from direct connector sessions.
     UpsertClaudeModelIfAbsent { value: String, display_name: String },
+
+    /// Persist a new worktree row
+    WorktreeCreate {
+        id: String,
+        repo_root: String,
+        worktree_path: String,
+        branch: String,
+        base_branch: Option<String>,
+        created_by: String,
+    },
+
+    /// Update worktree lifecycle status
+    WorktreeUpdateStatus {
+        id: String,
+        status: String,
+        last_session_ended_at: Option<String>,
+    },
 }
 
 /// Persistence writer that batches SQLite writes
@@ -1596,9 +1613,9 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             let mut updates = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-            if let Some(c) = cwd {
+            if let Some(ref c) = cwd {
                 updates.push("current_cwd = ?");
-                params_vec.push(Box::new(c));
+                params_vec.push(Box::new(c.clone()));
             }
             if let Some(b) = git_branch {
                 updates.push("git_branch = ?");
@@ -1615,6 +1632,23 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             if let Some(w) = is_worktree {
                 updates.push("is_worktree = ?");
                 params_vec.push(Box::new(w as i32));
+
+                // Auto-wire worktree_id: if this is a worktree, look up by cwd
+                if w {
+                    if let Some(ref cwd_val) = cwd {
+                        let wt_id: Option<String> = conn
+                            .query_row(
+                                "SELECT id FROM worktrees WHERE worktree_path = ?1",
+                                params![cwd_val],
+                                |row| row.get(0),
+                            )
+                            .optional()?;
+                        if let Some(ref wt_id) = wt_id {
+                            updates.push("worktree_id = ?");
+                            params_vec.push(Box::new(wt_id.clone()));
+                        }
+                    }
+                }
             }
 
             if !updates.is_empty() {
@@ -1657,6 +1691,36 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                  VALUES (?1, ?2, '', ?3)
                  ON CONFLICT(value) DO NOTHING",
                 params![value, display_name, now],
+            )?;
+        }
+
+        PersistCommand::WorktreeCreate {
+            id,
+            repo_root,
+            worktree_path,
+            branch,
+            base_branch,
+            created_by,
+        } => {
+            conn.execute(
+                "INSERT INTO worktrees (id, repo_root, worktree_path, branch, base_branch, created_by)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(worktree_path) DO UPDATE SET
+                   status = 'active',
+                   branch = excluded.branch,
+                   base_branch = excluded.base_branch",
+                params![id, repo_root, worktree_path, branch, base_branch, created_by],
+            )?;
+        }
+
+        PersistCommand::WorktreeUpdateStatus {
+            id,
+            status,
+            last_session_ended_at,
+        } => {
+            conn.execute(
+                "UPDATE worktrees SET status = ?1, last_session_ended_at = COALESCE(?2, last_session_ended_at) WHERE id = ?3",
+                params![status, last_session_ended_at, id],
             )?;
         }
     }
@@ -2033,7 +2097,6 @@ fn upsert_usage_turn_snapshot(
 
 /// A session restored from the database on startup
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct RestoredSession {
     pub id: String,
     pub provider: String,
@@ -3514,6 +3577,47 @@ pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
     Ok(count)
 }
 
+/// Clean up tool messages stuck with is_in_progress = 1 from sessions that are no longer working.
+/// This handles the case where the server crashed or restarted while tools were mid-execution.
+///
+/// Runs at server startup alongside `cleanup_stale_permission_state`.
+pub async fn cleanup_dangling_in_progress_messages() -> Result<u64, anyhow::Error> {
+    let db_path = crate::paths::db_path();
+
+    let count = tokio::task::spawn_blocking(move || -> Result<u64, anyhow::Error> {
+        if !db_path.exists() {
+            return Ok(0);
+        }
+
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )?;
+
+        let rows = conn.execute(
+            "UPDATE messages SET is_in_progress = 0
+             WHERE is_in_progress = 1
+               AND session_id IN (SELECT id FROM sessions WHERE work_status != 'working')",
+            [],
+        )?;
+
+        Ok(rows as u64)
+    })
+    .await??;
+
+    if count > 0 {
+        info!(
+            component = "startup",
+            event = "startup.dangling_in_progress_cleanup",
+            messages_fixed = count,
+            "Cleared dangling is_in_progress tool messages from prior crash"
+        );
+    }
+
+    Ok(count)
+}
+
 /// List approval history, optionally scoped to a session
 pub async fn list_approvals(
     session_id: Option<String>,
@@ -3869,6 +3973,80 @@ pub fn load_config_value(key: &str) -> Option<String> {
         .flatten()?;
 
     crate::crypto::decrypt(&raw)
+}
+
+// ---------------------------------------------------------------------------
+// Worktree read helpers
+// ---------------------------------------------------------------------------
+
+/// Minimal DB row for worktree lookups.
+#[derive(Debug, Clone)]
+pub struct WorktreeRow {
+    pub id: String,
+    pub repo_root: String,
+    pub worktree_path: String,
+    pub branch: String,
+    pub base_branch: Option<String>,
+    pub status: String,
+}
+
+fn open_readonly_conn(db_path: &PathBuf) -> Option<Connection> {
+    if !db_path.exists() {
+        return None;
+    }
+    let conn = Connection::open(db_path).ok()?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA busy_timeout = 5000;",
+    )
+    .ok()?;
+    Some(conn)
+}
+
+pub fn load_worktree_by_id(db_path: &PathBuf, worktree_id: &str) -> Option<WorktreeRow> {
+    let conn = open_readonly_conn(db_path)?;
+    conn.query_row(
+        "SELECT id, repo_root, worktree_path, branch, base_branch, status FROM worktrees WHERE id = ?1",
+        params![worktree_id],
+        |row| {
+            Ok(WorktreeRow {
+                id: row.get(0)?,
+                repo_root: row.get(1)?,
+                worktree_path: row.get(2)?,
+                branch: row.get(3)?,
+                base_branch: row.get(4)?,
+                status: row.get(5)?,
+            })
+        },
+    )
+    .optional()
+    .ok()
+    .flatten()
+}
+
+pub fn load_worktrees_by_repo(db_path: &PathBuf, repo_root: &str) -> Vec<WorktreeRow> {
+    let Some(conn) = open_readonly_conn(db_path) else {
+        return Vec::new();
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT id, repo_root, worktree_path, branch, base_branch, status FROM worktrees WHERE repo_root = ?1 AND status != 'removed'",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    stmt.query_map(params![repo_root], |row| {
+        Ok(WorktreeRow {
+            id: row.get(0)?,
+            repo_root: row.get(1)?,
+            worktree_path: row.get(2)?,
+            branch: row.get(3)?,
+            base_branch: row.get(4)?,
+            status: row.get(5)?,
+        })
+    })
+    .ok()
+    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+    .unwrap_or_default()
 }
 
 /// Derive a human-readable display name from a Claude model string.

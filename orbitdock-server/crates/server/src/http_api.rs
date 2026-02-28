@@ -164,6 +164,20 @@ pub struct DiscoverWorktreesRequest {
     pub repo_path: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct RemoveWorktreeQuery {
+    #[serde(default)]
+    pub force: bool,
+    #[serde(default)]
+    pub delete_branch: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorktreeRemovedResponse {
+    pub worktree_id: String,
+    pub ok: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct GitInitRequest {
     pub path: String,
@@ -643,29 +657,59 @@ pub async fn set_open_ai_key(
 
 pub async fn list_worktrees(
     Query(query): Query<WorktreesQuery>,
+    State(state): State<Arc<SessionRegistry>>,
 ) -> ApiResult<WorktreesListResponse> {
     let worktrees = if let Some(ref root) = query.repo_root {
-        match crate::git::discover_worktrees(root).await {
-            Ok(discovered) => discovered
-                .into_iter()
-                .map(|w| WorktreeSummary {
-                    id: orbitdock_protocol::new_id(),
-                    repo_root: root.clone(),
-                    worktree_path: w.path,
-                    branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
-                    base_branch: None,
-                    status: WorktreeStatus::Active,
+        let db_rows = crate::persistence::load_worktrees_by_repo(state.db_path(), root);
+
+        if db_rows.is_empty() {
+            // Fallback: discover from git for repos not yet tracked
+            match crate::git::discover_worktrees(root).await {
+                Ok(discovered) => discovered
+                    .into_iter()
+                    .map(|w| WorktreeSummary {
+                        id: orbitdock_protocol::new_id(),
+                        repo_root: root.clone(),
+                        worktree_path: w.path,
+                        branch: w.branch.unwrap_or_else(|| "HEAD".to_string()),
+                        base_branch: None,
+                        status: WorktreeStatus::Active,
+                        active_session_count: 0,
+                        total_session_count: 0,
+                        created_at: String::new(),
+                        last_session_ended_at: None,
+                        disk_present: true,
+                        auto_prune: true,
+                        custom_name: None,
+                        created_by: WorktreeOrigin::Discovered,
+                    })
+                    .collect(),
+                Err(_) => Vec::new(),
+            }
+        } else {
+            // Enrich DB rows with disk presence check
+            let mut summaries = Vec::with_capacity(db_rows.len());
+            for row in db_rows {
+                let disk_present = crate::git::worktree_exists_on_disk(&row.worktree_path).await;
+                summaries.push(WorktreeSummary {
+                    id: row.id,
+                    repo_root: row.repo_root,
+                    worktree_path: row.worktree_path,
+                    branch: row.branch,
+                    base_branch: row.base_branch,
+                    status: WorktreeStatus::from_str_opt(&row.status)
+                        .unwrap_or(WorktreeStatus::Active),
                     active_session_count: 0,
                     total_session_count: 0,
                     created_at: String::new(),
                     last_session_ended_at: None,
-                    disk_present: true,
+                    disk_present,
                     auto_prune: true,
                     custom_name: None,
-                    created_by: WorktreeOrigin::Discovered,
-                })
-                .collect(),
-            Err(_) => Vec::new(),
+                    created_by: WorktreeOrigin::User,
+                });
+            }
+            summaries
         }
     } else {
         Vec::new()
@@ -710,6 +754,7 @@ pub async fn discover_worktrees(
 }
 
 pub async fn create_worktree(
+    State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<CreateWorktreeRequest>,
 ) -> ApiResult<WorktreeCreatedResponse> {
     let worktree_path = format!(
@@ -726,12 +771,13 @@ pub async fn create_worktree(
     .await
     {
         Ok(_branch) => {
+            let id = orbitdock_protocol::new_id();
             let summary = WorktreeSummary {
-                id: orbitdock_protocol::new_id(),
-                repo_root: body.repo_path,
-                worktree_path,
-                branch: body.branch_name,
-                base_branch: body.base_branch,
+                id: id.clone(),
+                repo_root: body.repo_path.clone(),
+                worktree_path: worktree_path.clone(),
+                branch: body.branch_name.clone(),
+                base_branch: body.base_branch.clone(),
                 status: WorktreeStatus::Active,
                 active_session_count: 0,
                 total_session_count: 0,
@@ -742,6 +788,19 @@ pub async fn create_worktree(
                 custom_name: None,
                 created_by: WorktreeOrigin::User,
             };
+
+            let _ = state
+                .persist()
+                .send(PersistCommand::WorktreeCreate {
+                    id,
+                    repo_root: body.repo_path,
+                    worktree_path,
+                    branch: body.branch_name,
+                    base_branch: body.base_branch,
+                    created_by: "user".into(),
+                })
+                .await;
+
             Ok(Json(WorktreeCreatedResponse { worktree: summary }))
         }
         Err(e) => Err((
@@ -756,15 +815,65 @@ pub async fn create_worktree(
 
 pub async fn remove_worktree(
     Path(worktree_id): Path<String>,
-) -> (StatusCode, Json<ApiErrorResponse>) {
-    // TODO: look up worktree_path from DB by worktree_id
-    (
-        StatusCode::NOT_FOUND,
-        Json(ApiErrorResponse {
-            code: "not_found",
-            error: format!("worktree {worktree_id} not found (persistence pending)"),
-        }),
-    )
+    Query(query): Query<RemoveWorktreeQuery>,
+    State(state): State<Arc<SessionRegistry>>,
+) -> ApiResult<WorktreeRemovedResponse> {
+    let row = crate::persistence::load_worktree_by_id(state.db_path(), &worktree_id).ok_or_else(
+        || {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ApiErrorResponse {
+                    code: "not_found",
+                    error: format!("worktree {worktree_id} not found"),
+                }),
+            )
+        },
+    )?;
+
+    if let Err(e) =
+        crate::git::remove_worktree(&row.repo_root, &row.worktree_path, query.force).await
+    {
+        if !query.force {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ApiErrorResponse {
+                    code: "remove_failed",
+                    error: e,
+                }),
+            ));
+        }
+        // Force mode: log and continue even if git removal fails
+        warn!(
+            component = "worktree",
+            event = "worktree.remove.force_fallthrough",
+            worktree_id = %worktree_id,
+            error = %e,
+            "git worktree remove failed in force mode, continuing"
+        );
+    }
+
+    if query.delete_branch {
+        let _ = crate::git::delete_branch(&row.repo_root, &row.branch).await;
+    }
+
+    let _ = state
+        .persist()
+        .send(PersistCommand::WorktreeUpdateStatus {
+            id: worktree_id.clone(),
+            status: "removed".into(),
+            last_session_ended_at: None,
+        })
+        .await;
+
+    state.broadcast_to_list(ServerMessage::WorktreeRemoved {
+        request_id: String::new(),
+        worktree_id: worktree_id.clone(),
+    });
+
+    Ok(Json(WorktreeRemovedResponse {
+        worktree_id,
+        ok: true,
+    }))
 }
 
 pub async fn git_init_endpoint(Json(body): Json<GitInitRequest>) -> ApiResult<GitInitResponse> {

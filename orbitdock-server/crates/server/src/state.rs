@@ -3,6 +3,7 @@
 use dashmap::DashMap;
 use orbitdock_protocol::{ClientPrimaryClaim, SessionSummary};
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -45,6 +46,9 @@ pub struct SessionRegistry {
 
     /// Persistence channel
     persist_tx: mpsc::Sender<PersistCommand>,
+
+    /// Database path for synchronous read queries
+    db_path: PathBuf,
 
     /// Global Codex account auth coordinator (not session-specific)
     codex_auth: Arc<CodexAuthService>,
@@ -89,6 +93,7 @@ impl SessionRegistry {
             claude_threads: DashMap::new(),
             list_tx,
             persist_tx,
+            db_path: crate::paths::db_path(),
             codex_auth,
             naming_guard: Arc::new(NamingGuard::new()),
             pending_claude_sessions: DashMap::new(),
@@ -169,6 +174,11 @@ impl SessionRegistry {
     /// Get persistence sender
     pub fn persist(&self) -> &mpsc::Sender<PersistCommand> {
         &self.persist_tx
+    }
+
+    /// Get database path for synchronous read queries
+    pub fn db_path(&self) -> &PathBuf {
+        &self.db_path
     }
 
     pub fn codex_auth(&self) -> Arc<CodexAuthService> {

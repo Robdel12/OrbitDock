@@ -40,7 +40,6 @@ mod subagent_parser;
 mod transition;
 mod usage_probe;
 mod websocket;
-mod worktree;
 mod ws_handlers;
 
 use std::net::SocketAddr;
@@ -204,8 +203,8 @@ enum Command {
 
 use crate::logging::init_logging;
 use crate::persistence::{
-    cleanup_stale_permission_state, create_persistence_channel, load_sessions_for_startup,
-    PersistCommand, PersistenceWriter,
+    cleanup_dangling_in_progress_messages, cleanup_stale_permission_state,
+    create_persistence_channel, load_sessions_for_startup, PersistCommand, PersistenceWriter,
 };
 use crate::session::SessionHandle;
 use crate::state::SessionRegistry;
@@ -449,6 +448,11 @@ async fn async_main(
     // Must run before load_sessions_for_startup so restored sessions see clean state.
     if let Err(e) = cleanup_stale_permission_state().await {
         warn!(component = "startup", error = %e, "Failed to run stale permission cleanup");
+    }
+
+    // Clean up tool messages stuck at is_in_progress from a prior crash.
+    if let Err(e) = cleanup_dangling_in_progress_messages().await {
+        warn!(component = "startup", error = %e, "Failed to run dangling in-progress message cleanup");
     }
 
     // Restore sessions from database — all registered as passive (no connectors).
