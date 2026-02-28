@@ -760,6 +760,7 @@ impl ClaudeConnector {
         let mut streaming_content = String::new();
         let mut streaming_msg_id: Option<String> = None;
         let mut in_turn = false;
+        let mut turn_patch_diffs: Vec<String> = Vec::new();
         // Per-call input/cached tokens from the latest assistant message (for accurate context fill)
         let mut last_turn_input: Option<(u64, u64)> = None;
         let mut cumulative_output: u64 = 0;
@@ -810,6 +811,7 @@ impl ClaudeConnector {
                         &mut streaming_content,
                         &mut streaming_msg_id,
                         &mut in_turn,
+                        &mut turn_patch_diffs,
                         &mut last_turn_input,
                         &mut cumulative_output,
                         &mut last_context_window,
@@ -871,6 +873,7 @@ impl ClaudeConnector {
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
         in_turn: &mut bool,
+        turn_patch_diffs: &mut Vec<String>,
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
         last_context_window: &mut u64,
@@ -903,6 +906,7 @@ impl ClaudeConnector {
         let mut turn_start_event = Vec::new();
         if !*in_turn && matches!(msg_type, "assistant" | "stream_event") {
             *in_turn = true;
+            turn_patch_diffs.clear();
             turn_start_event.push(ConnectorEvent::TurnStarted);
         }
 
@@ -915,6 +919,7 @@ impl ClaudeConnector {
                 msg_counter,
                 streaming_content,
                 streaming_msg_id,
+                turn_patch_diffs,
                 last_turn_input,
                 cumulative_output,
                 last_context_window,
@@ -932,6 +937,7 @@ impl ClaudeConnector {
 
             "result" => {
                 *in_turn = false;
+                turn_patch_diffs.clear();
                 Self::handle_result_message(
                     raw,
                     streaming_content,
@@ -1092,6 +1098,7 @@ impl ClaudeConnector {
         msg_counter: &Arc<AtomicU64>,
         streaming_content: &mut String,
         streaming_msg_id: &mut Option<String>,
+        turn_patch_diffs: &mut Vec<String>,
         last_turn_input: &mut Option<(u64, u64)>,
         cumulative_output: &mut u64,
         last_context_window: &mut u64,
@@ -1178,7 +1185,8 @@ impl ClaudeConnector {
                         .get("name")
                         .and_then(|v| v.as_str())
                         .unwrap_or("unknown");
-                    let input = block.get("input").map(|v| v.to_string());
+                    let input_value = block.get("input");
+                    let input = input_value.map(|v| v.to_string());
                     let tool_use_id = block.get("id").and_then(|v| v.as_str());
                     let message_id = tool_use_id.map(str::to_string).unwrap_or(id);
                     events.push(ConnectorEvent::MessageCreated(
@@ -1197,6 +1205,16 @@ impl ClaudeConnector {
                             images: vec![],
                         },
                     ));
+
+                    // Build an aggregated per-turn patch diff stream from direct edit/write tools.
+                    if let Some(payload) = input_value {
+                        if let Some(diff) = Self::patch_diff_for_tool_use(Some(tool_name), payload) {
+                            turn_patch_diffs.push(diff);
+                            events.push(ConnectorEvent::DiffUpdated(
+                                turn_patch_diffs.join("\n\n"),
+                            ));
+                        }
+                    }
                 }
                 "thinking" => {
                     let thinking = block.get("thinking").and_then(|v| v.as_str()).unwrap_or("");
@@ -1245,6 +1263,22 @@ impl ClaudeConnector {
         }
 
         events
+    }
+
+    fn patch_diff_for_tool_use(tool_name: Option<&str>, payload: &Value) -> Option<String> {
+        let is_patch_tool = matches!(
+            tool_name,
+            Some("Edit" | "Write" | "NotebookEdit" | "MultiEdit")
+        );
+        if !is_patch_tool {
+            return None;
+        }
+
+        Self::patch_diff_for_approval(
+            tool_name,
+            payload,
+            payload.get("file_path").and_then(|value| value.as_str()),
+        )
     }
 
     /// Handle echoed `user` messages — extract tool results.
@@ -1858,6 +1892,7 @@ fn resolve_claude_binary() -> Result<String, ConnectorError> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::atomic::AtomicU64;
     use std::sync::Arc;
 
     use serde_json::{json, Value};
@@ -2016,5 +2051,140 @@ mod tests {
         let events = ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals).await;
         assert!(events.is_empty(), "missing request id should be ignored");
         assert!(pending_approvals.lock().await.is_empty());
+    }
+
+    #[test]
+    fn handle_assistant_message_emits_diff_for_edit_tool_use() {
+        let raw = json!({
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu-edit-1",
+                        "name": "Edit",
+                        "input": {
+                            "file_path": "src/main.rs",
+                            "old_string": "old value",
+                            "new_string": "new value"
+                        }
+                    }
+                ]
+            }
+        });
+
+        let mut streaming_content = String::new();
+        let mut streaming_msg_id = None;
+        let mut turn_patch_diffs = Vec::new();
+        let mut last_turn_input = None;
+        let mut cumulative_output = 0;
+        let mut last_context_window = 200_000;
+        let msg_counter = Arc::new(AtomicU64::new(1));
+
+        let events = ClaudeConnector::handle_assistant_message(
+            &raw,
+            "sess-1",
+            &msg_counter,
+            &mut streaming_content,
+            &mut streaming_msg_id,
+            &mut turn_patch_diffs,
+            &mut last_turn_input,
+            &mut cumulative_output,
+            &mut last_context_window,
+        );
+
+        let has_diff = events.iter().any(|event| {
+            matches!(
+                event,
+                ConnectorEvent::DiffUpdated(diff)
+                    if diff.contains("--- src/main.rs")
+                        && diff.contains("+++ src/main.rs")
+                        && diff.contains("-old value")
+                        && diff.contains("+new value")
+            )
+        });
+        assert!(has_diff, "expected DiffUpdated with patch-like content");
+    }
+
+    #[test]
+    fn handle_assistant_message_aggregates_patch_diffs_across_events() {
+        let raw_edit = json!({
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu-edit-1",
+                        "name": "Edit",
+                        "input": {
+                            "file_path": "src/a.txt",
+                            "old_string": "before",
+                            "new_string": "after"
+                        }
+                    }
+                ]
+            }
+        });
+        let raw_write = json!({
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "toolu-write-1",
+                        "name": "Write",
+                        "input": {
+                            "file_path": "src/b.txt",
+                            "content": "hello"
+                        }
+                    }
+                ]
+            }
+        });
+
+        let mut streaming_content = String::new();
+        let mut streaming_msg_id = None;
+        let mut turn_patch_diffs = Vec::new();
+        let mut last_turn_input = None;
+        let mut cumulative_output = 0;
+        let mut last_context_window = 200_000;
+        let msg_counter = Arc::new(AtomicU64::new(1));
+
+        let _ = ClaudeConnector::handle_assistant_message(
+            &raw_edit,
+            "sess-1",
+            &msg_counter,
+            &mut streaming_content,
+            &mut streaming_msg_id,
+            &mut turn_patch_diffs,
+            &mut last_turn_input,
+            &mut cumulative_output,
+            &mut last_context_window,
+        );
+
+        let second_events = ClaudeConnector::handle_assistant_message(
+            &raw_write,
+            "sess-1",
+            &msg_counter,
+            &mut streaming_content,
+            &mut streaming_msg_id,
+            &mut turn_patch_diffs,
+            &mut last_turn_input,
+            &mut cumulative_output,
+            &mut last_context_window,
+        );
+
+        let aggregated = second_events.iter().find_map(|event| {
+            if let ConnectorEvent::DiffUpdated(diff) = event {
+                Some(diff.as_str())
+            } else {
+                None
+            }
+        });
+        let diff = aggregated.expect("expected aggregated diff event");
+        assert!(
+            diff.contains("--- src/a.txt") && diff.contains("--- /dev/null") && diff.contains("+++ src/b.txt"),
+            "expected combined diff for both edits"
+        );
     }
 }
