@@ -3,6 +3,7 @@ import SwiftUI
 @Observable
 final class AppRouter {
   var selectedSessionRef: SessionRef?
+  var dashboardScrollAnchorID: String?
   var showQuickSwitcher = false
   var showNewClaudeSheet = false
   var showNewCodexSheet = false

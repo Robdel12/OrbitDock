@@ -17,6 +17,7 @@ struct HeaderView: View {
   var showTurnSidebar: Binding<Bool>?
   var hasSidebarContent: Bool = false
   var layoutConfig: Binding<LayoutConfiguration>?
+  var chatViewMode: Binding<ChatViewMode>? = nil
 
   @Environment(ServerAppState.self) private var serverState
   @State private var isHoveringBack = false
@@ -69,6 +70,11 @@ struct HeaderView: View {
       UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
 
       Spacer()
+
+      // Conversation mode toggle
+      if let chatModeBinding = chatViewMode {
+        ConversationViewModeToggle(chatViewMode: chatModeBinding)
+      }
 
       // Layout toggle (direct sessions only)
       if let layoutBinding = layoutConfig {
@@ -175,20 +181,6 @@ struct HeaderView: View {
         }
       }
 
-      if let layoutBinding = layoutConfig {
-        Section("Layout") {
-          ForEach(LayoutConfiguration.allCases, id: \.self) { config in
-            Button {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                layoutBinding.wrappedValue = config
-              }
-            } label: {
-              Label(config.label, systemImage: config.icon)
-            }
-          }
-        }
-      }
-
       Divider()
 
       debugContextMenu
@@ -212,106 +204,190 @@ struct HeaderView: View {
   }
 
   private var compactHeader: some View {
-    VStack(spacing: Spacing.xs) {
-      HStack(spacing: Spacing.xs) {
-        Button(action: { router.goToDashboard() }) {
-          Image(systemName: "chevron.left")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textSecondary)
-            .frame(width: 26, height: 26)
-            .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .help("Dashboard (⌘0)")
+    VStack(spacing: Spacing.sm) {
+      compactPrimaryRow
 
-        Button(action: { router.openQuickSwitcher() }) {
-          HStack(spacing: Spacing.xs) {
-            SessionStatusDot(status: obs.displayStatus, size: 10)
-
-            Text(agentName)
-              .font(.system(size: TypeScale.body, weight: .semibold))
-              .foregroundStyle(.primary)
-              .lineLimit(1)
-
-            Image(systemName: "chevron.down")
-              .font(.system(size: TypeScale.micro, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
-          }
-          .padding(.vertical, Spacing.xs)
-          .padding(.horizontal, Spacing.sm)
-          .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-              .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
-          )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHoveringProject = $0 }
-        .contextMenu {
-          debugContextMenu
-        }
-        .layoutPriority(1)
-
-        Spacer(minLength: 0)
-
-        navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
-
-        compactOverflowMenu
-      }
-      .padding(.horizontal, Spacing.md)
-
-      ScrollView(.horizontal) {
-        HStack(spacing: Spacing.sm) {
-          UnifiedModelBadge(model: obs.model, provider: obs.provider, size: .compact)
-
-          if obs.endpointName != nil {
-            EndpointBadge(endpointName: obs.endpointName)
-          }
-
-          if obs.isActive {
-            StatusPillCompact(workStatus: obs.workStatus, currentTool: obs.lastTool)
-          }
-
-          if let branch = obs.branch, !branch.isEmpty {
-            HStack(spacing: 4) {
-              Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-              Text(compactBranchLabel(branch))
-                .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
-              if obs.isWorktree {
-                Text("worktree")
-                  .font(.system(size: TypeScale.caption - 1, weight: .medium))
-                  .foregroundStyle(Color.textTertiary)
-              }
-            }
-            .foregroundStyle(Color.gitBranch)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, 4)
-            .background(Color.backgroundTertiary, in: Capsule())
-          }
-
-          Button {
-            openInEditor(obs.projectPath)
-          } label: {
-            HStack(spacing: 4) {
-              Image(systemName: "folder")
-                .font(.system(size: TypeScale.caption, weight: .semibold))
-              Text(compactProjectLabel)
-                .font(.system(size: TypeScale.caption, design: .monospaced))
-                .lineLimit(1)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, Spacing.sm)
-            .padding(.vertical, 4)
-            .background(Color.backgroundTertiary, in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .help("Open in editor")
-        }
-        .padding(.horizontal, Spacing.md)
-      }
-      .scrollIndicators(.hidden)
+      compactControlRow
     }
     .padding(.vertical, Spacing.sm)
+  }
+
+  private var compactPrimaryRow: some View {
+    HStack(spacing: Spacing.xs) {
+      Button(action: { router.goToDashboard() }) {
+        Image(systemName: "chevron.left")
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .foregroundStyle(Color.textSecondary)
+          .frame(width: 26, height: 26)
+          .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous))
+      }
+      .buttonStyle(.plain)
+      .help("Dashboard (⌘0)")
+
+      Button(action: { router.openQuickSwitcher() }) {
+        HStack(spacing: Spacing.xs) {
+          SessionStatusDot(status: obs.displayStatus, size: 10)
+
+          Text(agentName)
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+
+          Image(systemName: "chevron.down")
+            .font(.system(size: TypeScale.micro, weight: .semibold))
+            .foregroundStyle(Color.textTertiary)
+        }
+        .padding(.vertical, Spacing.xs)
+        .padding(.horizontal, Spacing.sm)
+        .background(
+          RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            .fill(isHoveringProject ? Color.surfaceHover : Color.clear)
+        )
+      }
+      .buttonStyle(.plain)
+      .onHover { isHoveringProject = $0 }
+      .contextMenu {
+        debugContextMenu
+      }
+      .layoutPriority(1)
+
+      Spacer(minLength: 0)
+
+      navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
+
+      compactOverflowMenu
+    }
+    .padding(.horizontal, Spacing.md)
+  }
+
+  private var compactControlRow: some View {
+    HStack(spacing: Spacing.sm) {
+      compactStatusSummaryBadge
+        .layoutPriority(1)
+
+      Spacer(minLength: 0)
+
+      if hasCompactModeControls {
+        compactModeControls
+      }
+    }
+    .padding(.horizontal, Spacing.md)
+  }
+
+  private var compactStatusSummaryBadge: some View {
+    HStack(spacing: Spacing.sm) {
+      Image(systemName: compactStatusIcon)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(statusColor)
+
+      Text(compactStatusLabel)
+        .font(.system(size: TypeScale.caption, weight: .semibold))
+        .foregroundStyle(Color.textSecondary)
+        .lineLimit(1)
+
+      Rectangle()
+        .fill(Color.surfaceBorder)
+        .frame(width: 1, height: 11)
+
+      Text(compactModelSummary)
+        .font(.system(size: TypeScale.caption, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+    .padding(.horizontal, Spacing.sm)
+    .padding(.vertical, 6)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundTertiary.opacity(0.58))
+    )
+    .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
+  }
+
+  private var compactModeControls: some View {
+    HStack(spacing: Spacing.xs) {
+      if let layoutBinding = layoutConfig {
+        compactLayoutToggle(layoutBinding)
+      }
+
+      if showsConversationModeToggleInCompact, let chatModeBinding = chatViewMode {
+        ConversationViewModeToggle(
+          chatViewMode: chatModeBinding,
+          showsContainerChrome: false
+        )
+      }
+    }
+    .padding(Spacing.xxs)
+    .background(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .fill(Color.backgroundTertiary.opacity(0.58))
+    )
+    .shadow(color: .black.opacity(0.22), radius: 6, y: 2)
+  }
+
+  private func compactLayoutToggle(_ binding: Binding<LayoutConfiguration>) -> some View {
+    HStack(spacing: 2) {
+      ForEach(LayoutConfiguration.allCases, id: \.self) { config in
+        let isSelected = binding.wrappedValue == config
+        Button {
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            binding.wrappedValue = isSelected ? .conversationOnly : config
+          }
+        } label: {
+          Image(systemName: config.icon)
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
+            .frame(width: 24, height: 22)
+            .background(
+              isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+      }
+    }
+  }
+
+  private var hasCompactModeControls: Bool {
+    layoutConfig != nil || showsConversationModeToggleInCompact
+  }
+
+  private var showsConversationModeToggleInCompact: Bool {
+    guard chatViewMode != nil else { return false }
+    if let layoutMode = layoutConfig?.wrappedValue, layoutMode == .reviewOnly {
+      return false
+    }
+    return true
+  }
+
+  private var compactStatusIcon: String {
+    switch obs.workStatus {
+      case .working: "bolt.fill"
+      case .waiting: "clock.fill"
+      case .permission: "lock.fill"
+      case .unknown: "circle.fill"
+    }
+  }
+
+  private var compactStatusLabel: String {
+    switch obs.workStatus {
+      case .working: "Working"
+      case .waiting: "Waiting"
+      case .permission: "Approval"
+      case .unknown: "Active"
+    }
+  }
+
+  private var compactModelSummary: String {
+    let raw = obs.model?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let label: String
+    if let raw, !raw.isEmpty {
+      label = raw
+    } else {
+      label = obs.provider.rawValue
+    }
+    guard label.count > 18 else { return label }
+    return String(label.prefix(17)) + "..."
   }
 
   private var compactOverflowMenu: some View {
@@ -478,28 +554,6 @@ struct HeaderView: View {
 
   private var agentName: String {
     obs.displayName
-  }
-
-  private var compactProjectLabel: String {
-    if let name = obs.projectName, !name.isEmpty {
-      return name
-    }
-    let components = obs.projectPath.split(separator: "/")
-    return components.last.map(String.init) ?? obs.projectPath
-  }
-
-  private func compactBranchLabel(_ branch: String) -> String {
-    let maxLength = 14
-    guard branch.count > maxLength else { return branch }
-    return String(branch.prefix(maxLength - 1)) + "…"
-  }
-
-  private func shortenPath(_ path: String) -> String {
-    let components = path.components(separatedBy: "/")
-    if components.count > 4 {
-      return "~/.../" + components.suffix(2).joined(separator: "/")
-    }
-    return path.replacingOccurrences(of: "/Users/\(NSUserName())", with: "~")
   }
 
   private func openInEditor(_ path: String) {

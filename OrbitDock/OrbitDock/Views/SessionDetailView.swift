@@ -27,6 +27,7 @@ struct SessionDetailView: View {
 
   // Turn sidebar state - starts closed, user must trigger it
   @State private var showTurnSidebar = false
+  @AppStorage("chatViewMode") private var chatViewMode: ChatViewMode = .focused
   private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrbitDock", category: "session-detail")
   @State private var railPreset: RailPreset = .planFocused
   @State private var selectedSkills: Set<String> = []
@@ -58,7 +59,8 @@ struct SessionDetailView: View {
         onEndSession: obs.isDirect ? { endDirectSession() } : nil,
         showTurnSidebar: obs.isDirect ? $showTurnSidebar : nil,
         hasSidebarContent: hasSidebarContent,
-        layoutConfig: obs.isDirect ? $layoutConfig : nil
+        layoutConfig: obs.isDirect ? $layoutConfig : nil,
+        chatViewMode: $chatViewMode
       )
 
       Divider()
@@ -105,50 +107,11 @@ struct SessionDetailView: View {
         }
 
         // Turn sidebar - plan + diff + servers + skills (Codex direct only)
-        if obs.isDirect, showTurnSidebar {
+        if obs.isDirect, showTurnSidebar, !isCompactLayout {
           Divider()
             .foregroundStyle(Color.panelBorder)
 
-          CodexTurnSidebar(
-            sessionId: sessionId,
-            sessionScopedId: obs.scopedID,
-            onClose: {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                showTurnSidebar = false
-              }
-            },
-            railPreset: $railPreset,
-            selectedSkills: $selectedSkills,
-            selectedCommentIds: $selectedCommentIds,
-            onOpenReview: {
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                layoutConfig = .split
-              }
-            },
-            onNavigateToSession: { id in
-              let normalizedID: String = if let scoped = SessionRef(scopedID: id)?.scopedID {
-                scoped
-              } else {
-                SessionRef(endpointId: endpointId, sessionId: id).scopedID
-              }
-              NotificationCenter.default.post(
-                name: .selectSession,
-                object: nil,
-                userInfo: ["sessionId": normalizedID]
-              )
-            },
-            onNavigateToComment: { comment in
-              navigateToComment = comment
-              withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                if layoutConfig == .conversationOnly {
-                  layoutConfig = .split
-                }
-              }
-            },
-            onSendReview: {
-              sendReviewToModel()
-            }
-          )
+          turnSidebar
           .frame(width: 320)
           .transition(.move(edge: .trailing).combined(with: .opacity))
         }
@@ -179,6 +142,19 @@ struct SessionDetailView: View {
       }
     }
     .background(Color.backgroundPrimary)
+    .sheet(
+      isPresented: Binding(
+        get: { obs.isDirect && isCompactLayout && showTurnSidebar },
+        set: { showTurnSidebar = $0 }
+      )
+    ) {
+      turnSidebar
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      #if os(iOS)
+      .presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
+      #endif
+    }
     .onAppear {
       if shouldSubscribeToServerSession {
         serverState.subscribeToSession(sessionId)
@@ -281,6 +257,49 @@ struct SessionDetailView: View {
         }
       }
     }
+  }
+
+  private var turnSidebar: some View {
+    CodexTurnSidebar(
+      sessionId: sessionId,
+      sessionScopedId: obs.scopedID,
+      onClose: {
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+          showTurnSidebar = false
+        }
+      },
+      railPreset: $railPreset,
+      selectedSkills: $selectedSkills,
+      selectedCommentIds: $selectedCommentIds,
+      onOpenReview: {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          layoutConfig = .split
+        }
+      },
+      onNavigateToSession: { id in
+        let normalizedID: String = if let scoped = SessionRef(scopedID: id)?.scopedID {
+          scoped
+        } else {
+          SessionRef(endpointId: endpointId, sessionId: id).scopedID
+        }
+        NotificationCenter.default.post(
+          name: .selectSession,
+          object: nil,
+          userInfo: ["sessionId": normalizedID]
+        )
+      },
+      onNavigateToComment: { comment in
+        navigateToComment = comment
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          if layoutConfig == .conversationOnly {
+            layoutConfig = .split
+          }
+        }
+      },
+      onSendReview: {
+        sendReviewToModel()
+      }
+    )
   }
 
   // MARK: - Action Bar
@@ -564,6 +583,7 @@ struct SessionDetailView: View {
       pendingPermissionDetail: obs.pendingPermissionDetail,
       provider: obs.provider,
       model: obs.model,
+      chatViewMode: chatViewMode,
       onNavigateToReviewFile: { filePath, lineNumber in
         // Navigate to the file in the review canvas and jump to the line
         reviewFileId = filePath

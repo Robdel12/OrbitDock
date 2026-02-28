@@ -14,6 +14,26 @@ import SwiftUI
   private let logger = Logger(subsystem: "com.orbitdock", category: "project-picker")
 
   struct ProjectPicker: View {
+    private struct RecentWorktreeProject: Identifiable {
+      let project: ServerRecentProject
+      let repoPath: String
+      let branchPath: String
+      var id: String {
+        project.id
+      }
+    }
+
+    private struct GroupedRecentProject: Identifiable {
+      let repoPath: String
+      let repoProject: ServerRecentProject?
+      let worktrees: [RecentWorktreeProject]
+      let totalSessionCount: UInt32
+      let lastActive: String?
+      var id: String {
+        repoPath
+      }
+    }
+
     @Binding var selectedPath: String
     @Binding var selectedPathIsGit: Bool
     let endpointId: UUID?
@@ -41,6 +61,10 @@ import SwiftUI
     private enum PickerTab: String, CaseIterable {
       case recent = "Recent"
       case browse = "Browse"
+    }
+
+    private var groupedRecentProjects: [GroupedRecentProject] {
+      makeGroupedRecentProjects(from: recentProjects)
     }
 
     var body: some View {
@@ -183,8 +207,8 @@ import SwiftUI
         } else {
           ScrollView {
             LazyVStack(spacing: 2) {
-              ForEach(recentProjects) { project in
-                recentProjectRow(project)
+              ForEach(groupedRecentProjects) { group in
+                groupedRecentProjectSection(group)
               }
             }
           }
@@ -193,7 +217,29 @@ import SwiftUI
       }
     }
 
-    private func recentProjectRow(_ project: ServerRecentProject) -> some View {
+    private func groupedRecentProjectSection(_ group: GroupedRecentProject) -> some View {
+      VStack(spacing: 2) {
+        if let project = group.repoProject {
+          repoProjectRow(
+            project: project,
+            worktreeCount: group.worktrees.count,
+            totalSessionCount: group.totalSessionCount
+          )
+        } else {
+          syntheticRepoRow(group)
+        }
+
+        ForEach(group.worktrees) { worktree in
+          worktreeProjectRow(worktree)
+        }
+      }
+    }
+
+    private func repoProjectRow(
+      project: ServerRecentProject,
+      worktreeCount: Int,
+      totalSessionCount: UInt32
+    ) -> some View {
       Button {
         selectedPath = project.path
         selectedPathIsGit = true
@@ -217,8 +263,17 @@ import SwiftUI
 
           Spacer()
 
-          VStack(alignment: .trailing, spacing: 2) {
-            Text("\(project.sessionCount) session\(project.sessionCount == 1 ? "" : "s")")
+          HStack(spacing: Spacing.sm) {
+            if worktreeCount > 0 {
+              Text("\(worktreeCount) worktree\(worktreeCount == 1 ? "" : "s")")
+                .font(.system(size: TypeScale.micro, weight: .semibold))
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
+            }
+
+            Text(sessionCountLabel(totalSessionCount))
               .font(.system(size: TypeScale.caption))
               .foregroundStyle(Color.textQuaternary)
           }
@@ -227,6 +282,108 @@ import SwiftUI
         .padding(.vertical, Spacing.sm)
         .background(
           selectedPath == project.path
+            ? Color.accent.opacity(OpacityTier.light)
+            : Color.clear,
+          in: RoundedRectangle(cornerRadius: Radius.md)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Radius.md))
+      }
+      .buttonStyle(.plain)
+    }
+
+    private func syntheticRepoRow(_ group: GroupedRecentProject) -> some View {
+      Button {
+        selectedPath = group.repoPath
+        selectedPathIsGit = true
+      } label: {
+        HStack(spacing: Spacing.md) {
+          Image(systemName: "folder.fill")
+            .font(.system(size: 14))
+            .foregroundStyle(Color.accent)
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text(URL(fileURLWithPath: group.repoPath).lastPathComponent)
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(Color.textPrimary)
+
+            Text(displayPath(group.repoPath))
+              .font(.system(size: TypeScale.caption, design: .monospaced))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+          }
+
+          Spacer()
+
+          HStack(spacing: Spacing.sm) {
+            Text("\(group.worktrees.count) worktree\(group.worktrees.count == 1 ? "" : "s")")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(Color.accent)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
+
+            Text(sessionCountLabel(group.totalSessionCount))
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textQuaternary)
+          }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(
+          selectedPath == group.repoPath
+            ? Color.accent.opacity(OpacityTier.light)
+            : Color.clear,
+          in: RoundedRectangle(cornerRadius: Radius.md)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Radius.md))
+      }
+      .buttonStyle(.plain)
+    }
+
+    private func worktreeProjectRow(_ worktree: RecentWorktreeProject) -> some View {
+      Button {
+        selectedPath = worktree.project.path
+        selectedPathIsGit = true
+      } label: {
+        HStack(spacing: Spacing.md) {
+          Image(systemName: "arrow.triangle.branch")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.accent)
+            .frame(width: 20)
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text(worktree.branchPath)
+              .font(.system(size: TypeScale.body, weight: .medium))
+              .foregroundStyle(Color.textPrimary)
+
+            Text(worktreeRelativePath(worktree))
+              .font(.system(size: TypeScale.caption, design: .monospaced))
+              .foregroundStyle(Color.textTertiary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+          }
+
+          Spacer()
+
+          HStack(spacing: Spacing.sm) {
+            Text("worktree")
+              .font(.system(size: TypeScale.micro, weight: .semibold))
+              .foregroundStyle(Color.accent)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(Color.accent.opacity(OpacityTier.tint), in: Capsule())
+
+            Text(sessionCountLabel(worktree.project.sessionCount))
+              .font(.system(size: TypeScale.caption))
+              .foregroundStyle(Color.textQuaternary)
+          }
+        }
+        .padding(.leading, Spacing.xl + Spacing.md)
+        .padding(.trailing, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background(
+          selectedPath == worktree.project.path
             ? Color.accent.opacity(OpacityTier.light)
             : Color.clear,
           in: RoundedRectangle(cornerRadius: Radius.md)
@@ -357,6 +514,89 @@ import SwiftUI
         }
       }
       return path.isEmpty ? "~" : path
+    }
+
+    private func sessionCountLabel(_ count: UInt32) -> String {
+      "\(count) session\(count == 1 ? "" : "s")"
+    }
+
+    private func worktreeRelativePath(_ worktree: RecentWorktreeProject) -> String {
+      let repoName = URL(fileURLWithPath: worktree.repoPath).lastPathComponent
+      return "\(repoName)/.orbitdock-worktrees/\(worktree.branchPath)"
+    }
+
+    private func makeGroupedRecentProjects(from projects: [ServerRecentProject]) -> [GroupedRecentProject] {
+      struct Accumulator {
+        var repoProject: ServerRecentProject?
+        var worktrees: [RecentWorktreeProject] = []
+        var totalSessionCount: UInt32 = 0
+        var lastActive: String?
+
+        mutating func include(_ project: ServerRecentProject) {
+          totalSessionCount += project.sessionCount
+          if let active = project.lastActive,
+             lastActive == nil || active > lastActive!
+          {
+            lastActive = active
+          }
+        }
+      }
+
+      var grouped: [String: Accumulator] = [:]
+
+      for project in projects {
+        if let parsed = parseOrbitDockWorktreePath(project.path) {
+          var bucket = grouped[parsed.repoPath] ?? Accumulator()
+          bucket.worktrees.append(
+            RecentWorktreeProject(project: project, repoPath: parsed.repoPath, branchPath: parsed.branchPath)
+          )
+          bucket.include(project)
+          grouped[parsed.repoPath] = bucket
+          continue
+        }
+
+        var bucket = grouped[project.path] ?? Accumulator()
+        bucket.repoProject = project
+        bucket.include(project)
+        grouped[project.path] = bucket
+      }
+
+      return grouped.map { repoPath, bucket in
+        let sortedWorktrees = bucket.worktrees.sorted {
+          if $0.project.lastActive == $1.project.lastActive {
+            return $0.branchPath < $1.branchPath
+          }
+          return ($0.project.lastActive ?? "") > ($1.project.lastActive ?? "")
+        }
+
+        return GroupedRecentProject(
+          repoPath: repoPath,
+          repoProject: bucket.repoProject,
+          worktrees: sortedWorktrees,
+          totalSessionCount: bucket.totalSessionCount,
+          lastActive: bucket.lastActive
+        )
+      }
+      .sorted {
+        if $0.lastActive == $1.lastActive {
+          return $0.repoPath < $1.repoPath
+        }
+        return ($0.lastActive ?? "") > ($1.lastActive ?? "")
+      }
+    }
+
+    private func parseOrbitDockWorktreePath(_ path: String) -> (repoPath: String, branchPath: String)? {
+      let marker = "/.orbitdock-worktrees/"
+      guard let markerRange = path.range(of: marker) else {
+        return nil
+      }
+
+      let repoPath = String(path[..<markerRange.lowerBound])
+      let branchPath = String(path[markerRange.upperBound...])
+      guard !repoPath.isEmpty, !branchPath.isEmpty else {
+        return nil
+      }
+      return (repoPath, branchPath)
     }
 
     private func openFinderPanel() {

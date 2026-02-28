@@ -28,7 +28,7 @@ struct ProjectStreamSection: View {
   @State private var worktreeSheetGroup: WorktreeSheetIdentifier?
   @State private var draggingProjectGroupKey: String?
   @State private var collapsedProjectGroups: Set<String> = []
-  @State private var collapseForReorder = false
+  @State private var isEditMode = false
 
   private var filteredSessions: [Session] {
     Self.filteredSessions(
@@ -121,24 +121,27 @@ struct ProjectStreamSection: View {
       } else {
         VStack(spacing: Spacing.md) {
           ForEach(projectGroups) { group in
-            projectSection(group)
-              .contentShape(Rectangle())
-              .onDrag {
-                dragItemProvider(for: group)
-              } preview: {
-                projectDragPreview(for: group)
-              }
-              .onDrop(
-                of: [UTType.text],
-                delegate: ProjectGroupDropDelegate(
-                  destinationKey: group.groupKey,
-                  orderedVisibleKeys: reorderableGroupKeys,
-                  projectGroupOrder: $projectGroupOrder,
-                  useCustomProjectOrder: $useCustomProjectOrder,
-                  collapseForReorder: $collapseForReorder,
-                  draggingGroupKey: $draggingProjectGroupKey
+            if isEditMode {
+              projectSection(group)
+                .contentShape(Rectangle())
+                .onDrag {
+                  dragItemProvider(for: group)
+                } preview: {
+                  projectDragPreview(for: group)
+                }
+                .onDrop(
+                  of: [UTType.text],
+                  delegate: ProjectGroupDropDelegate(
+                    destinationKey: group.groupKey,
+                    orderedVisibleKeys: reorderableGroupKeys,
+                    projectGroupOrder: $projectGroupOrder,
+                    useCustomProjectOrder: $useCustomProjectOrder,
+                    draggingGroupKey: $draggingProjectGroupKey
+                  )
                 )
-              )
+            } else {
+              projectSection(group)
+            }
           }
         }
         .padding(.top, 4)
@@ -231,75 +234,100 @@ struct ProjectStreamSection: View {
       regularSignalRail
 
       HStack(spacing: 0) {
-        sortPicker
-        thinSeparator
-
-        filterDropdown
-        thinSeparator
-        projectManagementMenu
-
-        Spacer()
-
-        if useCustomProjectOrder {
-          Button {
-            useCustomProjectOrder = false
-          } label: {
-            Text("Custom Order")
-              .font(.system(size: 9, weight: .semibold))
+        if isEditMode {
+          // Edit mode toolbar — focused, minimal
+          HStack(spacing: 8) {
+            Image(systemName: "arrow.up.and.down.text.horizontal")
+              .font(.system(size: 10, weight: .semibold))
               .foregroundStyle(Color.accent)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
-              .background(Color.accent.opacity(0.12), in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .help("Custom project order overrides sort. Click to use sort order.")
-          .padding(.trailing, 6)
-        }
 
-        if collapseForReorder {
-          Button {
-            draggingProjectGroupKey = nil
-            collapseForReorder = false
-          } label: {
-            Text("Exit Reorder")
-              .font(.system(size: 9, weight: .semibold))
+            Text("Drag to reorder, tap")
+              .font(.system(size: 10, weight: .medium))
               .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
-              .background(Color.surfaceHover.opacity(0.55), in: Capsule())
-          }
-          .buttonStyle(.plain)
-          .padding(.trailing, 6)
-        }
 
-        if filter != .all || providerFilter != .all {
-          Button {
-            filter = .all
-            providerFilter = .all
-          } label: {
-            Text("Clear")
-              .font(.system(size: 9, weight: .semibold))
+            Image(systemName: "eye.slash")
+              .font(.system(size: 10, weight: .medium))
               .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
-              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
 
-        if hiddenProjectCount > 0 {
-          Button {
-            hiddenProjectGroups.removeAll()
-          } label: {
-            Text("Show Hidden \(hiddenProjectCount)")
-              .font(.system(size: 9, weight: .semibold))
+            Text("to hide")
+              .font(.system(size: 10, weight: .medium))
               .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
-              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+          }
+
+          Spacer()
+
+          Button {
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+              isEditMode = false
+              draggingProjectGroupKey = nil
+            }
+          } label: {
+            Text("Done")
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(Color.accent)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 5)
+              .background(Color.accent.opacity(0.15), in: Capsule())
           }
           .buttonStyle(.plain)
-          .padding(.leading, 6)
+        } else {
+          // Normal controls
+          sortPicker
+          thinSeparator
+
+          filterDropdown
+          thinSeparator
+          projectManagementMenu
+          thinSeparator
+          editProjectsButton
+
+          Spacer()
+
+          if useCustomProjectOrder {
+            Button {
+              useCustomProjectOrder = false
+            } label: {
+              Text("Custom Order")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.accent.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Custom project order overrides sort. Click to use sort order.")
+            .padding(.trailing, 6)
+          }
+
+          if filter != .all || providerFilter != .all {
+            Button {
+              filter = .all
+              providerFilter = .all
+            } label: {
+              Text("Clear")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+            }
+            .buttonStyle(.plain)
+          }
+
+          if hiddenProjectCount > 0 {
+            Button {
+              hiddenProjectGroups.removeAll()
+            } label: {
+              Text("Show Hidden \(hiddenProjectCount)")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 6)
+          }
         }
       }
     }
@@ -323,35 +351,55 @@ struct ProjectStreamSection: View {
 
         Spacer()
 
-        compactFilterMenu
-
-        if useCustomProjectOrder {
+        if isEditMode {
           Button {
-            useCustomProjectOrder = false
-          } label: {
-            Text("Custom")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(Color.accent)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
-              .background(Color.accent.opacity(0.12), in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-
-        if collapseForReorder {
-          Button {
-            draggingProjectGroupKey = nil
-            collapseForReorder = false
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+              isEditMode = false
+              draggingProjectGroupKey = nil
+            }
           } label: {
             Text("Done")
-              .font(.system(size: 10, weight: .semibold))
-              .foregroundStyle(Color.textTertiary)
-              .padding(.horizontal, 8)
-              .padding(.vertical, 3)
-              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(Color.accent)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 5)
+              .background(Color.accent.opacity(0.15), in: Capsule())
           }
           .buttonStyle(.plain)
+        } else {
+          compactFilterMenu
+
+          // Standalone edit button for mobile
+          Button {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+              if !useCustomProjectOrder {
+                projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+              }
+              useCustomProjectOrder = true
+              isEditMode = true
+            }
+          } label: {
+            Image(systemName: "pencil")
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(Color.textSecondary)
+              .frame(width: 28, height: 28)
+              .background(Color.surfaceHover.opacity(0.5), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+          }
+          .buttonStyle(.plain)
+
+          if useCustomProjectOrder {
+            Button {
+              useCustomProjectOrder = false
+            } label: {
+              Text("Custom")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(Color.accent.opacity(0.12), in: Capsule())
+            }
+            .buttonStyle(.plain)
+          }
         }
 
         if filter != .all || providerFilter != .all {
@@ -739,6 +787,18 @@ struct ProjectStreamSection: View {
         Divider()
 
         Button {
+          withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+            if !useCustomProjectOrder {
+              projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+            }
+            useCustomProjectOrder = true
+            isEditMode = true
+          }
+        } label: {
+          Label("Edit Projects\u{2026}", systemImage: "arrow.up.and.down.text.horizontal")
+        }
+
+        Button {
           projectGroupOrder.removeAll()
           useCustomProjectOrder = false
         } label: {
@@ -766,6 +826,32 @@ struct ProjectStreamSection: View {
       .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
     .menuStyle(.borderlessButton)
+    .fixedSize()
+  }
+
+  private var editProjectsButton: some View {
+    Button {
+      withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+        if !useCustomProjectOrder {
+          projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+        }
+        useCustomProjectOrder = true
+        isEditMode = true
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: "pencil")
+          .font(.system(size: 10, weight: .semibold))
+        Text("Edit")
+          .font(.system(size: 10, weight: .medium))
+      }
+      .foregroundStyle(Color.textSecondary)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .help("Reorder or hide projects")
     .fixedSize()
   }
 
@@ -869,6 +955,18 @@ struct ProjectStreamSection: View {
           }
         }
         .disabled(projectGroupOrder.isEmpty && !useCustomProjectOrder)
+
+        Button {
+          withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+            if !useCustomProjectOrder {
+              projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+            }
+            useCustomProjectOrder = true
+            isEditMode = true
+          }
+        } label: {
+          Text("Edit Projects\u{2026}")
+        }
 
         Button {
           projectGroupOrder.removeAll()
@@ -1177,12 +1275,7 @@ struct ProjectStreamSection: View {
 
   private func dragItemProvider(for group: ProjectGroup) -> NSItemProvider {
     withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
-      if !useCustomProjectOrder {
-        projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
-      }
       draggingProjectGroupKey = group.groupKey
-      useCustomProjectOrder = true
-      collapseForReorder = true
     }
     return NSItemProvider(object: group.groupKey as NSString)
   }
@@ -1218,7 +1311,7 @@ struct ProjectStreamSection: View {
   }
 
   private func isProjectCollapsed(_ group: ProjectGroup) -> Bool {
-    if collapseForReorder {
+    if isEditMode {
       return true
     }
     return collapsedProjectGroups.contains(group.groupKey)
@@ -1240,7 +1333,7 @@ struct ProjectStreamSection: View {
     let worktreeCount = group.sessions.filter(\.isWorktree).count
     let repoRoot = group.sessions.compactMap(\.repositoryRoot).first
     let isCollapsed = isProjectCollapsed(group)
-    let isReorderCompacting = collapseForReorder
+    let isReorderCompacting = isEditMode
 
     return VStack(alignment: .leading, spacing: 0) {
       // Project divider rule
@@ -1255,15 +1348,22 @@ struct ProjectStreamSection: View {
         if isPhoneCompact {
           VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-              Button {
-                toggleProjectCollapsed(group)
-              } label: {
-                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                  .font(.system(size: 9, weight: .bold))
+              if isEditMode {
+                Image(systemName: "line.3.horizontal")
+                  .font(.system(size: 10, weight: .bold))
                   .foregroundStyle(Color.textQuaternary)
                   .frame(width: 12, height: 12)
+              } else {
+                Button {
+                  toggleProjectCollapsed(group)
+                } label: {
+                  Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Color.textQuaternary)
+                    .frame(width: 12, height: 12)
+                }
+                .buttonStyle(.plain)
               }
-              .buttonStyle(.plain)
 
               Text(group.projectName)
                 .font(.system(size: TypeScale.subhead, weight: .bold))
@@ -1284,7 +1384,16 @@ struct ProjectStreamSection: View {
 
               Spacer()
 
-              projectActionsMenu(group)
+              if isEditMode {
+                Button { hideProject(group) } label: {
+                  Image(systemName: "eye.slash")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textTertiary)
+                }
+                .buttonStyle(.plain)
+              } else {
+                projectActionsMenu(group)
+              }
             }
 
             if !isReorderCompacting && (projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals
@@ -1331,15 +1440,22 @@ struct ProjectStreamSection: View {
           }
         } else {
           HStack(spacing: 8) {
-            Button {
-              toggleProjectCollapsed(group)
-            } label: {
-              Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: 9, weight: .bold))
+            if isEditMode {
+              Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(Color.textQuaternary)
                 .frame(width: 12, height: 12)
+            } else {
+              Button {
+                toggleProjectCollapsed(group)
+              } label: {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                  .font(.system(size: 9, weight: .bold))
+                  .foregroundStyle(Color.textQuaternary)
+                  .frame(width: 12, height: 12)
+              }
+              .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             Text(group.projectName)
               .font(.system(size: TypeScale.large, weight: .bold))
@@ -1392,7 +1508,17 @@ struct ProjectStreamSection: View {
               worktreeButton(repoRoot: repoRoot, projectName: group.projectName, count: worktreeCount)
             }
 
-            projectActionsMenu(group)
+            if isEditMode {
+              Button { hideProject(group) } label: {
+                Image(systemName: "eye.slash")
+                  .font(.system(size: 11, weight: .medium))
+                  .foregroundStyle(Color.textTertiary)
+              }
+              .buttonStyle(.plain)
+              .help("Hide project")
+            } else {
+              projectActionsMenu(group)
+            }
 
             Spacer()
 
@@ -1436,13 +1562,14 @@ struct ProjectStreamSection: View {
               session: session,
               onSelect: {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                  router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
                   router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
                 }
               },
               isSelected: isSelected,
               hideBranch: sharedBranch != nil
             )
-            .flatSessionScrollID(rowIndex)
+            .flatSessionScrollID(rowIndex, scopedID: session.scopedID)
           }
         }
       }
@@ -1836,8 +1963,10 @@ private struct ProjectStreamTriageCounts {
 
 extension View {
   @ViewBuilder
-  func flatSessionScrollID(_ index: Int?) -> some View {
-    if let index {
+  func flatSessionScrollID(_ index: Int?, scopedID: String? = nil) -> some View {
+    if let scopedID {
+      self.id(DashboardScrollIDs.session(scopedID))
+    } else if let index {
       self.id("active-session-\(index)")
     } else {
       self
@@ -1862,7 +1991,6 @@ private struct ProjectGroupDropDelegate: DropDelegate {
   let orderedVisibleKeys: [String]
   @Binding var projectGroupOrder: [String]
   @Binding var useCustomProjectOrder: Bool
-  @Binding var collapseForReorder: Bool
   @Binding var draggingGroupKey: String?
 
   func dropEntered(info _: DropInfo) {
@@ -1887,7 +2015,6 @@ private struct ProjectGroupDropDelegate: DropDelegate {
   func performDrop(info _: DropInfo) -> Bool {
     withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
       draggingGroupKey = nil
-      collapseForReorder = false
     }
     return true
   }

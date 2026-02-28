@@ -16,11 +16,10 @@ struct ConversationView: View {
   var pendingPermissionDetail: String?
   var provider: Provider = .claude
   var model: String?
+  var chatViewMode: ChatViewMode = .focused
   var onNavigateToReviewFile: ((String, Int) -> Void)? // (filePath, lineNumber) deep link from review card
 
   @Environment(ServerAppState.self) private var serverState
-
-  @AppStorage("chatViewMode") private var chatViewMode: ChatViewMode = .focused
 
   @State private var messages: [TranscriptMessage] = []
   @State private var currentPrompt: String?
@@ -125,35 +124,29 @@ struct ConversationView: View {
   @Environment(\.openFileInReview) private var openFileInReview
 
   private var conversationThread: some View {
-    ZStack(alignment: .topTrailing) {
-      ConversationCollectionView(
-        messages: displayedMessages,
-        chatViewMode: chatViewMode,
-        isSessionActive: isSessionActive,
-        workStatus: workStatus,
-        currentTool: currentTool,
-        pendingToolName: pendingToolName,
-        pendingPermissionDetail: pendingPermissionDetail,
-        provider: provider,
-        model: model,
-        sessionId: sessionId,
-        serverState: serverState,
-        hasMoreMessages: hasMoreMessages,
-        currentPrompt: currentPrompt,
-        messageCount: messages.count,
-        remainingLoadCount: min(pageSize, messages.count - effectiveDisplayedCount),
-        openFileInReview: openFileInReview,
-        onLoadMore: { displayedCount = min(displayedCount + pageSize, messages.count) },
-        onNavigateToReviewFile: onNavigateToReviewFile,
-        isPinned: $isPinned,
-        unreadCount: $unreadCount,
-        scrollToBottomTrigger: $scrollToBottomTrigger
-      )
-
-      ConversationViewModeToggle(chatViewMode: $chatViewMode)
-        .padding(.top, 8)
-        .padding(.trailing, 12)
-    }
+    ConversationCollectionView(
+      messages: displayedMessages,
+      chatViewMode: chatViewMode,
+      isSessionActive: isSessionActive,
+      workStatus: workStatus,
+      currentTool: currentTool,
+      pendingToolName: pendingToolName,
+      pendingPermissionDetail: pendingPermissionDetail,
+      provider: provider,
+      model: model,
+      sessionId: sessionId,
+      serverState: serverState,
+      hasMoreMessages: hasMoreMessages,
+      currentPrompt: currentPrompt,
+      messageCount: messages.count,
+      remainingLoadCount: min(pageSize, messages.count - effectiveDisplayedCount),
+      openFileInReview: openFileInReview,
+      onLoadMore: { displayedCount = min(displayedCount + pageSize, messages.count) },
+      onNavigateToReviewFile: onNavigateToReviewFile,
+      isPinned: $isPinned,
+      unreadCount: $unreadCount,
+      scrollToBottomTrigger: $scrollToBottomTrigger
+    )
   }
 
   // MARK: - Subscriptions & Data Loading

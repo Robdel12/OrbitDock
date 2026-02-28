@@ -15,7 +15,7 @@ struct SessionHistorySection: View {
 
   @State private var isExpanded = false
   @State private var showAll = false
-  @State private var groupByProject = false
+  @State private var groupByProject = true
 
   private let initialShowCount = 10
 
@@ -293,6 +293,7 @@ struct DateGroupSection: View {
         ForEach(visibleSessions, id: \.scopedID) { session in
           HistorySessionRow(session: session, referenceDate: referenceDate) {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+              router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
               router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
             }
           }
@@ -405,6 +406,7 @@ struct HistorySessionRow: View {
           .fill(isHovering ? Color.surfaceHover : Color.clear)
       )
     }
+    .id(DashboardScrollIDs.session(session.scopedID))
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
     .contextMenu {
@@ -503,6 +505,7 @@ struct ProjectHistoryGroup: View {
           ForEach(visibleSessions, id: \.scopedID) { session in
             CompactHistoryRow(session: session, referenceDate: referenceDate) {
               withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
                 router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
               }
             }
@@ -589,6 +592,7 @@ struct CompactHistoryRow: View {
           .fill(isHovering ? Color.surfaceHover : Color.clear)
       )
     }
+    .id(DashboardScrollIDs.session(session.scopedID))
     .buttonStyle(.plain)
     .onHover { isHovering = $0 }
   }

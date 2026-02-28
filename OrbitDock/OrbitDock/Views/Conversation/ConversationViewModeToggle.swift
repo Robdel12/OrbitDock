@@ -1,7 +1,14 @@
 import SwiftUI
 
 struct ConversationViewModeToggle: View {
+  enum Presentation {
+    case iconOnly
+    case compactLabeled
+  }
+
   @Binding var chatViewMode: ChatViewMode
+  var presentation: Presentation = .iconOnly
+  var showsContainerChrome: Bool = true
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private var isCompact: Bool {
@@ -9,20 +16,45 @@ struct ConversationViewModeToggle: View {
   }
 
   var body: some View {
-    HStack(spacing: isCompact ? 4 : 2) {
+    HStack(spacing: toggleSpacing) {
       ForEach(ChatViewMode.allCases, id: \.self) { mode in
         modeButton(mode)
       }
     }
-    .padding(isCompact ? 4 : 3)
-    .background(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .fill(Color.backgroundSecondary.opacity(0.9))
-    )
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-        .strokeBorder(Color.surfaceBorder, lineWidth: 1)
-    )
+    .padding(containerPadding)
+    .background {
+      if showsContainerChrome {
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .fill(Color.backgroundSecondary.opacity(0.9))
+      }
+    }
+    .overlay {
+      if showsContainerChrome {
+        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+          .strokeBorder(Color.surfaceBorder, lineWidth: 1)
+      }
+    }
+  }
+
+  private var toggleSpacing: CGFloat {
+    switch presentation {
+      case .iconOnly:
+        isCompact ? 4 : 2
+      case .compactLabeled:
+        4
+    }
+  }
+
+  private var containerPadding: CGFloat {
+    if !showsContainerChrome {
+      return 0
+    }
+    return switch presentation {
+      case .iconOnly:
+        isCompact ? 4 : 3
+      case .compactLabeled:
+        4
+    }
   }
 
   @ViewBuilder
@@ -34,18 +66,44 @@ struct ConversationViewModeToggle: View {
         chatViewMode = mode
       }
     } label: {
-      Image(systemName: mode.icon)
-        .font(.system(size: isCompact ? 11 : 10, weight: .medium))
-        .foregroundStyle(isSelected ? Color.accent : .secondary)
-        .frame(width: isCompact ? 30 : 26, height: isCompact ? 24 : 22)
-        .background(
-          isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
-          in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-        )
+      switch presentation {
+        case .iconOnly:
+          Image(systemName: mode.icon)
+            .font(.system(size: isCompact ? 11 : 10, weight: .medium))
+            .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
+            .frame(width: isCompact ? 30 : 26, height: isCompact ? 24 : 22)
+            .background(
+              isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
+
+        case .compactLabeled:
+          HStack(spacing: 6) {
+            Image(systemName: mode.icon)
+              .font(.system(size: 10, weight: .medium))
+            Text(modeTitle(mode))
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+          }
+          .foregroundStyle(isSelected ? Color.accent : Color.textSecondary)
+          .padding(.horizontal, Spacing.sm + 2)
+          .padding(.vertical, 6)
+          .background(
+            isSelected ? Color.accent.opacity(OpacityTier.light) : Color.clear,
+            in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+          )
+      }
     }
     .buttonStyle(.plain)
+    .accessibilityLabel("\(modeTitle(mode)) view")
     #if os(macOS)
       .help(mode.label)
     #endif
+  }
+
+  private func modeTitle(_ mode: ChatViewMode) -> String {
+    switch mode {
+      case .focused: "Grouped"
+      case .verbose: "Verbose"
+    }
   }
 }

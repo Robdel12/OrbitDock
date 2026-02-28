@@ -54,7 +54,7 @@ nonisolated struct ConversationSourceState {
     var projectPath: String?
 
     var shouldShowLiveIndicator: Bool {
-      isSessionActive && (workStatus == .waiting || workStatus == .permission)
+      isSessionActive && workStatus == .permission
     }
   }
 

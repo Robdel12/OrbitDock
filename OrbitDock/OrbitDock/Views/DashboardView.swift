@@ -52,6 +52,13 @@ struct DashboardView: View {
     }
   }
 
+  private var dashboardScrollAnchorBinding: Binding<String?> {
+    Binding(
+      get: { router.dashboardScrollAnchorID },
+      set: { router.dashboardScrollAnchorID = $0 }
+    )
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       CommandStrip(
@@ -73,50 +80,52 @@ struct DashboardView: View {
   }
 
   private var sessionsContent: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        VStack(alignment: .leading, spacing: 0) {
-          if showingLoadingSkeleton {
-            loadingSkeletonContent
-          } else {
-            // Zone 1: Ambient stats — recessed metadata strip
-            if !layoutMode.isPhoneCompact {
-              CommandBar(sessions: sessions)
-            }
-
-            // Zone 2: Attention interrupts — the real priority
-            AttentionBanner(
-              sessions: sessions
-            )
-            .padding(.top, layoutMode.attentionTopPadding)
-
-            // Zone 3: Active agents — primary content
-            ProjectStreamSection(
-              sessions: sessions,
-              selectedIndex: selectedIndex,
-              filter: $activeWorkbenchFilter,
-              sort: $activeSort,
-              providerFilter: $activeProviderFilter,
-              projectGroupOrder: $projectGroupOrder,
-              useCustomProjectOrder: $useCustomProjectOrder,
-              hiddenProjectGroups: $hiddenProjectGroups
-            )
-            .padding(.top, layoutMode.activeTopPadding)
-
-            // Zone 4: History
-            SessionHistorySection(
-              sessions: sessions
-            )
-            .padding(.top, layoutMode.historyTopPadding)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        if showingLoadingSkeleton {
+          loadingSkeletonContent
+        } else {
+          // Zone 1: Ambient stats — recessed metadata strip
+          if !layoutMode.isPhoneCompact {
+            CommandBar(sessions: sessions)
           }
+
+          // Zone 2: Attention interrupts — the real priority
+          AttentionBanner(
+            sessions: sessions
+          )
+          .padding(.top, layoutMode.attentionTopPadding)
+
+          // Zone 3: Active agents — primary content
+          ProjectStreamSection(
+            sessions: sessions,
+            selectedIndex: selectedIndex,
+            filter: $activeWorkbenchFilter,
+            sort: $activeSort,
+            providerFilter: $activeProviderFilter,
+            projectGroupOrder: $projectGroupOrder,
+            useCustomProjectOrder: $useCustomProjectOrder,
+            hiddenProjectGroups: $hiddenProjectGroups
+          )
+          .padding(.top, layoutMode.activeTopPadding)
+
+          // Zone 4: History
+          SessionHistorySection(
+            sessions: sessions
+          )
+          .padding(.top, layoutMode.historyTopPadding)
         }
-        .padding(layoutMode.contentPadding)
       }
-      .scrollContentBackground(.hidden)
-      .onChange(of: selectedIndex) { _, newIndex in
-        withAnimation(.easeOut(duration: 0.15)) {
-          proxy.scrollTo("active-session-\(newIndex)", anchor: .center)
-        }
+      .padding(layoutMode.contentPadding)
+      .scrollTargetLayout()
+    }
+    .scrollContentBackground(.hidden)
+    .scrollPosition(id: dashboardScrollAnchorBinding)
+    .onChange(of: selectedIndex) { _, newIndex in
+      guard newIndex >= 0, newIndex < activeSessions.count else { return }
+      let targetID = DashboardScrollIDs.session(activeSessions[newIndex].scopedID)
+      withAnimation(.easeOut(duration: 0.15)) {
+        router.dashboardScrollAnchorID = targetID
       }
     }
     .focusable()
@@ -438,6 +447,7 @@ struct DashboardView: View {
   private func selectCurrentSession() {
     guard selectedIndex >= 0, selectedIndex < activeSessions.count else { return }
     let session = activeSessions[selectedIndex]
+    router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
       router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
     }
