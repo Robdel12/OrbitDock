@@ -367,24 +367,24 @@ private struct WorktreeStripRow: View {
   }
 
   var body: some View {
-    HStack(spacing: 6) {
-      // Expand chevron (clickable to toggle sessions)
-      Button(action: onToggleExpand) {
-        Image(systemName: isRowExpanded ? "chevron.down" : "chevron.right")
-          .font(.system(size: 7, weight: .bold))
-          .foregroundStyle(Color.textQuaternary)
-          .frame(width: 10)
-      }
-      .buttonStyle(.plain)
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 6) {
+        // Expand chevron (clickable to toggle sessions)
+        Button(action: onToggleExpand) {
+          Image(systemName: isRowExpanded ? "chevron.down" : "chevron.right")
+            .font(.system(size: 7, weight: .bold))
+            .foregroundStyle(Color.textQuaternary)
+            .frame(width: 10)
+        }
+        .buttonStyle(.plain)
 
-      // Status dot
-      Circle()
-        .fill(statusColor)
-        .frame(width: 6, height: 6)
+        // Status dot
+        Circle()
+          .fill(statusColor)
+          .frame(width: 6, height: 6)
 
-      // Worktree info — tap to expand
-      Button(action: onToggleExpand) {
-        VStack(alignment: .leading, spacing: 1) {
+        // Name/status are on their own lane so right-side controls cannot overlap
+        Button(action: onToggleExpand) {
           HStack(spacing: 5) {
             Text(displayName)
               .font(.system(size: 12, weight: .medium))
@@ -400,43 +400,46 @@ private struct WorktreeStripRow: View {
                 .background(statusColor.opacity(0.1), in: Capsule())
             }
           }
-
-          Text(relativePath)
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
-            .foregroundStyle(Color.textQuaternary)
-            .lineLimit(1)
+          .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
+        .buttonStyle(.plain)
+        .layoutPriority(1)
 
-      Spacer(minLength: 4)
+        Spacer(minLength: 4)
 
-      // Session count
-      if sessionCount > 0 {
-        Text("\(sessionCount) \(sessionCount == 1 ? "session" : "sessions")")
-          .font(.system(size: 10, weight: .medium, design: .rounded))
-          .foregroundStyle(Color.textTertiary)
-      } else {
-        Text("idle")
-          .font(.system(size: 10, weight: .medium, design: .rounded))
-          .foregroundStyle(Color.textQuaternary)
+        sessionCountBadge
+
+        if isPhoneCompact {
+          compactMenu
+        } else {
+          launchMenu
+          overflowMenu
+        }
       }
 
-      if isPhoneCompact {
-        compactMenu
-      } else {
-        launchMenu
-        overflowMenu
-      }
+      Text(relativePath)
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .foregroundStyle(Color.textQuaternary)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .padding(.leading, 22)
     }
     .padding(.horizontal, 6)
-    .padding(.vertical, 5)
+    .padding(.vertical, 4)
     .background(
       RoundedRectangle(cornerRadius: CGFloat(Radius.sm), style: .continuous)
         .fill(isHovering ? Color.surfaceHover : .clear)
     )
     .onHover { isHovering = $0 }
+  }
+
+  private var sessionCountBadge: some View {
+    Text(sessionCount > 0 ? "\(sessionCount) \(sessionCount == 1 ? "session" : "sessions")" : "idle")
+      .font(.system(size: 10, weight: .medium, design: .rounded))
+      .foregroundStyle(sessionCount > 0 ? Color.textTertiary : Color.textQuaternary)
+      .padding(.horizontal, 7)
+      .padding(.vertical, 3)
+      .background(Color.surfaceHover.opacity(0.55), in: Capsule())
   }
 
   // MARK: - Menus

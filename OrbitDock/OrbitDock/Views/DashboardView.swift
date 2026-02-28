@@ -21,6 +21,9 @@ struct DashboardView: View {
   @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
   @State private var activeSort: ActiveSessionSort = .status
   @State private var activeProviderFilter: ActiveSessionProviderFilter = .all
+  @State private var projectGroupOrder: [String] = DashboardProjectPreferences.loadProjectGroupOrder()
+  @State private var useCustomProjectOrder: Bool = DashboardProjectPreferences.loadUseCustomProjectOrder()
+  @State private var hiddenProjectGroups: Set<String> = DashboardProjectPreferences.loadHiddenProjectGroups()
   @FocusState private var isDashboardFocused: Bool
 
   private var activeSessions: [Session] {
@@ -28,7 +31,10 @@ struct DashboardView: View {
       from: sessions,
       filter: activeWorkbenchFilter,
       sort: activeSort,
-      providerFilter: activeProviderFilter
+      providerFilter: activeProviderFilter,
+      projectGroupOrder: projectGroupOrder,
+      useCustomProjectOrder: useCustomProjectOrder,
+      hiddenProjectGroups: hiddenProjectGroups
     )
   }
 
@@ -90,7 +96,10 @@ struct DashboardView: View {
               selectedIndex: selectedIndex,
               filter: $activeWorkbenchFilter,
               sort: $activeSort,
-              providerFilter: $activeProviderFilter
+              providerFilter: $activeProviderFilter,
+              projectGroupOrder: $projectGroupOrder,
+              useCustomProjectOrder: $useCustomProjectOrder,
+              hiddenProjectGroups: $hiddenProjectGroups
             )
             .padding(.top, layoutMode.activeTopPadding)
 
@@ -119,6 +128,15 @@ struct DashboardView: View {
       if selectedIndex >= newCount, newCount > 0 {
         selectedIndex = newCount - 1
       }
+    }
+    .onChange(of: projectGroupOrder) { _, updatedOrder in
+      DashboardProjectPreferences.saveProjectGroupOrder(updatedOrder)
+    }
+    .onChange(of: useCustomProjectOrder) { _, useCustomOrder in
+      DashboardProjectPreferences.saveUseCustomProjectOrder(useCustomOrder)
+    }
+    .onChange(of: hiddenProjectGroups) { _, updatedHiddenGroups in
+      DashboardProjectPreferences.saveHiddenProjectGroups(updatedHiddenGroups)
     }
     .modifier(KeyboardNavigationModifier(
       onMoveUp: { moveSelection(by: -1) },

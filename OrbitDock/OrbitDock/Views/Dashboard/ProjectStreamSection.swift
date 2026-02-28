@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ProjectStreamSection: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -20,15 +21,35 @@ struct ProjectStreamSection: View {
   @Binding var filter: ActiveSessionWorkbenchFilter
   @Binding var sort: ActiveSessionSort
   @Binding var providerFilter: ActiveSessionProviderFilter
+  @Binding var projectGroupOrder: [String]
+  @Binding var useCustomProjectOrder: Bool
+  @Binding var hiddenProjectGroups: Set<String>
 
   @State private var worktreeSheetGroup: WorktreeSheetIdentifier?
+  @State private var draggingProjectGroupKey: String?
+  @State private var collapsedProjectGroups: Set<String> = []
+  @State private var collapseForReorder = false
+
+  private var filteredSessions: [Session] {
+    Self.filteredSessions(
+      from: sessions,
+      filter: filter,
+      sort: sort,
+      providerFilter: providerFilter
+    )
+  }
 
   private var projectGroups: [ProjectGroup] {
-    Self.makeProjectGroups(from: orderedSessions, sort: sort)
+    Self.makeProjectGroups(
+      from: filteredSessions,
+      sort: sort,
+      preferredOrder: useCustomProjectOrder ? projectGroupOrder : [],
+      hiddenGroupKeys: hiddenProjectGroups
+    )
   }
 
   private var orderedSessions: [Session] {
-    Self.keyboardNavigableSessions(from: sessions, filter: filter, sort: sort, providerFilter: providerFilter)
+    projectGroups.flatMap(\.sessions)
   }
 
   private var sessionIndexByID: [String: Int] {
@@ -37,6 +58,10 @@ struct ProjectStreamSection: View {
 
   private var allActiveSessions: [Session] {
     Self.sortedActiveSessions(from: sessions, sort: sort)
+  }
+
+  private var hiddenProjectCount: Int {
+    hiddenProjectGroups.count
   }
 
   private var counts: ProjectStreamTriageCounts {
@@ -97,6 +122,23 @@ struct ProjectStreamSection: View {
         VStack(spacing: Spacing.md) {
           ForEach(projectGroups) { group in
             projectSection(group)
+              .contentShape(Rectangle())
+              .onDrag {
+                dragItemProvider(for: group)
+              } preview: {
+                projectDragPreview(for: group)
+              }
+              .onDrop(
+                of: [UTType.text],
+                delegate: ProjectGroupDropDelegate(
+                  destinationKey: group.groupKey,
+                  orderedVisibleKeys: reorderableGroupKeys,
+                  projectGroupOrder: $projectGroupOrder,
+                  useCustomProjectOrder: $useCustomProjectOrder,
+                  collapseForReorder: $collapseForReorder,
+                  draggingGroupKey: $draggingProjectGroupKey
+                )
+              )
           }
         }
         .padding(.top, 4)
@@ -125,12 +167,23 @@ struct ProjectStreamSection: View {
     from sessions: [Session],
     filter: ActiveSessionWorkbenchFilter,
     sort: ActiveSessionSort = .status,
-    providerFilter: ActiveSessionProviderFilter = .all
+    providerFilter: ActiveSessionProviderFilter = .all,
+    projectGroupOrder: [String] = [],
+    useCustomProjectOrder: Bool = true,
+    hiddenProjectGroups: Set<String> = []
   ) -> [Session] {
-    let active = sortedActiveSessions(from: sessions, sort: sort)
-    let providerFiltered = applyProviderFilter(active, filter: providerFilter)
-    let filtered = applyWorkbenchFilter(providerFiltered, filter: filter)
-    let groups = makeProjectGroups(from: filtered, sort: sort)
+    let filtered = filteredSessions(
+      from: sessions,
+      filter: filter,
+      sort: sort,
+      providerFilter: providerFilter
+    )
+    let groups = makeProjectGroups(
+      from: filtered,
+      sort: sort,
+      preferredOrder: useCustomProjectOrder ? projectGroupOrder : [],
+      hiddenGroupKeys: hiddenProjectGroups
+    )
     return groups.flatMap(\.sessions)
   }
 
@@ -175,15 +228,49 @@ struct ProjectStreamSection: View {
         }
       }
 
-      statusOverviewBoard
+      regularSignalRail
 
       HStack(spacing: 0) {
         sortPicker
         thinSeparator
 
         filterDropdown
+        thinSeparator
+        projectManagementMenu
 
         Spacer()
+
+        if useCustomProjectOrder {
+          Button {
+            useCustomProjectOrder = false
+          } label: {
+            Text("Custom Order")
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundStyle(Color.accent)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color.accent.opacity(0.12), in: Capsule())
+          }
+          .buttonStyle(.plain)
+          .help("Custom project order overrides sort. Click to use sort order.")
+          .padding(.trailing, 6)
+        }
+
+        if collapseForReorder {
+          Button {
+            draggingProjectGroupKey = nil
+            collapseForReorder = false
+          } label: {
+            Text("Exit Reorder")
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundStyle(Color.textTertiary)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color.surfaceHover.opacity(0.55), in: Capsule())
+          }
+          .buttonStyle(.plain)
+          .padding(.trailing, 6)
+        }
 
         if filter != .all || providerFilter != .all {
           Button {
@@ -198,6 +285,21 @@ struct ProjectStreamSection: View {
               .background(Color.surfaceHover.opacity(0.5), in: Capsule())
           }
           .buttonStyle(.plain)
+        }
+
+        if hiddenProjectCount > 0 {
+          Button {
+            hiddenProjectGroups.removeAll()
+          } label: {
+            Text("Show Hidden \(hiddenProjectCount)")
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundStyle(Color.textTertiary)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+          }
+          .buttonStyle(.plain)
+          .padding(.leading, 6)
         }
       }
     }
@@ -223,12 +325,55 @@ struct ProjectStreamSection: View {
 
         compactFilterMenu
 
+        if useCustomProjectOrder {
+          Button {
+            useCustomProjectOrder = false
+          } label: {
+            Text("Custom")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(Color.accent)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color.accent.opacity(0.12), in: Capsule())
+          }
+          .buttonStyle(.plain)
+        }
+
+        if collapseForReorder {
+          Button {
+            draggingProjectGroupKey = nil
+            collapseForReorder = false
+          } label: {
+            Text("Done")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(Color.textTertiary)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+          }
+          .buttonStyle(.plain)
+        }
+
         if filter != .all || providerFilter != .all {
           Button {
             filter = .all
             providerFilter = .all
           } label: {
             Text("Clear")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(Color.textTertiary)
+              .padding(.horizontal, 8)
+              .padding(.vertical, 3)
+              .background(Color.surfaceHover.opacity(0.5), in: Capsule())
+          }
+          .buttonStyle(.plain)
+        }
+
+        if hiddenProjectCount > 0 {
+          Button {
+            hiddenProjectGroups.removeAll()
+          } label: {
+            Text("Show \(hiddenProjectCount)")
               .font(.system(size: 10, weight: .semibold))
               .foregroundStyle(Color.textTertiary)
               .padding(.horizontal, 8)
@@ -321,155 +466,147 @@ struct ProjectStreamSection: View {
     return ("Quiet", .textTertiary)
   }
 
-  private var statusOverviewBoard: some View {
-    HStack(spacing: 10) {
-      statusSignalCard(
-        target: .attention,
-        icon: "exclamationmark.circle.fill",
-        title: "Needs Attention",
-        count: counts.attention,
-        subtitle: attentionNarrative,
-        accent: .statusPermission
-      )
+  @ViewBuilder
+  private var regularSignalRail: some View {
+    if counts.attention > 0 || counts.running > 0 || counts
+      .ready > 0 || directCount > 0 || filter != .all || providerFilter != .all
+    {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          regularSignalPill(
+            target: .attention,
+            icon: "exclamationmark.circle.fill",
+            title: "Needs Attention",
+            detail: attentionSignalDetail,
+            count: counts.attention,
+            color: .statusPermission
+          )
 
-      statusSignalCard(
-        target: .running,
-        icon: "bolt.fill",
-        title: "Currently Working",
-        count: counts.running,
-        subtitle: runningNarrative,
-        accent: .statusWorking
-      )
+          regularSignalPill(
+            target: .running,
+            icon: "bolt.fill",
+            title: "Running",
+            detail: runningSignalDetail,
+            count: counts.running,
+            color: .statusWorking
+          )
 
-      statusSignalCard(
-        target: .ready,
-        icon: "bubble.left.fill",
-        title: "Ready For Reply",
-        count: counts.ready,
-        subtitle: readyNarrative,
-        accent: .statusReply
-      )
+          regularSignalPill(
+            target: .ready,
+            icon: "bubble.left.fill",
+            title: "Ready",
+            detail: readySignalDetail,
+            count: counts.ready,
+            color: .statusReply
+          )
 
-      controlSignalCard
+          regularDirectControlPill
+          regularProviderRail
+        }
+        .padding(.vertical, 2)
+      }
     }
   }
 
-  private func statusSignalCard(
+  private func regularSignalPill(
     target: ActiveSessionWorkbenchFilter,
     icon: String,
     title: String,
+    detail: String,
     count: Int,
-    subtitle: String,
-    accent: Color
+    color: Color
   ) -> some View {
     let isActive = filter == target
 
     return Button {
       filter = isActive ? .all : target
     } label: {
-      VStack(alignment: .leading, spacing: 7) {
-        HStack(spacing: 6) {
-          Image(systemName: icon)
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(accent)
+      HStack(spacing: 8) {
+        Image(systemName: icon)
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(color)
 
+        VStack(alignment: .leading, spacing: 1) {
           Text(title)
             .font(.system(size: TypeScale.caption, weight: .semibold))
             .foregroundStyle(.primary)
-            .lineLimit(1)
-
-          Spacer(minLength: 4)
-
-          Text("\(count)")
-            .font(.system(size: TypeScale.title + 6, weight: .heavy, design: .rounded))
-            .foregroundStyle(accent)
+          Text(detail)
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
         }
 
-        Text(subtitle)
-          .font(.system(size: TypeScale.body, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-          .lineLimit(2)
-          .frame(minHeight: 24, alignment: .topLeading)
-
-        signalMeter(active: count, total: allActiveSessions.count, color: accent)
-
-        Text(shareLabel(for: count))
-          .font(.system(size: TypeScale.micro, weight: .semibold, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
+        Text("\(count)")
+          .font(.system(size: TypeScale.caption, weight: .bold, design: .rounded))
+          .foregroundStyle(color)
+          .padding(.leading, 2)
       }
-      .padding(.horizontal, 11)
-      .padding(.vertical, 10)
-      .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
-      .background(statusCardBackground(accent: accent, isActive: isActive))
+      .padding(.horizontal, 10)
+      .padding(.vertical, 8)
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.45))
+          .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .stroke(color.opacity(isActive ? 0.35 : 0.0), lineWidth: 1)
+          )
+      )
     }
     .buttonStyle(.plain)
   }
 
-  private var controlSignalCard: some View {
-    VStack(alignment: .leading, spacing: 7) {
-      HStack(spacing: 6) {
-        Image(systemName: "slider.horizontal.3")
-          .font(.system(size: 10, weight: .bold))
+  private var regularDirectControlPill: some View {
+    let isDirectActive = filter == .direct
+
+    return Button {
+      filter = isDirectActive ? .all : .direct
+    } label: {
+      HStack(spacing: 7) {
+        Image(systemName: "chevron.left.forwardslash.chevron.right")
+          .font(.system(size: 9, weight: .bold))
           .foregroundStyle(Color.providerCodex)
 
-        Text("Control Mode")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(.primary)
-          .lineLimit(1)
-
-        Spacer(minLength: 4)
-
-        Button {
-          filter = filter == .direct ? .all : .direct
-        } label: {
-          Text("\(directCount) direct")
-            .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
-            .foregroundStyle(filter == .direct ? .providerCodex : Color.textTertiary)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-              Capsule()
-                .fill((filter == .direct ? Color.providerCodex : Color.surfaceHover).opacity(0.22))
-            )
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Control Mode")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+            .foregroundStyle(.primary)
+          Text("\(directCount) direct · \(passiveCount) passive")
+            .font(.system(size: TypeScale.micro, weight: .medium))
+            .foregroundStyle(Color.textTertiary)
         }
-        .buttonStyle(.plain)
       }
-
-      Text("\(passiveCount) passive sessions waiting for takeover")
-        .font(.system(size: TypeScale.body, weight: .medium))
-        .foregroundStyle(Color.textSecondary)
-        .lineLimit(2)
-        .frame(minHeight: 24, alignment: .topLeading)
-
-      signalMeter(active: directCount, total: allActiveSessions.count, color: .providerCodex)
-
-      HStack(spacing: 6) {
-        providerSignalPill(
-          target: .claude,
-          icon: ActiveSessionProviderFilter.claude.icon,
-          label: "Claude",
-          count: claudeCount,
-          color: .accent
-        )
-        providerSignalPill(
-          target: .codex,
-          icon: ActiveSessionProviderFilter.codex.icon,
-          label: "Codex",
-          count: codexCount,
-          color: .providerCodex
-        )
-      }
+      .padding(.horizontal, 10)
+      .padding(.vertical, 8)
+      .background(
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill((isDirectActive ? Color.providerCodex : Color.surfaceHover).opacity(isDirectActive ? 0.20 : 0.45))
+          .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .stroke(Color.providerCodex.opacity(isDirectActive ? 0.35 : 0.0), lineWidth: 1)
+          )
+      )
     }
-    .padding(.horizontal, 11)
-    .padding(.vertical, 10)
-    .frame(width: 230)
-    .frame(minHeight: 108, alignment: .topLeading)
-    .background(statusCardBackground(accent: .providerCodex, isActive: filter == .direct))
+    .buttonStyle(.plain)
   }
 
-  private func providerSignalPill(
+  private var regularProviderRail: some View {
+    HStack(spacing: 6) {
+      regularProviderPill(
+        target: .claude,
+        label: "Claude",
+        count: claudeCount,
+        color: .accent
+      )
+      regularProviderPill(
+        target: .codex,
+        label: "Codex",
+        count: codexCount,
+        color: .providerCodex
+      )
+    }
+  }
+
+  private func regularProviderPill(
     target: ActiveSessionProviderFilter,
-    icon: String,
     label: String,
     count: Int,
     color: Color
@@ -479,104 +616,48 @@ struct ProjectStreamSection: View {
     return Button {
       providerFilter = isActive ? .all : target
     } label: {
-      HStack(spacing: 4) {
-        Image(systemName: icon)
+      HStack(spacing: 5) {
+        Image(systemName: target.icon)
           .font(.system(size: 8, weight: .bold))
-        Text("\(label) \(count)")
+        Text(label)
+          .font(.system(size: TypeScale.micro, weight: .semibold))
+        Text("\(count)")
           .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
       }
       .foregroundStyle(isActive ? color : Color.textTertiary)
-      .padding(.horizontal, 7)
-      .padding(.vertical, 4)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 7)
       .background(
-        Capsule()
-          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.40))
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill((isActive ? color : Color.surfaceHover).opacity(isActive ? 0.20 : 0.45))
+          .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+              .stroke(color.opacity(isActive ? 0.35 : 0.0), lineWidth: 1)
+          )
       )
     }
     .buttonStyle(.plain)
   }
 
-  private func statusCardBackground(accent: Color, isActive: Bool) -> some View {
-    RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-      .fill(
-        LinearGradient(
-          colors: [
-            accent.opacity(isActive ? 0.20 : 0.10),
-            Color.backgroundTertiary.opacity(0.80),
-          ],
-          startPoint: .topLeading,
-          endPoint: .bottomTrailing
-        )
-      )
-      .overlay(
-        RoundedRectangle(cornerRadius: Radius.xl, style: .continuous)
-          .stroke(accent.opacity(isActive ? 0.40 : 0.16), lineWidth: isActive ? 1.3 : 1)
-      )
-      .shadow(color: accent.opacity(isActive ? 0.12 : 0.06), radius: isActive ? 12 : 6, y: 2)
+  private var attentionSignalDetail: String {
+    if let oldestAttentionSession {
+      return "Oldest \(relativeTimestamp(for: oldestAttentionSession))"
+    }
+    return "No blocked work"
   }
 
-  private func signalMeter(active: Int, total: Int, color: Color) -> some View {
-    let safeTotal = max(total, 1)
-    let ratio = max(0, min(1, Double(active) / Double(safeTotal)))
-
-    return GeometryReader { geo in
-      ZStack(alignment: .leading) {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-          .fill(Color.surfaceHover.opacity(0.55))
-
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
-          .fill(color.opacity(0.8))
-          .frame(width: geo.size.width * ratio)
-      }
+  private var runningSignalDetail: String {
+    if counts.running == 0 {
+      return "No active runs"
     }
-    .frame(height: 6)
+    return "\(counts.running) in motion"
   }
 
-  private func shareLabel(for value: Int) -> String {
-    guard !allActiveSessions.isEmpty else { return "0%" }
-    let ratio = (Double(value) / Double(allActiveSessions.count)) * 100
-    return "\(Int(ratio.rounded()))%"
-  }
-
-  private var attentionNarrative: String {
-    guard let session = oldestAttentionSession else {
-      return "No blocked conversations."
+  private var readySignalDetail: String {
+    if let oldestReadySession {
+      return "Oldest \(relativeTimestamp(for: oldestReadySession))"
     }
-
-    let project = sessionProjectName(session)
-    let age = relativeTimestamp(for: session)
-    let status = SessionDisplayStatus.from(session)
-
-    if status == .permission, let tool = session.pendingToolName, !tool.isEmpty {
-      return "\(project) waiting on \(tool.lowercased()) for \(age)."
-    }
-    return "\(project) waiting for input for \(age)."
-  }
-
-  private var runningNarrative: String {
-    guard !runningSessions.isEmpty else {
-      return "No sessions executing right now."
-    }
-
-    let grouped = Dictionary(grouping: runningSessions, by: sessionProjectName)
-    if let top = grouped.max(by: { $0.value.count < $1.value.count }) {
-      let noun = top.value.count == 1 ? "agent" : "agents"
-      return "\(top.key) has \(top.value.count) \(noun) in motion."
-    }
-
-    return "\(runningSessions.count) active sessions in progress."
-  }
-
-  private var readyNarrative: String {
-    guard let session = oldestReadySession else {
-      return "No reply backlog."
-    }
-
-    return "\(sessionProjectName(session)) has been ready for \(relativeTimestamp(for: session))."
-  }
-
-  private func sessionProjectName(_ session: Session) -> String {
-    session.projectName ?? session.projectPath.components(separatedBy: "/").last ?? "Unknown"
+    return "No reply queue"
   }
 
   private func relativeTimestamp(for session: Session) -> String {
@@ -606,6 +687,7 @@ struct ProjectStreamSection: View {
       ForEach(ActiveSessionSort.allCases) { option in
         Button {
           sort = option
+          useCustomProjectOrder = false
         } label: {
           HStack {
             Text(option.label)
@@ -623,6 +705,62 @@ struct ProjectStreamSection: View {
           .font(.system(size: 10, weight: .medium))
       }
       .foregroundStyle(Color.textSecondary)
+      .padding(.horizontal, 8)
+      .padding(.vertical, 4)
+      .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+    .menuStyle(.borderlessButton)
+    .fixedSize()
+  }
+
+  private var projectManagementMenu: some View {
+    Menu {
+      Section("Projects") {
+        Button {
+          useCustomProjectOrder = false
+        } label: {
+          Label(
+            "Use Sort Order",
+            systemImage: useCustomProjectOrder ? "line.3.horizontal.decrease.circle" : "checkmark"
+          )
+        }
+        .disabled(!useCustomProjectOrder)
+
+        Button {
+          useCustomProjectOrder = true
+        } label: {
+          Label(
+            "Use Custom Order",
+            systemImage: useCustomProjectOrder ? "checkmark" : "arrow.up.and.down.and.arrow.left.and.right"
+          )
+        }
+        .disabled(projectGroupOrder.isEmpty || useCustomProjectOrder)
+
+        Divider()
+
+        Button {
+          projectGroupOrder.removeAll()
+          useCustomProjectOrder = false
+        } label: {
+          Label("Reset Custom Order", systemImage: "arrow.uturn.backward")
+        }
+        .disabled(projectGroupOrder.isEmpty)
+
+        Button {
+          hiddenProjectGroups.removeAll()
+        } label: {
+          Label("Show Hidden Projects", systemImage: "eye")
+        }
+        .disabled(hiddenProjectCount == 0)
+      }
+    } label: {
+      HStack(spacing: 4) {
+        Image(systemName: "folder.badge.gearshape")
+          .font(.system(size: 10, weight: .semibold))
+        Text("Projects")
+          .font(.system(size: 10, weight: .medium))
+      }
+      .foregroundStyle((!projectGroupOrder.isEmpty || hiddenProjectCount > 0) ? Color.accent : Color.textSecondary)
       .padding(.horizontal, 8)
       .padding(.vertical, 4)
       .background(Color.surfaceHover.opacity(0.4), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
@@ -666,6 +804,7 @@ struct ProjectStreamSection: View {
         ForEach(ActiveSessionSort.allCases) { option in
           Button {
             sort = option
+            useCustomProjectOrder = false
           } label: {
             HStack {
               Text(option.label)
@@ -702,6 +841,54 @@ struct ProjectStreamSection: View {
               if filter == option {
                 Image(systemName: "checkmark")
               }
+            }
+          }
+        }
+      }
+
+      Section("Projects") {
+        Button {
+          useCustomProjectOrder = false
+        } label: {
+          HStack {
+            Text("Use Sort Order")
+            if !useCustomProjectOrder {
+              Image(systemName: "checkmark")
+            }
+          }
+        }
+
+        Button {
+          useCustomProjectOrder = true
+        } label: {
+          HStack {
+            Text("Use Custom Order")
+            if useCustomProjectOrder {
+              Image(systemName: "checkmark")
+            }
+          }
+        }
+        .disabled(projectGroupOrder.isEmpty && !useCustomProjectOrder)
+
+        Button {
+          projectGroupOrder.removeAll()
+          useCustomProjectOrder = false
+        } label: {
+          HStack {
+            Text("Reset Custom Order")
+            if projectGroupOrder.isEmpty {
+              Image(systemName: "checkmark")
+            }
+          }
+        }
+
+        Button {
+          hiddenProjectGroups.removeAll()
+        } label: {
+          HStack {
+            Text("Show Hidden Projects")
+            if hiddenProjectCount == 0 {
+              Image(systemName: "checkmark")
             }
           }
         }
@@ -880,6 +1067,171 @@ struct ProjectStreamSection: View {
     .help(target.title)
   }
 
+  private var reorderableGroupKeys: [String] {
+    let visibleKeys = projectGroups.map(\.groupKey)
+    let preferredVisible = projectGroupOrder.filter { visibleKeys.contains($0) }
+    let missingVisible = visibleKeys.filter { !preferredVisible.contains($0) }
+    return preferredVisible + missingVisible
+  }
+
+  private var projectActionKeys: [String] {
+    if useCustomProjectOrder {
+      return reorderableGroupKeys
+    }
+    return projectGroups.map(\.groupKey)
+  }
+
+  private func mergedProjectOrder(withVisible visibleKeys: [String]) -> [String] {
+    var merged: [String] = []
+    var seen: Set<String> = []
+
+    for key in visibleKeys where seen.insert(key).inserted {
+      merged.append(key)
+    }
+
+    for key in projectGroupOrder where seen.insert(key).inserted {
+      merged.append(key)
+    }
+
+    return merged
+  }
+
+  private func projectActionsMenu(_ group: ProjectGroup) -> some View {
+    let keys = projectActionKeys
+    let index = keys.firstIndex(of: group.groupKey) ?? 0
+    let lastIndex = max(0, keys.count - 1)
+
+    return Menu {
+      Button {
+        moveProject(group, to: 0)
+      } label: {
+        Label("Move To Top", systemImage: "arrow.up.to.line")
+      }
+      .disabled(index == 0 || keys.count <= 1)
+
+      Button {
+        moveProject(group, by: -1)
+      } label: {
+        Label("Move Up", systemImage: "arrow.up")
+      }
+      .disabled(index == 0 || keys.count <= 1)
+
+      Button {
+        moveProject(group, by: 1)
+      } label: {
+        Label("Move Down", systemImage: "arrow.down")
+      }
+      .disabled(index >= lastIndex || keys.count <= 1)
+
+      Button {
+        moveProject(group, to: lastIndex)
+      } label: {
+        Label("Move To Bottom", systemImage: "arrow.down.to.line")
+      }
+      .disabled(index >= lastIndex || keys.count <= 1)
+
+      Divider()
+
+      Button(role: .destructive) {
+        hideProject(group)
+      } label: {
+        Label("Hide Project", systemImage: "eye.slash")
+      }
+    } label: {
+      Image(systemName: "ellipsis.circle")
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(Color.textQuaternary)
+    }
+    .menuStyle(.borderlessButton)
+    .help("Project actions")
+  }
+
+  private func moveProject(_ group: ProjectGroup, by delta: Int) {
+    let keys = useCustomProjectOrder ? reorderableGroupKeys : projectActionKeys
+    guard let index = keys.firstIndex(of: group.groupKey) else { return }
+    let targetIndex = min(max(index + delta, 0), max(0, keys.count - 1))
+    moveProject(group, to: targetIndex)
+  }
+
+  private func moveProject(_ group: ProjectGroup, to destinationIndex: Int) {
+    var keys = useCustomProjectOrder ? reorderableGroupKeys : mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+    guard let index = keys.firstIndex(of: group.groupKey) else { return }
+
+    let boundedDestination = min(max(destinationIndex, 0), max(0, keys.count - 1))
+    guard boundedDestination != index else { return }
+
+    let movedKey = keys.remove(at: index)
+    keys.insert(movedKey, at: boundedDestination)
+    projectGroupOrder = keys
+    useCustomProjectOrder = true
+  }
+
+  private func hideProject(_ group: ProjectGroup) {
+    if !useCustomProjectOrder {
+      projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+    }
+    hiddenProjectGroups.insert(group.groupKey)
+    projectGroupOrder.removeAll { $0 == group.groupKey }
+    useCustomProjectOrder = true
+  }
+
+  private func dragItemProvider(for group: ProjectGroup) -> NSItemProvider {
+    withAnimation(.spring(response: 0.22, dampingFraction: 0.88)) {
+      if !useCustomProjectOrder {
+        projectGroupOrder = mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+      }
+      draggingProjectGroupKey = group.groupKey
+      useCustomProjectOrder = true
+      collapseForReorder = true
+    }
+    return NSItemProvider(object: group.groupKey as NSString)
+  }
+
+  private func projectDragPreview(for group: ProjectGroup) -> some View {
+    HStack(spacing: 8) {
+      Image(systemName: "line.3.horizontal")
+        .font(.system(size: 10, weight: .bold))
+        .foregroundStyle(Color.textQuaternary)
+
+      Text(group.projectName)
+        .font(.system(size: TypeScale.subhead, weight: .semibold))
+        .foregroundStyle(.primary)
+        .lineLimit(1)
+
+      Text("\(group.sessions.count)")
+        .font(.system(size: TypeScale.micro, weight: .bold, design: .rounded))
+        .foregroundStyle(Color.textTertiary)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(Color.surfaceHover.opacity(0.75), in: Capsule())
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .background(
+      RoundedRectangle(cornerRadius: 9, style: .continuous)
+        .fill(Color.backgroundSecondary.opacity(0.92))
+        .overlay(
+          RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .stroke(Color.panelBorder.opacity(0.55), lineWidth: 1)
+        )
+    )
+  }
+
+  private func isProjectCollapsed(_ group: ProjectGroup) -> Bool {
+    if collapseForReorder {
+      return true
+    }
+    return collapsedProjectGroups.contains(group.groupKey)
+  }
+
+  private func toggleProjectCollapsed(_ group: ProjectGroup) {
+    if collapsedProjectGroups.contains(group.groupKey) {
+      collapsedProjectGroups.remove(group.groupKey)
+    } else {
+      collapsedProjectGroups.insert(group.groupKey)
+    }
+  }
+
   // MARK: - Project Section
 
   private func projectSection(_ group: ProjectGroup) -> some View {
@@ -887,6 +1239,8 @@ struct ProjectStreamSection: View {
     let projectSignals = projectSignalCounts(for: group.sessions)
     let worktreeCount = group.sessions.filter(\.isWorktree).count
     let repoRoot = group.sessions.compactMap(\.repositoryRoot).first
+    let isCollapsed = isProjectCollapsed(group)
+    let isReorderCompacting = collapseForReorder
 
     return VStack(alignment: .leading, spacing: 0) {
       // Project divider rule
@@ -894,20 +1248,30 @@ struct ProjectStreamSection: View {
         .fill(Color.surfaceBorder.opacity(0.2))
         .frame(height: 1)
         .padding(.horizontal, 4)
-        .padding(.top, 10)
+        .padding(.top, isReorderCompacting ? 4 : 10)
 
       // Project header
       Group {
         if isPhoneCompact {
           VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
+              Button {
+                toggleProjectCollapsed(group)
+              } label: {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                  .font(.system(size: 9, weight: .bold))
+                  .foregroundStyle(Color.textQuaternary)
+                  .frame(width: 12, height: 12)
+              }
+              .buttonStyle(.plain)
+
               Text(group.projectName)
                 .font(.system(size: TypeScale.subhead, weight: .bold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
 
               // Shared branch — shown here when all sessions are on the same branch
-              if let branch = sharedBranch {
+              if !isReorderCompacting, let branch = sharedBranch {
                 Text(branch.count > 22 ? String(branch.prefix(20)) + "…" : branch)
                   .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
                   .foregroundStyle(Color.gitBranch.opacity(0.7))
@@ -919,10 +1283,12 @@ struct ProjectStreamSection: View {
                 .foregroundStyle(Color.textQuaternary)
 
               Spacer()
+
+              projectActionsMenu(group)
             }
 
-            if projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals.ready > 0 || projectSignals
-              .direct > 0
+            if !isReorderCompacting && (projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals
+              .ready > 0 || projectSignals.direct > 0)
             {
               HStack(spacing: 5) {
                 if projectSignals.attention > 0 {
@@ -965,12 +1331,22 @@ struct ProjectStreamSection: View {
           }
         } else {
           HStack(spacing: 8) {
+            Button {
+              toggleProjectCollapsed(group)
+            } label: {
+              Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Color.textQuaternary)
+                .frame(width: 12, height: 12)
+            }
+            .buttonStyle(.plain)
+
             Text(group.projectName)
               .font(.system(size: TypeScale.large, weight: .bold))
               .foregroundStyle(.primary)
 
             // Shared branch — shown here when all sessions are on the same branch
-            if let branch = sharedBranch {
+            if !isReorderCompacting, let branch = sharedBranch {
               Text(branch.count > 28 ? String(branch.prefix(26)) + "…" : branch)
                 .font(.system(size: TypeScale.micro, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.gitBranch.opacity(0.7))
@@ -980,7 +1356,7 @@ struct ProjectStreamSection: View {
               .font(.system(size: 10, weight: .medium, design: .rounded))
               .foregroundStyle(Color.textQuaternary)
 
-            if projectSignals.attention > 0 {
+            if !isReorderCompacting, projectSignals.attention > 0 {
               projectSignalChip(
                 icon: "exclamationmark.circle.fill",
                 count: projectSignals.attention,
@@ -988,7 +1364,7 @@ struct ProjectStreamSection: View {
               )
             }
 
-            if projectSignals.running > 0 {
+            if !isReorderCompacting, projectSignals.running > 0 {
               projectSignalChip(
                 icon: "bolt.fill",
                 count: projectSignals.running,
@@ -996,7 +1372,7 @@ struct ProjectStreamSection: View {
               )
             }
 
-            if projectSignals.ready > 0 {
+            if !isReorderCompacting, projectSignals.ready > 0 {
               projectSignalChip(
                 icon: "bubble.left.fill",
                 count: projectSignals.ready,
@@ -1004,7 +1380,7 @@ struct ProjectStreamSection: View {
               )
             }
 
-            if projectSignals.direct > 0 {
+            if !isReorderCompacting, projectSignals.direct > 0 {
               projectSignalChip(
                 icon: "chevron.left.forwardslash.chevron.right",
                 count: projectSignals.direct,
@@ -1012,13 +1388,15 @@ struct ProjectStreamSection: View {
               )
             }
 
-            if let repoRoot {
+            if !isReorderCompacting, let repoRoot {
               worktreeButton(repoRoot: repoRoot, projectName: group.projectName, count: worktreeCount)
             }
 
+            projectActionsMenu(group)
+
             Spacer()
 
-            if group.totalTokens > 0 {
+            if !isReorderCompacting, group.totalTokens > 0 {
               Text(formatTokens(group.totalTokens))
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                 .foregroundStyle(Color.textQuaternary)
@@ -1027,43 +1405,45 @@ struct ProjectStreamSection: View {
         }
       }
       .padding(.horizontal, 10)
-      .padding(.top, 14)
-      .padding(.bottom, 4)
+      .padding(.top, isReorderCompacting ? 8 : 14)
+      .padding(.bottom, isReorderCompacting ? 2 : 4)
 
-      // Worktree strip (between header and session rows)
-      // Use group.projectPath as the key — matches sidebar's worktree loading
-      // pattern and works even when sessions don't have repositoryRoot set.
-      InlineWorktreeStrip(
-        repoRoot: group.projectPath,
-        projectName: group.projectName,
-        allSessions: sessions,
-        onCreateClaudeSession: { cwd in serverState.createClaudeSession(cwd: cwd) },
-        onCreateCodexSession: { cwd in serverState.createSession(cwd: cwd) },
-        onOpenManageSheet: {
-          worktreeSheetGroup = WorktreeSheetIdentifier(
-            repoRoot: group.projectPath,
-            projectName: group.projectName
-          )
-        }
-      )
+      if !isCollapsed {
+        // Worktree strip (between header and session rows)
+        // Use group.projectPath as the key — matches sidebar's worktree loading
+        // pattern and works even when sessions don't have repositoryRoot set.
+        InlineWorktreeStrip(
+          repoRoot: group.projectPath,
+          projectName: group.projectName,
+          allSessions: sessions,
+          onCreateClaudeSession: { cwd in serverState.createClaudeSession(cwd: cwd) },
+          onCreateCodexSession: { cwd in serverState.createSession(cwd: cwd) },
+          onOpenManageSheet: {
+            worktreeSheetGroup = WorktreeSheetIdentifier(
+              repoRoot: group.projectPath,
+              projectName: group.projectName
+            )
+          }
+        )
 
-      // Session rows
-      VStack(spacing: 2) {
-        ForEach(group.sessions, id: \.scopedID) { session in
-          let rowIndex = sessionIndexByID[session.scopedID]
-          let isSelected = rowIndex == selectedIndex
+        // Session rows
+        VStack(spacing: 2) {
+          ForEach(group.sessions, id: \.scopedID) { session in
+            let rowIndex = sessionIndexByID[session.scopedID]
+            let isSelected = rowIndex == selectedIndex
 
-          FlatSessionRow(
-            session: session,
-            onSelect: {
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
-              }
-            },
-            isSelected: isSelected,
-            hideBranch: sharedBranch != nil
-          )
-          .flatSessionScrollID(rowIndex)
+            FlatSessionRow(
+              session: session,
+              onSelect: {
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                  router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+                }
+              },
+              isSelected: isSelected,
+              hideBranch: sharedBranch != nil
+            )
+            .flatSessionScrollID(rowIndex)
+          }
         }
       }
     }
@@ -1166,29 +1546,21 @@ struct ProjectStreamSection: View {
 
   // MARK: - Data Builders
 
+  private static func filteredSessions(
+    from sessions: [Session],
+    filter: ActiveSessionWorkbenchFilter,
+    sort: ActiveSessionSort = .status,
+    providerFilter: ActiveSessionProviderFilter = .all
+  ) -> [Session] {
+    let active = sortedActiveSessions(from: sessions, sort: sort)
+    let providerFiltered = applyProviderFilter(active, filter: providerFilter)
+    return applyWorkbenchFilter(providerFiltered, filter: filter)
+  }
+
   private static func sortedActiveSessions(from sessions: [Session], sort: ActiveSessionSort = .status) -> [Session] {
     sessions
       .filter(\.isActive)
-      .sorted { lhs, rhs in
-        switch sort {
-          case .status:
-            let lhsPriority = statusPriority(SessionDisplayStatus.from(lhs))
-            let rhsPriority = statusPriority(SessionDisplayStatus.from(rhs))
-            if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
-            return sortDate(lhs) > sortDate(rhs)
-
-          case .recent:
-            return sortDate(lhs) > sortDate(rhs)
-
-          case .tokens:
-            if lhs.totalTokens != rhs.totalTokens { return lhs.totalTokens > rhs.totalTokens }
-            return sortDate(lhs) > sortDate(rhs)
-
-          case .cost:
-            if lhs.totalCostUSD != rhs.totalCostUSD { return lhs.totalCostUSD > rhs.totalCostUSD }
-            return sortDate(lhs) > sortDate(rhs)
-        }
-      }
+      .sorted { lhs, rhs in compareSessions(lhs: lhs, rhs: rhs, sort: sort) }
   }
 
   private static func applyProviderFilter(_ sessions: [Session], filter: ActiveSessionProviderFilter) -> [Session] {
@@ -1209,7 +1581,21 @@ struct ProjectStreamSection: View {
     }
   }
 
-  static func makeProjectGroups(from sessions: [Session], sort: ActiveSessionSort = .status) -> [ProjectGroup] {
+  static func makeProjectGroups(
+    from sessions: [Session],
+    sort: ActiveSessionSort = .status,
+    preferredOrder: [String] = [],
+    hiddenGroupKeys: Set<String> = []
+  ) -> [ProjectGroup] {
+    struct GroupBucketKey: Hashable {
+      let endpointScope: String
+      let path: String
+
+      var groupKey: String {
+        "\(endpointScope)::\(path)"
+      }
+    }
+
     // Merge subdirectory paths into their parent project.
     // e.g., sessions in /foo/bar and /foo/bar/sub both group under /foo/bar.
     // But don't merge into overly generic parent paths like ~/Developer.
@@ -1221,73 +1607,143 @@ struct ProjectStreamSection: View {
       let path = session.groupingPath
       let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
       let allPaths = pathsByEndpointScope[endpointScope] ?? []
-      // If this path is a subdirectory of another session's path, merge up
+
+      let parentCandidates = allPaths
+        .filter { $0 != path && path.hasPrefix($0 + "/") }
+        .sorted { lhs, rhs in
+          let lhsComponents = lhs.components(separatedBy: "/").filter { !$0.isEmpty }.count
+          let rhsComponents = rhs.components(separatedBy: "/").filter { !$0.isEmpty }.count
+          if lhsComponents != rhsComponents { return lhsComponents < rhsComponents }
+          return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+
       // Only merge into candidates that look like actual project dirs (4+ components)
       // e.g., /Users/name/Developer/project — not /Users/name/Developer
-      for candidate in allPaths where candidate != path {
+      for candidate in parentCandidates {
         let candidateComponents = candidate.components(separatedBy: "/").filter { !$0.isEmpty }
-        if path.hasPrefix(candidate + "/"), candidateComponents.count >= 4 {
+        if candidateComponents.count >= 4 {
           return candidate
         }
       }
       return path
     }
 
-    let grouped = Dictionary(grouping: sessions) { session in
+    let grouped = Dictionary(grouping: sessions) { session -> GroupBucketKey in
       let path = canonicalPath(session)
       let endpointScope = session.endpointId?.uuidString ?? "single-endpoint"
-      return "\(endpointScope)::\(path)"
+      return GroupBucketKey(endpointScope: endpointScope, path: path)
     }
 
-    return grouped.compactMap { _, projectSessions in
+    let projectGroups: [ProjectGroup] = grouped.compactMap {
+      (bucketKey: GroupBucketKey, projectSessions: [Session]) -> ProjectGroup? in
       guard let first = projectSessions.first else { return nil }
-      let sorted = projectSessions.sorted { lhs, rhs in
-        switch sort {
-          case .status:
-            let lhsPriority = statusPriority(SessionDisplayStatus.from(lhs))
-            let rhsPriority = statusPriority(SessionDisplayStatus.from(rhs))
-            if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
-            return sortDate(lhs) > sortDate(rhs)
-          case .recent:
-            return sortDate(lhs) > sortDate(rhs)
-          case .tokens:
-            if lhs.totalTokens != rhs.totalTokens { return lhs.totalTokens > rhs.totalTokens }
-            return sortDate(lhs) > sortDate(rhs)
-          case .cost:
-            if lhs.totalCostUSD != rhs.totalCostUSD { return lhs.totalCostUSD > rhs.totalCostUSD }
-            return sortDate(lhs) > sortDate(rhs)
-        }
-      }
 
-      let path = first.groupingPath
+      let sortedSessions = projectSessions.sorted { lhs, rhs in
+        compareSessions(lhs: lhs, rhs: rhs, sort: sort)
+      }
+      let path = bucketKey.path
       let projectName = first.projectName ?? path.components(separatedBy: "/").last ?? "Unknown"
-      let endpointScope = first.endpointId?.uuidString ?? "single-endpoint"
-      let groupKey = "\(endpointScope)::\(path)"
 
       return ProjectGroup(
-        groupKey: groupKey,
+        groupKey: bucketKey.groupKey,
         projectPath: path,
         projectName: projectName,
         endpointName: first.endpointName,
-        sessions: sorted,
-        totalCost: sorted.reduce(0) { $0 + $1.totalCostUSD },
-        totalTokens: sorted.reduce(0) { $0 + $1.totalTokens },
-        latestActivityAt: sorted.compactMap { sortDate($0) }.max() ?? .distantPast
+        sessions: sortedSessions,
+        totalCost: sortedSessions.reduce(0) { $0 + $1.totalCostUSD },
+        totalTokens: sortedSessions.reduce(0) { $0 + $1.totalTokens },
+        latestActivityAt: sortedSessions.map { $0.lastActivityAt ?? $0.startedAt ?? .distantPast }.max() ?? .distantPast
       )
     }
-    .sorted { lhs, rhs in
-      // Project groups are always alphabetical — they're spatial anchors.
-      // Only sessions within groups reorder based on the active sort/filter.
-      let nameOrder = lhs.projectName.localizedCaseInsensitiveCompare(rhs.projectName)
-      if nameOrder != .orderedSame {
-        return nameOrder == .orderedAscending
-      }
-      let endpointOrder = (lhs.endpointName ?? "").localizedCaseInsensitiveCompare(rhs.endpointName ?? "")
-      if endpointOrder != .orderedSame {
-        return endpointOrder == .orderedAscending
-      }
-      return lhs.projectPath.localizedCaseInsensitiveCompare(rhs.projectPath) == .orderedAscending
+    .filter { !hiddenGroupKeys.contains($0.groupKey) }
+
+    let naturallySortedGroups = projectGroups.sorted { lhs, rhs in
+      compareProjectGroups(lhs: lhs, rhs: rhs, sort: sort)
     }
+
+    guard !preferredOrder.isEmpty else {
+      return naturallySortedGroups
+    }
+
+    var preferredIndexes: [String: Int] = [:]
+    for groupKey in preferredOrder where preferredIndexes[groupKey] == nil {
+      preferredIndexes[groupKey] = preferredIndexes.count
+    }
+
+    return naturallySortedGroups.sorted { lhs, rhs in
+      let lhsIndex = preferredIndexes[lhs.groupKey]
+      let rhsIndex = preferredIndexes[rhs.groupKey]
+
+      switch (lhsIndex, rhsIndex) {
+        case let (left?, right?):
+          if left != right { return left < right }
+          return compareProjectGroups(lhs: lhs, rhs: rhs, sort: sort)
+        case (.some, .none):
+          return true
+        case (.none, .some):
+          return false
+        case (.none, .none):
+          return compareProjectGroups(lhs: lhs, rhs: rhs, sort: sort)
+      }
+    }
+  }
+
+  private static func compareSessions(lhs: Session, rhs: Session, sort: ActiveSessionSort) -> Bool {
+    switch sort {
+      case .status:
+        let lhsPriority = statusPriority(SessionDisplayStatus.from(lhs))
+        let rhsPriority = statusPriority(SessionDisplayStatus.from(rhs))
+        if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+        return sortDate(lhs) > sortDate(rhs)
+
+      case .recent:
+        return sortDate(lhs) > sortDate(rhs)
+
+      case .tokens:
+        if lhs.totalTokens != rhs.totalTokens { return lhs.totalTokens > rhs.totalTokens }
+        return sortDate(lhs) > sortDate(rhs)
+
+      case .cost:
+        if lhs.totalCostUSD != rhs.totalCostUSD { return lhs.totalCostUSD > rhs.totalCostUSD }
+        return sortDate(lhs) > sortDate(rhs)
+    }
+  }
+
+  private static func compareProjectGroups(lhs: ProjectGroup, rhs: ProjectGroup, sort: ActiveSessionSort) -> Bool {
+    switch sort {
+      case .status:
+        let lhsPriority = lhs.sessions.map { statusPriority(SessionDisplayStatus.from($0)) }.min() ?? Int.max
+        let rhsPriority = rhs.sessions.map { statusPriority(SessionDisplayStatus.from($0)) }.min() ?? Int.max
+        if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+        if lhs.latestActivityAt != rhs.latestActivityAt { return lhs.latestActivityAt > rhs.latestActivityAt }
+        return compareProjectGroupTiebreakers(lhs: lhs, rhs: rhs)
+
+      case .recent:
+        if lhs.latestActivityAt != rhs.latestActivityAt { return lhs.latestActivityAt > rhs.latestActivityAt }
+        return compareProjectGroupTiebreakers(lhs: lhs, rhs: rhs)
+
+      case .tokens:
+        if lhs.totalTokens != rhs.totalTokens { return lhs.totalTokens > rhs.totalTokens }
+        if lhs.latestActivityAt != rhs.latestActivityAt { return lhs.latestActivityAt > rhs.latestActivityAt }
+        return compareProjectGroupTiebreakers(lhs: lhs, rhs: rhs)
+
+      case .cost:
+        if lhs.totalCost != rhs.totalCost { return lhs.totalCost > rhs.totalCost }
+        if lhs.latestActivityAt != rhs.latestActivityAt { return lhs.latestActivityAt > rhs.latestActivityAt }
+        return compareProjectGroupTiebreakers(lhs: lhs, rhs: rhs)
+    }
+  }
+
+  private static func compareProjectGroupTiebreakers(lhs: ProjectGroup, rhs: ProjectGroup) -> Bool {
+    let nameOrder = lhs.projectName.localizedCaseInsensitiveCompare(rhs.projectName)
+    if nameOrder != .orderedSame {
+      return nameOrder == .orderedAscending
+    }
+    let endpointOrder = (lhs.endpointName ?? "").localizedCaseInsensitiveCompare(rhs.endpointName ?? "")
+    if endpointOrder != .orderedSame {
+      return endpointOrder == .orderedAscending
+    }
+    return lhs.projectPath.localizedCaseInsensitiveCompare(rhs.projectPath) == .orderedAscending
   }
 
   static func statusPriority(_ status: SessionDisplayStatus) -> Int {
@@ -1401,12 +1857,69 @@ private struct WorktreeSheetIdentifier: Identifiable {
   }
 }
 
+private struct ProjectGroupDropDelegate: DropDelegate {
+  let destinationKey: String
+  let orderedVisibleKeys: [String]
+  @Binding var projectGroupOrder: [String]
+  @Binding var useCustomProjectOrder: Bool
+  @Binding var collapseForReorder: Bool
+  @Binding var draggingGroupKey: String?
+
+  func dropEntered(info _: DropInfo) {
+    guard let draggingKey = draggingGroupKey, draggingKey != destinationKey else { return }
+
+    var normalizedKeys = normalizedOrderKeys()
+    guard let fromIndex = normalizedKeys.firstIndex(of: draggingKey),
+          let toIndex = normalizedKeys.firstIndex(of: destinationKey),
+          fromIndex != toIndex
+    else { return }
+
+    let movedKey = normalizedKeys.remove(at: fromIndex)
+    normalizedKeys.insert(movedKey, at: toIndex)
+    projectGroupOrder = normalizedKeys
+    useCustomProjectOrder = true
+  }
+
+  func dropUpdated(info _: DropInfo) -> DropProposal? {
+    DropProposal(operation: .move)
+  }
+
+  func performDrop(info _: DropInfo) -> Bool {
+    withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+      draggingGroupKey = nil
+      collapseForReorder = false
+    }
+    return true
+  }
+
+  private func normalizedOrderKeys() -> [String] {
+    var normalized: [String] = []
+    var seen: Set<String> = []
+
+    for key in projectGroupOrder {
+      if seen.insert(key).inserted {
+        normalized.append(key)
+      }
+    }
+
+    for key in orderedVisibleKeys where !seen.contains(key) {
+      seen.insert(key)
+      normalized.append(key)
+    }
+
+    return normalized
+  }
+}
+
 // MARK: - Preview
 
 #Preview {
   @Previewable @State var filter: ActiveSessionWorkbenchFilter = .all
   @Previewable @State var sort: ActiveSessionSort = .status
   @Previewable @State var providerFilter: ActiveSessionProviderFilter = .all
+  @Previewable @State var projectGroupOrder: [String] = []
+  @Previewable @State var useCustomProjectOrder = false
+  @Previewable @State var hiddenProjectGroups: Set<String> = []
 
   ScrollView {
     ProjectStreamSection(
@@ -1470,7 +1983,10 @@ private struct WorktreeSheetIdentifier: Identifiable {
       selectedIndex: 0,
       filter: $filter,
       sort: $sort,
-      providerFilter: $providerFilter
+      providerFilter: $providerFilter,
+      projectGroupOrder: $projectGroupOrder,
+      useCustomProjectOrder: $useCustomProjectOrder,
+      hiddenProjectGroups: $hiddenProjectGroups
     )
     .padding(24)
   }
