@@ -1166,21 +1166,51 @@ struct SetupSettingsView: View {
   private var hooksConfigJSON: String {
     """
       "hooks": {
-      "SessionStart": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_session_start", "async": true}]}],
-      "SessionEnd": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_session_end", "async": true}]}],
-      "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
-      "Stop": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
-      "Notification": [{"matcher": "idle_prompt|permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
-      "PreCompact": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
-      "TeammateIdle": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
-      "TaskCompleted": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
-      "ConfigChange": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
-      "PreToolUse": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
-      "PostToolUse": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
-      "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
-      "PermissionRequest": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
-      "SubagentStart": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_subagent_event", "async": true}]}],
-      "SubagentStop": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_subagent_event", "async": true}]}]
+      "SessionStart": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_session_start", "async": true}]}],
+      "SessionEnd": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_session_end", "async": true}]}],
+      "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_status_event", "async": true}]}],
+      "Stop": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_status_event", "async": true}]}],
+      "Notification": [{"matcher": "idle_prompt|permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_status_event", "async": true}]}],
+      "PreCompact": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_status_event", "async": true}]}],
+      "TeammateIdle": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_status_event", "async": true}]}],
+      "TaskCompleted": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_status_event", "async": true}]}],
+      "ConfigChange": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_status_event", "async": true}]}],
+      "PreToolUse": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_tool_event", "async": true}]}],
+      "PostToolUse": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_tool_event", "async": true}]}],
+      "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_tool_event", "async": true}]}],
+      "PermissionRequest": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_tool_event", "async": true}]}],
+      "SubagentStart": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_subagent_event", "async": true}]}],
+      "SubagentStop": [{"hooks": [{"type": "command", "command": "\"\(
+        hookForwardPath
+      )\" hook-forward claude_subagent_event", "async": true}]}]
     }
     """
   }

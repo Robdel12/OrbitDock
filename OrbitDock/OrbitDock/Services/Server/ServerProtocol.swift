@@ -2314,6 +2314,17 @@ enum ClientToServerMessage: Codable {
     allowedTools: [String] = [],
     disallowedTools: [String] = []
   )
+  case forkSessionToWorktree(
+    sourceSessionId: String,
+    branchName: String,
+    baseBranch: String? = nil,
+    nthUserMessage: UInt32? = nil
+  )
+  case forkSessionToExistingWorktree(
+    sourceSessionId: String,
+    worktreeId: String,
+    nthUserMessage: UInt32? = nil
+  )
   case createReviewComment(
     sessionId: String,
     turnId: String?,
@@ -2638,6 +2649,19 @@ enum ClientToServerMessage: Codable {
           try container.encode(disallowedTools, forKey: .disallowedTools)
         }
 
+      case let .forkSessionToWorktree(sourceSessionId, branchName, baseBranch, nthUserMessage):
+        try container.encode("fork_session_to_worktree", forKey: .type)
+        try container.encode(sourceSessionId, forKey: .sourceSessionId)
+        try container.encode(branchName, forKey: .branchName)
+        try container.encodeIfPresent(baseBranch, forKey: .baseBranch)
+        try container.encodeIfPresent(nthUserMessage, forKey: .nthUserMessage)
+
+      case let .forkSessionToExistingWorktree(sourceSessionId, worktreeId, nthUserMessage):
+        try container.encode("fork_session_to_existing_worktree", forKey: .type)
+        try container.encode(sourceSessionId, forKey: .sourceSessionId)
+        try container.encode(worktreeId, forKey: .worktreeId)
+        try container.encodeIfPresent(nthUserMessage, forKey: .nthUserMessage)
+
       case let .createReviewComment(sessionId, turnId, filePath, lineStart, lineEnd, body, tag):
         try container.encode("create_review_comment", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
@@ -2893,6 +2917,19 @@ enum ClientToServerMessage: Codable {
           permissionMode: container.decodeIfPresent(String.self, forKey: .permissionMode),
           allowedTools: container.decodeIfPresent([String].self, forKey: .allowedTools) ?? [],
           disallowedTools: container.decodeIfPresent([String].self, forKey: .disallowedTools) ?? []
+        )
+      case "fork_session_to_worktree":
+        self = try .forkSessionToWorktree(
+          sourceSessionId: container.decode(String.self, forKey: .sourceSessionId),
+          branchName: container.decode(String.self, forKey: .branchName),
+          baseBranch: container.decodeIfPresent(String.self, forKey: .baseBranch),
+          nthUserMessage: container.decodeIfPresent(UInt32.self, forKey: .nthUserMessage)
+        )
+      case "fork_session_to_existing_worktree":
+        self = try .forkSessionToExistingWorktree(
+          sourceSessionId: container.decode(String.self, forKey: .sourceSessionId),
+          worktreeId: container.decode(String.self, forKey: .worktreeId),
+          nthUserMessage: container.decodeIfPresent(UInt32.self, forKey: .nthUserMessage)
         )
       case "create_review_comment":
         self = try .createReviewComment(

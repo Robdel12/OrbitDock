@@ -27,6 +27,7 @@ final class OrbitDockUITests: XCTestCase {
 
     // Point app to test database
     app.launchEnvironment["ORBITDOCK_TEST_DB"] = TestDatabaseHelper.testDbPath
+    app.launchEnvironment.removeValue(forKey: "ORBITDOCK_FORCE_SERVER_INSTALL_STATE")
   }
 
   override func tearDownWithError() throws {

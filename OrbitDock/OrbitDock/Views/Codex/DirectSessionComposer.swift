@@ -21,6 +21,7 @@ struct DirectSessionComposer: View {
   var onOpenSkills: (() -> Void)?
 
   @Environment(ServerAppState.self) private var serverState
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @AppStorage("whisperDictationEnabled") private var whisperDictationEnabled = true
 
@@ -63,6 +64,8 @@ struct DirectSessionComposer: View {
   @State private var manualShellMode = false
   @State private var dictationController = WhisperDictationController()
   @State private var dictationDraftBaseMessage: String?
+  @State private var showForkToWorktreeSheet = false
+  @State private var showForkToExistingWorktreeSheet = false
 
   private var obs: SessionObservable {
     serverState.session(sessionId)
@@ -90,6 +93,85 @@ struct DirectSessionComposer: View {
 
   private var isSessionActive: Bool {
     obs.isActive
+  }
+
+  private var draftStorageKey: String {
+    "endpoint:\(serverState.endpointId.uuidString)::session:\(sessionId)"
+  }
+
+  private var connectionStatus: ConnectionStatus {
+    runtimeRegistry.connectionStatusByEndpointId[serverState.endpointId] ?? serverState.connection.status
+  }
+
+  private var isConnected: Bool {
+    if case .connected = connectionStatus {
+      return true
+    }
+    return false
+  }
+
+  private var connectionPillTint: Color {
+    switch connectionStatus {
+      case .connected:
+        .statusSuccess
+      case .connecting:
+        .statusWaiting
+      case .disconnected:
+        .textQuaternary
+      case .failed:
+        .statusError
+    }
+  }
+
+  private var connectionPillIcon: String {
+    switch connectionStatus {
+      case .connected:
+        "network"
+      case .connecting:
+        "arrow.triangle.2.circlepath"
+      case .disconnected:
+        "wifi.slash"
+      case .failed:
+        "exclamationmark.triangle.fill"
+    }
+  }
+
+  private var connectionPillLabel: String {
+    switch connectionStatus {
+      case .connected:
+        "Connected"
+      case .connecting:
+        "Reconnecting"
+      case .disconnected:
+        "Offline"
+      case .failed:
+        "Connect failed"
+    }
+  }
+
+  private var connectionNoticeMessage: String? {
+    switch connectionStatus {
+      case .connected:
+        return nil
+      case .connecting:
+        return "Reconnecting to server. Messages sent now will queue and auto-send."
+      case .disconnected:
+        return "Server disconnected. Messages sent now will queue and auto-send."
+      case let .failed(reason):
+        if reason.isEmpty {
+          return "Server connection failed. Messages sent now will queue and auto-send."
+        }
+        return "Server connection failed (\(reason)). Messages sent now will queue and auto-send."
+    }
+  }
+
+  private var showReconnectButton: Bool {
+    switch connectionStatus {
+      case .disconnected, .failed:
+        true
+      case .connecting, .connected:
+        false
+    }
   }
 
   private var hasOverrides: Bool {
@@ -172,6 +254,37 @@ struct DirectSessionComposer: View {
 
   private var projectPath: String? {
     obs.projectPath
+  }
+
+  private var forkWorktreeDisplayRepoPath: String? {
+    if let root = obs.repositoryRoot?.trimmingCharacters(in: .whitespacesAndNewlines), !root.isEmpty {
+      return root
+    }
+    if !obs.projectPath.isEmpty {
+      return obs.projectPath
+    }
+    return nil
+  }
+
+  private var forkToExistingCandidates: [ServerWorktreeSummary] {
+    guard let repoPath = forkWorktreeDisplayRepoPath else { return [] }
+    return serverState.worktrees(for: repoPath)
+      .filter {
+        $0.status != .removed && $0.diskPresent && $0.worktreePath != repoPath
+      }
+      .sorted { $0.createdAt > $1.createdAt }
+  }
+
+  private var canForkConversation: Bool {
+    !obs.forkInProgress
+  }
+
+  private var canForkToWorktree: Bool {
+    forkWorktreeDisplayRepoPath != nil && canForkConversation
+  }
+
+  private var canForkToExistingWorktree: Bool {
+    forkWorktreeDisplayRepoPath != nil && canForkConversation
   }
 
   private var filteredFiles: [ProjectFileIndex.ProjectFile] {
@@ -451,6 +564,9 @@ struct DirectSessionComposer: View {
       if isSessionActive {
         composerRow
         statusBar
+        if let notice = connectionNoticeMessage {
+          connectionNoticeRow(notice)
+        }
       } else {
         // Ended session — resume button
         resumeRow
@@ -462,75 +578,259 @@ struct DirectSessionComposer: View {
       }
     }
     .background(isCompactLayout ? Color.backgroundSecondary : Color.clear)
+    .sheet(isPresented: $showForkToWorktreeSheet) {
+      forkToWorktreeSheet
+    }
+    .sheet(isPresented: $showForkToExistingWorktreeSheet) {
+      forkToExistingWorktreeSheet
+    }
     #if os(iOS)
-      .photosPicker(
-        isPresented: $isPhotoPickerPresented,
-        selection: $photoPickerItems,
-        maxSelectionCount: 5,
-        matching: .images
-      )
+    .photosPicker(
+      isPresented: $isPhotoPickerPresented,
+      selection: $photoPickerItems,
+      maxSelectionCount: 5,
+      matching: .images
+    )
     #endif
-      .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
-        handleDrop(providers)
-      }
-      .task(id: sessionId) {
-        if obs.isDirectCodex {
-          serverState.refreshCodexModels()
-          if selectedModel.isEmpty {
-            selectedModel = defaultCodexModelSelection
-          }
-          // Restore persisted effort level from server state
-          if let saved = obs.effort, let level = EffortLevel(rawValue: saved) {
-            selectedEffort = level
-          }
-        } else if obs.isDirectClaude {
-          serverState.refreshClaudeModels()
-          if selectedClaudeModel.isEmpty {
-            selectedClaudeModel = defaultClaudeModelSelection
-          }
-        }
-        if let path = projectPath {
-          await fileIndex.loadIfNeeded(path)
-        }
-      }
-      .onChange(of: codexModelOptionsSignature) { _, _ in
-        guard obs.isDirectCodex else { return }
-        if selectedModel.isEmpty || !codexModelOptions.contains(where: { $0.model == selectedModel }) {
+    .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+      handleDrop(providers)
+    }
+    .task(id: sessionId) {
+      if obs.isDirectCodex {
+        serverState.refreshCodexModels()
+        if selectedModel.isEmpty {
           selectedModel = defaultCodexModelSelection
         }
-      }
-      .onChange(of: claudeModelOptionsSignature) { _, _ in
-        guard obs.isDirectClaude else { return }
-        if selectedClaudeModel.isEmpty || !claudeModelOptions.contains(where: { $0.value == selectedClaudeModel }) {
+        // Restore persisted effort level from server state
+        if let saved = obs.effort, let level = EffortLevel(rawValue: saved) {
+          selectedEffort = level
+        }
+      } else if obs.isDirectClaude {
+        serverState.refreshClaudeModels()
+        if selectedClaudeModel.isEmpty {
           selectedClaudeModel = defaultClaudeModelSelection
         }
       }
-      .onChange(of: whisperDictationEnabled) { _, enabled in
-        guard !enabled else { return }
-        Task { @MainActor in
-          await dictationController.cancel()
-          clearDictationDraftState()
-        }
+      if let path = projectPath {
+        await fileIndex.loadIfNeeded(path)
       }
-      .onChange(of: dictationController.liveTranscript) { _, transcript in
-        guard dictationController.isRecording else { return }
-        updateDictationLivePreview(transcript)
+      if message.isEmpty, let restoredDraft = ComposerDraftStore.load(for: draftStorageKey) {
+        message = restoredDraft
       }
-      .onDisappear {
-        Task { @MainActor in
-          await dictationController.cancel()
-          clearDictationDraftState()
-        }
+    }
+    .onChange(of: message) { _, newValue in
+      ComposerDraftStore.save(newValue, for: draftStorageKey)
+    }
+    .onChange(of: codexModelOptionsSignature) { _, _ in
+      guard obs.isDirectCodex else { return }
+      if selectedModel.isEmpty || !codexModelOptions.contains(where: { $0.model == selectedModel }) {
+        selectedModel = defaultCodexModelSelection
       }
+    }
+    .onChange(of: claudeModelOptionsSignature) { _, _ in
+      guard obs.isDirectClaude else { return }
+      if selectedClaudeModel.isEmpty || !claudeModelOptions.contains(where: { $0.value == selectedClaudeModel }) {
+        selectedClaudeModel = defaultClaudeModelSelection
+      }
+    }
+    .onChange(of: whisperDictationEnabled) { _, enabled in
+      guard !enabled else { return }
+      Task { @MainActor in
+        await dictationController.cancel()
+        clearDictationDraftState()
+      }
+    }
+    .onChange(of: dictationController.liveTranscript) { _, transcript in
+      guard dictationController.isRecording else { return }
+      updateDictationLivePreview(transcript)
+    }
+    .onDisappear {
+      Task { @MainActor in
+        await dictationController.cancel()
+        clearDictationDraftState()
+      }
+    }
     #if os(iOS)
-      .onChange(of: photoPickerItems) { _, newItems in
-        handlePhotoPickerSelection(newItems)
-      }
-      .onDisappear {
-        photoPickerLoadTask?.cancel()
-        photoPickerLoadTask = nil
-      }
+    .onChange(of: photoPickerItems) { _, newItems in
+      handlePhotoPickerSelection(newItems)
+    }
+    .onDisappear {
+      photoPickerLoadTask?.cancel()
+      photoPickerLoadTask = nil
+    }
     #endif
+  }
+
+  // MARK: - Fork To Worktree
+
+  @ViewBuilder
+  private var forkToWorktreeSheet: some View {
+    if let repoPath = forkWorktreeDisplayRepoPath {
+      CreateWorktreeSheet(
+        repoPath: repoPath,
+        projectName: obs.projectName ?? URL(fileURLWithPath: repoPath).lastPathComponent,
+        onCancel: {
+          showForkToWorktreeSheet = false
+        },
+        onCreate: { branchName, baseBranch in
+          serverState.forkSessionToWorktree(
+            sessionId: sessionId,
+            branchName: branchName,
+            baseBranch: baseBranch
+          )
+          showForkToWorktreeSheet = false
+        }
+      )
+    } else {
+      VStack(spacing: Spacing.md) {
+        Text("Worktree unavailable for this session.")
+          .font(.system(size: TypeScale.subhead, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+        Button("Close") {
+          showForkToWorktreeSheet = false
+        }
+      }
+      .padding(Spacing.lg)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .ifMacOS { view in
+        view.frame(width: 320)
+      }
+      .background(Color.panelBackground)
+    }
+  }
+
+  @ViewBuilder
+  private var forkToExistingWorktreeSheet: some View {
+    if forkWorktreeDisplayRepoPath != nil {
+      VStack(spacing: 0) {
+        HStack {
+          Text("Fork to Existing Worktree")
+            .font(.system(size: 13, weight: .semibold))
+          Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 12)
+
+        Divider()
+
+        if forkToExistingCandidates.isEmpty {
+          VStack(spacing: 8) {
+            Image(systemName: "arrow.triangle.branch")
+              .font(.system(size: 24))
+              .foregroundStyle(Color.textQuaternary)
+
+            Text("No existing worktrees")
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(Color.textTertiary)
+
+            Text("Create one first or refresh to discover tracked worktrees.")
+              .font(.system(size: 11))
+              .foregroundStyle(Color.textQuaternary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 24)
+        } else {
+          ScrollView {
+            VStack(spacing: 2) {
+              ForEach(forkToExistingCandidates) { wt in
+                Button {
+                  serverState.forkSessionToExistingWorktree(sessionId: sessionId, worktreeId: wt.id)
+                  showForkToExistingWorktreeSheet = false
+                } label: {
+                  HStack(spacing: 8) {
+                    Circle()
+                      .fill(statusColor(for: wt.status))
+                      .frame(width: 7, height: 7)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(wt.customName ?? wt.branch)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                      Text(wt.worktreePath)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Color.textTertiary)
+                        .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    if wt.activeSessionCount > 0 {
+                      Text("\(wt.activeSessionCount)")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.textQuaternary)
+                    }
+                  }
+                  .padding(.horizontal, 8)
+                  .padding(.vertical, 8)
+                  .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(obs.forkInProgress)
+              }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+          }
+          .frame(maxHeight: isCompactLayout ? .infinity : 320)
+        }
+
+        Divider()
+
+        HStack {
+          Button {
+            refreshForkExistingWorktrees()
+          } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+              .font(.system(size: 11, weight: .medium))
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(Color.textSecondary)
+
+          Spacer()
+
+          Button("Cancel") {
+            showForkToExistingWorktreeSheet = false
+          }
+          .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .ifMacOS { view in
+        view.frame(width: 420)
+      }
+      .background(Color.panelBackground)
+      .onAppear {
+        refreshForkExistingWorktrees()
+      }
+      #if os(iOS)
+      .presentationDetents([.medium, .large])
+      .presentationDragIndicator(.visible)
+      #endif
+    } else {
+      VStack(spacing: Spacing.md) {
+        Text("Worktree unavailable for this session.")
+          .font(.system(size: TypeScale.subhead, weight: .medium))
+          .foregroundStyle(Color.textSecondary)
+        Button("Close") {
+          showForkToExistingWorktreeSheet = false
+        }
+      }
+      .padding(Spacing.lg)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .ifMacOS { view in
+        view.frame(width: 320)
+      }
+      .background(Color.panelBackground)
+      #if os(iOS)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+      #endif
+    }
   }
 
   // MARK: - Token Progress Strip
@@ -673,6 +973,10 @@ struct DirectSessionComposer: View {
 
   private var desktopStatusBar: some View {
     HStack(spacing: 8) {
+      if !isConnected {
+        connectionStatusPill
+      }
+
       if obs.isDirectCodex {
         AutonomyPill(sessionId: sessionId)
       } else if obs.isDirectClaude {
@@ -706,6 +1010,10 @@ struct DirectSessionComposer: View {
   private var compactStatusBar: some View {
     ScrollView(.horizontal, showsIndicators: false) {
       HStack(spacing: 6) {
+        if !isConnected {
+          connectionStatusPill
+        }
+
         if obs.isDirectCodex {
           AutonomyPill(sessionId: sessionId)
         } else if obs.isDirectClaude {
@@ -730,6 +1038,46 @@ struct DirectSessionComposer: View {
       .padding(.horizontal, Spacing.md + Spacing.sm)
     }
     .scrollIndicators(.hidden)
+  }
+
+  private var connectionStatusPill: some View {
+    HStack(spacing: 4) {
+      Image(systemName: connectionPillIcon)
+        .font(.system(size: 9, weight: .semibold))
+      Text(connectionPillLabel)
+        .font(.system(size: 10, weight: .semibold))
+        .lineLimit(1)
+    }
+    .foregroundStyle(connectionPillTint)
+    .padding(.horizontal, 7)
+    .padding(.vertical, 3)
+    .background(connectionPillTint.opacity(OpacityTier.light), in: Capsule())
+  }
+
+  private func connectionNoticeRow(_ message: String) -> some View {
+    HStack(spacing: 6) {
+      Image(systemName: connectionPillIcon)
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(connectionPillTint)
+
+      Text(message)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+
+      Spacer(minLength: 0)
+
+      if showReconnectButton {
+        Button("Reconnect") {
+          runtimeRegistry.reconnect(endpointId: serverState.endpointId)
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(Color.accent)
+      }
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.bottom, Spacing.xs)
   }
 
   private func statusBarCwdLabel(_ cwd: String) -> some View {
@@ -1179,7 +1527,21 @@ struct DirectSessionComposer: View {
     } label: {
       Label("Fork Conversation", systemImage: "arrow.triangle.branch")
     }
-    .disabled(serverState.session(sessionId).forkInProgress)
+    .disabled(!canForkConversation)
+
+    Button {
+      openForkToWorktreeSheet()
+    } label: {
+      Label("Fork to New Worktree", systemImage: "arrow.triangle.branch")
+    }
+    .disabled(!canForkToWorktree)
+
+    Button {
+      openForkToExistingWorktreeSheet()
+    } label: {
+      Label("Fork to Existing Worktree", systemImage: "arrow.triangle.branch.circlepath")
+    }
+    .disabled(!canForkToExistingWorktree)
 
     if obs.hasTokenUsage {
       Button {
@@ -1518,6 +1880,10 @@ struct DirectSessionComposer: View {
 
     // Shell mode: route to executeShell
     if inputMode == .shell {
+      guard isConnected else {
+        errorMessage = "Server is offline. Shell command not sent."
+        return
+      }
       serverState.executeShell(sessionId: sessionId, command: trimmed)
       message = ""
       manualShellMode = false
@@ -1526,6 +1892,10 @@ struct DirectSessionComposer: View {
 
     // ! prefix: execute as shell command
     if trimmed.hasPrefix("!"), trimmed.count > 1 {
+      guard isConnected else {
+        errorMessage = "Server is offline. Shell command not sent."
+        return
+      }
       let shellCmd = String(trimmed.dropFirst())
       serverState.executeShell(sessionId: sessionId, command: shellCmd)
       message = ""
@@ -1541,16 +1911,30 @@ struct DirectSessionComposer: View {
 
     if isSessionWorking {
       guard !expandedContent.isEmpty || !imageInputs.isEmpty || !mentionInputs.isEmpty else { return }
-      serverState.steerTurn(
+      let disposition = serverState.steerTurn(
         sessionId: sessionId,
         content: expandedContent,
         images: imageInputs,
         mentions: mentionInputs
       )
-      message = ""
-      withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-        attachedImages = []
-        attachedMentions = []
+
+      switch disposition {
+        case .sent:
+          errorMessage = nil
+          message = ""
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            attachedImages = []
+            attachedMentions = []
+          }
+        case .queued:
+          errorMessage = "Offline: steering message queued and will send after reconnect."
+          message = ""
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            attachedImages = []
+            attachedMentions = []
+          }
+        case .dropped:
+          errorMessage = "Couldn't send steer message. Your draft is still here."
       }
       return
     }
@@ -1592,7 +1976,7 @@ struct DirectSessionComposer: View {
       expandedContent = "\(shellContext)\n\n\(expandedContent)"
     }
 
-    serverState.sendMessage(
+    let disposition = serverState.sendMessage(
       sessionId: sessionId,
       content: expandedContent,
       model: effectiveModel,
@@ -1601,10 +1985,55 @@ struct DirectSessionComposer: View {
       images: imageInputs,
       mentions: mentionInputs
     )
-    message = ""
-    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-      attachedImages = []
-      attachedMentions = []
+
+    switch disposition {
+      case .sent:
+        errorMessage = nil
+        message = ""
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          attachedImages = []
+          attachedMentions = []
+        }
+      case .queued:
+        errorMessage = "Offline: message queued and will send after reconnect."
+        message = ""
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          attachedImages = []
+          attachedMentions = []
+        }
+      case .dropped:
+        errorMessage = "Couldn't send message. Your draft is still here."
+    }
+  }
+
+  private func openForkToWorktreeSheet() {
+    guard canForkToWorktree else {
+      errorMessage = "This session does not have a git repository root to create a worktree from."
+      return
+    }
+    showForkToWorktreeSheet = true
+  }
+
+  private func openForkToExistingWorktreeSheet() {
+    guard canForkToExistingWorktree else {
+      errorMessage = "This session does not have a git repository root to select a worktree from."
+      return
+    }
+    showForkToExistingWorktreeSheet = true
+  }
+
+  private func refreshForkExistingWorktrees() {
+    guard let repoPath = forkWorktreeDisplayRepoPath else { return }
+    serverState.connection.listWorktrees(repoRoot: repoPath)
+  }
+
+  private func statusColor(for status: ServerWorktreeStatus) -> Color {
+    switch status {
+      case .active: .statusSuccess
+      case .orphaned: .statusReply
+      case .stale: .statusWaiting
+      case .removing: .textQuaternary
+      case .removed: .textQuaternary
     }
   }
 
@@ -2522,6 +2951,29 @@ private struct ComposerClaudeModelPopover: View {
   }
 }
 
+private enum ComposerDraftStore {
+  private static let keyPrefix = "orbitdock.direct-composer-draft"
+
+  static func load(for key: String, defaults: UserDefaults = .standard) -> String? {
+    let value = defaults.string(forKey: storageKey(for: key))
+    guard let value, !value.isEmpty else { return nil }
+    return value
+  }
+
+  static func save(_ value: String, for key: String, defaults: UserDefaults = .standard) {
+    let storageKey = storageKey(for: key)
+    if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      defaults.removeObject(forKey: storageKey)
+      return
+    }
+    defaults.set(value, forKey: storageKey)
+  }
+
+  private static func storageKey(for key: String) -> String {
+    "\(keyPrefix).\(key)"
+  }
+}
+
 #Preview {
   @Previewable @State var skills: Set<String> = []
   @Previewable @State var pinned = true
@@ -2535,5 +2987,6 @@ private struct ComposerClaudeModelPopover: View {
     scrollToBottomTrigger: $scroll
   )
   .environment(ServerAppState())
+  .environment(ServerRuntimeRegistry.shared)
   .frame(width: 600)
 }

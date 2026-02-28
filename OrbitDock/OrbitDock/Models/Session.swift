@@ -229,6 +229,7 @@ struct Session: Identifiable, Hashable, Sendable {
   }
 
   var scopedID: String {
+    assert(endpointId != nil, "Session.scopedID accessed without endpointId — session \(id) was not stamped")
     guard let endpointId else { return id }
     return SessionRef(endpointId: endpointId, sessionId: id).scopedID
   }

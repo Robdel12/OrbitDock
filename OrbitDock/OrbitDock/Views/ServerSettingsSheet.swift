@@ -469,7 +469,7 @@ struct ServerSettingsSheet: View {
     }
   }
 
-  private func editorField<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+  private func editorField(label: String, @ViewBuilder content: () -> some View) -> some View {
     HStack(spacing: Spacing.md) {
       Text(label)
         .font(.system(size: TypeScale.body, weight: .medium))

@@ -94,13 +94,22 @@ struct ClaudePermissionPill: View {
     }
     .buttonStyle(.plain)
     .fixedSize()
-    .popover(isPresented: $showPopover, arrowEdge: .bottom) {
-      ClaudePermissionPopover(selection: Binding(
-        get: { currentMode },
-        set: { newMode in
-          serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
+    .platformPopover(isPresented: $showPopover) {
+      NavigationStack {
+        ClaudePermissionPopover(selection: Binding(
+          get: { currentMode },
+          set: { newMode in
+            serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
+          }
+        ))
+        .ifIOS { view in
+          view.toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") { showPopover = false }
+            }
+          }
         }
-      ))
+      }
     }
   }
 }
@@ -145,35 +154,43 @@ struct ClaudePermissionPopover: View {
             selection = mode
             selectedIndex = idx
           }
-          .onHover { hovering in
+          .platformHover { hovering in
             if hovering { selectedIndex = idx }
           }
         }
       }
       .padding(.vertical, Spacing.xs)
     }
-    .frame(width: 340)
-    .background(Color.backgroundSecondary)
-    .onAppear {
-      selectedIndex = selection.index
-    }
-    .onKeyPress(.upArrow) {
-      selectedIndex = max(0, selectedIndex - 1)
-      return .handled
-    }
-    .onKeyPress(.downArrow) {
-      selectedIndex = min(modes.count - 1, selectedIndex + 1)
-      return .handled
-    }
-    .onKeyPress(.return) {
-      selection = modes[selectedIndex]
-      dismiss()
-      return .handled
-    }
-    .onKeyPress(.escape) {
-      dismiss()
-      return .handled
-    }
+    #if os(iOS)
+      .frame(maxWidth: .infinity)
+      .navigationTitle("Permission Mode")
+      .navigationBarTitleDisplayMode(.inline)
+    #endif
+      .ifMacOS { $0.frame(width: 340) }
+      .background(Color.backgroundSecondary)
+      .onAppear {
+        selectedIndex = selection.index
+      }
+      .ifMacOS { view in
+        view
+          .onKeyPress(.upArrow) {
+            selectedIndex = max(0, selectedIndex - 1)
+            return .handled
+          }
+          .onKeyPress(.downArrow) {
+            selectedIndex = min(modes.count - 1, selectedIndex + 1)
+            return .handled
+          }
+          .onKeyPress(.return) {
+            selection = modes[selectedIndex]
+            dismiss()
+            return .handled
+          }
+          .onKeyPress(.escape) {
+            dismiss()
+            return .handled
+          }
+      }
   }
 }
 

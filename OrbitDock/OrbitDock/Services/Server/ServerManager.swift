@@ -23,6 +23,7 @@ enum ServerInstallState: Equatable {
   @MainActor
   final class ServerManager: ObservableObject {
     static let shared = ServerManager()
+    private nonisolated static let forcedInstallStateEnvKey = "ORBITDOCK_FORCE_SERVER_INSTALL_STATE"
     private let logger = Logger(subsystem: "com.orbitdock", category: "server-manager")
 
     @Published private(set) var installState: ServerInstallState = .unknown
@@ -50,6 +51,11 @@ enum ServerInstallState: Equatable {
     /// 3. Remote endpoint configured → .remote
     /// 4. Otherwise → .notConfigured
     func refreshState() async {
+      if let forcedState = Self.forcedInstallStateFromEnvironment() {
+        installState = forcedState
+        return
+      }
+
       if await checkHealth() {
         installState = .running
         return
@@ -66,6 +72,35 @@ enum ServerInstallState: Equatable {
       }
 
       installState = .notConfigured
+    }
+
+    nonisolated static func parseForcedInstallState(_ rawValue: String?) -> ServerInstallState? {
+      guard let raw = rawValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased(),
+        !raw.isEmpty
+      else {
+        return nil
+      }
+
+      switch raw {
+        case "not_configured", "notconfigured", "not-configured":
+          return .notConfigured
+        case "running":
+          return .running
+        case "installed":
+          return .installed
+        case "remote":
+          return .remote
+        case "unknown":
+          return .unknown
+        default:
+          return nil
+      }
+    }
+
+    private nonisolated static func forcedInstallStateFromEnvironment() -> ServerInstallState? {
+      parseForcedInstallState(ProcessInfo.processInfo.environment[forcedInstallStateEnvKey])
     }
 
     // MARK: - Binary Discovery

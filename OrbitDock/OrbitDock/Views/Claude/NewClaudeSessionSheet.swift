@@ -75,6 +75,14 @@ struct NewClaudeSessionSheet: View {
     selectableEndpoints.count > 1 || !isEndpointConnected
   }
 
+  private var formSectionSpacing: CGFloat {
+    #if os(iOS)
+      Spacing.lg
+    #else
+      Spacing.xl
+    #endif
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       header
@@ -82,28 +90,18 @@ struct NewClaudeSessionSheet: View {
       Divider()
         .overlay(Color.surfaceBorder)
 
-      // Form content
-      VStack(alignment: .leading, spacing: Spacing.xl) {
-        if shouldShowEndpointSection {
-          endpointSection
-        }
-        directorySection
-        if !selectedPath.isEmpty {
-          worktreeSection
-        }
-        configurationCard
-        toolRestrictionsCard
-      }
-      .padding(Spacing.xl)
-
-      Spacer(minLength: 0)
+      formContent
 
       Divider()
         .overlay(Color.surfaceBorder)
 
       footer
     }
+    #if os(iOS)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    #else
     .frame(minWidth: 420, idealWidth: 500, maxWidth: 580)
+    #endif
     .background(Color.backgroundSecondary)
     .onAppear {
       if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
@@ -140,46 +138,106 @@ struct NewClaudeSessionSheet: View {
     }
   }
 
+  @ViewBuilder
+  private var formContent: some View {
+    #if os(iOS)
+      ScrollView(showsIndicators: false) {
+        formSections
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.lg)
+          .padding(.bottom, Spacing.sm)
+      }
+    #else
+      VStack {
+        formSections
+          .padding(Spacing.xl)
+        Spacer(minLength: 0)
+      }
+    #endif
+  }
+
+  private var formSections: some View {
+    VStack(alignment: .leading, spacing: formSectionSpacing) {
+      if shouldShowEndpointSection {
+        endpointSection
+      }
+      directorySection
+      if !selectedPath.isEmpty {
+        worktreeSection
+      }
+      configurationCard
+      toolRestrictionsCard
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
   // MARK: - Header
 
   private var header: some View {
-    HStack(spacing: Spacing.md) {
-      // Claude brand icon
-      Circle()
-        .fill(Color.providerClaude.opacity(OpacityTier.light))
-        .frame(width: 32, height: 32)
-        .overlay(
-          Image(systemName: "plus.circle.fill")
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Color.providerClaude)
-        )
+    #if os(iOS)
+      HStack(spacing: Spacing.md) {
+        headerIcon
 
-      Text("New Claude Session")
-        .font(.system(size: TypeScale.title, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
+        Text("New Claude Session")
+          .font(.system(size: TypeScale.large, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+          .lineLimit(1)
+          .minimumScaleFactor(0.9)
 
-      Spacer()
+        Spacer()
 
-      Button {
-        dismiss()
-      } label: {
-        Image(systemName: "xmark.circle.fill")
-          .font(.system(size: 18))
-          .foregroundStyle(Color.textQuaternary)
+        closeButton
       }
-      .buttonStyle(.plain)
-      #if !os(iOS)
-        .onHover { hovering in
-          if hovering {
-            NSCursor.pointingHand.push()
-          } else {
-            NSCursor.pop()
-          }
-        }
-      #endif
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
+    #else
+      HStack(spacing: Spacing.md) {
+        headerIcon
+
+        Text("New Claude Session")
+          .font(.system(size: TypeScale.title, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+
+        Spacer()
+
+        closeButton
+      }
+      .padding(.horizontal, Spacing.xl)
+      .padding(.vertical, Spacing.lg)
+    #endif
+  }
+
+  private var headerIcon: some View {
+    Circle()
+      .fill(Color.providerClaude.opacity(OpacityTier.light))
+      .frame(width: 32, height: 32)
+      .overlay(
+        Image(systemName: "plus.circle.fill")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(Color.providerClaude)
+      )
+  }
+
+  private var closeButton: some View {
+    Button {
+      dismiss()
+    } label: {
+      Image(systemName: "xmark.circle.fill")
+        .font(.system(size: 18))
+        .foregroundStyle(Color.textQuaternary)
+        .frame(width: 28, height: 28)
+        .contentShape(Rectangle())
     }
-    .padding(.horizontal, Spacing.xl)
-    .padding(.vertical, Spacing.lg)
+    .buttonStyle(.plain)
+    #if !os(iOS)
+      .onHover { hovering in
+        if hovering {
+          NSCursor.pointingHand.push()
+        } else {
+          NSCursor.pop()
+        }
+      }
+    #endif
   }
 
   // MARK: - Directory

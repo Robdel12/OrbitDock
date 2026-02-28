@@ -150,6 +150,10 @@ struct AutonomyPill: View {
     serverState.session(sessionId).autonomy
   }
 
+  private var isConfiguredOnServer: Bool {
+    serverState.session(sessionId).autonomyConfiguredOnServer
+  }
+
   var body: some View {
     Button {
       showPopover.toggle()
@@ -159,6 +163,10 @@ struct AutonomyPill: View {
           .font(.system(size: TypeScale.body, weight: .semibold))
         Text(currentLevel.displayName)
           .font(.system(size: TypeScale.body, weight: .semibold))
+        if !isConfiguredOnServer {
+          Image(systemName: "exclamationmark.circle.fill")
+            .font(.system(size: TypeScale.caption, weight: .semibold))
+        }
       }
       .foregroundStyle(currentLevel.color)
       .padding(.horizontal, Spacing.md)
@@ -174,7 +182,9 @@ struct AutonomyPill: View {
           set: { newLevel in
             serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
           }
-        ))
+        ), isConfiguredOnServer: isConfiguredOnServer) {
+          serverState.updateSessionConfig(sessionId: sessionId, autonomy: currentLevel)
+        }
         .ifIOS { view in
           view.toolbar {
             ToolbarItem(placement: .confirmationAction) {
@@ -191,10 +201,22 @@ struct AutonomyPill: View {
 
 struct AutonomyPopover: View {
   @Binding var selection: AutonomyLevel
+  let isConfiguredOnServer: Bool
+  let onApplyCurrentSelection: (() -> Void)?
   @State private var selectedIndex: Int = 0
   @Environment(\.dismiss) private var dismiss
 
   private let levels = AutonomyLevel.allCases
+
+  init(
+    selection: Binding<AutonomyLevel>,
+    isConfiguredOnServer: Bool = true,
+    onApplyCurrentSelection: (() -> Void)? = nil
+  ) {
+    _selection = selection
+    self.isConfiguredOnServer = isConfiguredOnServer
+    self.onApplyCurrentSelection = onApplyCurrentSelection
+  }
 
   var body: some View {
     ScrollView {
@@ -214,6 +236,31 @@ struct AutonomyPopover: View {
           .padding(.horizontal, Spacing.lg)
           .padding(.top, Spacing.sm)
           .padding(.bottom, Spacing.md)
+
+        if !isConfiguredOnServer {
+          HStack(alignment: .center, spacing: Spacing.sm) {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .font(.system(size: 11, weight: .semibold))
+              .foregroundStyle(Color.autonomyOpen)
+
+            Text("Autonomy is not configured on the server for this session.")
+              .font(.system(size: TypeScale.caption, weight: .medium))
+              .foregroundStyle(Color.textSecondary)
+
+            Spacer(minLength: Spacing.sm)
+
+            if let onApplyCurrentSelection {
+              Button("Apply \(selection.displayName)") {
+                onApplyCurrentSelection()
+              }
+              .font(.system(size: TypeScale.caption, weight: .semibold))
+              .buttonStyle(.borderedProminent)
+              .controlSize(.mini)
+            }
+          }
+          .padding(.horizontal, Spacing.lg)
+          .padding(.bottom, Spacing.sm)
+        }
 
         Divider()
           .background(Color.surfaceBorder)

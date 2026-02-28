@@ -7,6 +7,17 @@
 
 import SwiftUI
 
+enum ServerSetupVisibility {
+  static func shouldShowSetup(
+    connectedRuntimeCount: Int,
+    installState: ServerInstallState
+  ) -> Bool {
+    if connectedRuntimeCount > 0 { return false }
+    if case .notConfigured = installState { return true }
+    return false
+  }
+}
+
 struct ContentView: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
@@ -39,9 +50,10 @@ struct ContentView: View {
 
   /// Show setup view when server is not configured and not connected
   private var shouldShowSetup: Bool {
-    if runtimeRegistry.connectedRuntimeCount > 0 { return false }
-    if case .notConfigured = serverManager.installState { return true }
-    return false
+    ServerSetupVisibility.shouldShowSetup(
+      connectedRuntimeCount: runtimeRegistry.connectedRuntimeCount,
+      installState: serverManager.installState
+    )
   }
 
   var body: some View {
@@ -127,9 +139,17 @@ struct ContentView: View {
     #endif
     .sheet(isPresented: $router.showNewClaudeSheet) {
       NewClaudeSessionSheet()
+      #if os(iOS)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+      #endif
     }
     .sheet(isPresented: $router.showNewCodexSheet) {
       NewCodexSessionSheet()
+      #if os(iOS)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+      #endif
     }
   }
 

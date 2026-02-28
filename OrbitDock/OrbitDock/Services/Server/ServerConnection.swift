@@ -21,6 +21,12 @@ enum ConnectionStatus: Equatable {
   case failed(String) // Connection failed, not retrying
 }
 
+enum OutboundSendDisposition: Equatable {
+  case sent
+  case queued
+  case dropped
+}
+
 enum ServerRequestError: LocalizedError {
   case notConnected
   case connectionLost
@@ -336,11 +342,18 @@ private struct APIErrorHTTPResponse: Decodable {
   let error: String
 }
 
+private struct QueuedConversationMessage: Codable {
+  let id: UUID
+  let enqueuedAt: Date
+  let message: ClientToServerMessage
+}
+
 /// WebSocket connection to OrbitDock server
 @MainActor
 class ServerConnection: ObservableObject {
   /// Keep aligned with orbitdock-server WS_MAX_TEXT_MESSAGE_BYTES.
   private static let maxInboundWebSocketMessageBytes = 1 * 1_024 * 1_024
+  private static let maxQueuedConversationMessages = 40
 
   let endpointId: UUID
   let endpointName: String
@@ -349,6 +362,7 @@ class ServerConnection: ObservableObject {
   @Published private(set) var lastError: String?
   @Published private(set) var serverIsPrimary: Bool?
   @Published private(set) var serverPrimaryClaims: [ServerClientPrimaryClaim] = []
+  @Published private(set) var queuedConversationMessageCount = 0
 
   private var webSocket: URLSessionWebSocketTask?
   private var session: URLSession?
@@ -358,6 +372,8 @@ class ServerConnection: ObservableObject {
   private var serverURL: URL
   private var connectAttempts = 0
   private var lastSentClientPrimaryClaim: (clientId: String, deviceName: String, isPrimary: Bool)?
+  private let queuedConversationMessagesDefaultsKey: String
+  private var queuedConversationMessages: [QueuedConversationMessage] = []
 
   /// Whether we're connecting to a non-localhost server
   private var isRemote: Bool {
@@ -445,6 +461,8 @@ class ServerConnection: ObservableObject {
     endpointId = endpoint.id
     endpointName = endpoint.name
     serverURL = endpoint.wsURL
+    queuedConversationMessagesDefaultsKey = "orbitdock.queued-conversation-messages.\(endpoint.id.uuidString)"
+    restoreQueuedConversationMessages()
   }
 
   // MARK: - Connection Lifecycle
@@ -566,6 +584,9 @@ class ServerConnection: ObservableObject {
 
     // Notify observers (e.g. to re-subscribe to sessions)
     onConnected?()
+
+    // Flush queued user messages after subscriptions are restored.
+    flushQueuedConversationMessages()
   }
 
   /// Disconnect from the server
@@ -881,9 +902,14 @@ class ServerConnection: ObservableObject {
   // MARK: - Sending Messages
 
   /// Send a message to the server
-  func send(_ message: ClientToServerMessage) {
+  @discardableResult
+  func send(_ message: ClientToServerMessage, queueWhenDisconnected: Bool = false) -> OutboundSendDisposition {
     let messageDesc = String(describing: message).prefix(200)
     guard case .connected = status else {
+      if queueWhenDisconnected {
+        enqueueConversationMessage(message)
+        return .queued
+      }
       connLog(
         .warning,
         category: .send,
@@ -891,14 +917,23 @@ class ServerConnection: ObservableObject {
         data: ["status": String(describing: status), "message": String(messageDesc)]
       )
       logger.warning("Cannot send - not connected")
-      return
+      return .dropped
     }
 
     do {
       let data = try JSONEncoder().encode(message)
       guard let text = String(data: data, encoding: .utf8) else {
         connLog(.error, category: .send, "Failed to encode to UTF-8 string")
-        return
+        return .dropped
+      }
+
+      guard let socket = webSocket else {
+        if queueWhenDisconnected {
+          enqueueConversationMessage(message)
+          return .queued
+        }
+        connLog(.warning, category: .send, "BLOCKED — websocket unavailable", data: ["message": String(messageDesc)])
+        return .dropped
       }
 
       connLog(
@@ -908,7 +943,7 @@ class ServerConnection: ObservableObject {
         data: ["type": String(messageDesc)]
       )
 
-      webSocket?.send(.string(text)) { error in
+      socket.send(.string(text)) { error in
         if let error {
           connLog(
             .error,
@@ -919,6 +954,7 @@ class ServerConnection: ObservableObject {
           logger.error("Send error: \(error.localizedDescription)")
         }
       }
+      return .sent
     } catch {
       connLog(
         .error,
@@ -927,6 +963,7 @@ class ServerConnection: ObservableObject {
         data: ["error": error.localizedDescription]
       )
       logger.error("Failed to encode message: \(error.localizedDescription)")
+      return .dropped
     }
   }
 
@@ -977,6 +1014,7 @@ class ServerConnection: ObservableObject {
   }
 
   /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
+  @discardableResult
   func sendMessage(
     sessionId: String,
     content: String,
@@ -985,16 +1023,19 @@ class ServerConnection: ObservableObject {
     skills: [ServerSkillInput] = [],
     images: [ServerImageInput] = [],
     mentions: [ServerMentionInput] = []
-  ) {
-    send(.sendMessage(
-      sessionId: sessionId,
-      content: content,
-      model: model,
-      effort: effort,
-      skills: skills,
-      images: images,
-      mentions: mentions
-    ))
+  ) -> OutboundSendDisposition {
+    send(
+      .sendMessage(
+        sessionId: sessionId,
+        content: content,
+        model: model,
+        effort: effort,
+        skills: skills,
+        images: images,
+        mentions: mentions
+      ),
+      queueWhenDisconnected: true
+    )
   }
 
   /// Approve or reject a tool with a specific decision
@@ -1428,13 +1469,17 @@ class ServerConnection: ObservableObject {
   }
 
   /// Steer the active turn with additional guidance
+  @discardableResult
   func steerTurn(
     sessionId: String,
     content: String,
     images: [ServerImageInput] = [],
     mentions: [ServerMentionInput] = []
-  ) {
-    send(.steerTurn(sessionId: sessionId, content: content, images: images, mentions: mentions))
+  ) -> OutboundSendDisposition {
+    send(
+      .steerTurn(sessionId: sessionId, content: content, images: images, mentions: mentions),
+      queueWhenDisconnected: true
+    )
   }
 
   /// Compact (summarize) the conversation context
@@ -1592,6 +1637,34 @@ class ServerConnection: ObservableObject {
     ))
   }
 
+  /// Create a new worktree from the source session's repository and fork into it.
+  func forkSessionToWorktree(
+    sourceSessionId: String,
+    branchName: String,
+    baseBranch: String? = nil,
+    nthUserMessage: UInt32? = nil
+  ) {
+    send(.forkSessionToWorktree(
+      sourceSessionId: sourceSessionId,
+      branchName: branchName,
+      baseBranch: baseBranch,
+      nthUserMessage: nthUserMessage
+    ))
+  }
+
+  /// Fork into an existing tracked worktree.
+  func forkSessionToExistingWorktree(
+    sourceSessionId: String,
+    worktreeId: String,
+    nthUserMessage: UInt32? = nil
+  ) {
+    send(.forkSessionToExistingWorktree(
+      sourceSessionId: sourceSessionId,
+      worktreeId: worktreeId,
+      nthUserMessage: nthUserMessage
+    ))
+  }
+
   // MARK: - Worktree Management
 
   func listWorktrees(repoRoot: String? = nil) {
@@ -1710,6 +1783,83 @@ class ServerConnection: ObservableObject {
 
   private func failPendingRequests(with error: Error) {
     _ = error
+  }
+
+  private func enqueueConversationMessage(_ message: ClientToServerMessage) {
+    queuedConversationMessages.append(
+      QueuedConversationMessage(
+        id: UUID(),
+        enqueuedAt: Date(),
+        message: message
+      )
+    )
+
+    if queuedConversationMessages.count > Self.maxQueuedConversationMessages {
+      let overflow = queuedConversationMessages.count - Self.maxQueuedConversationMessages
+      queuedConversationMessages.removeFirst(overflow)
+    }
+
+    queuedConversationMessageCount = queuedConversationMessages.count
+    persistQueuedConversationMessages()
+    connLog(
+      .info,
+      category: .send,
+      "Queued message for reconnect",
+      data: ["queuedCount": "\(queuedConversationMessageCount)"]
+    )
+  }
+
+  private func flushQueuedConversationMessages() {
+    guard case .connected = status else { return }
+    guard !queuedConversationMessages.isEmpty else { return }
+
+    let queued = queuedConversationMessages
+    queuedConversationMessages.removeAll()
+    queuedConversationMessageCount = 0
+    persistQueuedConversationMessages()
+
+    connLog(
+      .info,
+      category: .send,
+      "Flushing queued messages",
+      data: ["count": "\(queued.count)"]
+    )
+
+    for entry in queued {
+      _ = send(entry.message, queueWhenDisconnected: true)
+    }
+  }
+
+  private func persistQueuedConversationMessages() {
+    if queuedConversationMessages.isEmpty {
+      UserDefaults.standard.removeObject(forKey: queuedConversationMessagesDefaultsKey)
+      return
+    }
+
+    do {
+      let encoded = try JSONEncoder().encode(queuedConversationMessages)
+      UserDefaults.standard.set(encoded, forKey: queuedConversationMessagesDefaultsKey)
+    } catch {
+      logger.error("Failed to persist queued messages: \(error.localizedDescription)")
+    }
+  }
+
+  private func restoreQueuedConversationMessages() {
+    guard let encoded = UserDefaults.standard.data(forKey: queuedConversationMessagesDefaultsKey) else {
+      queuedConversationMessages = []
+      queuedConversationMessageCount = 0
+      return
+    }
+
+    do {
+      queuedConversationMessages = try JSONDecoder().decode([QueuedConversationMessage].self, from: encoded)
+      queuedConversationMessageCount = queuedConversationMessages.count
+    } catch {
+      logger.error("Failed to restore queued messages: \(error.localizedDescription)")
+      UserDefaults.standard.removeObject(forKey: queuedConversationMessagesDefaultsKey)
+      queuedConversationMessages = []
+      queuedConversationMessageCount = 0
+    }
   }
 
   private func requestAPIJSON<Response: Decodable>(

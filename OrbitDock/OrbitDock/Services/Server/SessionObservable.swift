@@ -28,6 +28,7 @@ final class SessionObservable {
   var diff: String?
   var plan: String?
   var autonomy: AutonomyLevel = .autonomous
+  var autonomyConfiguredOnServer: Bool = true
   var permissionMode: ClaudePermissionMode = .default
   var skills: [ServerSkillMetadata] = []
   var slashCommands: Set<String> = []

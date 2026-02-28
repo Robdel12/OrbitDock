@@ -200,13 +200,23 @@ final class ServerAppState {
     self.endpointId = endpointId
 
     if AppRuntimeMode.current == .mock {
-      sessions = Self.mockSessions()
+      sessions = Self.mockSessions().map { s in
+        var stamped = s
+        stamped.endpointId = endpointId
+        stamped.endpointName = connection.endpointName
+        return stamped
+      }
       hasReceivedInitialSessionsList = true
       return
     }
 
     if let cached = loadSessionsCache() {
-      sessions = cached.summaries.map { $0.toSession() }
+      sessions = cached.summaries.map { summary in
+        var s = summary.toSession()
+        s.endpointId = endpointId
+        s.endpointName = connection.endpointName
+        return s
+      }
       logger.info("Loaded cached sessions list: \(cached.summaries.count) sessions")
     }
 
@@ -761,6 +771,7 @@ final class ServerAppState {
   }
 
   /// Send a message to a session with optional per-turn overrides, skills, images, and mentions
+  @discardableResult
   func sendMessage(
     sessionId: String,
     content: String,
@@ -769,9 +780,9 @@ final class ServerAppState {
     skills: [ServerSkillInput] = [],
     images: [ServerImageInput] = [],
     mentions: [ServerMentionInput] = []
-  ) {
+  ) -> OutboundSendDisposition {
     logger.info("Sending message to \(sessionId)")
-    connection.sendMessage(
+    return connection.sendMessage(
       sessionId: sessionId,
       content: content,
       model: model,
@@ -880,14 +891,15 @@ final class ServerAppState {
   }
 
   /// Steer the active turn with additional guidance
+  @discardableResult
   func steerTurn(
     sessionId: String,
     content: String,
     images: [ServerImageInput] = [],
     mentions: [ServerMentionInput] = []
-  ) {
+  ) -> OutboundSendDisposition {
     logger.info("Steering turn for \(sessionId)")
-    connection.steerTurn(
+    return connection.steerTurn(
       sessionId: sessionId,
       content: content,
       images: images,
@@ -918,6 +930,42 @@ final class ServerAppState {
     logger.info("Forking session \(sessionId) at turn \(nthUserMessage.map(String.init) ?? "full")")
     session(sessionId).forkInProgress = true
     connection.forkSession(sourceSessionId: sessionId, nthUserMessage: nthUserMessage)
+  }
+
+  /// Create a new worktree from the source repository and fork the session into it.
+  func forkSessionToWorktree(
+    sessionId: String,
+    branchName: String,
+    baseBranch: String? = nil,
+    nthUserMessage: UInt32? = nil
+  ) {
+    logger.info(
+      "Forking session \(sessionId) to worktree branch=\(branchName) base=\(baseBranch ?? "-") at turn \(nthUserMessage.map(String.init) ?? "full")"
+    )
+    session(sessionId).forkInProgress = true
+    connection.forkSessionToWorktree(
+      sourceSessionId: sessionId,
+      branchName: branchName,
+      baseBranch: baseBranch,
+      nthUserMessage: nthUserMessage
+    )
+  }
+
+  /// Fork into an existing tracked worktree.
+  func forkSessionToExistingWorktree(
+    sessionId: String,
+    worktreeId: String,
+    nthUserMessage: UInt32? = nil
+  ) {
+    logger.info(
+      "Forking session \(sessionId) to existing worktree=\(worktreeId) at turn \(nthUserMessage.map(String.init) ?? "full")"
+    )
+    session(sessionId).forkInProgress = true
+    connection.forkSessionToExistingWorktree(
+      sourceSessionId: sessionId,
+      worktreeId: worktreeId,
+      nthUserMessage: nthUserMessage
+    )
   }
 
   /// Execute a shell command in a session's working directory (does not trigger AI response)
@@ -983,6 +1031,7 @@ final class ServerAppState {
   func updateSessionConfig(sessionId: String, autonomy: AutonomyLevel) {
     logger.info("Updating session config \(sessionId) to \(autonomy.displayName)")
     session(sessionId).autonomy = autonomy
+    session(sessionId).autonomyConfiguredOnServer = true
     connection.updateSessionConfig(
       sessionId: sessionId,
       approvalPolicy: autonomy.approvalPolicy,
@@ -1122,7 +1171,10 @@ final class ServerAppState {
       {
         return existing
       }
-      return summary.toSession()
+      var s = summary.toSession()
+      s.endpointId = endpointId
+      s.endpointName = connection.endpointName
+      return s
     }
 
     // Hydrate observables for non-subscribed sessions (subscribed ones get
@@ -1135,6 +1187,10 @@ final class ServerAppState {
       if summary.provider == .codex {
         setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
         session(summary.id).autonomy = AutonomyLevel.from(
+          approvalPolicy: summary.approvalPolicy,
+          sandboxMode: summary.sandboxMode
+        )
+        session(summary.id).autonomyConfiguredOnServer = isAutonomyConfigured(
           approvalPolicy: summary.approvalPolicy,
           sandboxMode: summary.sandboxMode
         )
@@ -1225,6 +1281,10 @@ final class ServerAppState {
     if state.provider == .codex || state.claudeIntegrationMode == .direct {
       setConfigCache(sessionId: state.id, approvalPolicy: state.approvalPolicy, sandboxMode: state.sandboxMode)
       obs.autonomy = AutonomyLevel.from(
+        approvalPolicy: state.approvalPolicy,
+        sandboxMode: state.sandboxMode
+      )
+      obs.autonomyConfiguredOnServer = isAutonomyConfigured(
         approvalPolicy: state.approvalPolicy,
         sandboxMode: state.sandboxMode
       )
@@ -1435,6 +1495,10 @@ final class ServerAppState {
       let approval = approvalPolicies[sessionId]
       let sandbox = sandboxModes[sessionId]
       obs.autonomy = AutonomyLevel.from(approvalPolicy: approval, sandboxMode: sandbox)
+      obs.autonomyConfiguredOnServer = isAutonomyConfigured(
+        approvalPolicy: approval,
+        sandboxMode: sandbox
+      )
     }
     if let turnIdOuter = changes.currentTurnId {
       if let turnId = turnIdOuter {
@@ -2034,22 +2098,24 @@ final class ServerAppState {
 
   private func handleSessionCreated(_ summary: ServerSessionSummary) {
     logger.info("Session created: \(summary.id)")
-    let sess = summary.toSession()
-
-    if let idx = sessions.firstIndex(where: { $0.id == sess.id }) {
-      sessions[idx] = sess
-    } else {
-      sessions.append(sess)
-    }
+    var sess = summary.toSession()
+    sess.endpointId = endpointId
+    sess.endpointName = connection.endpointName
+    updateSessionInList(sess)
 
     hydrateObservable(session(summary.id), from: sess)
 
     if let autonomy = pendingCreationAutonomy {
       session(summary.id).autonomy = autonomy
+      session(summary.id).autonomyConfiguredOnServer = true
       pendingCreationAutonomy = nil
     } else if summary.provider == .codex {
       setConfigCache(sessionId: summary.id, approvalPolicy: summary.approvalPolicy, sandboxMode: summary.sandboxMode)
       session(summary.id).autonomy = AutonomyLevel.from(
+        approvalPolicy: summary.approvalPolicy,
+        sandboxMode: summary.sandboxMode
+      )
+      session(summary.id).autonomyConfiguredOnServer = isAutonomyConfigured(
         approvalPolicy: summary.approvalPolicy,
         sandboxMode: summary.sandboxMode
       )
@@ -2104,7 +2170,7 @@ final class ServerAppState {
 
     var handled = false
 
-    if code == "fork_failed" || code == "not_found" {
+    if code == "fork_failed" || code == "not_found" || code.hasPrefix("worktree_") {
       if let sid = sessionId {
         session(sid).forkInProgress = false
       }
@@ -2301,10 +2367,13 @@ final class ServerAppState {
   }
 
   private func updateSessionInList(_ session: Session) {
-    if let idx = sessions.firstIndex(where: { $0.id == session.id }) {
-      sessions[idx] = session
+    var stamped = session
+    stamped.endpointId = stamped.endpointId ?? endpointId
+    stamped.endpointName = stamped.endpointName ?? connection.endpointName
+    if let idx = sessions.firstIndex(where: { $0.id == stamped.id }) {
+      sessions[idx] = stamped
     } else {
-      sessions.append(session)
+      sessions.append(stamped)
     }
   }
 
@@ -2320,6 +2389,10 @@ final class ServerAppState {
     } else {
       sandboxModes.removeValue(forKey: sessionId)
     }
+  }
+
+  private func isAutonomyConfigured(approvalPolicy: String?, sandboxMode: String?) -> Bool {
+    approvalPolicy != nil || sandboxMode != nil
   }
 
   private func trimInactiveSessionPayload(_ sessionId: String, reason: String) {
