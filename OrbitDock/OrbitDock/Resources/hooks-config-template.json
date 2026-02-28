@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli session-start",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_session_start",
             "async": true
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli session-end",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_session_end",
             "async": true
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
             "async": true
           }
         ]
@@ -38,28 +38,74 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
             "async": true
           }
         ]
       }
     ],
-    "Notification": {
-      "matcher": "idle_prompt|permission_prompt",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli status-tracker",
-          "async": true
-        }
-      ]
-    },
+    "Notification": [
+      {
+        "matcher": "idle_prompt|permission_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_status_event",
+            "async": true
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
             "async": true
           }
         ]
@@ -70,7 +116,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
             "async": true
           }
         ]
@@ -81,7 +127,40 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli tool-tracker",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_tool_event",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_subagent_event",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Applications/OrbitDock.app/Contents/Resources/orbitdock-server\" hook-forward claude_subagent_event",
             "async": true
           }
         ]

@@ -423,7 +423,9 @@ fn handle_client_message<'a>(
             | ClientMessage::EndSession { .. }
             | ClientMessage::RenameSession { .. }
             | ClientMessage::UpdateSessionConfig { .. }
-            | ClientMessage::ForkSession { .. } => {
+            | ClientMessage::ForkSession { .. }
+            | ClientMessage::ForkSessionToWorktree { .. }
+            | ClientMessage::ForkSessionToExistingWorktree { .. } => {
                 crate::ws_handlers::session_crud::handle(msg, client_tx, state, conn_id).await;
             }
 
@@ -1601,6 +1603,7 @@ mod tests {
                 tool_input: None,
                 tool_response: None,
                 tool_use_id: None,
+                permission_suggestions: None,
                 error: None,
                 is_interrupt: None,
                 permission_mode: None,
@@ -1633,6 +1636,148 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn claude_post_tool_failure_interrupt_clears_pending_approval_queue() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "claude-clear-pending-on-failure".to_string();
+        let cwd = "/Users/tester/Developer/sample".to_string();
+
+        // Queue two pending approvals to reproduce stale passive hook state.
+        for tool_use_id in ["tool-a", "tool-b"] {
+            handle_client_message(
+                ClientMessage::ClaudeToolEvent {
+                    session_id: session_id.clone(),
+                    cwd: cwd.clone(),
+                    hook_event_name: "PermissionRequest".to_string(),
+                    tool_name: "Bash".to_string(),
+                    tool_input: Some(serde_json::json!({"command":"echo test"})),
+                    tool_response: None,
+                    tool_use_id: Some(tool_use_id.to_string()),
+                    permission_suggestions: None,
+                    error: None,
+                    is_interrupt: None,
+                    permission_mode: None,
+                },
+                &client_tx,
+                &state,
+                1,
+            )
+            .await;
+        }
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        let before = actor.snapshot();
+        assert!(
+            before.pending_approval_id.is_some(),
+            "permission requests should queue a pending approval"
+        );
+
+        handle_client_message(
+            ClientMessage::ClaudeToolEvent {
+                session_id: session_id.clone(),
+                cwd,
+                hook_event_name: "PostToolUseFailure".to_string(),
+                tool_name: "Bash".to_string(),
+                tool_input: Some(serde_json::json!({"command":"echo test"})),
+                tool_response: None,
+                tool_use_id: Some("tool-b".to_string()),
+                permission_suggestions: None,
+                error: Some("interrupted".to_string()),
+                is_interrupt: Some(true),
+                permission_mode: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let after = actor.snapshot();
+        assert_eq!(
+            after.pending_approval_id, None,
+            "interrupting a failed tool run should clear stale pending approvals"
+        );
+        assert_eq!(
+            after.work_status,
+            WorkStatus::Working,
+            "session should continue in working state after interrupt handling"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn claude_pre_tool_use_does_not_resolve_pending_approval() {
+        let state = new_test_state();
+        let (client_tx, _client_rx) = mpsc::channel::<OutboundMessage>(16);
+        let session_id = "claude-pretool-keeps-pending".to_string();
+        let cwd = "/Users/tester/Developer/sample".to_string();
+
+        handle_client_message(
+            ClientMessage::ClaudeToolEvent {
+                session_id: session_id.clone(),
+                cwd: cwd.clone(),
+                hook_event_name: "PermissionRequest".to_string(),
+                tool_name: "Edit".to_string(),
+                tool_input: Some(serde_json::json!({"file_path":"/tmp/demo.txt"})),
+                tool_response: None,
+                tool_use_id: Some("perm-a".to_string()),
+                permission_suggestions: None,
+                error: None,
+                is_interrupt: None,
+                permission_mode: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        let actor = state
+            .get_session(&session_id)
+            .expect("session should exist");
+        let before = actor.snapshot();
+        assert_eq!(
+            before.pending_approval_id.as_deref(),
+            Some("claude-perm-tooluse-perm-a"),
+            "permission request should enqueue a pending approval"
+        );
+
+        handle_client_message(
+            ClientMessage::ClaudeToolEvent {
+                session_id: session_id.clone(),
+                cwd,
+                hook_event_name: "PreToolUse".to_string(),
+                tool_name: "Bash".to_string(),
+                tool_input: Some(serde_json::json!({"command":"echo unrelated"})),
+                tool_response: None,
+                tool_use_id: Some("tool-other".to_string()),
+                permission_suggestions: None,
+                error: None,
+                is_interrupt: None,
+                permission_mode: None,
+            },
+            &client_tx,
+            &state,
+            1,
+        )
+        .await;
+
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let after = actor.snapshot();
+        assert_eq!(
+            after.pending_approval_id.as_deref(),
+            Some("claude-perm-tooluse-perm-a"),
+            "pre-tool hooks should not resolve pending approvals; only tool outcome hooks may do that"
+        );
+    }
+
     #[tokio::test]
     async fn claude_user_prompt_sets_first_prompt() {
         let state = new_test_state();
@@ -1659,6 +1804,14 @@ mod tests {
                 trigger: None,
                 custom_instructions: None,
                 permission_mode: None,
+                last_assistant_message: None,
+                teammate_name: None,
+                team_name: None,
+                task_id: None,
+                task_subject: None,
+                task_description: None,
+                config_source: None,
+                config_file_path: None,
             },
             &client_tx,
             &state,

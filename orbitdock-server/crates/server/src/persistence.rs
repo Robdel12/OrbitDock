@@ -591,6 +591,21 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
 
                 conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
             }
+
+            // If the session moved out of an approval/question state without explicit
+            // per-request decisions, close any orphaned unresolved approval rows so replay
+            // does not resurrect stale approval cards.
+            if clears_pending {
+                let now = chrono_now();
+                conn.execute(
+                    "UPDATE approval_history
+                     SET decision = 'abort',
+                         decided_at = COALESCE(decided_at, ?1)
+                     WHERE session_id = ?2
+                       AND decision IS NULL",
+                    params![now, id],
+                )?;
+            }
         }
 
         PersistCommand::SessionEnd { id, reason } => {
@@ -648,11 +663,13 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 ],
             )?;
 
-            // Update last_message on the session for dashboard context lines
+            // Update last_message on the session for dashboard context lines.
+            // Ignore in-progress assistant deltas to avoid single-token summaries.
             if matches!(
                 message.message_type,
                 MessageType::User | MessageType::Assistant
-            ) {
+            ) && !message.is_in_progress
+            {
                 let truncated: String = message.content.chars().take(200).collect();
                 let _ = conn.execute(
                     "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
@@ -699,12 +716,42 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                     "UPDATE messages SET {} WHERE id = ? AND session_id = ?",
                     updates.join(", ")
                 );
-                params_vec.push(Box::new(message_id));
-                params_vec.push(Box::new(session_id));
+                params_vec.push(Box::new(message_id.clone()));
+                params_vec.push(Box::new(session_id.clone()));
 
                 let params_refs: Vec<&dyn rusqlite::ToSql> =
                     params_vec.iter().map(|b| b.as_ref()).collect();
                 conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            }
+
+            // Keep sessions.last_message aligned to completed conversation messages.
+            // We intentionally skip in-progress assistant deltas to avoid noisy one-char lines.
+            let candidate: Option<String> = conn
+                .query_row(
+                    "SELECT type, content, is_in_progress FROM messages WHERE id = ?1 AND session_id = ?2",
+                    params![message_id, session_id],
+                    |row| {
+                        let message_type: String = row.get(0)?;
+                        let content: Option<String> = row.get(1)?;
+                        let is_in_progress: i64 = row.get(2)?;
+                        Ok((message_type, content, is_in_progress))
+                    },
+                )
+                .optional()?
+                .and_then(|(message_type, content, is_in_progress)| {
+                    if (message_type == "user" || message_type == "assistant") && is_in_progress == 0 {
+                        content
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(content) = candidate {
+                let truncated: String = content.chars().take(200).collect();
+                let _ = conn.execute(
+                    "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
+                    params![truncated, session_id],
+                );
             }
         }
 
@@ -979,6 +1026,11 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
         } => {
             let mut updates: Vec<String> = Vec::new();
             let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+            let has_attention_reason = attention_reason.is_some();
+            let clears_pending = matches!(
+                work_status.as_deref(),
+                Some("working") | Some("waiting") | Some("reply") | Some("ended")
+            );
 
             if let Some(ws) = work_status {
                 updates.push("work_status = ?".to_string());
@@ -1007,6 +1059,21 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
             if let Some(question) = pending_question {
                 updates.push("pending_question = ?".to_string());
                 params_vec.push(Box::new(question));
+            }
+            if clears_pending {
+                updates.push("pending_tool_name = NULL".to_string());
+                updates.push("pending_tool_input = NULL".to_string());
+                updates.push("pending_question = NULL".to_string());
+                updates.push("pending_approval_id = NULL".to_string());
+                if !has_attention_reason {
+                    updates.push(
+                        "attention_reason = CASE \
+                            WHEN attention_reason IN ('awaitingPermission', 'awaitingQuestion') THEN 'awaitingReply' \
+                            ELSE attention_reason \
+                         END"
+                            .to_string(),
+                    );
+                }
             }
             if let Some(src) = source {
                 updates.push("source = ?".to_string());
@@ -1041,11 +1108,23 @@ fn execute_command(conn: &Connection, cmd: PersistCommand) -> Result<(), rusqlit
                 params_vec.push(Box::new(chrono_now()));
 
                 let sql = format!("UPDATE sessions SET {} WHERE id = ?", updates.join(", "));
-                params_vec.push(Box::new(id));
+                params_vec.push(Box::new(id.clone()));
 
                 let params_refs: Vec<&dyn rusqlite::ToSql> =
                     params_vec.iter().map(|b| b.as_ref()).collect();
                 conn.execute(&sql, rusqlite::params_from_iter(params_refs))?;
+            }
+
+            if clears_pending {
+                let now = chrono_now();
+                conn.execute(
+                    "UPDATE approval_history
+                     SET decision = 'abort',
+                         decided_at = COALESCE(decided_at, ?1)
+                     WHERE session_id = ?2
+                       AND decision IS NULL",
+                    params![now, id],
+                )?;
             }
         }
 
@@ -2208,6 +2287,29 @@ fn load_messages_from_db(
     Ok(messages)
 }
 
+fn load_latest_completed_conversation_message_from_db(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Option<String>, rusqlite::Error> {
+    let latest: Option<String> = conn
+        .query_row(
+            "SELECT content
+             FROM messages
+             WHERE session_id = ?1
+               AND type IN ('user', 'assistant')
+               AND is_in_progress = 0
+               AND content IS NOT NULL
+               AND trim(content) != ''
+             ORDER BY sequence DESC
+             LIMIT 1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    Ok(latest.map(|content| content.chars().take(200).collect()))
+}
+
 /// A parsed item from a single JSONL entry. One entry can yield multiple items
 /// (e.g. an assistant entry with both text and tool_use content blocks).
 struct ParsedItem {
@@ -3109,14 +3211,17 @@ pub async fn load_sessions_for_startup() -> Result<Vec<RestoredSession>, anyhow:
                 )
                 .unwrap_or(None);
 
-            // Query last_message (column may not exist on old schemas)
-            let last_message: Option<String> = conn
+            // Query persisted session summary field (column may not exist on old schemas)
+            let persisted_last_message: Option<String> = conn
                 .query_row(
                     "SELECT last_message FROM sessions WHERE id = ?1",
                     params![id],
                     |row| row.get(0),
                 )
                 .unwrap_or(None);
+            let last_message = load_latest_completed_conversation_message_from_db(&conn, &id)
+                .unwrap_or(None)
+                .or(persisted_last_message);
 
             // Query effort (column may not exist on old schemas)
             let effort: Option<String> = conn
@@ -3394,14 +3499,17 @@ pub async fn load_session_by_id(id: &str) -> Result<Option<RestoredSession>, any
             )
             .unwrap_or((None, None, None));
 
-        // Query last_message (column may not exist on old schemas)
-        let last_message: Option<String> = conn
+        // Query persisted session summary field (column may not exist on old schemas)
+        let persisted_last_message: Option<String> = conn
             .query_row(
                 "SELECT last_message FROM sessions WHERE id = ?1",
                 params![&id],
                 |row| row.get(0),
             )
             .unwrap_or(None);
+        let last_message = load_latest_completed_conversation_message_from_db(&conn, &id)
+            .unwrap_or(None)
+            .or(persisted_last_message);
 
         // Query effort (column may not exist on old schemas)
         let effort: Option<String> = conn
@@ -3526,9 +3634,10 @@ pub fn create_persistence_channel() -> (mpsc::Sender<PersistCommand>, mpsc::Rece
 pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
     let db_path = crate::paths::db_path();
 
-    let count = tokio::task::spawn_blocking(move || -> Result<u64, anyhow::Error> {
+    let (moved_on_count, orphaned_permission_count, orphaned_approval_count) =
+        tokio::task::spawn_blocking(move || -> Result<(u64, u64, u64), anyhow::Error> {
         if !db_path.exists() {
-            return Ok(0);
+            return Ok((0, 0, 0));
         }
 
         let conn = Connection::open(&db_path)?;
@@ -3537,11 +3646,13 @@ pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
              PRAGMA busy_timeout = 5000;",
         )?;
 
+        let now = chrono_now();
+
         // Clear pending state for active sessions whose work_status is NOT permission/question
         // but whose hook-managed columns still claim an approval is pending. This happens when
         // Claude crashes without firing the Stop hook — the connector emits SessionUpdate
         // (work_status → waiting) but the hook columns stay stale.
-        let rows = conn.execute(
+        let moved_on_rows = conn.execute(
             "UPDATE sessions
              SET pending_tool_name = NULL,
                  pending_tool_input = NULL,
@@ -3561,15 +3672,61 @@ pub async fn cleanup_stale_permission_state() -> Result<u64, anyhow::Error> {
             [],
         )?;
 
-        Ok(rows as u64)
+        // Repair active sessions that are stuck in permission/question with no actionable
+        // pending payload. This can happen if old hooks resolved/cleared pending IDs out of
+        // order, leaving work_status pinned to permission indefinitely.
+        let orphaned_approval_rows = conn.execute(
+            "UPDATE approval_history
+             SET decision = 'abort',
+                 decided_at = COALESCE(decided_at, ?1)
+             WHERE decision IS NULL
+               AND session_id IN (
+                   SELECT id
+                   FROM sessions
+                   WHERE status = 'active'
+                     AND work_status IN ('permission', 'question')
+                     AND pending_approval_id IS NULL
+                     AND pending_tool_name IS NULL
+                     AND pending_tool_input IS NULL
+                     AND pending_question IS NULL
+               )",
+            params![now],
+        )?;
+
+        let orphaned_permission_rows = conn.execute(
+            "UPDATE sessions
+             SET work_status = 'waiting',
+                 attention_reason = 'awaitingReply',
+                 pending_tool_name = NULL,
+                 pending_tool_input = NULL,
+                 pending_question = NULL,
+                 pending_approval_id = NULL
+             WHERE status = 'active'
+               AND work_status IN ('permission', 'question')
+               AND pending_approval_id IS NULL
+               AND pending_tool_name IS NULL
+               AND pending_tool_input IS NULL
+               AND pending_question IS NULL",
+            [],
+        )?;
+
+        Ok((
+            moved_on_rows as u64,
+            orphaned_permission_rows as u64,
+            orphaned_approval_rows as u64,
+        ))
     })
     .await??;
 
+    let count = moved_on_count + orphaned_permission_count;
     if count > 0 {
         info!(
             component = "startup",
             event = "startup.stale_permission_cleanup",
             sessions_fixed = count,
+            moved_on_sessions_fixed = moved_on_count,
+            orphaned_permission_sessions_fixed = orphaned_permission_count,
+            orphaned_approval_rows_aborted = orphaned_approval_count,
             "Cleared stale pending permission/question state from prior crash"
         );
     }
@@ -4312,6 +4469,134 @@ mod tests {
     }
 
     #[test]
+    fn message_update_sets_last_message_from_completed_conversation_messages_only() {
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::SessionCreate {
+                id: "message-update-last-message".into(),
+                provider: Provider::Codex,
+                project_path: "/tmp/message-update-last-message".into(),
+                project_name: Some("message-update-last-message".into()),
+                branch: Some("main".into()),
+                model: Some("gpt-5".into()),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: None,
+                forked_from_session_id: None,
+            }],
+        )
+        .expect("seed session");
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::MessageAppend {
+                session_id: "message-update-last-message".into(),
+                message: Message {
+                    id: "assistant-stream".into(),
+                    session_id: "message-update-last-message".into(),
+                    message_type: MessageType::Assistant,
+                    content: "I".into(),
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: "2026-02-28T00:00:00Z".into(),
+                    duration_ms: None,
+                    images: vec![],
+                },
+            }],
+        )
+        .expect("append in-progress assistant message");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        let initial_last_message: Option<String> = conn
+            .query_row(
+                "SELECT last_message FROM sessions WHERE id = ?1",
+                params!["message-update-last-message"],
+                |row| row.get(0),
+            )
+            .expect("query initial last_message");
+        assert!(initial_last_message.is_none());
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::MessageUpdate {
+                session_id: "message-update-last-message".into(),
+                message_id: "assistant-stream".into(),
+                content: Some("Implemented both parts of the dashboard update".into()),
+                tool_output: None,
+                duration_ms: None,
+                is_error: None,
+                is_in_progress: Some(false),
+            }],
+        )
+        .expect("finalize assistant message");
+
+        let updated_last_message: Option<String> = conn
+            .query_row(
+                "SELECT last_message FROM sessions WHERE id = ?1",
+                params!["message-update-last-message"],
+                |row| row.get(0),
+            )
+            .expect("query updated last_message");
+        assert_eq!(
+            updated_last_message.as_deref(),
+            Some("Implemented both parts of the dashboard update")
+        );
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::MessageAppend {
+                    session_id: "message-update-last-message".into(),
+                    message: Message {
+                        id: "tool-msg".into(),
+                        session_id: "message-update-last-message".into(),
+                        message_type: MessageType::Tool,
+                        content: "echo hello".into(),
+                        tool_name: Some("Bash".into()),
+                        tool_input: Some("{\"command\":\"echo hello\"}".into()),
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: false,
+                        timestamp: "2026-02-28T00:00:01Z".into(),
+                        duration_ms: None,
+                        images: vec![],
+                    },
+                },
+                PersistCommand::MessageUpdate {
+                    session_id: "message-update-last-message".into(),
+                    message_id: "tool-msg".into(),
+                    content: Some("echo hello && pwd".into()),
+                    tool_output: None,
+                    duration_ms: None,
+                    is_error: None,
+                    is_in_progress: Some(false),
+                },
+            ],
+        )
+        .expect("append and update tool message");
+
+        let after_tool_last_message: Option<String> = conn
+            .query_row(
+                "SELECT last_message FROM sessions WHERE id = ?1",
+                params!["message-update-last-message"],
+                |row| row.get(0),
+            )
+            .expect("query last_message after tool update");
+        assert_eq!(
+            after_tool_last_message.as_deref(),
+            Some("Implemented both parts of the dashboard update")
+        );
+    }
+
+    #[test]
     fn approval_requested_upserts_existing_unresolved_row_for_same_request_id() {
         let home = create_test_home();
         let _dd_guard = set_test_data_dir(&home);
@@ -4869,6 +5154,80 @@ mod tests {
         assert!(restored_ids.iter().any(|id| id == "passive-ended"));
         assert!(restored.iter().any(|s| s.status == "active"));
         assert!(restored.iter().any(|s| s.status == "ended"));
+    }
+
+    #[tokio::test]
+    async fn startup_restore_prefers_messages_table_for_last_message_over_stale_session_column() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![
+                PersistCommand::SessionCreate {
+                    id: "stale-last-message".into(),
+                    provider: Provider::Codex,
+                    project_path: "/tmp/stale-last-message".into(),
+                    project_name: Some("stale-last-message".into()),
+                    branch: Some("main".into()),
+                    model: Some("gpt-5".into()),
+                    approval_policy: None,
+                    sandbox_mode: None,
+                    permission_mode: None,
+                    forked_from_session_id: None,
+                },
+                PersistCommand::MessageAppend {
+                    session_id: "stale-last-message".into(),
+                    message: Message {
+                        id: "assistant-final".into(),
+                        session_id: "stale-last-message".into(),
+                        message_type: MessageType::Assistant,
+                        content: "Implemented both parts of the dashboard update".into(),
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: false,
+                        timestamp: "2026-02-28T00:00:00Z".into(),
+                        duration_ms: None,
+                        images: vec![],
+                    },
+                },
+            ],
+        )
+        .expect("seed stale-last-message session");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        conn.execute(
+            "UPDATE sessions SET last_message = ?1 WHERE id = ?2",
+            params!["Yes", "stale-last-message"],
+        )
+        .expect("force stale session.last_message");
+        drop(conn);
+
+        let restored = load_sessions_for_startup().await.expect("load sessions");
+        let startup_last_message = restored
+            .iter()
+            .find(|session| session.id == "stale-last-message")
+            .and_then(|session| session.last_message.clone());
+        assert_eq!(
+            startup_last_message.as_deref(),
+            Some("Implemented both parts of the dashboard update")
+        );
+
+        let by_id = load_session_by_id("stale-last-message")
+            .await
+            .expect("load session by id")
+            .expect("expected restored session");
+        assert_eq!(
+            by_id.last_message.as_deref(),
+            Some("Implemented both parts of the dashboard update")
+        );
     }
 
     #[tokio::test]
@@ -5747,6 +6106,93 @@ mod tests {
             )
             .expect("query alive");
         assert_eq!(alive, "active");
+    }
+
+    #[tokio::test]
+    async fn cleanup_stale_permission_state_repairs_orphaned_permission_sessions() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let home = create_test_home();
+        let _dd_guard = set_test_data_dir(&home);
+        let db_path = home.join(".orbitdock/orbitdock.db");
+        run_all_migrations(&db_path);
+
+        flush_batch(
+            &db_path,
+            vec![PersistCommand::SessionCreate {
+                id: "orphaned-permission".into(),
+                provider: Provider::Claude,
+                project_path: "/tmp/orphaned".into(),
+                project_name: Some("orphaned".into()),
+                branch: Some("main".into()),
+                model: Some("claude-sonnet-4-6".into()),
+                approval_policy: None,
+                sandbox_mode: None,
+                permission_mode: None,
+                forked_from_session_id: None,
+            }],
+        )
+        .expect("seed orphaned session");
+
+        let conn = Connection::open(&db_path).expect("open db");
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA busy_timeout = 5000;",
+        )
+        .expect("set pragmas");
+        conn.execute(
+            "UPDATE sessions
+             SET work_status = 'permission',
+                 attention_reason = 'awaitingPermission',
+                 pending_tool_name = NULL,
+                 pending_tool_input = NULL,
+                 pending_question = NULL,
+                 pending_approval_id = NULL
+             WHERE id = ?1",
+            params!["orphaned-permission"],
+        )
+        .expect("mark orphaned permission state");
+        conn.execute(
+            "INSERT INTO approval_history (
+                 session_id, request_id, approval_type, tool_name, command, file_path, cwd,
+                 decision, proposed_amendment, created_at, decided_at
+             ) VALUES (?1, ?2, 'exec', 'Bash', 'echo hello', NULL, '/tmp', NULL, NULL, ?3, NULL)",
+            params![
+                "orphaned-permission",
+                "orphaned-request-1",
+                "2026-02-28T00:00:00Z"
+            ],
+        )
+        .expect("seed unresolved approval row");
+        drop(conn);
+
+        let fixed = cleanup_stale_permission_state().await.expect("run cleanup");
+        assert_eq!(fixed, 1, "expected one orphaned session to be repaired");
+
+        let conn = Connection::open(&db_path).expect("reopen db");
+        let repaired: (String, String, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT work_status, attention_reason, pending_approval_id, pending_tool_name
+                 FROM sessions WHERE id = ?1",
+                params!["orphaned-permission"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("query repaired session");
+        assert_eq!(repaired.0, "waiting");
+        assert_eq!(repaired.1, "awaitingReply");
+        assert!(repaired.2.is_none());
+        assert!(repaired.3.is_none());
+
+        let decision: Option<String> = conn
+            .query_row(
+                "SELECT decision FROM approval_history
+                 WHERE session_id = ?1 AND request_id = ?2",
+                params!["orphaned-permission", "orphaned-request-1"],
+                |row| row.get(0),
+            )
+            .expect("query repaired approval decision");
+        assert_eq!(decision.as_deref(), Some("abort"));
     }
 
     #[test]

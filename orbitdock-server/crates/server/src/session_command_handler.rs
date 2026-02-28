@@ -7,7 +7,9 @@
 use std::time::Duration;
 
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::{MessageType, ServerMessage, SessionStatus, StateChanges, WorkStatus};
+use orbitdock_protocol::{
+    Message, MessageType, ServerMessage, SessionStatus, StateChanges, WorkStatus,
+};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::warn;
@@ -66,6 +68,26 @@ async fn execute_persist_op(op: PersistOp, persist_tx: &mpsc::Sender<PersistComm
         },
     };
     let _ = persist_tx.send(cmd).await;
+}
+
+fn completed_conversation_message_snippet(message: &Message) -> Option<String> {
+    if !matches!(
+        message.message_type,
+        MessageType::User | MessageType::Assistant
+    ) {
+        return None;
+    }
+    if message.is_in_progress {
+        return None;
+    }
+    Some(message.content.chars().take(200).collect())
+}
+
+fn latest_completed_conversation_message(messages: &[Message]) -> Option<String> {
+    messages
+        .iter()
+        .rev()
+        .find_map(completed_conversation_message_snippet)
 }
 
 /// Handle a SessionCommand on the owned SessionHandle.
@@ -236,19 +258,31 @@ pub async fn handle_session_command(
         }
         SessionCommand::AddMessageAndBroadcast { message } => {
             let session_id = handle.id().to_string();
-            // Update last_message for dashboard context lines
-            if matches!(
-                message.message_type,
-                MessageType::User | MessageType::Assistant
-            ) {
-                let truncated: String = message.content.chars().take(200).collect();
-                handle.set_last_message(Some(truncated));
+            let mut last_message_delta: Option<String> = None;
+
+            if let Some(snippet) = completed_conversation_message_snippet(&message) {
+                let previous = handle.to_snapshot().last_message.clone();
+                if previous.as_deref() != Some(snippet.as_str()) {
+                    handle.set_last_message(Some(snippet.clone()));
+                    last_message_delta = Some(snippet);
+                }
             }
+
             handle.add_message(message.clone());
             handle.broadcast(ServerMessage::MessageAppended {
                 session_id,
                 message,
             });
+
+            if let Some(last_message) = last_message_delta {
+                handle.broadcast(ServerMessage::SessionDelta {
+                    session_id: handle.id().to_string(),
+                    changes: StateChanges {
+                        last_message: Some(Some(last_message)),
+                        ..Default::default()
+                    },
+                });
+            }
         }
         SessionCommand::ResolvePendingApproval {
             request_id,
@@ -370,15 +404,15 @@ pub(crate) async fn dispatch_transition_input(
     let (new_state, effects) = transition::transition(state, input, &now);
     handle.apply_state(new_state);
 
-    // Update last_message from the latest user/assistant message
-    if let Some(last) = handle
-        .messages()
-        .iter()
-        .rev()
-        .find(|m| matches!(m.message_type, MessageType::User | MessageType::Assistant))
-    {
-        let truncated: String = last.content.chars().take(200).collect();
-        handle.set_last_message(Some(truncated));
+    // Update last_message from the latest completed user/assistant message.
+    // In-progress assistant streaming deltas are intentionally ignored.
+    let mut last_message_delta: Option<String> = None;
+    let previous_last_message = handle.to_snapshot().last_message.clone();
+    if let Some(snippet) = latest_completed_conversation_message(handle.messages()) {
+        if previous_last_message.as_deref() != Some(snippet.as_str()) {
+            handle.set_last_message(Some(snippet.clone()));
+            last_message_delta = Some(snippet);
+        }
     }
 
     for effect in effects {
@@ -394,6 +428,16 @@ pub(crate) async fn dispatch_transition_input(
                 handle.broadcast(msg);
             }
         }
+    }
+
+    if let Some(last_message) = last_message_delta {
+        handle.broadcast(ServerMessage::SessionDelta {
+            session_id: handle.id().to_string(),
+            changes: StateChanges {
+                last_message: Some(Some(last_message)),
+                ..Default::default()
+            },
+        });
     }
 
     handle.refresh_snapshot();

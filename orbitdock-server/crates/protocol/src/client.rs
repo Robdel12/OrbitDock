@@ -143,6 +143,20 @@ pub enum ClientMessage {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         disallowed_tools: Vec<String>,
     },
+    ForkSessionToWorktree {
+        source_session_id: String,
+        branch_name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        base_branch: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        nth_user_message: Option<u32>,
+    },
+    ForkSessionToExistingWorktree {
+        source_session_id: String,
+        worktree_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        nth_user_message: Option<u32>,
+    },
 
     // Approval history
     ListApprovals {
@@ -318,6 +332,22 @@ pub enum ClientMessage {
         custom_instructions: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         permission_mode: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_assistant_message: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        teammate_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        team_name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task_subject: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task_description: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "source")]
+        config_source: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", rename = "file_path")]
+        config_file_path: Option<String>,
     },
     ClaudeToolEvent {
         session_id: String,
@@ -330,6 +360,8 @@ pub enum ClientMessage {
         tool_response: Option<Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         tool_use_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        permission_suggestions: Option<Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,6 +383,10 @@ pub enum ClientMessage {
         agent_type: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         agent_transcript_path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        stop_hook_active: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        last_assistant_message: Option<String>,
     },
 
     // Shell execution (provider-independent, user-initiated)
@@ -909,6 +945,87 @@ mod tests {
                 assert_eq!(*model, None);
             }
             other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fork_session_to_worktree_roundtrip() {
+        let json = r#"{
+          "type":"fork_session_to_worktree",
+          "source_session_id":"sess-src-3",
+          "branch_name":"feat/server-side-fork",
+          "base_branch":"main",
+          "nth_user_message":4
+        }"#;
+
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse fork_session_to_worktree");
+        match &parsed {
+            ClientMessage::ForkSessionToWorktree {
+                source_session_id,
+                branch_name,
+                base_branch,
+                nth_user_message,
+            } => {
+                assert_eq!(source_session_id, "sess-src-3");
+                assert_eq!(branch_name, "feat/server-side-fork");
+                assert_eq!(base_branch.as_deref(), Some("main"));
+                assert_eq!(*nth_user_message, Some(4));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::ForkSessionToWorktree {
+                source_session_id,
+                branch_name,
+                ..
+            } => {
+                assert_eq!(source_session_id, "sess-src-3");
+                assert_eq!(branch_name, "feat/server-side-fork");
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fork_session_to_existing_worktree_roundtrip() {
+        let json = r#"{
+          "type":"fork_session_to_existing_worktree",
+          "source_session_id":"sess-src-4",
+          "worktree_id":"wt-123",
+          "nth_user_message":2
+        }"#;
+
+        let parsed: ClientMessage =
+            serde_json::from_str(json).expect("parse fork_session_to_existing_worktree");
+        match &parsed {
+            ClientMessage::ForkSessionToExistingWorktree {
+                source_session_id,
+                worktree_id,
+                nth_user_message,
+            } => {
+                assert_eq!(source_session_id, "sess-src-4");
+                assert_eq!(worktree_id, "wt-123");
+                assert_eq!(*nth_user_message, Some(2));
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+
+        let serialized = serde_json::to_string(&parsed).expect("serialize");
+        let reparsed: ClientMessage = serde_json::from_str(&serialized).expect("reparse");
+        match reparsed {
+            ClientMessage::ForkSessionToExistingWorktree {
+                source_session_id,
+                worktree_id,
+                ..
+            } => {
+                assert_eq!(source_session_id, "sess-src-4");
+                assert_eq!(worktree_id, "wt-123");
+            }
+            other => panic!("unexpected variant on roundtrip: {:?}", other),
         }
     }
 

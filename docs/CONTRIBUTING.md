@@ -83,7 +83,7 @@ echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock-s
 
 **Per-session observation** — `SessionObservable` is a per-session `@Observable` class. Access via `serverState.session(scopedId)`. Views observe only the session they display.
 
-**Theme colors** — Always use the cosmic palette from `Theme.swift`. Never use system colors (`.blue`, `.green`, `.purple`). Never use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead. See the full design system in `CLAUDE.md`.
+**Theme colors** — Always use the cosmic palette from `Theme.swift`. Never use system colors (`.blue`, `.green`, `.purple`). Never use `.foregroundStyle(.tertiary)` or `.foregroundStyle(.quaternary)` — use `Color.textTertiary` / `Color.textQuaternary` instead. See `CLAUDE.md` and `docs/UI_CROSS_PLATFORM_GUIDELINES.md` for UI system rules.
 
 **Animations** — Use `.spring(response: 0.35, dampingFraction: 0.8)`. No timers for animations — SwiftUI's declarative animation system only.
 

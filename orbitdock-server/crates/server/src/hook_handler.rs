@@ -74,6 +74,94 @@ fn is_claude_hook(msg: &ClientMessage) -> bool {
     )
 }
 
+fn normalized_non_empty(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn claude_permission_request_id(
+    actor: Option<&SessionActorHandle>,
+    tool_name: &str,
+    tool_use_id: Option<&str>,
+) -> String {
+    if let Some(tool_use_id) = normalized_non_empty(tool_use_id) {
+        return format!("claude-perm-tooluse-{tool_use_id}");
+    }
+
+    if let Some(existing_id) = actor
+        .and_then(|actor| normalized_non_empty(actor.snapshot().pending_approval_id.as_deref()))
+    {
+        return existing_id;
+    }
+
+    format!(
+        "claude-perm-{}-{}",
+        tool_name,
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    )
+}
+
+async fn resolve_pending_approvals_after_tool_outcome(
+    actor: &SessionActorHandle,
+    persist_tx: &mpsc::Sender<PersistCommand>,
+    session_id: &str,
+    decision: &str,
+    fallback_work_status: orbitdock_protocol::WorkStatus,
+) {
+    loop {
+        let Some(request_id) =
+            normalized_non_empty(actor.snapshot().pending_approval_id.as_deref())
+        else {
+            break;
+        };
+
+        let (reply_tx, reply_rx) = oneshot::channel();
+        actor
+            .send(SessionCommand::ResolvePendingApproval {
+                request_id: request_id.clone(),
+                fallback_work_status,
+                reply: reply_tx,
+            })
+            .await;
+
+        let Ok(resolution) = reply_rx.await else {
+            break;
+        };
+
+        if resolution.approval_type.is_none() {
+            break;
+        }
+
+        let _ = persist_tx
+            .send(PersistCommand::ApprovalDecision {
+                session_id: session_id.to_string(),
+                request_id,
+                decision: decision.to_string(),
+            })
+            .await;
+
+        let _ = persist_tx
+            .send(PersistCommand::SessionUpdate {
+                id: session_id.to_string(),
+                status: None,
+                work_status: Some(resolution.work_status),
+                last_activity_at: None,
+            })
+            .await;
+
+        if resolution.next_pending_approval.is_none() {
+            break;
+        }
+    }
+}
+
 /// Process a Claude hook message. Extracted from `handle_client_message` in websocket.rs.
 /// These handlers never need `client_tx` or `conn_id` — only `state`.
 pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry>) {
@@ -274,7 +362,34 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             trigger: _,
             custom_instructions: _,
             permission_mode,
+            last_assistant_message: _,
+            teammate_name,
+            team_name,
+            task_id,
+            task_subject,
+            task_description: _,
+            config_source,
+            config_file_path,
         } => {
+            if matches!(
+                hook_event_name.as_str(),
+                "TeammateIdle" | "TaskCompleted" | "ConfigChange"
+            ) {
+                tracing::info!(
+                    component = "hook_handler",
+                    event = "claude.status.extended",
+                    session_id = %session_id,
+                    hook_event_name = %hook_event_name,
+                    teammate_name = ?teammate_name,
+                    team_name = ?team_name,
+                    task_id = ?task_id,
+                    task_subject = ?task_subject,
+                    config_source = ?config_source,
+                    config_file_path = ?config_file_path,
+                    "Received extended Claude status hook event"
+                );
+            }
+
             // If this hook is from a managed Claude direct session, route
             // supplementary data to the owning session.
             if state.is_managed_claude_thread(&session_id) {
@@ -472,14 +587,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     }
                 }
                 "Notification" => match notification_type.as_deref() {
-                    Some("permission_prompt") => (
-                        Some(orbitdock_protocol::WorkStatus::Permission),
-                        Some(Some("awaitingPermission".to_string())),
-                    ),
-                    Some("elicitation_dialog") => (
-                        Some(orbitdock_protocol::WorkStatus::Question),
-                        Some(Some("awaitingQuestion".to_string())),
-                    ),
+                    // Notification events are informational; actionable permission/question
+                    // state is driven by PermissionRequest tool hooks.
+                    Some("permission_prompt") => (None, None),
+                    Some("elicitation_dialog") => (None, None),
                     Some("idle_prompt") => {
                         let is_question = {
                             let (lt_tx, lt_rx) = oneshot::channel();
@@ -502,6 +613,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     }
                     _ => (None, None),
                 },
+                "TeammateIdle" => (
+                    Some(orbitdock_protocol::WorkStatus::Waiting),
+                    Some(Some("awaitingReply".to_string())),
+                ),
                 _ => (None, None),
             };
 
@@ -684,9 +799,10 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             tool_name,
             tool_input,
             tool_response: _,
-            tool_use_id: _,
+            tool_use_id,
+            permission_suggestions,
             error: _,
-            is_interrupt: _,
+            is_interrupt,
             permission_mode,
         } => {
             // If this hook is from a managed Claude direct session, route
@@ -726,18 +842,20 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             }
                         }
                         "PermissionRequest" => {
+                            let permission_suggestions_count = permission_suggestions
+                                .as_ref()
+                                .and_then(|value| value.as_array())
+                                .map_or(0, |items| items.len());
                             let serialized_input =
                                 tool_input.and_then(|value| serde_json::to_string(&value).ok());
-                            let request_id = format!(
-                                "claude-perm-{}-{}",
-                                tool_name,
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis()
+                            let actor = state.get_session(&owning_id);
+                            let request_id = claude_permission_request_id(
+                                actor.as_ref(),
+                                &tool_name,
+                                tool_use_id.as_deref(),
                             );
 
-                            if let Some(actor) = state.get_session(&owning_id) {
+                            if let Some(actor) = actor {
                                 actor
                                     .send(SessionCommand::SetLastTool {
                                         tool: Some(tool_name.clone()),
@@ -763,6 +881,15 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                     })
                                     .await;
                             }
+
+                            tracing::info!(
+                                component = "hook_handler",
+                                event = "claude.permission_request",
+                                session_id = %owning_id,
+                                tool_name = %tool_name,
+                                permission_suggestions_count,
+                                "Received Claude permission request"
+                            );
 
                             let _ = persist_tx
                                 .send(PersistCommand::ApprovalRequested {
@@ -798,6 +925,24 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 .await;
                         }
                         "PostToolUse" | "PostToolUseFailure" => {
+                            if let Some(actor) = state.get_session(&owning_id) {
+                                let decision = if hook_event_name == "PostToolUseFailure"
+                                    && is_interrupt.unwrap_or(false)
+                                {
+                                    "denied"
+                                } else {
+                                    "approved"
+                                };
+                                resolve_pending_approvals_after_tool_outcome(
+                                    &actor,
+                                    &persist_tx,
+                                    &owning_id,
+                                    decision,
+                                    orbitdock_protocol::WorkStatus::Working,
+                                )
+                                .await;
+                            }
+
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeToolIncrement {
                                     id: owning_id.clone(),
@@ -877,8 +1022,11 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
 
             match hook_event_name.as_str() {
                 "PreToolUse" => {
+                    let snapshot = actor.snapshot();
                     let was_permission =
-                        actor.snapshot().work_status == orbitdock_protocol::WorkStatus::Permission;
+                        snapshot.work_status == orbitdock_protocol::WorkStatus::Permission;
+                    let had_pending_approval = snapshot.pending_approval_id.is_some();
+
                     let question = tool_input
                         .as_ref()
                         .and_then(|value| value.get("question"))
@@ -910,17 +1058,21 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             attention_reason: Some(Some("none".to_string())),
                             last_tool: Some(Some(tool_name.clone())),
                             last_tool_at: Some(Some(chrono_now())),
-                            pending_tool_name: if was_permission {
+                            pending_tool_name: if was_permission || had_pending_approval {
                                 None
                             } else {
                                 Some(Some(tool_name.clone()))
                             },
-                            pending_tool_input: if was_permission {
+                            pending_tool_input: if was_permission || had_pending_approval {
                                 None
                             } else {
                                 Some(serialized_input)
                             },
-                            pending_question: if was_permission { None } else { Some(question) },
+                            pending_question: if was_permission || had_pending_approval {
+                                None
+                            } else {
+                                Some(question)
+                            },
                             source: None,
                             agent_type: None,
                             permission_mode: permission_mode.clone().map(Some),
@@ -932,6 +1084,15 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .await;
                 }
                 "PostToolUse" => {
+                    resolve_pending_approvals_after_tool_outcome(
+                        &actor,
+                        &persist_tx,
+                        &session_id,
+                        "approved",
+                        orbitdock_protocol::WorkStatus::Working,
+                    )
+                    .await;
+
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeToolIncrement {
                             id: session_id.clone(),
@@ -969,6 +1130,20 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .await;
                 }
                 "PostToolUseFailure" => {
+                    let decision = if is_interrupt.unwrap_or(false) {
+                        "denied"
+                    } else {
+                        "approved"
+                    };
+                    resolve_pending_approvals_after_tool_outcome(
+                        &actor,
+                        &persist_tx,
+                        &session_id,
+                        decision,
+                        orbitdock_protocol::WorkStatus::Working,
+                    )
+                    .await;
+
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeToolIncrement {
                             id: session_id.clone(),
@@ -1006,15 +1181,16 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .await;
                 }
                 "PermissionRequest" => {
+                    let permission_suggestions_count = permission_suggestions
+                        .as_ref()
+                        .and_then(|value| value.as_array())
+                        .map_or(0, |items| items.len());
                     let serialized_input =
                         tool_input.and_then(|value| serde_json::to_string(&value).ok());
-                    let request_id = format!(
-                        "claude-perm-{}-{}",
-                        tool_name,
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis()
+                    let request_id = claude_permission_request_id(
+                        Some(&actor),
+                        &tool_name,
+                        tool_use_id.as_deref(),
                     );
 
                     actor
@@ -1039,6 +1215,15 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             persist_op: None,
                         })
                         .await;
+
+                    tracing::info!(
+                        component = "hook_handler",
+                        event = "claude.permission_request",
+                        session_id = %session_id,
+                        tool_name = %tool_name,
+                        permission_suggestions_count,
+                        "Received Claude permission request"
+                    );
 
                     let _ = persist_tx
                         .send(PersistCommand::ApprovalRequested {
@@ -1086,6 +1271,8 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
             agent_id,
             agent_type,
             agent_transcript_path,
+            stop_hook_active: _,
+            last_assistant_message: _,
         } => {
             // If this hook is from a managed Claude direct session, route
             // subagent tracking to the owning session.

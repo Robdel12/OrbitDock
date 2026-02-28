@@ -34,7 +34,9 @@ unified view no matter where your sessions are running or what device you're on.
 
 See [FEATURES.md](docs/FEATURES.md) for the full list.
 
-## Get Started
+## Quickstart (No Bullshit)
+
+If you want this running locally in a few minutes, do exactly this:
 
 ### 1. Install the server
 
@@ -42,10 +44,19 @@ See [FEATURES.md](docs/FEATURES.md) for the full list.
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-This downloads a prebuilt binary (macOS / Linux x86_64) or builds from source as a fallback. It
-handles everything — data directory, database, Claude Code hooks, and a background service.
+The installer sets up the binary, data directory, database, Claude hooks, and background service.
 
-### 2. Run the app
+### 2. Verify it actually started
+
+```bash
+orbitdock-server status
+curl http://127.0.0.1:4000/health
+orbitdock-server doctor
+```
+
+You should see healthy output from all three.
+
+### 3. Open the app
 
 Download from [Releases](https://github.com/Robdel12/OrbitDock/releases), or build from source:
 
@@ -56,12 +67,23 @@ make build
 open OrbitDock/OrbitDock.xcodeproj   # Cmd+R
 ```
 
-The app detects the server automatically. Start a Claude Code or Codex session and it shows up in
-the dashboard.
+The app auto-connects to the local server endpoint.
+
+### 4. Authenticate the provider you want to run
+
+- **Codex direct sessions**: open `Settings` → `CODEX CLI`, then sign in with ChatGPT (or use API key auth mode).
+- **Claude Code monitoring/control**: install Claude Code and log in; if you skipped hook install, run `orbitdock-server install-hooks`.
+
+### 5. Smoke test
+
+- In OrbitDock, click `New Codex Session`, pick any local repo, and send a prompt.
+- Or start a Claude Code session in your terminal and confirm it appears in OrbitDock.
+
+If a session does not appear, run `orbitdock-server doctor` and check `~/.orbitdock/logs/server.log`.
 
 ### Remote server
 
-For running the server on a VPS, Raspberry Pi, or another machine:
+Running on a VPS, Raspberry Pi, or another machine:
 
 ```bash
 orbitdock-server setup --remote
@@ -72,7 +94,7 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and
 ## Requirements
 
 - macOS 15.0+ (iOS 26.0+ for mobile)
-- **Codex** is built in — the server embeds codex-core, so you get it out of the box with an OpenAI API key
+- **Codex** is built in — the server embeds codex-core; authenticate with ChatGPT sign-in or API key mode
 - **Claude Code** requires a separate install and active login — OrbitDock monitors it via hooks
 - Xcode 16+ and Rust stable toolchain if building from source
 

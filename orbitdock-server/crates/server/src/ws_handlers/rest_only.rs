@@ -60,6 +60,26 @@ pub(crate) async fn handle(msg: ClientMessage, client_tx: &mpsc::Sender<Outbound
         ClientMessage::DiscoverWorktrees { .. } => {
             send_rest_only_error(client_tx, "POST /api/worktrees/discover", None).await;
         }
+        ClientMessage::ForkSessionToWorktree {
+            source_session_id, ..
+        } => {
+            send_rest_only_error(
+                client_tx,
+                "WS action: fork_session_to_worktree",
+                Some(source_session_id),
+            )
+            .await;
+        }
+        ClientMessage::ForkSessionToExistingWorktree {
+            source_session_id, ..
+        } => {
+            send_rest_only_error(
+                client_tx,
+                "WS action: fork_session_to_existing_worktree",
+                Some(source_session_id),
+            )
+            .await;
+        }
 
         // ── Review comments ───────────────────────────────────────
         ClientMessage::ListReviewComments { session_id, .. } => {

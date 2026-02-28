@@ -9,7 +9,7 @@ OrbitDock is a native SwiftUI app for macOS and iOS — mission control for AI c
 - **SwiftUI** - macOS 14+ with NavigationSplitView
 - **Rust / Axum** - orbitdock-server (session management, persistence, REST API + WebSocket)
 - **rusqlite + SQLite WAL** - Database access, concurrent reads/writes
-- **Shell hook script** - `~/.orbitdock/hook.sh` forwards Claude Code hooks via HTTP POST
+- **Rust hook transport** - `orbitdock-server hook-forward <type>` forwards Claude Code hooks via HTTP POST
 - **codex-core** - Embedded Codex runtime for direct sessions
 
 ## Build, Test, and Lint Commands
@@ -180,11 +180,10 @@ All server paths are resolved via `paths.rs` from a single data directory (`--da
 - **Auth Token**: `<data_dir>/auth-token` (optional, 0600 permissions)
 - **Encryption Key**: `<data_dir>/encryption.key` (auto-generated, 0600 permissions — see "Config Encryption" below)
 - **Launchd Plist**: `~/Library/LaunchAgents/com.orbitdock.server.plist` (created by `install-service`)
-- **CLI Logs**: `~/.orbitdock/cli.log` (debug output from orbitdock-cli)
 - **Codex App Logs**: `<data_dir>/logs/codex.log` (structured JSON logs for Codex debugging)
 - **Rust Server Logs**: `<data_dir>/logs/server.log` (structured JSON logs from orbitdock-server)
 - **Migrations**: `migrations/` (SQL files embedded in binary via `include_str!`)
-- **Hook Script**: `scripts/hook.sh` (dev source) / `scripts/hook.sh.template` (standalone template) / `<data_dir>/hook.sh` (installed)
+- **Hook Transport Config**: `<data_dir>/hook-forward.json` (server_url/auth_token for hook-forward)
 - **Shared Models**: `OrbitDock/OrbitDockCore/` (Swift Package with shared code)
 - **Claude Transcripts**: `~/.claude/projects/<project-hash>/<session-id>.jsonl` (read-only)
 - **Codex Sessions**: `~/.codex/sessions/**/rollout-*.jsonl` (read-only, watched via FSEvents)
@@ -370,9 +369,9 @@ OrbitDock/OrbitDockCore/
         └── Models/             # Input structs, enums (WorkStatus, SessionStatus, etc.)
 ```
 
-### Hook Script
+### Hook Transport
 
-Claude Code hooks pipe JSON to `~/.orbitdock/hook.sh <type>`, which injects the `type` field and POSTs to `http://127.0.0.1:4000/api/hook`. Source lives at `scripts/hook.sh` (dev) and `scripts/hook.sh.template` (standalone deploy with `{{SERVER_URL}}`, `{{SPOOL_DIR}}`, `{{AUTH_HEADER}}` placeholders).
+Claude Code hooks invoke `orbitdock-server hook-forward <type>`, which injects the `type` field and POSTs to `<server_url>/api/hook`. Transport target configuration lives in `<data_dir>/hook-forward.json` and is managed by `install-hooks`.
 
 Install hooks automatically: `orbitdock-server install-hooks`
 
@@ -389,7 +388,7 @@ Install hooks automatically: `orbitdock-server install-hooks`
 The server binary is self-contained with subcommands for standalone deployment:
 
 ```bash
-orbitdock-server init                    # Bootstrap dirs, DB, hook script
+orbitdock-server init                    # Bootstrap dirs + DB
 orbitdock-server install-hooks           # Merge hooks into ~/.claude/settings.json
 orbitdock-server start [--bind ADDR]     # Start server (default: 127.0.0.1:4000)
 orbitdock-server install-service --enable # Generate launchd/systemd service
@@ -472,8 +471,7 @@ Claude hooks → HTTP POST /api/hook → Rust server (port 4000) → SQLite
 - `migrations/001_baseline.sql` — Complete schema definition
 - `migrations/008_approval_version.sql` — Adds `approval_version` column to `sessions`
 - `migrations/010_worktree_support.sql` — Adds `worktrees` table, `repository_root`/`is_worktree`/`worktree_id` to `sessions`
-- `scripts/hook.sh` — Dev-time hook script
-- `scripts/hook.sh.template` — Templated hook script for standalone deploy
+- `orbitdock-server hook-forward` — Rust hook transport subcommand
 
 ### Config Encryption
 
@@ -582,11 +580,11 @@ tail -f ~/.orbitdock/logs/codex.log | jq 'select(.category == "bridge")'
 7. For Codex: Start a Codex session (or modify an existing rollout file)
 8. Verify data appears in OrbitDock
 
-### Testing hook script
+### Testing hook transport
 ```bash
 # Test session start (server must be running on port 4000)
 echo '{"session_id":"test","cwd":"/tmp","model":"claude-opus-4-6","source":"startup"}' \
-  | ~/.orbitdock/hook.sh claude_session_start
+  | orbitdock-server hook-forward claude_session_start
 
 # Test with curl directly
 curl -s -X POST -H "Content-Type: application/json" \

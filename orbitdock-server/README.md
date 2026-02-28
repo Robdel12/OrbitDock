@@ -34,7 +34,7 @@ Optional flags:
 The binary is fully self-contained — database migrations are baked in at compile time. No source tree, no Xcode, no app bundle.
 
 ```bash
-# Bootstrap everything: data dir, database, hook script
+# Bootstrap everything: data dir + database
 orbitdock-server init
 
 # Wire up Claude Code hooks (you'll need Claude Code installed already)
@@ -130,7 +130,7 @@ orbitdock-server [--data-dir PATH] <command>
 |---------|-------------|
 | `start` | Start the server (also the default when you omit the subcommand) |
 | `setup` | Interactive wizard (init + hooks + token + service) |
-| `init` | Create data directory, run migrations, install hook script |
+| `init` | Create data directory and run migrations |
 | `install-hooks` | Merge OrbitDock hooks into `~/.claude/settings.json` |
 | `install-service` | Generate a launchd plist (macOS) or systemd unit (Linux) |
 | `status` | Check if the server is running |
@@ -385,7 +385,7 @@ GET    /api/sessions/{session_id}/review-comments
 
 Server broadcasts `review_comment_created` / `review_comment_updated` / `review_comment_deleted` via WS after mutations.
 
-**Claude hook transport** (how `hook.sh` delivers events):
+**Claude hook transport** (how `orbitdock-server hook-forward` delivers events):
 
 ```json
 { "type": "claude_session_start", "session_id": "...", "cwd": "...", "model": "opus" }
@@ -422,11 +422,11 @@ Everything lives under one directory. Default is `~/.orbitdock/`, override with 
 ├── orbitdock.db              # SQLite database (WAL mode)
 ├── orbitdock.pid             # PID file (created after bind, removed on shutdown)
 ├── auth-token                # Auth token if generated (0600 permissions)
-├── hook.sh                   # Hook script for Claude Code
+├── hook-forward.json         # Hook transport target config (server_url, auth_token)
 ├── codex-rollout-state.json  # Codex file watcher offsets
 ├── logs/
 │   └── server.log            # Structured JSON logs
-└── spool/                    # Queued hook events (drained on startup)
+└── spool/                    # Queued hook events (retried by hook-forward; drained on startup)
 ```
 
 ## Persistence

@@ -28,7 +28,7 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - Lint all code: `make lint` (or `make swift-lint` / `make rust-lint`).
 - SwiftUI app in Xcode: open `OrbitDock/OrbitDock.xcodeproj` and build/run (Cmd+R).
 - CLI standalone: `cd OrbitDock/OrbitDockCore && swift build`
-- Test CLI: `echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start`
+- Test hook transport: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock-server hook-forward claude_status_event`
 
 ## Coding Style & Naming Conventions
 - Swift is formatted with SwiftFormat; see `.swiftformat` (2-space indentation, max width 120).

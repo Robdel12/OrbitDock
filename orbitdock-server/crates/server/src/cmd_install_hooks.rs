@@ -1,15 +1,12 @@
 //! `orbitdock-server install-hooks` — configure Claude Code hooks.
 //!
 //! Safely merges OrbitDock hook entries into `~/.claude/settings.json`.
-//! When `--server-url` is provided, generates the hook script inline
-//! (no `init` required) targeting the remote server.
+//! Hooks invoke `orbitdock-server hook-forward ...` directly; no shell script
+//! install is required.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use crate::paths;
-
-const HOOK_TEMPLATE: &str = include_str!("../../../../scripts/hook.sh.template");
+use crate::{cmd_hook_forward, paths};
 
 /// All Claude Code hook types we register for.
 const HOOK_TYPES: &[(&str, &str)] = &[
@@ -19,12 +16,18 @@ const HOOK_TYPES: &[(&str, &str)] = &[
     ("hooks.Stop", "claude_status_event"),
     ("hooks.Notification", "claude_status_event"),
     ("hooks.PreCompact", "claude_status_event"),
+    ("hooks.TeammateIdle", "claude_status_event"),
+    ("hooks.TaskCompleted", "claude_status_event"),
+    ("hooks.ConfigChange", "claude_status_event"),
     ("hooks.PreToolUse", "claude_tool_event"),
     ("hooks.PostToolUse", "claude_tool_event"),
     ("hooks.PostToolUseFailure", "claude_tool_event"),
     ("hooks.PermissionRequest", "claude_tool_event"),
     ("hooks.SubagentStart", "claude_subagent_event"),
     ("hooks.SubagentStop", "claude_subagent_event"),
+    // Intentionally excluded:
+    // - WorktreeCreate: adding this hook replaces Claude's default git worktree behavior.
+    // - WorktreeRemove: companion cleanup hook for custom worktree providers.
 ];
 
 pub fn run(
@@ -38,20 +41,9 @@ pub fn run(
             .join(".claude/settings.json")
     });
 
-    // Resolve hook script path — generate inline when targeting a remote server
-    let hook_script = if let Some(url) = server_url {
-        generate_remote_hook_script(url, auth_token)?
-    } else {
-        let path = paths::hook_script_path();
-        if !path.exists() {
-            anyhow::bail!(
-                "Hook script not found at {}. Run `orbitdock-server init` first, \
-                 or use `--server-url` to point hooks at a remote server.",
-                path.display()
-            );
-        }
-        path
-    };
+    let target_url = server_url.unwrap_or("http://127.0.0.1:4000");
+    let transport_config_path = cmd_hook_forward::write_transport_config(target_url, auth_token)?;
+    let hook_binary = quote_for_shell(&resolve_hook_binary_path());
 
     // Read existing settings or start with empty object
     let existing = if settings_file.exists() {
@@ -66,12 +58,11 @@ pub fn run(
         .as_object_mut()
         .ok_or_else(|| anyhow::anyhow!("settings.json is not a JSON object"))?;
 
-    let hook_path_str = hook_script.to_string_lossy();
     let mut added = Vec::new();
     let mut updated = Vec::new();
 
     for &(hook_key, hook_type) in HOOK_TYPES {
-        let command = format!("{} {}", hook_path_str, hook_type);
+        let command = format!("{hook_binary} hook-forward {hook_type}");
 
         // Navigate to the nested key (e.g. hooks.SessionStart)
         let parts: Vec<&str> = hook_key.split('.').collect();
@@ -95,6 +86,11 @@ pub fn run(
         });
 
         if let Some(existing_hooks) = hooks_map.get_mut(child_key) {
+            if !existing_hooks.is_array() {
+                // Normalize legacy/object forms (e.g. Notification object) to array form.
+                let normalized = existing_hooks.take();
+                *existing_hooks = serde_json::json!([normalized]);
+            }
             if let Some(arr) = existing_hooks.as_array_mut() {
                 // Check if we already have an OrbitDock hook (could be nested or bare)
                 let orbitdock_idx = arr.iter().position(|entry| {
@@ -103,7 +99,11 @@ pub fn run(
                         return hooks_arr.iter().any(|h| {
                             h.get("command")
                                 .and_then(|c| c.as_str())
-                                .map(|c| c.contains("orbitdock") || c.contains("hook.sh"))
+                                .map(|c| {
+                                    c.contains("orbitdock")
+                                        || c.contains("hook.sh")
+                                        || c.contains("hook-forward")
+                                })
                                 .unwrap_or(false)
                         });
                     }
@@ -111,7 +111,11 @@ pub fn run(
                     entry
                         .get("command")
                         .and_then(|c| c.as_str())
-                        .map(|c| c.contains("orbitdock") || c.contains("hook.sh"))
+                        .map(|c| {
+                            c.contains("orbitdock")
+                                || c.contains("hook.sh")
+                                || c.contains("hook-forward")
+                        })
                         .unwrap_or(false)
                 });
 
@@ -164,35 +168,24 @@ pub fn run(
     }
     println!();
     println!("  Settings written to {}", settings_file.display());
-    if server_url.is_some() {
-        println!("  Hook script at {}", hook_script.display());
-    }
+    println!(
+        "  Hook transport config: {}",
+        transport_config_path.display()
+    );
+    println!("  Hook forward binary: {}", resolve_hook_binary_path());
+    println!("  Spool directory: {}", paths::spool_dir().display());
     println!();
 
     Ok(())
 }
 
-/// Generate a hook script targeting a remote server URL.
-/// Writes to `~/.orbitdock/hook.sh` (creates `~/.orbitdock/` if needed).
-fn generate_remote_hook_script(
-    server_url: &str,
-    auth_token: Option<&str>,
-) -> anyhow::Result<PathBuf> {
-    let orbitdock_dir = dirs::home_dir().expect("HOME not found").join(".orbitdock");
-    std::fs::create_dir_all(&orbitdock_dir)?;
+fn resolve_hook_binary_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.into_os_string().into_string().ok())
+        .unwrap_or_else(|| "orbitdock-server".to_string())
+}
 
-    let spool_dir = orbitdock_dir.join("spool");
-    std::fs::create_dir_all(&spool_dir)?;
-
-    let hook_path = orbitdock_dir.join("hook.sh");
-
-    let rendered = HOOK_TEMPLATE
-        .replace("{{SERVER_URL}}", server_url.trim_end_matches('/'))
-        .replace("{{SPOOL_DIR}}", &spool_dir.to_string_lossy())
-        .replace("{{AUTH_HEADER}}", auth_token.unwrap_or(""));
-
-    std::fs::write(&hook_path, &rendered)?;
-    std::fs::set_permissions(&hook_path, std::fs::Permissions::from_mode(0o755))?;
-
-    Ok(hook_path)
+fn quote_for_shell(path: &str) -> String {
+    format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
 }

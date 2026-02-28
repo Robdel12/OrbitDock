@@ -40,7 +40,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -56,6 +56,7 @@ help:
 	@echo "make swift-fmt  Format Swift with SwiftFormat"
 	@echo "make swift-lint Lint Swift formatting with SwiftFormat --lint"
 	@echo "make rust-build Build Rust server crate"
+	@echo "make rust-build-universal Build fresh universal orbitdock-server binary (macOS)"
 	@echo "make rust-check Run cargo check for Rust workspace"
 	@echo "make rust-test  Run Rust workspace tests"
 	@echo "make rust-ci    Run Rust fmt check + clippy + tests"
@@ -191,6 +192,18 @@ rust-ci: rust-fmt-check rust-lint rust-test
 
 rust-build:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server
+
+rust-build-universal:
+	cd $(RUST_WORKSPACE_DIR) && rustup target add aarch64-apple-darwin x86_64-apple-darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server --release --target aarch64-apple-darwin
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server --release --target x86_64-apple-darwin
+	@mkdir -p "$(RUST_TARGET_DIR)/universal"
+	lipo -create \
+		"$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock-server" \
+		"$(RUST_TARGET_DIR)/x86_64-apple-darwin/release/orbitdock-server" \
+		-output "$(RUST_TARGET_DIR)/universal/orbitdock-server"
+	@chmod +x "$(RUST_TARGET_DIR)/universal/orbitdock-server"
+	@git rev-parse HEAD > "$(RUST_TARGET_DIR)/universal/orbitdock-server.gitsha"
 
 rust-check:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo check --workspace

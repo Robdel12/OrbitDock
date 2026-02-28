@@ -7,6 +7,7 @@ mod ai_naming;
 mod auth;
 mod claude_session;
 mod cmd_doctor;
+mod cmd_hook_forward;
 mod cmd_init;
 mod cmd_install_hooks;
 mod cmd_install_service;
@@ -40,6 +41,7 @@ mod subagent_parser;
 mod transition;
 mod usage_probe;
 mod websocket;
+mod worktree_service;
 mod ws_handlers;
 
 use std::net::SocketAddr;
@@ -109,9 +111,9 @@ enum Command {
         tls_key: Option<PathBuf>,
     },
 
-    /// Bootstrap a fresh machine (create dirs, run migrations, install hook script)
+    /// Bootstrap a fresh machine (create dirs and run migrations)
     Init {
-        /// Server URL the hook script will POST to
+        /// Reserved for backward compatibility
         #[arg(long, default_value = "http://127.0.0.1:4000")]
         server_url: String,
     },
@@ -122,11 +124,26 @@ enum Command {
         #[arg(long)]
         settings_path: Option<PathBuf>,
 
-        /// Remote server URL for hooks (generates hook script targeting this URL)
+        /// Remote server URL for hooks (stored in hook-forward config)
         #[arg(long)]
         server_url: Option<String>,
 
         /// Auth token for the remote server
+        #[arg(long)]
+        auth_token: Option<String>,
+    },
+
+    /// Internal: forward a Claude hook payload from stdin to OrbitDock server.
+    #[command(hide = true)]
+    HookForward {
+        /// Hook message type.
+        hook_type: cmd_hook_forward::HookForwardType,
+
+        /// Override target server URL (defaults to config or localhost).
+        #[arg(long)]
+        server_url: Option<String>,
+
+        /// Override auth token for this invocation.
         #[arg(long)]
         auth_token: Option<String>,
     },
@@ -236,6 +253,13 @@ fn main() -> anyhow::Result<()> {
                 server_url.as_deref(),
                 auth_token.as_deref(),
             );
+        }
+        Some(Command::HookForward {
+            hook_type,
+            server_url,
+            auth_token,
+        }) => {
+            return cmd_hook_forward::run(*hook_type, server_url.as_deref(), auth_token.as_deref());
         }
         Some(Command::InstallService { bind, enable }) => {
             return cmd_install_service::run(&data_dir, *bind, *enable);
@@ -1047,7 +1071,7 @@ fn binary_metadata(path: &str) -> (u64, i64) {
     (size, modified)
 }
 
-/// Drain spooled hook events written by `hook.sh` while the server was offline.
+/// Drain spooled hook events written by `hook-forward` while the server was offline.
 ///
 /// Reads all `.json` files from the spool directory, processes them in
 /// timestamp order (filenames are `<epoch>-<pid>.json`), and deletes each

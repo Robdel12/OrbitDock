@@ -757,52 +757,16 @@ pub async fn create_worktree(
     State(state): State<Arc<SessionRegistry>>,
     Json(body): Json<CreateWorktreeRequest>,
 ) -> ApiResult<WorktreeCreatedResponse> {
-    let worktree_path = format!(
-        "{}/.orbitdock-worktrees/{}",
-        body.repo_path.trim_end_matches('/'),
-        body.branch_name
-    );
-    match crate::git::create_worktree(
+    match crate::worktree_service::create_tracked_worktree(
+        &state,
         &body.repo_path,
-        &worktree_path,
         &body.branch_name,
         body.base_branch.as_deref(),
+        WorktreeOrigin::User,
     )
     .await
     {
-        Ok(_branch) => {
-            let id = orbitdock_protocol::new_id();
-            let summary = WorktreeSummary {
-                id: id.clone(),
-                repo_root: body.repo_path.clone(),
-                worktree_path: worktree_path.clone(),
-                branch: body.branch_name.clone(),
-                base_branch: body.base_branch.clone(),
-                status: WorktreeStatus::Active,
-                active_session_count: 0,
-                total_session_count: 0,
-                created_at: crate::session_utils::chrono_now(),
-                last_session_ended_at: None,
-                disk_present: true,
-                auto_prune: true,
-                custom_name: None,
-                created_by: WorktreeOrigin::User,
-            };
-
-            let _ = state
-                .persist()
-                .send(PersistCommand::WorktreeCreate {
-                    id,
-                    repo_root: body.repo_path,
-                    worktree_path,
-                    branch: body.branch_name,
-                    base_branch: body.base_branch,
-                    created_by: "user".into(),
-                })
-                .await;
-
-            Ok(Json(WorktreeCreatedResponse { worktree: summary }))
-        }
+        Ok(summary) => Ok(Json(WorktreeCreatedResponse { worktree: summary })),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
             Json(ApiErrorResponse {

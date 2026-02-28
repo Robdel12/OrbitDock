@@ -54,8 +54,8 @@ pub fn rollout_state_path() -> PathBuf {
     data_dir().join("codex-rollout-state.json")
 }
 
-pub fn hook_script_path() -> PathBuf {
-    data_dir().join("hook.sh")
+pub fn hook_transport_config_path() -> PathBuf {
+    data_dir().join("hook-forward.json")
 }
 
 pub fn pid_file_path() -> PathBuf {

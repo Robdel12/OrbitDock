@@ -40,7 +40,7 @@ pub fn run(data_dir: &Path) -> anyhow::Result<()> {
         check_encryption_key(),
         check_claude_cli(),
         check_auth_token(),
-        check_hook_script(),
+        check_hook_transport_config(),
         check_hooks_in_settings(),
         check_spool_queue(),
         check_wal_size(),
@@ -237,35 +237,64 @@ fn check_auth_token() -> Check {
     }
 }
 
-fn check_hook_script() -> Check {
-    let hook_path = paths::hook_script_path();
-    if !hook_path.exists() {
+fn check_hook_transport_config() -> Check {
+    let config_path = paths::hook_transport_config_path();
+    if !config_path.exists() {
         return Check {
-            name: "Hook script",
+            name: "Hook transport",
             status: Status::Fail,
-            detail: format!("not found at {}", hook_path.display()),
+            detail: format!("config not found at {}", config_path.display()),
         };
     }
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = std::fs::metadata(&hook_path) {
-            let mode = meta.permissions().mode();
-            if mode & 0o111 == 0 {
-                return Check {
-                    name: "Hook script",
-                    status: Status::Fail,
-                    detail: format!("{} (not executable)", hook_path.display()),
-                };
-            }
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(content) => content,
+        Err(e) => {
+            return Check {
+                name: "Hook transport",
+                status: Status::Fail,
+                detail: format!("cannot read {}: {}", config_path.display(), e),
+            };
         }
-    }
+    };
+
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            return Check {
+                name: "Hook transport",
+                status: Status::Fail,
+                detail: format!("invalid JSON in {}: {}", config_path.display(), e),
+            };
+        }
+    };
+
+    let Some(server_url) = parsed.get("server_url").and_then(|v| v.as_str()) else {
+        return Check {
+            name: "Hook transport",
+            status: Status::Fail,
+            detail: format!(
+                "{} missing required field `server_url`",
+                config_path.display()
+            ),
+        };
+    };
+
+    let token_present = parsed
+        .get("auth_token")
+        .and_then(|v| v.as_str())
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
 
     Check {
-        name: "Hook script",
+        name: "Hook transport",
         status: Status::Pass,
-        detail: format!("{}", hook_path.display()),
+        detail: format!(
+            "{} (server_url={}, auth_token={})",
+            config_path.display(),
+            server_url,
+            if token_present { "set" } else { "unset" }
+        ),
     }
 }
 
@@ -300,6 +329,9 @@ fn check_hooks_in_settings() -> Check {
         "Stop",
         "Notification",
         "PreCompact",
+        "TeammateIdle",
+        "TaskCompleted",
+        "ConfigChange",
         "PreToolUse",
         "PostToolUse",
         "PostToolUseFailure",
@@ -310,7 +342,10 @@ fn check_hooks_in_settings() -> Check {
 
     let mut found = 0;
     for hook in &expected_hooks {
-        if content.contains(hook) && (content.contains("orbitdock") || content.contains("hook.sh"))
+        if content.contains(hook)
+            && (content.contains("orbitdock")
+                || content.contains("hook.sh")
+                || content.contains("hook-forward"))
         {
             found += 1;
         }
@@ -374,7 +409,10 @@ fn check_spool_queue() -> Check {
                 Check {
                     name: "Spool queue",
                     status: Status::Warn,
-                    detail: format!("{} queued events (drained on server start)", count),
+                    detail: format!(
+                        "{} queued events (retried by hook-forward and drained on server start)",
+                        count
+                    ),
                 }
             }
         }
