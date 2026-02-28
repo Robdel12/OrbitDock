@@ -12,11 +12,26 @@ struct SidebarProjectGroup: View {
   let selectedSessionId: String?
   let onSelectSession: (String) -> Void
   var onRenameSession: ((Session) -> Void)?
+  var worktrees: [ServerWorktreeSummary] = []
+  var onRemoveWorktree: ((ServerWorktreeSummary, Bool, Bool) -> Void)? // (wt, force, deleteBranch)
 
   @State private var isExpanded = true
+  @State private var worktreeToRemove: ServerWorktreeSummary?
+  @State private var pendingForce = false
+  @State private var pendingDeleteBranch = false
 
   private var activeSessionCount: Int {
     group.sessions.filter(\.isActive).count
+  }
+
+  /// Real worktrees with no active sessions — the idle/orphaned cleanup targets.
+  /// Excludes the main working directory (worktreePath == projectPath) and removed entries.
+  private var idleWorktrees: [ServerWorktreeSummary] {
+    worktrees.filter {
+      $0.activeSessionCount == 0
+        && $0.status != .removed
+        && $0.worktreePath != group.projectPath
+    }
   }
 
   var body: some View {
@@ -44,6 +59,17 @@ struct SidebarProjectGroup: View {
               .foregroundStyle(Color.textTertiary)
           }
 
+          // Branch count badge (visible even when collapsed)
+          if !isExpanded, !idleWorktrees.isEmpty {
+            HStack(spacing: 2) {
+              Image(systemName: "arrow.triangle.branch")
+                .font(.system(size: 7, weight: .bold))
+              Text("\(idleWorktrees.count)")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(Color.gitBranch.opacity(0.6))
+          }
+
           Spacer()
 
           if let endpointName = group.endpointName {
@@ -58,7 +84,7 @@ struct SidebarProjectGroup: View {
       }
       .buttonStyle(.plain)
 
-      // Session rows
+      // Session rows + worktree rows
       if isExpanded {
         ForEach(group.sessions, id: \.scopedID) { session in
           SidebarSessionRow(
@@ -71,8 +97,75 @@ struct SidebarProjectGroup: View {
           )
           .padding(.leading, 16)
         }
+
+        // Idle worktrees (no active sessions)
+        if !idleWorktrees.isEmpty {
+          if !group.sessions.isEmpty {
+            Divider()
+              .foregroundStyle(Color.panelBorder)
+              .padding(.horizontal, 16)
+              .padding(.vertical, 2)
+          }
+
+          ForEach(idleWorktrees) { wt in
+            SidebarWorktreeRow(worktree: wt) { force, deleteBranch in
+              worktreeToRemove = wt
+              pendingForce = force
+              pendingDeleteBranch = deleteBranch
+            }
+            .padding(.leading, 16)
+          }
+        }
       }
     }
+    .alert(
+      alertTitle,
+      isPresented: Binding(
+        get: { worktreeToRemove != nil },
+        set: { if !$0 { resetRemoveState() } }
+      )
+    ) {
+      Button(pendingForce ? "Force Remove" : "Remove", role: .destructive) {
+        if let wt = worktreeToRemove {
+          onRemoveWorktree?(wt, pendingForce, pendingDeleteBranch)
+        }
+        resetRemoveState()
+      }
+      Button("Cancel", role: .cancel) {
+        resetRemoveState()
+      }
+    } message: {
+      if let wt = worktreeToRemove {
+        Text(alertMessage(for: wt))
+      }
+    }
+  }
+
+  // MARK: - Alert Helpers
+
+  private var alertTitle: String {
+    if pendingForce {
+      return "Force Remove Worktree?"
+    } else if pendingDeleteBranch {
+      return "Remove Worktree + Branch?"
+    }
+    return "Remove Worktree?"
+  }
+
+  private func alertMessage(for wt: ServerWorktreeSummary) -> String {
+    let name = wt.customName ?? wt.branch
+    if pendingForce {
+      return "Force removing \"\(name)\" will delete the worktree at \(wt.worktreePath) even if it has uncommitted changes."
+    } else if pendingDeleteBranch {
+      return "This will remove the worktree at \(wt.worktreePath) and delete the \"\(wt.branch)\" branch."
+    }
+    return "This will remove the worktree at \(wt.worktreePath)."
+  }
+
+  private func resetRemoveState() {
+    worktreeToRemove = nil
+    pendingForce = false
+    pendingDeleteBranch = false
   }
 }
 

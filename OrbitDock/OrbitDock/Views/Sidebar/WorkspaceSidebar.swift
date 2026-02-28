@@ -252,6 +252,12 @@ struct WorkspaceSidebar: View {
           onRenameSession: { session in
             renameText = session.customName ?? ""
             renamingSession = session
+          },
+          worktrees: worktreesForGroup(group),
+          onRemoveWorktree: { wt, force, deleteBranch in
+            appStateForGroup(group).connection.removeWorktree(
+              worktreeId: wt.id, force: force, deleteBranch: deleteBranch
+            )
           }
         )
       }
@@ -448,6 +454,19 @@ struct WorkspaceSidebar: View {
 
   private func appState(for session: Session) -> ServerAppState {
     runtimeRegistry.appState(for: session, fallback: serverState)
+  }
+
+  // MARK: - Worktree Helpers
+
+  /// Look up worktrees for a project group from the correct ServerAppState.
+  private func worktreesForGroup(_ group: ProjectGroup) -> [ServerWorktreeSummary] {
+    appStateForGroup(group).worktrees(for: group.projectPath)
+  }
+
+  /// Resolve the correct ServerAppState for a project group's endpoint.
+  private func appStateForGroup(_ group: ProjectGroup) -> ServerAppState {
+    guard let first = group.sessions.first else { return serverState }
+    return runtimeRegistry.appState(for: first.endpointId, fallback: serverState)
   }
 
   private func connectionColor(_ status: ConnectionStatus) -> Color {
