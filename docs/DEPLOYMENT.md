@@ -262,12 +262,12 @@ Run diagnostics:
 orbitdock-server doctor
 ```
 
-Checks: data directory, database, encryption key, Claude CLI, auth token, hook script, hooks in settings.json, spool queue, WAL size, port availability, health endpoint, disk space.
+Checks: data directory, database, encryption key, Claude CLI, auth token, hook transport config, hooks in settings.json, spool queue, WAL size, port availability, health endpoint, disk space.
 
 ### Common Issues
 
-**"Hook script not found"**
-Run `orbitdock-server init` first, or use `--server-url` with `install-hooks`.
+**"Hook transport config not found"**
+Run `orbitdock-server install-hooks` to generate `~/.orbitdock/hook-forward.json`.
 
 **"Connection refused"**
 Server not running. Check `orbitdock-server status` and start with `orbitdock-server start`.
@@ -276,10 +276,10 @@ Server not running. Check `orbitdock-server status` and start with `orbitdock-se
 Auth token mismatch. Check the token in `~/.orbitdock/auth-token` matches what the server was started with.
 
 **"Events not arriving"**
-1. Check hook script exists: `ls -la ~/.orbitdock/hook.sh`
+1. Check hook transport config exists: `ls -la ~/.orbitdock/hook-forward.json`
 2. Check hooks in settings: `cat ~/.claude/settings.json | jq '.hooks'`
-3. Check spool: `ls ~/.orbitdock/spool/` (queued = server was unreachable)
-4. Test manually: `echo '{}' | ~/.orbitdock/hook.sh claude_session_start`
+3. Check spool: `ls ~/.orbitdock/spool/` (queued = server temporarily unreachable)
+4. Test manually: `echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock-server hook-forward claude_status_event`
 
 **Large WAL file**
 SQLite WAL should checkpoint automatically. If it grows beyond 50MB, restart the server. Check with `orbitdock-server doctor`.

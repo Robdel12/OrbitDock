@@ -39,7 +39,7 @@ By default the server listens on `ws://127.0.0.1:4000/ws`. For development, run 
 ```bash
 cd OrbitDock/OrbitDockCore
 swift build
-echo '{"session_id":"test","cwd":"/tmp"}' | .build/debug/orbitdock-cli session-start
+echo '{"session_id":"test","cwd":"/tmp","hook_event_name":"Stop"}' | orbitdock-server hook-forward claude_status_event
 ```
 
 ## Project Layout

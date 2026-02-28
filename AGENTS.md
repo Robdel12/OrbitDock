@@ -7,7 +7,8 @@ OrbitDock is a multi-provider AI agent monitoring dashboard. It supports Claude 
 - `OrbitDock/OrbitDock/` is the macOS SwiftUI app (views, models, services, database layer).
 - `OrbitDock/OrbitDockCore/` is a Swift Package containing the CLI hook handler and shared database code.
 - `migrations/` contains numbered SQL files for database schema changes.
-- `docs/` holds additional documentation; `orbitdock.png` is a repository asset.
+- `docs/` holds additional documentation.
+- `files/` holds repository media and local artifacts (screenshots, demo files, zips).
 
 ## Build & Development Commands
 - SwiftUI app build (standard): `make build` (wraps `xcodebuild -project OrbitDock/OrbitDock.xcodeproj -scheme OrbitDock -destination 'platform=macOS' build`).

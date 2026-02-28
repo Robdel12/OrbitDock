@@ -1,4 +1,6 @@
 .test-workstreams/
+.DS_Store
+.orbitdock-worktrees/
 *.db
 *.db-wal
 *.db-shm
@@ -44,3 +46,4 @@ OrbitDock/OrbitDock/WhisperModels/*.bin
 
 # Release artifacts
 dist/
+files/artifacts/

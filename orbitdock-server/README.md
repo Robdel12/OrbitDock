@@ -102,7 +102,7 @@ Generate a connection URL and QR code:
 orbitdock-server pair --tunnel-url https://your-tunnel.trycloudflare.com
 ```
 
-For the full deployment guide covering all topologies, security, and operations, see [DEPLOYMENT.md](../DEPLOYMENT.md).
+For the full deployment guide covering all topologies, security, and operations, see [DEPLOYMENT.md](../docs/DEPLOYMENT.md).
 
 ### OrbitDock Client Connectivity
 

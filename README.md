@@ -32,7 +32,7 @@ unified view no matter where your sessions are running or what device you're on.
 - **Usage tracking** — Rate limit monitoring for Claude and Codex
 - **Multi-server** — Connect to local, remote, and cloud endpoints at once
 
-See [FEATURES.md](FEATURES.md) for the full list.
+See [FEATURES.md](docs/FEATURES.md) for the full list.
 
 ## Get Started
 
@@ -67,7 +67,7 @@ For running the server on a VPS, Raspberry Pi, or another machine:
 orbitdock-server setup --remote
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and more.
+See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and more.
 
 ## Requirements
 
@@ -78,9 +78,9 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and more
 
 ## Documentation
 
-- [FEATURES.md](FEATURES.md) — Full feature list with keyboard shortcuts
-- [DEPLOYMENT.md](DEPLOYMENT.md) — Server deployment guide (remote, TLS, tunnels)
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup and architecture
+- [FEATURES.md](docs/FEATURES.md) — Full feature list with keyboard shortcuts
+- [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Server deployment guide (remote, TLS, tunnels)
+- [CONTRIBUTING.md](docs/CONTRIBUTING.md) — Development setup and architecture
 - [orbitdock-server/README.md](orbitdock-server/README.md) — Server CLI reference
 
 ## License
