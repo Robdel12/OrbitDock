@@ -185,11 +185,13 @@
     ) -> CGFloat {
       let inset = ConversationLayout.laneHorizontalInset
       let font = UIFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+      let compactSummary = CompactToolHelpers.compactSingleLineSummary(summary)
       // glyph leading: inset + 16 + 18 (glyph) + 4 (gap) = inset + 38
       // meta trailing area ~ 60pt reserve
       let textWidth = max(60, width - inset * 2 - 38 - 60)
-      let textH = ExpandedToolLayout.measuredTextHeight(summary, font: font, maxWidth: textWidth)
-      let baseHeight = max(ConversationLayout.compactToolRowHeight, textH + 12)
+      let textH = ExpandedToolLayout.measuredTextHeight(compactSummary, font: font, maxWidth: textWidth)
+      let visibleTextH = min(textH, ceil(font.lineHeight))
+      let baseHeight = max(ConversationLayout.compactToolRowHeight, visibleTextH + 12)
       if hasDiffPreview {
         let contextExtra: CGFloat = hasContextLine ? 14 : 0
         return baseHeight + 22 + contextExtra

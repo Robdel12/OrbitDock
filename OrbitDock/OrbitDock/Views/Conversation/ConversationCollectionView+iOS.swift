@@ -802,7 +802,9 @@ import SwiftUI
             logger.debug("sizeForItem[\(indexPath.item)] tool[\(id.prefix(8))] expanded h=\(Self.f(height))")
           } else if case let .tool(id) = row.payload {
             if let message = messagesByID[id] {
-              let summary = CompactToolHelpers.summary(for: message)
+              let summary = CompactToolHelpers.compactSingleLineSummary(
+                CompactToolHelpers.summary(for: message)
+              )
               let preview = CompactToolHelpers.diffPreview(for: message)
               let livePreview = CompactToolHelpers.liveOutputPreview(for: message)
               height = UIKitCompactToolCell.requiredHeight(
@@ -920,7 +922,16 @@ import SwiftUI
       if let toolRowID {
         var snapshot = dataSource.snapshot()
         snapshot.reloadItems([toolRowID])
-        dataSource.apply(snapshot, animatingDifferences: false)
+        dataSource.apply(snapshot, animatingDifferences: false) { [weak self] in
+          guard let self else { return }
+          // Flow layout can retain stale item attributes across a reload of the same ID.
+          // Force a layout pass so compact/expanded toggles immediately recalc row height.
+          self.collectionView.collectionViewLayout.invalidateLayout()
+          self.collectionView.layoutIfNeeded()
+        }
+      } else {
+        collectionView.collectionViewLayout.invalidateLayout()
+        collectionView.layoutIfNeeded()
       }
     }
 
