@@ -127,7 +127,7 @@ struct SettingsView: View {
       }
     }
     #if os(macOS)
-    .frame(width: 860, height: 560)
+    .frame(width: 900, height: 620)
     #else
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     #endif
@@ -159,7 +159,7 @@ struct SettingsView: View {
 
   private var sidebar: some View {
     VStack(alignment: .leading, spacing: 16) {
-      VStack(alignment: .leading, spacing: 6) {
+      VStack(alignment: .leading, spacing: Spacing.xs) {
         Text("OrbitDock")
           .font(.system(size: 12, weight: .semibold, design: .rounded))
           .foregroundStyle(Color.accent)
@@ -168,7 +168,7 @@ struct SettingsView: View {
           .foregroundStyle(Color.textPrimary)
       }
 
-      VStack(spacing: 6) {
+      VStack(spacing: Spacing.sm) {
         ForEach(SettingsPane.allCases) { pane in
           SettingsSidebarButton(
             title: pane.title,
@@ -199,14 +199,17 @@ struct SettingsView: View {
       }
       .padding(12)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(Color.backgroundTertiary.opacity(0.8), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+      .background(
+        Color.backgroundTertiary.opacity(OpacityTier.vivid),
+        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+      )
       .overlay(
         RoundedRectangle(cornerRadius: 10, style: .continuous)
           .strokeBorder(Color.panelBorder, lineWidth: 1)
       )
     }
-    .padding(18)
-    .frame(width: 280)
+    .padding(Spacing.section)
+    .frame(width: 260)
     .frame(maxHeight: .infinity, alignment: .topLeading)
     .background(Color.backgroundSecondary.opacity(0.8))
   }
@@ -228,7 +231,7 @@ struct SettingsView: View {
           }
         #endif
       }
-      .padding(.horizontal, 18)
+      .padding(.horizontal, Spacing.section)
       .padding(.top, 16)
       .padding(.bottom, 12)
 
@@ -245,8 +248,8 @@ struct SettingsView: View {
                   .font(.system(size: 11, weight: .semibold))
               }
               .foregroundStyle(selectedPane == pane ? Color.accent : Color.textSecondary)
-              .padding(.horizontal, 10)
-              .padding(.vertical, 6)
+              .padding(.horizontal, Spacing.md)
+              .padding(.vertical, Spacing.sm)
               .background(
                 Capsule(style: .continuous)
                   .fill(selectedPane == pane ? Color.surfaceSelected : Color.backgroundTertiary.opacity(0.8))
