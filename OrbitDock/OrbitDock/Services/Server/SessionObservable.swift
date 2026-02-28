@@ -163,7 +163,7 @@ final class SessionObservable {
   }
 
   var needsApprovalOverlay: Bool {
-    guard isActive else { return false }
+    guard isActive, pendingApprovalId != nil else { return false }
     return attentionReason == .awaitingPermission || attentionReason == .awaitingQuestion
   }
 

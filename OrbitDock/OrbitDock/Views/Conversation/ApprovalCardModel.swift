@@ -109,27 +109,18 @@ enum ApprovalCardModeResolver {
     pendingApprovalId: String? = nil,
     approvalType: ServerApprovalType? = nil
   ) -> ApprovalCardMode {
+    let hasPendingApproval = pendingApprovalId != nil
+    guard session.isActive, hasPendingApproval else { return .none }
     if session.canApprove { return .permission }
     if session.canAnswer { return .question }
     if session.canTakeOver { return .takeover }
-
-    let hasPendingApproval = pendingApprovalId != nil
-    guard session.needsApprovalOverlay || hasPendingApproval else { return .none }
-
-    // Safety fallback: if state flags are inconsistent but the session is still
-    // blocked on an approval/question, surface a takeover path instead of
-    // hiding the approval card and trapping the user.
-    switch session.attentionReason {
-      case .awaitingPermission:
-        return session.canSendInput ? .permission : .takeover
-      case .awaitingQuestion:
-        return session.canSendInput ? .question : .takeover
-      case .none, .awaitingReply:
-        if approvalType == .question {
-          return session.canSendInput ? .question : .takeover
-        }
-        return session.canSendInput ? .permission : .takeover
+    if session.canSendInput {
+      if session.attentionReason == .awaitingQuestion || approvalType == .question {
+        return .question
+      }
+      return .permission
     }
+    return .none
   }
 }
 
@@ -138,37 +129,6 @@ enum ApprovalCardModelBuilder {
     guard let value else { return nil }
     let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
     return normalized.isEmpty ? nil : normalized
-  }
-
-  private static func unresolvedApproval(
-    in history: [ServerApprovalHistoryItem],
-    requestId: String?
-  ) -> ServerApprovalHistoryItem? {
-    guard let normalizedTargetRequestId = normalizedRequestId(requestId) else { return nil }
-
-    let groupedByRequest = Dictionary(grouping: history) { item -> String in
-      let normalizedRequestId = item.requestId.trimmingCharacters(in: .whitespacesAndNewlines)
-      return normalizedRequestId.isEmpty ? "__approval_id_\(item.id)" : normalizedRequestId
-    }
-
-    let unresolved = groupedByRequest.values.compactMap { entries -> ServerApprovalHistoryItem? in
-      let latestResolvedId = entries
-        .filter { $0.decision != nil || $0.decidedAt != nil }
-        .map(\.id)
-        .max()
-
-      return entries
-        .filter { item in
-          guard item.decision == nil, item.decidedAt == nil else { return false }
-          guard let latestResolvedId else { return true }
-          return item.id > latestResolvedId
-        }
-        .min { lhs, rhs in lhs.id < rhs.id }
-    }
-
-    return unresolved.first(where: {
-      $0.requestId.trimmingCharacters(in: .whitespacesAndNewlines) == normalizedTargetRequestId
-    })
   }
 
   private static func mapQuestionOptions(
@@ -205,16 +165,12 @@ enum ApprovalCardModelBuilder {
 
   static func build(
     session: Session,
-    pendingApproval: ServerApprovalRequest?,
-    serverState: ServerAppState
+    pendingApproval: ServerApprovalRequest?
   ) -> ApprovalCardModel? {
-    let serverPendingApprovalId = normalizedRequestId(serverState.nextPendingApprovalRequestId(sessionId: session.id))
-    let approvalId = serverPendingApprovalId
-      ?? normalizedRequestId(pendingApproval?.id)
-      ?? normalizedRequestId(session.pendingApprovalId)
+    let approvalId = normalizedRequestId(session.pendingApprovalId)
     let activePendingApproval: ServerApprovalRequest? = {
       guard let pendingApproval else { return nil }
-      guard let approvalId else { return pendingApproval }
+      guard let approvalId else { return nil }
       return normalizedRequestId(pendingApproval.id) == approvalId ? pendingApproval : nil
     }()
     let approvalType = activePendingApproval?.type
@@ -339,7 +295,7 @@ enum ApprovalCardModelBuilder {
       riskFindings: riskFindings,
       diff: activePendingApproval?.diff,
       questions: prompts,
-      hasAmendment: activePendingApproval?.proposedAmendment != nil || nil != nil,
+      hasAmendment: activePendingApproval?.proposedAmendment != nil,
       approvalType: approvalType,
       projectPath: session.projectPath,
       approvalId: approvalId,

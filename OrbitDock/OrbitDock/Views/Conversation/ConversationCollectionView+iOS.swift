@@ -470,11 +470,16 @@ import SwiftUI
             let serverState,
             let session = serverState.sessions.first(where: { $0.id == sid })
       else { return nil }
-      let obs = serverState.session(sid)
+      let pendingId = session.pendingApprovalId?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let pendingApproval: ServerApprovalRequest? = {
+        guard let pendingId, !pendingId.isEmpty else { return nil }
+        guard let candidate = serverState.session(sid).pendingApproval else { return nil }
+        let candidateId = candidate.id.trimmingCharacters(in: .whitespacesAndNewlines)
+        return candidateId == pendingId ? candidate : nil
+      }()
       return ApprovalCardModelBuilder.build(
         session: session,
-        pendingApproval: obs.pendingApproval,
-        serverState: serverState
+        pendingApproval: pendingApproval
       )
     }
 
@@ -493,66 +498,34 @@ import SwiftUI
       remainingLoadCount: Int,
       hasMoreMessages: Bool
     ) {
-      // Derive approval state directly from serverState (source of truth)
+      // Approval metadata is server-authoritative from session summary fields.
       let session = serverState?.sessions.first(where: { $0.id == self.sessionId })
-      let observable = sessionId.flatMap { serverState?.session($0) }
-      let resolvedApprovalId = sessionId.flatMap { sid in
-        serverState?.nextPendingApprovalRequestId(sessionId: sid)
-      }
-      let resolvedApprovalType = sessionId.flatMap { sid in
-        serverState?.pendingApprovalType(sessionId: sid, requestId: resolvedApprovalId)
-      }
-      let needsApproval = session?.needsApprovalOverlay ?? false
-      let pendingApprovalCommand: String? = {
-        if let preview = observable?.pendingApproval?.preview, preview.type == .shellCommand {
-          let command = preview.value.trimmingCharacters(in: .whitespacesAndNewlines)
-          if !command.isEmpty {
-            return command
-          }
-        }
-
-        if let command = String.shellCommandDisplay(from: observable?.pendingApproval?.command) {
-          return command
-        }
-
-        return String.shellCommandDisplay(from: session?.pendingToolInput)
-      }()
+      let resolvedApprovalId = session?.pendingApprovalId
       let approvalMode: ApprovalCardMode = {
         guard let s = session else { return .none }
         return ApprovalCardModeResolver.resolve(
           for: s,
           pendingApprovalId: resolvedApprovalId,
-          approvalType: resolvedApprovalType
+          approvalType: nil
         )
       }()
-      let hasRenderableApprovalCard = {
-        guard let session, let serverState else { return false }
-        return ApprovalCardModelBuilder.build(
-          session: session,
-          pendingApproval: observable?.pendingApproval,
-          serverState: serverState
-        ) != nil
-      }()
-      let shouldShowApprovalCard = hasRenderableApprovalCard && (approvalMode != .none || needsApproval)
+      let shouldShowApprovalCard = approvalMode != .none
 
       let metadata = ConversationSourceState.SessionMetadata(
         chatViewMode: chatViewMode,
         isSessionActive: isSessionActive,
         workStatus: workStatus,
         currentTool: session?.lastTool ?? currentTool,
-        pendingToolName: observable?.pendingApproval?.toolNameForDisplay ?? session?.pendingToolName ?? pendingToolName,
-        pendingApprovalCommand: pendingApprovalCommand,
-        pendingPermissionDetail: session?.pendingPermissionDetail
-          ?? observable?.pendingApproval?.preview?.compact
-          ?? pendingPermissionDetail,
+        pendingToolName: session?.pendingToolName ?? pendingToolName,
+        pendingApprovalCommand: String.shellCommandDisplay(from: session?.pendingToolInput),
+        pendingPermissionDetail: session?.pendingPermissionDetail ?? pendingPermissionDetail,
         currentPrompt: currentPrompt,
         messageCount: messageCount,
         remainingLoadCount: remainingLoadCount,
         hasMoreMessages: hasMoreMessages,
         needsApprovalCard: shouldShowApprovalCard,
         approvalMode: approvalMode,
-        pendingQuestion: observable?.pendingApproval?.questionPrompts.first?.question
-          ?? observable?.pendingApproval?.question,
+        pendingQuestion: session?.pendingQuestion,
         pendingApprovalId: resolvedApprovalId,
         isDirectSession: session?.isDirect ?? false,
         sessionId: self.sessionId,

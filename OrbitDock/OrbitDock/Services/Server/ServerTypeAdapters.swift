@@ -80,15 +80,6 @@ extension ServerSessionState {
     } else {
       nil
     }
-    let effectivePendingToolName = pendingApproval?.toolNameForDisplay ?? pendingToolName
-    let effectivePendingToolInput = pendingApproval?.toolInputForDisplay ?? pendingToolInput
-    let effectivePendingPermissionDetail = pendingApproval?.preview?.compact
-    let effectivePendingQuestion = pendingApproval?.questionPrompts.first?.question
-      ?? pendingApproval?.question
-      ?? pendingQuestion
-    let hasPendingApproval = pendingApproval != nil
-      || effectivePendingToolName != nil
-      || effectivePendingQuestion != nil
 
     var session = Session(
       id: id,
@@ -103,15 +94,15 @@ extension ServerSessionState {
       startedAt: parseServerTimestamp(startedAt),
       totalTokens: Int(tokenUsage.inputTokens + tokenUsage.outputTokens),
       lastActivityAt: parseServerTimestamp(lastActivityAt),
-      attentionReason: workStatus.toAttentionReason(hasPendingApproval: hasPendingApproval),
-      pendingToolName: effectivePendingToolName,
-      pendingToolInput: effectivePendingToolInput,
-      pendingPermissionDetail: effectivePendingPermissionDetail,
-      pendingQuestion: effectivePendingQuestion,
+      attentionReason: workStatus.toAttentionReason(),
+      pendingToolName: pendingToolName,
+      pendingToolInput: pendingToolInput,
+      pendingPermissionDetail: nil,
+      pendingQuestion: pendingQuestion,
       provider: provider == .codex ? .codex : .claude,
       codexIntegrationMode: codexMode,
       claudeIntegrationMode: claudeMode,
-      pendingApprovalId: pendingApproval?.id ?? pendingApprovalId,
+      pendingApprovalId: pendingApprovalId,
       inputTokens: Int(tokenUsage.inputTokens),
       outputTokens: Int(tokenUsage.outputTokens),
       cachedTokens: Int(tokenUsage.cachedTokens),

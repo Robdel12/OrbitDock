@@ -9,6 +9,11 @@ struct ServerAppStateApprovalQueueTests {
     state.setup()
     let sessionId = "session-approval-request-order"
 
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
+    await Task.yield()
+
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-1",
       sessionId: sessionId,
@@ -27,7 +32,7 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
-  @Test func approveToolPrefersObservableAsSourceOfTruth() async {
+  @Test func approveToolUsesSummaryQueueHeadAsSourceOfTruth() async {
     let state = ServerAppState()
     state.setup()
     let sessionId = "session-summary-head"
@@ -42,8 +47,8 @@ struct ServerAppStateApprovalQueueTests {
       type: .exec
     )
 
-    // Observable is authoritative — its pendingApproval is the single source
-    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-observable")
+    // Session summary is authoritative for queue head when present.
+    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == "req-head")
 
     let result = state.approveTool(
       sessionId: sessionId,
@@ -53,16 +58,89 @@ struct ServerAppStateApprovalQueueTests {
 
     switch result {
       case .dispatched:
-        #expect(true)
-      case .stale:
-        Issue.record("Expected approval dispatch to succeed for observable's active request.")
+        Issue.record("Expected stale result when request is not the summary queue head.")
+      case let .stale(nextPendingRequestId):
+        #expect(nextPendingRequestId == "req-head")
     }
+  }
+
+  @MainActor
+  @Test func nextPendingApprovalIgnoresStaleObservableWhenSummaryIsNotBlocked() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-summary-not-blocked"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: nil),
+    ])
+    await Task.yield()
+
+    state.session(sessionId).pendingApproval = makeApprovalRequest(
+      id: "req-stale-observable",
+      sessionId: sessionId,
+      type: .exec
+    )
+
+    #expect(state.sessions.first(where: { $0.id == sessionId })?.workStatus == .working)
+    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == nil)
+  }
+
+  @MainActor
+  @Test func nextPendingApprovalDoesNotFallbackToObservableWhenSummaryHasNoPendingId() async {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-summary-blocked-no-id"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: nil, workStatus: .permission),
+    ])
+    await Task.yield()
+
+    state.session(sessionId).pendingApproval = makeApprovalRequest(
+      id: "req-observable",
+      sessionId: sessionId,
+      type: .exec
+    )
+
+    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == nil)
+  }
+
+  @MainActor
+  @Test func approvalResultClearsStaleObservableWhenDeltaNoLongerBlocked() async throws {
+    let state = ServerAppState()
+    state.setup()
+    let sessionId = "session-clear-stale-observable-delta"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
+    await Task.yield()
+
+    let obs = state.session(sessionId)
+    obs.pendingApproval = makeApprovalRequest(id: "req-1", sessionId: sessionId, type: .exec)
+
+    let deltaData = #"{"work_status":"waiting"}"#.data(using: .utf8)!
+    let delta = try JSONDecoder().decode(ServerStateChanges.self, from: deltaData)
+
+    state.connection.onSessionDelta?(
+      sessionId,
+      delta
+    )
+    await Task.yield()
+
+    #expect(state.nextPendingApprovalRequestId(sessionId: sessionId) == nil)
+    #expect(obs.pendingApproval == nil)
   }
 
   @MainActor
   @Test func approveToolLeavesPendingApprovalServerAuthoritative() {
     let state = ServerAppState()
+    state.setup()
     let sessionId = "session-approval-queue"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
 
     let first = makeApprovalRequest(id: "req-1", sessionId: sessionId, type: .exec)
     state.session(sessionId).pendingApproval = first
@@ -86,7 +164,12 @@ struct ServerAppStateApprovalQueueTests {
   @MainActor
   @Test func approveToolDeduplicatesRepeatedSubmissionForSamePendingRequest() {
     let state = ServerAppState()
+    state.setup()
     let sessionId = "session-approval-dedupe"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
+    ])
 
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-1",
@@ -115,7 +198,12 @@ struct ServerAppStateApprovalQueueTests {
   @MainActor
   @Test func approveToolReturnsStaleWithNextPendingRequestId() {
     let state = ServerAppState()
+    state.setup()
     let sessionId = "session-approval-stale"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-current"),
+    ])
 
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-current",
@@ -274,7 +362,12 @@ struct ServerAppStateApprovalQueueTests {
   @MainActor
   @Test func answerQuestionDispatchesForActivePending() {
     let state = ServerAppState()
+    state.setup()
     let sessionId = "session-answer-question"
+
+    state.connection.onSessionsList?([
+      makeSessionSummary(id: sessionId, pendingApprovalId: "req-question", workStatus: .question),
+    ])
 
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-question",
@@ -327,8 +420,14 @@ struct ServerAppStateApprovalQueueTests {
     )
   }
 
-  private func makeSessionSummary(id: String, pendingApprovalId: String?) -> ServerSessionSummary {
-    ServerSessionSummary(
+  private func makeSessionSummary(
+    id: String,
+    pendingApprovalId: String?,
+    workStatus: ServerWorkStatus? = nil
+  ) -> ServerSessionSummary {
+    let resolvedWorkStatus: ServerWorkStatus = workStatus ?? (pendingApprovalId == nil ? .working : .permission)
+    let hasPending = pendingApprovalId != nil
+    return ServerSessionSummary(
       id: id,
       provider: .codex,
       projectPath: "/tmp/project",

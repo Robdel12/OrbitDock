@@ -789,18 +789,10 @@ final class ServerAppState {
   }
 
   /// Resolve the next pending approval request ID for a session.
-  /// Single source: reads from the observable's pending approval (server-authoritative).
+  /// Session summary is authoritative; do not derive from observable payload state.
   func nextPendingApprovalRequestId(sessionId: String) -> String? {
-    if let requestId = normalizedApprovalRequestId(session(sessionId).pendingApproval?.id) {
-      return requestId
-    }
-    // Fallback to list model for sessions not yet subscribed
-    if let requestId = normalizedApprovalRequestId(
-      sessions.first(where: { $0.id == sessionId })?.pendingApprovalId
-    ) {
-      return requestId
-    }
-    return nil
+    guard let summary = sessions.first(where: { $0.id == sessionId }) else { return nil }
+    return normalizedApprovalRequestId(summary.pendingApprovalId)
   }
 
   /// Resolve approval type for a specific pending request.
@@ -1224,7 +1216,7 @@ final class ServerAppState {
     }
     reconcileApprovalDispatchState(
       sessionId: state.id,
-      activeRequestId: state.pendingApproval?.id ?? state.pendingApprovalId
+      activeRequestId: state.pendingApprovalId
     )
 
     obs.tokenUsage = state.tokenUsage
@@ -1499,10 +1491,34 @@ final class ServerAppState {
       obs.isWorktree = isWt
     }
 
+    // Stale approval scrub:
+    // External approval decisions (from CLI/hooks) can clear pending IDs through
+    // session summary/work status deltas without emitting a `pending_approval` field.
+    // If summary is no longer blocked and has no pending approval id, drop any
+    // lingering observable approval payload so inline takeover cards disappear.
+    let summaryStillBlocked = sess.attentionReason == .awaitingPermission
+      || sess.attentionReason == .awaitingQuestion
+      || sess.workStatus == .permission
+    if changes.pendingApproval == nil, !summaryStillBlocked {
+      sess.pendingApprovalId = nil
+      sess.pendingToolName = nil
+      sess.pendingToolInput = nil
+      sess.pendingPermissionDetail = nil
+      sess.pendingQuestion = nil
+
+      obs.pendingApproval = nil
+      obs.pendingApprovalId = nil
+      obs.pendingToolName = nil
+      obs.pendingToolInput = nil
+      obs.pendingPermissionDetail = nil
+      obs.pendingQuestion = nil
+      queuedApprovalRequests[sessionId] = nil
+    }
+
     sessions[idx] = sess
     reconcileApprovalDispatchState(
       sessionId: sessionId,
-      activeRequestId: sess.pendingApprovalId ?? obs.pendingApproval?.id
+      activeRequestId: sess.pendingApprovalId
     )
 
     // Keep approval history in sync when approval resolves without a manual UI action
@@ -1763,7 +1779,7 @@ final class ServerAppState {
     let sessionPendingId = sessionIndex.flatMap { index in
       normalizedApprovalRequestId(sessions[index].pendingApprovalId)
     }
-    let currentActiveRequestId = normalizedApprovalRequestId(obs.pendingApproval?.id) ?? sessionPendingId
+    let currentActiveRequestId = sessionPendingId
 
     // Version gating: discard events older than what we already have
     if let version = approvalVersion, version <= obs.approvalVersion {

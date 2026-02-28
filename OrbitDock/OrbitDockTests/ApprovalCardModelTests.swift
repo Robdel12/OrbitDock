@@ -28,51 +28,51 @@ struct ApprovalCardModelTests {
     #expect(mode == .permission)
   }
 
+  @Test func modeResolverDoesNotShowTakeoverWithoutPendingApproval() {
+    let session = Session(
+      id: "session-passive-claude",
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .waiting,
+      attentionReason: .awaitingReply,
+      provider: .claude,
+      claudeIntegrationMode: .passive,
+      pendingApprovalId: nil
+    )
+
+    let mode = ApprovalCardModeResolver.resolve(
+      for: session,
+      pendingApprovalId: nil,
+      approvalType: nil
+    )
+
+    #expect(mode == .none)
+  }
+
   @Test func builderDoesNotTreatHistoryAsLivePendingWithoutAuthoritativeRequestId() {
-    let sessionId = "session-approval-history"
     let session = makeDirectSession(
-      id: sessionId,
+      id: "session-approval-history",
       attentionReason: .awaitingPermission,
       pendingApprovalId: nil
     )
 
-    let state = ServerAppState()
-    state.session(sessionId).approvalHistory = [
-      ServerApprovalHistoryItem(
-        id: 42,
-        sessionId: sessionId,
-        requestId: "req-from-history",
-        approvalType: .exec,
-        toolName: "Bash",
-        command: "git status",
-        filePath: nil,
-        cwd: "/tmp",
-        decision: nil,
-        proposedAmendment: nil,
-        createdAt: "2026-02-23T00:00:00Z",
-        decidedAt: nil
-      ),
-    ]
-
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: nil,
-      serverState: state
+      pendingApproval: nil
     )
 
     #expect(model == nil)
   }
 
   @Test func builderReadsFromObservablePendingApproval() {
-    let sessionId = "session-approval-observable-authoritative"
+    let sessionId = "session-approval-payload-authoritative"
     let session = makeDirectSession(
       id: sessionId,
       attentionReason: .awaitingPermission,
       pendingApprovalId: "req-1"
     )
 
-    let state = ServerAppState()
-    state.session(sessionId).pendingApproval = ServerApprovalRequest(
+    let pendingApproval = ServerApprovalRequest(
       id: "req-1",
       sessionId: sessionId,
       type: .exec
@@ -80,14 +80,48 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: state.session(sessionId).pendingApproval,
-      serverState: state
+      pendingApproval: pendingApproval
     )
 
     #expect(model != nil)
     #expect(model?.approvalId == "req-1")
     #expect(model?.approvalType == .exec)
     #expect(model?.mode == .permission)
+  }
+
+  @Test func builderIgnoresPendingPayloadWithoutAuthoritativeRequestId() {
+    let sessionId = "session-stale-observable"
+    let session = Session(
+      id: sessionId,
+      projectPath: "/tmp/project",
+      status: .active,
+      workStatus: .waiting,
+      attentionReason: .awaitingReply,
+      provider: .claude,
+      claudeIntegrationMode: .passive,
+      pendingApprovalId: nil
+    )
+
+    let stalePayload = ServerApprovalRequest(
+      id: "req-stale",
+      sessionId: sessionId,
+      type: .exec,
+      toolName: "Bash",
+      toolInput: #"{"command":"git status"}"#,
+      command: "git status",
+      filePath: nil,
+      diff: nil,
+      question: nil,
+      preview: nil,
+      proposedAmendment: nil
+    )
+
+    let model = ApprovalCardModelBuilder.build(
+      session: session,
+      pendingApproval: stalePayload
+    )
+
+    #expect(model == nil)
   }
 
   @Test func builderFallsBackToCommandWhenPreviewMissing() {
@@ -113,8 +147,7 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: pendingApproval,
-      serverState: ServerAppState()
+      pendingApproval: pendingApproval
     )
 
     #expect(model?.mode == .permission)
@@ -152,8 +185,7 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: pendingApproval,
-      serverState: ServerAppState()
+      pendingApproval: pendingApproval
     )
 
     #expect(model?.mode == .permission)
@@ -198,8 +230,7 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: pendingApproval,
-      serverState: ServerAppState()
+      pendingApproval: pendingApproval
     )
 
     #expect(model?.risk == .high)
@@ -252,8 +283,7 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: pendingApproval,
-      serverState: ServerAppState()
+      pendingApproval: pendingApproval
     )
 
     #expect(model?.previewType == .shellCommand)
@@ -302,8 +332,7 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: pendingApproval,
-      serverState: ServerAppState()
+      pendingApproval: pendingApproval
     )
 
     #expect(model?.mode == .permission)
@@ -350,8 +379,7 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: pendingApproval,
-      serverState: ServerAppState()
+      pendingApproval: pendingApproval
     )
 
     #expect(model?.mode == .question)
@@ -409,8 +437,7 @@ struct ApprovalCardModelTests {
 
     let model = ApprovalCardModelBuilder.build(
       session: session,
-      pendingApproval: pendingApproval,
-      serverState: ServerAppState()
+      pendingApproval: pendingApproval
     )
 
     #expect(model?.mode == .question)
