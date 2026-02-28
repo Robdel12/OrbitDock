@@ -39,6 +39,12 @@ struct SessionDetailView: View {
   @State private var navigateToComment: ServerReviewComment?
   @State private var selectedCommentIds: Set<String> = []
 
+  // Worktree cleanup state
+  @State private var worktreeCleanupDismissed = false
+  @State private var deleteBranchOnCleanup = true
+  @State private var isCleaningUpWorktree = false
+  @State private var worktreeCleanupError: String?
+
   private var isCompactLayout: Bool {
     horizontalSizeClass == .compact
   }
@@ -64,6 +70,11 @@ struct SessionDetailView: View {
       // Diff-available banner
       if showDiffBanner, layoutConfig == .conversationOnly {
         diffAvailableBanner
+      }
+
+      // Worktree cleanup banner
+      if showWorktreeCleanupBanner {
+        worktreeCleanupBanner
       }
 
       // Main content area — stable structure so ConversationView preserves @State
@@ -643,6 +654,106 @@ struct SessionDetailView: View {
     let combined = parts.joined(separator: "\n")
     guard !combined.isEmpty else { return 0 }
     return DiffModel.parse(unifiedDiff: combined).files.count
+  }
+
+  // MARK: - Worktree Cleanup
+
+  private var showWorktreeCleanupBanner: Bool {
+    obs.status == .ended && obs.isWorktree && !worktreeCleanupDismissed
+  }
+
+  private var worktreeForSession: ServerWorktreeSummary? {
+    if let wtId = obs.worktreeId {
+      return serverState.worktreesByRepo.values.flatMap { $0 }.first { $0.id == wtId }
+    }
+    return serverState.worktreesByRepo.values.flatMap { $0 }.first { $0.worktreePath == obs.projectPath }
+  }
+
+  private var worktreeCleanupBanner: some View {
+    let wt = worktreeForSession
+    let branchName = wt?.branch ?? obs.branch ?? "unknown"
+
+    return VStack(spacing: Spacing.sm) {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "arrow.triangle.branch")
+          .font(.system(size: TypeScale.body, weight: .medium))
+          .foregroundStyle(Color.accent)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Worktree: \(branchName)")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+          Text("This session used a worktree that may still be on disk.")
+            .font(.system(size: TypeScale.micro))
+            .foregroundStyle(Color.textSecondary)
+        }
+        Spacer()
+      }
+
+      if let error = worktreeCleanupError {
+        Text(error)
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.statusPermission)
+      }
+
+      HStack(spacing: Spacing.md) {
+        Toggle("Delete branch too", isOn: $deleteBranchOnCleanup)
+          .toggleStyle(.checkbox)
+          .font(.system(size: TypeScale.micro))
+          .foregroundStyle(Color.textSecondary)
+
+        Spacer()
+
+        Button("Keep") {
+          withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            worktreeCleanupDismissed = true
+          }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.textSecondary)
+        .font(.system(size: TypeScale.body, weight: .medium))
+
+        Button {
+          cleanUpWorktree()
+        } label: {
+          if isCleaningUpWorktree {
+            ProgressView()
+              .controlSize(.small)
+          } else {
+            Text("Clean Up")
+          }
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.accent)
+        .font(.system(size: TypeScale.body, weight: .medium))
+        .disabled(isCleaningUpWorktree || wt == nil)
+      }
+    }
+    .padding(.horizontal, Spacing.md)
+    .padding(.vertical, Spacing.sm)
+    .background(Color.backgroundSecondary)
+    .transition(.move(edge: .top).combined(with: .opacity))
+  }
+
+  private func cleanUpWorktree() {
+    guard let wt = worktreeForSession else { return }
+    isCleaningUpWorktree = true
+    worktreeCleanupError = nil
+
+    Task {
+      do {
+        try await serverState.connection.removeWorktreeAsync(
+          worktreeId: wt.id,
+          force: true,
+          deleteBranch: deleteBranchOnCleanup
+        )
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+          worktreeCleanupDismissed = true
+        }
+      } catch {
+        worktreeCleanupError = error.localizedDescription
+      }
+      isCleaningUpWorktree = false
+    }
   }
 
   // MARK: - Turn Sidebar Helpers

@@ -1029,6 +1029,24 @@ struct ProjectStreamSection: View {
       .padding(.top, 14)
       .padding(.bottom, 4)
 
+      // Worktree strip (between header and session rows)
+      // Use group.projectPath as the key — matches sidebar's worktree loading
+      // pattern and works even when sessions don't have repositoryRoot set.
+      InlineWorktreeStrip(
+        repoRoot: group.projectPath,
+        projectName: group.projectName,
+        allSessions: sessions,
+        onSelectSession: onSelectSession,
+        onCreateClaudeSession: { cwd in serverState.createClaudeSession(cwd: cwd) },
+        onCreateCodexSession: { cwd in serverState.createSession(cwd: cwd) },
+        onOpenManageSheet: {
+          worktreeSheetGroup = WorktreeSheetIdentifier(
+            repoRoot: group.projectPath,
+            projectName: group.projectName
+          )
+        }
+      )
+
       // Session rows
       VStack(spacing: 2) {
         ForEach(group.sessions, id: \.scopedID) { session in
