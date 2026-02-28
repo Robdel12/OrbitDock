@@ -712,9 +712,10 @@ impl CodexConnector {
                 let amendment = e
                     .proposed_execpolicy_amendment
                     .map(|a| a.command().to_vec());
-                // Use event.id (sub_id) as request_id — codex-core keys approvals by sub_id, not call_id
+                // codex-core matches approvals by approval_id (execve intercept) or call_id.
+                let request_id = e.approval_id.clone().unwrap_or_else(|| e.call_id.clone());
                 vec![ConnectorEvent::ApprovalRequested {
-                    request_id: event.id.clone(),
+                    request_id,
                     approval_type: ApprovalType::Exec,
                     tool_name: None,
                     tool_input: None,
@@ -770,9 +771,9 @@ impl CodexConnector {
                     .collect::<Vec<_>>()
                     .join("\n\n");
 
-                // Use event.id (sub_id) as request_id — codex-core keys approvals by sub_id, not call_id
+                // codex-core matches patch approvals by call_id.
                 vec![ConnectorEvent::ApprovalRequested {
-                    request_id: event.id.clone(),
+                    request_id: e.call_id.clone(),
                     approval_type: ApprovalType::Patch,
                     tool_name: None,
                     tool_input: None,
