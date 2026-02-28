@@ -57,14 +57,7 @@ struct RemoteProjectPicker: View {
 
       tabPicker
 
-      switch activeTab {
-        case .recent:
-          recentProjectsView
-        case .browse:
-          directoryBrowserView
-        case .manual:
-          manualInputView
-      }
+      tabContentCard
     }
     .onAppear {
       loadRecentProjects()
@@ -82,13 +75,30 @@ struct RemoteProjectPicker: View {
         .font(.system(size: 12))
         .foregroundStyle(Color.accent)
 
-      Text(displayPath(selectedPath))
-        .font(.system(size: TypeScale.body, design: .monospaced))
-        .foregroundStyle(Color.textPrimary)
-        .lineLimit(1)
-        .truncationMode(.middle)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(URL(fileURLWithPath: selectedPath).lastPathComponent)
+          .font(.system(size: TypeScale.body, weight: .medium))
+          .foregroundStyle(Color.textPrimary)
+
+        Text(displayPath(selectedPath))
+          .font(.system(size: TypeScale.caption, design: .monospaced))
+          .foregroundStyle(Color.textTertiary)
+          .lineLimit(1)
+          .truncationMode(.middle)
+      }
 
       Spacer()
+
+      if !selectedPath.isEmpty {
+        Button {
+          Platform.services.copyToClipboard(selectedPath)
+        } label: {
+          Image(systemName: "doc.on.doc")
+            .font(.system(size: 13))
+            .foregroundStyle(Color.textQuaternary)
+        }
+        .buttonStyle(.plain)
+      }
 
       Button {
         selectedPath = ""
@@ -107,7 +117,7 @@ struct RemoteProjectPicker: View {
   // MARK: - Tab Picker
 
   private var tabPicker: some View {
-    HStack(spacing: 0) {
+    HStack(spacing: Spacing.xs) {
       ForEach(PickerTab.allCases, id: \.self) { tab in
         Button {
           withAnimation(.easeOut(duration: 0.15)) {
@@ -121,18 +131,48 @@ struct RemoteProjectPicker: View {
             .font(.system(size: TypeScale.body, weight: activeTab == tab ? .semibold : .medium))
             .foregroundStyle(activeTab == tab ? Color.accent : Color.textTertiary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, Spacing.sm)
+            .padding(.vertical, Spacing.sm + 1)
+            .background(
+              activeTab == tab
+                ? Color.accent.opacity(OpacityTier.light)
+                : Color.clear,
+              in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+            )
         }
         .buttonStyle(.plain)
       }
     }
-    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md))
+    .padding(Spacing.xs)
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        .stroke(Color.surfaceBorder, lineWidth: 1)
+    )
+  }
+
+  private var tabContentCard: some View {
+    VStack(alignment: .leading, spacing: Spacing.md) {
+      switch activeTab {
+        case .recent:
+          recentProjectsView
+        case .browse:
+          directoryBrowserView
+        case .manual:
+          manualInputView
+      }
+    }
+    .padding(Spacing.md)
+    .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .overlay(
+      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+        .stroke(Color.surfaceBorder, lineWidth: 1)
+    )
   }
 
   // MARK: - Recent Projects
 
   private var recentProjectsView: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       if isLoadingRecent {
         HStack {
           Spacer()
@@ -264,13 +304,13 @@ struct RemoteProjectPicker: View {
         .padding(.vertical, Spacing.xl)
       } else {
         ScrollView {
-          LazyVStack(spacing: 2) {
+          LazyVStack(spacing: Spacing.xs) {
             ForEach(directoryEntries.filter(\.isDir)) { entry in
               directoryEntryRow(entry)
             }
           }
         }
-        .frame(maxHeight: 280)
+        .frame(minHeight: 160, maxHeight: 280)
       }
     }
   }
@@ -316,7 +356,11 @@ struct RemoteProjectPicker: View {
         }
       }
       .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm)
+      .padding(.vertical, Spacing.md)
+      .background(
+        Color.backgroundSecondary.opacity(OpacityTier.subtle),
+        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+      )
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -325,40 +369,41 @@ struct RemoteProjectPicker: View {
   // MARK: - Manual Input
 
   private var manualInputView: some View {
-    VStack(alignment: .leading, spacing: Spacing.sm) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       Text("Enter the full path to your project directory")
         .font(.system(size: TypeScale.caption))
         .foregroundStyle(Color.textTertiary)
 
-      HStack(spacing: Spacing.sm) {
-        TextField("~/Developer/my-project", text: $manualPathText)
-          .textFieldStyle(.plain)
-          .font(.system(size: TypeScale.body, design: .monospaced))
-          .foregroundStyle(Color.textPrimary)
-          .padding(Spacing.md)
-          .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md))
-        #if os(iOS)
-          .autocorrectionDisabled()
-          .textInputAutocapitalization(.never)
-          .keyboardType(.URL)
-        #endif
+      TextField("~/Developer/my-project", text: $manualPathText)
+        .textFieldStyle(.plain)
+        .font(.system(size: TypeScale.body, design: .monospaced))
+        .foregroundStyle(Color.textPrimary)
+        .padding(Spacing.md)
+        .background(
+          Color.backgroundSecondary.opacity(OpacityTier.subtle),
+          in: RoundedRectangle(cornerRadius: Radius.md)
+        )
+      #if os(iOS)
+        .autocorrectionDisabled()
+        .textInputAutocapitalization(.never)
+        .keyboardType(.URL)
+      #endif
 
-        Button {
-          let trimmed = manualPathText.trimmingCharacters(in: .whitespacesAndNewlines)
-          guard !trimmed.isEmpty else { return }
-          selectedPath = trimmed
-          selectedPathIsGit = false // Unknown — let the sheet handle verification
-        } label: {
-          Text("Use")
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, Spacing.lg)
-            .padding(.vertical, Spacing.md)
-            .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md))
-        }
-        .buttonStyle(.plain)
-        .disabled(manualPathText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      Button {
+        let trimmed = manualPathText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        selectedPath = trimmed
+        selectedPathIsGit = false // Unknown — let the sheet handle verification
+      } label: {
+        Text("Use Path")
+          .font(.system(size: TypeScale.body, weight: .semibold))
+          .frame(maxWidth: .infinity)
+          .foregroundStyle(Color.backgroundPrimary)
+          .padding(.vertical, Spacing.md)
+          .background(Color.accent, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
       }
+      .buttonStyle(.plain)
+      .disabled(manualPathText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
   }
 

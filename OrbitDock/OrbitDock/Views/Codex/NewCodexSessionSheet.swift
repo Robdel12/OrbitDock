@@ -77,50 +77,33 @@ struct NewCodexSessionSheet: View {
     selectableEndpoints.count > 1 || !isEndpointConnected
   }
 
+  private var formSectionSpacing: CGFloat {
+    #if os(iOS)
+      Spacing.lg
+    #else
+      Spacing.xl
+    #endif
+  }
+
   var body: some View {
     VStack(spacing: 0) {
-      // Header — title + auth status in one line
       header
 
       Divider()
         .overlay(Color.surfaceBorder)
 
-      // Form content
-      VStack(alignment: .leading, spacing: Spacing.xl) {
-        // Auth gate — only shows when not connected
-        if endpointAppState.codexAccount == nil {
-          authGateSection
-        }
-
-        if shouldShowEndpointSection {
-          endpointSection
-        }
-
-        directorySection
-
-        if !selectedPath.isEmpty {
-          worktreeSection
-        }
-
-        // Configuration card — model + autonomy grouped
-        configurationCard
-
-        // Error display
-        if let error = errorMessage {
-          errorBanner(error)
-        }
-      }
-      .padding(Spacing.xl)
-
-      Spacer(minLength: 0)
+      formContent
 
       Divider()
         .overlay(Color.surfaceBorder)
 
-      // Footer
       footer
     }
+    #if os(iOS)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    #else
     .frame(minWidth: 420, idealWidth: 500, maxWidth: 580)
+    #endif
     .background(Color.backgroundSecondary)
     .onAppear {
       if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
@@ -153,51 +136,128 @@ struct NewCodexSessionSheet: View {
     }
   }
 
+  @ViewBuilder
+  private var formContent: some View {
+    #if os(iOS)
+      ScrollView(showsIndicators: false) {
+        formSections
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.lg)
+          .padding(.bottom, Spacing.sm)
+      }
+    #else
+      VStack {
+        formSections
+          .padding(Spacing.xl)
+
+        Spacer(minLength: 0)
+      }
+    #endif
+  }
+
+  private var formSections: some View {
+    VStack(alignment: .leading, spacing: formSectionSpacing) {
+      if endpointAppState.codexAccount == nil {
+        authGateSection
+      }
+
+      if shouldShowEndpointSection {
+        endpointSection
+      }
+
+      directorySection
+
+      if !selectedPath.isEmpty {
+        worktreeSection
+      }
+
+      configurationCard
+
+      if let error = errorMessage {
+        errorBanner(error)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
   // MARK: - Header
 
-  private var header: some View {
-    HStack(spacing: Spacing.md) {
-      // Codex brand icon
-      Circle()
-        .fill(Color.providerCodex.opacity(OpacityTier.light))
-        .frame(width: 32, height: 32)
-        .overlay(
-          Image(systemName: "plus.circle.fill")
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Color.providerCodex)
-        )
+  private var headerIcon: some View {
+    Circle()
+      .fill(Color.providerCodex.opacity(OpacityTier.light))
+      .frame(width: 32, height: 32)
+      .overlay(
+        Image(systemName: "plus.circle.fill")
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(Color.providerCodex)
+      )
+  }
 
-      Text("New Codex Session")
-        .font(.system(size: TypeScale.title, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
-
-      Spacer()
-
-      // Inline auth status when connected
-      if let account = endpointAppState.codexAccount {
-        connectedBadge(account)
-      }
-
-      Button {
-        dismiss()
-      } label: {
-        Image(systemName: "xmark.circle.fill")
-          .font(.system(size: 18))
-          .foregroundStyle(Color.textQuaternary)
-      }
-      .buttonStyle(.plain)
-      #if !os(iOS)
-        .onHover { hovering in
-          if hovering {
-            NSCursor.pointingHand.push()
-          } else {
-            NSCursor.pop()
-          }
-        }
-      #endif
+  private var closeButton: some View {
+    Button {
+      dismiss()
+    } label: {
+      Image(systemName: "xmark.circle.fill")
+        .font(.system(size: 18))
+        .foregroundStyle(Color.textQuaternary)
+        .frame(width: 28, height: 28)
+        .contentShape(Rectangle())
     }
-    .padding(.horizontal, Spacing.xl)
-    .padding(.vertical, Spacing.lg)
+    .buttonStyle(.plain)
+    #if !os(iOS)
+      .onHover { hovering in
+        if hovering {
+          NSCursor.pointingHand.push()
+        } else {
+          NSCursor.pop()
+        }
+      }
+    #endif
+  }
+
+  private var header: some View {
+    #if os(iOS)
+      VStack(alignment: .leading, spacing: Spacing.md) {
+        HStack(spacing: Spacing.md) {
+          headerIcon
+
+          Text("New Codex Session")
+            .font(.system(size: TypeScale.large, weight: .semibold))
+            .foregroundStyle(Color.textPrimary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
+
+          Spacer(minLength: Spacing.sm)
+
+          closeButton
+        }
+
+        if let account = endpointAppState.codexAccount {
+          connectedBadge(account)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+      }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.vertical, Spacing.md)
+    #else
+      HStack(spacing: Spacing.md) {
+        headerIcon
+
+        Text("New Codex Session")
+          .font(.system(size: TypeScale.title, weight: .semibold))
+          .foregroundStyle(Color.textPrimary)
+
+        Spacer()
+
+        if let account = endpointAppState.codexAccount {
+          connectedBadge(account)
+        }
+
+        closeButton
+      }
+      .padding(.horizontal, Spacing.xl)
+      .padding(.vertical, Spacing.lg)
+    #endif
   }
 
   // MARK: - Auth Gate (only when NOT connected)
@@ -532,66 +592,102 @@ struct NewCodexSessionSheet: View {
 
   // MARK: - Footer
 
-  private var footer: some View {
-    HStack(spacing: Spacing.md) {
-      // Sign out (subtle, in footer when connected)
-      if endpointAppState.codexAccount != nil {
-        Button {
-          endpointAppState.logoutCodexAccount()
-        } label: {
-          Text("Sign Out")
-            .font(.system(size: TypeScale.caption, weight: .medium))
-            .foregroundStyle(Color.textQuaternary)
-        }
-        .buttonStyle(.plain)
-        #if !os(iOS)
-          .onHover { hovering in
-            if hovering {
-              NSCursor.pointingHand.push()
-            } else {
-              NSCursor.pop()
-            }
-          }
-        #endif
-      }
-
-      Spacer()
-
-      Button("Cancel") {
-        dismiss()
-      }
-      .buttonStyle(.bordered)
-      .tint(Color.textTertiary)
-      .keyboardShortcut(.escape, modifiers: [])
-
-      Button {
-        createSession()
-      } label: {
-        if isCreating {
-          HStack(spacing: Spacing.sm) {
-            ProgressView()
-              .controlSize(.small)
-            Text("Launch")
-              .font(.system(size: TypeScale.body, weight: .semibold))
-          }
-          .frame(minWidth: 90)
-        } else {
-          HStack(spacing: Spacing.sm) {
-            Image(systemName: "paperplane.fill")
-              .font(.system(size: 12, weight: .semibold))
-            Text("Launch")
-              .font(.system(size: TypeScale.body, weight: .semibold))
-          }
-          .frame(minWidth: 90)
-        }
-      }
-      .buttonStyle(.borderedProminent)
-      .tint(Color.providerCodex)
-      .disabled(!canCreateSession)
-      .keyboardShortcut(.return, modifiers: .command)
+  private var signOutButton: some View {
+    Button {
+      endpointAppState.logoutCodexAccount()
+    } label: {
+      Text("Sign Out")
+        .font(.system(size: TypeScale.caption, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
     }
-    .padding(.horizontal, Spacing.xl)
-    .padding(.vertical, Spacing.lg)
+    .buttonStyle(.plain)
+    #if !os(iOS)
+      .onHover { hovering in
+        if hovering {
+          NSCursor.pointingHand.push()
+        } else {
+          NSCursor.pop()
+        }
+      }
+    #endif
+  }
+
+  private var cancelButton: some View {
+    Button("Cancel") {
+      dismiss()
+    }
+    .buttonStyle(.bordered)
+    .tint(Color.textTertiary)
+    #if os(iOS)
+      .controlSize(.large)
+    #else
+      .keyboardShortcut(.escape, modifiers: [])
+    #endif
+  }
+
+  private var launchButton: some View {
+    Button {
+      createSession()
+    } label: {
+      if isCreating {
+        HStack(spacing: Spacing.sm) {
+          ProgressView()
+            .controlSize(.small)
+          Text("Launch")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+        }
+        .frame(minWidth: 90)
+      } else {
+        HStack(spacing: Spacing.sm) {
+          Image(systemName: "paperplane.fill")
+            .font(.system(size: 12, weight: .semibold))
+          Text("Launch")
+            .font(.system(size: TypeScale.body, weight: .semibold))
+        }
+        .frame(minWidth: 90)
+      }
+    }
+    .buttonStyle(.borderedProminent)
+    .tint(Color.providerCodex)
+    .disabled(!canCreateSession)
+    #if os(iOS)
+      .controlSize(.large)
+    #else
+      .keyboardShortcut(.return, modifiers: .command)
+    #endif
+  }
+
+  private var footer: some View {
+    #if os(iOS)
+      VStack(alignment: .leading, spacing: Spacing.md) {
+        if endpointAppState.codexAccount != nil {
+          signOutButton
+        }
+
+        HStack(spacing: Spacing.sm) {
+          cancelButton
+            .frame(maxWidth: .infinity)
+          launchButton
+            .frame(maxWidth: .infinity)
+        }
+      }
+      .padding(.horizontal, Spacing.lg)
+      .padding(.top, Spacing.md)
+      .padding(.bottom, Spacing.lg)
+    #else
+      HStack(spacing: Spacing.md) {
+        if endpointAppState.codexAccount != nil {
+          signOutButton
+        }
+
+        Spacer()
+
+        cancelButton
+        launchButton
+      }
+      .padding(.horizontal, Spacing.xl)
+      .padding(.vertical, Spacing.lg)
+    #endif
   }
 
   // MARK: - Helpers

@@ -28,6 +28,11 @@ struct EndpointSelectorField: View {
     statusByEndpointId[selectedEndpointId] ?? .disconnected
   }
 
+  private var selectedEndpointLabel: String {
+    guard let selectedEndpoint else { return "Select Server" }
+    return endpointLabel(selectedEndpoint)
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       HStack(spacing: Spacing.sm) {
@@ -41,14 +46,47 @@ struct EndpointSelectorField: View {
         Spacer()
 
         if hasMultipleEndpoints {
-          Picker("Server", selection: $selectedEndpointId) {
-            ForEach(endpoints) { endpoint in
-              Text(endpointLabel(endpoint))
-                .tag(endpoint.id)
+          #if os(iOS)
+            Menu {
+              ForEach(endpoints) { endpoint in
+                Button {
+                  selectedEndpointId = endpoint.id
+                } label: {
+                  if endpoint.id == selectedEndpointId {
+                    Label(endpointLabel(endpoint), systemImage: "checkmark")
+                  } else {
+                    Text(endpointLabel(endpoint))
+                  }
+                }
+              }
+            } label: {
+              HStack(spacing: Spacing.xs) {
+                Text(selectedEndpointLabel)
+                  .font(.system(size: TypeScale.body, weight: .semibold))
+                  .lineLimit(1)
+                  .truncationMode(.tail)
+
+                Image(systemName: "chevron.up.chevron.down")
+                  .font(.system(size: 9, weight: .semibold))
+              }
+              .foregroundStyle(Color.accent)
+              .padding(.horizontal, Spacing.sm)
+              .padding(.vertical, 6)
+              .background(
+                Color.accent.opacity(OpacityTier.tint),
+                in: RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+              )
             }
-          }
-          .pickerStyle(.menu)
-          .labelsHidden()
+          #else
+            Picker("Server", selection: $selectedEndpointId) {
+              ForEach(endpoints) { endpoint in
+                Text(endpointLabel(endpoint))
+                  .tag(endpoint.id)
+              }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+          #endif
         } else if let selectedEndpoint {
           Text(selectedEndpoint.name)
             .font(.system(size: TypeScale.body, weight: .semibold))
@@ -57,19 +95,13 @@ struct EndpointSelectorField: View {
         }
       }
 
-      HStack(spacing: Spacing.xs) {
-        if isControlPlaneEndpoint {
-          roleBadge(title: "Control Plane", tint: Color.accent)
+      ViewThatFits(in: .horizontal) {
+        HStack(spacing: Spacing.xs) {
+          roleBadgeContent
         }
 
-        if isServerPrimaryEndpoint {
-          roleBadge(title: "Server Primary", tint: Color.statusWorking)
-        }
-
-        if !hasMultipleEndpoints, !isControlPlaneEndpoint, !isServerPrimaryEndpoint {
-          Text("Single endpoint")
-            .font(.system(size: TypeScale.micro, weight: .medium))
-            .foregroundStyle(Color.textQuaternary)
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+          roleBadgeContent
         }
       }
 
@@ -102,6 +134,23 @@ struct EndpointSelectorField: View {
       RoundedRectangle(cornerRadius: Radius.lg)
         .stroke(Color.surfaceBorder, lineWidth: 1)
     )
+  }
+
+  @ViewBuilder
+  private var roleBadgeContent: some View {
+    if isControlPlaneEndpoint {
+      roleBadge(title: "Control Plane", tint: Color.accent)
+    }
+
+    if isServerPrimaryEndpoint {
+      roleBadge(title: "Server Primary", tint: Color.statusWorking)
+    }
+
+    if !hasMultipleEndpoints, !isControlPlaneEndpoint, !isServerPrimaryEndpoint {
+      Text("Single endpoint")
+        .font(.system(size: TypeScale.micro, weight: .medium))
+        .foregroundStyle(Color.textQuaternary)
+    }
   }
 
   private func roleBadge(title: String, tint: Color) -> some View {
