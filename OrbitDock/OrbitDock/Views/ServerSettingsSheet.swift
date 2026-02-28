@@ -18,6 +18,7 @@ struct ServerSettingsSheet: View {
   #endif
 
   @State private var endpoints: [ServerEndpoint] = ServerEndpointSettings.endpoints
+  @State private var expandedEndpointId: UUID?
   @State private var showEditor = false
   @State private var editingEndpointId: UUID?
   @State private var draftName = ""
@@ -47,86 +48,22 @@ struct ServerSettingsSheet: View {
     }
   }
 
-  private var enabledCount: Int {
-    endpoints.filter(\.isEnabled).count
-  }
-
-  private var connectedCount: Int {
-    endpoints.filter { endpoint in
-      if case .connected = status(for: endpoint) {
-        return true
-      }
-      return false
-    }.count
-  }
-
-  private var failedCount: Int {
-    endpoints.filter { endpoint in
-      if case .failed = status(for: endpoint) {
-        return true
-      }
-      return false
-    }.count
-  }
-
-  private var usesCompactLayout: Bool {
-    #if os(iOS)
-      horizontalSizeClass == .compact
-    #else
-      false
-    #endif
-  }
-
-  private var primaryEndpointName: String {
-    if let primaryEndpointId = runtimeRegistry.primaryEndpointId,
-       let endpoint = endpoints.first(where: { $0.id == primaryEndpointId })
-    {
-      return endpoint.name
-    }
-    return endpoints.first(where: { $0.isDefault && $0.isEnabled })?.name
-      ?? endpoints.first(where: \.isEnabled)?.name
-      ?? "None"
-  }
+  // MARK: - Body
 
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          overviewCard
-
-          VStack(alignment: .leading, spacing: usesCompactLayout ? 12 : 10) {
-            HStack {
-              Text("Endpoints")
-                .font(.system(size: usesCompactLayout ? 15 : TypeScale.subhead, weight: .semibold))
-                .foregroundStyle(Color.textPrimary)
-
-              Spacer()
-
-              Button {
-                beginAddingEndpoint()
-              } label: {
-                HStack(spacing: 5) {
-                  Image(systemName: "plus")
-                  Text("Add Endpoint")
-                }
-                .font(.system(size: usesCompactLayout ? 13 : TypeScale.caption, weight: .semibold))
-                .foregroundStyle(Color.accent)
-                .padding(.horizontal, usesCompactLayout ? 12 : 8)
-                .padding(.vertical, usesCompactLayout ? 8 : 6)
-                .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
-              }
-              .buttonStyle(.plain)
-            }
-
-            ForEach(orderedEndpoints) { endpoint in
-              endpointCard(endpoint)
-            }
+        VStack(alignment: .leading, spacing: Spacing.lg) {
+          ForEach(orderedEndpoints) { endpoint in
+            endpointRow(endpoint)
           }
+
+          addEndpointButton
         }
-        .padding(usesCompactLayout ? 16 : 20)
+        .padding(Spacing.section)
       }
       .background(Color.backgroundPrimary)
-      .navigationTitle("Server Endpoints")
+      .navigationTitle("Servers")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
       #endif
@@ -170,465 +107,346 @@ struct ServerSettingsSheet: View {
     .presentationDragIndicator(.visible)
   }
 
-  private var overviewCard: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      Text("Status")
-        .font(.system(size: usesCompactLayout ? 15 : TypeScale.subhead, weight: .semibold))
-        .foregroundStyle(Color.textPrimary)
+  // MARK: - Endpoint Row
 
-      if usesCompactLayout {
-        VStack(spacing: 8) {
-          HStack(spacing: 10) {
-            statusMetric(
-              icon: "network",
-              value: "\(connectedCount)/\(enabledCount)",
-              label: "Connected",
-              color: connectedCount == enabledCount ? Color.statusWorking : Color.statusQuestion
-            )
+  private func endpointRow(_ endpoint: ServerEndpoint) -> some View {
+    let endpointStatus = status(for: endpoint)
+    let isExpanded = expandedEndpointId == endpoint.id
+    let isPrimary = runtimeRegistry.primaryEndpointId == endpoint.id
+    let isServerPrimary = runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true
 
-            statusMetric(
-              icon: "exclamationmark.triangle.fill",
-              value: "\(failedCount)",
-              label: "Failed",
-              color: failedCount == 0 ? Color.textTertiary : Color.statusPermission
-            )
+    return HStack(alignment: .top, spacing: 0) {
+      // Left accent bar — connection status
+      RoundedRectangle(cornerRadius: 2, style: .continuous)
+        .fill(statusColor(for: endpointStatus))
+        .frame(width: EdgeBar.width)
+        .frame(maxHeight: .infinity)
+        .shadow(
+          color: endpointStatus == .connected ? statusColor(for: endpointStatus).opacity(0.3) : .clear,
+          radius: 4
+        )
+
+      VStack(alignment: .leading, spacing: 0) {
+        // Primary row — name + status + connection action + toggle + chevron
+        Button {
+          withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            expandedEndpointId = isExpanded ? nil : endpoint.id
           }
+        } label: {
+          HStack(alignment: .center, spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: Spacing.xxs) {
+              HStack(spacing: Spacing.sm) {
+                Text(endpoint.name)
+                  .font(.system(size: TypeScale.title, weight: .semibold))
+                  .foregroundStyle(endpoint.isEnabled ? Color.textPrimary : Color.textTertiary)
+                  .lineLimit(1)
 
-          statusMetric(
-            icon: "crown.fill",
-            value: primaryEndpointName,
-            label: "Control Plane",
-            color: Color.accent,
-            monospaced: false
-          )
+                if isPrimary {
+                  HStack(spacing: 3) {
+                    Image(systemName: "crown.fill")
+                      .font(.system(size: 8))
+                    Text("Primary")
+                      .font(.system(size: TypeScale.micro, weight: .bold))
+                  }
+                  .foregroundStyle(Color.accent)
+                  .padding(.horizontal, 6)
+                  .padding(.vertical, 2)
+                  .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
+                }
+              }
+
+              Text(statusLabel(for: endpointStatus))
+                .font(.system(size: TypeScale.caption, weight: .medium))
+                .foregroundStyle(statusColor(for: endpointStatus))
+                .lineLimit(1)
+            }
+
+            Spacer(minLength: Spacing.sm)
+
+            // Inline connection action — always visible when relevant
+            if let action = connectionAction(for: endpointStatus), endpoint.isEnabled {
+              Button {
+                action.handler(endpoint.id)
+              } label: {
+                Image(systemName: connectionIcon(for: endpointStatus))
+                  .font(.system(size: 11, weight: .semibold))
+                  .foregroundStyle(Color.accent)
+                  .frame(width: 28, height: 28)
+                  .background(Color.accent.opacity(OpacityTier.subtle), in: Circle())
+              }
+              .buttonStyle(.plain)
+            }
+
+            Toggle(
+              isOn: Binding(
+                get: { endpoint.isEnabled },
+                set: { isEnabled in
+                  updateEndpointEnabled(endpoint.id, isEnabled: isEnabled)
+                }
+              )
+            ) {
+              EmptyView()
+            }
+            .toggleStyle(.switch)
+            .tint(Color.accent)
+            .labelsHidden()
+            .fixedSize()
+
+            Image(systemName: "chevron.right")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(Color.textQuaternary)
+              .rotationEffect(.degrees(isExpanded ? 90 : 0))
+          }
+          .padding(.horizontal, Spacing.lg)
+          .padding(.vertical, Spacing.md)
         }
-      } else {
-        HStack(spacing: 10) {
-          statusMetric(
-            icon: "network",
-            value: "\(connectedCount)/\(enabledCount)",
-            label: "Connected",
-            color: connectedCount == enabledCount ? Color.statusWorking : Color.statusQuestion
-          )
+        .buttonStyle(.plain)
 
-          statusMetric(
-            icon: "exclamationmark.triangle.fill",
-            value: "\(failedCount)",
-            label: "Failed",
-            color: failedCount == 0 ? Color.textTertiary : Color.statusPermission
-          )
+        // Expanded section — secondary actions + details
+        if isExpanded {
+          VStack(alignment: .leading, spacing: Spacing.md) {
+            // Detail line: URL + role tags
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+              Text(endpoint.wsURL.absoluteString)
+                .font(.system(size: TypeScale.caption, design: .monospaced))
+                .foregroundStyle(Color.textQuaternary)
+                .lineLimit(1)
+                .textSelection(.enabled)
 
-          statusMetric(
-            icon: "crown.fill",
-            value: primaryEndpointName,
-            label: "Control Plane",
-            color: Color.accent,
-            monospaced: false
-          )
+              HStack(spacing: Spacing.sm) {
+                if isServerPrimary {
+                  Text("Server Primary")
+                    .foregroundStyle(Color.textTertiary)
+                }
+                if endpoint.isLocalManaged {
+                  Text("Local")
+                    .foregroundStyle(Color.textTertiary)
+                }
+                if let claimsText = claimingDevicesDescription(for: endpoint) {
+                  Text(claimsText)
+                    .foregroundStyle(Color.textTertiary)
+                }
+              }
+              .font(.system(size: TypeScale.caption, weight: .medium))
+            }
+
+            // Secondary action buttons
+            HStack(spacing: Spacing.sm) {
+              if !isPrimary, endpoint.isEnabled {
+                actionPill("Set as Primary", icon: "crown", color: Color.accent) {
+                  setDefaultEndpoint(endpoint.id)
+                }
+              }
+
+              if let roleAction = serverRoleAction(for: endpoint, status: endpointStatus) {
+                actionPill(roleAction.label, icon: "server.rack", color: Color.textSecondary) {
+                  roleAction.handler(endpoint.id)
+                }
+              }
+            }
+
+            // Edit / Remove row
+            HStack(spacing: Spacing.lg) {
+              Button {
+                beginEditing(endpoint)
+              } label: {
+                HStack(spacing: Spacing.xs) {
+                  Image(systemName: "pencil")
+                    .font(.system(size: 10, weight: .semibold))
+                  Text("Edit")
+                    .font(.system(size: TypeScale.caption, weight: .medium))
+                }
+                .foregroundStyle(Color.textTertiary)
+              }
+              .buttonStyle(.plain)
+
+              if !endpoint.isLocalManaged {
+                Button {
+                  endpointPendingDelete = endpoint
+                } label: {
+                  HStack(spacing: Spacing.xs) {
+                    Image(systemName: "trash")
+                      .font(.system(size: 10, weight: .semibold))
+                    Text("Remove")
+                      .font(.system(size: TypeScale.caption, weight: .medium))
+                  }
+                  .foregroundStyle(Color.statusPermission.opacity(0.7))
+                }
+                .buttonStyle(.plain)
+              }
+            }
+          }
+          .padding(.horizontal, Spacing.lg)
+          .padding(.bottom, Spacing.lg)
+          .transition(.opacity.combined(with: .move(edge: .top)))
         }
-      }
-
-      Text(
-        "Control-plane selection is local to this device. Server-declared primary role and active client claims are shown as metadata."
-      )
-      .font(.system(size: TypeScale.caption))
-      .foregroundStyle(Color.textTertiary)
-
-      if runtimeRegistry.hasPrimaryEndpointConflict {
-        Text("Multiple connected servers currently report Server Primary role.")
-          .font(.system(size: TypeScale.caption, weight: .semibold))
-          .foregroundStyle(Color.statusPermission)
       }
     }
-    .padding(14)
-    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .background(
+      Color.backgroundSecondary,
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.panelBorder, lineWidth: 1)
     )
+    .clipped()
   }
 
-  private func statusMetric(
+  // MARK: - Action Pill
+
+  private func actionPill(
+    _ label: String,
     icon: String,
-    value: String,
-    label: String,
     color: Color,
-    monospaced: Bool = true
+    action: @escaping () -> Void
   ) -> some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack(spacing: 4) {
+    Button(action: action) {
+      HStack(spacing: Spacing.xs) {
         Image(systemName: icon)
           .font(.system(size: 10, weight: .semibold))
-        Text(value)
-          .font(.system(size: TypeScale.caption, weight: .bold, design: monospaced ? .monospaced : .default))
-          .lineLimit(1)
+        Text(label)
+          .font(.system(size: TypeScale.caption, weight: .semibold))
       }
       .foregroundStyle(color)
-
-      Text(label)
-        .font(.system(size: TypeScale.micro, weight: .medium))
-        .foregroundStyle(Color.textQuaternary)
-        .lineLimit(1)
+      .padding(.horizontal, Spacing.md)
+      .padding(.vertical, 6)
+      .background(color.opacity(OpacityTier.subtle), in: Capsule())
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 8)
-    .padding(.vertical, 6)
-    .background(
-      Color.backgroundTertiary.opacity(0.7),
-      in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-    )
+    .buttonStyle(.plain)
   }
 
-  private func endpointCard(_ endpoint: ServerEndpoint) -> some View {
-    let endpointStatus = status(for: endpoint)
+  // MARK: - Add Endpoint
 
-    return VStack(alignment: .leading, spacing: usesCompactLayout ? 12 : 10) {
-      // MARK: Header — name, badges, status chip
-
-      if usesCompactLayout {
-        compactEndpointHeader(endpoint, status: endpointStatus)
-      } else {
-        regularEndpointHeader(endpoint, status: endpointStatus)
+  private var addEndpointButton: some View {
+    Button {
+      beginAddingEndpoint()
+    } label: {
+      HStack(spacing: Spacing.sm) {
+        Image(systemName: "plus.circle")
+          .font(.system(size: 14, weight: .medium))
+        Text("Add Endpoint")
+          .font(.system(size: TypeScale.body, weight: .medium))
       }
-
-      // MARK: Actions — toggle, connection, edit/remove
-
-      if usesCompactLayout {
-        compactEndpointActions(endpoint, status: endpointStatus)
-      } else {
-        regularEndpointActions(endpoint, status: endpointStatus)
-      }
+      .foregroundStyle(Color.textTertiary)
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, Spacing.lg)
+      .background(
+        RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+          .strokeBorder(Color.panelBorder, style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+      )
     }
-    .padding(usesCompactLayout ? 16 : 12)
-    .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
-    .overlay(
-      RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-        .stroke(Color.panelBorder, lineWidth: 1)
-    )
+    .buttonStyle(.plain)
   }
 
-  // MARK: - Compact Endpoint Header (iOS)
-
-  private func compactEndpointHeader(_ endpoint: ServerEndpoint, status: ConnectionStatus) -> some View {
-    VStack(alignment: .leading, spacing: 6) {
-      HStack(alignment: .top) {
-        Text(endpoint.name)
-          .font(.system(size: 14, weight: .semibold))
-          .foregroundStyle(Color.textPrimary)
-          .lineLimit(1)
-
-        Spacer(minLength: 8)
-
-        connectionStatusChip(status: status)
-      }
-
-      let badges = endpointBadges(for: endpoint)
-      if !badges.isEmpty {
-        WrappingFlowLayout(spacing: 6) {
-          ForEach(badges, id: \.label) { badge in
-            EndpointBadge(endpointName: badge.label, isDefault: badge.isDefault)
-          }
-        }
-      }
-
-      Text(endpoint.wsURL.absoluteString)
-        .font(.system(size: 12, design: .monospaced))
-        .foregroundStyle(Color.textQuaternary)
-        .lineLimit(1)
-
-      if let claimsText = claimingDevicesDescription(for: endpoint) {
-        Text(claimsText)
-          .font(.system(size: 11))
-          .foregroundStyle(Color.textTertiary)
-          .lineLimit(2)
-      }
-    }
-  }
-
-  // MARK: - Regular Endpoint Header (macOS / iPad)
-
-  private func regularEndpointHeader(_ endpoint: ServerEndpoint, status: ConnectionStatus) -> some View {
-    HStack(alignment: .top, spacing: 8) {
-      VStack(alignment: .leading, spacing: 4) {
-        HStack(spacing: 6) {
-          Text(endpoint.name)
-            .font(.system(size: TypeScale.body, weight: .semibold))
-            .foregroundStyle(Color.textPrimary)
-            .lineLimit(1)
-
-          if runtimeRegistry.primaryEndpointId == endpoint.id {
-            EndpointBadge(endpointName: "Control Plane", isDefault: true)
-          }
-
-          if runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true {
-            EndpointBadge(endpointName: "Server Primary")
-          }
-
-          let claimCount = runtimeRegistry.serverPrimaryClaimsByEndpointId[endpoint.id]?.count ?? 0
-          if claimCount > 0 {
-            EndpointBadge(endpointName: "Claimed ×\(claimCount)")
-          }
-
-          if endpoint.isLocalManaged {
-            EndpointBadge(endpointName: "Local")
-          }
-
-          if !endpoint.isEnabled {
-            EndpointBadge(endpointName: "Disabled")
-          }
-        }
-
-        Text(endpoint.wsURL.absoluteString)
-          .font(.system(size: TypeScale.caption, design: .monospaced))
-          .foregroundStyle(Color.textQuaternary)
-          .lineLimit(1)
-
-        if let claimsText = claimingDevicesDescription(for: endpoint) {
-          Text(claimsText)
-            .font(.system(size: TypeScale.micro))
-            .foregroundStyle(Color.textTertiary)
-            .lineLimit(2)
-        }
-      }
-
-      Spacer(minLength: 10)
-
-      connectionStatusChip(status: status)
-    }
-  }
-
-  // MARK: - Compact Endpoint Actions (iOS)
-
-  private func compactEndpointActions(_ endpoint: ServerEndpoint, status: ConnectionStatus) -> some View {
-    VStack(spacing: 10) {
-      // Row 1: Toggle + connection action
-      HStack {
-        Toggle(
-          isOn: Binding(
-            get: { endpoint.isEnabled },
-            set: { isEnabled in
-              updateEndpointEnabled(endpoint.id, isEnabled: isEnabled)
-            }
-          )
-        ) {
-          Text("Enabled")
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(Color.textSecondary)
-        }
-        .toggleStyle(.switch)
-
-        Spacer()
-
-        if let action = connectionAction(for: status), endpoint.isEnabled {
-          Button(action.label) {
-            action.handler(endpoint.id)
-          }
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(Color.accent)
-          .buttonStyle(.borderless)
-        }
-      }
-
-      // Row 2: Primary actions — full-width capsule buttons
-      if endpoint.isEnabled {
-        if runtimeRegistry.primaryEndpointId != endpoint.id {
-          Button {
-            setDefaultEndpoint(endpoint.id)
-          } label: {
-            Text("Use for This Device")
-              .font(.system(size: 13, weight: .semibold))
-              .foregroundStyle(Color.accent)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 8)
-              .background(Color.accent.opacity(OpacityTier.light), in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-
-        if let roleAction = serverRoleAction(for: endpoint, status: status) {
-          Button {
-            roleAction.handler(endpoint.id)
-          } label: {
-            Text(roleAction.label)
-              .font(.system(size: 13, weight: .semibold))
-              .foregroundStyle(Color.textSecondary)
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 8)
-              .background(Color.backgroundTertiary, in: Capsule())
-          }
-          .buttonStyle(.plain)
-        }
-      }
-
-      // Row 3: Edit + Remove (trailing text buttons)
-      HStack {
-        Spacer()
-
-        Button("Edit") {
-          beginEditing(endpoint)
-        }
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(Color.accent)
-        .buttonStyle(.borderless)
-
-        if !endpoint.isLocalManaged {
-          Button("Remove") {
-            endpointPendingDelete = endpoint
-          }
-          .font(.system(size: 13, weight: .semibold))
-          .foregroundStyle(Color.statusPermission)
-          .buttonStyle(.borderless)
-        }
-      }
-    }
-  }
-
-  // MARK: - Regular Endpoint Actions (macOS / iPad)
-
-  private func regularEndpointActions(_ endpoint: ServerEndpoint, status: ConnectionStatus) -> some View {
-    HStack(spacing: 8) {
-      Toggle(
-        isOn: Binding(
-          get: { endpoint.isEnabled },
-          set: { isEnabled in
-            updateEndpointEnabled(endpoint.id, isEnabled: isEnabled)
-          }
-        )
-      ) {
-        Text("Enabled")
-          .font(.system(size: TypeScale.caption, weight: .medium))
-          .foregroundStyle(Color.textSecondary)
-      }
-      .toggleStyle(.switch)
-
-      Spacer()
-
-      if let action = connectionAction(for: status), endpoint.isEnabled {
-        Button(action.label) {
-          action.handler(endpoint.id)
-        }
-        .buttonStyle(.borderless)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(Color.accent)
-      }
-
-      if let roleAction = serverRoleAction(for: endpoint, status: status) {
-        Button(roleAction.label) {
-          roleAction.handler(endpoint.id)
-        }
-        .buttonStyle(.borderless)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .foregroundStyle(Color.accent)
-      }
-
-      if runtimeRegistry.primaryEndpointId != endpoint.id {
-        Button("Use for This Device") {
-          setDefaultEndpoint(endpoint.id)
-        }
-        .buttonStyle(.borderless)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-        .disabled(!endpoint.isEnabled)
-      }
-
-      Button("Edit") {
-        beginEditing(endpoint)
-      }
-      .buttonStyle(.borderless)
-      .font(.system(size: TypeScale.caption, weight: .semibold))
-
-      if !endpoint.isLocalManaged {
-        Button("Remove", role: .destructive) {
-          endpointPendingDelete = endpoint
-        }
-        .buttonStyle(.borderless)
-        .font(.system(size: TypeScale.caption, weight: .semibold))
-      }
-    }
-  }
-
-  // MARK: - Badge Data Helper
-
-  private struct BadgeInfo: Hashable {
-    let label: String
-    let isDefault: Bool
-  }
-
-  private func endpointBadges(for endpoint: ServerEndpoint) -> [BadgeInfo] {
-    var badges: [BadgeInfo] = []
-    if runtimeRegistry.primaryEndpointId == endpoint.id {
-      badges.append(BadgeInfo(label: "Control Plane", isDefault: true))
-    }
-    if runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true {
-      badges.append(BadgeInfo(label: "Server Primary", isDefault: false))
-    }
-    let claimCount = runtimeRegistry.serverPrimaryClaimsByEndpointId[endpoint.id]?.count ?? 0
-    if claimCount > 0 {
-      badges.append(BadgeInfo(label: "Claimed ×\(claimCount)", isDefault: false))
-    }
-    if endpoint.isLocalManaged {
-      badges.append(BadgeInfo(label: "Local", isDefault: false))
-    }
-    if !endpoint.isEnabled {
-      badges.append(BadgeInfo(label: "Disabled", isDefault: false))
-    }
-    return badges
-  }
-
-  private func connectionStatusChip(status: ConnectionStatus) -> some View {
-    HStack(spacing: 5) {
-      Circle()
-        .fill(statusColor(for: status))
-        .frame(width: 7, height: 7)
-      Text(statusLabel(for: status))
-        .font(.system(size: TypeScale.micro, weight: .semibold))
-        .foregroundStyle(Color.textSecondary)
-    }
-    .padding(.horizontal, 7)
-    .padding(.vertical, 4)
-    .background(Color.backgroundTertiary, in: Capsule())
-  }
+  // MARK: - Endpoint Editor Sheet
 
   private var endpointEditorSheet: some View {
     NavigationStack {
-      Form {
-        Section("Details") {
-          TextField("Name", text: $draftName)
-          #if os(iOS)
-            .textInputAutocapitalization(.words)
-          #endif
+      ScrollView {
+        VStack(alignment: .leading, spacing: 0) {
+          // Single card with all fields
+          VStack(alignment: .leading, spacing: 0) {
+            // Name field
+            editorField(label: "Name") {
+              TextField("My Server", text: $draftName)
+                .textFieldStyle(.plain)
+                .font(.system(size: TypeScale.body))
+              #if os(iOS)
+                .textInputAutocapitalization(.words)
+              #endif
+            }
 
-          TextField("Host", text: $draftHostInput)
-          #if os(iOS)
-            .textInputAutocapitalization(.never)
-          #endif
-            .autocorrectionDisabled()
-            .disabled(draftIsLocalManaged)
+            Divider()
+              .overlay(Color.panelBorder)
 
-          if draftIsLocalManaged {
-            Text("Local endpoint host is managed automatically.")
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textTertiary)
-          } else {
-            Text("Examples: 10.0.0.5 or 10.0.0.5:4100")
-              .font(.system(size: TypeScale.caption))
-              .foregroundStyle(Color.textTertiary)
+            // Host field
+            editorField(label: "Host") {
+              TextField("10.0.0.5 or 10.0.0.5:4100", text: $draftHostInput)
+                .textFieldStyle(.plain)
+                .font(.system(size: TypeScale.body, design: .monospaced))
+              #if os(iOS)
+                .textInputAutocapitalization(.never)
+              #endif
+                .autocorrectionDisabled()
+                .disabled(draftIsLocalManaged)
+            }
+
+            if draftIsLocalManaged {
+              Text("Host is managed automatically for local endpoints.")
+                .font(.system(size: TypeScale.caption))
+                .foregroundStyle(Color.textTertiary)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.bottom, Spacing.md)
+                .padding(.top, -Spacing.xs)
+            }
+
+            Divider()
+              .overlay(Color.panelBorder)
+
+            // Enabled toggle
+            editorField(label: "Enabled") {
+              Spacer()
+              Toggle(isOn: $draftIsEnabled) {
+                EmptyView()
+              }
+              .toggleStyle(.switch)
+              .tint(Color.accent)
+              .labelsHidden()
+              .fixedSize()
+            }
+
+            Divider()
+              .overlay(Color.panelBorder)
+
+            // Control-plane toggle
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+              editorField(label: "Control Plane") {
+                Spacer()
+                Toggle(isOn: $draftIsDefault) {
+                  EmptyView()
+                }
+                .toggleStyle(.switch)
+                .tint(Color.accent)
+                .labelsHidden()
+                .fixedSize()
+                .disabled(!draftIsEnabled)
+              }
+
+              Text("Route usage and dashboard data through this endpoint.")
+                .font(.system(size: TypeScale.caption))
+                .foregroundStyle(Color.textTertiary)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.bottom, Spacing.md)
+            }
+          }
+          .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+          .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+              .stroke(Color.panelBorder, lineWidth: 1)
+          )
+
+          if let editorError {
+            HStack(spacing: Spacing.sm) {
+              Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.statusPermission)
+              Text(editorError)
+                .foregroundStyle(Color.statusPermission)
+                .font(.system(size: TypeScale.caption, weight: .medium))
+            }
+            .padding(Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+              Color.statusPermission.opacity(OpacityTier.light),
+              in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            )
+            .padding(.top, Spacing.lg)
           }
         }
-
-        Section("Behavior") {
-          Toggle("Enabled", isOn: $draftIsEnabled)
-          Toggle("Control-plane endpoint on this device", isOn: $draftIsDefault)
-            .disabled(!draftIsEnabled)
-        }
-
-        if let editorError {
-          Section {
-            Text(editorError)
-              .foregroundStyle(Color.statusPermission)
-              .font(.system(size: TypeScale.caption, weight: .medium))
-          }
-        }
+        .padding(Spacing.section)
       }
+      .background(Color.backgroundPrimary)
       .navigationTitle(editingEndpointId == nil ? "Add Endpoint" : "Edit Endpoint")
       #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -638,16 +456,34 @@ struct ServerSettingsSheet: View {
             Button("Cancel") {
               closeEditor()
             }
+            .foregroundStyle(Color.textSecondary)
           }
           ToolbarItem(placement: .confirmationAction) {
             Button("Save") {
               saveEditor()
             }
+            .foregroundStyle(Color.accent)
             .disabled(draftName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
           }
         }
     }
   }
+
+  private func editorField<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+    HStack(spacing: Spacing.md) {
+      Text(label)
+        .font(.system(size: TypeScale.body, weight: .medium))
+        .foregroundStyle(Color.textSecondary)
+        .frame(width: 90, alignment: .leading)
+
+      content()
+        .foregroundStyle(Color.textPrimary)
+    }
+    .padding(.horizontal, Spacing.lg)
+    .padding(.vertical, Spacing.md)
+  }
+
+  // MARK: - Helpers
 
   private func status(for endpoint: ServerEndpoint) -> ConnectionStatus {
     if !endpoint.isEnabled {
@@ -693,6 +529,19 @@ struct ServerSettingsSheet: View {
     }
   }
 
+  private func connectionIcon(for status: ConnectionStatus) -> String {
+    switch status {
+      case .connected:
+        "bolt.slash"
+      case .connecting:
+        "xmark"
+      case .disconnected:
+        "bolt"
+      case .failed:
+        "arrow.clockwise"
+    }
+  }
+
   private func connectionAction(for status: ConnectionStatus) -> (label: String, handler: (UUID) -> Void)? {
     switch status {
       case .connected:
@@ -722,15 +571,17 @@ struct ServerSettingsSheet: View {
     guard case .connected = status else { return nil }
 
     if runtimeRegistry.serverPrimaryByEndpointId[endpoint.id] == true {
-      return ("Mark Server Secondary", { endpointId in
+      return ("Mark Secondary", { endpointId in
         runtimeRegistry.setServerRole(endpointId: endpointId, isPrimary: false)
       })
     }
 
-    return ("Mark Server Primary", { endpointId in
+    return ("Mark Primary", { endpointId in
       runtimeRegistry.setServerRole(endpointId: endpointId, isPrimary: true)
     })
   }
+
+  // MARK: - State Mutations
 
   private func beginAddingEndpoint() {
     editingEndpointId = nil
