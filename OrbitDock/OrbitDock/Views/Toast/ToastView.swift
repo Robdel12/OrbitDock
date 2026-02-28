@@ -112,8 +112,10 @@ struct ToastView: View {
 // MARK: - Toast Container
 
 struct ToastContainer: View {
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+
   @ObservedObject var toastManager: ToastManager
-  let onSelectSession: (String) -> Void
 
   var body: some View {
     VStack(alignment: .trailing, spacing: 8) {
@@ -121,7 +123,9 @@ struct ToastContainer: View {
         ToastView(
           toast: toast,
           onTap: {
-            onSelectSession(toast.sessionId)
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+              router.navigateToSession(scopedID: toast.sessionId, runtimeRegistry: runtimeRegistry)
+            }
             toastManager.dismiss(toast)
           },
           onDismiss: {
@@ -134,7 +138,9 @@ struct ToastContainer: View {
         ))
       }
     }
-    .padding(16)
+    .padding(.horizontal, 16)
+    .padding(.top, 48)
+    .padding(.bottom, 16)
     .animation(.spring(response: 0.35, dampingFraction: 0.8), value: toastManager.toasts)
   }
 }

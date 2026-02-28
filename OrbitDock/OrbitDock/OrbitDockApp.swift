@@ -20,6 +20,7 @@ struct OrbitDockApp: App {
   #endif
   @State private var runtimeRegistry = ServerRuntimeRegistry.shared
   @State private var attentionService = AttentionService()
+  @State private var router = AppRouter()
   private let runtimeMode = AppRuntimeMode.current
 
   private var serverAppState: ServerAppState {
@@ -31,6 +32,7 @@ struct OrbitDockApp: App {
       .environment(serverAppState)
       .environment(runtimeRegistry)
       .environment(attentionService)
+      .environment(router)
       .preferredColorScheme(.dark)
     #if os(iOS)
       .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
@@ -69,8 +71,21 @@ struct OrbitDockApp: App {
         mainRootView
           .frame(minWidth: 1_000, maxWidth: .infinity, minHeight: 700, maxHeight: .infinity)
       }
-      .windowStyle(.automatic)
+      .windowStyle(.hiddenTitleBar)
       .defaultSize(width: 1_000, height: 700)
+      .commands {
+        CommandGroup(after: .toolbar) {
+          Button("Dashboard") {
+            router.goToDashboard()
+          }
+          .keyboardShortcut("0", modifiers: .command)
+
+          Button("Quick Switch") {
+            router.openQuickSwitcher()
+          }
+          .keyboardShortcut("k", modifiers: .command)
+        }
+      }
 
       // Settings window (⌘,)
       Settings {

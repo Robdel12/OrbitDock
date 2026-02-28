@@ -12,9 +12,10 @@ import SwiftUI
 struct ProjectStreamSection: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerAppState.self) private var serverState
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let sessions: [Session]
-  let onSelectSession: (String) -> Void
   var selectedIndex: Int?
   @Binding var filter: ActiveSessionWorkbenchFilter
   @Binding var sort: ActiveSessionSort
@@ -1036,7 +1037,6 @@ struct ProjectStreamSection: View {
         repoRoot: group.projectPath,
         projectName: group.projectName,
         allSessions: sessions,
-        onSelectSession: onSelectSession,
         onCreateClaudeSession: { cwd in serverState.createClaudeSession(cwd: cwd) },
         onCreateCodexSession: { cwd in serverState.createSession(cwd: cwd) },
         onOpenManageSheet: {
@@ -1055,7 +1055,11 @@ struct ProjectStreamSection: View {
 
           FlatSessionRow(
             session: session,
-            onSelect: { onSelectSession(session.scopedID) },
+            onSelect: {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+              }
+            },
             isSelected: isSelected,
             hideBranch: sharedBranch != nil
           )
@@ -1463,7 +1467,6 @@ private struct WorktreeSheetIdentifier: Identifiable {
           provider: .codex
         ),
       ],
-      onSelectSession: { _ in },
       selectedIndex: 0,
       filter: $filter,
       sort: $sort,
@@ -1474,4 +1477,6 @@ private struct WorktreeSheetIdentifier: Identifiable {
   .background(Color.backgroundPrimary)
   .frame(width: 900, height: 600)
   .environment(ServerAppState())
+  .environment(AppRouter())
+  .environment(ServerRuntimeRegistry.shared)
 }

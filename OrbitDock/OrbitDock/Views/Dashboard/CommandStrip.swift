@@ -11,13 +11,11 @@ import SwiftUI
 struct CommandStrip: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(AppRouter.self) private var router
 
   let sessions: [Session]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
-  let onOpenQuickSwitcher: () -> Void
-  let onNewClaude: () -> Void
-  let onNewCodex: () -> Void
 
   @State private var showServerSettings = false
   @State private var showAppSettings = false
@@ -104,31 +102,6 @@ struct CommandStrip: View {
 
       syncIndicator
 
-      if !sessions.isEmpty, workingCount + attentionCount + readyCount > 0 {
-        statusSummaryPill
-      }
-
-      Spacer()
-
-      newSessionMenu
-      quickSwitchButton
-    }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 10)
-  }
-
-  private var padStrip: some View {
-    HStack(spacing: 10) {
-      Text("OrbitDock")
-        .font(.system(size: TypeScale.large, weight: .bold))
-        .foregroundStyle(.primary)
-
-      syncIndicator
-
-      if !sessions.isEmpty, workingCount + attentionCount + readyCount > 0 {
-        statusSummaryPill
-      }
-
       Spacer()
 
       newSessionMenu
@@ -136,39 +109,28 @@ struct CommandStrip: View {
       settingsButton
       serverSettingsButton
     }
-    .padding(.horizontal, 14)
+    .padding(.horizontal, 16)
     .padding(.vertical, 10)
   }
 
+  private var padStrip: some View {
+    desktopStrip
+  }
+
   private var compactStrip: some View {
-    VStack(spacing: 8) {
-      HStack(spacing: 10) {
-        Text("OrbitDock")
-          .font(.system(size: TypeScale.subhead, weight: .bold))
-          .foregroundStyle(.primary)
+    HStack(spacing: 10) {
+      Text("OrbitDock")
+        .font(.system(size: TypeScale.subhead, weight: .bold))
+        .foregroundStyle(.primary)
 
-        if !sessions.isEmpty, workingCount + attentionCount + readyCount > 0 {
-          compactStatusSummaryPill
-        }
+      syncIndicator
 
-        compactConnectionStatusPill
+      Spacer()
 
-        Spacer()
-
-        if isInitialLoading || isRefreshingCachedSessions {
-          ProgressView()
-            .controlSize(.mini)
-            .frame(width: 18, height: 18)
-        }
-
-        quickSwitchButton
-        compactOverflowMenu
-      }
-
-      HStack(spacing: 8) {
-        newSessionMenuButton
-        Spacer()
-      }
+      newSessionMenu
+      quickSwitchButton
+      settingsButton
+      serverSettingsButton
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 10)
@@ -208,13 +170,13 @@ struct CommandStrip: View {
   private var newSessionMenu: some View {
     Menu {
       Button {
-        onNewClaude()
+        router.showNewClaudeSheet = true
       } label: {
         Label("Claude Session", systemImage: "sparkles")
       }
 
       Button {
-        onNewCodex()
+        router.showNewCodexSheet = true
       } label: {
         Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
       }
@@ -237,13 +199,13 @@ struct CommandStrip: View {
   private var newSessionMenuButton: some View {
     Menu {
       Button {
-        onNewClaude()
+        router.showNewClaudeSheet = true
       } label: {
         Label("Claude Session", systemImage: "sparkles")
       }
 
       Button {
-        onNewCodex()
+        router.showNewCodexSheet = true
       } label: {
         Label("Codex Session", systemImage: "chevron.left.forwardslash.chevron.right")
       }
@@ -292,7 +254,7 @@ struct CommandStrip: View {
   }
 
   private var quickSwitchButton: some View {
-    Button(action: onOpenQuickSwitcher) {
+    Button(action: { router.openQuickSwitcher() }) {
       Image(systemName: "magnifyingglass")
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(Color.textSecondary)
@@ -595,11 +557,9 @@ struct CommandStrip: View {
         Session(id: "3", projectPath: "/p", status: .active, workStatus: .waiting, attentionReason: .awaitingReply),
       ],
       isInitialLoading: false,
-      isRefreshingCachedSessions: false,
-      onOpenQuickSwitcher: {},
-      onNewClaude: {},
-      onNewCodex: {}
+      isRefreshingCachedSessions: false
     )
+    .environment(AppRouter())
 
     Divider().foregroundStyle(Color.panelBorder)
 

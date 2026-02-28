@@ -11,34 +11,11 @@ struct ContentView: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
   @Environment(AttentionService.self) private var attentionService
+  @Environment(AppRouter.self) private var router
   @StateObject private var serverManager = ServerManager.shared
   @State private var unifiedSessionsStore = UnifiedSessionsStore()
   @State private var sessions: [Session] = []
-  @State private var selectedSessionScopedID: String?
   @StateObject private var toastManager = ToastManager.shared
-
-  // Panel state
-  @AppStorage("showSidebar") private var showSidebar = false
-  @State private var showQuickSwitcher = false
-
-  // New session sheet state (moved from DashboardView for QuickSwitcher access)
-  @State private var showNewClaudeSheet = false
-  @State private var showNewCodexSheet = false
-
-  /// Resolve ID to fresh session object from current sessions array
-  private var selectedSession: Session? {
-    guard let ref = selectedSessionRef else { return nil }
-    guard let runtime = runtimeRegistry.runtimesByEndpointId[ref.endpointId] else { return nil }
-    guard var session = runtime.appState.sessions.first(where: { $0.id == ref.sessionId }) else { return nil }
-    session.endpointId = runtime.endpoint.id
-    session.endpointName = runtime.endpoint.name
-    return session
-  }
-
-  private var selectedSessionRef: SessionRef? {
-    guard let selectedSessionScopedID else { return nil }
-    return unifiedSessionsStore.sessionRef(for: selectedSessionScopedID)
-  }
 
   var workingSessions: [Session] {
     sessions.filter { $0.isActive && $0.workStatus == .working }
@@ -68,66 +45,36 @@ struct ContentView: View {
   }
 
   var body: some View {
+    @Bindable var router = router
+
     ZStack {
-      HStack(spacing: 0) {
-        // Persistent sidebar
-        if showSidebar {
-          WorkspaceSidebar(
-            sessions: sessions,
-            selectedSessionId: selectedSessionScopedID,
-            onSelectSession: { id in
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                selectSession(scopedID: id)
-              }
-            },
-            onCollapse: {
-              withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                showSidebar = false
-              }
-            },
-            onNewClaude: { showNewClaudeSheet = true },
-            onNewCodex: { showNewCodexSheet = true }
-          )
-          .transition(.move(edge: .leading).combined(with: .opacity))
-
-          Divider()
-        }
-
-        // Main content
-        mainContent
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      }
+      mainContent
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
       // Quick switcher overlay
-      if showQuickSwitcher {
+      if router.showQuickSwitcher {
         quickSwitcherOverlay
       }
 
-      // Toast notifications (bottom right)
+      // Toast notifications (top right, under header)
       VStack {
-        Spacer()
         HStack {
           Spacer()
           ToastContainer(
-            toastManager: toastManager,
-            onSelectSession: { id in
-              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                selectSession(scopedID: id)
-              }
-            }
+            toastManager: toastManager
           )
         }
+        Spacer()
       }
     }
     .background(Color.backgroundPrimary)
-    .onChange(of: selectedSessionScopedID) { _, newId in
+    .onChange(of: router.selectedScopedID) { _, newId in
       toastManager.currentSessionId = newId
     }
     .onChange(of: runtimeRegistry.activeEndpointId) { _, _ in
-      guard let selectedSessionScopedID else { return }
-      guard let selectedRef = unifiedSessionsStore.sessionRef(for: selectedSessionScopedID) else { return }
-      if runtimeRegistry.activeEndpointId != selectedRef.endpointId {
-        runtimeRegistry.setActiveEndpoint(id: selectedRef.endpointId)
+      guard let ref = router.selectedSessionRef else { return }
+      if runtimeRegistry.activeEndpointId != ref.endpointId {
+        runtimeRegistry.setActiveEndpoint(id: ref.endpointId)
       }
     }
     .onAppear {
@@ -154,73 +101,34 @@ struct ContentView: View {
           return nil
         }()
 
-        if let ref = unifiedSessionsStore.sessionRef(for: sessionID) {
-          selectSession(scopedID: ref.scopedID)
-        } else if let endpointId = endpointFromNotification {
-          let scopedID = SessionRef(endpointId: endpointId, sessionId: sessionID).scopedID
-          selectSession(scopedID: scopedID)
-        } else if let activeEndpointId = runtimeRegistry.activeEndpointId {
-          let scopedID = SessionRef(endpointId: activeEndpointId, sessionId: sessionID).scopedID
-          selectSession(scopedID: scopedID)
+        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+          router.handleExternalNavigation(
+            sessionID: sessionID,
+            endpointId: endpointFromNotification,
+            store: unifiedSessionsStore,
+            runtimeRegistry: runtimeRegistry
+          )
         }
       }
     }
-    // Keyboard shortcuts via focusable + onKeyPress
+    // Keyboard shortcuts
     .focusable()
     .onKeyPress(keys: [.escape]) { _ in
-      if showQuickSwitcher {
+      if router.showQuickSwitcher {
         withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-          showQuickSwitcher = false
-        }
-        return .handled
-      }
-      if showSidebar {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-          showSidebar = false
+          router.closeQuickSwitcher()
         }
         return .handled
       }
       return .ignored
     }
-    // Use toolbar buttons with keyboard shortcuts
-    .toolbar {
-      ToolbarItem(placement: .primaryAction) {
-        Button {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            selectedSessionScopedID = nil
-          }
-        } label: {
-          Label("Dashboard", systemImage: "square.grid.2x2")
-        }
-        .keyboardShortcut("0", modifiers: .command)
-      }
-
-      ToolbarItem(placement: .primaryAction) {
-        Button {
-          withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showSidebar.toggle()
-          }
-        } label: {
-          Label("Agents", systemImage: "sidebar.left")
-        }
-        .keyboardShortcut("1", modifiers: .command)
-      }
-
-      ToolbarItem(placement: .primaryAction) {
-        Button {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            showQuickSwitcher = true
-          }
-        } label: {
-          Label("Quick Switch", systemImage: "magnifyingglass")
-        }
-        .keyboardShortcut("k", modifiers: .command)
-      }
-    }
-    .sheet(isPresented: $showNewClaudeSheet) {
+    #if os(macOS)
+    .toolbar(.hidden)
+    #endif
+    .sheet(isPresented: $router.showNewClaudeSheet) {
       NewClaudeSessionSheet()
     }
-    .sheet(isPresented: $showNewCodexSheet) {
+    .sheet(isPresented: $router.showNewCodexSheet) {
       NewCodexSessionSheet()
     }
   }
@@ -231,20 +139,10 @@ struct ContentView: View {
     Group {
       if shouldShowSetup {
         ServerSetupView()
-      } else if let ref = selectedSessionRef {
+      } else if let ref = router.selectedSessionRef {
         SessionDetailView(
           sessionId: ref.sessionId,
-          endpointId: ref.endpointId,
-          onOpenSwitcher: {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-              showQuickSwitcher = true
-            }
-          },
-          onGoToDashboard: {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-              selectedSessionScopedID = nil
-            }
-          }
+          endpointId: ref.endpointId
         )
         .id(ref.scopedID)
       } else {
@@ -253,19 +151,7 @@ struct ContentView: View {
           sessions: sessions,
           endpointHealth: unifiedSessionsStore.endpointHealth,
           isInitialLoading: isAnyInitialLoading,
-          isRefreshingCachedSessions: isAnyRefreshingCachedSessions,
-          onSelectSession: { id in
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-              selectSession(scopedID: id)
-            }
-          },
-          onOpenQuickSwitcher: {
-            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-              showQuickSwitcher = true
-            }
-          },
-          onNewClaude: { showNewClaudeSheet = true },
-          onNewCodex: { showNewCodexSheet = true }
+          isRefreshingCachedSessions: isAnyRefreshingCachedSessions
         )
       }
     }
@@ -280,31 +166,13 @@ struct ContentView: View {
         .ignoresSafeArea()
         .onTapGesture {
           withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            showQuickSwitcher = false
+            router.closeQuickSwitcher()
           }
         }
 
       // Quick Switcher
       QuickSwitcher(
         sessions: sessions,
-        currentSessionId: selectedSessionScopedID,
-        onSelect: { id in
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            selectSession(scopedID: id)
-            showQuickSwitcher = false
-          }
-        },
-        onGoToDashboard: {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            selectedSessionScopedID = nil
-            showQuickSwitcher = false
-          }
-        },
-        onClose: {
-          withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-            showQuickSwitcher = false
-          }
-        },
         onQuickLaunchClaude: { path in
           creationAppState().createClaudeSession(
             cwd: path,
@@ -325,12 +193,6 @@ struct ContentView: View {
             approvalPolicy: "on-request",
             sandboxMode: "workspace-write"
           )
-        },
-        onOpenClaudeSheet: {
-          showNewClaudeSheet = true
-        },
-        onOpenCodexSheet: {
-          showNewCodexSheet = true
         }
       )
     }
@@ -346,8 +208,10 @@ struct ContentView: View {
     unifiedSessionsStore.refresh()
     sessions = unifiedSessionsStore.sessions
 
-    if let selectedSessionScopedID, !unifiedSessionsStore.containsSession(scopedID: selectedSessionScopedID) {
-      self.selectedSessionScopedID = nil
+    if let selectedScopedID = router.selectedScopedID,
+       !unifiedSessionsStore.containsSession(scopedID: selectedScopedID)
+    {
+      router.goToDashboard()
     }
 
     // Track work status for "agent finished" notifications
@@ -380,15 +244,6 @@ struct ContentView: View {
     }
   }
 
-  private func selectSession(scopedID: String) {
-    guard let ref = unifiedSessionsStore.sessionRef(for: scopedID) else {
-      selectedSessionScopedID = nil
-      return
-    }
-    runtimeRegistry.setActiveEndpoint(id: ref.endpointId)
-    selectedSessionScopedID = ref.scopedID
-  }
-
   private func creationAppState() -> ServerAppState {
     runtimeRegistry.primaryAppState(fallback: serverState)
   }
@@ -399,5 +254,6 @@ struct ContentView: View {
     .environment(ServerAppState())
     .environment(ServerRuntimeRegistry.shared)
     .environment(AttentionService())
+    .environment(AppRouter())
     .frame(width: 1_000, height: 700)
 }

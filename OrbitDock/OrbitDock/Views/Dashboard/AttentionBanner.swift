@@ -9,8 +9,10 @@
 import SwiftUI
 
 struct AttentionBanner: View {
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+
   let sessions: [Session]
-  let onSelectSession: (String) -> Void
 
   private var attentionSessions: [Session] {
     sessions
@@ -41,7 +43,11 @@ struct AttentionBanner: View {
         ForEach(visible, id: \.scopedID) { session in
           AttentionBannerItem(
             session: session,
-            onSelect: { onSelectSession(session.scopedID) }
+            onSelect: {
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+              }
+            }
           )
         }
 
@@ -192,8 +198,7 @@ private struct AttentionBannerItem: View {
           attentionReason: .awaitingQuestion,
           pendingQuestion: "Should I use the editorial type scale or keep the current one?"
         ),
-      ],
-      onSelectSession: { _ in }
+      ]
     )
 
     // Empty state — should render nothing
@@ -206,11 +211,12 @@ private struct AttentionBannerItem: View {
           status: .active,
           workStatus: .working
         ),
-      ],
-      onSelectSession: { _ in }
+      ]
     )
   }
   .padding(24)
   .background(Color.backgroundPrimary)
   .frame(width: 800)
+  .environment(AppRouter())
+  .environment(ServerRuntimeRegistry.shared)
 }

@@ -10,15 +10,12 @@ import SwiftUI
 struct DashboardView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(AppRouter.self) private var router
 
   let sessions: [Session]
   let endpointHealth: [UnifiedEndpointHealth]
   let isInitialLoading: Bool
   let isRefreshingCachedSessions: Bool
-  let onSelectSession: (String) -> Void
-  let onOpenQuickSwitcher: () -> Void
-  let onNewClaude: () -> Void
-  let onNewCodex: () -> Void
 
   @State private var selectedIndex = 0
   @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
@@ -54,10 +51,7 @@ struct DashboardView: View {
       CommandStrip(
         sessions: sessions,
         isInitialLoading: isInitialLoading,
-        isRefreshingCachedSessions: isRefreshingCachedSessions,
-        onOpenQuickSwitcher: onOpenQuickSwitcher,
-        onNewClaude: onNewClaude,
-        onNewCodex: onNewCodex
+        isRefreshingCachedSessions: isRefreshingCachedSessions
       )
 
       Divider()
@@ -86,15 +80,13 @@ struct DashboardView: View {
 
             // Zone 2: Attention interrupts — the real priority
             AttentionBanner(
-              sessions: sessions,
-              onSelectSession: onSelectSession
+              sessions: sessions
             )
             .padding(.top, layoutMode.attentionTopPadding)
 
             // Zone 3: Active agents — primary content
             ProjectStreamSection(
               sessions: sessions,
-              onSelectSession: onSelectSession,
               selectedIndex: selectedIndex,
               filter: $activeWorkbenchFilter,
               sort: $activeSort,
@@ -104,8 +96,7 @@ struct DashboardView: View {
 
             // Zone 4: History
             SessionHistorySection(
-              sessions: sessions,
-              onSelectSession: onSelectSession
+              sessions: sessions
             )
             .padding(.top, layoutMode.historyTopPadding)
           }
@@ -429,7 +420,9 @@ struct DashboardView: View {
   private func selectCurrentSession() {
     guard selectedIndex >= 0, selectedIndex < activeSessions.count else { return }
     let session = activeSessions[selectedIndex]
-    onSelectSession(session.scopedID)
+    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+      router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+    }
   }
 }
 
@@ -438,12 +431,9 @@ struct DashboardView: View {
     sessions: [],
     endpointHealth: [],
     isInitialLoading: false,
-    isRefreshingCachedSessions: false,
-    onSelectSession: { _ in },
-    onOpenQuickSwitcher: {},
-    onNewClaude: {},
-    onNewCodex: {}
+    isRefreshingCachedSessions: false
   )
   .frame(width: 900, height: 500)
   .environment(ServerRuntimeRegistry.shared)
+  .environment(AppRouter())
 }

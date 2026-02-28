@@ -13,11 +13,12 @@ import SwiftUI
 struct InlineWorktreeStrip: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
 
   let repoRoot: String
   let projectName: String
   let allSessions: [Session]
-  let onSelectSession: (String) -> Void
   let onCreateClaudeSession: (String) -> Void
   let onCreateCodexSession: (String) -> Void
   let onOpenManageSheet: () -> Void
@@ -272,7 +273,11 @@ struct InlineWorktreeStrip: View {
             ForEach(wtSessions, id: \.scopedID) { session in
               WorktreeSessionRow(
                 session: session,
-                onSelect: { onSelectSession(session.scopedID) }
+                onSelect: {
+                  withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+                  }
+                }
               )
               .padding(.leading, 14)
             }
@@ -593,9 +598,9 @@ private struct WorktreeSessionRow: View {
     guard let date = session.lastActivityAt ?? session.startedAt else { return nil }
     let interval = Date().timeIntervalSince(date)
     if interval < 60 { return "now" }
-    if interval < 3600 { return "\(Int(interval / 60))m" }
-    if interval < 86400 { return "\(Int(interval / 3600))h" }
-    return "\(Int(interval / 86400))d"
+    if interval < 3_600 { return "\(Int(interval / 60))m" }
+    if interval < 86_400 { return "\(Int(interval / 3_600))h" }
+    return "\(Int(interval / 86_400))d"
   }
 
   var body: some View {

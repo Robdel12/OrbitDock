@@ -8,8 +8,10 @@
 import SwiftUI
 
 struct SessionHistorySection: View {
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+
   let sessions: [Session]
-  let onSelectSession: (String) -> Void
 
   @State private var isExpanded = false
   @State private var showAll = false
@@ -197,7 +199,6 @@ struct SessionHistorySection: View {
       ForEach(dateGroups) { group in
         DateGroupSection(
           group: group,
-          onSelectSession: onSelectSession,
           showAll: showAll
         )
       }
@@ -230,8 +231,7 @@ struct SessionHistorySection: View {
     VStack(spacing: 12) {
       ForEach(projectGroups) { group in
         ProjectHistoryGroup(
-          group: group,
-          onSelectSession: onSelectSession
+          group: group
         )
       }
     }
@@ -252,8 +252,10 @@ struct DateGroup: Identifiable {
 // MARK: - Date Group Section
 
 struct DateGroupSection: View {
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+
   let group: DateGroup
-  let onSelectSession: (String) -> Void
   let showAll: Bool
 
   private let maxCollapsed = 4
@@ -290,7 +292,9 @@ struct DateGroupSection: View {
       VStack(spacing: 2) {
         ForEach(visibleSessions, id: \.scopedID) { session in
           HistorySessionRow(session: session, referenceDate: referenceDate) {
-            onSelectSession(session.scopedID)
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+              router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+            }
           }
         }
 
@@ -440,8 +444,10 @@ struct SessionHistoryGroup: Identifiable {
 // MARK: - Project History Group View
 
 struct ProjectHistoryGroup: View {
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+
   let group: SessionHistoryGroup
-  let onSelectSession: (String) -> Void
 
   @State private var isExpanded = true
   @State private var showAll = false
@@ -496,7 +502,9 @@ struct ProjectHistoryGroup: View {
         VStack(spacing: 2) {
           ForEach(visibleSessions, id: \.scopedID) { session in
             CompactHistoryRow(session: session, referenceDate: referenceDate) {
-              onSelectSession(session.scopedID)
+              withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+              }
             }
           }
 
@@ -655,12 +663,13 @@ struct CompactHistoryRow: View {
             workStatus: .unknown,
             endedAt: Date().addingTimeInterval(-172_800)
           ),
-        ],
-        onSelectSession: { _ in }
+        ]
       )
     }
     .padding(24)
   }
   .background(Color.backgroundPrimary)
   .frame(width: 800, height: 600)
+  .environment(AppRouter())
+  .environment(ServerRuntimeRegistry.shared)
 }

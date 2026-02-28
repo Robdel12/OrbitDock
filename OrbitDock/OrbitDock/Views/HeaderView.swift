@@ -8,11 +8,11 @@
 import SwiftUI
 
 struct HeaderView: View {
+  @Environment(AppRouter.self) private var router
+
   let sessionId: String
   let endpointId: UUID
-  let onOpenSwitcher: () -> Void
   let onFocusTerminal: () -> Void
-  let onGoToDashboard: () -> Void
   var onEndSession: (() -> Void)?
   var showTurnSidebar: Binding<Bool>?
   var hasSidebarContent: Bool = false
@@ -77,7 +77,7 @@ struct HeaderView: View {
 
       // Action buttons
       HStack(spacing: 2) {
-        navButton(icon: "magnifyingglass", action: onOpenSwitcher, help: "Search sessions (⌘K)")
+        navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
         overflowMenu
       }
     }
@@ -88,7 +88,7 @@ struct HeaderView: View {
   // MARK: - Back Button
 
   private var backButton: some View {
-    Button(action: onGoToDashboard) {
+    Button(action: { router.goToDashboard() }) {
       HStack(spacing: 4) {
         Image(systemName: "chevron.left")
           .font(.system(size: TypeScale.caption, weight: .semibold))
@@ -111,7 +111,7 @@ struct HeaderView: View {
   // MARK: - Session Title Dropdown
 
   private var sessionTitleDropdown: some View {
-    Button(action: onOpenSwitcher) {
+    Button(action: { router.openQuickSwitcher() }) {
       HStack(spacing: Spacing.xs) {
         Text(agentName)
           .font(.system(size: 17, weight: .semibold))
@@ -214,7 +214,7 @@ struct HeaderView: View {
   private var compactHeader: some View {
     VStack(spacing: Spacing.xs) {
       HStack(spacing: Spacing.xs) {
-        Button(action: onGoToDashboard) {
+        Button(action: { router.goToDashboard() }) {
           Image(systemName: "chevron.left")
             .font(.system(size: TypeScale.body, weight: .semibold))
             .foregroundStyle(Color.textSecondary)
@@ -224,7 +224,7 @@ struct HeaderView: View {
         .buttonStyle(.plain)
         .help("Dashboard (⌘0)")
 
-        Button(action: onOpenSwitcher) {
+        Button(action: { router.openQuickSwitcher() }) {
           HStack(spacing: Spacing.xs) {
             SessionStatusDot(status: obs.displayStatus, size: 10)
 
@@ -253,7 +253,7 @@ struct HeaderView: View {
 
         Spacer(minLength: 0)
 
-        navButton(icon: "magnifyingglass", action: onOpenSwitcher, help: "Search sessions (⌘K)")
+        navButton(icon: "magnifyingglass", action: { router.openQuickSwitcher() }, help: "Search sessions (⌘K)")
 
         compactOverflowMenu
       }
@@ -733,10 +733,9 @@ struct CodexTokenBadge: View {
     HeaderView(
       sessionId: "test-123",
       endpointId: UUID(),
-      onOpenSwitcher: {},
-      onFocusTerminal: {},
-      onGoToDashboard: {}
+      onFocusTerminal: {}
     )
+    .environment(AppRouter())
 
     Divider().opacity(0.3)
 

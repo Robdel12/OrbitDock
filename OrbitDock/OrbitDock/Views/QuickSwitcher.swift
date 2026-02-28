@@ -106,17 +106,12 @@ struct QuickSwitcher: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(ServerAppState.self) private var serverState
   @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+  @Environment(AppRouter.self) private var router
   let sessions: [Session]
-  let currentSessionId: String? // Currently selected session in ContentView
-  let onSelect: (String) -> Void
-  let onGoToDashboard: () -> Void
-  let onClose: () -> Void
 
   // Quick launch callbacks
   let onQuickLaunchClaude: ((String) -> Void)?
   let onQuickLaunchCodex: ((String) -> Void)?
-  let onOpenClaudeSheet: (() -> Void)?
-  let onOpenCodexSheet: (() -> Void)?
 
   @State private var searchText = ""
   @State private var selectedIndex = 0
@@ -135,7 +130,7 @@ struct QuickSwitcher: View {
 
   /// The session currently being viewed (for commands to act on)
   private var currentSession: Session? {
-    if let id = currentSessionId {
+    if let id = router.selectedScopedID {
       return sessions.first { $0.scopedID == id }
     }
     return nil
@@ -167,8 +162,8 @@ struct QuickSwitcher: View {
         shortcut: "⌘0",
         requiresSession: false,
         action: { _ in
-          onGoToDashboard()
-          onClose()
+          router.goToDashboard()
+          router.closeQuickSwitcher()
         }
       ),
       QuickCommand(
@@ -178,8 +173,8 @@ struct QuickSwitcher: View {
         shortcut: nil,
         requiresSession: false,
         action: { _ in
-          onOpenClaudeSheet?()
-          onClose()
+          router.showNewClaudeSheet = true
+          router.closeQuickSwitcher()
         }
       ),
       QuickCommand(
@@ -189,8 +184,8 @@ struct QuickSwitcher: View {
         shortcut: nil,
         requiresSession: false,
         action: { _ in
-          onOpenCodexSheet?()
-          onClose()
+          router.showNewCodexSheet = true
+          router.closeQuickSwitcher()
         }
       ),
     ]
@@ -203,20 +198,20 @@ struct QuickSwitcher: View {
       },
       onFocus: { [self] session in
         focusTerminal(for: session)
-        onClose()
+        router.closeQuickSwitcher()
       },
       onOpenFinder: { session in
         _ = Platform.services.revealInFileBrowser(session.projectPath)
-        onClose()
+        router.closeQuickSwitcher()
       },
       onCopyResume: { session in
         let command = "claude --resume \(session.id)"
         Platform.services.copyToClipboard(command)
-        onClose()
+        router.closeQuickSwitcher()
       },
       onClose: { [self] session in
         appState(for: session).endSession(session.id)
-        onClose()
+        router.closeQuickSwitcher()
       }
     )
 
@@ -491,7 +486,7 @@ struct QuickSwitcher: View {
 
       if isCompactLayout {
         Button {
-          onClose()
+          router.closeQuickSwitcher()
         } label: {
           Text("Cancel")
             .font(.system(size: TypeScale.reading, weight: .medium))
@@ -853,8 +848,8 @@ struct QuickSwitcher: View {
     let iconSize: CGFloat = isCompactLayout ? 28 : 32
 
     return Button {
-      onGoToDashboard()
-      onClose()
+      router.goToDashboard()
+      router.closeQuickSwitcher()
     } label: {
       HStack(spacing: isCompactLayout ? 10 : 14) {
         ZStack {
@@ -913,7 +908,8 @@ struct QuickSwitcher: View {
     let displayStatus = SessionDisplayStatus.from(session)
 
     return Button {
-      onSelect(session.scopedID)
+      router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+      router.closeQuickSwitcher()
     } label: {
       HStack(spacing: isCompactLayout ? 10 : 14) {
         // Status indicator - smaller on compact, no glow
@@ -985,11 +981,11 @@ struct QuickSwitcher: View {
           HStack(spacing: 4) {
             actionButton(icon: "terminal", tooltip: "Focus Terminal") {
               focusTerminal(for: session)
-              onClose()
+              router.closeQuickSwitcher()
             }
             actionButton(icon: "folder", tooltip: "Open in Finder") {
               _ = Platform.services.revealInFileBrowser(session.projectPath)
-              onClose()
+              router.closeQuickSwitcher()
             }
             actionButton(icon: "pencil", tooltip: "Rename") {
               renameText = session.customName ?? ""
@@ -998,12 +994,12 @@ struct QuickSwitcher: View {
             actionButton(icon: "doc.on.doc", tooltip: "Copy Resume") {
               let command = "claude --resume \(session.id)"
               Platform.services.copyToClipboard(command)
-              onClose()
+              router.closeQuickSwitcher()
             }
             if session.isActive {
               actionButton(icon: "xmark.circle", tooltip: "Close Session") {
                 appState(for: session).endSession(session.id)
-                onClose()
+                router.closeQuickSwitcher()
               }
             }
           }
@@ -1032,14 +1028,14 @@ struct QuickSwitcher: View {
     .modifier(CompactContextMenuModifier(isCompact: isCompactLayout) {
       Button {
         focusTerminal(for: session)
-        onClose()
+        router.closeQuickSwitcher()
       } label: {
         Label("Focus Terminal", systemImage: "terminal")
       }
 
       Button {
         _ = Platform.services.revealInFileBrowser(session.projectPath)
-        onClose()
+        router.closeQuickSwitcher()
       } label: {
         Label("Open in Files", systemImage: "folder")
       }
@@ -1054,7 +1050,7 @@ struct QuickSwitcher: View {
       Button {
         let command = "claude --resume \(session.id)"
         Platform.services.copyToClipboard(command)
-        onClose()
+        router.closeQuickSwitcher()
       } label: {
         Label("Copy Resume Command", systemImage: "doc.on.doc")
       }
@@ -1063,7 +1059,7 @@ struct QuickSwitcher: View {
         Divider()
         Button(role: .destructive) {
           appState(for: session).endSession(session.id)
-          onClose()
+          router.closeQuickSwitcher()
         } label: {
           Label("Close Session", systemImage: "xmark.circle")
         }
@@ -1198,8 +1194,8 @@ struct QuickSwitcher: View {
 
     // Dashboard is after commands
     if selectedIndex == dashboardIndex {
-      onGoToDashboard()
-      onClose()
+      router.goToDashboard()
+      router.closeQuickSwitcher()
       return
     }
 
@@ -1207,7 +1203,8 @@ struct QuickSwitcher: View {
     let sessionIndex = selectedIndex - sessionStartIndex
     guard sessionIndex >= 0, sessionIndex < allVisibleSessions.count else { return }
     let session = allVisibleSessions[sessionIndex]
-    onSelect(session.scopedID)
+    router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+    router.closeQuickSwitcher()
   }
 
   private func renameCurrentSelection() {
@@ -1348,18 +1345,18 @@ struct QuickSwitcher: View {
       case .codex:
         onQuickLaunchCodex?(path)
     }
-    onClose()
+    router.closeQuickSwitcher()
   }
 
   private func openFullSheet() {
     guard let provider = quickLaunchMode else { return }
     switch provider {
       case .claude:
-        onOpenClaudeSheet?()
+        router.showNewClaudeSheet = true
       case .codex:
-        onOpenCodexSheet?()
+        router.showNewCodexSheet = true
     }
-    onClose()
+    router.closeQuickSwitcher()
   }
 }
 
@@ -1442,15 +1439,10 @@ struct QuickSwitcher: View {
           terminalApp: nil
         ),
       ],
-      currentSessionId: "1",
-      onSelect: { _ in },
-      onGoToDashboard: {},
-      onClose: {},
       onQuickLaunchClaude: nil,
-      onQuickLaunchCodex: nil,
-      onOpenClaudeSheet: nil,
-      onOpenCodexSheet: nil
+      onQuickLaunchCodex: nil
     )
+    .environment(AppRouter())
   }
   .frame(width: 800, height: 600)
   .environment(ServerAppState())

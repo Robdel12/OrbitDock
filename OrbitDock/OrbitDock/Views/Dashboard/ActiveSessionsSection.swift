@@ -212,8 +212,10 @@ private struct LaneSectionModel: Identifiable {
 }
 
 struct ActiveSessionsSection: View {
+  @Environment(AppRouter.self) private var router
+  @Environment(ServerRuntimeRegistry.self) private var runtimeRegistry
+
   let sessions: [Session]
-  let onSelectSession: (String) -> Void
   var selectedIndex: Int?
   @Binding var mode: ActiveSessionWorkbenchMode
   @Binding var filter: ActiveSessionWorkbenchFilter
@@ -650,7 +652,9 @@ struct ActiveSessionsSection: View {
 
     return ActiveSessionRow(
       session: session,
-      onSelect: { onSelectSession(session.scopedID) },
+      onSelect: {
+        router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
+      },
       onFocusTerminal: nil,
       isSelected: isSelected
     )
@@ -1063,7 +1067,6 @@ private extension View {
             attentionReason: .awaitingReply
           ),
         ],
-        onSelectSession: { _ in },
         selectedIndex: 0,
         mode: $mode,
         filter: $filter
@@ -1071,7 +1074,6 @@ private extension View {
 
       ActiveSessionsSection(
         sessions: [],
-        onSelectSession: { _ in },
         mode: $mode,
         filter: $filter
       )
@@ -1079,5 +1081,6 @@ private extension View {
     .padding(24)
   }
   .background(Color.backgroundPrimary)
+  .environment(AppRouter())
   .frame(width: 1_000, height: 760)
 }

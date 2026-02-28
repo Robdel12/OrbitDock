@@ -265,7 +265,7 @@
 				80BCD0BC2F2C834F00D91F91 /* Sources */,
 				80BCD0BD2F2C834F00D91F91 /* Frameworks */,
 				80BCD0BE2F2C834F00D91F91 /* Resources */,
-				80BCD8502F30590000D91F91 /* Install Hook Script */,
+				80BCD8502F30590000D91F91 /* Bundle OrbitDock Server */,
 			);
 			buildRules = (
 			);
@@ -440,7 +440,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		80BCD8502F30590000D91F91 /* Install Hook Script */ = {
+		80BCD8502F30590000D91F91 /* Bundle OrbitDock Server */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -450,7 +450,7 @@
 			);
 			inputPaths = (
 			);
-			name = "Install Hook Script";
+			name = "Bundle OrbitDock Server";
 			outputFileListPaths = (
 			);
 			outputPaths = (

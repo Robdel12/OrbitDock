@@ -9,10 +9,9 @@ import SwiftUI
 struct SessionDetailView: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(AppRouter.self) private var router
   let sessionId: String
   let endpointId: UUID
-  let onOpenSwitcher: () -> Void
-  let onGoToDashboard: () -> Void
 
   private var obs: SessionObservable {
     serverState.session(sessionId)
@@ -55,9 +54,7 @@ struct SessionDetailView: View {
       HeaderView(
         sessionId: sessionId,
         endpointId: endpointId,
-        onOpenSwitcher: onOpenSwitcher,
         onFocusTerminal: { openInITerm() },
-        onGoToDashboard: onGoToDashboard,
         onEndSession: obs.isDirect ? { endDirectSession() } : nil,
         showTurnSidebar: obs.isDirect ? $showTurnSidebar : nil,
         hasSidebarContent: hasSidebarContent,
@@ -697,7 +694,9 @@ struct SessionDetailView: View {
 
       HStack(spacing: Spacing.md) {
         Toggle("Delete branch too", isOn: $deleteBranchOnCleanup)
+        #if os(macOS)
           .toggleStyle(.checkbox)
+        #endif
           .font(.system(size: TypeScale.micro))
           .foregroundStyle(Color.textSecondary)
 
@@ -980,11 +979,10 @@ struct SessionDetailView: View {
 #Preview {
   SessionDetailView(
     sessionId: "preview-123",
-    endpointId: UUID(),
-    onOpenSwitcher: {},
-    onGoToDashboard: {}
+    endpointId: UUID()
   )
   .environment(ServerAppState())
   .environment(AttentionService())
+  .environment(AppRouter())
   .frame(width: 800, height: 600)
 }
