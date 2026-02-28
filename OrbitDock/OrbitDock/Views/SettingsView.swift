@@ -259,7 +259,7 @@ struct SettingsView: View {
             .buttonStyle(.plain)
           }
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, Spacing.section)
       }
       .padding(.bottom, 12)
 
@@ -305,9 +305,9 @@ struct SettingsView: View {
           }
         #endif
       }
-      .padding(.horizontal, 22)
-      .padding(.top, 18)
-      .padding(.bottom, 14)
+      .padding(.horizontal, Spacing.xl)
+      .padding(.top, Spacing.section)
+      .padding(.bottom, Spacing.lg)
 
       Divider()
         .foregroundStyle(Color.panelBorder)
@@ -359,8 +359,8 @@ struct SettingsSidebarButton: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
       }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 9)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
       .background(
         RoundedRectangle(cornerRadius: 9, style: .continuous)
           .fill(isSelected ? Color.surfaceSelected : Color.clear)
@@ -382,7 +382,7 @@ struct SettingsSection<Content: View>: View {
   @ViewBuilder let content: () -> Content
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: Spacing.md) {
       // Header
       HStack(spacing: 6) {
         Image(systemName: icon)
@@ -390,14 +390,14 @@ struct SettingsSection<Content: View>: View {
           .foregroundStyle(Color.accent)
         Text(title)
           .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(.secondary)
+          .foregroundStyle(Color.textSecondary)
       }
 
       // Content card
-      VStack(alignment: .leading, spacing: 12) {
+      VStack(alignment: .leading, spacing: Spacing.lg) {
         content()
       }
-      .padding(16)
+      .padding(Spacing.lg + 4)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(Color.backgroundSecondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
       .overlay(
@@ -443,7 +443,7 @@ struct GeneralSettingsView: View {
 
   var body: some View {
     ScrollView {
-      VStack(spacing: 20) {
+      VStack(spacing: Spacing.xl) {
         SettingsSection(title: "EDITOR", icon: "chevron.left.forwardslash.chevron.right") {
           VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -478,7 +478,7 @@ struct GeneralSettingsView: View {
                     .controlSize(.small)
                   Text("Checking...")
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.textSecondary)
                 case .configured:
                   Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(Color.statusSuccess)
@@ -508,7 +508,7 @@ struct GeneralSettingsView: View {
                 // Key exists — show confirmation with option to replace
                 Text("OpenAI API key for auto-naming sessions from first prompts.")
                   .font(.system(size: 12))
-                  .foregroundStyle(.secondary)
+                  .foregroundStyle(Color.textSecondary)
 
                 HStack(spacing: 8) {
                   HStack(spacing: 6) {
@@ -546,7 +546,7 @@ struct GeneralSettingsView: View {
                   ? "Enter a new key to replace the existing one."
                   : "OpenAI API key for auto-naming sessions from first prompts.")
                   .font(.system(size: 12))
-                  .foregroundStyle(.secondary)
+                  .foregroundStyle(Color.textSecondary)
 
                 HStack(spacing: 8) {
                   SecureField("sk-...", text: $openAiKey)
@@ -580,7 +580,7 @@ struct GeneralSettingsView: View {
                     } label: {
                       Text("Cancel")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.textSecondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                     }
@@ -659,7 +659,7 @@ struct GeneralSettingsView: View {
           }
         }
       }
-      .padding(20)
+      .padding(Spacing.xl)
     }
     .onAppear {
       checkOpenAiKeyStatus()
@@ -743,7 +743,7 @@ struct NotificationSettingsView: View {
 
   var body: some View {
     ScrollView {
-      VStack(spacing: 20) {
+      VStack(spacing: Spacing.xl) {
         SettingsSection(title: "ALERTS", icon: "bell.badge") {
           VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
@@ -845,7 +845,7 @@ struct NotificationSettingsView: View {
         .disabled(!notificationsEnabled)
         .help("Send a test notification to verify your settings")
       }
-      .padding(20)
+      .padding(Spacing.xl)
     }
   }
 
@@ -896,193 +896,195 @@ struct SetupSettingsView: View {
   @State private var copied = false
   @State private var hooksConfigured: Bool? = nil
 
-  private let cliPath = "/Applications/OrbitDock.app/Contents/MacOS/orbitdock-cli"
+  private let hookForwardPath = "/Applications/OrbitDock.app/Contents/Resources/orbitdock-server"
   private let settingsPath = PlatformPaths.homeDirectory
     .appendingPathComponent(".claude/settings.json").path
 
   var body: some View {
-    VStack(spacing: 20) {
-      // Claude Code section
-      SettingsSection(title: "CLAUDE CODE", icon: "terminal") {
-        VStack(alignment: .leading, spacing: 14) {
-          // Status row
-          HStack {
-            if let configured = hooksConfigured {
-              if configured {
-                Image(systemName: "checkmark.circle.fill")
-                  .foregroundStyle(Color.statusSuccess)
-                Text("Hooks configured")
-                  .font(.system(size: 13))
+    ScrollView {
+      VStack(spacing: Spacing.xl) {
+        // Claude Code section
+        SettingsSection(title: "CLAUDE CODE", icon: "terminal") {
+          VStack(alignment: .leading, spacing: 14) {
+            // Status row
+            HStack {
+              if let configured = hooksConfigured {
+                if configured {
+                  Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color.statusSuccess)
+                  Text("Hooks configured")
+                    .font(.system(size: 13))
+                } else {
+                  Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(Color.statusPermission)
+                  Text("Hooks not configured")
+                    .font(.system(size: 13))
+                }
               } else {
-                Image(systemName: "exclamationmark.circle.fill")
-                  .foregroundStyle(Color.statusPermission)
-                Text("Hooks not configured")
+                ProgressView()
+                  .controlSize(.small)
+                Text("Checking...")
                   .font(.system(size: 13))
+                  .foregroundStyle(Color.textSecondary)
               }
-            } else {
-              ProgressView()
-                .controlSize(.small)
-              Text("Checking...")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+              Spacer()
             }
-            Spacer()
+
+            Divider()
+              .foregroundStyle(Color.panelBorder)
+
+            // Instructions
+            VStack(alignment: .leading, spacing: 8) {
+              Text("Add hooks to ~/.claude/settings.json:")
+                .font(.system(size: 12))
+                .foregroundStyle(Color.textSecondary)
+
+              HStack(spacing: 10) {
+                Button {
+                  copyToClipboard()
+                } label: {
+                  HStack(spacing: 6) {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                      .font(.system(size: 12, weight: .medium))
+                    Text(copied ? "Copied!" : "Copy Hook Config")
+                      .font(.system(size: 12, weight: .medium))
+                  }
+                  .foregroundStyle(copied ? Color.statusSuccess : .primary)
+                  .padding(.horizontal, 14)
+                  .padding(.vertical, 8)
+                  .background(Color.accent.opacity(copied ? 0.2 : 1), in: RoundedRectangle(cornerRadius: 6))
+                  .foregroundStyle(copied ? Color.statusSuccess : Color.backgroundPrimary)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                  openSettingsFile()
+                } label: {
+                  HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.forward.square")
+                      .font(.system(size: 11, weight: .medium))
+                    Text("Open File")
+                      .font(.system(size: 12, weight: .medium))
+                  }
+                  .foregroundStyle(Color.accent)
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 8)
+                  .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button {
+                  checkHooksConfiguration()
+                } label: {
+                  Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Check configuration")
+              }
+            }
           }
+        }
 
-          Divider()
-            .foregroundStyle(Color.panelBorder)
+        // Codex section
+        SettingsSection(title: "CODEX CLI", icon: "sparkles") {
+          VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+              Image(systemName: serverState
+                .codexAccount == nil ? "person.crop.circle.badge.exclamationmark" :
+                "person.crop.circle.badge.checkmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(serverState.codexAccount == nil ? Color.statusPermission : Color.statusSuccess)
+              Text("Account")
+                .font(.system(size: 13, weight: .semibold))
+              Spacer()
+              codexAuthBadge
+            }
 
-          // Instructions
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Add hooks to ~/.claude/settings.json:")
-              .font(.system(size: 12))
-              .foregroundStyle(.secondary)
+            switch serverState.codexAccount {
+              case .apiKey?:
+                Text("Connected with API key. Switch to ChatGPT sign-in for subscription-backed limits.")
+                  .font(.system(size: 12))
+                  .foregroundStyle(Color.textSecondary)
+              case let .chatgpt(email, planType)?:
+                VStack(alignment: .leading, spacing: 4) {
+                  if let email {
+                    Text(email)
+                      .font(.system(size: 13, weight: .medium))
+                      .foregroundStyle(.primary)
+                  } else {
+                    Text("Signed in with ChatGPT")
+                      .font(.system(size: 13, weight: .medium))
+                      .foregroundStyle(.primary)
+                  }
+                  if let planType {
+                    Text(planType.uppercased())
+                      .font(.system(size: 11, weight: .semibold, design: .rounded))
+                      .foregroundStyle(Color.accent)
+                  }
+                }
+              case .none:
+                Text("Sign in with ChatGPT to manage Codex sessions directly in OrbitDock.")
+                  .font(.system(size: 12))
+                  .foregroundStyle(Color.textSecondary)
+            }
 
             HStack(spacing: 10) {
-              Button {
-                copyToClipboard()
-              } label: {
-                HStack(spacing: 6) {
-                  Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                    .font(.system(size: 12, weight: .medium))
-                  Text(copied ? "Copied!" : "Copy Hook Config")
-                    .font(.system(size: 12, weight: .medium))
+              if serverState.codexLoginInProgress {
+                Button {
+                  serverState.cancelCodexChatgptLogin()
+                } label: {
+                  Label("Cancel Sign-In", systemImage: "xmark.circle")
+                    .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundStyle(copied ? Color.statusSuccess : .primary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color.accent.opacity(copied ? 0.2 : 1), in: RoundedRectangle(cornerRadius: 6))
-                .foregroundStyle(copied ? Color.statusSuccess : Color.backgroundPrimary)
+                .buttonStyle(.bordered)
+              } else if serverState.codexAccount == nil {
+                Button {
+                  serverState.startCodexChatgptLogin()
+                } label: {
+                  Label("Sign in with ChatGPT", systemImage: "sparkles")
+                    .font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.accent)
               }
-              .buttonStyle(.plain)
 
-              Button {
-                openSettingsFile()
-              } label: {
-                HStack(spacing: 6) {
-                  Image(systemName: "arrow.up.forward.square")
-                    .font(.system(size: 11, weight: .medium))
-                  Text("Open File")
-                    .font(.system(size: 12, weight: .medium))
+              if serverState.codexAccount != nil {
+                Button("Usage") {
+                  openCodexUsagePage()
                 }
-                .foregroundStyle(Color.accent)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.surfaceHover, in: RoundedRectangle(cornerRadius: 6))
+                .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.bordered)
+
+                Button("Sign Out") {
+                  serverState.logoutCodexAccount()
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.bordered)
               }
-              .buttonStyle(.plain)
 
               Spacer()
+            }
 
-              Button {
-                checkHooksConfiguration()
-              } label: {
-                Image(systemName: "arrow.clockwise")
-                  .font(.system(size: 11, weight: .medium))
-                  .foregroundStyle(.secondary)
+            if let error = serverState.codexAuthError, !error.isEmpty {
+              HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                  .font(.system(size: 11))
+                  .foregroundStyle(Color.statusPermission)
+                Text(error)
+                  .font(.system(size: 11))
+                  .foregroundStyle(Color.textSecondary)
               }
-              .buttonStyle(.plain)
-              .help("Check configuration")
             }
           }
         }
+
       }
-
-      // Codex section
-      SettingsSection(title: "CODEX CLI", icon: "sparkles") {
-        VStack(alignment: .leading, spacing: 12) {
-          HStack(spacing: 8) {
-            Image(systemName: serverState
-              .codexAccount == nil ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle.badge.checkmark")
-              .font(.system(size: 13, weight: .semibold))
-              .foregroundStyle(serverState.codexAccount == nil ? Color.statusPermission : Color.statusSuccess)
-            Text("Account")
-              .font(.system(size: 13, weight: .semibold))
-            Spacer()
-            codexAuthBadge
-          }
-
-          switch serverState.codexAccount {
-            case .apiKey?:
-              Text("Connected with API key. Switch to ChatGPT sign-in for subscription-backed limits.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            case let .chatgpt(email, planType)?:
-              VStack(alignment: .leading, spacing: 4) {
-                if let email {
-                  Text(email)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
-                } else {
-                  Text("Signed in with ChatGPT")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
-                }
-                if let planType {
-                  Text(planType.uppercased())
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.accent)
-                }
-              }
-            case .none:
-              Text("Sign in with ChatGPT to manage Codex sessions directly in OrbitDock.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-          }
-
-          HStack(spacing: 10) {
-            if serverState.codexLoginInProgress {
-              Button {
-                serverState.cancelCodexChatgptLogin()
-              } label: {
-                Label("Cancel Sign-In", systemImage: "xmark.circle")
-                  .font(.system(size: 12, weight: .semibold))
-              }
-              .buttonStyle(.bordered)
-            } else if serverState.codexAccount == nil {
-              Button {
-                serverState.startCodexChatgptLogin()
-              } label: {
-                Label("Sign in with ChatGPT", systemImage: "sparkles")
-                  .font(.system(size: 12, weight: .semibold))
-              }
-              .buttonStyle(.borderedProminent)
-              .tint(Color.accent)
-            }
-
-            if serverState.codexAccount != nil {
-              Button("Usage") {
-                openCodexUsagePage()
-              }
-              .font(.system(size: 12, weight: .semibold))
-              .buttonStyle(.bordered)
-
-              Button("Sign Out") {
-                serverState.logoutCodexAccount()
-              }
-              .font(.system(size: 12, weight: .semibold))
-              .buttonStyle(.bordered)
-            }
-
-            Spacer()
-          }
-
-          if let error = serverState.codexAuthError, !error.isEmpty {
-            HStack(spacing: 8) {
-              Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(Color.statusPermission)
-              Text(error)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            }
-          }
-        }
-      }
-
-      Spacer()
+      .padding(Spacing.xl)
     }
-    .padding(20)
     .onAppear {
       checkHooksConfiguration()
       serverState.refreshCodexAccount()
@@ -1132,7 +1134,7 @@ struct SetupSettingsView: View {
     else {
       return false
     }
-    return content.contains("orbitdock-cli")
+    return content.contains("orbitdock-server") || content.contains("hook-forward")
   }
 
   private func copyToClipboard() {
@@ -1160,17 +1162,22 @@ struct SetupSettingsView: View {
 
   private var hooksConfigJSON: String {
     """
-    "hooks": {
-      "SessionStart": [{"hooks": [{"type": "command", "command": "\(cliPath) session-start", "async": true}]}],
-      "SessionEnd": [{"hooks": [{"type": "command", "command": "\(cliPath) session-end", "async": true}]}],
-      "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
-      "Stop": [{"hooks": [{"type": "command", "command": "\(cliPath) status-tracker", "async": true}]}],
-      "Notification": {"matcher": "idle_prompt|permission_prompt", "hooks": [{"type": "command", "command": "\(
-        cliPath
-      ) status-tracker", "async": true}]},
-      "PreToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
-      "PostToolUse": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}],
-      "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "\(cliPath) tool-tracker", "async": true}]}]
+      "hooks": {
+      "SessionStart": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_session_start", "async": true}]}],
+      "SessionEnd": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_session_end", "async": true}]}],
+      "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
+      "Stop": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
+      "Notification": [{"matcher": "idle_prompt|permission_prompt|elicitation_dialog", "hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
+      "PreCompact": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
+      "TeammateIdle": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
+      "TaskCompleted": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
+      "ConfigChange": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_status_event", "async": true}]}],
+      "PreToolUse": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
+      "PostToolUse": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
+      "PostToolUseFailure": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
+      "PermissionRequest": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_tool_event", "async": true}]}],
+      "SubagentStart": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_subagent_event", "async": true}]}],
+      "SubagentStop": [{"hooks": [{"type": "command", "command": "\"\(hookForwardPath)\" hook-forward claude_subagent_event", "async": true}]}]
     }
     """
   }
@@ -1225,7 +1232,7 @@ struct DebugSettingsView: View {
 
   var body: some View {
     ScrollView {
-      VStack(spacing: 20) {
+      VStack(spacing: Spacing.xl) {
         SettingsSection(title: "ENDPOINTS", icon: "network") {
           HStack(spacing: 10) {
             Image(systemName: "antenna.radiowaves.left.and.right")
@@ -1315,7 +1322,7 @@ struct DebugSettingsView: View {
           }
         }
       }
-      .padding(20)
+      .padding(Spacing.xl)
     }
     .sheet(isPresented: $showServerTest) {
       ServerTestView()
@@ -1401,7 +1408,7 @@ struct DebugSettingsView: View {
       case .connected:
         .statusSuccess
       case .connecting:
-        .yellow
+        .statusQuestion
       case .disconnected:
         .statusEnded
       case .failed:
@@ -1428,7 +1435,7 @@ struct DebugSettingsView: View {
 struct DiagnosticsSettingsView: View {
   var body: some View {
     ScrollView {
-      VStack(spacing: 20) {
+      VStack(spacing: Spacing.xl) {
         SettingsSection(title: "LOGS", icon: "doc.text") {
           VStack(alignment: .leading, spacing: 12) {
             diagnosticsPathRow(
@@ -1463,7 +1470,7 @@ struct DiagnosticsSettingsView: View {
           }
         }
       }
-      .padding(20)
+      .padding(Spacing.xl)
     }
   }
 
