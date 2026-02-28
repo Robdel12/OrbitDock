@@ -283,6 +283,16 @@ private struct WorktreeCreatedHTTPResponse: Decodable {
   let worktree: ServerWorktreeSummary
 }
 
+private struct WorktreeRemovedHTTPResponse: Decodable {
+  let worktreeId: String
+  let ok: Bool
+
+  enum CodingKeys: String, CodingKey {
+    case worktreeId = "worktree_id"
+    case ok
+  }
+}
+
 private struct ReviewCommentMutationHTTPResponse: Decodable {
   let commentId: String
   let ok: Bool
@@ -1624,19 +1634,10 @@ class ServerConnection: ObservableObject {
     }
   }
 
-  func removeWorktree(worktreeId: String, force: Bool = false) {
+  func removeWorktree(worktreeId: String, force: Bool = false, deleteBranch: Bool = false) {
     Task { @MainActor in
       do {
-        let escapedId = encodePathComponent(worktreeId)
-        var queryItems: [URLQueryItem] = []
-        if force {
-          queryItems.append(URLQueryItem(name: "force", value: "true"))
-        }
-        let _: ReviewCommentMutationHTTPResponse = try await requestAPIJSON(
-          path: "/api/worktrees/\(escapedId)",
-          method: "DELETE",
-          queryItems: queryItems
-        )
+        try await removeWorktreeAsync(worktreeId: worktreeId, force: force, deleteBranch: deleteBranch)
       } catch {
         let requestError = error as? ServerRequestError
         let code = requestError?.apiErrorCode ?? "remove_failed"
@@ -1644,6 +1645,23 @@ class ServerConnection: ObservableObject {
         onWorktreeError?("", code, message)
       }
     }
+  }
+
+  func removeWorktreeAsync(worktreeId: String, force: Bool = false, deleteBranch: Bool = false) async throws {
+    let escapedId = encodePathComponent(worktreeId)
+    var queryItems: [URLQueryItem] = []
+    if force {
+      queryItems.append(URLQueryItem(name: "force", value: "true"))
+    }
+    if deleteBranch {
+      queryItems.append(URLQueryItem(name: "delete_branch", value: "true"))
+    }
+    let _: WorktreeRemovedHTTPResponse = try await requestAPIJSON(
+      path: "/api/worktrees/\(escapedId)",
+      method: "DELETE",
+      queryItems: queryItems
+    )
+    onWorktreeRemoved?("", worktreeId)
   }
 
   func discoverWorktrees(repoPath: String) {

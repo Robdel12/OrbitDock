@@ -141,6 +141,19 @@ final class ServerAppState {
     worktreesByRepo[repoRoot] ?? []
   }
 
+  /// Fetch worktree data for all unique project paths from active sessions.
+  /// Called after sessions list loads and on reconnect — views just read.
+  func refreshWorktreesForActiveSessions() {
+    let roots = Set(
+      sessions
+        .filter(\.isActive)
+        .map(\.groupingPath)
+    )
+    for root in roots {
+      connection.listWorktrees(repoRoot: root)
+    }
+  }
+
   // MARK: - Private Internal State
 
   /// Last known server revision per session (for incremental reconnection)
@@ -1150,6 +1163,8 @@ final class ServerAppState {
     for id in staleIds {
       _sessionObservables.removeValue(forKey: id)
     }
+
+    refreshWorktreesForActiveSessions()
   }
 
   private func handleApprovalsList(sessionId: String?, approvals: [ServerApprovalHistoryItem]) {

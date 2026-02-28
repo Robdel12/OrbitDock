@@ -25,7 +25,6 @@ struct WorkspaceSidebar: View {
   @State private var showRecentSessions = false
   @State private var showServerSettings = false
   @State private var showAppSettings = false
-
   private let registry = UsageServiceRegistry.shared
 
   // MARK: - Derived Data
