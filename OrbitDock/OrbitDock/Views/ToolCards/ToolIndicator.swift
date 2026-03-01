@@ -53,7 +53,7 @@ struct ToolIndicator: View {
         return .skill
       case "enterplanmode", "exitplanmode":
         return .planMode
-      case "taskcreate", "taskupdate", "tasklist", "taskget":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
         return .todoTask
       default:
         return .standard

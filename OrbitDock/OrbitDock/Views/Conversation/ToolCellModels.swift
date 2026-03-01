@@ -45,6 +45,9 @@ struct ToolGlyphInfo {
     guard let name = message.toolName else {
       return ToolGlyphInfo(symbol: "gearshape", color: PlatformColor.secondaryLabelCompat)
     }
+    if TodoToolOperation(toolName: name) != nil {
+      return ToolGlyphInfo(symbol: "checklist", color: PlatformColor(Color.toolTodo))
+    }
     if name.hasPrefix("mcp__") {
       return ToolGlyphInfo(symbol: "puzzlepiece.extension", color: PlatformColor(Color.toolMcp))
     }
@@ -60,7 +63,7 @@ struct ToolGlyphInfo {
       case "skill": return ToolGlyphInfo(symbol: "wand.and.stars", color: PlatformColor(Color.toolSkill))
       case "enterplanmode", "exitplanmode":
         return ToolGlyphInfo(symbol: "map", color: PlatformColor(Color.toolPlan))
-      case "taskcreate", "taskupdate", "tasklist", "taskget":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
         return ToolGlyphInfo(symbol: "checklist", color: PlatformColor(Color.toolTodo))
       case "askuserquestion":
         return ToolGlyphInfo(symbol: "questionmark.bubble", color: PlatformColor(Color.toolQuestion))
@@ -78,6 +81,242 @@ struct ToolGlyphInfo {
       case "linear-project-manager": PlatformColor.calibrated(red: 0.35, green: 0.5, blue: 0.95, alpha: 1)
       default: PlatformColor.calibrated(red: 0.5, green: 0.5, blue: 0.6, alpha: 1)
     }
+  }
+}
+
+private enum TodoToolOperation {
+  case write
+  case create
+  case update
+  case list
+  case get
+
+  init?(toolName: String) {
+    let normalized = Self.normalizedName(toolName)
+    switch normalized {
+      case "todowrite", "todo_write": self = .write
+      case "taskcreate", "task_create": self = .create
+      case "taskupdate", "task_update": self = .update
+      case "tasklist", "task_list": self = .list
+      case "taskget", "task_get": self = .get
+      default: return nil
+    }
+  }
+
+  private static func normalizedName(_ raw: String) -> String {
+    let lowercased = raw.lowercased()
+    if lowercased.hasPrefix("mcp__") {
+      let parts = lowercased.split(separator: "__")
+      if let suffix = parts.last {
+        return String(suffix)
+      }
+    }
+    if lowercased.contains(":") {
+      let suffix = lowercased.split(separator: ":").last ?? Substring(lowercased)
+      return String(suffix)
+    }
+    return lowercased
+  }
+
+  var title: String {
+    switch self {
+      case .write: return "Todos"
+      case .create: return "Create Task"
+      case .update: return "Update Task"
+      case .list: return "List Tasks"
+      case .get: return "Get Task"
+    }
+  }
+
+  var defaultStatus: NativeTodoStatus {
+    switch self {
+      case .write, .create, .list, .get:
+        return .pending
+      case .update:
+        return .inProgress
+    }
+  }
+}
+
+private enum TodoToolParser {
+  struct Payload {
+    let title: String
+    let subtitle: String?
+    let items: [NativeTodoItem]
+    let output: String?
+  }
+
+  static func payload(from message: TranscriptMessage, toolName: String) -> Payload? {
+    guard let operation = TodoToolOperation(toolName: toolName) else { return nil }
+
+    let itemsFromOutput = parseOutputTodos(message.sanitizedToolOutput)
+    let itemsFromInput = parseInputTodos(message.toolInput)
+    let fallbackItem = fallbackItem(input: message.toolInput, defaultStatus: operation.defaultStatus)
+    let items: [NativeTodoItem] = {
+      if !itemsFromOutput.isEmpty { return itemsFromOutput }
+      if !itemsFromInput.isEmpty { return itemsFromInput }
+      if let fallbackItem { return [fallbackItem] }
+      return []
+    }()
+
+    let subtitle = subtitle(for: operation, input: message.toolInput, items: items)
+    let output = shouldSuppressOutput(message.sanitizedToolOutput, parsedItems: itemsFromOutput)
+      ? nil
+      : trimmed(message.sanitizedToolOutput)
+
+    return Payload(title: operation.title, subtitle: subtitle, items: items, output: output)
+  }
+
+  static func compactSummary(from message: TranscriptMessage) -> String? {
+    guard let toolName = message.toolName,
+          TodoToolOperation(toolName: toolName) != nil
+    else {
+      return nil
+    }
+
+    let payload = payload(from: message, toolName: toolName)
+    if let active = payload?.items.first(where: { $0.status == .inProgress }) {
+      return active.primaryText
+    }
+    if let pending = payload?.items.first(where: { $0.status == .pending }) {
+      return pending.primaryText
+    }
+    if let first = payload?.items.first {
+      return first.primaryText
+    }
+    if let subtitle = payload?.subtitle, !subtitle.isEmpty {
+      return subtitle
+    }
+    return payload?.title
+  }
+
+  private static func subtitle(
+    for operation: TodoToolOperation,
+    input: [String: Any]?,
+    items: [NativeTodoItem]
+  ) -> String? {
+    if operation == .write {
+      guard !items.isEmpty else { return nil }
+      let active = items.filter { $0.status == .inProgress }.count
+      let completed = items.filter { $0.status == .completed }.count
+      var parts: [String] = ["\(items.count) items"]
+      if active > 0 { parts.append("\(active) active") }
+      if completed > 0 { parts.append("\(completed) done") }
+      return parts.joined(separator: " · ")
+    }
+
+    let subject = trimmed(input?["subject"] as? String)
+      ?? trimmed(input?["title"] as? String)
+      ?? trimmed(input?["task"] as? String)
+    let taskId = trimmed(input?["taskId"] as? String)
+      ?? trimmed(input?["task_id"] as? String)
+      ?? trimmed(input?["id"] as? String)
+    let status = trimmed(input?["status"] as? String)
+      .map { $0.replacingOccurrences(of: "_", with: " ").capitalized }
+
+    var parts: [String] = []
+    if let subject {
+      parts.append(subject)
+    } else if let taskId {
+      parts.append("Task #\(taskId)")
+    }
+    if let status {
+      parts.append(status)
+    }
+    return parts.isEmpty ? nil : parts.joined(separator: " · ")
+  }
+
+  private static func parseInputTodos(_ input: [String: Any]?) -> [NativeTodoItem] {
+    guard let input else { return [] }
+    return parseTodoArray(input["todos"])
+  }
+
+  private static func parseOutputTodos(_ output: String?) -> [NativeTodoItem] {
+    guard let output = trimmed(output),
+          let data = output.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: data)
+    else {
+      return []
+    }
+
+    if let object = json as? [String: Any] {
+      let newTodos = parseTodoArray(object["newTodos"])
+      if !newTodos.isEmpty { return newTodos }
+
+      let todos = parseTodoArray(object["todos"])
+      if !todos.isEmpty { return todos }
+
+      let oldTodos = parseTodoArray(object["oldTodos"])
+      if !oldTodos.isEmpty { return oldTodos }
+    }
+
+    if let array = json as? [Any] {
+      return parseTodoArray(array)
+    }
+
+    return []
+  }
+
+  private static func parseTodoArray(_ rawValue: Any?) -> [NativeTodoItem] {
+    guard let rawValue else { return [] }
+    if let array = rawValue as? [Any] {
+      return array.compactMap { rawItem in
+        guard let dict = rawItem as? [String: Any] else { return nil }
+
+        let content = trimmed(dict["content"] as? String)
+          ?? trimmed(dict["subject"] as? String)
+          ?? trimmed(dict["title"] as? String)
+        let activeForm = trimmed(dict["activeForm"] as? String)
+          ?? trimmed(dict["active_form"] as? String)
+        let status = NativeTodoStatus(trimmed(dict["status"] as? String))
+        let resolvedContent = content ?? activeForm
+        guard let resolvedContent else { return nil }
+
+        return NativeTodoItem(
+          content: resolvedContent,
+          activeForm: activeForm,
+          status: status
+        )
+      }
+    }
+    return []
+  }
+
+  private static func fallbackItem(input: [String: Any]?, defaultStatus: NativeTodoStatus) -> NativeTodoItem? {
+    guard let input else { return nil }
+
+    let subject = trimmed(input["subject"] as? String)
+      ?? trimmed(input["title"] as? String)
+      ?? trimmed(input["task"] as? String)
+    let taskId = trimmed(input["taskId"] as? String)
+      ?? trimmed(input["task_id"] as? String)
+      ?? trimmed(input["id"] as? String)
+    let description = trimmed(input["description"] as? String)
+    let content = subject
+      ?? taskId.map { "Task #\($0)" }
+      ?? description
+
+    guard let content else { return nil }
+
+    let activeForm = trimmed(input["activeForm"] as? String)
+      ?? trimmed(input["active_form"] as? String)
+    let status = NativeTodoStatus(trimmed(input["status"] as? String)) == .unknown
+      ? defaultStatus
+      : NativeTodoStatus(trimmed(input["status"] as? String))
+
+    return NativeTodoItem(content: content, activeForm: activeForm, status: status)
+  }
+
+  private static func shouldSuppressOutput(_ output: String?, parsedItems: [NativeTodoItem]) -> Bool {
+    guard !parsedItems.isEmpty else { return false }
+    guard let output = trimmed(output) else { return false }
+    return output.hasPrefix("{") || output.hasPrefix("[")
+  }
+
+  private static func trimmed(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
   }
 }
 
@@ -112,6 +351,9 @@ enum CompactToolHelpers {
       return String.shellCommandDisplay(from: message.content) ?? message.content
     }
     guard let name = message.toolName else { return "tool" }
+    if let todoSummary = TodoToolParser.compactSummary(from: message) {
+      return todoSummary
+    }
     let lowercased = name.lowercased()
     if name.hasPrefix("mcp__") {
       return name.replacingOccurrences(of: "mcp__", with: "").replacingOccurrences(of: "__", with: " \u{00B7} ")
@@ -135,7 +377,7 @@ enum CompactToolHelpers {
         return "skill"
       case "enterplanmode": return "Enter plan mode"
       case "exitplanmode": return "Exit plan mode"
-      case "taskcreate", "taskupdate", "tasklist", "taskget":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
         if let input = message.toolInput, let subject = input["subject"] as? String { return subject }
         return name
       case "askuserquestion": return "Asking question"
@@ -153,6 +395,16 @@ enum CompactToolHelpers {
       return nil
     }
     guard let name = message.toolName else { return nil }
+    if TodoToolOperation(toolName: name) != nil {
+      if let payload = TodoToolParser.payload(from: message, toolName: name), !payload.items.isEmpty {
+        let completed = payload.items.filter { $0.status == .completed }.count
+        let active = payload.items.filter { $0.status == .inProgress }.count
+        if active > 0 { return "\(completed)/\(payload.items.count) · \(active) active" }
+        return "\(completed)/\(payload.items.count) done"
+      }
+      if message.isInProgress { return "LIVE" }
+      return nil
+    }
     let lowercased = name.lowercased()
     switch lowercased {
       case "bash":
@@ -513,6 +765,14 @@ enum SharedModelBuilders {
   /// This is the big switch statement that was duplicated on both platforms.
   static func expandedToolContent(from message: TranscriptMessage, toolName: String) -> NativeToolContent {
     let lowercased = toolName.lowercased()
+    if let payload = TodoToolParser.payload(from: message, toolName: toolName) {
+      return .todo(
+        title: payload.title,
+        subtitle: payload.subtitle,
+        items: payload.items,
+        output: payload.output
+      )
+    }
 
     switch lowercased {
       case "bash":

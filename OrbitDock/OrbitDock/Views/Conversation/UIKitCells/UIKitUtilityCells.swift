@@ -356,7 +356,8 @@
 
     private static func displayName(for toolName: String) -> String {
       let lowered = toolName.lowercased()
-      switch lowered {
+      let normalized = lowered.split(separator: ":").last.map(String.init) ?? lowered
+      switch normalized {
         case "bash": return "Bash"
         case "read": return "Read"
         case "edit": return "Edit"
@@ -368,7 +369,8 @@
         case "websearch": return "Search"
         case "skill": return "Skill"
         case "enterplanmode", "exitplanmode": return "Plan"
-        case "taskcreate", "taskupdate", "tasklist", "taskget": return "Todo"
+        case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
+          return "Todo"
         case "askuserquestion": return "Question"
         case "notebookedit": return "Notebook"
         default:

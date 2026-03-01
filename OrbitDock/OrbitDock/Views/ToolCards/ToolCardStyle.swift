@@ -13,6 +13,10 @@ enum ToolCardStyle {
   static func color(for toolName: String?) -> Color {
     guard let tool = toolName else { return .secondary }
     let lowercased = tool.lowercased()
+    let normalized = lowercased.split(separator: ":").last.map(String.init) ?? lowercased
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget"].contains(normalized) {
+      return .toolTodo
+    }
 
     // Check for MCP tools first
     if tool.hasPrefix("mcp__") {
@@ -43,7 +47,7 @@ enum ToolCardStyle {
         return .toolSkill
       case "enterplanmode", "exitplanmode":
         return .toolPlan
-      case "taskcreate", "taskupdate", "tasklist", "taskget":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
         return .toolTodo
       default:
         return .secondary
@@ -53,6 +57,10 @@ enum ToolCardStyle {
   static func icon(for toolName: String?) -> String {
     guard let tool = toolName else { return "gearshape" }
     let lowercased = tool.lowercased()
+    let normalized = lowercased.split(separator: ":").last.map(String.init) ?? lowercased
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget"].contains(normalized) {
+      return "checklist"
+    }
 
     // Check for MCP tools first
     if tool.hasPrefix("mcp__") {
@@ -77,6 +85,7 @@ enum ToolCardStyle {
       case "skill": return "sparkles"
       case "enterplanmode": return "doc.text.magnifyingglass"
       case "exitplanmode": return "checkmark.rectangle"
+      case "todowrite", "todo_write": return "checklist"
       case "taskcreate": return "plus.circle.fill"
       case "taskupdate": return "pencil.circle.fill"
       case "tasklist": return "list.bullet.clipboard.fill"

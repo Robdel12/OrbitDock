@@ -357,6 +357,10 @@ nonisolated enum ConversationTimelineProjector {
   }
 
   private static func resolveToolIcon(_ name: String) -> String {
+    let normalized = name.lowercased().split(separator: ":").last.map(String.init) ?? name.lowercased()
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget"].contains(normalized) {
+      return "checklist"
+    }
     if name.hasPrefix("mcp__") { return "puzzlepiece.extension" }
     switch name.lowercased() {
       case "bash": return "terminal"
@@ -367,13 +371,18 @@ nonisolated enum ConversationTimelineProjector {
       case "webfetch", "websearch": return "globe"
       case "skill": return "wand.and.stars"
       case "enterplanmode", "exitplanmode": return "map"
-      case "taskcreate", "taskupdate", "tasklist", "taskget": return "checklist"
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
+        return "checklist"
       case "askuserquestion": return "questionmark.bubble"
       default: return "gearshape"
     }
   }
 
   private static func resolveToolColorKey(_ name: String) -> String {
+    let normalized = name.lowercased().split(separator: ":").last.map(String.init) ?? name.lowercased()
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget"].contains(normalized) {
+      return "todo"
+    }
     if name.hasPrefix("mcp__") { return "mcp" }
     switch name.lowercased() {
       case "bash": return "bash"
@@ -384,7 +393,8 @@ nonisolated enum ConversationTimelineProjector {
       case "webfetch", "websearch": return "web"
       case "skill": return "skill"
       case "enterplanmode", "exitplanmode": return "plan"
-      case "taskcreate", "taskupdate", "tasklist", "taskget": return "todo"
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
+        return "todo"
       case "askuserquestion": return "question"
       default: return "secondary"
     }

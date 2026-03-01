@@ -376,6 +376,31 @@
           subtitleLabel.text = description
           statsLabel.isHidden = false
           statsLabel.text = isComplete ? "Complete" : "Running..."
+          statsLabel.textColor = EL.textTertiary
+
+        case let .todo(title, subtitle, items, _):
+          let completedCount = items.filter { $0.status == .completed }.count
+          let activeCount = items.filter { $0.status == .inProgress }.count
+          titleLabel.attributedText = nil
+          titleLabel.text = title
+          titleLabel.font = EL.headerFont
+          titleLabel.textColor = model.toolColor
+          subtitleLabel.text = subtitle
+          subtitleLabel.isHidden = subtitle?.isEmpty ?? true
+          if !items.isEmpty {
+            var statusParts: [String] = ["\(completedCount)/\(items.count) done"]
+            if activeCount > 0 {
+              statusParts.append("\(activeCount) active")
+            }
+            statsLabel.text = statusParts.joined(separator: " · ")
+            statsLabel.isHidden = false
+          } else if model.isInProgress {
+            statsLabel.text = "Syncing..."
+            statsLabel.isHidden = false
+          } else {
+            statsLabel.isHidden = true
+          }
+          statsLabel.textColor = EL.textTertiary
 
         case let .mcp(server, displayTool, subtitle, _):
           titleLabel.attributedText = nil
@@ -479,6 +504,8 @@
           buildGrepContent(grouped: grouped, width: width)
         case let .task(_, _, _, output, _):
           buildTextOutputContent(output: output, width: width)
+        case let .todo(_, _, items, output):
+          buildTodoContent(items: items, output: output, width: width)
         case let .mcp(_, _, _, output):
           buildTextOutputContent(output: output, width: width)
         case let .webFetch(_, _, output):
@@ -753,6 +780,152 @@
         }
 
         y += 6
+      }
+    }
+
+    // ── Todo (structured checklist) ──
+
+    private func buildTodoContent(items: [NativeTodoItem], output: String?, width: CGFloat) {
+      let contentWidth = width - EL.headerHPad * 2
+      var y: CGFloat = EL.contentTopPad
+
+      if !items.isEmpty {
+        let todoHeader = makeSectionHeader("TODOS")
+        todoHeader.frame = CGRect(x: EL.headerHPad, y: y + EL.sectionPadding, width: 60, height: 14)
+        contentContainer.addSubview(todoHeader)
+        y += EL.sectionHeaderHeight + EL.sectionPadding
+
+        for item in items {
+          let style = EL.todoStatusStyle(item.status)
+          let statusText = item.status.label.uppercased()
+          let badgeTextWidth = ceil((statusText as NSString).size(withAttributes: [.font: EL.statsFont as Any]).width)
+          let badgeWidth = min(
+            EL.todoBadgeMaxWidth,
+            max(
+              EL.todoBadgeMinWidth,
+              badgeTextWidth + EL.todoBadgeSidePadding * 2
+            )
+          )
+
+          let rowX = EL.headerHPad
+          let rowW = contentWidth
+          let iconAndGap = EL.todoIconWidth + 8
+          let textX = rowX + EL.todoRowHorizontalPadding + iconAndGap
+          let badgeX = rowX + rowW - EL.todoRowHorizontalPadding - badgeWidth
+          let textW = max(90, badgeX - textX - 8)
+          let primaryHeight = EL.measuredTextHeight(
+            item.primaryText,
+            font: EL.todoTitleFont,
+            maxWidth: textW
+          )
+          let secondaryHeight = item.secondaryText.map {
+            EL.measuredTextHeight(
+              $0,
+              font: EL.todoSecondaryFont,
+              maxWidth: textW
+            )
+          } ?? 0
+          let textHeight = primaryHeight + (secondaryHeight > 0 ? 2 + secondaryHeight : 0)
+          let rowHeight = max(
+            EL.todoBadgeHeight + EL.todoRowVerticalPadding * 2,
+            textHeight + EL.todoRowVerticalPadding * 2
+          )
+
+          let rowBackground = UIView(frame: CGRect(x: rowX, y: y, width: rowW, height: rowHeight))
+          rowBackground.backgroundColor = style.rowBackground
+          rowBackground.layer.cornerRadius = 8
+          contentContainer.addSubview(rowBackground)
+
+          let icon = UIImageView()
+          let iconConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+          icon.image = UIImage(systemName: todoStatusIconName(for: item.status))?.withConfiguration(iconConfig)
+          icon.tintColor = style.tint
+          icon.frame = CGRect(
+            x: rowX + EL.todoRowHorizontalPadding,
+            y: y + (rowHeight - 14) / 2,
+            width: 14,
+            height: 14
+          )
+          contentContainer.addSubview(icon)
+
+          let primaryLabel = UILabel()
+          primaryLabel.font = EL.todoTitleFont
+          primaryLabel.textColor = EL.textPrimary
+          primaryLabel.lineBreakMode = .byWordWrapping
+          primaryLabel.numberOfLines = 0
+          primaryLabel.text = item.primaryText
+          primaryLabel.frame = CGRect(
+            x: textX,
+            y: y + EL.todoRowVerticalPadding,
+            width: textW,
+            height: primaryHeight
+          )
+          contentContainer.addSubview(primaryLabel)
+
+          if let secondaryText = item.secondaryText {
+            let secondaryLabel = UILabel()
+            secondaryLabel.font = EL.todoSecondaryFont
+            secondaryLabel.textColor = EL.textTertiary
+            secondaryLabel.lineBreakMode = .byWordWrapping
+            secondaryLabel.numberOfLines = 0
+            secondaryLabel.text = secondaryText
+            secondaryLabel.frame = CGRect(
+              x: textX,
+              y: primaryLabel.frame.maxY + 2,
+              width: textW,
+              height: secondaryHeight
+            )
+            contentContainer.addSubview(secondaryLabel)
+          }
+
+          let badgeHeight = EL.todoBadgeHeight
+          let badgeY = y + (rowHeight - badgeHeight) / 2
+          let badgeView = UIView(frame: CGRect(x: badgeX, y: badgeY, width: badgeWidth, height: badgeHeight))
+          badgeView.backgroundColor = style.badgeBackground
+          badgeView.layer.cornerRadius = 6
+          contentContainer.addSubview(badgeView)
+
+          let badgeLabel = UILabel()
+          badgeLabel.font = EL.statsFont
+          badgeLabel.textColor = EL.textPrimary
+          badgeLabel.textAlignment = .center
+          badgeLabel.text = statusText
+          badgeLabel.frame = CGRect(x: 0, y: 3, width: badgeWidth, height: 14)
+          badgeView.addSubview(badgeLabel)
+
+          y += rowHeight + EL.todoRowSpacing
+        }
+
+        y += EL.sectionPadding
+      }
+
+      if let output, !output.isEmpty {
+        let outputHeader = makeSectionHeader("RESULT")
+        outputHeader.frame = CGRect(x: EL.headerHPad, y: y + EL.sectionPadding, width: 60, height: 14)
+        contentContainer.addSubview(outputHeader)
+        y += EL.sectionHeaderHeight + EL.sectionPadding
+
+        let textWidth = width - EL.headerHPad * 2
+        let outputLines = output.components(separatedBy: "\n")
+        for line in outputLines {
+          let text = line.isEmpty ? " " : line
+          let label = makeCodeLabel(text, color: EL.textSecondary)
+          let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
+          label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
+          contentContainer.addSubview(label)
+          y += labelH
+        }
+      }
+    }
+
+    private func todoStatusIconName(for status: NativeTodoStatus) -> String {
+      switch status {
+        case .pending: return "circle"
+        case .inProgress: return "arrow.triangle.2.circlepath"
+        case .completed: return "checkmark.circle.fill"
+        case .blocked: return "exclamationmark.triangle.fill"
+        case .canceled: return "xmark.circle.fill"
+        case .unknown: return "questionmark.circle"
       }
     }
 

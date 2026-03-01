@@ -15,6 +15,69 @@
 
 import SwiftUI
 
+enum NativeTodoStatus: Hashable {
+  case pending
+  case inProgress
+  case completed
+  case blocked
+  case canceled
+  case unknown
+
+  init(_ rawStatus: String?) {
+    let normalized = rawStatus?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+      .replacingOccurrences(of: "-", with: "_")
+
+    switch normalized {
+      case "pending", "queued", "todo", "open": self = .pending
+      case "in_progress", "inprogress", "active", "running": self = .inProgress
+      case "completed", "complete", "done", "resolved": self = .completed
+      case "blocked": self = .blocked
+      case "canceled", "cancelled": self = .canceled
+      default: self = .unknown
+    }
+  }
+
+  var label: String {
+    switch self {
+      case .pending: return "Pending"
+      case .inProgress: return "In Progress"
+      case .completed: return "Completed"
+      case .blocked: return "Blocked"
+      case .canceled: return "Canceled"
+      case .unknown: return "Unknown"
+    }
+  }
+}
+
+struct NativeTodoItem: Hashable {
+  let content: String
+  let activeForm: String?
+  let status: NativeTodoStatus
+
+  var primaryText: String {
+    if status == .inProgress,
+       let activeForm,
+       !activeForm.isEmpty
+    {
+      return activeForm
+    }
+    return content
+  }
+
+  var secondaryText: String? {
+    guard status == .inProgress,
+          let activeForm,
+          !activeForm.isEmpty,
+          activeForm != content
+    else {
+      return nil
+    }
+    return content
+  }
+}
+
 // MARK: - Tool Content Enum
 
 enum NativeToolContent {
@@ -24,6 +87,7 @@ enum NativeToolContent {
   case glob(pattern: String, grouped: [(dir: String, files: [String])])
   case grep(pattern: String, grouped: [(file: String, matches: [String])])
   case task(agentLabel: String, agentColor: PlatformColor, description: String, output: String?, isComplete: Bool)
+  case todo(title: String, subtitle: String?, items: [NativeTodoItem], output: String?)
   case mcp(server: String, displayTool: String, subtitle: String?, output: String?)
   case webFetch(domain: String, url: String, output: String?)
   case webSearch(query: String, output: String?)
@@ -161,6 +225,16 @@ enum ExpandedToolLayout {
   static let lineNumFont = PlatformFont.monospacedSystemFont(ofSize: 10, weight: .medium)
   static let sectionLabelFont = PlatformFont.systemFont(ofSize: 9, weight: .bold)
   static let statsFont = PlatformFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+  static let todoTitleFont = PlatformFont.systemFont(ofSize: 12, weight: .semibold)
+  static let todoSecondaryFont = PlatformFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)
+  static let todoRowHorizontalPadding: CGFloat = 10
+  static let todoRowVerticalPadding: CGFloat = 8
+  static let todoRowSpacing: CGFloat = 6
+  static let todoIconWidth: CGFloat = 16
+  static let todoBadgeMinWidth: CGFloat = 80
+  static let todoBadgeMaxWidth: CGFloat = 122
+  static let todoBadgeSidePadding: CGFloat = 8
+  static let todoBadgeHeight: CGFloat = 20
 
   // MARK: - Text Measurement
 
@@ -183,6 +257,47 @@ enum ExpandedToolLayout {
     cardWidth - headerHPad * 2
   }
 
+  struct TodoStatusStyle {
+    let tint: PlatformColor
+    let rowBackground: PlatformColor
+    let badgeBackground: PlatformColor
+  }
+
+  static func todoStatusStyle(_ status: NativeTodoStatus) -> TodoStatusStyle {
+    switch status {
+      case .completed:
+        return TodoStatusStyle(
+          tint: PlatformColor.calibrated(red: 0.40, green: 0.95, blue: 0.55, alpha: 1),
+          rowBackground: PlatformColor.calibrated(red: 0.13, green: 0.24, blue: 0.16, alpha: 0.95),
+          badgeBackground: PlatformColor.calibrated(red: 0.22, green: 0.44, blue: 0.28, alpha: 1)
+        )
+      case .inProgress:
+        return TodoStatusStyle(
+          tint: PlatformColor.calibrated(red: 0.53, green: 0.78, blue: 1.0, alpha: 1),
+          rowBackground: PlatformColor.calibrated(red: 0.12, green: 0.18, blue: 0.24, alpha: 0.95),
+          badgeBackground: PlatformColor.calibrated(red: 0.23, green: 0.37, blue: 0.54, alpha: 1)
+        )
+      case .blocked:
+        return TodoStatusStyle(
+          tint: PlatformColor.calibrated(red: 0.98, green: 0.72, blue: 0.35, alpha: 1),
+          rowBackground: PlatformColor.calibrated(red: 0.26, green: 0.18, blue: 0.08, alpha: 0.95),
+          badgeBackground: PlatformColor.calibrated(red: 0.45, green: 0.31, blue: 0.11, alpha: 1)
+        )
+      case .canceled:
+        return TodoStatusStyle(
+          tint: PlatformColor.calibrated(red: 1.0, green: 0.62, blue: 0.62, alpha: 1),
+          rowBackground: PlatformColor.calibrated(red: 0.28, green: 0.14, blue: 0.16, alpha: 0.95),
+          badgeBackground: PlatformColor.calibrated(red: 0.48, green: 0.21, blue: 0.25, alpha: 1)
+        )
+      case .pending, .unknown:
+        return TodoStatusStyle(
+          tint: PlatformColor.calibrated(red: 0.86, green: 0.86, blue: 0.86, alpha: 1),
+          rowBackground: PlatformColor.calibrated(red: 0.13, green: 0.13, blue: 0.16, alpha: 0.95),
+          badgeBackground: PlatformColor.calibrated(red: 0.24, green: 0.24, blue: 0.29, alpha: 1)
+        )
+    }
+  }
+
   // MARK: - Height Calculation
 
   static func headerHeight(for model: NativeExpandedToolModel?, cardWidth: CGFloat = 0) -> CGFloat {
@@ -196,7 +311,7 @@ enum ExpandedToolLayout {
         let bashFont = PlatformFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
         let titleH = measuredTextHeight("$ " + command, font: bashFont, maxWidth: titleWidth)
         return max(40, headerVPad + titleH + headerVPad)
-      case .edit, .read, .glob, .grep, .mcp, .task:
+      case .edit, .read, .glob, .grep, .mcp, .task, .todo:
         return 48
       default:
         return 40
@@ -218,6 +333,8 @@ enum ExpandedToolLayout {
         return grepHeight(grouped: grouped, cardWidth: cardWidth)
       case let .task(_, _, _, output, _):
         return textOutputHeight(output: output, cardWidth: cardWidth)
+      case let .todo(_, _, items, output):
+        return todoHeight(items: items, output: output, cardWidth: cardWidth)
       case let .mcp(_, _, _, output):
         return textOutputHeight(output: output, cardWidth: cardWidth)
       case let .webFetch(_, _, output):
@@ -346,6 +463,52 @@ enum ExpandedToolLayout {
     return h
   }
 
+  static func todoHeight(items: [NativeTodoItem], output: String?, cardWidth: CGFloat = 0) -> CGFloat {
+    let textWidth = contentTextWidth(cardWidth: cardWidth)
+    let hasOutput = output?.isEmpty == false
+    let hasItems = !items.isEmpty
+    var h: CGFloat = contentTopPad
+
+    if hasItems {
+      h += sectionPadding + sectionHeaderHeight
+
+      for item in items {
+        let statusLabel = item.status.label.uppercased()
+        let badgeTextWidth = ceil((statusLabel as NSString).size(withAttributes: [.font: statsFont as Any]).width)
+        let badgeWidth = min(todoBadgeMaxWidth, max(todoBadgeMinWidth, badgeTextWidth + todoBadgeSidePadding * 2))
+        let iconAndGap = todoIconWidth + 8
+        let textAreaWidth = max(90, textWidth - todoRowHorizontalPadding * 2 - iconAndGap - badgeWidth - 8)
+        let primaryHeight = measuredTextHeight(item.primaryText, font: todoTitleFont, maxWidth: textAreaWidth)
+        let secondaryHeight = item.secondaryText.map {
+          measuredTextHeight($0, font: todoSecondaryFont, maxWidth: textAreaWidth)
+        } ?? 0
+        let textHeight = primaryHeight + (secondaryHeight > 0 ? 2 + secondaryHeight : 0)
+        let rowHeight = max(
+          todoBadgeHeight + todoRowVerticalPadding * 2,
+          textHeight + todoRowVerticalPadding * 2
+        )
+        h += rowHeight + todoRowSpacing
+      }
+
+      h += sectionPadding
+    }
+
+    if hasOutput {
+      let outputLines = (output ?? "").components(separatedBy: "\n")
+      h += sectionPadding + sectionHeaderHeight
+      if textWidth > 0 {
+        for line in outputLines {
+          h += measuredTextHeight(line.isEmpty ? " " : line, font: codeFont, maxWidth: textWidth)
+        }
+      } else {
+        h += CGFloat(outputLines.count) * contentLineHeight
+      }
+      h += sectionPadding
+    }
+
+    return h
+  }
+
   static func toolTypeName(_ content: NativeToolContent) -> String {
     switch content {
       case .bash: "bash"
@@ -354,6 +517,7 @@ enum ExpandedToolLayout {
       case .glob: "glob"
       case .grep: "grep"
       case .task: "task"
+      case .todo: "todo"
       case .mcp: "mcp"
       case .webFetch: "webFetch"
       case .webSearch: "webSearch"
@@ -782,6 +946,30 @@ enum ExpandedToolLayout {
           subtitleField.stringValue = description
           statsField.isHidden = false
           statsField.stringValue = isComplete ? "Complete" : "Running..."
+          statsField.textColor = Self.textTertiary
+
+        case let .todo(title, subtitle, items, _):
+          let completedCount = items.filter { $0.status == .completed }.count
+          let activeCount = items.filter { $0.status == .inProgress }.count
+          titleField.stringValue = title
+          titleField.font = Self.headerFont
+          titleField.textColor = model.toolColor
+          subtitleField.stringValue = subtitle ?? ""
+          subtitleField.isHidden = subtitle?.isEmpty ?? true
+          if !items.isEmpty {
+            var statusParts: [String] = ["\(completedCount)/\(items.count) done"]
+            if activeCount > 0 {
+              statusParts.append("\(activeCount) active")
+            }
+            statsField.stringValue = statusParts.joined(separator: " · ")
+            statsField.isHidden = false
+          } else if model.isInProgress {
+            statsField.stringValue = "Syncing..."
+            statsField.isHidden = false
+          } else {
+            statsField.isHidden = true
+          }
+          statsField.textColor = Self.textTertiary
 
         case let .mcp(server, displayTool, subtitle, _):
           titleField.stringValue = displayTool
@@ -883,6 +1071,8 @@ enum ExpandedToolLayout {
           buildGrepContent(grouped: grouped, width: width)
         case let .task(_, _, _, output, _):
           buildTextOutputContent(output: output, width: width)
+        case let .todo(_, _, items, output):
+          buildTodoContent(items: items, output: output, width: width)
         case let .mcp(_, _, _, output):
           buildTextOutputContent(output: output, width: width)
         case let .webFetch(_, _, output):
@@ -1203,6 +1393,173 @@ enum ExpandedToolLayout {
         }
 
         y += 6
+      }
+    }
+
+    // ── Todo (structured checklist) ──
+
+    private func buildTodoContent(items: [NativeTodoItem], output: String?, width: CGFloat) {
+      var y: CGFloat = Self.contentTopPad
+      let contentWidth = width - Self.headerHPad * 2
+
+      if !items.isEmpty {
+        let todoHeader = NSTextField(labelWithString: "")
+        let attrs: [NSAttributedString.Key: Any] = [
+          .kern: 0.8,
+          .font: Self.sectionLabelFont as Any,
+          .foregroundColor: Self.textQuaternary,
+        ]
+        todoHeader.attributedStringValue = NSAttributedString(string: "TODOS", attributes: attrs)
+        todoHeader.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 60, height: 14)
+        contentContainer.addSubview(todoHeader)
+        y += Self.sectionHeaderHeight + Self.sectionPadding
+
+        for item in items {
+          let style = ExpandedToolLayout.todoStatusStyle(item.status)
+          let statusText = item.status.label.uppercased()
+          let badgeTextWidth = ceil((statusText as NSString).size(withAttributes: [.font: Self.statsFont as Any]).width)
+          let badgeWidth = min(
+            ExpandedToolLayout.todoBadgeMaxWidth,
+            max(
+              ExpandedToolLayout.todoBadgeMinWidth,
+              badgeTextWidth + ExpandedToolLayout.todoBadgeSidePadding * 2
+            )
+          )
+
+          let rowX = Self.headerHPad
+          let rowW = contentWidth
+          let iconAndGap = ExpandedToolLayout.todoIconWidth + 8
+          let textX = rowX + ExpandedToolLayout.todoRowHorizontalPadding + iconAndGap
+          let badgeX = rowX + rowW - ExpandedToolLayout.todoRowHorizontalPadding - badgeWidth
+          let textW = max(90, badgeX - textX - 8)
+          let primaryHeight = ExpandedToolLayout.measuredTextHeight(
+            item.primaryText,
+            font: ExpandedToolLayout.todoTitleFont,
+            maxWidth: textW
+          )
+          let secondaryHeight = item.secondaryText.map {
+            ExpandedToolLayout.measuredTextHeight(
+              $0,
+              font: ExpandedToolLayout.todoSecondaryFont,
+              maxWidth: textW
+            )
+          } ?? 0
+          let textHeight = primaryHeight + (secondaryHeight > 0 ? 2 + secondaryHeight : 0)
+          let rowHeight = max(
+            ExpandedToolLayout.todoBadgeHeight + ExpandedToolLayout.todoRowVerticalPadding * 2,
+            textHeight + ExpandedToolLayout.todoRowVerticalPadding * 2
+          )
+
+          let rowBackground = NSView(frame: NSRect(x: rowX, y: y, width: rowW, height: rowHeight))
+          rowBackground.wantsLayer = true
+          rowBackground.layer?.cornerRadius = 8
+          rowBackground.layer?.backgroundColor = style.rowBackground.cgColor
+          contentContainer.addSubview(rowBackground)
+
+          let iconConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+          let iconView = NSImageView()
+          iconView.image = NSImage(systemSymbolName: todoStatusIconName(for: item.status), accessibilityDescription: nil)?
+            .withSymbolConfiguration(iconConfig)
+          iconView.contentTintColor = style.tint
+          iconView.frame = NSRect(
+            x: rowX + ExpandedToolLayout.todoRowHorizontalPadding,
+            y: y + (rowHeight - 14) / 2,
+            width: 14,
+            height: 14
+          )
+          contentContainer.addSubview(iconView)
+
+          let primaryLabel = NSTextField(labelWithString: item.primaryText)
+          primaryLabel.font = ExpandedToolLayout.todoTitleFont
+          primaryLabel.textColor = Self.textPrimary
+          primaryLabel.lineBreakMode = .byWordWrapping
+          primaryLabel.maximumNumberOfLines = 0
+          primaryLabel.isSelectable = true
+          primaryLabel.frame = NSRect(
+            x: textX,
+            y: y + ExpandedToolLayout.todoRowVerticalPadding,
+            width: textW,
+            height: primaryHeight
+          )
+          contentContainer.addSubview(primaryLabel)
+
+          if let secondaryText = item.secondaryText {
+            let secondaryLabel = NSTextField(labelWithString: secondaryText)
+            secondaryLabel.font = ExpandedToolLayout.todoSecondaryFont
+            secondaryLabel.textColor = Self.textTertiary
+            secondaryLabel.lineBreakMode = .byWordWrapping
+            secondaryLabel.maximumNumberOfLines = 0
+            secondaryLabel.isSelectable = true
+            secondaryLabel.frame = NSRect(
+              x: textX,
+              y: primaryLabel.frame.maxY + 2,
+              width: textW,
+              height: secondaryHeight
+            )
+            contentContainer.addSubview(secondaryLabel)
+          }
+
+          let badgeHeight = ExpandedToolLayout.todoBadgeHeight
+          let badgeY = y + (rowHeight - badgeHeight) / 2
+          let badgeView = NSView(frame: NSRect(x: badgeX, y: badgeY, width: badgeWidth, height: badgeHeight))
+          badgeView.wantsLayer = true
+          badgeView.layer?.cornerRadius = 6
+          badgeView.layer?.backgroundColor = style.badgeBackground.cgColor
+          contentContainer.addSubview(badgeView)
+
+          let badgeLabel = NSTextField(labelWithString: statusText)
+          badgeLabel.font = Self.statsFont
+          badgeLabel.textColor = Self.textPrimary
+          badgeLabel.alignment = .center
+          badgeLabel.frame = NSRect(x: 0, y: 3, width: badgeWidth, height: 14)
+          badgeView.addSubview(badgeLabel)
+
+          y += rowHeight + ExpandedToolLayout.todoRowSpacing
+        }
+
+        y += Self.sectionPadding
+      }
+
+      if let output, !output.isEmpty {
+        let outputHeader = NSTextField(labelWithString: "")
+        let attrs: [NSAttributedString.Key: Any] = [
+          .kern: 0.8,
+          .font: Self.sectionLabelFont as Any,
+          .foregroundColor: Self.textQuaternary,
+        ]
+        outputHeader.attributedStringValue = NSAttributedString(string: "RESULT", attributes: attrs)
+        outputHeader.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 60, height: 14)
+        contentContainer.addSubview(outputHeader)
+        y += Self.sectionHeaderHeight + Self.sectionPadding
+
+        let outputLines = output.components(separatedBy: "\n")
+        let textW = width - Self.headerHPad * 2
+        for line in outputLines {
+          let text = line.isEmpty ? " " : line
+          let label = NSTextField(labelWithString: text)
+          label.font = Self.codeFont
+          label.textColor = Self.textSecondary
+          label.lineBreakMode = .byCharWrapping
+          label.maximumNumberOfLines = 0
+          label.isSelectable = true
+          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textW)
+          label.frame = NSRect(x: Self.headerHPad, y: y, width: textW, height: lineH)
+          contentContainer.addSubview(label)
+          y += lineH
+        }
+
+        y += Self.sectionPadding
+      }
+    }
+
+    private func todoStatusIconName(for status: NativeTodoStatus) -> String {
+      switch status {
+        case .pending: return "circle"
+        case .inProgress: return "arrow.triangle.2.circlepath"
+        case .completed: return "checkmark.circle.fill"
+        case .blocked: return "exclamationmark.triangle.fill"
+        case .canceled: return "xmark.circle.fill"
+        case .unknown: return "questionmark.circle"
       }
     }
 
