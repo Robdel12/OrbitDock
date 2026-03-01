@@ -316,6 +316,29 @@ This gives us the best of both worlds:
 - we stop writing our own markdown engine
 - we keep the 60 FPS timeline behavior this app depends on
 
+### Implementation Status
+
+- [x] Phase 0 baseline started:
+  - Added parser capability matrix doc: `docs/markdown-capability-matrix.md`
+  - Added parser capability tests in `MarkdownParsingTests` for links, table/code intents, and task markers
+- [x] Phase 1 parser adapter + shared `MarkdownIR`
+  - Added `MarkdownSystemParser.swift` as the single markdown parser adapter.
+  - Removed `MarkdownAttributedStringRenderer.swift`; parser is now the single entrypoint and cache owner.
+- [x] Phase 2 native timeline integration
+  - Native timeline continues to consume shared `MarkdownBlock` output only.
+  - Native markdown content link styling now uses theme tokens.
+- [x] Phase 3 SwiftUI integration
+  - Replaced `Document(parsing:)` SwiftUI AST walker in `MarkdownView.swift`.
+  - SwiftUI surfaces now render the same shared parsed blocks as native timeline.
+- [x] Phase 4 syntax/codeblock consolidation
+  - Unified syntax highlighting around `SyntaxHighlighter.highlightNativeLine(...)` primary path.
+  - Deleted `NativeSyntaxHighlighter.swift`.
+  - Added shared markdown language normalization + badge colors in `MarkdownLanguage.swift`.
+- [x] Phase 5 caching + reliability hardening
+  - Replaced cache-nuke behavior with bounded eviction in markdown parser and syntax highlighter caches.
+  - Added macOS memory pressure cache clearing in `OrbitDockApp.swift`.
+  - Expanded markdown tests for language normalization, parser normalization, and syntax adapter parity.
+
 ### Phase 0: Parser Capability Spike
 
 **Goal:** Validate parser behavior against real OrbitDock transcript content before migration.
@@ -401,8 +424,8 @@ This gives us the best of both worlds:
 | File | Action |
 |------|--------|
 | **New: `docs/markdown-capability-matrix.md`** | Parser feature matrix + migration guardrails |
-| **New: `MarkdownSystemParser.swift`** | Single parsing adapter and IR builder |
-| `MarkdownAttributedStringRenderer.swift` | Convert to thin adapter over system parsing (or replace entirely) |
+| **New: `MarkdownSystemParser.swift`** | Single parsing adapter and cache owner |
+| **New: `MarkdownTypes.swift`** | Shared markdown block/style model |
 | `MarkdownView.swift` | Remove custom AST walkers; render shared IR |
 | `NativeMarkdownContentView.swift` | Render-only responsibilities, no parsing semantics |
 | `NativeSyntaxHighlighter.swift` | Delete |
