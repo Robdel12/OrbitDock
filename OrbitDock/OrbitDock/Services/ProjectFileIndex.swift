@@ -8,9 +8,10 @@
 
 import Foundation
 
+@MainActor
 @Observable
-class ProjectFileIndex {
-  struct ProjectFile: Identifiable, Hashable {
+final class ProjectFileIndex {
+  struct ProjectFile: Identifiable, Hashable, Sendable {
     let id: String // relative path (unique within project)
     let name: String // filename (e.g. "main.rs")
     let relativePath: String // from project root (e.g. "src/main.rs")
@@ -33,7 +34,7 @@ class ProjectFileIndex {
     loading.insert(projectPath)
     defer { loading.remove(projectPath) }
 
-    let results = await runGitLsFiles(in: projectPath)
+    let results = await Self.runGitLsFiles(in: projectPath)
     cache[projectPath] = results
   }
 
@@ -58,7 +59,8 @@ class ProjectFileIndex {
     return nameMatches + pathMatches
   }
 
-  private func runGitLsFiles(in directory: String) async -> [ProjectFile] {
+  nonisolated
+  private static func runGitLsFiles(in directory: String) async -> [ProjectFile] {
     #if os(macOS)
       let gitFiles: [ProjectFile] = await withCheckedContinuation { continuation in
         DispatchQueue.global(qos: .userInitiated).async {
@@ -104,10 +106,11 @@ class ProjectFileIndex {
       }
     #endif
 
-    return await scanWithFileManager(in: directory)
+    return await Self.scanWithFileManager(in: directory)
   }
 
-  private func scanWithFileManager(in directory: String) async -> [ProjectFile] {
+  nonisolated
+  private static func scanWithFileManager(in directory: String) async -> [ProjectFile] {
     await withCheckedContinuation { continuation in
       DispatchQueue.global(qos: .userInitiated).async {
         let rootURL = URL(fileURLWithPath: directory, isDirectory: true)

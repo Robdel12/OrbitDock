@@ -45,7 +45,6 @@ struct DirectSessionComposer: View {
   @State private var composerInputHeight: CGFloat = 30
 
   /// Attachments
-  @State private var fileIndex = ProjectFileIndex()
   // Internal visibility keeps image input logic split into platform extension files.
   @State var attachedImages: [AttachedImage] = []
   @State private var attachedMentions: [AttachedMention] = []
@@ -254,6 +253,10 @@ struct DirectSessionComposer: View {
 
   private var projectPath: String? {
     obs.projectPath
+  }
+
+  private var fileIndex: ProjectFileIndex {
+    serverState.projectFileIndex
   }
 
   private var forkWorktreeDisplayRepoPath: String? {

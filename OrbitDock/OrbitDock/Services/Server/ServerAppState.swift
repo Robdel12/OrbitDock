@@ -27,6 +27,11 @@ final class ServerAppState {
   @ObservationIgnored
   let connection: ServerConnection
 
+  /// Shared project file index used by composer mention/file-pick flows.
+  /// Long-lived ownership in app state avoids view lifecycle races.
+  @ObservationIgnored
+  private let sharedProjectFileIndex = ProjectFileIndex()
+
   let endpointId: UUID
 
   private var codexModelsCacheKey: String {
@@ -139,6 +144,11 @@ final class ServerAppState {
   /// Worktrees for a given repo root
   func worktrees(for repoRoot: String) -> [ServerWorktreeSummary] {
     worktreesByRepo[repoRoot] ?? []
+  }
+
+  /// Shared project file index for mention completion and file picker flows.
+  var projectFileIndex: ProjectFileIndex {
+    sharedProjectFileIndex
   }
 
   /// Fetch worktree data for all unique project paths from active sessions.
