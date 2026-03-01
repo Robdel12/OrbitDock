@@ -165,6 +165,15 @@ struct FlatSessionRow: View {
       } label: {
         Label("Copy Resume Command", systemImage: "doc.on.doc")
       }
+
+      if session.isActive && session.isDirect {
+        Divider()
+        Button(role: .destructive) {
+          serverState.endSession(session.id)
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
     }
   }
 

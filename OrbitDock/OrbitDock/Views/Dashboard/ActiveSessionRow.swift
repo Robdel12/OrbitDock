@@ -153,6 +153,15 @@ struct ActiveSessionRow: View {
           Label("Focus Terminal", systemImage: "terminal")
         }
       }
+
+      if session.isActive && session.isDirect {
+        Divider()
+        Button(role: .destructive) {
+          serverState.endSession(session.id)
+        } label: {
+          Label("End Session", systemImage: "stop.circle")
+        }
+      }
     }
   }
 
