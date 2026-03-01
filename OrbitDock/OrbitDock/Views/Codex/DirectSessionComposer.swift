@@ -563,6 +563,18 @@ struct DirectSessionComposer: View {
           .transition(.move(edge: .bottom).combined(with: .opacity))
       }
 
+      // ━━━ Prompt suggestion chips ━━━
+      if !obs.promptSuggestions.isEmpty, isSessionActive, !isSessionWorking {
+        promptSuggestionChips
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
+      // ━━━ Rate limit banner ━━━
+      if let rateLimitInfo = obs.rateLimitInfo, rateLimitInfo.needsDisplay {
+        RateLimitBanner(info: rateLimitInfo)
+          .transition(.move(edge: .bottom).combined(with: .opacity))
+      }
+
       // ━━━ Composer area ━━━
       if isSessionActive {
         composerRow
@@ -930,6 +942,35 @@ struct DirectSessionComposer: View {
   }
 
   // MARK: - Composer Row
+
+  private var promptSuggestionChips: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        ForEach(obs.promptSuggestions, id: \.self) { suggestion in
+          Button {
+            sendSuggestion(suggestion)
+          } label: {
+            Text(suggestion)
+              .font(.caption)
+              .foregroundStyle(Color.textSecondary)
+              .lineLimit(1)
+              .padding(.horizontal, 10)
+              .padding(.vertical, 6)
+              .background(Color.backgroundSecondary)
+              .clipShape(RoundedRectangle(cornerRadius: 8))
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 6)
+    }
+  }
+
+  private func sendSuggestion(_ suggestion: String) {
+    guard let conn = runtimeRegistry.connection(for: serverState.endpointId) else { return }
+    conn.sendMessage(sessionId: sessionId, content: suggestion)
+  }
 
   private var composerRow: some View {
     VStack(spacing: 0) {
@@ -1315,7 +1356,6 @@ struct DirectSessionComposer: View {
     }
     .buttonStyle(.plain)
     .disabled(!canSend)
-    .keyboardShortcut(.return, modifiers: .command)
   }
 
   private var compactFooterTokenChip: some View {
@@ -2183,9 +2223,7 @@ struct DirectSessionComposer: View {
     mentionIndex = 0
     mentionActive = true
 
-    if let path = projectPath, !fileIndex.isReady(for: path) {
-      Task { [weak fileIndex] in await fileIndex?.loadIfNeeded(path) }
-    }
+    loadProjectFilesIfNeeded()
   }
 
   private func acceptMentionCompletion(_ file: ProjectFileIndex.ProjectFile) {
@@ -2227,9 +2265,7 @@ struct DirectSessionComposer: View {
       return
     }
     filePickerQuery = ""
-    if let path = projectPath, !fileIndex.isReady(for: path) {
-      Task { [weak fileIndex] in await fileIndex?.loadIfNeeded(path) }
-    }
+    loadProjectFilesIfNeeded()
     showFilePickerPopover = true
   }
 
@@ -2271,8 +2307,13 @@ struct DirectSessionComposer: View {
     if serverState.session(sessionId).mcpTools.isEmpty {
       serverState.listMcpTools(sessionId: sessionId)
     }
-    if let path = projectPath, !fileIndex.isReady(for: path) {
-      Task { [weak fileIndex] in await fileIndex?.loadIfNeeded(path) }
+    loadProjectFilesIfNeeded()
+  }
+
+  private func loadProjectFilesIfNeeded() {
+    guard let path = projectPath, !fileIndex.isReady(for: path) else { return }
+    Task { @MainActor in
+      await fileIndex.loadIfNeeded(path)
     }
   }
 

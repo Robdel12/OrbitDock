@@ -223,7 +223,7 @@ struct McpServersTab: View {
           .fill(Color.statusReady)
           .frame(width: 8, height: 8)
 
-      case .starting:
+      case .starting, .connecting:
         ZStack {
           Circle()
             .stroke(Color.accent.opacity(0.3), lineWidth: 1.5)
@@ -234,6 +234,11 @@ struct McpServersTab: View {
         }
         .frame(width: 8, height: 8)
         .modifier(SpinningDotModifier())
+
+      case .needsAuth:
+        Image(systemName: "lock.fill")
+          .font(.system(size: 7, weight: .bold))
+          .foregroundStyle(Color.statusQuestion)
 
       case .failed:
         Circle()
@@ -278,6 +283,8 @@ struct McpServersTab: View {
         switch status {
           case .ready: return .ready
           case .starting: return .starting
+          case .connecting: return .connecting
+          case .needsAuth: return .needsAuth
           case .failed: return .failed
           case .cancelled: return .cancelled
         }
@@ -327,8 +334,10 @@ struct McpServersTab: View {
 private enum ServerEntryStatus: Int, Comparable {
   case ready = 0
   case starting = 1
-  case failed = 2
-  case cancelled = 3
+  case connecting = 2
+  case needsAuth = 3
+  case failed = 4
+  case cancelled = 5
 
   static func < (lhs: Self, rhs: Self) -> Bool {
     lhs.rawValue < rhs.rawValue
