@@ -1195,8 +1195,10 @@ enum ServerMcpAuthStatus: String, Codable {
 /// Tagged enum matching Rust's `#[serde(tag = "state", rename_all = "snake_case")]`
 enum ServerMcpStartupStatus: Codable {
   case starting
+  case connecting
   case ready
   case failed(error: String)
+  case needsAuth
   case cancelled
 
   enum CodingKeys: String, CodingKey {
@@ -1209,10 +1211,12 @@ enum ServerMcpStartupStatus: Codable {
     let state = try container.decode(String.self, forKey: .state)
     switch state {
       case "starting": self = .starting
+      case "connecting": self = .connecting
       case "ready": self = .ready
       case "failed":
         let error = try container.decode(String.self, forKey: .error)
         self = .failed(error: error)
+      case "needs_auth": self = .needsAuth
       case "cancelled": self = .cancelled
       default:
         throw DecodingError.dataCorrupted(
@@ -1229,11 +1233,15 @@ enum ServerMcpStartupStatus: Codable {
     switch self {
       case .starting:
         try container.encode("starting", forKey: .state)
+      case .connecting:
+        try container.encode("connecting", forKey: .state)
       case .ready:
         try container.encode("ready", forKey: .state)
       case let .failed(error):
         try container.encode("failed", forKey: .state)
         try container.encode(error, forKey: .error)
+      case .needsAuth:
+        try container.encode("needs_auth", forKey: .state)
       case .cancelled:
         try container.encode("cancelled", forKey: .state)
     }
@@ -1243,6 +1251,40 @@ enum ServerMcpStartupStatus: Codable {
 struct ServerMcpStartupFailure: Codable {
   let server: String
   let error: String
+}
+
+// MARK: - Rate Limit Info
+
+struct ServerRateLimitInfo: Codable {
+  let status: String
+  let resetsAt: String?
+  let rateLimitType: String?
+  let utilization: Double?
+  let isUsingOverage: Bool?
+  let overageStatus: String?
+  let surpassedThreshold: Double?
+
+  enum CodingKeys: String, CodingKey {
+    case status
+    case resetsAt = "resets_at"
+    case rateLimitType = "rate_limit_type"
+    case utilization
+    case isUsingOverage = "is_using_overage"
+    case overageStatus = "overage_status"
+    case surpassedThreshold = "surpassed_threshold"
+  }
+
+  var isWarning: Bool {
+    status == "allowed_warning"
+  }
+
+  var isRejected: Bool {
+    status == "rejected"
+  }
+
+  var needsDisplay: Bool {
+    status != "allowed"
+  }
 }
 
 /// Wrapper for arbitrary JSON values (used for MCP schemas/annotations)
@@ -1493,6 +1535,9 @@ enum ServerToClientMessage: Codable {
   case worktreeRemoved(requestId: String, worktreeId: String)
   case worktreeStatusChanged(worktreeId: String, status: ServerWorktreeStatus, repoRoot: String)
   case worktreeError(requestId: String, code: String, message: String)
+  case rateLimitEvent(sessionId: String, info: ServerRateLimitInfo)
+  case promptSuggestion(sessionId: String, suggestion: String)
+  case filesPersisted(sessionId: String, files: [String])
   case error(code: String, message: String, sessionId: String?)
 
   enum CodingKeys: String, CodingKey {
@@ -1564,6 +1609,9 @@ enum ServerToClientMessage: Codable {
     case worktreeId = "worktree_id"
     case repoRoot = "repo_root"
     case force
+    case info
+    case suggestion
+    case files
   }
 
   init(from decoder: Decoder) throws {
@@ -1897,6 +1945,21 @@ enum ServerToClientMessage: Codable {
         let message = try container.decode(String.self, forKey: .message)
         self = .worktreeError(requestId: requestId, code: code, message: message)
 
+      case "rate_limit_event":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let info = try container.decode(ServerRateLimitInfo.self, forKey: .info)
+        self = .rateLimitEvent(sessionId: sessionId, info: info)
+
+      case "prompt_suggestion":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let suggestion = try container.decode(String.self, forKey: .suggestion)
+        self = .promptSuggestion(sessionId: sessionId, suggestion: suggestion)
+
+      case "files_persisted":
+        let sessionId = try container.decode(String.self, forKey: .sessionId)
+        let files = try container.decodeIfPresent([String].self, forKey: .files) ?? []
+        self = .filesPersisted(sessionId: sessionId, files: files)
+
       case "error":
         let code = try container.decode(String.self, forKey: .code)
         let message = try container.decode(String.self, forKey: .message)
@@ -2213,6 +2276,21 @@ enum ServerToClientMessage: Codable {
         try container.encode(code, forKey: .code)
         try container.encode(message, forKey: .message)
 
+      case let .rateLimitEvent(sessionId, info):
+        try container.encode("rate_limit_event", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(info, forKey: .info)
+
+      case let .promptSuggestion(sessionId, suggestion):
+        try container.encode("prompt_suggestion", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(suggestion, forKey: .suggestion)
+
+      case let .filesPersisted(sessionId, files):
+        try container.encode("files_persisted", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(files, forKey: .files)
+
       case let .error(code, message, sessionId):
         try container.encode("error", forKey: .type)
         try container.encode(code, forKey: .code)
@@ -2303,6 +2381,8 @@ enum ClientToServerMessage: Codable {
   case compactContext(sessionId: String)
   case undoLastTurn(sessionId: String)
   case rollbackTurns(sessionId: String, numTurns: UInt32)
+  case stopTask(sessionId: String, taskId: String)
+  case rewindFiles(sessionId: String, userMessageId: String)
   case forkSession(
     sourceSessionId: String,
     nthUserMessage: UInt32? = nil,
@@ -2416,6 +2496,8 @@ enum ClientToServerMessage: Codable {
     case baseBranch = "base_branch"
     case worktreeId = "worktree_id"
     case force
+    case taskId = "task_id"
+    case userMessageId = "user_message_id"
   }
 
   func encode(to encoder: Encoder) throws {
@@ -2622,6 +2704,16 @@ enum ClientToServerMessage: Codable {
         try container.encode("rollback_turns", forKey: .type)
         try container.encode(sessionId, forKey: .sessionId)
         try container.encode(numTurns, forKey: .numTurns)
+
+      case let .stopTask(sessionId, taskId):
+        try container.encode("stop_task", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(taskId, forKey: .taskId)
+
+      case let .rewindFiles(sessionId, userMessageId):
+        try container.encode("rewind_files", forKey: .type)
+        try container.encode(sessionId, forKey: .sessionId)
+        try container.encode(userMessageId, forKey: .userMessageId)
 
       case let .forkSession(
       sourceSessionId,

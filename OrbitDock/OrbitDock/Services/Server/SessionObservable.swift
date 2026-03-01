@@ -64,6 +64,12 @@ final class SessionObservable {
   var mcpAuthStatuses: [String: ServerMcpAuthStatus] = [:]
   var mcpStartupState: McpStartupState?
 
+  // Rate limit
+  var rateLimitInfo: ServerRateLimitInfo?
+
+  // Prompt suggestions (cleared on TurnStarted)
+  var promptSuggestions: [String] = []
+
   // MARK: - Session-level fields (mirrored from Session struct for detail views)
 
   var endpointId: UUID?

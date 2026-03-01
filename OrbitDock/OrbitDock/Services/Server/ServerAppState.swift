@@ -585,6 +585,28 @@ final class ServerAppState {
       }
     }
 
+    conn.onRateLimitEvent = { [weak self] sessionId, info in
+      Task { @MainActor in
+        self?.session(sessionId).rateLimitInfo = info
+      }
+    }
+
+    conn.onPromptSuggestion = { [weak self] sessionId, suggestion in
+      Task { @MainActor in
+        let obs = self?.session(sessionId)
+        if !(obs?.promptSuggestions.contains(suggestion) ?? true) {
+          obs?.promptSuggestions.append(suggestion)
+        }
+      }
+    }
+
+    conn.onFilesPersisted = { [weak self] sessionId, _ in
+      Task { @MainActor in
+        // Log for now — files_persisted confirms checkpoint saved
+        _ = self?.session(sessionId)
+      }
+    }
+
     conn.onRevision = { [weak self] sessionId, revision in
       Task { @MainActor in
         self?.lastRevision[sessionId] = revision
@@ -1359,6 +1381,12 @@ final class ServerAppState {
       sess.attentionReason = attention
       obs.workStatus = mapped
       obs.attentionReason = attention
+
+      // Clear prompt suggestions when a new turn starts
+      if mapped == .working {
+        obs.promptSuggestions.removeAll()
+        obs.rateLimitInfo = nil
+      }
     }
     if let approvalOuter = changes.pendingApproval {
       let incomingVersion = changes.approvalVersion ?? 0

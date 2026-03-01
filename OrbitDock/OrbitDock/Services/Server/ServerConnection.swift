@@ -450,6 +450,9 @@ class ServerConnection: ObservableObject {
   var onWorktreeRemoved: ((String, String) -> Void)?
   var onWorktreeStatusChanged: ((String, ServerWorktreeStatus, String) -> Void)?
   var onWorktreeError: ((String, String, String) -> Void)?
+  var onRateLimitEvent: ((String, ServerRateLimitInfo) -> Void)?
+  var onPromptSuggestion: ((String, String) -> Void)?
+  var onFilesPersisted: ((String, [String]) -> Void)?
   var onError: ((String, String, String?) -> Void)?
   var onConnected: (() -> Void)?
   var onDisconnected: (() -> Void)?
@@ -871,6 +874,15 @@ class ServerConnection: ObservableObject {
 
       case let .worktreeError(requestId, code, message):
         onWorktreeError?(requestId, code, message)
+
+      case let .rateLimitEvent(sessionId, info):
+        onRateLimitEvent?(sessionId, info)
+
+      case let .promptSuggestion(sessionId, suggestion):
+        onPromptSuggestion?(sessionId, suggestion)
+
+      case let .filesPersisted(sessionId, files):
+        onFilesPersisted?(sessionId, files)
 
       case .directoryListing, .recentProjectsList, .openAiKeyStatus, .codexUsageResult, .claudeUsageResult:
         break
