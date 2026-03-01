@@ -6,6 +6,11 @@
 //
 
 import SwiftUI
+#if os(macOS)
+  import AppKit
+#else
+  import UIKit
+#endif
 
 // MARK: - Main Markdown View
 
@@ -136,7 +141,12 @@ private struct MarkdownBlockSwiftUIView: View {
   }
 
   private func bridged(_ ns: NSAttributedString) -> AttributedString {
-    (try? AttributedString(ns, including: \.foundation)) ?? AttributedString(ns.string)
+    #if os(macOS)
+      if let bridged = try? AttributedString(ns, including: \.appKit) { return bridged }
+    #else
+      if let bridged = try? AttributedString(ns, including: \.uiKit) { return bridged }
+    #endif
+    return (try? AttributedString(ns, including: \.foundation)) ?? AttributedString(ns.string)
   }
 }
 
@@ -209,6 +219,11 @@ private struct MarkdownTableBlockView: View {
 
   private func cellText(_ markdown: String, isHeader: Bool) -> AttributedString {
     let ns = MarkdownSystemParser.inlineTableCellText(from: markdown, style: style, isHeader: isHeader)
+    #if os(macOS)
+      if let bridged = try? AttributedString(ns, including: \.appKit) { return bridged }
+    #else
+      if let bridged = try? AttributedString(ns, including: \.uiKit) { return bridged }
+    #endif
     return (try? AttributedString(ns, including: \.foundation)) ?? AttributedString(ns.string)
   }
 }

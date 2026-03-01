@@ -7,10 +7,20 @@
 
 import Foundation
 import SwiftUI
+#if os(macOS)
+  import AppKit
+#else
+  import UIKit
+#endif
 
 enum SyntaxHighlighter {
-  private static var lineCache: [String: NSAttributedString] = [:]
-  private static var lineCacheOrder: [String] = []
+  private struct LineCacheEntry {
+    let attributed: NSAttributedString
+    var accessTick: UInt64
+  }
+
+  private static var lineCache: [String: LineCacheEntry] = [:]
+  private static var lineCacheTick: UInt64 = 0
   private static let maxCacheSize = 4_000
   private static let evictionBatchSize = 512
 
@@ -28,9 +38,10 @@ enum SyntaxHighlighter {
   static func highlightNativeLine(_ line: String, language: String?) -> NSAttributedString {
     let normalizedLanguage = MarkdownLanguage.normalize(language)
     let cacheKey = "\(normalizedLanguage ?? "_"):\(line)"
-    if let cached = lineCache[cacheKey] {
-      touchCacheKey(cacheKey)
-      return cached
+    if var cached = lineCache[cacheKey] {
+      cached.accessTick = nextLineCacheTick()
+      lineCache[cacheKey] = cached
+      return cached.attributed
     }
 
     let result = NSMutableAttributedString(
@@ -81,12 +92,17 @@ enum SyntaxHighlighter {
 
   static func highlightLine(_ line: String, language: String?) -> AttributedString {
     let native = highlightNativeLine(line, language: language)
+    #if os(macOS)
+      if let bridged = try? AttributedString(native, including: \.appKit) { return bridged }
+    #else
+      if let bridged = try? AttributedString(native, including: \.uiKit) { return bridged }
+    #endif
     return (try? AttributedString(native, including: \.foundation)) ?? AttributedString(line)
   }
 
   static func clearCache() {
     lineCache.removeAll(keepingCapacity: true)
-    lineCacheOrder.removeAll(keepingCapacity: true)
+    lineCacheTick = 0
   }
 
   // MARK: - Line Highlighters
@@ -316,31 +332,31 @@ enum SyntaxHighlighter {
 
   // MARK: - Cache Helpers
 
-  private static func touchCacheKey(_ key: String) {
-    if let existingIndex = lineCacheOrder.firstIndex(of: key) {
-      lineCacheOrder.remove(at: existingIndex)
-    }
-    lineCacheOrder.append(key)
+  private static func nextLineCacheTick() -> UInt64 {
+    lineCacheTick &+= 1
+    return lineCacheTick
   }
 
   private static func insertCacheValue(_ value: NSAttributedString, for key: String) {
     if lineCache[key] == nil {
       evictIfNeeded()
-    } else if let existingIndex = lineCacheOrder.firstIndex(of: key) {
-      lineCacheOrder.remove(at: existingIndex)
     }
 
-    lineCache[key] = value
-    lineCacheOrder.append(key)
+    lineCache[key] = LineCacheEntry(attributed: value, accessTick: nextLineCacheTick())
   }
 
   private static func evictIfNeeded() {
     guard lineCache.count >= maxCacheSize else { return }
-    let toEvict = min(evictionBatchSize, lineCacheOrder.count)
+    let toEvict = min(evictionBatchSize, lineCache.count)
     guard toEvict > 0 else { return }
 
-    for _ in 0..<toEvict {
-      let key = lineCacheOrder.removeFirst()
+    let keysToEvict = lineCache
+      .sorted { lhs, rhs in
+        lhs.value.accessTick < rhs.value.accessTick
+      }
+      .prefix(toEvict)
+      .map(\.key)
+    for key in keysToEvict {
       lineCache.removeValue(forKey: key)
     }
   }

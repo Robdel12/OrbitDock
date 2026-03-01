@@ -23,8 +23,13 @@ enum MarkdownSystemParser {
     let style: ContentStyle
   }
 
-  private static var parseCache: [ParseCacheKey: [MarkdownBlock]] = [:]
-  private static var parseCacheOrder: [ParseCacheKey] = []
+  private struct ParseCacheEntry {
+    let blocks: [MarkdownBlock]
+    var accessTick: UInt64
+  }
+
+  private static var parseCache: [ParseCacheKey: ParseCacheEntry] = [:]
+  private static var parseCacheTick: UInt64 = 0
   #if os(iOS)
     private static let maxCacheSize = 160
   #else
@@ -88,9 +93,10 @@ enum MarkdownSystemParser {
 
   static func parse(_ markdown: String, style: ContentStyle = .standard) -> [MarkdownBlock] {
     let key = ParseCacheKey(markdown: markdown, style: style)
-    if let cached = parseCache[key] {
-      touchCacheKey(key)
-      return cached
+    if var cached = parseCache[key] {
+      cached.accessTick = nextParseCacheTick()
+      parseCache[key] = cached
+      return cached.blocks
     }
 
     let blocks = parseUncached(markdown, style: style)
@@ -100,7 +106,7 @@ enum MarkdownSystemParser {
 
   static func clearCache() {
     parseCache.removeAll(keepingCapacity: true)
-    parseCacheOrder.removeAll(keepingCapacity: true)
+    parseCacheTick = 0
   }
 
   private static func parseUncached(_ markdown: String, style: ContentStyle) -> [MarkdownBlock] {
@@ -116,31 +122,31 @@ enum MarkdownSystemParser {
     return blocks
   }
 
-  private static func touchCacheKey(_ key: ParseCacheKey) {
-    if let existingIndex = parseCacheOrder.firstIndex(of: key) {
-      parseCacheOrder.remove(at: existingIndex)
-    }
-    parseCacheOrder.append(key)
+  private static func nextParseCacheTick() -> UInt64 {
+    parseCacheTick &+= 1
+    return parseCacheTick
   }
 
   private static func insertCacheValue(_ value: [MarkdownBlock], for key: ParseCacheKey) {
     if parseCache[key] == nil {
       evictIfNeeded()
-    } else if let existingIndex = parseCacheOrder.firstIndex(of: key) {
-      parseCacheOrder.remove(at: existingIndex)
     }
 
-    parseCache[key] = value
-    parseCacheOrder.append(key)
+    parseCache[key] = ParseCacheEntry(blocks: value, accessTick: nextParseCacheTick())
   }
 
   private static func evictIfNeeded() {
     guard parseCache.count >= maxCacheSize else { return }
-    let toEvict = min(evictionBatchSize, parseCacheOrder.count)
+    let toEvict = min(evictionBatchSize, parseCache.count)
     guard toEvict > 0 else { return }
 
-    for _ in 0 ..< toEvict {
-      let key = parseCacheOrder.removeFirst()
+    let keysToEvict = parseCache
+      .sorted { lhs, rhs in
+        lhs.value.accessTick < rhs.value.accessTick
+      }
+      .prefix(toEvict)
+      .map(\.key)
+    for key in keysToEvict {
       parseCache.removeValue(forKey: key)
     }
   }
@@ -805,7 +811,8 @@ enum MarkdownSystemParser {
       let sourceNumber = Int(nsLine.substring(with: sourceNumberRange)) ?? 1
       let content = nsLine.substring(with: contentRange)
 
-      for key in countersByIndent.keys where key > indentLevel {
+      let keysToRemove = countersByIndent.keys.filter { $0 > indentLevel }
+      for key in keysToRemove {
         countersByIndent.removeValue(forKey: key)
       }
 
