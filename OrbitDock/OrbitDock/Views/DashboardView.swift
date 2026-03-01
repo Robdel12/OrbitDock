@@ -18,6 +18,7 @@ struct DashboardView: View {
   let isRefreshingCachedSessions: Bool
 
   @State private var selectedIndex = 0
+  @State private var dashboardScrollAnchorID: String?
   @State private var activeWorkbenchFilter: ActiveSessionWorkbenchFilter = .all
   @State private var activeSort: ActiveSessionSort = .status
   @State private var activeProviderFilter: ActiveSessionProviderFilter = .all
@@ -54,8 +55,8 @@ struct DashboardView: View {
 
   private var dashboardScrollAnchorBinding: Binding<String?> {
     Binding(
-      get: { router.dashboardScrollAnchorID },
-      set: { router.dashboardScrollAnchorID = $0 }
+      get: { dashboardScrollAnchorID },
+      set: { dashboardScrollAnchorID = $0 }
     )
   }
 
@@ -125,13 +126,17 @@ struct DashboardView: View {
       guard newIndex >= 0, newIndex < activeSessions.count else { return }
       let targetID = DashboardScrollIDs.session(activeSessions[newIndex].scopedID)
       withAnimation(.easeOut(duration: 0.15)) {
-        router.dashboardScrollAnchorID = targetID
+        dashboardScrollAnchorID = targetID
       }
     }
     .focusable()
     .focused($isDashboardFocused)
     .onAppear {
       isDashboardFocused = true
+      dashboardScrollAnchorID = router.dashboardScrollAnchorID
+    }
+    .onChange(of: dashboardScrollAnchorID) { _, newAnchorID in
+      router.dashboardScrollAnchorID = newAnchorID
     }
     .onChange(of: activeSessions.count) { _, newCount in
       if selectedIndex >= newCount, newCount > 0 {
@@ -447,7 +452,7 @@ struct DashboardView: View {
   private func selectCurrentSession() {
     guard selectedIndex >= 0, selectedIndex < activeSessions.count else { return }
     let session = activeSessions[selectedIndex]
-    router.dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
+    dashboardScrollAnchorID = DashboardScrollIDs.session(session.scopedID)
     withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
       router.navigateToSession(scopedID: session.scopedID, runtimeRegistry: runtimeRegistry)
     }

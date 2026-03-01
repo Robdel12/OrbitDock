@@ -1169,13 +1169,19 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         })
                         .await;
 
+                    // Broadcast permission_mode changes (e.g. EnterPlanMode sets "plan",
+                    // ExitPlanMode restores "default") so clients update immediately.
+                    let mut delta = orbitdock_protocol::StateChanges {
+                        work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    };
+                    if permission_mode.is_some() {
+                        delta.permission_mode = Some(permission_mode.clone());
+                    }
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
-                                last_activity_at: Some(chrono_now()),
-                                ..Default::default()
-                            },
+                            changes: delta,
                             persist_op: None,
                         })
                         .await;

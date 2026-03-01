@@ -156,6 +156,21 @@ struct ForkBadge: View {
   }
 }
 
+struct PlanModeBadge: View {
+  var body: some View {
+    HStack(spacing: 3) {
+      Image(systemName: "map.fill")
+        .font(.system(size: 8, weight: .bold))
+      Text("Planning")
+        .font(.system(size: 9, weight: .medium))
+    }
+    .foregroundStyle(Color.statusQuestion)
+    .padding(.horizontal, 5)
+    .padding(.vertical, 2)
+    .background(Color.statusQuestion.opacity(0.12), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+  }
+}
+
 #Preview {
   VStack(spacing: 2) {
     SessionRowView(session: Session(

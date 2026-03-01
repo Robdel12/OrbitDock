@@ -102,6 +102,10 @@ struct ActiveSessionRow: View {
             if serverState.session(session.id).forkedFrom != nil {
               ForkBadge()
             }
+
+            if serverState.session(session.id).permissionMode == .plan {
+              PlanModeBadge()
+            }
           }
 
           HStack(spacing: 6) {

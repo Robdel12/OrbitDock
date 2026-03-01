@@ -203,6 +203,10 @@ struct FlatSessionRow: View {
             ForkBadge()
           }
 
+          if serverState.session(session.id).permissionMode == .plan {
+            PlanModeBadge()
+          }
+
           // Branch badge — subtle, after the name
           if let branch = inlineBranch {
             HStack(spacing: 3) {
