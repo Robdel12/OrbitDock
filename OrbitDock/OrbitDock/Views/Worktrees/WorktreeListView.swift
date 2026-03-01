@@ -67,8 +67,8 @@ struct WorktreeListView: View {
         }
       )
       #if os(iOS)
-        .presentationDetents([.height(380), .medium])
-        .presentationDragIndicator(.visible)
+      .presentationDetents([.height(380), .medium])
+      .presentationDragIndicator(.visible)
       #endif
     }
     .alert(

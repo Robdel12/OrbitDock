@@ -1,5 +1,5 @@
-import Testing
 @testable import OrbitDock
+import Testing
 
 struct ServerSetupVisibilityTests {
   @Test func showsSetupWhenNotConfiguredAndNoConnectedRuntimes() {

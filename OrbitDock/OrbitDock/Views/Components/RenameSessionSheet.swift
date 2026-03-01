@@ -60,7 +60,7 @@ struct RenameSessionSheet: View {
 
       // Content
       formFields
-      .padding(16)
+        .padding(16)
 
       Divider()
 

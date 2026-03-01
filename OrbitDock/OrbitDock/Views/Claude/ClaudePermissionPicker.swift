@@ -162,35 +162,35 @@ struct ClaudePermissionPopover: View {
       .padding(.vertical, Spacing.xs)
     }
     #if os(iOS)
-      .frame(maxWidth: .infinity)
-      .navigationTitle("Permission Mode")
-      .navigationBarTitleDisplayMode(.inline)
+    .frame(maxWidth: .infinity)
+    .navigationTitle("Permission Mode")
+    .navigationBarTitleDisplayMode(.inline)
     #endif
-      .ifMacOS { $0.frame(width: 340) }
-      .background(Color.backgroundSecondary)
-      .onAppear {
-        selectedIndex = selection.index
-      }
-      .ifMacOS { view in
-        view
-          .onKeyPress(.upArrow) {
-            selectedIndex = max(0, selectedIndex - 1)
-            return .handled
-          }
-          .onKeyPress(.downArrow) {
-            selectedIndex = min(modes.count - 1, selectedIndex + 1)
-            return .handled
-          }
-          .onKeyPress(.return) {
-            selection = modes[selectedIndex]
-            dismiss()
-            return .handled
-          }
-          .onKeyPress(.escape) {
-            dismiss()
-            return .handled
-          }
-      }
+    .ifMacOS { $0.frame(width: 340) }
+    .background(Color.backgroundSecondary)
+    .onAppear {
+      selectedIndex = selection.index
+    }
+    .ifMacOS { view in
+      view
+        .onKeyPress(.upArrow) {
+          selectedIndex = max(0, selectedIndex - 1)
+          return .handled
+        }
+        .onKeyPress(.downArrow) {
+          selectedIndex = min(modes.count - 1, selectedIndex + 1)
+          return .handled
+        }
+        .onKeyPress(.return) {
+          selection = modes[selectedIndex]
+          dismiss()
+          return .handled
+        }
+        .onKeyPress(.escape) {
+          dismiss()
+          return .handled
+        }
+    }
   }
 }
 

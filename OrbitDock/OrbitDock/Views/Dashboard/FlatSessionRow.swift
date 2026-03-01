@@ -166,7 +166,7 @@ struct FlatSessionRow: View {
         Label("Copy Resume Command", systemImage: "doc.on.doc")
       }
 
-      if session.isActive && session.isDirect {
+      if session.isActive, session.isDirect {
         Divider()
         Button(role: .destructive) {
           serverState.endSession(session.id)

@@ -112,8 +112,8 @@ struct SessionDetailView: View {
             .foregroundStyle(Color.panelBorder)
 
           turnSidebar
-          .frame(width: 320)
-          .transition(.move(edge: .trailing).combined(with: .opacity))
+            .frame(width: 320)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
         }
       }
       .animation(.spring(response: 0.25, dampingFraction: 0.8), value: showTurnSidebar)
@@ -151,8 +151,8 @@ struct SessionDetailView: View {
       turnSidebar
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
       #if os(iOS)
-      .presentationDetents([.medium, .large])
-      .presentationDragIndicator(.visible)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
       #endif
     }
     .onAppear {

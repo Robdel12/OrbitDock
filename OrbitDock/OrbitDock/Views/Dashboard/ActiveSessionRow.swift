@@ -154,7 +154,7 @@ struct ActiveSessionRow: View {
         }
       }
 
-      if session.isActive && session.isDirect {
+      if session.isActive, session.isDirect {
         Divider()
         Button(role: .destructive) {
           serverState.endSession(session.id)

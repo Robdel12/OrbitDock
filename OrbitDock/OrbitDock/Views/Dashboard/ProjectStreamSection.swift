@@ -1252,7 +1252,8 @@ struct ProjectStreamSection: View {
   }
 
   private func moveProject(_ group: ProjectGroup, to destinationIndex: Int) {
-    var keys = useCustomProjectOrder ? reorderableGroupKeys : mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
+    var keys = useCustomProjectOrder ? reorderableGroupKeys :
+      mergedProjectOrder(withVisible: projectGroups.map(\.groupKey))
     guard let index = keys.firstIndex(of: group.groupKey) else { return }
 
     let boundedDestination = min(max(destinationIndex, 0), max(0, keys.count - 1))
@@ -1396,8 +1397,8 @@ struct ProjectStreamSection: View {
               }
             }
 
-            if !isReorderCompacting && (projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals
-              .ready > 0 || projectSignals.direct > 0)
+            if !isReorderCompacting, projectSignals.attention > 0 || projectSignals.running > 0 || projectSignals
+              .ready > 0 || projectSignals.direct > 0
             {
               HStack(spacing: 5) {
                 if projectSignals.attention > 0 {

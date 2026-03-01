@@ -17,7 +17,7 @@ struct HeaderView: View {
   var showTurnSidebar: Binding<Bool>?
   var hasSidebarContent: Bool = false
   var layoutConfig: Binding<LayoutConfiguration>?
-  var chatViewMode: Binding<ChatViewMode>? = nil
+  var chatViewMode: Binding<ChatViewMode>?
 
   @Environment(ServerAppState.self) private var serverState
   @State private var isHoveringBack = false
@@ -380,11 +380,10 @@ struct HeaderView: View {
 
   private var compactModelSummary: String {
     let raw = obs.model?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let label: String
-    if let raw, !raw.isEmpty {
-      label = raw
+    let label: String = if let raw, !raw.isEmpty {
+      raw
     } else {
-      label = obs.provider.rawValue
+      obs.provider.rawValue
     }
     guard label.count > 18 else { return label }
     return String(label.prefix(17)) + "..."

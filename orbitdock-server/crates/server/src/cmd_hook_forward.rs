@@ -18,6 +18,7 @@ use crate::paths;
 const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:4000";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[allow(clippy::enum_variant_names)]
 pub enum HookForwardType {
     #[value(name = "claude_session_start")]
     SessionStart,
