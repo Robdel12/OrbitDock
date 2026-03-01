@@ -150,6 +150,20 @@ pub async fn handle_session_command(
         SessionCommand::GetMessageCount { reply } => {
             let _ = reply.send(handle.message_count());
         }
+        SessionCommand::ResolveUserMessageId {
+            num_turns_from_end,
+            reply,
+        } => {
+            // Walk messages in reverse, count user messages, return the Nth one's ID
+            let result = handle
+                .messages()
+                .iter()
+                .rev()
+                .filter(|m| m.message_type == orbitdock_protocol::MessageType::User)
+                .nth(num_turns_from_end.saturating_sub(1) as usize)
+                .map(|m| m.id.clone());
+            let _ = reply.send(result);
+        }
         SessionCommand::ProcessEvent { event } => {
             let session_id = handle.id().to_string();
             dispatch_transition_input(&session_id, event, handle, persist_tx).await;
@@ -434,6 +448,23 @@ pub(crate) async fn dispatch_transition_input(
             }
             transition::Effect::Emit(msg) => {
                 let mut msg = *msg;
+                if let ServerMessage::MessageUpdated {
+                    ref session_id,
+                    ref message_id,
+                    ref changes,
+                } = msg
+                {
+                    tracing::info!(
+                        component = "session_handler",
+                        event = "broadcast.message_updated",
+                        session_id = %session_id,
+                        message_id = %message_id,
+                        has_tool_output = changes.tool_output.is_some(),
+                        tool_output_chars = changes.tool_output.as_ref().map(|s| s.len()).unwrap_or(0),
+                        is_in_progress = ?changes.is_in_progress,
+                        "Broadcasting MessageUpdated to clients"
+                    );
+                }
                 inject_approval_version(&mut msg, handle.approval_version());
                 handle.broadcast(msg);
             }

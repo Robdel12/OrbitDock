@@ -10,7 +10,6 @@ use crate::claude_session::ClaudeAction;
 use crate::codex_session::CodexAction;
 use crate::normalization::{
     normalize_model_override, normalize_non_empty, normalize_question_answers,
-    select_primary_answer,
 };
 use crate::persistence::PersistCommand;
 use crate::session_command::SessionCommand;
@@ -441,13 +440,14 @@ pub(crate) async fn handle(
                     })
                     .await;
             } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
-                let claude_answer = if trimmed_answer.is_empty() {
-                    select_primary_answer(&normalized_answers, question_id.as_deref())
-                        .unwrap_or_default()
-                } else {
-                    trimmed_answer
-                };
-                if claude_answer.is_empty() {
+                // If the client sent a plain text answer, normalize it into the
+                // answers map so the connector always gets structured data.
+                let mut claude_answers = normalized_answers.clone();
+                if claude_answers.is_empty() && !trimmed_answer.is_empty() {
+                    let key = question_id.clone().unwrap_or_else(|| "0".to_string());
+                    claude_answers.insert(key, vec![trimmed_answer]);
+                }
+                if claude_answers.is_empty() {
                     warn!(
                         component = "approval",
                         event = "approval.answer.missing_payload",
@@ -461,7 +461,7 @@ pub(crate) async fn handle(
                 let _ = tx
                     .send(ClaudeAction::AnswerQuestion {
                         request_id,
-                        answer: claude_answer,
+                        answers: claude_answers,
                     })
                     .await;
             }
@@ -615,6 +615,114 @@ pub(crate) async fn handle(
 
             if let Some(tx) = state.get_codex_action_tx(&session_id) {
                 let _ = tx.send(CodexAction::ThreadRollback { num_turns }).await;
+            } else if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                // Claude uses rewind_files which needs a user_message_id.
+                // Resolve the Nth user message from the end via session actor.
+                if let Some(actor) = state.get_session(&session_id) {
+                    let (reply_tx, reply_rx) = oneshot::channel();
+                    actor
+                        .send(SessionCommand::ResolveUserMessageId {
+                            num_turns_from_end: num_turns,
+                            reply: reply_tx,
+                        })
+                        .await;
+                    match reply_rx.await {
+                        Ok(Some(user_message_id)) => {
+                            let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
+                        }
+                        Ok(None) => {
+                            warn!(
+                                component = "session",
+                                event = "session.rollback.no_user_message",
+                                session_id = %session_id,
+                                num_turns = num_turns,
+                                "Could not resolve user message for rollback"
+                            );
+                            send_json(
+                                client_tx,
+                                ServerMessage::Error {
+                                    code: "rollback_failed".into(),
+                                    message: format!(
+                                        "Could not find user message {} turns back",
+                                        num_turns
+                                    ),
+                                    session_id: Some(session_id),
+                                },
+                            )
+                            .await;
+                        }
+                        Err(_) => {
+                            warn!(
+                                component = "session",
+                                event = "session.rollback.actor_closed",
+                                session_id = %session_id,
+                                "Session actor closed during rollback resolution"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        ClientMessage::StopTask {
+            session_id,
+            task_id,
+        } => {
+            info!(
+                component = "session",
+                event = "session.stop_task.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                task_id = %task_id,
+                "Stop task requested"
+            );
+
+            if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let _ = tx.send(ClaudeAction::StopTask { task_id }).await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".into(),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
+            }
+        }
+
+        ClientMessage::RewindFiles {
+            session_id,
+            user_message_id,
+        } => {
+            info!(
+                component = "session",
+                event = "session.rewind.requested",
+                connection_id = conn_id,
+                session_id = %session_id,
+                user_message_id = %user_message_id,
+                "Rewind files requested"
+            );
+
+            if let Some(tx) = state.get_claude_action_tx(&session_id) {
+                let _ = tx.send(ClaudeAction::RewindFiles { user_message_id }).await;
+            } else {
+                send_json(
+                    client_tx,
+                    ServerMessage::Error {
+                        code: "not_found".into(),
+                        message: format!(
+                            "Session {} not found or has no active connector",
+                            session_id
+                        ),
+                        session_id: Some(session_id),
+                    },
+                )
+                .await;
             }
         }
 

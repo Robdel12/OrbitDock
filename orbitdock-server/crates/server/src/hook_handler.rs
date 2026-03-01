@@ -887,96 +887,43 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                             }
                         }
                         "PermissionRequest" => {
+                            // For managed direct sessions, the connector's
+                            // can_use_tool control_request is the single source
+                            // of truth for approvals. The hook PermissionRequest
+                            // is redundant — skip approval creation and only
+                            // persist supplementary metadata.
                             let permission_suggestions_count = permission_suggestions
                                 .as_ref()
                                 .and_then(|value| value.as_array())
                                 .map_or(0, |items| items.len());
-                            let question_text =
-                                extract_question_from_tool_input(tool_input.as_ref());
-                            let serialized_input =
-                                tool_input.and_then(|value| serde_json::to_string(&value).ok());
-                            let (approval_type, work_status, attention_reason) =
-                                classify_permission_request(&tool_name);
-                            let actor = state.get_session(&owning_id);
-                            let request_id = claude_permission_request_id(
-                                actor.as_ref(),
-                                &tool_name,
-                                tool_use_id.as_deref(),
+
+                            tracing::info!(
+                                component = "hook_handler",
+                                event = "claude.permission_request.managed_skip",
+                                session_id = %owning_id,
+                                tool_name = %tool_name,
+                                permission_suggestions_count,
+                                "Skipping hook-based approval for managed direct session (connector handles it)"
                             );
 
-                            if let Some(actor) = actor {
+                            if let Some(actor) = state.get_session(&owning_id) {
                                 actor
                                     .send(SessionCommand::SetLastTool {
                                         tool: Some(tool_name.clone()),
                                     })
                                     .await;
-                                actor
-                                    .send(SessionCommand::SetPendingApproval {
-                                        request_id: request_id.clone(),
-                                        approval_type,
-                                        proposed_amendment: None,
-                                        tool_name: Some(tool_name.clone()),
-                                        tool_input: serialized_input.clone(),
-                                        question: question_text.clone(),
-                                    })
-                                    .await;
-                                actor
-                                    .send(SessionCommand::ApplyDelta {
-                                        changes: orbitdock_protocol::StateChanges {
-                                            work_status: Some(work_status),
-                                            last_activity_at: Some(chrono_now()),
-                                            ..Default::default()
-                                        },
-                                        persist_op: None,
-                                    })
-                                    .await;
                             }
-
-                            tracing::info!(
-                                component = "hook_handler",
-                                event = "claude.permission_request",
-                                session_id = %owning_id,
-                                tool_name = %tool_name,
-                                ?approval_type,
-                                permission_suggestions_count,
-                                "Received Claude permission request"
-                            );
-
-                            let _ = persist_tx
-                                .send(PersistCommand::ApprovalRequested {
-                                    session_id: owning_id.clone(),
-                                    request_id,
-                                    approval_type,
-                                    tool_name: Some(tool_name.clone()),
-                                    command: None,
-                                    file_path: None,
-                                    cwd: None,
-                                    proposed_amendment: None,
-                                })
-                                .await;
-
-                            let pending_question =
-                                if approval_type == orbitdock_protocol::ApprovalType::Question {
-                                    Some(question_text)
-                                } else {
-                                    None
-                                };
 
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
                                     id: owning_id.clone(),
-                                    work_status: Some(
-                                        serde_json::to_value(work_status)
-                                            .ok()
-                                            .and_then(|v| v.as_str().map(String::from))
-                                            .unwrap_or_else(|| "permission".to_string()),
-                                    ),
-                                    attention_reason: Some(Some(attention_reason.to_string())),
-                                    last_tool: Some(Some(tool_name.clone())),
+                                    work_status: None,
+                                    attention_reason: None,
+                                    last_tool: Some(Some(tool_name)),
                                     last_tool_at: Some(Some(chrono_now())),
-                                    pending_tool_name: Some(Some(tool_name)),
-                                    pending_tool_input: Some(serialized_input),
-                                    pending_question,
+                                    pending_tool_name: None,
+                                    pending_tool_input: None,
+                                    pending_question: None,
                                     source: None,
                                     agent_type: None,
                                     permission_mode: None,

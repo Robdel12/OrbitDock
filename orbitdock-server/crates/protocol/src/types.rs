@@ -98,6 +98,24 @@ pub struct Message {
     pub images: Vec<ImageInput>,
 }
 
+/// Rate limit information from the Claude SDK
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateLimitInfo {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limit_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub utilization: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_using_overage: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overage_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub surpassed_threshold: Option<f64>,
+}
+
 /// Token usage information
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TokenUsage {
@@ -691,8 +709,10 @@ pub enum McpAuthStatus {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum McpStartupStatus {
     Starting,
+    Connecting,
     Ready,
     Failed { error: String },
+    NeedsAuth,
     Cancelled,
 }
 

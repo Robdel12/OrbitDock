@@ -106,6 +106,10 @@ pub enum ClientMessage {
         disallowed_tools: Vec<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         effort: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        system_prompt: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        append_system_prompt: Option<String>,
     },
     ResumeSession {
         session_id: String,
@@ -249,6 +253,14 @@ pub enum ClientMessage {
     RollbackTurns {
         session_id: String,
         num_turns: u32,
+    },
+    StopTask {
+        session_id: String,
+        task_id: String,
+    },
+    RewindFiles {
+        session_id: String,
+        user_message_id: String,
     },
 
     // Review comments

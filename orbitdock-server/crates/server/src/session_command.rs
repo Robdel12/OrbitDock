@@ -177,6 +177,12 @@ pub enum SessionCommand {
     GetMessageCount {
         reply: oneshot::Sender<usize>,
     },
+    /// Resolve the Nth user message from the end of the conversation.
+    /// Returns the message ID if found.
+    ResolveUserMessageId {
+        num_turns_from_end: u32,
+        reply: oneshot::Sender<Option<String>>,
+    },
 
     /// Extract the owned SessionHandle from a passive actor, stopping its loop.
     /// Used for upgrading a passive session to one with a live connector.

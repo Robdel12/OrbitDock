@@ -77,6 +77,8 @@ pub(crate) async fn handle(
             allowed_tools,
             disallowed_tools,
             effort,
+            system_prompt: _system_prompt,
+            append_system_prompt: _append_system_prompt,
         } => {
             info!(
                 component = "session",

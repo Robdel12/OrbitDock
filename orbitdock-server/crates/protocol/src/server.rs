@@ -298,6 +298,24 @@ pub enum ServerMessage {
         message: String,
     },
 
+    // Rate limit
+    RateLimitEvent {
+        session_id: String,
+        info: RateLimitInfo,
+    },
+
+    // Prompt suggestion
+    PromptSuggestion {
+        session_id: String,
+        suggestion: String,
+    },
+
+    // Files persisted (checkpoint saved)
+    FilesPersisted {
+        session_id: String,
+        files: Vec<String>,
+    },
+
     // Errors
     Error {
         code: String,

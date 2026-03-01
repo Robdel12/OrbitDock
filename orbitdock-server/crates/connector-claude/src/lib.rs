@@ -74,11 +74,68 @@ enum ImageSource {
 #[derive(Debug, Serialize)]
 #[serde(tag = "subtype", rename_all = "snake_case")]
 enum ControlRequestBody {
-    Initialize {},
+    Initialize {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        system_prompt: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        append_system_prompt: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prompt_suggestions: Option<bool>,
+        /// Hook callback registrations: `{ hookEvent: [{ matcher?, hookCallbackIds, timeout? }] }`
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hooks: Option<Value>,
+        /// MCP servers registered by the SDK host (server names)
+        #[serde(rename = "sdkMcpServers", skip_serializing_if = "Option::is_none")]
+        sdk_mcp_servers: Option<Vec<String>>,
+        /// Custom JSON schemas
+        #[serde(rename = "jsonSchema", skip_serializing_if = "Option::is_none")]
+        json_schema: Option<Value>,
+        /// Agent definitions
+        #[serde(skip_serializing_if = "Option::is_none")]
+        agents: Option<Value>,
+    },
     Interrupt,
-    SetModel { model: Option<String> },
-    SetMaxThinkingTokens { max_thinking_tokens: Option<u64> },
-    SetPermissionMode { mode: String },
+    SetModel {
+        model: Option<String>,
+    },
+    SetMaxThinkingTokens {
+        max_thinking_tokens: Option<u64>,
+    },
+    SetPermissionMode {
+        mode: String,
+    },
+    RewindFiles {
+        user_message_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dry_run: Option<bool>,
+    },
+    StopTask {
+        task_id: String,
+    },
+    McpStatus {},
+    McpReconnect {
+        #[serde(rename = "serverName")]
+        server_name: String,
+    },
+    McpToggle {
+        #[serde(rename = "serverName")]
+        server_name: String,
+        enabled: bool,
+    },
+    McpAuthenticate {
+        #[serde(rename = "serverName")]
+        server_name: String,
+    },
+    McpClearAuth {
+        #[serde(rename = "serverName")]
+        server_name: String,
+    },
+    McpSetServers {
+        servers: Value,
+    },
+    ApplyFlagSettings {
+        settings: Value,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -221,6 +278,7 @@ impl ClaudeConnector {
             "stream-json",
             "--permission-prompt-tool",
             "stdio",
+            "--replay-user-messages",
         ];
 
         if let Some(m) = model {
@@ -262,6 +320,7 @@ impl ClaudeConnector {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env("CLAUDE_CODE_ENTRYPOINT", "orbitdock")
+            .env("CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING", "true")
             .env_remove("CLAUDECODE")
             .spawn()
             .map_err(|e| {
@@ -365,6 +424,7 @@ impl ClaudeConnector {
         let models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>> =
             Arc::new(Mutex::new(Vec::new()));
         let models_clone = models.clone();
+        let stdin_tx_for_loop = stdin_tx.clone();
 
         // Keep a clone of event_tx so we can emit models after send_initialize()
         // completes. The system init message arrives on stdout before the
@@ -380,6 +440,7 @@ impl ClaudeConnector {
                 pending_clone,
                 approvals_clone,
                 models_clone,
+                stdin_tx_for_loop,
             )
             .await;
         });
@@ -598,14 +659,21 @@ impl ClaudeConnector {
     }
 
     /// Answer a question approval.
+    ///
+    /// The SDK's `AskUserQuestion` tool uses `can_use_tool` control_request.
+    /// We respond with `behavior: "deny"` and the answer in `message`.
+    /// For structured multi-question answers, format as JSON matching
+    /// `AskUserQuestionOutput.answers` (`{ question_text: "value" }`).
     pub async fn answer_question(
         &self,
         request_id: &str,
-        answer: &str,
+        answers: &HashMap<String, Vec<String>>,
     ) -> Result<(), ConnectorError> {
+        let message = format_question_answers(answers);
+
         let response_payload = serde_json::json!({
             "behavior": "deny",
-            "message": answer,
+            "message": message,
             "interrupt": false,
         });
 
@@ -648,6 +716,90 @@ impl ClaudeConnector {
         Ok(())
     }
 
+    /// Rewind files to a checkpoint (undo file changes from a turn).
+    pub async fn rewind_files(
+        &self,
+        user_message_id: &str,
+        dry_run: bool,
+    ) -> Result<Value, ConnectorError> {
+        self.send_control_request(ControlRequestBody::RewindFiles {
+            user_message_id: user_message_id.to_string(),
+            dry_run: if dry_run { Some(true) } else { None },
+        })
+        .await
+    }
+
+    /// Stop a running background task/subagent.
+    pub async fn stop_task(&self, task_id: &str) -> Result<(), ConnectorError> {
+        let _ = self
+            .send_control_request(ControlRequestBody::StopTask {
+                task_id: task_id.to_string(),
+            })
+            .await;
+        Ok(())
+    }
+
+    /// Query MCP server status.
+    pub async fn mcp_status(&self) -> Result<Value, ConnectorError> {
+        self.send_control_request(ControlRequestBody::McpStatus {})
+            .await
+    }
+
+    /// Reconnect an MCP server.
+    pub async fn mcp_reconnect(&self, server_name: &str) -> Result<(), ConnectorError> {
+        let _ = self
+            .send_control_request(ControlRequestBody::McpReconnect {
+                server_name: server_name.to_string(),
+            })
+            .await;
+        Ok(())
+    }
+
+    /// Toggle an MCP server on/off.
+    pub async fn mcp_toggle(&self, server_name: &str, enabled: bool) -> Result<(), ConnectorError> {
+        let _ = self
+            .send_control_request(ControlRequestBody::McpToggle {
+                server_name: server_name.to_string(),
+                enabled,
+            })
+            .await;
+        Ok(())
+    }
+
+    /// Authenticate an MCP server (trigger OAuth flow).
+    pub async fn mcp_authenticate(&self, server_name: &str) -> Result<(), ConnectorError> {
+        let _ = self
+            .send_control_request(ControlRequestBody::McpAuthenticate {
+                server_name: server_name.to_string(),
+            })
+            .await;
+        Ok(())
+    }
+
+    /// Clear authentication for an MCP server.
+    pub async fn mcp_clear_auth(&self, server_name: &str) -> Result<(), ConnectorError> {
+        let _ = self
+            .send_control_request(ControlRequestBody::McpClearAuth {
+                server_name: server_name.to_string(),
+            })
+            .await;
+        Ok(())
+    }
+
+    /// Set MCP servers configuration.
+    pub async fn mcp_set_servers(&self, servers: Value) -> Result<Value, ConnectorError> {
+        self.send_control_request(ControlRequestBody::McpSetServers { servers })
+            .await
+    }
+
+    /// Apply flag settings to the session.
+    pub async fn apply_flag_settings(&self, settings: Value) -> Result<(), ConnectorError> {
+        let _ = self
+            .send_control_request(ControlRequestBody::ApplyFlagSettings { settings })
+            .await;
+        Ok(())
+    }
+
     /// Shutdown the subprocess.
     pub async fn shutdown(&self) -> Result<(), ConnectorError> {
         // Drop the stdin sender to close the pipe, which signals the CLI to exit
@@ -660,10 +812,18 @@ impl ClaudeConnector {
 
     // -- Internal helpers ---------------------------------------------------
 
-    /// Send the initialize control request.
+    /// Send the initialize control request with enriched fields.
     async fn send_initialize(&self) -> Result<Value, ConnectorError> {
-        self.send_control_request(ControlRequestBody::Initialize {})
-            .await
+        self.send_control_request(ControlRequestBody::Initialize {
+            system_prompt: None,
+            append_system_prompt: None,
+            prompt_suggestions: Some(true),
+            hooks: None,
+            sdk_mcp_servers: None,
+            json_schema: None,
+            agents: None,
+        })
+        .await
     }
 
     /// Send a control request and wait for the response.
@@ -746,6 +906,7 @@ impl ClaudeConnector {
     }
 
     /// Read stdout line-by-line, parse JSON, translate to ConnectorEvent.
+    #[allow(clippy::too_many_arguments)]
     async fn event_loop(
         stdout: tokio::process::ChildStdout,
         event_tx: mpsc::Sender<ConnectorEvent>,
@@ -754,6 +915,7 @@ impl ClaudeConnector {
         pending_controls: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>,
         pending_approvals: Arc<Mutex<HashMap<String, PendingApproval>>>,
         models: Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
+        stdin_tx: mpsc::Sender<String>,
     ) {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
@@ -816,6 +978,7 @@ impl ClaudeConnector {
                         &mut cumulative_output,
                         &mut last_context_window,
                         &models,
+                        &stdin_tx,
                     )
                     .await;
 
@@ -878,6 +1041,7 @@ impl ClaudeConnector {
         cumulative_output: &mut u64,
         last_context_window: &mut u64,
         models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
+        stdin_tx: &mpsc::Sender<String>,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
@@ -948,20 +1112,25 @@ impl ClaudeConnector {
                 )
             }
 
-            "control_request" => Self::handle_cli_control_request(raw, pending_approvals).await,
+            "control_request" => {
+                Self::handle_cli_control_request(raw, pending_approvals, stdin_tx).await
+            }
 
             "control_cancel_request" => {
-                // CLI cancelled a pending approval — clean up stored data
+                // CLI cancelled a pending approval — clean up stored data and
+                // notify the server so the approval card is cleared.
                 if let Some(req_id) = string_field(raw, "request_id", "requestId") {
                     pending_approvals.lock().await.remove(req_id.as_str());
-                    debug!(
+                    info!(
                         component = "claude_connector",
                         event = "claude.control.cancelled",
                         request_id = %req_id,
                         "CLI cancelled control request"
                     );
+                    vec![ConnectorEvent::ApprovalCancelled { request_id: req_id }]
+                } else {
+                    vec![]
                 }
-                vec![]
             }
 
             "control_response" => {
@@ -970,6 +1139,131 @@ impl ClaudeConnector {
             }
 
             "tool_progress" => Self::handle_tool_progress(raw),
+
+            "status" => {
+                // SDK status messages carry permission_mode changes and compacting state.
+                // May arrive as top-level type="status" or as system subtype="status".
+                let mut status_events = vec![];
+                if let Some(mode) = raw
+                    .get("permission_mode")
+                    .or_else(|| raw.get("permissionMode"))
+                    .and_then(Value::as_str)
+                {
+                    info!(
+                        component = "claude_connector",
+                        event = "claude.permission_mode.changed",
+                        mode = %mode,
+                        "Permission mode changed via status message"
+                    );
+                    status_events.push(ConnectorEvent::PermissionModeChanged {
+                        mode: mode.to_string(),
+                    });
+                }
+                status_events
+            }
+
+            "tool_use_summary" => {
+                // Human-readable summary of preceding tool uses.
+                let summary = raw.get("summary").and_then(Value::as_str).unwrap_or("");
+                if summary.is_empty() {
+                    vec![]
+                } else {
+                    let id = format!(
+                        "claude-summary-{}",
+                        msg_counter.fetch_add(1, Ordering::Relaxed)
+                    );
+                    vec![ConnectorEvent::MessageCreated(
+                        orbitdock_protocol::Message {
+                            id,
+                            session_id: session_id.clone(),
+                            message_type: orbitdock_protocol::MessageType::Assistant,
+                            content: summary.to_string(),
+                            tool_name: None,
+                            tool_input: None,
+                            tool_output: None,
+                            is_error: false,
+                            is_in_progress: false,
+                            timestamp: now_iso(),
+                            duration_ms: None,
+                            images: vec![],
+                        },
+                    )]
+                }
+            }
+
+            "rate_limit_event" => {
+                let rate_limit_info = raw.get("rate_limit_info").unwrap_or(raw);
+                let status = rate_limit_info
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("allowed")
+                    .to_string();
+                let resets_at = rate_limit_info
+                    .get("resets_at")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let rate_limit_type = rate_limit_info
+                    .get("rate_limit_type")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let utilization = rate_limit_info.get("utilization").and_then(|v| v.as_f64());
+                let is_using_overage = rate_limit_info
+                    .get("is_using_overage")
+                    .and_then(|v| v.as_bool());
+                let overage_status = rate_limit_info
+                    .get("overage_status")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let surpassed_threshold = rate_limit_info
+                    .get("surpassed_threshold")
+                    .and_then(|v| v.as_f64());
+
+                info!(
+                    component = "claude_connector",
+                    event = "claude.rate_limit",
+                    status = %status,
+                    utilization = ?utilization,
+                    rate_limit_type = ?rate_limit_type,
+                    "Rate limit event received"
+                );
+
+                vec![ConnectorEvent::RateLimitEvent {
+                    info: orbitdock_protocol::RateLimitInfo {
+                        status,
+                        resets_at,
+                        rate_limit_type,
+                        utilization,
+                        is_using_overage,
+                        overage_status,
+                        surpassed_threshold,
+                    },
+                }]
+            }
+
+            "prompt_suggestion" => {
+                let suggestion = raw
+                    .get("suggestion")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                if suggestion.is_empty() {
+                    debug!(
+                        component = "claude_connector",
+                        event = "claude.prompt_suggestion.empty",
+                        "Prompt suggestion received with empty content"
+                    );
+                    vec![]
+                } else {
+                    debug!(
+                        component = "claude_connector",
+                        event = "claude.prompt_suggestion",
+                        suggestion_len = suggestion.len(),
+                        "Prompt suggestion received"
+                    );
+                    vec![ConnectorEvent::PromptSuggestion { suggestion }]
+                }
+            }
 
             "keep_alive" | "auth_status" => vec![],
 
@@ -1060,6 +1354,56 @@ impl ClaudeConnector {
                         tools,
                         models: vec![],
                     });
+
+                    // Parse MCP servers from init message
+                    if let Some(mcp_servers) = raw.get("mcp_servers").and_then(|v| v.as_array()) {
+                        let mut ready = Vec::new();
+                        let mut failed = Vec::new();
+                        for server in mcp_servers {
+                            let name = server
+                                .get("name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            let status_str = server
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+
+                            let mcp_status = match status_str {
+                                "connected" | "ready" => {
+                                    ready.push(name.clone());
+                                    orbitdock_protocol::McpStartupStatus::Ready
+                                }
+                                "failed" | "error" => {
+                                    let error = server
+                                        .get("error")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("Connection failed")
+                                        .to_string();
+                                    failed.push(orbitdock_protocol::McpStartupFailure {
+                                        server: name.clone(),
+                                        error: error.clone(),
+                                    });
+                                    orbitdock_protocol::McpStartupStatus::Failed { error }
+                                }
+                                "needs-auth" | "needs_auth" => {
+                                    orbitdock_protocol::McpStartupStatus::NeedsAuth
+                                }
+                                _ => orbitdock_protocol::McpStartupStatus::Connecting,
+                            };
+
+                            events.push(ConnectorEvent::McpStartupUpdate {
+                                server: name,
+                                status: mcp_status,
+                            });
+                        }
+                        events.push(ConnectorEvent::McpStartupComplete {
+                            ready,
+                            failed,
+                            cancelled: vec![],
+                        });
+                    }
                 }
                 events
             }
@@ -1083,8 +1427,212 @@ impl ClaudeConnector {
                     vec![]
                 }
             }
+            "task_started" => {
+                // Background task/subagent spawned. Create a tool message card
+                // using task_id as the message ID so progress/notification can update it.
+                let task_id = raw
+                    .get("task_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown-task");
+                let description = raw.get("description").and_then(Value::as_str).unwrap_or("");
+                let task_type = raw
+                    .get("task_type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Agent");
+                let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
+
+                info!(
+                    component = "claude_connector",
+                    event = "claude.task_started",
+                    task_id = %task_id,
+                    task_type = %task_type,
+                    "Background task started"
+                );
+
+                vec![ConnectorEvent::MessageCreated(
+                    orbitdock_protocol::Message {
+                        id: task_id.to_string(),
+                        session_id,
+                        message_type: orbitdock_protocol::MessageType::Tool,
+                        content: String::new(),
+                        tool_name: Some(task_type.to_string()),
+                        tool_input: Some(description.to_string()),
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: true,
+                        timestamp: now_iso(),
+                        duration_ms: None,
+                        images: vec![],
+                    },
+                )]
+            }
+            "task_progress" => {
+                // Background task progress update — update the existing tool card.
+                let task_id = raw
+                    .get("task_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown-task");
+                let tool_uses = raw
+                    .pointer("/usage/tool_uses")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let duration_ms = raw
+                    .pointer("/usage/duration_ms")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
+                let last_tool = raw
+                    .get("last_tool_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let description = raw.get("description").and_then(Value::as_str).unwrap_or("");
+
+                let duration_s = duration_ms / 1000;
+                let mut progress = format!("Agent running — {tool_uses} tool uses, {duration_s}s");
+                if !last_tool.is_empty() {
+                    progress.push_str(&format!(", last: {last_tool}"));
+                }
+                if !description.is_empty() {
+                    progress.push_str(&format!("\n{description}"));
+                }
+
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: task_id.to_string(),
+                    content: None,
+                    tool_output: Some(progress),
+                    is_error: None,
+                    is_in_progress: Some(true),
+                    duration_ms: Some(duration_ms),
+                }]
+            }
+            "task_notification" => {
+                // Background task completed/failed/stopped — finalize the tool card.
+                let task_id = raw
+                    .get("task_id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown-task");
+                let status = raw
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .unwrap_or("completed");
+                let summary = raw.get("summary").and_then(Value::as_str).unwrap_or("");
+                let duration_ms = raw.pointer("/usage/duration_ms").and_then(Value::as_u64);
+                let is_error = status == "failed";
+
+                info!(
+                    component = "claude_connector",
+                    event = "claude.task_notification",
+                    task_id = %task_id,
+                    status = %status,
+                    "Background task completed"
+                );
+
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: task_id.to_string(),
+                    content: None,
+                    tool_output: Some(summary.to_string()),
+                    is_error: Some(is_error),
+                    is_in_progress: Some(false),
+                    duration_ms,
+                }]
+            }
+            "status" => {
+                // SDK status messages carry permission_mode and compacting state.
+                // These arrive as system subtypes AND as top-level status messages.
+                let mut events = vec![];
+
+                if let Some(mode) = raw
+                    .get("permissionMode")
+                    .or_else(|| raw.get("permission_mode"))
+                    .and_then(Value::as_str)
+                {
+                    info!(
+                        component = "claude_connector",
+                        event = "claude.permission_mode.changed",
+                        mode = %mode,
+                        "Permission mode changed via system status message"
+                    );
+                    events.push(ConnectorEvent::PermissionModeChanged {
+                        mode: mode.to_string(),
+                    });
+                }
+
+                // "compacting" status means context compaction is in progress
+                if let Some(s) = raw.get("status").and_then(Value::as_str) {
+                    if s == "compacting" {
+                        debug!(
+                            component = "claude_connector",
+                            event = "claude.status.compacting",
+                            "Context compaction in progress"
+                        );
+                        // The compact_boundary event handles the actual transition;
+                        // compacting status is informational. No event needed — the
+                        // TurnStarted already set WorkStatus::Working.
+                    }
+                }
+
+                events
+            }
+            "hook_progress" => {
+                let hook_name = raw
+                    .get("hook_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let hook_event = raw
+                    .get("hook_event")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                debug!(
+                    component = "claude_connector",
+                    event = "claude.hook_progress",
+                    hook_name = %hook_name,
+                    hook_event = %hook_event,
+                    "Hook progress event"
+                );
+                vec![]
+            }
+            "hook_response" => {
+                let hook_name = raw
+                    .get("hook_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let outcome = raw
+                    .get("outcome")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                info!(
+                    component = "claude_connector",
+                    event = "claude.hook_response",
+                    hook_name = %hook_name,
+                    outcome = %outcome,
+                    "Hook response event"
+                );
+                vec![]
+            }
+            "files_persisted" => {
+                let files: Vec<String> = raw
+                    .get("files")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|f| f.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                debug!(
+                    component = "claude_connector",
+                    event = "claude.files_persisted",
+                    file_count = files.len(),
+                    "Files persisted checkpoint"
+                );
+                vec![ConnectorEvent::FilesPersisted { files }]
+            }
             _ => {
-                // status messages, hook_response, etc. — ignore
+                debug!(
+                    component = "claude_connector",
+                    event = "claude.system.unknown_subtype",
+                    subtype = %subtype,
+                    "Unknown system message subtype"
+                );
                 vec![]
             }
         }
@@ -1281,20 +1829,15 @@ impl ClaudeConnector {
     }
 
     /// Handle echoed `user` messages — extract tool results.
+    ///
+    /// The CLI emits user messages on stdout when `--replay-user-messages` is set.
+    /// Tool result messages have `isSynthetic: false` (they're not meta/transcript-only),
+    /// so we identify them by checking for `tool_result` content blocks instead.
     fn handle_user_message(
         raw: &Value,
         session_id: &str,
-        msg_counter: &Arc<AtomicU64>,
+        _msg_counter: &Arc<AtomicU64>,
     ) -> Vec<ConnectorEvent> {
-        // Skip non-synthetic messages (real user input echoes)
-        if !raw
-            .get("isSynthetic")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            return vec![];
-        }
-
         let mut events = Vec::new();
         let message = match raw.get("message") {
             Some(m) => m,
@@ -1305,6 +1848,23 @@ impl ClaudeConnector {
             Some(arr) => arr,
             None => return events,
         };
+
+        // Check if this message contains any tool_result blocks
+        let has_tool_results = content_blocks
+            .iter()
+            .any(|b| b.get("type").and_then(|v| v.as_str()) == Some("tool_result"));
+
+        if !has_tool_results {
+            return events;
+        }
+
+        info!(
+            component = "claude_connector",
+            event = "claude.user_message.has_tool_results",
+            session_id = %session_id,
+            block_count = content_blocks.len(),
+            "Processing user message with tool_result blocks"
+        );
 
         for block in content_blocks {
             let block_type = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -1325,6 +1885,15 @@ impl ClaudeConnector {
                     .unwrap_or(false);
 
                 if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                    info!(
+                        component = "claude_connector",
+                        event = "claude.tool_result.extracted",
+                        session_id = %session_id,
+                        tool_use_id = %tool_use_id,
+                        output_chars = content.len(),
+                        is_error = is_error,
+                        "Extracted tool result → MessageUpdated"
+                    );
                     events.push(ConnectorEvent::MessageUpdated {
                         message_id: tool_use_id.to_string(),
                         content: None,
@@ -1333,29 +1902,14 @@ impl ClaudeConnector {
                         is_in_progress: Some(false),
                         duration_ms: None,
                     });
+                } else {
+                    warn!(
+                        component = "claude_connector",
+                        event = "claude.tool_result.no_tool_use_id",
+                        session_id = %session_id,
+                        "tool_result block missing tool_use_id"
+                    );
                 }
-
-                let id = format!(
-                    "claude-msg-{}-{}",
-                    &session_id[..8.min(session_id.len())],
-                    msg_counter.fetch_add(1, Ordering::Relaxed)
-                );
-                events.push(ConnectorEvent::MessageCreated(
-                    orbitdock_protocol::Message {
-                        id,
-                        session_id: session_id.to_string(),
-                        message_type: orbitdock_protocol::MessageType::ToolResult,
-                        content,
-                        tool_name: None,
-                        tool_input: None,
-                        tool_output: None,
-                        is_error,
-                        is_in_progress: false,
-                        timestamp: now_iso(),
-                        duration_ms: None,
-                        images: vec![],
-                    },
-                ));
             }
         }
 
@@ -1525,10 +2079,11 @@ impl ClaudeConnector {
         events
     }
 
-    /// Handle `control_request` from the CLI (permission prompts).
+    /// Handle `control_request` from the CLI (permission prompts, hook callbacks, MCP messages).
     async fn handle_cli_control_request(
         raw: &Value,
         pending_approvals: &Arc<Mutex<HashMap<String, PendingApproval>>>,
+        stdin_tx: &mpsc::Sender<String>,
     ) -> Vec<ConnectorEvent> {
         let request = match value_field(raw, "request", "request") {
             Some(r) => r,
@@ -1539,17 +2094,73 @@ impl ClaudeConnector {
             .or_else(|| string_field(request, "sub_type", "subType"))
             .unwrap_or_default();
 
-        if subtype != "can_use_tool" {
-            debug!(
-                component = "claude_connector",
-                event = "claude.control_request.unhandled",
-                subtype = %subtype,
-                "Unhandled CLI control request subtype"
-            );
-            return vec![];
+        let request_id = string_field(raw, "request_id", "requestId").unwrap_or_default();
+
+        match subtype.as_str() {
+            "hook_callback" => {
+                // CLI is invoking a registered hook callback.
+                // We don't currently register any hooks, so respond with an empty result.
+                let callback_id =
+                    string_field(request, "callback_id", "callbackId").unwrap_or_default();
+                info!(
+                    component = "claude_connector",
+                    event = "claude.control_request.hook_callback",
+                    request_id = %request_id,
+                    callback_id = %callback_id,
+                    "Received hook_callback control request"
+                );
+                let response = StdinMessage::ControlResponse {
+                    response: ControlResponsePayload::Success {
+                        request_id,
+                        response: serde_json::json!({
+                            "hookResults": []
+                        }),
+                    },
+                };
+                if let Ok(json) = serde_json::to_string(&response) {
+                    let _ = stdin_tx.send(json).await;
+                }
+                return vec![];
+            }
+            "mcp_message" => {
+                // CLI is sending a JSON-RPC message for an SDK-hosted MCP server.
+                // We don't currently host any MCP servers, so respond with an error.
+                let server_name =
+                    string_field(request, "server_name", "serverName").unwrap_or_default();
+                info!(
+                    component = "claude_connector",
+                    event = "claude.control_request.mcp_message",
+                    request_id = %request_id,
+                    server_name = %server_name,
+                    "Received mcp_message control request"
+                );
+                let response = StdinMessage::ControlResponse {
+                    response: ControlResponsePayload::Error {
+                        request_id,
+                        error: format!("MCP server '{}' is not hosted by OrbitDock", server_name),
+                    },
+                };
+                if let Ok(json) = serde_json::to_string(&response) {
+                    let _ = stdin_tx.send(json).await;
+                }
+                return vec![];
+            }
+            "can_use_tool" => {
+                // Permission prompt — handled below
+            }
+            other => {
+                debug!(
+                    component = "claude_connector",
+                    event = "claude.control_request.unhandled",
+                    subtype = %other,
+                    request_id = %request_id,
+                    "Unhandled CLI control request subtype"
+                );
+                return vec![];
+            }
         }
 
-        let request_id = string_field(raw, "request_id", "requestId").unwrap_or_default();
+        // --- can_use_tool handling ---
         let tool_name = string_field(request, "tool_name", "toolName");
         let input = value_field(request, "input", "input").cloned();
         let tool_use_id = string_field(request, "tool_use_id", "toolUseID")
@@ -1786,6 +2397,35 @@ fn flush_streaming(
     }
 }
 
+/// Format structured question answers for the Claude SDK.
+///
+/// The SDK's `AskUserQuestion` expects the deny message to contain the user's
+/// answer. For simple single-answer cases, send the answer text directly.
+/// For structured multi-question answers, format as JSON matching
+/// `AskUserQuestionOutput.answers` format: `{ question_text: "value" }`.
+fn format_question_answers(answers: &HashMap<String, Vec<String>>) -> String {
+    // Simple case: single answer
+    if answers.len() == 1 {
+        if let Some(values) = answers.values().next() {
+            if values.len() == 1 {
+                return values[0].clone();
+            }
+            // Multi-select: comma-separate
+            if !values.is_empty() {
+                return values.join(", ");
+            }
+        }
+    }
+
+    // Multi-question: build JSON answers map { question_text: "comma,separated" }
+    let mut answers_map = serde_json::Map::new();
+    for (key, values) in answers {
+        let joined = values.join(", ");
+        answers_map.insert(key.clone(), Value::String(joined));
+    }
+    serde_json::to_string(&answers_map).unwrap_or_default()
+}
+
 /// Extract a `u64` from an optional JSON value, defaulting to 0.
 fn value_to_u64(v: Option<&Value>) -> u64 {
     v.and_then(|v| v.as_u64()).unwrap_or(0)
@@ -1816,7 +2456,11 @@ fn extract_token_usage(
             total.cached_tokens += stats
                 .get("cacheReadInputTokens")
                 .and_then(|v| v.as_u64())
-                .unwrap_or(0);
+                .unwrap_or(0)
+                + stats
+                    .get("cacheCreationInputTokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
             if let Some(cw) = stats.get("contextWindow").and_then(|v| v.as_u64()) {
                 total.context_window = cw;
             }
@@ -1833,7 +2477,10 @@ fn extract_token_usage(
         let cached = u
             .get("cache_read_input_tokens")
             .and_then(|v| v.as_u64())
-            .unwrap_or(0);
+            .unwrap_or(0)
+            + u.get("cache_creation_input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
         if input > 0 || output > 0 {
             return Some(orbitdock_protocol::TokenUsage {
                 input_tokens: input,
@@ -1969,7 +2616,9 @@ mod tests {
             }
         });
 
-        let events = ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals).await;
+        let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
+        let events =
+            ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
         assert_eq!(events.len(), 1);
         match &events[0] {
             ConnectorEvent::ApprovalRequested {
@@ -2020,7 +2669,9 @@ mod tests {
             }
         });
 
-        let events = ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals).await;
+        let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
+        let events =
+            ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
         assert_eq!(events.len(), 1);
 
         let pending = pending_approvals.lock().await;
@@ -2047,7 +2698,9 @@ mod tests {
             }
         });
 
-        let events = ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals).await;
+        let (stdin_tx, _stdin_rx) = tokio::sync::mpsc::channel::<String>(16);
+        let events =
+            ClaudeConnector::handle_cli_control_request(&raw, &pending_approvals, &stdin_tx).await;
         assert!(events.is_empty(), "missing request id should be ignored");
         assert!(pending_approvals.lock().await.is_empty());
     }

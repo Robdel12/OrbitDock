@@ -31,6 +31,7 @@ use crate::persistence::{
 use crate::session_actor::SessionActorHandle;
 use crate::session_command::{SessionCommand, SubscribeResult};
 use crate::state::SessionRegistry;
+use orbitdock_connector_claude::session::ClaudeAction;
 
 #[derive(Debug, Serialize)]
 pub struct SessionsResponse {
@@ -267,6 +268,32 @@ pub struct CodexLogoutResponse {
 #[derive(Debug, Deserialize)]
 pub struct DownloadRemoteSkillRequest {
     pub hazelnut_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RefreshMcpServerRequest {
+    pub server_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct McpToggleRequest {
+    pub server_name: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct McpServerNameRequest {
+    pub server_name: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct McpSetServersRequest {
+    pub servers: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApplyFlagSettingsRequest {
+    pub settings: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -622,7 +649,13 @@ pub async fn list_mcp_tools_endpoint(
 ) -> ApiResult<McpToolsResponse> {
     let mut rx = subscribe_session_events(&state, &session_id).await?;
 
-    dispatch_codex_action(&state, &session_id, CodexAction::ListMcpTools).await?;
+    // Try Codex first, fall back to Claude
+    if dispatch_codex_action(&state, &session_id, CodexAction::ListMcpTools)
+        .await
+        .is_err()
+    {
+        dispatch_claude_action(&state, &session_id, ClaudeAction::ListMcpTools).await?;
+    }
 
     let (tools, resources, resource_templates, auth_statuses) =
         wait_for_mcp_tools_event(&session_id, &mut rx).await?;
@@ -1149,9 +1182,118 @@ pub async fn download_remote_skill(
 pub async fn refresh_mcp_servers(
     Path(session_id): Path<String>,
     State(state): State<Arc<SessionRegistry>>,
+    body: Option<Json<RefreshMcpServerRequest>>,
 ) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
-    dispatch_codex_action(&state, &session_id, CodexAction::RefreshMcpServers).await?;
+    let server_name = body.and_then(|b| b.server_name.clone());
 
+    // Try Codex first, fall back to Claude
+    if dispatch_codex_action(&state, &session_id, CodexAction::RefreshMcpServers)
+        .await
+        .is_err()
+    {
+        let action = match server_name {
+            Some(name) => ClaudeAction::RefreshMcpServer { server_name: name },
+            None => ClaudeAction::ListMcpTools, // No specific server — refresh all via status query
+        };
+        dispatch_claude_action(&state, &session_id, action).await?;
+    }
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(AcceptedResponse { accepted: true }),
+    ))
+}
+
+pub async fn toggle_mcp_server(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<McpToggleRequest>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+    dispatch_claude_action(
+        &state,
+        &session_id,
+        ClaudeAction::McpToggle {
+            server_name: body.server_name,
+            enabled: body.enabled,
+        },
+    )
+    .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(AcceptedResponse { accepted: true }),
+    ))
+}
+
+pub async fn mcp_authenticate(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<McpServerNameRequest>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+    dispatch_claude_action(
+        &state,
+        &session_id,
+        ClaudeAction::McpAuthenticate {
+            server_name: body.server_name,
+        },
+    )
+    .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(AcceptedResponse { accepted: true }),
+    ))
+}
+
+pub async fn mcp_clear_auth(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<McpServerNameRequest>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+    dispatch_claude_action(
+        &state,
+        &session_id,
+        ClaudeAction::McpClearAuth {
+            server_name: body.server_name,
+        },
+    )
+    .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(AcceptedResponse { accepted: true }),
+    ))
+}
+
+pub async fn mcp_set_servers(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<McpSetServersRequest>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+    dispatch_claude_action(
+        &state,
+        &session_id,
+        ClaudeAction::McpSetServers {
+            servers: body.servers,
+        },
+    )
+    .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(AcceptedResponse { accepted: true }),
+    ))
+}
+
+pub async fn apply_flag_settings(
+    Path(session_id): Path<String>,
+    State(state): State<Arc<SessionRegistry>>,
+    Json(body): Json<ApplyFlagSettingsRequest>,
+) -> Result<(StatusCode, Json<AcceptedResponse>), (StatusCode, Json<ApiErrorResponse>)> {
+    dispatch_claude_action(
+        &state,
+        &session_id,
+        ClaudeAction::ApplyFlagSettings {
+            settings: body.settings,
+        },
+    )
+    .await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(AcceptedResponse { accepted: true }),
@@ -1452,6 +1594,20 @@ async fn dispatch_codex_action(
     action: CodexAction,
 ) -> ApiInnerResult<()> {
     let tx = state.get_codex_action_tx(session_id).ok_or_else(|| {
+        codex_action_error_response(CodexActionError::ConnectorNotAvailable, session_id)
+    })?;
+
+    tx.send(action)
+        .await
+        .map_err(|_| codex_action_error_response(CodexActionError::ChannelClosed, session_id))
+}
+
+async fn dispatch_claude_action(
+    state: &Arc<SessionRegistry>,
+    session_id: &str,
+    action: ClaudeAction,
+) -> ApiInnerResult<()> {
+    let tx = state.get_claude_action_tx(session_id).ok_or_else(|| {
         codex_action_error_response(CodexActionError::ConnectorNotAvailable, session_id)
     })?;
 

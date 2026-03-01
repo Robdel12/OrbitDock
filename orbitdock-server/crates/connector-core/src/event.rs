@@ -44,6 +44,12 @@ pub enum ConnectorEvent {
         proposed_amendment: Option<Vec<String>>,
     },
 
+    /// Approval cancelled by the CLI (e.g. user interrupted, agent moved on)
+    ApprovalCancelled { request_id: String },
+
+    /// Permission mode changed (e.g. plan mode entered/exited)
+    PermissionModeChanged { mode: String },
+
     /// Token usage updated
     TokensUpdated {
         usage: TokenUsage,
@@ -137,6 +143,17 @@ pub enum ConnectorEvent {
         git_branch: Option<String>,
         git_sha: Option<String>,
     },
+
+    /// Rate limit event from the Claude SDK
+    RateLimitEvent {
+        info: orbitdock_protocol::RateLimitInfo,
+    },
+
+    /// Prompt suggestion from the Claude SDK
+    PromptSuggestion { suggestion: String },
+
+    /// Files were persisted (checkpoint saved)
+    FilesPersisted { files: Vec<String> },
 
     /// Error occurred
     Error(String),

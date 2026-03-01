@@ -3,10 +3,12 @@
 //! Wraps the ClaudeConnector (bridge subprocess) and handles event forwarding.
 //! Mirrors the CodexSession pattern: connector + event loop + action channel.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use orbitdock_connector_core::ConnectorEvent;
-use orbitdock_protocol::ServerMessage;
+use orbitdock_protocol::{McpAuthStatus, McpResource, McpResourceTemplate, McpTool, ServerMessage};
+use serde_json::Value;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
@@ -177,40 +179,104 @@ pub fn start_event_loop(
                         }
                     }
 
-                    if matches!(action, ClaudeAction::Interrupt) {
-                        match session.connector.interrupt().await {
-                            Ok(()) => {
-                                if let Some(h) = interrupt_watchdog.take() { h.abort(); }
-                                interrupt_watchdog = Some(spawn_interrupt_watchdog(
-                                    watchdog_tx.clone(),
-                                    session_id.clone(),
-                                    "claude_connector",
-                                ));
-                            }
-                            Err(e) => {
-                                error!(
-                                    component = "claude_connector",
-                                    event = "claude.interrupt.failed",
-                                    session_id = %session_id,
-                                    error = %e,
-                                    "Interrupt failed, injecting error event"
-                                );
-                                dispatch_connector_event(
-                                    &session_id,
-                                    ConnectorEvent::Error(format!("Interrupt failed: {e}")),
-                                    &mut session_handle,
-                                    &persist,
-                                ).await;
+                    match &action {
+                        ClaudeAction::Interrupt => {
+                            match session.connector.interrupt().await {
+                                Ok(()) => {
+                                    if let Some(h) = interrupt_watchdog.take() { h.abort(); }
+                                    interrupt_watchdog = Some(spawn_interrupt_watchdog(
+                                        watchdog_tx.clone(),
+                                        session_id.clone(),
+                                        "claude_connector",
+                                    ));
+                                }
+                                Err(e) => {
+                                    error!(
+                                        component = "claude_connector",
+                                        event = "claude.interrupt.failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "Interrupt failed, injecting error event"
+                                    );
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        ConnectorEvent::Error(format!("Interrupt failed: {e}")),
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
                             }
                         }
-                    } else if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
-                        error!(
-                            component = "claude_connector",
-                            event = "claude.action.failed",
-                            session_id = %session_id,
-                            error = %e,
-                            "Failed to handle Claude action"
-                        );
+                        ClaudeAction::ListMcpTools => {
+                            match session.connector.mcp_status().await {
+                                Ok(response) => {
+                                    let event = parse_mcp_status_response(response);
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        event,
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                                Err(e) => {
+                                    error!(
+                                        component = "claude_connector",
+                                        event = "claude.mcp_status.failed",
+                                        session_id = %session_id,
+                                        error = %e,
+                                        "MCP status request failed"
+                                    );
+                                }
+                            }
+                        }
+                        ClaudeAction::RewindFiles { user_message_id } => {
+                            dispatch_connector_event(
+                                &session_id,
+                                ConnectorEvent::UndoStarted { message: Some("Rewinding files...".to_string()) },
+                                &mut session_handle,
+                                &persist,
+                            ).await;
+                            match session.connector.rewind_files(user_message_id, false).await {
+                                Ok(response) => {
+                                    let can_rewind = response.get("canRewind").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let message = if can_rewind {
+                                        let files_changed = response.get("filesChanged")
+                                            .and_then(|v| v.as_array())
+                                            .map(|arr| arr.len())
+                                            .unwrap_or(0);
+                                        Some(format!("Rewound {files_changed} file(s)"))
+                                    } else {
+                                        let err = response.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+                                        Some(format!("Cannot rewind: {err}"))
+                                    };
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        ConnectorEvent::UndoCompleted { success: can_rewind, message },
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                                Err(e) => {
+                                    dispatch_connector_event(
+                                        &session_id,
+                                        ConnectorEvent::UndoCompleted { success: false, message: Some(format!("Rewind failed: {e}")) },
+                                        &mut session_handle,
+                                        &persist,
+                                    ).await;
+                                }
+                            }
+                        }
+                        _ => {
+                            if let Err(e) = ClaudeSession::handle_action(&session.connector, action).await {
+                                error!(
+                                    component = "claude_connector",
+                                    event = "claude.action.failed",
+                                    session_id = %session_id,
+                                    error = %e,
+                                    "Failed to handle Claude action"
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -236,4 +302,138 @@ pub fn start_event_loop(
     });
 
     (actor_handle, action_tx)
+}
+
+/// Parse the mcp_status control response into a McpToolsList event.
+///
+/// The response from the CLI contains `mcpServers` — an array of objects with
+/// `name`, `status`, `tools`, `resources`, `resourceTemplates`, and `authStatus`.
+fn parse_mcp_status_response(response: Value) -> ConnectorEvent {
+    let mut tools: HashMap<String, McpTool> = HashMap::new();
+    let mut resources: HashMap<String, Vec<McpResource>> = HashMap::new();
+    let mut resource_templates: HashMap<String, Vec<McpResourceTemplate>> = HashMap::new();
+    let mut auth_statuses: HashMap<String, McpAuthStatus> = HashMap::new();
+
+    let empty_obj = Value::Object(Default::default());
+
+    let servers = response
+        .get("mcpServers")
+        .or_else(|| response.get("mcp_servers"))
+        .and_then(Value::as_array);
+
+    if let Some(servers) = servers {
+        for server in servers {
+            let name = server
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Parse tools
+            if let Some(server_tools) = server.get("tools").and_then(Value::as_array) {
+                for tool in server_tools {
+                    let tool_name = tool
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let description = tool
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .map(String::from);
+                    let input_schema = tool
+                        .get("inputSchema")
+                        .or_else(|| tool.get("input_schema"))
+                        .cloned()
+                        .unwrap_or_else(|| empty_obj.clone());
+                    tools.insert(
+                        format!("{name}:{tool_name}"),
+                        McpTool {
+                            name: tool_name,
+                            title: None,
+                            description,
+                            input_schema,
+                            output_schema: None,
+                            annotations: None,
+                        },
+                    );
+                }
+            }
+
+            // Parse resources
+            if let Some(server_resources) = server.get("resources").and_then(Value::as_array) {
+                let parsed: Vec<McpResource> = server_resources
+                    .iter()
+                    .filter_map(|r| {
+                        Some(McpResource {
+                            uri: r.get("uri").and_then(Value::as_str)?.to_string(),
+                            name: r
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            title: r.get("title").and_then(Value::as_str).map(String::from),
+                            description: r
+                                .get("description")
+                                .and_then(Value::as_str)
+                                .map(String::from),
+                            mime_type: r.get("mimeType").and_then(Value::as_str).map(String::from),
+                            size: None,
+                            annotations: None,
+                        })
+                    })
+                    .collect();
+                if !parsed.is_empty() {
+                    resources.insert(name.clone(), parsed);
+                }
+            }
+
+            // Parse resource templates
+            if let Some(server_templates) =
+                server.get("resourceTemplates").and_then(Value::as_array)
+            {
+                let parsed: Vec<McpResourceTemplate> = server_templates
+                    .iter()
+                    .filter_map(|t| {
+                        Some(McpResourceTemplate {
+                            uri_template: t.get("uriTemplate").and_then(Value::as_str)?.to_string(),
+                            name: t
+                                .get("name")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
+                                .to_string(),
+                            title: None,
+                            description: t
+                                .get("description")
+                                .and_then(Value::as_str)
+                                .map(String::from),
+                            mime_type: t.get("mimeType").and_then(Value::as_str).map(String::from),
+                            annotations: None,
+                        })
+                    })
+                    .collect();
+                if !parsed.is_empty() {
+                    resource_templates.insert(name.clone(), parsed);
+                }
+            }
+
+            // Parse auth status
+            if let Some(auth) = server.get("authStatus").and_then(Value::as_str) {
+                let status = match auth {
+                    "not_logged_in" | "notLoggedIn" => McpAuthStatus::NotLoggedIn,
+                    "bearer_token" | "bearerToken" => McpAuthStatus::BearerToken,
+                    "oauth" => McpAuthStatus::OAuth,
+                    _ => McpAuthStatus::Unsupported,
+                };
+                auth_statuses.insert(name.clone(), status);
+            }
+        }
+    }
+
+    ConnectorEvent::McpToolsList {
+        tools,
+        resources,
+        resource_templates,
+        auth_statuses,
+    }
 }

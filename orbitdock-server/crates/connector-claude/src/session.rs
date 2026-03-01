@@ -4,6 +4,8 @@
 //! crate because it depends on SessionHandle, PersistCommand, SessionActorHandle,
 //! and SessionRegistry.
 
+use std::collections::HashMap;
+
 use orbitdock_connector_core::ConnectorError;
 use orbitdock_protocol::ProviderSessionId;
 
@@ -28,7 +30,7 @@ pub enum ClaudeAction {
     },
     AnswerQuestion {
         request_id: String,
-        answer: String,
+        answers: HashMap<String, Vec<String>>,
     },
     Compact,
     Undo,
@@ -51,6 +53,32 @@ pub enum ClaudeAction {
         content: String,
         message_id: String,
         images: Vec<orbitdock_protocol::ImageInput>,
+    },
+    RewindFiles {
+        user_message_id: String,
+    },
+    StopTask {
+        task_id: String,
+    },
+    ListMcpTools,
+    RefreshMcpServer {
+        server_name: String,
+    },
+    McpToggle {
+        server_name: String,
+        enabled: bool,
+    },
+    McpAuthenticate {
+        server_name: String,
+    },
+    McpClearAuth {
+        server_name: String,
+    },
+    McpSetServers {
+        servers: serde_json::Value,
+    },
+    ApplyFlagSettings {
+        settings: serde_json::Value,
     },
     EndSession,
 }
@@ -80,10 +108,13 @@ impl std::fmt::Debug for ClaudeAction {
                 .field("request_id", request_id)
                 .field("decision", decision)
                 .finish(),
-            Self::AnswerQuestion { request_id, answer } => f
+            Self::AnswerQuestion {
+                request_id,
+                answers,
+            } => f
                 .debug_struct("AnswerQuestion")
                 .field("request_id", request_id)
-                .field("answer_len", &answer.len())
+                .field("answers_count", &answers.len())
                 .finish(),
             Self::Compact => write!(f, "Compact"),
             Self::Undo => write!(f, "Undo"),
@@ -114,6 +145,37 @@ impl std::fmt::Debug for ClaudeAction {
                 .field("message_id", message_id)
                 .field("images_count", &images.len())
                 .finish(),
+            Self::RewindFiles { user_message_id } => f
+                .debug_struct("RewindFiles")
+                .field("user_message_id", user_message_id)
+                .finish(),
+            Self::StopTask { task_id } => f
+                .debug_struct("StopTask")
+                .field("task_id", task_id)
+                .finish(),
+            Self::ListMcpTools => write!(f, "ListMcpTools"),
+            Self::RefreshMcpServer { server_name } => f
+                .debug_struct("RefreshMcpServer")
+                .field("server_name", server_name)
+                .finish(),
+            Self::McpToggle {
+                server_name,
+                enabled,
+            } => f
+                .debug_struct("McpToggle")
+                .field("server_name", server_name)
+                .field("enabled", enabled)
+                .finish(),
+            Self::McpAuthenticate { server_name } => f
+                .debug_struct("McpAuthenticate")
+                .field("server_name", server_name)
+                .finish(),
+            Self::McpClearAuth { server_name } => f
+                .debug_struct("McpClearAuth")
+                .field("server_name", server_name)
+                .finish(),
+            Self::McpSetServers { .. } => write!(f, "McpSetServers"),
+            Self::ApplyFlagSettings { .. } => write!(f, "ApplyFlagSettings"),
             Self::EndSession => write!(f, "EndSession"),
         }
     }
@@ -192,8 +254,11 @@ impl ClaudeSession {
                     )
                     .await?;
             }
-            ClaudeAction::AnswerQuestion { request_id, answer } => {
-                connector.answer_question(&request_id, &answer).await?;
+            ClaudeAction::AnswerQuestion {
+                request_id,
+                answers,
+            } => {
+                connector.answer_question(&request_id, &answers).await?;
             }
             ClaudeAction::Compact => {
                 // Send /compact as a user message — the CLI handles it as a slash command.
@@ -231,12 +296,42 @@ impl ClaudeSession {
             ClaudeAction::SteerTurn {
                 content, images, ..
             } => {
-                // Claude SDK has no native steer_input — interrupt the active
-                // turn and resend the guidance as a new user message.
-                connector.interrupt().await?;
+                // Write directly to stdin — CLI queues mid-turn messages naturally.
+                // No interrupt needed: the SDK's streamInput just enqueues user
+                // messages and the CLI processes them when the current turn yields.
                 connector
                     .send_message(&content, None, None, &images)
                     .await?;
+            }
+            ClaudeAction::RewindFiles { user_message_id } => {
+                connector.rewind_files(&user_message_id, false).await?;
+            }
+            ClaudeAction::StopTask { task_id } => {
+                connector.stop_task(&task_id).await?;
+            }
+            ClaudeAction::ListMcpTools => {
+                let _ = connector.mcp_status().await;
+            }
+            ClaudeAction::RefreshMcpServer { server_name } => {
+                connector.mcp_reconnect(&server_name).await?;
+            }
+            ClaudeAction::McpToggle {
+                server_name,
+                enabled,
+            } => {
+                connector.mcp_toggle(&server_name, enabled).await?;
+            }
+            ClaudeAction::McpAuthenticate { server_name } => {
+                connector.mcp_authenticate(&server_name).await?;
+            }
+            ClaudeAction::McpClearAuth { server_name } => {
+                connector.mcp_clear_auth(&server_name).await?;
+            }
+            ClaudeAction::McpSetServers { servers } => {
+                let _ = connector.mcp_set_servers(servers).await;
+            }
+            ClaudeAction::ApplyFlagSettings { settings } => {
+                connector.apply_flag_settings(settings).await?;
             }
             ClaudeAction::EndSession => {
                 connector.shutdown().await?;

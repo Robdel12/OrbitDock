@@ -166,12 +166,27 @@ pub enum Input {
     ThreadRolledBack {
         num_turns: u32,
     },
+    ApprovalCancelled {
+        request_id: String,
+    },
+    PermissionModeChanged {
+        mode: String,
+    },
     EnvironmentChanged {
         cwd: Option<String>,
         git_branch: Option<String>,
         git_sha: Option<String>,
         repository_root: Option<String>,
         is_worktree: Option<bool>,
+    },
+    RateLimitEvent {
+        info: orbitdock_protocol::RateLimitInfo,
+    },
+    PromptSuggestion {
+        suggestion: String,
+    },
+    FilesPersisted {
+        files: Vec<String>,
     },
     Error(String),
 }
@@ -288,6 +303,15 @@ impl From<ConnectorEvent> for Input {
                 repository_root: None,
                 is_worktree: None,
             },
+            ConnectorEvent::ApprovalCancelled { request_id } => {
+                Input::ApprovalCancelled { request_id }
+            }
+            ConnectorEvent::PermissionModeChanged { mode } => Input::PermissionModeChanged { mode },
+            ConnectorEvent::RateLimitEvent { info } => Input::RateLimitEvent { info },
+            ConnectorEvent::PromptSuggestion { suggestion } => {
+                Input::PromptSuggestion { suggestion }
+            }
+            ConnectorEvent::FilesPersisted { files } => Input::FilesPersisted { files },
             ConnectorEvent::Error(msg) => Input::Error(msg),
             // Handled in event loop before reaching transitions
             ConnectorEvent::HookSessionId(_) => unreachable!(),
@@ -382,6 +406,10 @@ pub enum PersistOp {
     },
     SaveClaudeModels {
         models: Vec<orbitdock_protocol::ClaudeModelOption>,
+    },
+    PermissionModeUpdate {
+        session_id: String,
+        permission_mode: String,
     },
 }
 
@@ -642,6 +670,21 @@ pub fn transition(
             is_in_progress,
             duration_ms,
         } => {
+            let found = state
+                .messages
+                .iter()
+                .any(|message| message.id.as_str() == message_id.as_str());
+            tracing::info!(
+                component = "transition",
+                event = "transition.message_updated",
+                session_id = %sid,
+                message_id = %message_id,
+                has_tool_output = tool_output.is_some(),
+                tool_output_chars = tool_output.as_ref().map(|s| s.len()).unwrap_or(0),
+                is_in_progress = ?is_in_progress,
+                message_found_in_state = found,
+                "Processing MessageUpdated input"
+            );
             if let Some(existing) = state
                 .messages
                 .iter_mut()
@@ -761,6 +804,52 @@ pub fn transition(
                 session_id: sid,
                 request,
                 approval_version: None, // Filled by actor after apply_state
+            })));
+        }
+
+        // -- Approval cancelled (SDK cancelled pending can_use_tool) ----------
+        Input::ApprovalCancelled { request_id } => {
+            // Only clear if this cancellation matches the currently pending approval
+            let is_current = matches!(
+                &state.phase,
+                WorkPhase::AwaitingApproval { request_id: pending_id, .. }
+                    if *pending_id == request_id
+            );
+            if is_current {
+                state.phase = WorkPhase::Working;
+                state.pending_approval = None;
+                state.last_activity_at = Some(now.to_string());
+
+                effects.push(Effect::Persist(Box::new(PersistOp::SessionUpdate {
+                    id: sid.clone(),
+                    status: None,
+                    work_status: Some(WorkStatus::Working),
+                    last_activity_at: Some(now.to_string()),
+                })));
+                effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+                    session_id: sid,
+                    changes: StateChanges {
+                        work_status: Some(WorkStatus::Working),
+                        pending_approval: Some(None),
+                        last_activity_at: Some(now.to_string()),
+                        ..Default::default()
+                    },
+                })));
+            }
+        }
+
+        // -- Permission mode (e.g. /plan entered from terminal) ---------------
+        Input::PermissionModeChanged { mode } => {
+            effects.push(Effect::Persist(Box::new(PersistOp::PermissionModeUpdate {
+                session_id: sid.clone(),
+                permission_mode: mode.clone(),
+            })));
+            effects.push(Effect::Emit(Box::new(ServerMessage::SessionDelta {
+                session_id: sid,
+                changes: StateChanges {
+                    permission_mode: Some(Some(mode)),
+                    ..Default::default()
+                },
             })));
         }
 
@@ -1143,6 +1232,26 @@ pub fn transition(
                 ready,
                 failed,
                 cancelled,
+            })));
+        }
+
+        Input::RateLimitEvent { info } => {
+            effects.push(Effect::Emit(Box::new(ServerMessage::RateLimitEvent {
+                session_id: sid,
+                info,
+            })));
+        }
+
+        Input::PromptSuggestion { suggestion } => {
+            effects.push(Effect::Emit(Box::new(ServerMessage::PromptSuggestion {
+                session_id: sid,
+                suggestion,
+            })));
+        }
+        Input::FilesPersisted { files } => {
+            effects.push(Effect::Emit(Box::new(ServerMessage::FilesPersisted {
+                session_id: sid,
+                files,
             })));
         }
     }

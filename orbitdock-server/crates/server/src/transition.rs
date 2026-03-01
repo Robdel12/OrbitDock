@@ -131,5 +131,14 @@ pub fn persist_op_to_command(op: PersistOp) -> PersistCommand {
             PersistCommand::ModelUpdate { session_id, model }
         }
         PersistOp::SaveClaudeModels { models } => PersistCommand::SaveClaudeModels { models },
+        PersistOp::PermissionModeUpdate {
+            session_id,
+            permission_mode,
+        } => PersistCommand::SetSessionConfig {
+            session_id,
+            approval_policy: None,
+            sandbox_mode: None,
+            permission_mode: Some(permission_mode),
+        },
     }
 }

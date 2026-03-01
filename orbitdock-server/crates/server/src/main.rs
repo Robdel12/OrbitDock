@@ -901,6 +901,26 @@ async fn async_main(
             "/api/sessions/{session_id}/mcp/refresh",
             post(http_api::refresh_mcp_servers),
         )
+        .route(
+            "/api/sessions/{session_id}/mcp/toggle",
+            post(http_api::toggle_mcp_server),
+        )
+        .route(
+            "/api/sessions/{session_id}/mcp/authenticate",
+            post(http_api::mcp_authenticate),
+        )
+        .route(
+            "/api/sessions/{session_id}/mcp/clear-auth",
+            post(http_api::mcp_clear_auth),
+        )
+        .route(
+            "/api/sessions/{session_id}/mcp/servers",
+            post(http_api::mcp_set_servers),
+        )
+        .route(
+            "/api/sessions/{session_id}/flags",
+            post(http_api::apply_flag_settings),
+        )
         .route("/api/git/init", post(http_api::git_init_endpoint))
         .route("/api/fs/browse", get(http_api::browse_directory))
         .route(

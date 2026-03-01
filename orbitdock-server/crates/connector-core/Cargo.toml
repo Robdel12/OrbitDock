@@ -10,4 +10,5 @@ description = "Shared event and error types for OrbitDock connectors"
 orbitdock-protocol = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }

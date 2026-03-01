@@ -54,21 +54,6 @@ pub(crate) fn normalize_question_answers(
     normalized
 }
 
-pub(crate) fn select_primary_answer(
-    answers: &HashMap<String, Vec<String>>,
-    preferred_question_id: Option<&str>,
-) -> Option<String> {
-    if let Some(question_id) = preferred_question_id {
-        if let Some(values) = answers.get(question_id) {
-            if let Some(first) = values.first() {
-                return Some(first.clone());
-            }
-        }
-    }
-
-    answers.values().find_map(|values| values.first().cloned())
-}
-
 pub(crate) fn work_status_for_approval_decision(decision: &str) -> orbitdock_protocol::WorkStatus {
     let normalized = decision.trim().to_lowercase();
     if matches!(

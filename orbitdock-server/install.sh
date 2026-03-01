@@ -264,6 +264,53 @@ fi
 ok "Installed to $SERVER_BIN"
 echo ""
 
+# ── PATH setup ────────────────────────────────────────────────────────
+BIN_DIR="$INSTALL_ROOT/bin"
+NEEDS_PATH_RELOAD=0
+
+ensure_in_path() {
+  # Already on PATH — nothing to do
+  if echo "$PATH" | tr ':' '\n' | grep -qx "$BIN_DIR"; then
+    return
+  fi
+
+  local shell_name profile_file line
+  shell_name="$(basename "${SHELL:-/bin/bash}")"
+  line="export PATH=\"$BIN_DIR:\$PATH\""
+
+  case "$shell_name" in
+    zsh)  profile_file="$HOME/.zshrc" ;;
+    bash)
+      # Prefer .bashrc on Linux, .bash_profile on macOS
+      if [[ -f "$HOME/.bash_profile" ]]; then
+        profile_file="$HOME/.bash_profile"
+      else
+        profile_file="$HOME/.bashrc"
+      fi
+      ;;
+    fish)
+      profile_file="$HOME/.config/fish/config.fish"
+      line="fish_add_path $BIN_DIR"
+      ;;
+    *)    profile_file="$HOME/.profile" ;;
+  esac
+
+  # Don't duplicate if already in the file
+  if [[ -f "$profile_file" ]] && grep -qF "$BIN_DIR" "$profile_file" 2>/dev/null; then
+    return
+  fi
+
+  mkdir -p "$(dirname "$profile_file")"
+  echo "" >> "$profile_file"
+  echo "# Added by OrbitDock installer" >> "$profile_file"
+  echo "$line" >> "$profile_file"
+
+  ok "Added $BIN_DIR to PATH in $profile_file"
+  NEEDS_PATH_RELOAD=1
+}
+
+ensure_in_path
+
 # ── Setup ─────────────────────────────────────────────────────────────────
 info "Running initial setup..."
 
@@ -307,6 +354,13 @@ if [[ -n "$SERVER_URL" ]]; then
 else
   ok "Health endpoint: http://127.0.0.1:4000/health"
   echo ""
-  echo "  Verify with: curl http://127.0.0.1:4000/health"
+  echo "  Verify with: orbitdock-server status"
+fi
+
+if [[ "$NEEDS_PATH_RELOAD" == "1" ]]; then
+  echo ""
+  warn "Restart your terminal, or run:"
+  echo ""
+  echo "  export PATH=\"$BIN_DIR:\$PATH\""
 fi
 echo ""

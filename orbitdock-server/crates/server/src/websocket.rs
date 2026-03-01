@@ -441,7 +441,9 @@ fn handle_client_message<'a>(
             | ClientMessage::InterruptSession { .. }
             | ClientMessage::CompactContext { .. }
             | ClientMessage::UndoLastTurn { .. }
-            | ClientMessage::RollbackTurns { .. } => {
+            | ClientMessage::RollbackTurns { .. }
+            | ClientMessage::StopTask { .. }
+            | ClientMessage::RewindFiles { .. } => {
                 crate::ws_handlers::messaging::handle(msg, client_tx, state, conn_id).await;
             }
 

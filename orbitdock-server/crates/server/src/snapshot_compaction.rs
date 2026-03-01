@@ -98,9 +98,30 @@ pub(crate) fn compact_message_for_transport(
     message: &mut orbitdock_protocol::Message,
     max_chars: usize,
 ) {
+    compact_message_for_transport_inner(message, max_chars, true);
+}
+
+/// Compact a message for individual broadcast (MessageAppended).
+/// Unlike snapshot compaction, this preserves `tool_input` because truncating
+/// the JSON string makes it unparseable on the client, breaking Write/Edit
+/// tool card rendering (shows "0 lines" instead of actual content).
+pub(crate) fn compact_message_for_broadcast(
+    message: &mut orbitdock_protocol::Message,
+    max_chars: usize,
+) {
+    compact_message_for_transport_inner(message, max_chars, false);
+}
+
+fn compact_message_for_transport_inner(
+    message: &mut orbitdock_protocol::Message,
+    max_chars: usize,
+    truncate_tool_input: bool,
+) {
     message.images = crate::images::normalize_images_for_transport(&message.images);
     truncate_string_in_place(&mut message.content, max_chars);
-    truncate_option_string_in_place(&mut message.tool_input, max_chars);
+    if truncate_tool_input {
+        truncate_option_string_in_place(&mut message.tool_input, max_chars);
+    }
     truncate_option_string_in_place(&mut message.tool_output, max_chars);
 }
 
@@ -369,7 +390,7 @@ pub(crate) fn sanitize_server_message_for_transport(msg: ServerMessage) -> Serve
             session_id,
             mut message,
         } => {
-            compact_message_for_transport(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
+            compact_message_for_broadcast(&mut message, SNAPSHOT_MAX_CONTENT_CHARS);
             trim_message_images_to_transport_limit(&session_id, &mut message);
             ServerMessage::MessageAppended {
                 session_id,
