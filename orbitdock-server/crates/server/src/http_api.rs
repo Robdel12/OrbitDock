@@ -170,6 +170,10 @@ pub struct RemoveWorktreeQuery {
     pub force: bool,
     #[serde(default)]
     pub delete_branch: bool,
+    #[serde(default)]
+    pub delete_remote_branch: bool,
+    #[serde(default)]
+    pub archive_only: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -794,30 +798,65 @@ pub async fn remove_worktree(
         },
     )?;
 
-    if let Err(e) =
-        crate::git::remove_worktree(&row.repo_root, &row.worktree_path, query.force).await
-    {
-        if !query.force {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ApiErrorResponse {
-                    code: "remove_failed",
-                    error: e,
-                }),
-            ));
+    if !query.archive_only {
+        if let Err(e) =
+            crate::git::remove_worktree(&row.repo_root, &row.worktree_path, query.force).await
+        {
+            if !query.force {
+                warn!(
+                    component = "worktree",
+                    event = "worktree.remove.failed",
+                    worktree_id = %worktree_id,
+                    repo_root = %row.repo_root,
+                    worktree_path = %row.worktree_path,
+                    error = %e,
+                    "Failed to remove worktree"
+                );
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ApiErrorResponse {
+                        code: "remove_failed",
+                        error: e,
+                    }),
+                ));
+            }
+            // Force mode: log and continue even if git removal fails
+            warn!(
+                component = "worktree",
+                event = "worktree.remove.force_fallthrough",
+                worktree_id = %worktree_id,
+                error = %e,
+                "git worktree remove failed in force mode, continuing"
+            );
         }
-        // Force mode: log and continue even if git removal fails
-        warn!(
-            component = "worktree",
-            event = "worktree.remove.force_fallthrough",
-            worktree_id = %worktree_id,
-            error = %e,
-            "git worktree remove failed in force mode, continuing"
-        );
     }
 
-    if query.delete_branch {
-        let _ = crate::git::delete_branch(&row.repo_root, &row.branch).await;
+    if !query.archive_only && query.delete_branch {
+        if let Err(e) = crate::git::delete_branch(&row.repo_root, &row.branch).await {
+            warn!(
+                component = "worktree",
+                event = "worktree.delete_branch.failed",
+                worktree_id = %worktree_id,
+                repo_root = %row.repo_root,
+                branch = %row.branch,
+                error = %e,
+                "Failed to delete branch after worktree removal"
+            );
+        }
+    }
+
+    if !query.archive_only && query.delete_remote_branch {
+        if let Err(e) = crate::git::delete_remote_branch(&row.repo_root, &row.branch).await {
+            warn!(
+                component = "worktree",
+                event = "worktree.delete_remote_branch.failed",
+                worktree_id = %worktree_id,
+                repo_root = %row.repo_root,
+                branch = %row.branch,
+                error = %e,
+                "Failed to delete remote branch after worktree removal"
+            );
+        }
     }
 
     let _ = state

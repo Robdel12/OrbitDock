@@ -1707,10 +1707,22 @@ class ServerConnection: ObservableObject {
     }
   }
 
-  func removeWorktree(worktreeId: String, force: Bool = false, deleteBranch: Bool = false) {
+  func removeWorktree(
+    worktreeId: String,
+    force: Bool = false,
+    deleteBranch: Bool = false,
+    deleteRemoteBranch: Bool = false,
+    archiveOnly: Bool = false
+  ) {
     Task { @MainActor in
       do {
-        try await removeWorktreeAsync(worktreeId: worktreeId, force: force, deleteBranch: deleteBranch)
+        try await removeWorktreeAsync(
+          worktreeId: worktreeId,
+          force: force,
+          deleteBranch: deleteBranch,
+          deleteRemoteBranch: deleteRemoteBranch,
+          archiveOnly: archiveOnly
+        )
       } catch {
         let requestError = error as? ServerRequestError
         let code = requestError?.apiErrorCode ?? "remove_failed"
@@ -1720,7 +1732,13 @@ class ServerConnection: ObservableObject {
     }
   }
 
-  func removeWorktreeAsync(worktreeId: String, force: Bool = false, deleteBranch: Bool = false) async throws {
+  func removeWorktreeAsync(
+    worktreeId: String,
+    force: Bool = false,
+    deleteBranch: Bool = false,
+    deleteRemoteBranch: Bool = false,
+    archiveOnly: Bool = false
+  ) async throws {
     let escapedId = encodePathComponent(worktreeId)
     var queryItems: [URLQueryItem] = []
     if force {
@@ -1728,6 +1746,12 @@ class ServerConnection: ObservableObject {
     }
     if deleteBranch {
       queryItems.append(URLQueryItem(name: "delete_branch", value: "true"))
+    }
+    if deleteRemoteBranch {
+      queryItems.append(URLQueryItem(name: "delete_remote_branch", value: "true"))
+    }
+    if archiveOnly {
+      queryItems.append(URLQueryItem(name: "archive_only", value: "true"))
     }
     let _: WorktreeRemovedHTTPResponse = try await requestAPIJSON(
       path: "/api/worktrees/\(escapedId)",

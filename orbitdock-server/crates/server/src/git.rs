@@ -233,6 +233,11 @@ pub async fn delete_branch(repo_path: &str, branch: &str) -> Result<(), String> 
     run_git_checked(&["branch", "-d", branch], repo_path).await
 }
 
+/// Delete a remote branch from `origin`.
+pub async fn delete_remote_branch(repo_path: &str, branch: &str) -> Result<(), String> {
+    run_git_checked(&["push", "origin", "--delete", branch], repo_path).await
+}
+
 /// Initialize a new git repository at the given path.
 pub async fn git_init(path: &str) -> Result<(), String> {
     run_git_checked(&["init"], path).await

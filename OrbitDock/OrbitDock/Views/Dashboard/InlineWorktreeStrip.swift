@@ -10,6 +10,32 @@
 
 import SwiftUI
 
+private struct WorktreeStripRemoveAttempt: Identifiable {
+  let worktreeId: String
+  let branch: String
+  let worktreePath: String
+  let force: Bool
+  let deleteBranch: Bool
+  let deleteRemoteBranch: Bool
+  let archiveOnly: Bool
+
+  var id: String { worktreeId }
+}
+
+private enum WorktreeStripRemoveFeedbackAlert: Identifiable {
+  case dirty(WorktreeStripRemoveAttempt)
+  case error(String)
+
+  var id: String {
+    switch self {
+      case let .dirty(attempt):
+        "dirty-\(attempt.id)-\(attempt.force)-\(attempt.deleteBranch)-\(attempt.deleteRemoteBranch)"
+      case let .error(message):
+        "error-\(message)"
+    }
+  }
+}
+
 struct InlineWorktreeStrip: View {
   @Environment(ServerAppState.self) private var serverState
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -25,9 +51,10 @@ struct InlineWorktreeStrip: View {
 
   @State private var isExpanded = true
   @State private var expandedWorktrees: Set<String> = []
-  @State private var worktreeToRemove: ServerWorktreeSummary?
-  @State private var pendingForce = false
-  @State private var pendingDeleteBranch = false
+  @State private var worktreeForCleanup: ServerWorktreeSummary?
+  @State private var cleanupSheetMode: WorktreeCleanupMode = .complete
+  @State private var lastRemoveAttempt: WorktreeStripRemoveAttempt?
+  @State private var removeFeedbackAlert: WorktreeStripRemoveFeedbackAlert?
 
   /// Only real worktrees — excludes the main working directory and removed entries.
   private var worktrees: [ServerWorktreeSummary] {
@@ -58,31 +85,41 @@ struct InlineWorktreeStrip: View {
     .padding(.top, 2)
     .animation(.spring(response: 0.25, dampingFraction: 0.9), value: isExpanded)
     .animation(.spring(response: 0.25, dampingFraction: 0.9), value: worktrees.count)
-    .alert(
-      alertTitle,
-      isPresented: Binding(
-        get: { worktreeToRemove != nil },
-        set: { if !$0 { resetRemoveState() } }
-      )
-    ) {
-      Button(pendingForce ? "Force Remove" : "Remove", role: .destructive) {
-        if let wt = worktreeToRemove {
+    .sheet(item: $worktreeForCleanup) { wt in
+      CompleteWorktreeSheet(
+        worktree: wt,
+        initialMode: cleanupSheetMode,
+        onCancel: { worktreeForCleanup = nil },
+        onConfirm: { request in
+          let attempt = WorktreeStripRemoveAttempt(
+            worktreeId: wt.id,
+            branch: wt.branch,
+            worktreePath: wt.worktreePath,
+            force: request.force,
+            deleteBranch: request.deleteBranch,
+            deleteRemoteBranch: request.deleteRemoteBranch,
+            archiveOnly: request.archiveOnly
+          )
+          lastRemoveAttempt = attempt
           serverState.connection.removeWorktree(
             worktreeId: wt.id,
-            force: pendingForce,
-            deleteBranch: pendingDeleteBranch
+            force: request.force,
+            deleteBranch: request.deleteBranch,
+            deleteRemoteBranch: request.deleteRemoteBranch,
+            archiveOnly: request.archiveOnly
           )
+          worktreeForCleanup = nil
         }
-        resetRemoveState()
-      }
-      Button("Cancel", role: .cancel) {
-        resetRemoveState()
-      }
-    } message: {
-      if let wt = worktreeToRemove {
-        Text(alertMessage(for: wt))
-      }
+      )
+      #if os(iOS)
+      .presentationDetents([.height(480), .large])
+      .presentationDragIndicator(.visible)
+      #endif
     }
+    .onChange(of: serverState.lastServerError?.message) { _, _ in
+      handleRemoveErrorFromServer()
+    }
+    .background(removeFeedbackAlertHost)
   }
 
   // MARK: - Session Matching
@@ -245,10 +282,9 @@ struct InlineWorktreeStrip: View {
         },
         onCreateClaudeSession: { onCreateClaudeSession(wt.worktreePath) },
         onCreateCodexSession: { onCreateCodexSession(wt.worktreePath) },
-        onRemove: { force, deleteBranch in
-          worktreeToRemove = wt
-          pendingForce = force
-          pendingDeleteBranch = deleteBranch
+        onCleanupAction: { mode in
+          cleanupSheetMode = mode
+          worktreeForCleanup = wt
         },
         onRevealInFinder: {
           Platform.services.revealInFileBrowser(wt.worktreePath)
@@ -289,31 +325,65 @@ struct InlineWorktreeStrip: View {
     }
   }
 
-  // MARK: - Alert Helpers
+  // MARK: - Error Helpers
 
-  private var alertTitle: String {
-    if pendingForce {
-      return "Force Remove Worktree?"
-    } else if pendingDeleteBranch {
-      return "Remove Worktree + Branch?"
+  private func handleRemoveErrorFromServer() {
+    guard let attempt = lastRemoveAttempt else { return }
+    guard let error = serverState.lastServerError else { return }
+    guard error.code == "remove_failed" else { return }
+    guard !attempt.archiveOnly else { return }
+
+    serverState.clearServerError()
+
+    if !attempt.force, error.message.localizedCaseInsensitiveContains("contains modified or untracked files") {
+      removeFeedbackAlert = .dirty(attempt)
+      return
     }
-    return "Remove Worktree?"
+
+    removeFeedbackAlert = .error(error.message)
   }
 
-  private func alertMessage(for wt: ServerWorktreeSummary) -> String {
-    let name = wt.customName ?? wt.branch
-    if pendingForce {
-      return "Force removing \"\(name)\" will delete the worktree at \(wt.worktreePath) even if it has uncommitted changes."
-    } else if pendingDeleteBranch {
-      return "This will remove the worktree at \(wt.worktreePath) and delete the \"\(wt.branch)\" branch."
-    }
-    return "This will remove the worktree at \(wt.worktreePath)."
-  }
+  @ViewBuilder
+  private var removeFeedbackAlertHost: some View {
+    Color.clear
+      .alert(item: $removeFeedbackAlert) { alert in
+        switch alert {
+          case let .dirty(attempt):
+            return Alert(
+              title: Text("Worktree Has Local Changes"),
+              message: Text(
+                "“\(attempt.branch)” at \(attempt.worktreePath) has modified or untracked files. Force remove will discard those local changes."
+              ),
+              primaryButton: .destructive(Text("Force Remove")) {
+                let forceAttempt = WorktreeStripRemoveAttempt(
+                  worktreeId: attempt.worktreeId,
+                  branch: attempt.branch,
+                  worktreePath: attempt.worktreePath,
+                  force: true,
+                  deleteBranch: attempt.deleteBranch,
+                  deleteRemoteBranch: attempt.deleteRemoteBranch,
+                  archiveOnly: false
+                )
+                lastRemoveAttempt = forceAttempt
+                serverState.connection.removeWorktree(
+                  worktreeId: attempt.worktreeId,
+                  force: true,
+                  deleteBranch: attempt.deleteBranch,
+                  deleteRemoteBranch: attempt.deleteRemoteBranch,
+                  archiveOnly: false
+                )
+              },
+              secondaryButton: .cancel()
+            )
 
-  private func resetRemoveState() {
-    worktreeToRemove = nil
-    pendingForce = false
-    pendingDeleteBranch = false
+          case let .error(message):
+            return Alert(
+              title: Text("Couldn’t Complete Worktree"),
+              message: Text(message),
+              dismissButton: .default(Text("OK"))
+            )
+        }
+      }
   }
 }
 
@@ -328,7 +398,7 @@ private struct WorktreeStripRow: View {
   let onToggleExpand: () -> Void
   let onCreateClaudeSession: () -> Void
   let onCreateCodexSession: () -> Void
-  let onRemove: (_ force: Bool, _ deleteBranch: Bool) -> Void
+  let onCleanupAction: (WorktreeCleanupMode) -> Void
   let onRevealInFinder: () -> Void
   let onCopyPath: () -> Void
 
@@ -471,23 +541,15 @@ private struct WorktreeStripRow: View {
   private var overflowMenu: some View {
     Menu {
       Button {
-        onRemove(false, false)
+        onCleanupAction(.complete)
       } label: {
-        Label("Remove Worktree", systemImage: "trash")
+        Label("Complete...", systemImage: "checkmark.circle")
       }
 
       Button {
-        onRemove(false, true)
+        onCleanupAction(.archive)
       } label: {
-        Label("Remove + Delete Branch", systemImage: "trash")
-      }
-
-      Divider()
-
-      Button {
-        onRemove(true, false)
-      } label: {
-        Label("Force Remove", systemImage: "trash.fill")
+        Label("Archive in OrbitDock", systemImage: "archivebox")
       }
 
       Divider()
@@ -535,15 +597,15 @@ private struct WorktreeStripRow: View {
       Divider()
 
       Button {
-        onRemove(false, false)
+        onCleanupAction(.complete)
       } label: {
-        Label("Remove Worktree", systemImage: "trash")
+        Label("Complete...", systemImage: "checkmark.circle")
       }
 
       Button {
-        onRemove(true, false)
+        onCleanupAction(.archive)
       } label: {
-        Label("Force Remove", systemImage: "trash.fill")
+        Label("Archive in OrbitDock", systemImage: "archivebox")
       }
 
       Divider()

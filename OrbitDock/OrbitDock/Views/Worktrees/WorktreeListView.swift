@@ -9,6 +9,32 @@
 
 import SwiftUI
 
+private struct WorktreeRemoveAttempt: Identifiable {
+  let worktreeId: String
+  let branch: String
+  let worktreePath: String
+  let force: Bool
+  let deleteBranch: Bool
+  let deleteRemoteBranch: Bool
+  let archiveOnly: Bool
+
+  var id: String { worktreeId }
+}
+
+private enum WorktreeRemoveFeedbackAlert: Identifiable {
+  case dirty(WorktreeRemoveAttempt)
+  case error(String)
+
+  var id: String {
+    switch self {
+      case let .dirty(attempt):
+        "dirty-\(attempt.id)-\(attempt.force)-\(attempt.deleteBranch)-\(attempt.deleteRemoteBranch)"
+      case let .error(message):
+        "error-\(message)"
+    }
+  }
+}
+
 struct WorktreeListView: View {
   @Environment(ServerAppState.self) private var serverState
   #if os(iOS)
@@ -22,8 +48,10 @@ struct WorktreeListView: View {
   let onCreateCodexSession: (String) -> Void
 
   @State private var showCreateSheet = false
-  @State private var worktreeToRemove: ServerWorktreeSummary?
-  @State private var forceRemove = false
+  @State private var worktreeForCleanup: ServerWorktreeSummary?
+  @State private var cleanupSheetMode: WorktreeCleanupMode = .complete
+  @State private var lastRemoveAttempt: WorktreeRemoveAttempt?
+  @State private var removeFeedbackAlert: WorktreeRemoveFeedbackAlert?
 
   private var worktrees: [ServerWorktreeSummary] {
     serverState.worktrees(for: repoRoot)
@@ -71,35 +99,41 @@ struct WorktreeListView: View {
       .presentationDragIndicator(.visible)
       #endif
     }
-    .alert(
-      "Remove Worktree?",
-      isPresented: Binding(
-        get: { worktreeToRemove != nil },
-        set: { if !$0 { worktreeToRemove = nil; forceRemove = false } }
-      )
-    ) {
-      Button("Remove", role: .destructive) {
-        if let wt = worktreeToRemove {
-          serverState.connection.removeWorktree(worktreeId: wt.id, force: forceRemove)
-        }
-        worktreeToRemove = nil
-        forceRemove = false
-      }
-      Button("Cancel", role: .cancel) {
-        worktreeToRemove = nil
-        forceRemove = false
-      }
-    } message: {
-      if let wt = worktreeToRemove {
-        if forceRemove {
-          Text(
-            "Force removing \"\(wt.customName ?? wt.branch)\" will delete the worktree at \(wt.worktreePath) even if it has uncommitted changes."
+    .sheet(item: $worktreeForCleanup) { wt in
+      CompleteWorktreeSheet(
+        worktree: wt,
+        initialMode: cleanupSheetMode,
+        onCancel: { worktreeForCleanup = nil },
+        onConfirm: { request in
+          let attempt = WorktreeRemoveAttempt(
+            worktreeId: wt.id,
+            branch: wt.branch,
+            worktreePath: wt.worktreePath,
+            force: request.force,
+            deleteBranch: request.deleteBranch,
+            deleteRemoteBranch: request.deleteRemoteBranch,
+            archiveOnly: request.archiveOnly
           )
-        } else {
-          Text("This will remove the worktree at \(wt.worktreePath). Active sessions in this worktree may be affected.")
+          lastRemoveAttempt = attempt
+          serverState.connection.removeWorktree(
+            worktreeId: wt.id,
+            force: request.force,
+            deleteBranch: request.deleteBranch,
+            deleteRemoteBranch: request.deleteRemoteBranch,
+            archiveOnly: request.archiveOnly
+          )
+          worktreeForCleanup = nil
         }
-      }
+      )
+      #if os(iOS)
+      .presentationDetents([.height(480), .large])
+      .presentationDragIndicator(.visible)
+      #endif
     }
+    .onChange(of: serverState.lastServerError?.message) { _, _ in
+      handleRemoveErrorFromServer()
+    }
+    .background(removeFeedbackAlertHost)
   }
 
   private var panelLayout: some View {
@@ -473,16 +507,17 @@ struct WorktreeListView: View {
   private func actionMenu(for wt: ServerWorktreeSummary, iconSize: CGFloat, frameSize: CGFloat) -> some View {
     Menu {
       Button {
-        worktreeToRemove = wt
-        forceRemove = false
+        cleanupSheetMode = .complete
+        worktreeForCleanup = wt
       } label: {
-        Label("Remove Worktree", systemImage: "trash")
+        Label("Complete...", systemImage: "checkmark.circle")
       }
+
       Button {
-        worktreeToRemove = wt
-        forceRemove = true
+        cleanupSheetMode = .archive
+        worktreeForCleanup = wt
       } label: {
-        Label("Force Remove", systemImage: "trash.fill")
+        Label("Archive in OrbitDock", systemImage: "archivebox")
       }
     } label: {
       Image(systemName: "ellipsis")
@@ -503,5 +538,64 @@ struct WorktreeListView: View {
       case .removing: Color.textQuaternary
       case .removed: Color.textQuaternary
     }
+  }
+
+  private func handleRemoveErrorFromServer() {
+    guard let attempt = lastRemoveAttempt else { return }
+    guard let error = serverState.lastServerError else { return }
+    guard error.code == "remove_failed" else { return }
+    guard !attempt.archiveOnly else { return }
+
+    serverState.clearServerError()
+
+    if !attempt.force, error.message.localizedCaseInsensitiveContains("contains modified or untracked files") {
+      removeFeedbackAlert = .dirty(attempt)
+      return
+    }
+
+    removeFeedbackAlert = .error(error.message)
+  }
+
+  @ViewBuilder
+  private var removeFeedbackAlertHost: some View {
+    Color.clear
+      .alert(item: $removeFeedbackAlert) { alert in
+        switch alert {
+          case let .dirty(attempt):
+            return Alert(
+              title: Text("Worktree Has Local Changes"),
+              message: Text(
+                "“\(attempt.branch)” at \(attempt.worktreePath) has modified or untracked files. Force remove will discard those local changes."
+              ),
+              primaryButton: .destructive(Text("Force Remove")) {
+                let forceAttempt = WorktreeRemoveAttempt(
+                  worktreeId: attempt.worktreeId,
+                  branch: attempt.branch,
+                  worktreePath: attempt.worktreePath,
+                  force: true,
+                  deleteBranch: attempt.deleteBranch,
+                  deleteRemoteBranch: attempt.deleteRemoteBranch,
+                  archiveOnly: false
+                )
+                lastRemoveAttempt = forceAttempt
+                serverState.connection.removeWorktree(
+                  worktreeId: attempt.worktreeId,
+                  force: true,
+                  deleteBranch: attempt.deleteBranch,
+                  deleteRemoteBranch: attempt.deleteRemoteBranch,
+                  archiveOnly: false
+                )
+              },
+              secondaryButton: .cancel()
+            )
+
+          case let .error(message):
+            return Alert(
+              title: Text("Couldn’t Complete Worktree"),
+              message: Text(message),
+              dismissButton: .default(Text("OK"))
+            )
+        }
+      }
   }
 }
