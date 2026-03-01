@@ -133,7 +133,7 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
-  @Test func approveToolLeavesPendingApprovalServerAuthoritative() {
+  @Test func approveToolLeavesPendingApprovalServerAuthoritative() async {
     let state = ServerAppState()
     state.setup()
     let sessionId = "session-approval-queue"
@@ -141,6 +141,7 @@ struct ServerAppStateApprovalQueueTests {
     state.connection.onSessionsList?([
       makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
     ])
+    await Task.yield()
 
     let first = makeApprovalRequest(id: "req-1", sessionId: sessionId, type: .exec)
     state.session(sessionId).pendingApproval = first
@@ -162,7 +163,7 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
-  @Test func approveToolDeduplicatesRepeatedSubmissionForSamePendingRequest() {
+  @Test func approveToolDeduplicatesRepeatedSubmissionForSamePendingRequest() async {
     let state = ServerAppState()
     state.setup()
     let sessionId = "session-approval-dedupe"
@@ -170,6 +171,7 @@ struct ServerAppStateApprovalQueueTests {
     state.connection.onSessionsList?([
       makeSessionSummary(id: sessionId, pendingApprovalId: "req-1"),
     ])
+    await Task.yield()
 
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-1",
@@ -196,7 +198,7 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
-  @Test func approveToolReturnsStaleWithNextPendingRequestId() {
+  @Test func approveToolReturnsStaleWithNextPendingRequestId() async {
     let state = ServerAppState()
     state.setup()
     let sessionId = "session-approval-stale"
@@ -204,6 +206,7 @@ struct ServerAppStateApprovalQueueTests {
     state.connection.onSessionsList?([
       makeSessionSummary(id: sessionId, pendingApprovalId: "req-current"),
     ])
+    await Task.yield()
 
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-current",
@@ -360,7 +363,7 @@ struct ServerAppStateApprovalQueueTests {
   }
 
   @MainActor
-  @Test func answerQuestionDispatchesForActivePending() {
+  @Test func answerQuestionDispatchesForActivePending() async {
     let state = ServerAppState()
     state.setup()
     let sessionId = "session-answer-question"
@@ -368,6 +371,7 @@ struct ServerAppStateApprovalQueueTests {
     state.connection.onSessionsList?([
       makeSessionSummary(id: sessionId, pendingApprovalId: "req-question", workStatus: .question),
     ])
+    await Task.yield()
 
     state.session(sessionId).pendingApproval = makeApprovalRequest(
       id: "req-question",
