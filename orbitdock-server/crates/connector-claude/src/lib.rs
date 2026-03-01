@@ -1208,11 +1208,10 @@ impl ClaudeConnector {
 
                     // Build an aggregated per-turn patch diff stream from direct edit/write tools.
                     if let Some(payload) = input_value {
-                        if let Some(diff) = Self::patch_diff_for_tool_use(Some(tool_name), payload) {
+                        if let Some(diff) = Self::patch_diff_for_tool_use(Some(tool_name), payload)
+                        {
                             turn_patch_diffs.push(diff);
-                            events.push(ConnectorEvent::DiffUpdated(
-                                turn_patch_diffs.join("\n\n"),
-                            ));
+                            events.push(ConnectorEvent::DiffUpdated(turn_patch_diffs.join("\n\n")));
                         }
                     }
                 }
@@ -2183,7 +2182,9 @@ mod tests {
         });
         let diff = aggregated.expect("expected aggregated diff event");
         assert!(
-            diff.contains("--- src/a.txt") && diff.contains("--- /dev/null") && diff.contains("+++ src/b.txt"),
+            diff.contains("--- src/a.txt")
+                && diff.contains("--- /dev/null")
+                && diff.contains("+++ src/b.txt"),
             "expected combined diff for both edits"
         );
     }
