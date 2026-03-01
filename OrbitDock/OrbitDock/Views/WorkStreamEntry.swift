@@ -83,8 +83,12 @@ struct WorkStreamEntry: View {
     if message.isTool {
       guard let name = message.toolName else { return .toolStandard }
       let lowercased = name.lowercased()
+      let normalized = lowercased.split(separator: ":").last.map(String.init) ?? lowercased
+      if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget"].contains(normalized) {
+        return .toolTodoTask
+      }
       if name.hasPrefix("mcp__") { return .toolMcp }
-      switch lowercased {
+      switch normalized {
         case "bash": return .toolBash
         case "read": return .toolRead
         case "edit", "write", "notebookedit": return .toolEdit
@@ -95,7 +99,6 @@ struct WorkStreamEntry: View {
         case "websearch": return .toolWebSearch
         case "skill": return .toolSkill
         case "enterplanmode", "exitplanmode": return .toolPlanMode
-        case "taskcreate", "taskupdate", "tasklist", "taskget": return .toolTodoTask
         case "askuserquestion": return .toolAskQuestion
         default: return .toolStandard
       }
@@ -268,6 +271,18 @@ struct WorkStreamEntry: View {
       case .toolPlanMode:
         return message.toolName == "EnterPlanMode" ? "Enter plan mode" : "Exit plan mode"
       case .toolTodoTask:
+        if let todos = message.toolInput?["todos"] as? [[String: Any]] {
+          let active = todos.first { ($0["status"] as? String)?.lowercased() == "in_progress" }
+          if let activeForm = active?["activeForm"] as? String, !activeForm.isEmpty {
+            return activeForm
+          }
+          if let content = active?["content"] as? String, !content.isEmpty {
+            return content
+          }
+          if let firstContent = todos.first?["content"] as? String, !firstContent.isEmpty {
+            return firstContent
+          }
+        }
         if let input = message.toolInput, let subject = input["subject"] as? String {
           return subject
         }
