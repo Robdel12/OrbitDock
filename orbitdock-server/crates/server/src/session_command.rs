@@ -139,6 +139,9 @@ pub enum SessionCommand {
         request_id: String,
         approval_type: ApprovalType,
         proposed_amendment: Option<Vec<String>>,
+        tool_name: Option<String>,
+        tool_input: Option<String>,
+        question: Option<String>,
     },
 
     // -- Broadcast --

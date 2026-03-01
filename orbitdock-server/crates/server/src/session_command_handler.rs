@@ -318,8 +318,18 @@ pub async fn handle_session_command(
             request_id,
             approval_type,
             proposed_amendment,
+            tool_name,
+            tool_input,
+            question,
         } => {
-            handle.set_pending_approval(request_id, approval_type, proposed_amendment);
+            handle.set_pending_approval(
+                request_id,
+                approval_type,
+                proposed_amendment,
+                tool_name,
+                tool_input,
+                question,
+            );
         }
         SessionCommand::Broadcast { msg } => {
             handle.broadcast(msg);

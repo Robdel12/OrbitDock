@@ -1094,25 +1094,34 @@ impl SessionHandle {
         }
     }
 
-    /// Register a pending approval with optional proposed amendment.
-    #[allow(dead_code)]
+    /// Register a pending approval with optional proposed amendment and tool metadata.
     pub fn set_pending_approval(
         &mut self,
         request_id: String,
         approval_type: ApprovalType,
         proposed_amendment: Option<Vec<String>>,
+        tool_name: Option<String>,
+        tool_input: Option<String>,
+        question: Option<String>,
     ) {
+        let question_prompts = parse_question_prompts(tool_input.as_deref());
+        let resolved_question = question.or_else(|| {
+            question_prompts
+                .first()
+                .map(|p| p.question.clone())
+                .filter(|t| !t.is_empty())
+        });
         let request = ApprovalRequest {
             id: request_id,
             session_id: self.id.clone(),
             approval_type,
-            tool_name: None,
-            tool_input: None,
+            tool_name,
+            tool_input,
             command: None,
             file_path: None,
             diff: None,
-            question: None,
-            question_prompts: vec![],
+            question: resolved_question,
+            question_prompts,
             preview: None,
             proposed_amendment: proposed_amendment.clone(),
         };
@@ -1701,4 +1710,64 @@ fn chrono_now() -> String {
 
 fn normalize_request_id(value: &str) -> &str {
     value.trim()
+}
+
+/// Parse question prompts from serialized tool_input JSON (AskUserQuestion).
+fn parse_question_prompts(tool_input: Option<&str>) -> Vec<ApprovalQuestionPrompt> {
+    let input = match tool_input.and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
+        Some(v) => v,
+        None => return vec![],
+    };
+
+    let questions = match input.get("questions").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return vec![],
+    };
+
+    questions
+        .iter()
+        .enumerate()
+        .map(|(i, q)| {
+            let options = q
+                .get("options")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|o| ApprovalQuestionOption {
+                            label: o
+                                .get("label")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            description: o
+                                .get("description")
+                                .and_then(|v| v.as_str())
+                                .map(String::from),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            ApprovalQuestionPrompt {
+                id: q
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                header: q.get("header").and_then(|v| v.as_str()).map(String::from),
+                question: q
+                    .get("question")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| format!("Question {}", i + 1)),
+                options,
+                allows_multiple_selection: q
+                    .get("multiSelect")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+                allows_other: true, // SDK always adds "Other" option
+                is_secret: false,
+            }
+        })
+        .collect()
 }

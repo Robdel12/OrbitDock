@@ -108,6 +108,51 @@ fn claude_permission_request_id(
     )
 }
 
+/// Classify a `PermissionRequest` hook by tool name into the appropriate
+/// approval type, work status, and attention reason.
+fn classify_permission_request(
+    tool_name: &str,
+) -> (
+    orbitdock_protocol::ApprovalType,
+    orbitdock_protocol::WorkStatus,
+    &'static str,
+) {
+    match tool_name {
+        "AskUserQuestion" => (
+            orbitdock_protocol::ApprovalType::Question,
+            orbitdock_protocol::WorkStatus::Question,
+            "awaitingQuestion",
+        ),
+        "Edit" | "Write" | "NotebookEdit" => (
+            orbitdock_protocol::ApprovalType::Patch,
+            orbitdock_protocol::WorkStatus::Permission,
+            "awaitingPermission",
+        ),
+        _ => (
+            orbitdock_protocol::ApprovalType::Exec,
+            orbitdock_protocol::WorkStatus::Permission,
+            "awaitingPermission",
+        ),
+    }
+}
+
+/// Extract the first question text from an `AskUserQuestion` tool input.
+fn extract_question_from_tool_input(tool_input: Option<&Value>) -> Option<String> {
+    let input = tool_input?;
+    // Try input.question first
+    if let Some(q) = input.get("question").and_then(|v| v.as_str()) {
+        return Some(q.to_string());
+    }
+    // Try input.questions[0].question
+    input
+        .get("questions")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|q| q.get("question"))
+        .and_then(|v| v.as_str())
+        .map(String::from)
+}
+
 async fn resolve_pending_approvals_after_tool_outcome(
     actor: &SessionActorHandle,
     persist_tx: &mpsc::Sender<PersistCommand>,
@@ -846,8 +891,12 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 .as_ref()
                                 .and_then(|value| value.as_array())
                                 .map_or(0, |items| items.len());
+                            let question_text =
+                                extract_question_from_tool_input(tool_input.as_ref());
                             let serialized_input =
                                 tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                            let (approval_type, work_status, attention_reason) =
+                                classify_permission_request(&tool_name);
                             let actor = state.get_session(&owning_id);
                             let request_id = claude_permission_request_id(
                                 actor.as_ref(),
@@ -864,16 +913,17 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 actor
                                     .send(SessionCommand::SetPendingApproval {
                                         request_id: request_id.clone(),
-                                        approval_type: orbitdock_protocol::ApprovalType::Exec,
+                                        approval_type,
                                         proposed_amendment: None,
+                                        tool_name: Some(tool_name.clone()),
+                                        tool_input: serialized_input.clone(),
+                                        question: question_text.clone(),
                                     })
                                     .await;
                                 actor
                                     .send(SessionCommand::ApplyDelta {
                                         changes: orbitdock_protocol::StateChanges {
-                                            work_status: Some(
-                                                orbitdock_protocol::WorkStatus::Permission,
-                                            ),
+                                            work_status: Some(work_status),
                                             last_activity_at: Some(chrono_now()),
                                             ..Default::default()
                                         },
@@ -887,6 +937,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 event = "claude.permission_request",
                                 session_id = %owning_id,
                                 tool_name = %tool_name,
+                                ?approval_type,
                                 permission_suggestions_count,
                                 "Received Claude permission request"
                             );
@@ -895,7 +946,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 .send(PersistCommand::ApprovalRequested {
                                     session_id: owning_id.clone(),
                                     request_id,
-                                    approval_type: orbitdock_protocol::ApprovalType::Exec,
+                                    approval_type,
                                     tool_name: Some(tool_name.clone()),
                                     command: None,
                                     file_path: None,
@@ -904,16 +955,28 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 })
                                 .await;
 
+                            let pending_question =
+                                if approval_type == orbitdock_protocol::ApprovalType::Question {
+                                    Some(question_text)
+                                } else {
+                                    None
+                                };
+
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeSessionUpdate {
                                     id: owning_id.clone(),
-                                    work_status: Some("permission".to_string()),
-                                    attention_reason: Some(Some("awaitingPermission".to_string())),
+                                    work_status: Some(
+                                        serde_json::to_value(work_status)
+                                            .ok()
+                                            .and_then(|v| v.as_str().map(String::from))
+                                            .unwrap_or_else(|| "permission".to_string()),
+                                    ),
+                                    attention_reason: Some(Some(attention_reason.to_string())),
                                     last_tool: Some(Some(tool_name.clone())),
                                     last_tool_at: Some(Some(chrono_now())),
                                     pending_tool_name: Some(Some(tool_name)),
                                     pending_tool_input: Some(serialized_input),
-                                    pending_question: None,
+                                    pending_question,
                                     source: None,
                                     agent_type: None,
                                     permission_mode: None,
@@ -1118,13 +1181,19 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         })
                         .await;
 
+                    // Broadcast permission_mode changes (e.g. EnterPlanMode sets "plan",
+                    // ExitPlanMode restores "default") so clients update immediately.
+                    let mut delta = orbitdock_protocol::StateChanges {
+                        work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                        last_activity_at: Some(chrono_now()),
+                        ..Default::default()
+                    };
+                    if permission_mode.is_some() {
+                        delta.permission_mode = Some(permission_mode.clone());
+                    }
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
-                                last_activity_at: Some(chrono_now()),
-                                ..Default::default()
-                            },
+                            changes: delta,
                             persist_op: None,
                         })
                         .await;
@@ -1169,19 +1238,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         })
                         .await;
 
-                    // Broadcast permission_mode changes (e.g. EnterPlanMode sets "plan",
-                    // ExitPlanMode restores "default") so clients update immediately.
-                    let mut delta = orbitdock_protocol::StateChanges {
-                        work_status: Some(orbitdock_protocol::WorkStatus::Working),
-                        last_activity_at: Some(chrono_now()),
-                        ..Default::default()
-                    };
-                    if permission_mode.is_some() {
-                        delta.permission_mode = Some(permission_mode.clone());
-                    }
                     actor
                         .send(SessionCommand::ApplyDelta {
-                            changes: delta,
+                            changes: orbitdock_protocol::StateChanges {
+                                work_status: Some(orbitdock_protocol::WorkStatus::Working),
+                                last_activity_at: Some(chrono_now()),
+                                ..Default::default()
+                            },
                             persist_op: None,
                         })
                         .await;
@@ -1191,8 +1254,11 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .as_ref()
                         .and_then(|value| value.as_array())
                         .map_or(0, |items| items.len());
+                    let question_text = extract_question_from_tool_input(tool_input.as_ref());
                     let serialized_input =
                         tool_input.and_then(|value| serde_json::to_string(&value).ok());
+                    let (approval_type, work_status, attention_reason) =
+                        classify_permission_request(&tool_name);
                     let request_id = claude_permission_request_id(
                         Some(&actor),
                         &tool_name,
@@ -1207,14 +1273,17 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                     actor
                         .send(SessionCommand::SetPendingApproval {
                             request_id: request_id.clone(),
-                            approval_type: orbitdock_protocol::ApprovalType::Exec,
+                            approval_type,
                             proposed_amendment: None,
+                            tool_name: Some(tool_name.clone()),
+                            tool_input: serialized_input.clone(),
+                            question: question_text.clone(),
                         })
                         .await;
                     actor
                         .send(SessionCommand::ApplyDelta {
                             changes: orbitdock_protocol::StateChanges {
-                                work_status: Some(orbitdock_protocol::WorkStatus::Permission),
+                                work_status: Some(work_status),
                                 last_activity_at: Some(chrono_now()),
                                 ..Default::default()
                             },
@@ -1227,6 +1296,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         event = "claude.permission_request",
                         session_id = %session_id,
                         tool_name = %tool_name,
+                        ?approval_type,
                         permission_suggestions_count,
                         "Received Claude permission request"
                     );
@@ -1235,7 +1305,7 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         .send(PersistCommand::ApprovalRequested {
                             session_id: session_id.clone(),
                             request_id,
-                            approval_type: orbitdock_protocol::ApprovalType::Exec,
+                            approval_type,
                             tool_name: Some(tool_name.clone()),
                             command: None,
                             file_path: None,
@@ -1244,16 +1314,28 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                         })
                         .await;
 
+                    let pending_question =
+                        if approval_type == orbitdock_protocol::ApprovalType::Question {
+                            Some(question_text)
+                        } else {
+                            None
+                        };
+
                     let _ = persist_tx
                         .send(PersistCommand::ClaudeSessionUpdate {
                             id: session_id.clone(),
-                            work_status: Some("permission".to_string()),
-                            attention_reason: Some(Some("awaitingPermission".to_string())),
+                            work_status: Some(
+                                serde_json::to_value(work_status)
+                                    .ok()
+                                    .and_then(|v| v.as_str().map(String::from))
+                                    .unwrap_or_else(|| "permission".to_string()),
+                            ),
+                            attention_reason: Some(Some(attention_reason.to_string())),
                             last_tool: Some(Some(tool_name.clone())),
                             last_tool_at: Some(Some(chrono_now())),
                             pending_tool_name: Some(Some(tool_name)),
                             pending_tool_input: Some(serialized_input),
-                            pending_question: None,
+                            pending_question,
                             source: None,
                             agent_type: None,
                             permission_mode: permission_mode.map(Some),
