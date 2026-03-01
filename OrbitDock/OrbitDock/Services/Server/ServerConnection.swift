@@ -258,6 +258,15 @@ private struct GitInitHTTPRequest: Encodable {
   let path: String
 }
 
+private struct McpToggleHTTPRequest: Encodable {
+  let serverName: String
+  let enabled: Bool
+}
+
+private struct McpServerNameHTTPRequest: Encodable {
+  let serverName: String
+}
+
 /// Empty body for POST endpoints that take no request payload.
 private struct EmptyBody: Encodable {}
 
@@ -1480,6 +1489,75 @@ class ServerConnection: ObservableObject {
     }
   }
 
+  /// Toggle an MCP server on/off
+  func toggleMcpServer(sessionId: String, serverName: String, enabled: Bool) {
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        try await fireAndForgetAPI(
+          path: "/api/sessions/\(escapedSessionId)/mcp/toggle",
+          method: "POST",
+          body: McpToggleHTTPRequest(serverName: serverName, enabled: enabled)
+        )
+      } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) { return }
+        onError?("mcp_toggle_failed", error.localizedDescription, sessionId)
+      }
+    }
+  }
+
+  /// Authenticate with an MCP server
+  func mcpAuthenticate(sessionId: String, serverName: String) {
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        try await fireAndForgetAPI(
+          path: "/api/sessions/\(escapedSessionId)/mcp/authenticate",
+          method: "POST",
+          body: McpServerNameHTTPRequest(serverName: serverName)
+        )
+      } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) { return }
+        onError?("mcp_authenticate_failed", error.localizedDescription, sessionId)
+      }
+    }
+  }
+
+  /// Clear authentication for an MCP server
+  func mcpClearAuth(sessionId: String, serverName: String) {
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        try await fireAndForgetAPI(
+          path: "/api/sessions/\(escapedSessionId)/mcp/clear-auth",
+          method: "POST",
+          body: McpServerNameHTTPRequest(serverName: serverName)
+        )
+      } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) { return }
+        onError?("mcp_clear_auth_failed", error.localizedDescription, sessionId)
+      }
+    }
+  }
+
+  /// Apply flag settings to a session
+  func applyFlagSettings(sessionId: String, settings: [String: Any]) {
+    Task { @MainActor in
+      do {
+        let escapedSessionId = encodePathComponent(sessionId)
+        let jsonData = try JSONSerialization.data(withJSONObject: settings)
+        try await fireAndForgetAPIRaw(
+          path: "/api/sessions/\(escapedSessionId)/flags",
+          method: "POST",
+          bodyData: jsonData
+        )
+      } catch {
+        if Self.shouldSuppressConnectorUnavailableError(error) { return }
+        onError?("apply_flag_settings_failed", error.localizedDescription, sessionId)
+      }
+    }
+  }
+
   /// Steer the active turn with additional guidance
   @discardableResult
   func steerTurn(
@@ -1492,6 +1570,16 @@ class ServerConnection: ObservableObject {
       .steerTurn(sessionId: sessionId, content: content, images: images, mentions: mentions),
       queueWhenDisconnected: true
     )
+  }
+
+  /// Stop a background task (subagent)
+  func stopTask(sessionId: String, taskId: String) {
+    send(.stopTask(sessionId: sessionId, taskId: taskId))
+  }
+
+  /// Rewind files to a specific user message checkpoint
+  func rewindFiles(sessionId: String, userMessageId: String) {
+    send(.rewindFiles(sessionId: sessionId, userMessageId: userMessageId))
   }
 
   /// Compact (summarize) the conversation context
@@ -1978,6 +2066,36 @@ class ServerConnection: ObservableObject {
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase
     request.httpBody = try encoder.encode(body)
+
+    let (data, response) = try await URLSession.shared.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw ServerRequestError.invalidResponse
+    }
+    guard (200 ..< 300).contains(http.statusCode) else {
+      let apiError = try? JSONDecoder().decode(APIErrorHTTPResponse.self, from: data)
+      throw ServerRequestError.httpStatus(
+        http.statusCode,
+        code: apiError?.code,
+        message: apiError?.error
+      )
+    }
+  }
+
+  private func fireAndForgetAPIRaw(
+    path: String,
+    method: String,
+    bodyData: Data,
+    queryItems: [URLQueryItem] = []
+  ) async throws {
+    guard let url = apiURL(path: path, queryItems: queryItems) else {
+      throw ServerRequestError.invalidEndpoint
+    }
+
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.timeoutInterval = 15
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = bodyData
 
     let (data, response) = try await URLSession.shared.data(for: request)
     guard let http = response as? HTTPURLResponse else {
