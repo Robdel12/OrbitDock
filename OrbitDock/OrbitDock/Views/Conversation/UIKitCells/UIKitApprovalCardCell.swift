@@ -26,23 +26,15 @@
     private let cardContainer = UIView()
     private let riskStrip = UIView()
 
-    // Header
+    // Merged header — tool icon + "ToolName · Approval Required" + risk badge
     private let headerIcon = UIImageView()
     private let headerLabel = UILabel()
-
-    // Tool badge
-    private let toolBadge = UIView()
-    private let toolIcon = UIImageView()
-    private let toolNameLabel = UILabel()
     private let riskBadgeContainer = UIView()
     private let riskBadgeLabel = UILabel()
 
     // Command preview — structured segments
     private let segmentStack = UIStackView()
     private let riskFindingsStack = UIStackView()
-    private let scopeRow = UIView()
-    private let scopeLabel = UILabel()
-    private let requestIdLabel = UILabel()
 
     // Question mode
     private let questionTextLabel = UILabel()
@@ -54,13 +46,12 @@
     private let takeoverDescription = UILabel()
     private let takeoverButton = UIButton(type: .system)
 
-    // Permission buttons
-    private let actionDivider = UIView()
-    private let buttonStack = UIStackView()
+    // Permission buttons — split containers with menu chevrons
+    private let buttonRow = UIView()
     private let denyButton = UIButton(type: .system)
+    private let denyChevronButton = UIButton(type: .system)
     private let approveButton = UIButton(type: .system)
-    private let actionHintLabel = UILabel()
-    private let moreActionsButton = UIButton(type: .system)
+    private let approveChevronButton = UIButton(type: .system)
 
     private var currentModel: ApprovalCardModel?
     private var questionOptionsTopConstraint: NSLayoutConstraint?
@@ -68,16 +59,10 @@
     private var questionTextFields: [String: UITextField] = [:]
     private var questionOptionButtons: [String: [UIButton]] = [:]
 
-    private enum Layout {
-      static let outerVerticalInset: CGFloat = 6
-      static let cardPadding: CGFloat = 14
-      static let headerIconSize: CGFloat = 15
-      static let commandVerticalPadding: CGFloat = 6
-      static let commandHorizontalPadding: CGFloat = 10
-      static let minCommandTextHeight: CGFloat = 22
-      static let maxCommandTextHeight: CGFloat = 220
-      static let primaryButtonHeight: CGFloat = 44
-      static let actionFooterHeight: CGFloat = 24
+    private typealias Layout = ApprovalCardHeightCalculator.Layout
+
+    private enum LocalLayout {
+      static let chevronWidth: CGFloat = 36
     }
 
     // MARK: - Init
@@ -112,7 +97,6 @@
       cardContainer.addSubview(riskStrip)
 
       setupHeader()
-      setupToolBadge()
       setupCommandPreview()
       setupQuestionMode()
       setupTakeoverMode()
@@ -123,8 +107,6 @@
         cardContainer.topAnchor.constraint(equalTo: contentView.topAnchor, constant: Layout.outerVerticalInset),
         cardContainer.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: inset),
         cardContainer.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -inset),
-        // Keep the card height anchored to the measured row height.
-        // Using <= here can collapse the container during cell reuse.
         cardContainer.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -Layout.outerVerticalInset),
 
         riskStrip.topAnchor.constraint(equalTo: cardContainer.topAnchor),
@@ -133,6 +115,8 @@
         riskStrip.heightAnchor.constraint(equalToConstant: 2),
       ])
     }
+
+    // MARK: - Merged Header
 
     private func setupHeader() {
       headerIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -143,36 +127,8 @@
       headerLabel.translatesAutoresizingMaskIntoConstraints = false
       headerLabel.font = UIFont.systemFont(ofSize: TypeScale.subhead, weight: .semibold)
       headerLabel.textColor = UIColor(Color.textPrimary)
+      headerLabel.lineBreakMode = .byTruncatingTail
       cardContainer.addSubview(headerLabel)
-
-      let pad = Layout.cardPadding
-      NSLayoutConstraint.activate([
-        headerIcon.topAnchor.constraint(equalTo: riskStrip.bottomAnchor, constant: pad),
-        headerIcon.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        headerIcon.widthAnchor.constraint(equalToConstant: Layout.headerIconSize),
-        headerIcon.heightAnchor.constraint(equalToConstant: Layout.headerIconSize),
-
-        headerLabel.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
-        headerLabel.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: CGFloat(Spacing.sm)),
-        headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: cardContainer.trailingAnchor, constant: -pad),
-      ])
-    }
-
-    private func setupToolBadge() {
-      toolBadge.layer.cornerRadius = 9
-      toolBadge.backgroundColor = UIColor(Color.backgroundTertiary)
-      toolBadge.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(toolBadge)
-
-      toolIcon.translatesAutoresizingMaskIntoConstraints = false
-      toolIcon.contentMode = .scaleAspectFit
-      toolIcon.tintColor = UIColor(Color.textSecondary)
-      toolBadge.addSubview(toolIcon)
-
-      toolNameLabel.translatesAutoresizingMaskIntoConstraints = false
-      toolNameLabel.font = UIFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
-      toolNameLabel.textColor = UIColor(Color.textSecondary)
-      toolBadge.addSubview(toolNameLabel)
 
       riskBadgeContainer.layer.cornerRadius = 7
       riskBadgeContainer.backgroundColor = UIColor(Color.statusError)
@@ -187,21 +143,17 @@
 
       let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
-        toolBadge.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
-        toolBadge.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        headerIcon.topAnchor.constraint(equalTo: riskStrip.bottomAnchor, constant: pad),
+        headerIcon.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        headerIcon.widthAnchor.constraint(equalToConstant: Layout.headerIconSize),
+        headerIcon.heightAnchor.constraint(equalToConstant: Layout.headerIconSize),
 
-        toolIcon.leadingAnchor.constraint(equalTo: toolBadge.leadingAnchor, constant: CGFloat(Spacing.sm)),
-        toolIcon.centerYAnchor.constraint(equalTo: toolBadge.centerYAnchor),
-        toolIcon.widthAnchor.constraint(equalToConstant: 12),
-        toolIcon.heightAnchor.constraint(equalToConstant: 12),
+        headerLabel.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
+        headerLabel.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: CGFloat(Spacing.sm)),
 
-        toolNameLabel.leadingAnchor.constraint(equalTo: toolIcon.trailingAnchor, constant: CGFloat(Spacing.xs)),
-        toolNameLabel.trailingAnchor.constraint(equalTo: toolBadge.trailingAnchor, constant: -CGFloat(Spacing.sm)),
-        toolNameLabel.topAnchor.constraint(equalTo: toolBadge.topAnchor, constant: CGFloat(Spacing.xs)),
-        toolNameLabel.bottomAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: -CGFloat(Spacing.xs)),
-
-        riskBadgeContainer.leadingAnchor.constraint(equalTo: toolBadge.trailingAnchor, constant: CGFloat(Spacing.sm)),
-        riskBadgeContainer.centerYAnchor.constraint(equalTo: toolBadge.centerYAnchor),
+        riskBadgeContainer.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
+        riskBadgeContainer.leadingAnchor.constraint(equalTo: headerLabel.trailingAnchor, constant: CGFloat(Spacing.sm)),
+        riskBadgeContainer.trailingAnchor.constraint(lessThanOrEqualTo: cardContainer.trailingAnchor, constant: -pad),
 
         riskBadgeLabel.topAnchor.constraint(equalTo: riskBadgeContainer.topAnchor, constant: 2),
         riskBadgeLabel.bottomAnchor.constraint(equalTo: riskBadgeContainer.bottomAnchor, constant: -2),
@@ -215,6 +167,8 @@
         ),
       ])
     }
+
+    // MARK: - Command Preview
 
     private func setupCommandPreview() {
       segmentStack.translatesAutoresizingMaskIntoConstraints = false
@@ -230,29 +184,9 @@
       riskFindingsStack.isHidden = true
       cardContainer.addSubview(riskFindingsStack)
 
-      scopeRow.translatesAutoresizingMaskIntoConstraints = false
-      scopeRow.isHidden = true
-      cardContainer.addSubview(scopeRow)
-
-      scopeLabel.translatesAutoresizingMaskIntoConstraints = false
-      scopeLabel.font = UIFont.systemFont(ofSize: TypeScale.micro)
-      scopeLabel.textColor = UIColor(Color.textQuaternary)
-      scopeLabel.lineBreakMode = .byTruncatingTail
-      scopeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-      scopeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-      scopeRow.addSubview(scopeLabel)
-
-      requestIdLabel.translatesAutoresizingMaskIntoConstraints = false
-      requestIdLabel.font = UIFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
-      requestIdLabel.textColor = UIColor(Color.textQuaternary)
-      requestIdLabel.textAlignment = .right
-      requestIdLabel.setContentHuggingPriority(.required, for: .horizontal)
-      requestIdLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-      scopeRow.addSubview(requestIdLabel)
-
       let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
-        segmentStack.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.sm)),
+        segmentStack.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.sm)),
         segmentStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         segmentStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
@@ -262,24 +196,6 @@
         ),
         riskFindingsStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         riskFindingsStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-
-        scopeRow.topAnchor.constraint(
-          equalTo: riskFindingsStack.bottomAnchor,
-          constant: CGFloat(Spacing.xs)
-        ),
-        scopeRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        scopeRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-
-        scopeLabel.leadingAnchor.constraint(equalTo: scopeRow.leadingAnchor),
-        scopeLabel.topAnchor.constraint(equalTo: scopeRow.topAnchor),
-        scopeLabel.bottomAnchor.constraint(equalTo: scopeRow.bottomAnchor),
-
-        requestIdLabel.leadingAnchor.constraint(
-          greaterThanOrEqualTo: scopeLabel.trailingAnchor,
-          constant: CGFloat(Spacing.sm)
-        ),
-        requestIdLabel.trailingAnchor.constraint(equalTo: scopeRow.trailingAnchor),
-        requestIdLabel.centerYAnchor.constraint(equalTo: scopeRow.centerYAnchor),
       ])
     }
 
@@ -359,7 +275,7 @@
 
       let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
-        takeoverDescription.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.md)),
+        takeoverDescription.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         takeoverDescription.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         takeoverDescription.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
@@ -370,83 +286,107 @@
       ])
     }
 
+    // MARK: - Split-Button Permission Buttons
+
     private func setupPermissionButtons() {
-      actionDivider.backgroundColor = UIColor(Color.textQuaternary).withAlphaComponent(0.3)
-      actionDivider.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(actionDivider)
+      buttonRow.translatesAutoresizingMaskIntoConstraints = false
+      cardContainer.addSubview(buttonRow)
 
-      buttonStack.axis = .horizontal
-      buttonStack.spacing = CGFloat(Spacing.xs)
-      buttonStack.distribution = .fillEqually
-      buttonStack.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(buttonStack)
-
-      // Deny button with context menu
+      // — Deny side: button + chevron —
+      denyButton.translatesAutoresizingMaskIntoConstraints = false
       denyButton.setTitle("Deny", for: .normal)
       denyButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
       denyButton.setTitleColor(UIColor(Color.statusError), for: .normal)
-      denyButton.backgroundColor = UIColor(Color.statusError).withAlphaComponent(CGFloat(OpacityTier.light))
       denyButton.layer.cornerRadius = CGFloat(Radius.md)
-      denyButton.accessibilityHint = "Press and hold for deny reason or stop turn options"
+      denyButton.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
       denyButton.addTarget(self, action: #selector(denyButtonTapped), for: .touchUpInside)
-      buttonStack.addArrangedSubview(denyButton)
+      buttonRow.addSubview(denyButton)
 
-      // Approve button with context menu
-      approveButton.setTitle("Approve Once", for: .normal)
-      approveButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+      denyChevronButton.translatesAutoresizingMaskIntoConstraints = false
+      denyChevronButton.setImage(
+        UIImage(
+          systemName: "chevron.down",
+          withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        ),
+        for: .normal
+      )
+      denyChevronButton.tintColor = UIColor(Color.statusError).withAlphaComponent(0.8)
+      denyChevronButton.layer.cornerRadius = CGFloat(Radius.md)
+      denyChevronButton.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+      denyChevronButton.showsMenuAsPrimaryAction = true
+      buttonRow.addSubview(denyChevronButton)
+
+      // — Approve side: button + chevron —
+      approveButton.translatesAutoresizingMaskIntoConstraints = false
+      approveButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.body, weight: .bold)
       approveButton.setTitleColor(.white, for: .normal)
-      approveButton.backgroundColor = UIColor(Color.accent).withAlphaComponent(0.75)
       approveButton.layer.cornerRadius = CGFloat(Radius.md)
-      approveButton.accessibilityHint = "Press and hold for session or always allow options"
+      approveButton.layer.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
       approveButton.addTarget(self, action: #selector(approveButtonTapped), for: .touchUpInside)
-      buttonStack.addArrangedSubview(approveButton)
+      buttonRow.addSubview(approveButton)
 
-      actionHintLabel.translatesAutoresizingMaskIntoConstraints = false
-      actionHintLabel.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      actionHintLabel.textColor = UIColor(Color.textQuaternary)
-      actionHintLabel.text = "Decision applies to the full request. Long-press or More for alternate actions."
-      actionHintLabel.numberOfLines = 1
-      actionHintLabel.lineBreakMode = .byTruncatingTail
-      actionHintLabel.adjustsFontSizeToFitWidth = true
-      actionHintLabel.minimumScaleFactor = 0.85
-      actionHintLabel.isHidden = true
-      cardContainer.addSubview(actionHintLabel)
-
-      moreActionsButton.translatesAutoresizingMaskIntoConstraints = false
-      var moreConfig = UIButton.Configuration.plain()
-      moreConfig.title = "More"
-      moreConfig.baseForegroundColor = UIColor(Color.textSecondary)
-      moreConfig.contentInsets = NSDirectionalEdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8)
-      moreActionsButton.configuration = moreConfig
-      moreActionsButton.titleLabel?.font = UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold)
-      moreActionsButton.backgroundColor = UIColor(Color.backgroundTertiary).withAlphaComponent(0.7)
-      moreActionsButton.layer.cornerRadius = CGFloat(Radius.sm)
-      moreActionsButton.showsMenuAsPrimaryAction = true
-      moreActionsButton.isHidden = true
-      cardContainer.addSubview(moreActionsButton)
+      approveChevronButton.translatesAutoresizingMaskIntoConstraints = false
+      approveChevronButton.setImage(
+        UIImage(
+          systemName: "chevron.down",
+          withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        ),
+        for: .normal
+      )
+      approveChevronButton.tintColor = UIColor.white.withAlphaComponent(0.8)
+      approveChevronButton.layer.cornerRadius = CGFloat(Radius.md)
+      approveChevronButton.layer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+      approveChevronButton.showsMenuAsPrimaryAction = true
+      buttonRow.addSubview(approveChevronButton)
 
       let pad = Layout.cardPadding
+      // Deny group = denyButton + denyChevron, Approve group = approveButton + approveChevron
+      // Deny group: 40% width, Approve group: 60% width
+      let denyGroup = UILayoutGuide()
+      let approveGroup = UILayoutGuide()
+      buttonRow.addLayoutGuide(denyGroup)
+      buttonRow.addLayoutGuide(approveGroup)
+
       NSLayoutConstraint.activate([
-        actionDivider.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        actionDivider.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        actionDivider.heightAnchor.constraint(equalToConstant: 1),
+        buttonRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
+        buttonRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+        buttonRow.heightAnchor.constraint(equalToConstant: Layout.primaryButtonHeight),
 
-        buttonStack.topAnchor.constraint(equalTo: actionDivider.bottomAnchor, constant: CGFloat(Spacing.sm)),
-        buttonStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        buttonStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        buttonStack.heightAnchor.constraint(equalToConstant: Layout.primaryButtonHeight),
+        // Deny group guide
+        denyGroup.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor),
+        denyGroup.topAnchor.constraint(equalTo: buttonRow.topAnchor),
+        denyGroup.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
 
-        actionHintLabel.topAnchor.constraint(equalTo: buttonStack.bottomAnchor, constant: CGFloat(Spacing.xs)),
-        actionHintLabel.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        actionHintLabel.trailingAnchor.constraint(
-          lessThanOrEqualTo: moreActionsButton.leadingAnchor,
-          constant: -CGFloat(Spacing.sm)
-        ),
-        actionHintLabel.heightAnchor.constraint(equalToConstant: Layout.actionFooterHeight),
+        // Approve group guide
+        approveGroup.leadingAnchor.constraint(equalTo: denyGroup.trailingAnchor, constant: CGFloat(Spacing.sm)),
+        approveGroup.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor),
+        approveGroup.topAnchor.constraint(equalTo: buttonRow.topAnchor),
+        approveGroup.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
 
-        moreActionsButton.centerYAnchor.constraint(equalTo: actionHintLabel.centerYAnchor),
-        moreActionsButton.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        moreActionsButton.heightAnchor.constraint(equalToConstant: Layout.actionFooterHeight),
+        // Ratio: deny 2/5, approve 3/5
+        denyGroup.widthAnchor.constraint(equalTo: approveGroup.widthAnchor, multiplier: 2.0 / 3.0),
+
+        // Deny button + chevron within deny group
+        denyButton.leadingAnchor.constraint(equalTo: denyGroup.leadingAnchor),
+        denyButton.topAnchor.constraint(equalTo: denyGroup.topAnchor),
+        denyButton.bottomAnchor.constraint(equalTo: denyGroup.bottomAnchor),
+        denyButton.trailingAnchor.constraint(equalTo: denyChevronButton.leadingAnchor),
+
+        denyChevronButton.trailingAnchor.constraint(equalTo: denyGroup.trailingAnchor),
+        denyChevronButton.topAnchor.constraint(equalTo: denyGroup.topAnchor),
+        denyChevronButton.bottomAnchor.constraint(equalTo: denyGroup.bottomAnchor),
+        denyChevronButton.widthAnchor.constraint(equalToConstant: LocalLayout.chevronWidth),
+
+        // Approve button + chevron within approve group
+        approveButton.leadingAnchor.constraint(equalTo: approveGroup.leadingAnchor),
+        approveButton.topAnchor.constraint(equalTo: approveGroup.topAnchor),
+        approveButton.bottomAnchor.constraint(equalTo: approveGroup.bottomAnchor),
+        approveButton.trailingAnchor.constraint(equalTo: approveChevronButton.leadingAnchor),
+
+        approveChevronButton.trailingAnchor.constraint(equalTo: approveGroup.trailingAnchor),
+        approveChevronButton.topAnchor.constraint(equalTo: approveGroup.topAnchor),
+        approveChevronButton.bottomAnchor.constraint(equalTo: approveGroup.bottomAnchor),
+        approveChevronButton.widthAnchor.constraint(equalToConstant: LocalLayout.chevronWidth),
       ])
     }
 
@@ -477,12 +417,8 @@
       let hasContent = ApprovalPermissionPreviewHelpers.hasPreviewContent(model)
 
       // Show
-      toolBadge.isHidden = false
       segmentStack.isHidden = !hasContent
-      actionDivider.isHidden = false
-      buttonStack.isHidden = false
-      actionHintLabel.isHidden = false
-      moreActionsButton.isHidden = false
+      buttonRow.isHidden = false
       riskBadgeContainer.isHidden = model.risk != .high
 
       // Hide
@@ -496,38 +432,33 @@
       takeoverDescription.isHidden = true
       takeoverButton.isHidden = true
 
-      // Header
-      let iconName = model.risk == .high ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill"
-      headerIcon.image = UIImage(systemName: iconName)
-      headerIcon.tintColor = UIColor(model.risk.tintColor)
-      headerLabel.text = "Approval Required"
-
-      // Tool badge
-      if let toolName = model.toolName {
-        toolIcon.image = UIImage(systemName: ToolCardStyle.icon(for: toolName))
-        toolNameLabel.text = toolName
-      }
+      // Merged header — tool icon + "ToolName · Status"
+      let headerConfig = ApprovalCardConfiguration.headerConfig(for: model, mode: .permission)
+      headerIcon.image = UIImage(systemName: headerConfig.iconName)
+      headerIcon.tintColor = UIColor(headerConfig.iconTint)
+      headerLabel.text = headerConfig.label
+      approveButton.setTitle(headerConfig.approveTitle, for: .normal)
+      denyButton.setTitle(headerConfig.denyTitle, for: .normal)
 
       // Structured preview content
       configurePreviewContent(model)
       configureRiskFindings(model)
-      configureScopeRow(model)
 
-      // Configure context menus on buttons
-      configureDenyMenu(model)
-      configureApproveMenu(model)
-      configureMoreActionsMenu(model)
-      let hasAlwaysAllow = model.approvalType == .exec && model.hasAmendment
-      actionHintLabel.text = hasAlwaysAllow
-        ? "Decision applies to the full request. Use long-press or More for session, always allow, or deny-reason actions."
-        : "Decision applies to the full request. Use long-press or More for session and deny-reason actions."
-      approveButton.accessibilityHint = hasAlwaysAllow
-        ? "Approves the full request once. Press and hold for session or always allow options."
-        : "Approves the full request once. Press and hold for allow-for-session options."
-      moreActionsButton.accessibilityHint = "Opens all full-request approval and denial actions."
+      // Style split buttons
+      let errorColor = UIColor(Color.statusError)
+      denyButton.backgroundColor = errorColor.withAlphaComponent(CGFloat(OpacityTier.light))
+      denyChevronButton.backgroundColor = errorColor.withAlphaComponent(CGFloat(OpacityTier.light))
 
-      // Position divider
-      updateDividerPosition(model)
+      let accentColor = UIColor(Color.accent)
+      approveButton.backgroundColor = accentColor
+      approveChevronButton.backgroundColor = accentColor
+
+      // Configure menus on chevron buttons
+      denyChevronButton.menu = UIMenu(children: denyMenuActions(model))
+      approveChevronButton.menu = UIMenu(children: approveMenuActions(model))
+
+      // Position button row
+      updateButtonRowPosition(model)
     }
 
     // MARK: - Structured Preview Content
@@ -680,7 +611,6 @@
         ? container.topAnchor
         : topAnchorView.bottomAnchor
 
-      // Cap text height to match the height calculation's maxCommandTextHeight clamp.
       let bottomPin = textLabel.bottomAnchor.constraint(
         equalTo: container.bottomAnchor,
         constant: -Layout.commandVerticalPadding
@@ -745,7 +675,6 @@
       valueLabel.text = value
       container.addSubview(valueLabel)
 
-      // Cap value text height to match the height calculation's maxCommandTextHeight clamp.
       let bottomPin = valueLabel.bottomAnchor.constraint(
         equalTo: container.bottomAnchor,
         constant: -Layout.commandVerticalPadding
@@ -836,20 +765,6 @@
       riskFindingsStack.isHidden = false
     }
 
-    private func configureScopeRow(_ model: ApprovalCardModel) {
-      let hasScope = ApprovalPermissionPreviewHelpers.trimmed(model.decisionScope) != nil
-      let hasId = ApprovalPermissionPreviewHelpers.trimmed(model.approvalId) != nil
-
-      guard hasScope || hasId else {
-        scopeRow.isHidden = true
-        return
-      }
-
-      scopeLabel.text = model.decisionScope
-      requestIdLabel.text = model.approvalId.map { "#\($0)" }
-      scopeRow.isHidden = false
-    }
-
     private func configureQuestion(_ model: ApprovalCardModel) {
       let tint = UIColor(Color.statusQuestion)
       riskStrip.backgroundColor = tint
@@ -880,21 +795,17 @@
       }
 
       // Hide
-      toolBadge.isHidden = true
       segmentStack.isHidden = true
       riskFindingsStack.isHidden = true
-      scopeRow.isHidden = true
-      actionDivider.isHidden = true
-      buttonStack.isHidden = true
-      actionHintLabel.isHidden = true
-      moreActionsButton.isHidden = true
+      buttonRow.isHidden = true
       riskBadgeContainer.isHidden = true
       takeoverDescription.isHidden = true
       takeoverButton.isHidden = true
 
-      headerIcon.image = UIImage(systemName: "questionmark.bubble.fill")
+      let headerConfig = ApprovalCardConfiguration.headerConfig(for: model, mode: .question)
+      headerIcon.image = UIImage(systemName: headerConfig.iconName)
       headerIcon.tintColor = tint
-      headerLabel.text = "Question"
+      headerLabel.text = headerConfig.label
       if isMultiPrompt {
         questionTextLabel.text = "Answer all questions to continue."
       } else {
@@ -916,21 +827,11 @@
       // Show
       takeoverDescription.isHidden = false
       takeoverButton.isHidden = false
-      toolBadge.isHidden = model.toolName == nil
-
-      if let toolName = model.toolName {
-        toolIcon.image = UIImage(systemName: ToolCardStyle.icon(for: toolName))
-        toolNameLabel.text = toolName
-      }
 
       // Hide
       segmentStack.isHidden = true
       riskFindingsStack.isHidden = true
-      scopeRow.isHidden = true
-      actionDivider.isHidden = true
-      buttonStack.isHidden = true
-      actionHintLabel.isHidden = true
-      moreActionsButton.isHidden = true
+      buttonRow.isHidden = true
       riskBadgeContainer.isHidden = true
       questionTextLabel.isHidden = true
       questionOptionsTopConstraint?.constant = 0
@@ -940,112 +841,74 @@
       answerField.isHidden = true
       submitButton.isHidden = true
 
-      let iconName = isPermission ? "lock.fill" : "questionmark.bubble.fill"
-      headerIcon.image = UIImage(systemName: iconName)
+      let headerConfig = ApprovalCardConfiguration.headerConfig(for: model, mode: .takeover)
+      headerIcon.image = UIImage(systemName: headerConfig.iconName)
       headerIcon.tintColor = tint
-      headerLabel.text = isPermission ? "Approval Required" : "Question Pending"
+      headerLabel.text = headerConfig.label
       takeoverDescription.text = "Take over this session to respond."
-      takeoverButton.setTitle(isPermission ? "Take Over & Review" : "Take Over & Answer", for: .normal)
+      takeoverButton.setTitle(ApprovalCardConfiguration.takeoverButtonTitle(for: model), for: .normal)
       takeoverButton.backgroundColor = tint.withAlphaComponent(0.75)
     }
 
-    private func configureDenyMenu(_ model: ApprovalCardModel) {
-      denyButton.menu = UIMenu(children: denyMenuActions(model))
-      denyButton.showsMenuAsPrimaryAction = false
-    }
-
-    private func configureApproveMenu(_ model: ApprovalCardModel) {
-      approveButton.menu = UIMenu(children: approveMenuActions(model))
-      approveButton.showsMenuAsPrimaryAction = false
-    }
-
-    private func configureMoreActionsMenu(_ model: ApprovalCardModel) {
-      let approveInline = UIMenu(
-        title: "Approve",
-        options: .displayInline,
-        children: approveMenuActions(model)
-      )
-      let denyInline = UIMenu(
-        title: "Deny",
-        options: .displayInline,
-        children: denyMenuActions(model)
-      )
-      moreActionsButton.menu = UIMenu(children: [approveInline, denyInline])
-    }
+    // MARK: - Menu Actions
 
     private func denyMenuActions(_ _: ApprovalCardModel) -> [UIAction] {
-      let denyAction = UIAction(
-        title: "Deny",
-        image: UIImage(systemName: "xmark"),
-        attributes: .destructive
-      ) { [weak self] _ in
-        self?.onDecision?("denied", nil, nil)
+      ApprovalCardConfiguration.denyMenuActions.map { action in
+        if action.decision == "deny_reason" {
+          return UIAction(
+            title: action.title,
+            image: action.iconName.flatMap { UIImage(systemName: $0) }
+          ) { [weak self] _ in
+            guard let self, let vc = self.window?.rootViewController else { return }
+            let alert = UIAlertController(title: "Deny Reason", message: nil, preferredStyle: .alert)
+            alert.addTextField { $0.placeholder = "Reason..." }
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            alert.addAction(UIAlertAction(title: "Deny", style: .destructive) { [weak self] _ in
+              let reason = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+              guard !reason.isEmpty else { return }
+              self?.onDecision?("denied", reason, nil)
+            })
+            vc.present(alert, animated: true)
+          }
+        }
+        return UIAction(
+          title: action.title,
+          image: action.iconName.flatMap { UIImage(systemName: $0) },
+          attributes: action.isDestructive ? .destructive : []
+        ) { [weak self] _ in
+          self?.onDecision?(action.decision, nil, nil)
+        }
       }
-      let denyReasonAction = UIAction(
-        title: "Deny with Reason",
-        image: UIImage(systemName: "text.bubble")
-      ) { [weak self] _ in
-        // Show an alert for reason input on iOS
-        guard let self, let vc = self.window?.rootViewController else { return }
-        let alert = UIAlertController(title: "Deny Reason", message: nil, preferredStyle: .alert)
-        alert.addTextField { $0.placeholder = "Reason..." }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Deny", style: .destructive) { [weak self] _ in
-          let reason = alert.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-          guard !reason.isEmpty else { return }
-          self?.onDecision?("denied", reason, nil)
-        })
-        vc.present(alert, animated: true)
-      }
-      let denyStopAction = UIAction(
-        title: "Deny & Stop",
-        image: UIImage(systemName: "stop.fill"),
-        attributes: .destructive
-      ) { [weak self] _ in
-        self?.onDecision?("abort", nil, nil)
-      }
-
-      return [denyAction, denyReasonAction, denyStopAction]
     }
 
     private func approveMenuActions(_ model: ApprovalCardModel) -> [UIAction] {
-      var children: [UIAction] = []
-      children
-        .append(UIAction(title: "Approve Request Once", image: UIImage(systemName: "checkmark")) { [weak self] _ in
-          self?.onDecision?("approved", nil, nil)
-        })
-      children
-        .append(UIAction(title: "Allow for Session", image: UIImage(systemName: "checkmark.seal")) { [weak self] _ in
-          self?.onDecision?("approved_for_session", nil, nil)
-        })
-      if model.approvalType == .exec, model.hasAmendment {
-        children
-          .append(UIAction(title: "Always Allow", image: UIImage(systemName: "checkmark.shield")) { [weak self] _ in
-            self?.onDecision?("approved_always", nil, nil)
-          })
+      ApprovalCardConfiguration.approveMenuActions(for: model).map { action in
+        UIAction(
+          title: action.title,
+          image: action.iconName.flatMap { UIImage(systemName: $0) }
+        ) { [weak self] _ in
+          self?.onDecision?(action.decision, nil, nil)
+        }
       }
-
-      return children
     }
 
-    private func updateDividerPosition(_: ApprovalCardModel) {
-      for constraint in cardContainer.constraints where constraint.firstItem === actionDivider
+    private func updateButtonRowPosition(_ model: ApprovalCardModel) {
+      for constraint in cardContainer.constraints where constraint.firstItem === buttonRow
         && constraint.firstAttribute == .top
       {
         constraint.isActive = false
       }
 
-      let anchor: UIView = if !scopeRow.isHidden {
-        scopeRow
-      } else if !riskFindingsStack.isHidden {
+      let anchor: UIView = if !riskFindingsStack.isHidden {
         riskFindingsStack
       } else if !segmentStack.isHidden {
         segmentStack
       } else {
-        toolBadge
+        headerIcon
       }
 
-      actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.sm)).isActive = true
+      let spacing: CGFloat = anchor === headerIcon ? CGFloat(Spacing.md) : CGFloat(Spacing.md)
+      buttonRow.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: spacing).isActive = true
     }
 
     // MARK: - Actions
@@ -1082,6 +945,8 @@
       onTakeOver?()
     }
 
+    // MARK: - Question Options
+
     private func configureQuestionOptions(_ options: [ApprovalQuestionOption]) {
       for view in questionOptionsStack.arrangedSubviews {
         questionOptionsStack.removeArrangedSubview(view)
@@ -1095,7 +960,7 @@
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
         var config = UIButton.Configuration.plain()
-        config.title = Self.questionOptionDisplayText(option)
+        config.title = ApprovalCardHeightCalculator.questionOptionDisplayText(option)
         config.baseForegroundColor = UIColor(Color.textPrimary)
         config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
         config.titleLineBreakMode = .byWordWrapping
@@ -1165,7 +1030,7 @@
             let button = UIButton(type: .system)
             button.translatesAutoresizingMaskIntoConstraints = false
             var config = UIButton.Configuration.plain()
-            config.title = Self.questionOptionDisplayText(option)
+            config.title = ApprovalCardHeightCalculator.questionOptionDisplayText(option)
             config.baseForegroundColor = UIColor(Color.textPrimary)
             config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12)
             config.titleLineBreakMode = .byWordWrapping
@@ -1300,209 +1165,11 @@
     // MARK: - Height
 
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
-      guard let model else { return 180 }
-
-      let pad = Layout.cardPadding
-      let outerInset = Layout.outerVerticalInset
-      let laneInset = ConversationLayout.laneHorizontalInset
-      let contentWidth = availableWidth - laneInset * 2 - pad * 2
-
-      switch model.mode {
-        case .permission:
-          var h: CGFloat = outerInset + 2 + pad // cell pad + risk strip + card pad
-          h += Layout.headerIconSize // header
-          h += CGFloat(Spacing.md) + 20 // tool badge
-
-          let hasContent = ApprovalPermissionPreviewHelpers.hasPreviewContent(model)
-          if hasContent {
-            h += CGFloat(Spacing.sm) // spacing before segment stack
-            h += Self.segmentStackHeight(for: model, contentWidth: contentWidth)
-          }
-
-          if !model.riskFindings.isEmpty {
-            h += CGFloat(Spacing.sm)
-            let findingHeight: CGFloat = 14
-            h += findingHeight * CGFloat(model.riskFindings.count)
-            h += CGFloat(Spacing.xs) * CGFloat(max(0, model.riskFindings.count - 1))
-          }
-
-          let hasScope = ApprovalPermissionPreviewHelpers.trimmed(model.decisionScope) != nil
-          let hasId = ApprovalPermissionPreviewHelpers.trimmed(model.approvalId) != nil
-          if hasScope || hasId {
-            h += CGFloat(Spacing.xs) + 12
-          }
-
-          h += CGFloat(Spacing.sm) + 1 // divider
-          h += CGFloat(Spacing.sm) + Layout.primaryButtonHeight // primary buttons (44pt touch targets)
-          h += CGFloat(Spacing.xs) + Layout.actionFooterHeight
-          h += pad + outerInset // card pad + cell pad
-          return h
-
-        case .question:
-          var h: CGFloat = outerInset + 2 + pad
-          h += Layout.headerIconSize // header
-          h += CGFloat(Spacing.md)
-          let prompts = questionPrompts(for: model)
-          if prompts.count > 1 {
-            h += Self.measureTextHeight(
-              "Answer all questions to continue.",
-              font: UIFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
-              width: contentWidth
-            )
-            h += CGFloat(Spacing.md)
-            for (index, prompt) in prompts.enumerated() {
-              h += questionPromptHeight(prompt, width: contentWidth)
-              if index < prompts.count - 1 {
-                h += CGFloat(Spacing.sm)
-              }
-            }
-            h += CGFloat(Spacing.md) + 42 // submit button
-          } else if let prompt = prompts.first {
-            let qFont = UIFont.systemFont(ofSize: TypeScale.reading)
-            h += Self.measureTextHeight(prompt.question, font: qFont, width: contentWidth)
-            if prompt.options.isEmpty {
-              h += CGFloat(Spacing.md) + 34 // answer field
-              h += CGFloat(Spacing.md) + 42 // submit button
-            } else {
-              h += CGFloat(Spacing.md) // spacing before options
-              for (index, option) in prompt.options.enumerated() {
-                h += Self.questionOptionHeight(option, width: contentWidth)
-                if index < prompt.options.count - 1 {
-                  h += CGFloat(Spacing.xs)
-                }
-              }
-            }
-          } else {
-            h += 20
-            h += CGFloat(Spacing.md) + 34 // answer field
-            h += CGFloat(Spacing.md) + 42 // submit button
-          }
-          h += pad + outerInset
-          return h
-
-        case .takeover:
-          var h: CGFloat = outerInset + 2 + pad
-          h += Layout.headerIconSize // header
-          h += CGFloat(Spacing.md) + 20 // tool badge
-          h += CGFloat(Spacing.md) + 20 // description
-          h += CGFloat(Spacing.md) + 42 // button
-          h += pad + outerInset
-          return h
-
-        case .none:
-          return 1
-      }
-    }
-
-    private static func measureTextHeight(_ text: String, font: UIFont, width: CGFloat) -> CGFloat {
-      guard !text.isEmpty, width > 0 else { return 0 }
-      let attr = NSAttributedString(string: text, attributes: [.font: font])
-      let rect = attr.boundingRect(
-        with: CGSize(width: width, height: .greatestFiniteMagnitude),
-        options: [.usesLineFragmentOrigin, .usesFontLeading],
-        context: nil
-      )
-      return ceil(rect.height)
-    }
-
-    private static func segmentStackHeight(for model: ApprovalCardModel, contentWidth: CGFloat) -> CGFloat {
-      let textWidth = max(1, contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2)
-      let monoFont = UIFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-
-      var segments: [(command: String, hasOperator: Bool)] = []
-
-      switch model.previewType {
-        case .shellCommand:
-          if !model.shellSegments.isEmpty {
-            segments = model.shellSegments.map { ($0.command, $0.leadingOperator != nil) }
-          } else if let cmd = ApprovalPermissionPreviewHelpers.trimmed(model.command) {
-            segments = [(cmd, false)]
-          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
-            segments = [(manifest, false)]
-          }
-        default:
-          if let value = ApprovalPermissionPreviewHelpers.previewValue(for: model) {
-            let labelHeight: CGFloat = 12
-            let textHeight = measureTextHeight(value, font: monoFont, width: textWidth)
-            let clampedText = min(textHeight, Layout.maxCommandTextHeight)
-            return Layout.commandVerticalPadding + labelHeight + CGFloat(Spacing.xxs) + clampedText + Layout
-              .commandVerticalPadding
-          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
-            segments = [(manifest, false)]
-          }
-      }
-
-      guard !segments.isEmpty else { return 0 }
-
-      var total: CGFloat = 0
-      for (index, segment) in segments.enumerated() {
-        let textHeight = measureTextHeight(segment.command, font: monoFont, width: textWidth)
-        let clampedText = min(textHeight, Layout.maxCommandTextHeight)
-        var segmentHeight = Layout.commandVerticalPadding + clampedText + Layout.commandVerticalPadding
-        if segment.hasOperator {
-          segmentHeight += 16 + CGFloat(Spacing.xs)
-        }
-        total += segmentHeight
-        if index > 0 {
-          total += CGFloat(Spacing.xs)
-        }
-      }
-      return total
-    }
-
-    private static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
-      if let description = option.description, !description.isEmpty {
-        return "\(option.label)\n\(description)"
-      }
-      return option.label
+      ApprovalCardHeightCalculator.requiredHeight(for: model, availableWidth: availableWidth)
     }
 
     private static func questionPrompts(for model: ApprovalCardModel) -> [ApprovalQuestionPrompt] {
       model.questions
-    }
-
-    private static func questionPromptHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {
-      var height: CGFloat = 0
-      if let header = prompt.header, !header.isEmpty {
-        height += measureTextHeight(
-          header.uppercased(),
-          font: UIFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
-          width: width
-        )
-        height += 4
-      }
-
-      height += measureTextHeight(
-        prompt.question,
-        font: UIFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
-        width: width
-      )
-
-      if !prompt.options.isEmpty {
-        height += 6
-        for (index, option) in prompt.options.enumerated() {
-          height += questionOptionHeight(option, width: width)
-          if index < prompt.options.count - 1 {
-            height += CGFloat(Spacing.xs)
-          }
-        }
-      }
-
-      if prompt.options.isEmpty || prompt.allowsOther {
-        height += 6 + 34
-      }
-
-      return height
-    }
-
-    private static func questionOptionHeight(_ option: ApprovalQuestionOption, width: CGFloat) -> CGFloat {
-      let text = questionOptionDisplayText(option)
-      let textHeight = measureTextHeight(
-        text,
-        font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
-        width: max(1, width - 24)
-      )
-      return max(44, textHeight + 20)
     }
 
   }

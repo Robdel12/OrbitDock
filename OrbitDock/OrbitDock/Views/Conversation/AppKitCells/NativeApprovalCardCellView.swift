@@ -26,28 +26,17 @@
     private let cardContainer = NSView()
     private let riskStrip = NSView()
 
-    // Header
+    // Merged header — tool icon + "ToolName · Approval Required" + risk badge + spinner
     private let headerIcon = NSImageView()
     private let headerLabel = NSTextField(labelWithString: "")
-    private let spinnerView = NSProgressIndicator()
-
-    // Tool badge row
-    private let toolBadge = NSView()
-    private let toolIcon = NSImageView()
-    private let toolNameLabel = NSTextField(labelWithString: "")
     private let riskBadge = NSView()
     private let riskBadgeIcon = NSImageView()
     private let riskBadgeLabel = NSTextField(labelWithString: "HIGH RISK")
+    private let spinnerView = NSProgressIndicator()
 
     // Command preview — structured segments
     private let segmentStack = NSStackView()
     private let riskFindingsStack = NSStackView()
-    private let projectPathRow = NSView()
-    private let projectPathIcon = NSImageView()
-    private let projectPathLabel = NSTextField(labelWithString: "")
-    private let scopeRow = NSView()
-    private let scopeLabel = NSTextField(labelWithString: "")
-    private let requestIdLabel = NSTextField(labelWithString: "")
 
     // Question mode
     private let questionTextLabel = NSTextField(wrappingLabelWithString: "")
@@ -62,23 +51,26 @@
     /// Diff preview
     private let diffContainer = NSView()
 
-    // Permission buttons
+    // Permission buttons — split-button containers with dropdown chevrons
     private let buttonRow = NSView()
-    private let denyButton = NSButton()
-    private let approveButton = NSButton()
-    private let secondaryRow = NSStackView()
-    private let sessionAllowButton = NSButton()
-    private let alwaysAllowButton = NSButton()
-    private let denyReasonButton = NSButton()
-    private let denyStopButton = NSButton()
+    private let denySplitContainer = NSView()
+    private let denyMainArea = NSView()
+    private let denyLabel = NSTextField(labelWithString: "")
+    private let denyChevronDivider = NSView()
+    private let denyChevronArea = NSView()
+    private let denyChevronIcon = NSImageView()
+    private let approveSplitContainer = NSView()
+    private let approveMainArea = NSView()
+    private let approveIcon = NSImageView()
+    private let approveLabel = NSTextField(labelWithString: "")
+    private let approveChevronDivider = NSView()
+    private let approveChevronArea = NSView()
+    private let approveChevronIcon = NSImageView()
 
     // Deny reason panel
     private let denyReasonContainer = NSView()
     private let denyReasonField = NSTextField()
     private let sendDenialButton = NSButton()
-
-    /// Divider
-    private let actionDivider = NSView()
 
     private var currentModel: ApprovalCardModel?
     private var showDenyReason = false
@@ -88,16 +80,16 @@
     private var questionOptionButtons: [String: [NSButton]] = [:]
     private var questionOptionPayloads: [ObjectIdentifier: (questionId: String, optionLabel: String)] = [:]
 
-    private enum Layout {
-      static let outerVerticalInset: CGFloat = 6
-      static let cardPadding: CGFloat = 12
-      static let headerIconSize: CGFloat = 14
-      static let commandVerticalPadding: CGFloat = 6
-      static let commandHorizontalPadding: CGFloat = 10
-      static let minCommandTextHeight: CGFloat = 22
-      static let maxCommandTextHeight: CGFloat = 220
-      static let primaryButtonHeight: CGFloat = 32
-      static let secondaryRowHeight: CGFloat = 18
+    // Click gesture recognizers for split buttons
+    private var denyMainClick: NSClickGestureRecognizer?
+    private var denyChevronClick: NSClickGestureRecognizer?
+    private var approveMainClick: NSClickGestureRecognizer?
+    private var approveChevronClick: NSClickGestureRecognizer?
+
+    private typealias Layout = ApprovalCardHeightCalculator.Layout
+
+    private enum LocalLayout {
+      static let chevronWidth: CGFloat = 28
     }
 
     // MARK: - Init
@@ -134,7 +126,6 @@
       cardContainer.addSubview(riskStrip)
 
       setupHeader()
-      setupToolBadge()
       setupCommandPreview()
       setupQuestionMode()
       setupTakeoverMode()
@@ -155,6 +146,8 @@
       ])
     }
 
+    // MARK: - Merged Header
+
     private func setupHeader() {
       headerIcon.translatesAutoresizingMaskIntoConstraints = false
       headerIcon.imageScaling = .scaleProportionallyDown
@@ -166,7 +159,24 @@
       headerLabel.textColor = NSColor(Color.textPrimary)
       headerLabel.lineBreakMode = .byTruncatingTail
       headerLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+      headerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
       cardContainer.addSubview(headerLabel)
+
+      // Risk badge — inline in header row
+      riskBadge.wantsLayer = true
+      riskBadge.layer?.cornerRadius = 7
+      riskBadge.layer?.backgroundColor = NSColor(Color.statusError).cgColor
+      riskBadge.translatesAutoresizingMaskIntoConstraints = false
+      cardContainer.addSubview(riskBadge)
+
+      riskBadgeIcon.translatesAutoresizingMaskIntoConstraints = false
+      riskBadgeIcon.imageScaling = .scaleProportionallyDown
+      riskBadge.addSubview(riskBadgeIcon)
+
+      riskBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+      riskBadgeLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .black)
+      riskBadgeLabel.textColor = .white
+      riskBadge.addSubview(riskBadgeLabel)
 
       spinnerView.translatesAutoresizingMaskIntoConstraints = false
       spinnerView.style = .spinning
@@ -183,61 +193,13 @@
 
         headerLabel.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
         headerLabel.leadingAnchor.constraint(equalTo: headerIcon.trailingAnchor, constant: CGFloat(Spacing.sm)),
-        headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: spinnerView.leadingAnchor, constant: -8),
 
-        spinnerView.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
-        spinnerView.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-      ])
-    }
-
-    private func setupToolBadge() {
-      toolBadge.wantsLayer = true
-      toolBadge.layer?.cornerRadius = 9
-      toolBadge.layer?.backgroundColor = NSColor(Color.backgroundTertiary).cgColor
-      toolBadge.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(toolBadge)
-
-      toolIcon.translatesAutoresizingMaskIntoConstraints = false
-      toolIcon.imageScaling = .scaleProportionallyDown
-      toolBadge.addSubview(toolIcon)
-
-      toolNameLabel.translatesAutoresizingMaskIntoConstraints = false
-      toolNameLabel.font = NSFont.systemFont(ofSize: TypeScale.caption, weight: .semibold)
-      toolNameLabel.textColor = NSColor(Color.textSecondary)
-      toolBadge.addSubview(toolNameLabel)
-
-      riskBadge.wantsLayer = true
-      riskBadge.layer?.cornerRadius = 7
-      riskBadge.layer?.backgroundColor = NSColor(Color.statusError).cgColor
-      riskBadge.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(riskBadge)
-
-      riskBadgeIcon.translatesAutoresizingMaskIntoConstraints = false
-      riskBadgeIcon.imageScaling = .scaleProportionallyDown
-      riskBadge.addSubview(riskBadgeIcon)
-
-      riskBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
-      riskBadgeLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .black)
-      riskBadgeLabel.textColor = .white
-      riskBadge.addSubview(riskBadgeLabel)
-
-      let pad = Layout.cardPadding
-      NSLayoutConstraint.activate([
-        toolBadge.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
-        toolBadge.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-
-        toolIcon.leadingAnchor.constraint(equalTo: toolBadge.leadingAnchor, constant: CGFloat(Spacing.sm)),
-        toolIcon.centerYAnchor.constraint(equalTo: toolBadge.centerYAnchor),
-        toolIcon.widthAnchor.constraint(equalToConstant: 12),
-        toolIcon.heightAnchor.constraint(equalToConstant: 12),
-
-        toolNameLabel.leadingAnchor.constraint(equalTo: toolIcon.trailingAnchor, constant: CGFloat(Spacing.xs)),
-        toolNameLabel.trailingAnchor.constraint(equalTo: toolBadge.trailingAnchor, constant: -CGFloat(Spacing.sm)),
-        toolNameLabel.topAnchor.constraint(equalTo: toolBadge.topAnchor, constant: CGFloat(Spacing.xs)),
-        toolNameLabel.bottomAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: -CGFloat(Spacing.xs)),
-
-        riskBadge.leadingAnchor.constraint(equalTo: toolBadge.trailingAnchor, constant: CGFloat(Spacing.sm)),
-        riskBadge.centerYAnchor.constraint(equalTo: toolBadge.centerYAnchor),
+        riskBadge.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
+        riskBadge.leadingAnchor.constraint(equalTo: headerLabel.trailingAnchor, constant: CGFloat(Spacing.sm)),
+        riskBadge.trailingAnchor.constraint(
+          lessThanOrEqualTo: spinnerView.leadingAnchor,
+          constant: -CGFloat(Spacing.sm)
+        ),
 
         riskBadgeIcon.leadingAnchor.constraint(equalTo: riskBadge.leadingAnchor, constant: CGFloat(Spacing.sm)),
         riskBadgeIcon.centerYAnchor.constraint(equalTo: riskBadge.centerYAnchor),
@@ -248,8 +210,13 @@
         riskBadgeLabel.trailingAnchor.constraint(equalTo: riskBadge.trailingAnchor, constant: -CGFloat(Spacing.sm)),
         riskBadgeLabel.topAnchor.constraint(equalTo: riskBadge.topAnchor, constant: 2),
         riskBadgeLabel.bottomAnchor.constraint(equalTo: riskBadge.bottomAnchor, constant: -2),
+
+        spinnerView.centerYAnchor.constraint(equalTo: headerIcon.centerYAnchor),
+        spinnerView.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
       ])
     }
+
+    // MARK: - Command Preview
 
     private func setupCommandPreview() {
       // Segment stack — holds per-segment code blocks
@@ -268,47 +235,9 @@
       riskFindingsStack.isHidden = true
       cardContainer.addSubview(riskFindingsStack)
 
-      // Project path row
-      projectPathRow.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(projectPathRow)
-
-      projectPathIcon.translatesAutoresizingMaskIntoConstraints = false
-      projectPathIcon.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
-      projectPathIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.micro, weight: .regular)
-      projectPathIcon.contentTintColor = NSColor(Color.textQuaternary)
-      projectPathRow.addSubview(projectPathIcon)
-
-      projectPathLabel.translatesAutoresizingMaskIntoConstraints = false
-      projectPathLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
-      projectPathLabel.textColor = NSColor(Color.textTertiary)
-      projectPathLabel.lineBreakMode = .byTruncatingMiddle
-      projectPathRow.addSubview(projectPathLabel)
-
-      // Scope row — decision scope (left) + request ID (right)
-      scopeRow.translatesAutoresizingMaskIntoConstraints = false
-      scopeRow.isHidden = true
-      cardContainer.addSubview(scopeRow)
-
-      scopeLabel.translatesAutoresizingMaskIntoConstraints = false
-      scopeLabel.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .regular)
-      scopeLabel.textColor = NSColor(Color.textQuaternary)
-      scopeLabel.lineBreakMode = .byTruncatingTail
-      scopeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-      scopeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-      scopeRow.addSubview(scopeLabel)
-
-      requestIdLabel.translatesAutoresizingMaskIntoConstraints = false
-      requestIdLabel.font = NSFont.monospacedSystemFont(ofSize: TypeScale.micro, weight: .regular)
-      requestIdLabel.textColor = NSColor(Color.textQuaternary)
-      requestIdLabel.alignment = .right
-      requestIdLabel.lineBreakMode = .byTruncatingTail
-      requestIdLabel.setContentHuggingPriority(.required, for: .horizontal)
-      requestIdLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-      scopeRow.addSubview(requestIdLabel)
-
       let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
-        segmentStack.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.sm)),
+        segmentStack.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.sm)),
         segmentStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         segmentStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
@@ -318,44 +247,6 @@
         ),
         riskFindingsStack.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         riskFindingsStack.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-
-        projectPathRow.topAnchor.constraint(
-          equalTo: riskFindingsStack.bottomAnchor,
-          constant: Layout.commandVerticalPadding
-        ),
-        projectPathRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        projectPathRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-
-        projectPathIcon.leadingAnchor.constraint(equalTo: projectPathRow.leadingAnchor),
-        projectPathIcon.centerYAnchor.constraint(equalTo: projectPathRow.centerYAnchor),
-        projectPathIcon.widthAnchor.constraint(equalToConstant: 11),
-        projectPathIcon.heightAnchor.constraint(equalToConstant: 11),
-
-        projectPathLabel.leadingAnchor.constraint(
-          equalTo: projectPathIcon.trailingAnchor,
-          constant: CGFloat(Spacing.xs)
-        ),
-        projectPathLabel.trailingAnchor.constraint(equalTo: projectPathRow.trailingAnchor),
-        projectPathLabel.topAnchor.constraint(equalTo: projectPathRow.topAnchor),
-        projectPathLabel.bottomAnchor.constraint(equalTo: projectPathRow.bottomAnchor),
-
-        scopeRow.topAnchor.constraint(
-          equalTo: projectPathRow.bottomAnchor,
-          constant: CGFloat(Spacing.xs)
-        ),
-        scopeRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        scopeRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-
-        scopeLabel.leadingAnchor.constraint(equalTo: scopeRow.leadingAnchor),
-        scopeLabel.topAnchor.constraint(equalTo: scopeRow.topAnchor),
-        scopeLabel.bottomAnchor.constraint(equalTo: scopeRow.bottomAnchor),
-
-        requestIdLabel.leadingAnchor.constraint(
-          greaterThanOrEqualTo: scopeLabel.trailingAnchor,
-          constant: CGFloat(Spacing.sm)
-        ),
-        requestIdLabel.trailingAnchor.constraint(equalTo: scopeRow.trailingAnchor),
-        requestIdLabel.centerYAnchor.constraint(equalTo: scopeRow.centerYAnchor),
       ])
     }
 
@@ -444,7 +335,7 @@
 
       let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
-        takeoverDescription.topAnchor.constraint(equalTo: toolBadge.bottomAnchor, constant: CGFloat(Spacing.md)),
+        takeoverDescription.topAnchor.constraint(equalTo: headerIcon.bottomAnchor, constant: CGFloat(Spacing.md)),
         takeoverDescription.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         takeoverDescription.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
 
@@ -455,113 +346,187 @@
       ])
     }
 
-    private func setupPermissionButtons() {
-      actionDivider.wantsLayer = true
-      actionDivider.layer?.backgroundColor = NSColor(Color.textQuaternary).withAlphaComponent(0.3).cgColor
-      actionDivider.translatesAutoresizingMaskIntoConstraints = false
-      cardContainer.addSubview(actionDivider)
+    // MARK: - Split-Button Permission Buttons
 
+    private func setupPermissionButtons() {
       buttonRow.translatesAutoresizingMaskIntoConstraints = false
       cardContainer.addSubview(buttonRow)
 
-      denyButton.translatesAutoresizingMaskIntoConstraints = false
-      denyButton.title = "Deny"
-      denyButton.bezelStyle = .rounded
-      denyButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
-      denyButton.contentTintColor = NSColor(Color.statusError)
-      denyButton.wantsLayer = true
-      denyButton.layer?.cornerRadius = CGFloat(Radius.md)
-      denyButton.layer?.backgroundColor = NSColor(Color.statusError).withAlphaComponent(CGFloat(OpacityTier.light))
-        .cgColor
-      denyButton.target = self
-      denyButton.action = #selector(denyButtonClicked)
-      buttonRow.addSubview(denyButton)
-
-      approveButton.translatesAutoresizingMaskIntoConstraints = false
-      approveButton.title = "Approve"
-      approveButton.bezelStyle = .rounded
-      approveButton.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .bold)
-      approveButton.contentTintColor = .white
-      approveButton.wantsLayer = true
-      approveButton.layer?.cornerRadius = CGFloat(Radius.md)
-      approveButton.layer?.backgroundColor = NSColor(Color.accent).cgColor
-      approveButton.target = self
-      approveButton.action = #selector(approveButtonClicked)
-      buttonRow.addSubview(approveButton)
-
-      // Secondary actions row
-      secondaryRow.translatesAutoresizingMaskIntoConstraints = false
-      secondaryRow.orientation = .horizontal
-      secondaryRow.spacing = CGFloat(Spacing.sm)
-      secondaryRow.alignment = .centerY
-      secondaryRow.detachesHiddenViews = true
-      cardContainer.addSubview(secondaryRow)
-
-      sessionAllowButton.translatesAutoresizingMaskIntoConstraints = false
-      sessionAllowButton.title = "Allow for Session"
-      sessionAllowButton.isBordered = false
-      sessionAllowButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      sessionAllowButton.contentTintColor = NSColor(Color.textSecondary)
-      sessionAllowButton.target = self
-      sessionAllowButton.action = #selector(sessionAllowClicked)
-      secondaryRow.addArrangedSubview(sessionAllowButton)
-
-      alwaysAllowButton.translatesAutoresizingMaskIntoConstraints = false
-      alwaysAllowButton.title = "Always Allow"
-      alwaysAllowButton.isBordered = false
-      alwaysAllowButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      alwaysAllowButton.contentTintColor = NSColor(Color.accent)
-      alwaysAllowButton.target = self
-      alwaysAllowButton.action = #selector(alwaysAllowClicked)
-      secondaryRow.addArrangedSubview(alwaysAllowButton)
-
-      denyReasonButton.translatesAutoresizingMaskIntoConstraints = false
-      denyReasonButton.title = "Deny with Reason"
-      denyReasonButton.isBordered = false
-      denyReasonButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      denyReasonButton.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)
-      denyReasonButton.target = self
-      denyReasonButton.action = #selector(denyReasonClicked)
-      secondaryRow.addArrangedSubview(denyReasonButton)
-
-      let spacer = NSView()
-      spacer.translatesAutoresizingMaskIntoConstraints = false
-      spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-      secondaryRow.addArrangedSubview(spacer)
-
-      denyStopButton.translatesAutoresizingMaskIntoConstraints = false
-      denyStopButton.title = "Deny & Stop"
-      denyStopButton.isBordered = false
-      denyStopButton.font = NSFont.systemFont(ofSize: TypeScale.micro, weight: .medium)
-      denyStopButton.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)
-      denyStopButton.target = self
-      denyStopButton.action = #selector(denyStopClicked)
-      secondaryRow.addArrangedSubview(denyStopButton)
+      // — Deny split button —
+      setupDenySplitButton()
+      // — Approve split button —
+      setupApproveSplitButton()
 
       let pad = Layout.cardPadding
       NSLayoutConstraint.activate([
-        actionDivider.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        actionDivider.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
-        actionDivider.heightAnchor.constraint(equalToConstant: 1),
-
-        buttonRow.topAnchor.constraint(equalTo: actionDivider.bottomAnchor, constant: CGFloat(Spacing.sm)),
         buttonRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
         buttonRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
         buttonRow.heightAnchor.constraint(equalToConstant: Layout.primaryButtonHeight),
 
-        denyButton.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor),
-        denyButton.topAnchor.constraint(equalTo: buttonRow.topAnchor),
-        denyButton.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
+        // Deny: 40% width
+        denySplitContainer.leadingAnchor.constraint(equalTo: buttonRow.leadingAnchor),
+        denySplitContainer.topAnchor.constraint(equalTo: buttonRow.topAnchor),
+        denySplitContainer.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
 
-        approveButton.leadingAnchor.constraint(equalTo: denyButton.trailingAnchor, constant: CGFloat(Spacing.sm)),
-        approveButton.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor),
-        approveButton.topAnchor.constraint(equalTo: buttonRow.topAnchor),
-        approveButton.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
-        approveButton.widthAnchor.constraint(equalTo: denyButton.widthAnchor),
+        // Approve: 60% width
+        approveSplitContainer.leadingAnchor.constraint(
+          equalTo: denySplitContainer.trailingAnchor,
+          constant: CGFloat(Spacing.sm)
+        ),
+        approveSplitContainer.trailingAnchor.constraint(equalTo: buttonRow.trailingAnchor),
+        approveSplitContainer.topAnchor.constraint(equalTo: buttonRow.topAnchor),
+        approveSplitContainer.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
 
-        secondaryRow.topAnchor.constraint(equalTo: buttonRow.bottomAnchor, constant: CGFloat(Spacing.xs)),
-        secondaryRow.leadingAnchor.constraint(equalTo: cardContainer.leadingAnchor, constant: pad),
-        secondaryRow.trailingAnchor.constraint(equalTo: cardContainer.trailingAnchor, constant: -pad),
+        // Ratio: deny takes 2/5, approve takes 3/5 (minus the gap)
+        denySplitContainer.widthAnchor.constraint(equalTo: approveSplitContainer.widthAnchor, multiplier: 2.0 / 3.0),
+      ])
+    }
+
+    private func setupDenySplitButton() {
+      denySplitContainer.wantsLayer = true
+      denySplitContainer.layer?.cornerRadius = CGFloat(Radius.md)
+      denySplitContainer.layer?.masksToBounds = true
+      denySplitContainer.translatesAutoresizingMaskIntoConstraints = false
+      buttonRow.addSubview(denySplitContainer)
+
+      // Main clickable area
+      denyMainArea.wantsLayer = true
+      denyMainArea.translatesAutoresizingMaskIntoConstraints = false
+      denySplitContainer.addSubview(denyMainArea)
+
+      denyLabel.translatesAutoresizingMaskIntoConstraints = false
+      denyLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
+      denyLabel.textColor = NSColor(Color.statusError)
+      denyLabel.alignment = .center
+      denyLabel.stringValue = "Deny"
+      denyMainArea.addSubview(denyLabel)
+
+      // Vertical divider
+      denyChevronDivider.wantsLayer = true
+      denyChevronDivider.translatesAutoresizingMaskIntoConstraints = false
+      denySplitContainer.addSubview(denyChevronDivider)
+
+      // Chevron area
+      denyChevronArea.wantsLayer = true
+      denyChevronArea.translatesAutoresizingMaskIntoConstraints = false
+      denySplitContainer.addSubview(denyChevronArea)
+
+      denyChevronIcon.translatesAutoresizingMaskIntoConstraints = false
+      denyChevronIcon.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "More deny options")
+      denyChevronIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+      denyChevronIcon.contentTintColor = NSColor(Color.statusError).withAlphaComponent(0.8)
+      denyChevronArea.addSubview(denyChevronIcon)
+
+      // Gesture recognizers
+      let mainClick = NSClickGestureRecognizer(target: self, action: #selector(denyMainClicked))
+      denyMainArea.addGestureRecognizer(mainClick)
+      denyMainClick = mainClick
+
+      let chevronClick = NSClickGestureRecognizer(target: self, action: #selector(denyChevronClicked))
+      denyChevronArea.addGestureRecognizer(chevronClick)
+      denyChevronClick = chevronClick
+
+      NSLayoutConstraint.activate([
+        denyMainArea.leadingAnchor.constraint(equalTo: denySplitContainer.leadingAnchor),
+        denyMainArea.topAnchor.constraint(equalTo: denySplitContainer.topAnchor),
+        denyMainArea.bottomAnchor.constraint(equalTo: denySplitContainer.bottomAnchor),
+        denyMainArea.trailingAnchor.constraint(equalTo: denyChevronDivider.leadingAnchor),
+
+        denyLabel.centerXAnchor.constraint(equalTo: denyMainArea.centerXAnchor),
+        denyLabel.centerYAnchor.constraint(equalTo: denyMainArea.centerYAnchor),
+
+        denyChevronDivider.trailingAnchor.constraint(equalTo: denyChevronArea.leadingAnchor),
+        denyChevronDivider.topAnchor.constraint(equalTo: denySplitContainer.topAnchor, constant: 6),
+        denyChevronDivider.bottomAnchor.constraint(equalTo: denySplitContainer.bottomAnchor, constant: -6),
+        denyChevronDivider.widthAnchor.constraint(equalToConstant: 1),
+
+        denyChevronArea.trailingAnchor.constraint(equalTo: denySplitContainer.trailingAnchor),
+        denyChevronArea.topAnchor.constraint(equalTo: denySplitContainer.topAnchor),
+        denyChevronArea.bottomAnchor.constraint(equalTo: denySplitContainer.bottomAnchor),
+        denyChevronArea.widthAnchor.constraint(equalToConstant: LocalLayout.chevronWidth),
+
+        denyChevronIcon.centerXAnchor.constraint(equalTo: denyChevronArea.centerXAnchor),
+        denyChevronIcon.centerYAnchor.constraint(equalTo: denyChevronArea.centerYAnchor),
+      ])
+    }
+
+    private func setupApproveSplitButton() {
+      approveSplitContainer.wantsLayer = true
+      approveSplitContainer.layer?.cornerRadius = CGFloat(Radius.md)
+      approveSplitContainer.layer?.masksToBounds = true
+      approveSplitContainer.translatesAutoresizingMaskIntoConstraints = false
+      buttonRow.addSubview(approveSplitContainer)
+
+      // Main clickable area
+      approveMainArea.wantsLayer = true
+      approveMainArea.translatesAutoresizingMaskIntoConstraints = false
+      approveSplitContainer.addSubview(approveMainArea)
+
+      approveIcon.translatesAutoresizingMaskIntoConstraints = false
+      approveIcon.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
+      approveIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.body, weight: .semibold)
+      approveIcon.contentTintColor = .white
+      approveMainArea.addSubview(approveIcon)
+
+      approveLabel.translatesAutoresizingMaskIntoConstraints = false
+      approveLabel.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .bold)
+      approveLabel.textColor = .white
+      approveLabel.alignment = .center
+      approveLabel.stringValue = "Approve"
+      approveMainArea.addSubview(approveLabel)
+
+      // Vertical divider
+      approveChevronDivider.wantsLayer = true
+      approveChevronDivider.translatesAutoresizingMaskIntoConstraints = false
+      approveSplitContainer.addSubview(approveChevronDivider)
+
+      // Chevron area
+      approveChevronArea.wantsLayer = true
+      approveChevronArea.translatesAutoresizingMaskIntoConstraints = false
+      approveSplitContainer.addSubview(approveChevronArea)
+
+      approveChevronIcon.translatesAutoresizingMaskIntoConstraints = false
+      approveChevronIcon.image = NSImage(
+        systemSymbolName: "chevron.down",
+        accessibilityDescription: "More approve options"
+      )
+      approveChevronIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+      approveChevronIcon.contentTintColor = NSColor.white.withAlphaComponent(0.8)
+      approveChevronArea.addSubview(approveChevronIcon)
+
+      // Gesture recognizers
+      let mainClick = NSClickGestureRecognizer(target: self, action: #selector(approveMainClicked))
+      approveMainArea.addGestureRecognizer(mainClick)
+      approveMainClick = mainClick
+
+      let chevronClick = NSClickGestureRecognizer(target: self, action: #selector(approveChevronClicked))
+      approveChevronArea.addGestureRecognizer(chevronClick)
+      approveChevronClick = chevronClick
+
+      NSLayoutConstraint.activate([
+        approveMainArea.leadingAnchor.constraint(equalTo: approveSplitContainer.leadingAnchor),
+        approveMainArea.topAnchor.constraint(equalTo: approveSplitContainer.topAnchor),
+        approveMainArea.bottomAnchor.constraint(equalTo: approveSplitContainer.bottomAnchor),
+        approveMainArea.trailingAnchor.constraint(equalTo: approveChevronDivider.leadingAnchor),
+
+        approveIcon.trailingAnchor.constraint(equalTo: approveLabel.leadingAnchor, constant: -CGFloat(Spacing.xs)),
+        approveIcon.centerYAnchor.constraint(equalTo: approveMainArea.centerYAnchor),
+
+        approveLabel.centerXAnchor.constraint(equalTo: approveMainArea.centerXAnchor, constant: 8),
+        approveLabel.centerYAnchor.constraint(equalTo: approveMainArea.centerYAnchor),
+
+        approveChevronDivider.trailingAnchor.constraint(equalTo: approveChevronArea.leadingAnchor),
+        approveChevronDivider.topAnchor.constraint(equalTo: approveSplitContainer.topAnchor, constant: 6),
+        approveChevronDivider.bottomAnchor.constraint(equalTo: approveSplitContainer.bottomAnchor, constant: -6),
+        approveChevronDivider.widthAnchor.constraint(equalToConstant: 1),
+
+        approveChevronArea.trailingAnchor.constraint(equalTo: approveSplitContainer.trailingAnchor),
+        approveChevronArea.topAnchor.constraint(equalTo: approveSplitContainer.topAnchor),
+        approveChevronArea.bottomAnchor.constraint(equalTo: approveSplitContainer.bottomAnchor),
+        approveChevronArea.widthAnchor.constraint(equalToConstant: LocalLayout.chevronWidth),
+
+        approveChevronIcon.centerXAnchor.constraint(equalTo: approveChevronArea.centerXAnchor),
+        approveChevronIcon.centerYAnchor.constraint(equalTo: approveChevronArea.centerYAnchor),
       ])
     }
 
@@ -596,7 +561,7 @@
 
       let pad = CGFloat(Spacing.xs)
       NSLayoutConstraint.activate([
-        denyReasonContainer.topAnchor.constraint(equalTo: secondaryRow.bottomAnchor, constant: CGFloat(Spacing.xs)),
+        denyReasonContainer.topAnchor.constraint(equalTo: buttonRow.bottomAnchor, constant: CGFloat(Spacing.sm)),
         denyReasonContainer.leadingAnchor.constraint(
           equalTo: cardContainer.leadingAnchor,
           constant: Layout.cardPadding
@@ -645,15 +610,10 @@
 
     private func configurePermissionMode(_ model: ApprovalCardModel) {
       let hasContent = ApprovalPermissionPreviewHelpers.hasPreviewContent(model)
-      let showPath = ApprovalPermissionPreviewHelpers.showsProjectPath(model)
 
       // Show permission views
-      toolBadge.isHidden = false
       segmentStack.isHidden = !hasContent
-      projectPathRow.isHidden = !showPath
-      actionDivider.isHidden = false
       buttonRow.isHidden = false
-      secondaryRow.isHidden = false
       riskBadge.isHidden = model.risk != .high
 
       // Hide other modes
@@ -667,22 +627,16 @@
       takeoverDescription.isHidden = true
       takeoverButton.isHidden = true
 
-      // Header
-      let iconName = model.risk == .high ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill"
-      headerIcon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
+      // Merged header — tool icon + "ToolName · Status"
+      let headerConfig = ApprovalCardConfiguration.headerConfig(for: model, mode: .permission)
+      headerIcon.image = NSImage(systemSymbolName: headerConfig.iconName, accessibilityDescription: nil)
       headerIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.subhead, weight: .semibold)
-      headerIcon.contentTintColor = NSColor(model.risk.tintColor)
-      headerLabel.stringValue = "Approval Required"
+      headerIcon.contentTintColor = NSColor(headerConfig.iconTint)
+      headerLabel.stringValue = headerConfig.label
+      approveLabel.stringValue = headerConfig.approveTitle
+      denyLabel.stringValue = headerConfig.denyTitle
 
-      // Tool badge
-      if let toolName = model.toolName {
-        toolIcon.image = NSImage(systemSymbolName: ToolCardStyle.icon(for: toolName), accessibilityDescription: nil)
-        toolIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: .regular)
-        toolIcon.contentTintColor = NSColor(Color.textSecondary)
-        toolNameLabel.stringValue = toolName
-      }
-
-      // Risk badge
+      // Risk badge (inline in header)
       if model.risk == .high {
         riskBadgeIcon.image = NSImage(
           systemSymbolName: "bolt.trianglebadge.exclamationmark.fill",
@@ -693,23 +647,23 @@
         riskBadgeLabel.stringValue = "HIGH RISK"
       }
 
-      // Preview content — structured segments
+      // Preview content
       configurePreviewContent(model)
       configureRiskFindings(model)
-      configureScopeRow(model)
 
-      // Project path
-      if showPath {
-        let iconName = ApprovalPermissionPreviewHelpers.previewIconName(for: model)
-        projectPathIcon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
-        projectPathLabel.stringValue = model.projectPath
-      }
+      // Style split buttons
+      let errorColor = NSColor(Color.statusError)
+      denySplitContainer.layer?.backgroundColor = errorColor.withAlphaComponent(CGFloat(OpacityTier.light)).cgColor
+      denyChevronDivider.layer?.backgroundColor = errorColor.withAlphaComponent(0.3).cgColor
+      denyLabel.textColor = errorColor
+      denyChevronIcon.contentTintColor = errorColor.withAlphaComponent(0.8)
 
-      // Always allow only for exec with amendment
-      alwaysAllowButton.isHidden = !(model.approvalType == .exec && model.hasAmendment)
+      let accentColor = NSColor(Color.accent)
+      approveSplitContainer.layer?.backgroundColor = accentColor.cgColor
+      approveChevronDivider.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.25).cgColor
 
-      // Position divider after last visible content
-      updateActionDividerPosition(model)
+      // Position button row after last visible content
+      updateButtonRowPosition(model)
     }
 
     // MARK: - Structured Preview Content
@@ -876,7 +830,6 @@
         : topAnchorView.bottomAnchor
 
       // Cap text height to match the height calculation's maxCommandTextHeight clamp.
-      // Use lower priority on bottom pin so the max height constraint wins for long text.
       let bottomPin = textField.bottomAnchor.constraint(
         equalTo: container.bottomAnchor,
         constant: -Layout.commandVerticalPadding
@@ -945,7 +898,6 @@
       valueField.maximumNumberOfLines = 0
       container.addSubview(valueField)
 
-      // Cap value text height to match the height calculation's maxCommandTextHeight clamp.
       let bottomPin = valueField.bottomAnchor.constraint(
         equalTo: container.bottomAnchor,
         constant: -Layout.commandVerticalPadding
@@ -1038,20 +990,6 @@
       riskFindingsStack.isHidden = false
     }
 
-    private func configureScopeRow(_ model: ApprovalCardModel) {
-      let hasScope = ApprovalPermissionPreviewHelpers.trimmed(model.decisionScope) != nil
-      let hasId = ApprovalPermissionPreviewHelpers.trimmed(model.approvalId) != nil
-
-      guard hasScope || hasId else {
-        scopeRow.isHidden = true
-        return
-      }
-
-      scopeLabel.stringValue = model.decisionScope ?? ""
-      requestIdLabel.stringValue = model.approvalId.map { "#\($0)" } ?? ""
-      scopeRow.isHidden = false
-    }
-
     private func configureQuestionMode(_ model: ApprovalCardModel) {
       let tint = NSColor(Color.statusQuestion)
       riskStrip.layer?.backgroundColor = tint.cgColor
@@ -1082,23 +1020,19 @@
       }
 
       // Hide other modes
-      toolBadge.isHidden = true
       segmentStack.isHidden = true
       riskFindingsStack.isHidden = true
-      scopeRow.isHidden = true
-      projectPathRow.isHidden = true
-      actionDivider.isHidden = true
       buttonRow.isHidden = true
-      secondaryRow.isHidden = true
       riskBadge.isHidden = true
       takeoverDescription.isHidden = true
       takeoverButton.isHidden = true
 
       // Header
-      headerIcon.image = NSImage(systemSymbolName: "questionmark.bubble.fill", accessibilityDescription: nil)
+      let headerConfig = ApprovalCardConfiguration.headerConfig(for: model, mode: .question)
+      headerIcon.image = NSImage(systemSymbolName: headerConfig.iconName, accessibilityDescription: nil)
       headerIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.subhead, weight: .semibold)
       headerIcon.contentTintColor = tint
-      headerLabel.stringValue = "Question"
+      headerLabel.stringValue = headerConfig.label
 
       if isMultiPrompt {
         questionTextLabel.stringValue = "Answer all questions to continue."
@@ -1122,23 +1056,10 @@
       takeoverDescription.isHidden = false
       takeoverButton.isHidden = false
 
-      // Show tool badge if permission
-      toolBadge.isHidden = model.toolName == nil
-      if let toolName = model.toolName {
-        toolIcon.image = NSImage(systemSymbolName: ToolCardStyle.icon(for: toolName), accessibilityDescription: nil)
-        toolIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.caption, weight: .regular)
-        toolIcon.contentTintColor = NSColor(Color.textSecondary)
-        toolNameLabel.stringValue = toolName
-      }
-
       // Hide other modes
       segmentStack.isHidden = true
       riskFindingsStack.isHidden = true
-      scopeRow.isHidden = true
-      projectPathRow.isHidden = true
-      actionDivider.isHidden = true
       buttonRow.isHidden = true
-      secondaryRow.isHidden = true
       riskBadge.isHidden = true
       questionTextLabel.isHidden = true
       questionOptionsTopConstraint?.constant = 0
@@ -1149,38 +1070,35 @@
       submitButton.isHidden = true
 
       // Header
-      let iconName = isPermission ? "lock.fill" : "questionmark.bubble.fill"
-      headerIcon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
+      let headerConfig = ApprovalCardConfiguration.headerConfig(for: model, mode: .takeover)
+      headerIcon.image = NSImage(systemSymbolName: headerConfig.iconName, accessibilityDescription: nil)
       headerIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: TypeScale.subhead, weight: .semibold)
       headerIcon.contentTintColor = tint
-      headerLabel.stringValue = isPermission ? "Approval Required" : "Question Pending"
+      headerLabel.stringValue = headerConfig.label
 
       takeoverDescription.stringValue = "Take over this session to respond."
-      takeoverButton.title = isPermission ? "Take Over & Review" : "Take Over & Answer"
+      takeoverButton.title = ApprovalCardConfiguration.takeoverButtonTitle(for: model)
       takeoverButton.layer?.backgroundColor = tint.withAlphaComponent(0.75).cgColor
     }
 
-    private func updateActionDividerPosition(_: ApprovalCardModel) {
-      // Remove existing position constraints for divider if any
-      for constraint in cardContainer.constraints where constraint.firstItem === actionDivider
+    private func updateButtonRowPosition(_ model: ApprovalCardModel) {
+      // Remove existing position constraints for buttonRow
+      for constraint in cardContainer.constraints where constraint.firstItem === buttonRow
         && constraint.firstAttribute == .top
       {
         constraint.isActive = false
       }
 
-      let anchor: NSView = if !scopeRow.isHidden {
-        scopeRow
-      } else if !projectPathRow.isHidden {
-        projectPathRow
-      } else if !riskFindingsStack.isHidden {
+      let anchor: NSView = if !riskFindingsStack.isHidden {
         riskFindingsStack
       } else if !segmentStack.isHidden {
         segmentStack
       } else {
-        toolBadge
+        headerIcon
       }
 
-      actionDivider.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: CGFloat(Spacing.sm)).isActive = true
+      let spacing: CGFloat = anchor === headerIcon ? CGFloat(Spacing.md) : CGFloat(Spacing.md)
+      buttonRow.topAnchor.constraint(equalTo: anchor.bottomAnchor, constant: spacing).isActive = true
     }
 
     // MARK: - Keyboard Shortcuts
@@ -1220,34 +1138,71 @@
       return super.performKeyEquivalent(with: event)
     }
 
-    // MARK: - Actions
+    // MARK: - Split Button Actions
 
-    @objc private func approveButtonClicked() {
-      onDecision?("approved", nil, nil)
-    }
-
-    @objc private func denyButtonClicked() {
+    @objc private func denyMainClicked() {
       onDecision?("denied", nil, nil)
     }
 
-    @objc private func sessionAllowClicked() {
-      onDecision?("approved_for_session", nil, nil)
-    }
+    @objc private func denyChevronClicked() {
+      let menu = NSMenu()
 
-    @objc private func alwaysAllowClicked() {
-      onDecision?("approved_always", nil, nil)
-    }
-
-    @objc private func denyReasonClicked() {
-      showDenyReason.toggle()
-      denyReasonContainer.isHidden = !showDenyReason
-      if showDenyReason {
-        window?.makeFirstResponder(denyReasonField)
+      for action in ApprovalCardConfiguration.denyMenuActions {
+        if action.isDestructive { menu.addItem(.separator()) }
+        let item = NSMenuItem(
+          title: action.title,
+          action: #selector(menuActionSelected(_:)),
+          keyEquivalent: action.keyEquivalent
+        )
+        item.target = self
+        item.representedObject = action.decision
+        if action.isDestructive {
+          item.attributedTitle = NSAttributedString(
+            string: action.title,
+            attributes: [.foregroundColor: NSColor(Color.statusError)]
+          )
+        }
+        menu.addItem(item)
       }
+
+      let location = NSPoint(x: 0, y: denySplitContainer.bounds.maxY)
+      menu.popUp(positioning: nil, at: location, in: denySplitContainer)
     }
 
-    @objc private func denyStopClicked() {
-      onDecision?("abort", nil, nil)
+    @objc private func approveMainClicked() {
+      onDecision?("approved", nil, nil)
+    }
+
+    @objc private func approveChevronClicked() {
+      guard let model = currentModel else { return }
+      let menu = NSMenu()
+
+      for action in ApprovalCardConfiguration.approveMenuActions(for: model) {
+        let item = NSMenuItem(
+          title: action.title,
+          action: #selector(menuActionSelected(_:)),
+          keyEquivalent: action.keyEquivalent
+        )
+        item.target = self
+        item.representedObject = action.decision
+        menu.addItem(item)
+      }
+
+      let location = NSPoint(x: 0, y: approveSplitContainer.bounds.maxY)
+      menu.popUp(positioning: nil, at: location, in: approveSplitContainer)
+    }
+
+    // MARK: - Menu Actions
+
+    @objc private func menuActionSelected(_ sender: NSMenuItem) {
+      guard let decision = sender.representedObject as? String else { return }
+      if decision == "deny_reason" {
+        showDenyReason = true
+        denyReasonContainer.isHidden = false
+        window?.makeFirstResponder(denyReasonField)
+      } else {
+        onDecision?(decision, nil, nil)
+      }
     }
 
     @objc private func sendDenialClicked() {
@@ -1306,6 +1261,8 @@
       onTakeOver?()
     }
 
+    // MARK: - Question Options
+
     private func configureQuestionOptions(_ options: [ApprovalQuestionOption]) {
       for view in questionOptionsStack.arrangedSubviews {
         questionOptionsStack.removeArrangedSubview(view)
@@ -1322,7 +1279,7 @@
         let button = NSButton()
         button.translatesAutoresizingMaskIntoConstraints = false
         button.identifier = NSUserInterfaceItemIdentifier(option.label)
-        button.title = Self.questionOptionDisplayText(option)
+        button.title = ApprovalCardHeightCalculator.questionOptionDisplayText(option)
         button.setButtonType(.momentaryPushIn)
         button.bezelStyle = .rounded
         button.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
@@ -1402,7 +1359,7 @@
             let button = NSButton()
             button.translatesAutoresizingMaskIntoConstraints = false
             button.identifier = NSUserInterfaceItemIdentifier(option.label)
-            button.title = Self.questionOptionDisplayText(option)
+            button.title = ApprovalCardHeightCalculator.questionOptionDisplayText(option)
             button.setButtonType(.momentaryPushIn)
             button.bezelStyle = .rounded
             button.font = NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold)
@@ -1527,222 +1484,11 @@
     // MARK: - Height Calculation
 
     static func requiredHeight(for model: ApprovalCardModel?, availableWidth: CGFloat) -> CGFloat {
-      guard let model else { return 160 }
-
-      let pad = Layout.cardPadding
-      let outerInset = Layout.outerVerticalInset
-      let laneInset = ConversationLayout.laneHorizontalInset
-      // Inner content width: table width → card insets → card padding
-      let contentWidth = availableWidth - laneInset * 2 - pad * 2
-
-      switch model.mode {
-        case .permission:
-          var h: CGFloat = outerInset
-          h += 2 // risk strip
-          h += pad // top card padding
-          h += Layout.headerIconSize // header row (icon + label)
-          h += CGFloat(Spacing.md) + 20 // tool badge row
-
-          let hasContent = ApprovalPermissionPreviewHelpers.hasPreviewContent(model)
-          if hasContent {
-            h += CGFloat(Spacing.sm) // spacing before segment stack
-            h += Self.segmentStackHeight(for: model, contentWidth: contentWidth)
-          }
-
-          // Risk findings
-          if !model.riskFindings.isEmpty {
-            h += CGFloat(Spacing.sm) // spacing before risk findings
-            let findingHeight: CGFloat = 14 // icon + label row height
-            h += findingHeight * CGFloat(model.riskFindings.count)
-            h += CGFloat(Spacing.xs) * CGFloat(max(0, model.riskFindings.count - 1))
-          }
-
-          // Project path
-          if ApprovalPermissionPreviewHelpers.showsProjectPath(model) {
-            h += Layout.commandVerticalPadding + 12
-          }
-
-          // Scope row
-          let hasScope = ApprovalPermissionPreviewHelpers.trimmed(model.decisionScope) != nil
-          let hasId = ApprovalPermissionPreviewHelpers.trimmed(model.approvalId) != nil
-          if hasScope || hasId {
-            h += CGFloat(Spacing.xs) + 12 // scope row
-          }
-
-          h += CGFloat(Spacing.sm) + 1 // divider
-          h += CGFloat(Spacing.sm) + Layout.primaryButtonHeight // primary buttons
-          h += CGFloat(Spacing.xs) + Layout.secondaryRowHeight // secondary row
-          h += pad // bottom card padding
-          h += outerInset // bottom cell padding
-          return h
-
-        case .question:
-          var h: CGFloat = outerInset + 2 + pad // cell pad + risk strip + card pad
-          h += Layout.headerIconSize // header
-          h += CGFloat(Spacing.md)
-          let prompts = questionPrompts(for: model)
-          if prompts.count > 1 {
-            h += Self.measureTextHeight(
-              "Answer all questions to continue.",
-              font: NSFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
-              width: contentWidth
-            )
-            h += CGFloat(Spacing.md)
-            for (index, prompt) in prompts.enumerated() {
-              h += questionPromptHeight(prompt, width: contentWidth)
-              if index < prompts.count - 1 {
-                h += CGFloat(Spacing.sm)
-              }
-            }
-            h += CGFloat(Spacing.md) + 28
-          } else if let prompt = prompts.first {
-            let qFont = NSFont.systemFont(ofSize: TypeScale.reading, weight: .regular)
-            h += Self.measureTextHeight(prompt.question, font: qFont, width: contentWidth)
-            if prompt.options.isEmpty {
-              h += CGFloat(Spacing.md) + 26
-              h += CGFloat(Spacing.md) + 28
-            } else {
-              h += CGFloat(Spacing.md)
-              for (index, option) in prompt.options.enumerated() {
-                h += Self.questionOptionHeight(option, width: contentWidth)
-                if index < prompt.options.count - 1 {
-                  h += CGFloat(Spacing.xs)
-                }
-              }
-            }
-          } else {
-            h += 20
-            h += CGFloat(Spacing.md) + 26 // answer field
-            h += CGFloat(Spacing.md) + 28 // submit button
-          }
-          h += pad + outerInset // card pad + cell pad
-          return h
-
-        case .takeover:
-          var h: CGFloat = outerInset + 2 + pad
-          h += Layout.headerIconSize // header
-          h += CGFloat(Spacing.md) + 20 // tool badge (if visible)
-          h += CGFloat(Spacing.md) + 20 // description
-          h += CGFloat(Spacing.md) + 30 // button
-          h += pad + outerInset
-          return h
-
-        case .none:
-          return 1
-      }
-    }
-
-    /// Measure wrapped text height for a given font and constrained width.
-    private static func measureTextHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
-      guard !text.isEmpty, width > 0 else { return 0 }
-      let attr = NSAttributedString(string: text, attributes: [.font: font])
-      let rect = attr.boundingRect(
-        with: NSSize(width: width, height: .greatestFiniteMagnitude),
-        options: [.usesLineFragmentOrigin, .usesFontLeading]
-      )
-      return ceil(rect.height)
-    }
-
-    /// Compute the total height of the segment stack for a given model.
-    private static func segmentStackHeight(for model: ApprovalCardModel, contentWidth: CGFloat) -> CGFloat {
-      let textWidth = max(1, contentWidth - CGFloat(EdgeBar.width) - Layout.commandHorizontalPadding * 2)
-      let monoFont = NSFont.monospacedSystemFont(ofSize: TypeScale.body, weight: .regular)
-
-      var segments: [(command: String, hasOperator: Bool)] = []
-
-      switch model.previewType {
-        case .shellCommand:
-          if !model.shellSegments.isEmpty {
-            segments = model.shellSegments.map { ($0.command, $0.leadingOperator != nil) }
-          } else if let cmd = ApprovalPermissionPreviewHelpers.trimmed(model.command) {
-            segments = [(cmd, false)]
-          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
-            segments = [(manifest, false)]
-          }
-        default:
-          if let value = ApprovalPermissionPreviewHelpers.previewValue(for: model) {
-            // Non-shell has type label (12pt) + spacing + value
-            let labelHeight: CGFloat = 12
-            let textHeight = measureTextHeight(value, font: monoFont, width: textWidth)
-            let clampedText = min(textHeight, Layout.maxCommandTextHeight)
-            return Layout.commandVerticalPadding + labelHeight + CGFloat(Spacing.xxs) + clampedText + Layout
-              .commandVerticalPadding
-          } else if let manifest = ApprovalPermissionPreviewHelpers.trimmed(model.serverManifest) {
-            segments = [(manifest, false)]
-          }
-      }
-
-      guard !segments.isEmpty else { return 0 }
-
-      var total: CGFloat = 0
-      for (index, segment) in segments.enumerated() {
-        let textHeight = measureTextHeight(segment.command, font: monoFont, width: textWidth)
-        let clampedText = min(textHeight, Layout.maxCommandTextHeight)
-        var segmentHeight = Layout.commandVerticalPadding + clampedText + Layout.commandVerticalPadding
-        if segment.hasOperator {
-          segmentHeight += 16 + CGFloat(Spacing.xs) // operator pill + spacing
-        }
-        total += segmentHeight
-        if index > 0 {
-          total += CGFloat(Spacing.xs) // inter-segment spacing
-        }
-      }
-      return total
-    }
-
-    private static func questionOptionDisplayText(_ option: ApprovalQuestionOption) -> String {
-      if let description = option.description, !description.isEmpty {
-        return "\(option.label)\n\(description)"
-      }
-      return option.label
+      ApprovalCardHeightCalculator.requiredHeight(for: model, availableWidth: availableWidth)
     }
 
     private static func questionPrompts(for model: ApprovalCardModel) -> [ApprovalQuestionPrompt] {
       model.questions
-    }
-
-    private static func questionPromptHeight(_ prompt: ApprovalQuestionPrompt, width: CGFloat) -> CGFloat {
-      var height: CGFloat = 0
-      if let header = prompt.header, !header.isEmpty {
-        height += measureTextHeight(
-          header.uppercased(),
-          font: NSFont.systemFont(ofSize: TypeScale.micro, weight: .semibold),
-          width: width
-        )
-        height += 4
-      }
-
-      height += measureTextHeight(
-        prompt.question,
-        font: NSFont.systemFont(ofSize: TypeScale.reading, weight: .medium),
-        width: width
-      )
-
-      if !prompt.options.isEmpty {
-        height += 6
-        for (index, option) in prompt.options.enumerated() {
-          height += questionOptionHeight(option, width: width)
-          if index < prompt.options.count - 1 {
-            height += CGFloat(Spacing.xs)
-          }
-        }
-      }
-
-      if prompt.options.isEmpty || prompt.allowsOther {
-        height += 6 + 26
-      }
-
-      return height
-    }
-
-    private static func questionOptionHeight(_ option: ApprovalQuestionOption, width: CGFloat) -> CGFloat {
-      let text = questionOptionDisplayText(option)
-      let textHeight = measureTextHeight(
-        text,
-        font: NSFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
-        width: max(1, width - 20)
-      )
-      return max(30, textHeight + 16)
     }
 
   }

@@ -237,6 +237,16 @@ enum ApprovalCardModelBuilder {
     let fallbackPreview: (command: String?, filePath: String?, previewType: ApprovalPreviewType)? = {
       guard previewFromServer == nil else { return nil }
 
+      // ExitPlanMode — show descriptive action, not a shell command
+      let resolvedToolName = activePendingApproval?.toolNameForDisplay ?? session.pendingToolName ?? nil
+      if resolvedToolName == "ExitPlanMode" {
+        return (
+          command: "Exit plan mode and begin implementation",
+          filePath: nil,
+          previewType: .action
+        )
+      }
+
       if let diff = ApprovalPermissionPreviewHelpers.trimmed(activePendingApproval?.diff) {
         return (command: diff, filePath: nil, previewType: .diff)
       }
