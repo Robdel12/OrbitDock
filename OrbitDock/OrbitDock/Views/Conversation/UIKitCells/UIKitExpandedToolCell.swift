@@ -674,7 +674,7 @@
 
         // Code line (in scroll view — scrolls horizontally)
         let codeLine = UILabel()
-        codeLine.attributedText = NativeSyntaxHighlighter.highlightLine(text, language: lang)
+        codeLine.attributedText = SyntaxHighlighter.highlightNativeLine(text, language: lang)
         codeLine.lineBreakMode = .byClipping
         codeLine.numberOfLines = 1
         codeLine.frame = CGRect(x: 0, y: rowY, width: scrollContentW, height: EL.contentLineHeight)

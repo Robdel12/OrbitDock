@@ -241,7 +241,7 @@ struct TaskCard: View {
           }
 
           ScrollView {
-            MarkdownView(content: output)
+            MarkdownContentView(content: output)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
           .frame(maxHeight: 300)

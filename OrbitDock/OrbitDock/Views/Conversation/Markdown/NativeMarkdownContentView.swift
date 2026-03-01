@@ -21,16 +21,7 @@ import SwiftUI
 final class NativeMarkdownContentView: PlatformView {
   // MARK: - Constants
 
-  /// Minimum gap between consecutive .text blocks when the trailing
-  /// paragraphSpacing from the attributed string is smaller.
-  private static let minimumTextBlockSpacing: CGFloat = 4
-  private static let blockquoteBarWidth: CGFloat = 3
   private static let blockquoteBarColor = PlatformColor(Color.accentMuted).withAlphaComponent(0.9)
-  private static let blockquoteLeadingPad: CGFloat = 14
-  private static let thematicBreakHeight: CGFloat = 28 // 14pt top + 4pt dots + 14pt bottom (approx)
-  private static let codeBlockVerticalMargin: CGFloat = 8
-  private static let tableVerticalMargin: CGFloat = 8
-  private static let blockquoteVerticalMargin: CGFloat = 8
 
   #if os(macOS)
     override var isFlipped: Bool {
@@ -41,6 +32,7 @@ final class NativeMarkdownContentView: PlatformView {
   // MARK: - State
 
   private var blocks: [MarkdownBlock] = []
+  private var contentStyle: ContentStyle = .standard
 
   // MARK: - Init
 
@@ -60,20 +52,17 @@ final class NativeMarkdownContentView: PlatformView {
 
   // MARK: - Configure
 
-  func configure(blocks: [MarkdownBlock]) {
+  func configure(blocks: [MarkdownBlock], style: ContentStyle = .standard) {
     self.blocks = blocks
+    contentStyle = style
     rebuildSubviews()
   }
 
   /// Extract the trailing paragraphSpacing from the last paragraph in an
   /// attributed string. NSLayoutManager ignores this for the final paragraph,
   /// so we apply it as view-level spacing between blocks.
-  private static func trailingSpacing(_ attrStr: NSAttributedString) -> CGFloat {
-    guard attrStr.length > 0 else { return 0 }
-    if let ps = attrStr.attribute(.paragraphStyle, at: attrStr.length - 1, effectiveRange: nil) as? NSParagraphStyle {
-      return max(minimumTextBlockSpacing, ps.paragraphSpacing)
-    }
-    return minimumTextBlockSpacing
+  private static func trailingSpacing(_ attrStr: NSAttributedString, style: ContentStyle) -> CGFloat {
+    MarkdownLayoutMetrics.trailingTextBlockSpacing(attrStr, style: style)
   }
 
   private func rebuildSubviews() {
@@ -82,6 +71,7 @@ final class NativeMarkdownContentView: PlatformView {
 
     var yOffset: CGFloat = 0
     let availableWidth = max(100, bounds.width)
+    let style = contentStyle
     // Trailing margin from the previous .text block, applied before the next block.
     var pendingMargin: CGFloat = 0
 
@@ -95,10 +85,11 @@ final class NativeMarkdownContentView: PlatformView {
           textView.frame = CGRect(x: 0, y: yOffset, width: availableWidth, height: height)
           addSubview(textView)
           yOffset += height
-          pendingMargin = Self.trailingSpacing(attrStr)
+          pendingMargin = Self.trailingSpacing(attrStr, style: style)
 
         case let .codeBlock(language, code):
-          yOffset += max(pendingMargin, Self.codeBlockVerticalMargin)
+          let blockMargin = MarkdownLayoutMetrics.verticalMargin(for: .codeBlock, style: style)
+          yOffset += max(pendingMargin, blockMargin)
           pendingMargin = 0
           let codeView = NativeCodeBlockView(frame: CGRect(
             x: 0, y: yOffset, width: availableWidth,
@@ -110,18 +101,21 @@ final class NativeMarkdownContentView: PlatformView {
           codeView.configure(language: language, code: code)
           addSubview(codeView)
           yOffset += codeView.frame.height
-          yOffset += Self.codeBlockVerticalMargin
+          yOffset += blockMargin
 
         case let .blockquote(attrStr):
-          yOffset += max(pendingMargin, Self.blockquoteVerticalMargin)
+          let blockMargin = MarkdownLayoutMetrics.verticalMargin(for: .blockquote, style: style)
+          let barWidth = MarkdownLayoutMetrics.blockquoteBarWidth(style: style)
+          let leadingPadding = MarkdownLayoutMetrics.blockquoteLeadingPadding(style: style)
+          yOffset += max(pendingMargin, blockMargin)
           pendingMargin = 0
           let quoteHeight = Self.measureTextHeight(
             attrStr,
-            width: availableWidth - Self.blockquoteLeadingPad - Self.blockquoteBarWidth - 4
+            width: availableWidth - leadingPadding - barWidth - 4
           )
 
           // Accent bar
-          let bar = PlatformView(frame: CGRect(x: 0, y: yOffset, width: Self.blockquoteBarWidth, height: quoteHeight))
+          let bar = PlatformView(frame: CGRect(x: 0, y: yOffset, width: barWidth, height: quoteHeight))
           #if os(macOS)
             bar.wantsLayer = true
             bar.layer?.backgroundColor = Self.blockquoteBarColor.cgColor
@@ -135,25 +129,27 @@ final class NativeMarkdownContentView: PlatformView {
           // Quote text
           let textView = makeTextView(
             attrStr,
-            width: availableWidth - Self.blockquoteLeadingPad - Self.blockquoteBarWidth
+            width: availableWidth - leadingPadding - barWidth
           )
           textView.frame = CGRect(
-            x: Self.blockquoteBarWidth + Self.blockquoteLeadingPad,
+            x: barWidth + leadingPadding,
             y: yOffset,
-            width: availableWidth - Self.blockquoteBarWidth - Self.blockquoteLeadingPad,
+            width: availableWidth - barWidth - leadingPadding,
             height: quoteHeight
           )
           addSubview(textView)
           yOffset += quoteHeight
-          yOffset += Self.blockquoteVerticalMargin
+          yOffset += blockMargin
 
         case let .table(headers, rows):
-          yOffset += max(pendingMargin, Self.tableVerticalMargin)
+          let blockMargin = MarkdownLayoutMetrics.verticalMargin(for: .table, style: style)
+          yOffset += max(pendingMargin, blockMargin)
           pendingMargin = 0
           let tableHeight = NativeMarkdownTableView.requiredHeight(
             headers: headers,
             rows: rows,
-            width: availableWidth
+            width: availableWidth,
+            style: style
           )
           let tableView = NativeMarkdownTableView(frame: CGRect(
             x: 0,
@@ -161,18 +157,19 @@ final class NativeMarkdownContentView: PlatformView {
             width: availableWidth,
             height: tableHeight
           ))
-          tableView.configure(headers: headers, rows: rows)
+          tableView.configure(headers: headers, rows: rows, style: style)
           addSubview(tableView)
           yOffset += tableHeight
-          yOffset += Self.tableVerticalMargin
+          yOffset += blockMargin
 
         case .thematicBreak:
-          yOffset += max(pendingMargin, 14)
+          let breakMargin = MarkdownLayoutMetrics.verticalMargin(for: .thematicBreak, style: style)
+          yOffset += max(pendingMargin, breakMargin)
           pendingMargin = 0
           let dotsView = ThematicBreakView(frame: CGRect(x: 0, y: yOffset, width: availableWidth, height: 4))
           addSubview(dotsView)
           yOffset += 4
-          yOffset += 14
+          yOffset += breakMargin
       }
     }
 
@@ -183,7 +180,7 @@ final class NativeMarkdownContentView: PlatformView {
 
   /// Calculate the required height for the given blocks at the specified width.
   /// Uses NSLayoutManager for text measurement — fully deterministic.
-  static func requiredHeight(for blocks: [MarkdownBlock], width: CGFloat) -> CGFloat {
+  static func requiredHeight(for blocks: [MarkdownBlock], width: CGFloat, style: ContentStyle = .standard) -> CGFloat {
     guard width > 1 else { return 1 }
     var totalHeight: CGFloat = 0
     var pendingMargin: CGFloat = 0
@@ -194,40 +191,47 @@ final class NativeMarkdownContentView: PlatformView {
           totalHeight += pendingMargin
           pendingMargin = 0
           totalHeight += measureTextHeight(attrStr, width: width)
-          pendingMargin = trailingSpacing(attrStr)
+          pendingMargin = trailingSpacing(attrStr, style: style)
 
         case let .codeBlock(_, code):
-          totalHeight += max(pendingMargin, codeBlockVerticalMargin)
+          let blockMargin = MarkdownLayoutMetrics.verticalMargin(for: .codeBlock, style: style)
+          totalHeight += max(pendingMargin, blockMargin)
           pendingMargin = 0
           totalHeight += NativeCodeBlockView.requiredHeight(
             lineCount: code.components(separatedBy: "\n").count,
             isExpanded: false
           )
-          totalHeight += codeBlockVerticalMargin
+          totalHeight += blockMargin
 
         case let .blockquote(attrStr):
-          totalHeight += max(pendingMargin, blockquoteVerticalMargin)
+          let blockMargin = MarkdownLayoutMetrics.verticalMargin(for: .blockquote, style: style)
+          let barWidth = MarkdownLayoutMetrics.blockquoteBarWidth(style: style)
+          let leadingPadding = MarkdownLayoutMetrics.blockquoteLeadingPadding(style: style)
+          totalHeight += max(pendingMargin, blockMargin)
           pendingMargin = 0
           totalHeight += measureTextHeight(
             attrStr,
-            width: width - blockquoteLeadingPad - blockquoteBarWidth - 4
+            width: width - leadingPadding - barWidth - 4
           )
-          totalHeight += blockquoteVerticalMargin
+          totalHeight += blockMargin
 
         case let .table(headers, rows):
-          totalHeight += max(pendingMargin, tableVerticalMargin)
+          let blockMargin = MarkdownLayoutMetrics.verticalMargin(for: .table, style: style)
+          totalHeight += max(pendingMargin, blockMargin)
           pendingMargin = 0
           totalHeight += NativeMarkdownTableView.requiredHeight(
             headers: headers,
             rows: rows,
-            width: width
+            width: width,
+            style: style
           )
-          totalHeight += tableVerticalMargin
+          totalHeight += blockMargin
 
         case .thematicBreak:
-          totalHeight += max(pendingMargin, 14)
+          let breakMargin = MarkdownLayoutMetrics.verticalMargin(for: .thematicBreak, style: style)
+          totalHeight += max(pendingMargin, breakMargin)
           pendingMargin = 0
-          totalHeight += 4 + 14
+          totalHeight += 4 + breakMargin
       }
     }
 
@@ -273,7 +277,7 @@ final class NativeMarkdownContentView: PlatformView {
       // Enable link clicking
       textView.isAutomaticLinkDetectionEnabled = false
       textView.linkTextAttributes = [
-        .foregroundColor: PlatformColor.calibrated(red: 0.5, green: 0.72, blue: 0.95, alpha: 1),
+        .foregroundColor: PlatformColor(Color.markdownLink),
         .underlineStyle: NSUnderlineStyle.single.rawValue,
         .cursor: NSCursor.pointingHand,
       ]
@@ -291,7 +295,7 @@ final class NativeMarkdownContentView: PlatformView {
       textView.delegate = self
       textView.attributedText = attrStr
       textView.linkTextAttributes = [
-        .foregroundColor: PlatformColor.calibrated(red: 0.5, green: 0.72, blue: 0.95, alpha: 1),
+        .foregroundColor: PlatformColor(Color.markdownLink),
         .underlineStyle: NSUnderlineStyle.single.rawValue,
       ]
       return textView

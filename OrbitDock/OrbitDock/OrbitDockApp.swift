@@ -9,6 +9,7 @@ import SwiftUI
 import UserNotifications
 #if os(macOS)
   import AppKit
+  import Dispatch
 #elseif os(iOS)
   import UIKit
 #endif
@@ -37,8 +38,8 @@ struct OrbitDockApp: App {
     #if os(iOS)
       .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
         runtimeRegistry.handleMemoryPressure()
-        MarkdownAttributedStringRenderer.clearCache()
-        NativeSyntaxHighlighter.clearCache()
+        MarkdownSystemParser.clearCache()
+        SyntaxHighlighter.clearCache()
       }
     #endif
       .task {
@@ -124,6 +125,7 @@ struct OrbitDockApp: App {
 
     /// Shared server app state for MCP bridge
     static var serverAppState: ServerAppState?
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
       // Disable macOS Ventura+ row-height estimation so our ConversationHeightEngine
@@ -157,9 +159,24 @@ struct OrbitDockApp: App {
 
       // Fetch latest model pricing in background
       ModelPricingService.shared.fetchPrices()
+
+      let memoryPressureSource = DispatchSource.makeMemoryPressureSource(
+        eventMask: [.warning, .critical],
+        queue: .main
+      )
+      memoryPressureSource.setEventHandler {
+        ServerRuntimeRegistry.shared.handleMemoryPressure()
+        MarkdownSystemParser.clearCache()
+        SyntaxHighlighter.clearCache()
+      }
+      memoryPressureSource.resume()
+      self.memoryPressureSource = memoryPressureSource
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+      memoryPressureSource?.cancel()
+      memoryPressureSource = nil
+
       Task { @MainActor in
         MCPBridge.shared.stop()
         ServerRuntimeRegistry.shared.stopAllRuntimes()

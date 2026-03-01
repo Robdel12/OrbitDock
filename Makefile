@@ -86,12 +86,12 @@ help:
 build:
 	@$(MAKE) xcode-cache-dirs
 	@mkdir -p $(XCODEBUILD_LOG_DIR)
-	@$(XCODEBUILD) build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-build.log" | xcbeautify --quiet
+	@set -o pipefail; $(XCODEBUILD) build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-build.log" | xcbeautify --quiet
 
 build-ios:
 	@$(MAKE) xcode-cache-dirs
 	@mkdir -p $(XCODEBUILD_LOG_DIR)
-	@$(XCODEBUILD_IOS) build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-build-ios.log" | xcbeautify --quiet
+	@set -o pipefail; $(XCODEBUILD_IOS) build 2>&1 | tee "$(XCODEBUILD_LOG_DIR)/xcodebuild-build-ios.log" | xcbeautify --quiet
 
 build-all: build build-ios
 
@@ -99,15 +99,15 @@ test: test-unit
 
 test-unit:
 	@$(MAKE) xcode-cache-dirs
-	@$(XCODEBUILD) -only-testing:OrbitDockTests -skip-testing:OrbitDockUITests test 2>&1 | xcbeautify
+	@set -o pipefail; $(XCODEBUILD) -parallel-testing-enabled NO -only-testing:OrbitDockTests -skip-testing:OrbitDockUITests test 2>&1 | xcbeautify
 
 test-ui:
 	@$(MAKE) xcode-cache-dirs
-	@$(XCODEBUILD) -only-testing:OrbitDockUITests test 2>&1 | xcbeautify
+	@set -o pipefail; $(XCODEBUILD) -only-testing:OrbitDockUITests test 2>&1 | xcbeautify
 
 test-all:
 	@$(MAKE) xcode-cache-dirs
-	@$(XCODEBUILD) test 2>&1 | xcbeautify
+	@set -o pipefail; $(XCODEBUILD) test 2>&1 | xcbeautify
 
 clean:
 	@$(MAKE) xcode-cache-dirs

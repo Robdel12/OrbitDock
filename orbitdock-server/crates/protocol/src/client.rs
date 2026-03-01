@@ -20,6 +20,7 @@ fn is_true(value: &bool) -> bool {
 /// Messages sent from client to server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum ClientMessage {
     // Subscriptions
     SubscribeSession {

@@ -805,7 +805,9 @@ pub(crate) async fn handle(
             let source_approval_policy = source_snapshot
                 .as_ref()
                 .and_then(|s| s.approval_policy.clone());
-            let source_sandbox_mode = source_snapshot.as_ref().and_then(|s| s.sandbox_mode.clone());
+            let source_sandbox_mode = source_snapshot
+                .as_ref()
+                .and_then(|s| s.sandbox_mode.clone());
             let effective_approval_policy = approval_policy.clone().or(source_approval_policy);
             let effective_sandbox_mode = sandbox_mode.clone().or(source_sandbox_mode);
 
@@ -1032,76 +1034,77 @@ pub(crate) async fn handle(
                     );
                     handle.set_forked_from(source_session_id.clone());
 
-                    let source_fork_messages = if let Some(source_actor) =
-                        state.get_session(&source_session_id)
-                    {
-                        let (state_tx, state_rx) = oneshot::channel();
-                        source_actor
-                            .send(SessionCommand::GetState { reply: state_tx })
-                            .await;
+                    let source_fork_messages =
+                        if let Some(source_actor) = state.get_session(&source_session_id) {
+                            let (state_tx, state_rx) = oneshot::channel();
+                            source_actor
+                                .send(SessionCommand::GetState { reply: state_tx })
+                                .await;
 
-                        match state_rx.await {
-                            Ok(source_state) => remap_messages_for_fork(
-                                truncate_messages_before_nth_user_message(
-                                    &source_state.messages,
-                                    nth_user_message,
+                            match state_rx.await {
+                                Ok(source_state) => remap_messages_for_fork(
+                                    truncate_messages_before_nth_user_message(
+                                        &source_state.messages,
+                                        nth_user_message,
+                                    ),
+                                    &new_id,
                                 ),
-                                &new_id,
-                            ),
-                            Err(_) => {
-                                warn!(
-                                    component = "session",
-                                    event = "session.fork.source_state_unavailable",
-                                    source_session_id = %source_session_id,
-                                    new_session_id = %new_id,
-                                    "Failed to read source session state for fork hydration"
-                                );
-                                Vec::new()
+                                Err(_) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.fork.source_state_unavailable",
+                                        source_session_id = %source_session_id,
+                                        new_session_id = %new_id,
+                                        "Failed to read source session state for fork hydration"
+                                    );
+                                    Vec::new()
+                                }
                             }
-                        }
-                    } else {
-                        Vec::new()
-                    };
+                        } else {
+                            Vec::new()
+                        };
 
-                    let rollout_messages = if let Some(rollout_path) = new_connector.rollout_path().await
-                    {
-                        match load_messages_from_transcript_path(&rollout_path, &new_id).await {
-                            Ok(messages) if !messages.is_empty() => {
-                                info!(
-                                    component = "session",
-                                    event = "session.fork.messages_loaded",
-                                    new_session_id = %new_id,
-                                    message_count = messages.len(),
-                                    "Loaded forked conversation history"
-                                );
-                                messages
+                    let rollout_messages =
+                        if let Some(rollout_path) = new_connector.rollout_path().await {
+                            match load_messages_from_transcript_path(&rollout_path, &new_id).await {
+                                Ok(messages) if !messages.is_empty() => {
+                                    info!(
+                                        component = "session",
+                                        event = "session.fork.messages_loaded",
+                                        new_session_id = %new_id,
+                                        message_count = messages.len(),
+                                        "Loaded forked conversation history"
+                                    );
+                                    messages
+                                }
+                                Ok(_) => {
+                                    debug!(
+                                        component = "session",
+                                        event = "session.fork.no_messages",
+                                        new_session_id = %new_id,
+                                        "Forked thread rollout has no parseable messages"
+                                    );
+                                    Vec::new()
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        component = "session",
+                                        event = "session.fork.messages_load_failed",
+                                        new_session_id = %new_id,
+                                        error = %e,
+                                        "Failed to load forked conversation history"
+                                    );
+                                    Vec::new()
+                                }
                             }
-                            Ok(_) => {
-                                debug!(
-                                    component = "session",
-                                    event = "session.fork.no_messages",
-                                    new_session_id = %new_id,
-                                    "Forked thread rollout has no parseable messages"
-                                );
-                                Vec::new()
-                            }
-                            Err(e) => {
-                                warn!(
-                                    component = "session",
-                                    event = "session.fork.messages_load_failed",
-                                    new_session_id = %new_id,
-                                    error = %e,
-                                    "Failed to load forked conversation history"
-                                );
-                                Vec::new()
-                            }
-                        }
-                    } else {
-                        Vec::new()
-                    };
+                        } else {
+                            Vec::new()
+                        };
 
                     let forked_messages = if source_fork_messages.len() >= rollout_messages.len() {
-                        if !source_fork_messages.is_empty() && rollout_messages.len() < source_fork_messages.len() {
+                        if !source_fork_messages.is_empty()
+                            && rollout_messages.len() < source_fork_messages.len()
+                        {
                             info!(
                                 component = "session",
                                 event = "session.fork.messages_source_selected",
@@ -1262,7 +1265,10 @@ mod tests {
     fn remap_messages_for_fork_reassigns_identity_and_clears_in_progress() {
         let mut msg = mk_msg("orig", MessageType::Assistant, "reply");
         msg.is_in_progress = true;
-        let mapped = remap_messages_for_fork(vec![msg, mk_msg("orig-2", MessageType::User, "u")], "od-new");
+        let mapped = remap_messages_for_fork(
+            vec![msg, mk_msg("orig-2", MessageType::User, "u")],
+            "od-new",
+        );
 
         // In-progress source entries are intentionally dropped for stable fork history.
         assert_eq!(mapped.len(), 1);

@@ -198,6 +198,7 @@ struct NativeRichMessageRowModel {
     private var currentModel: NativeRichMessageRowModel?
     private var currentBlocks: [MarkdownBlock] = []
     private var currentImages: [MessageImage] = []
+    private var currentContentStyle: ContentStyle = .standard
 
     // MARK: - Init
 
@@ -337,7 +338,8 @@ struct NativeRichMessageRowModel {
 
       // Parse markdown — use displayContent (truncated for thinking)
       let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
-      currentBlocks = MarkdownAttributedStringRenderer.parse(model.displayContent, style: style)
+      currentContentStyle = style
+      currentBlocks = MarkdownSystemParser.parse(model.displayContent, style: style)
 
       // Configure body based on message type
       rebuildBody(model: model, width: width)
@@ -470,9 +472,13 @@ struct NativeRichMessageRowModel {
     }
 
     private func rebuildAssistantBody(model: NativeRichMessageRowModel, contentWidth: CGFloat) {
-      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: contentWidth)
+      let mdHeight = NativeMarkdownContentView.requiredHeight(
+        for: currentBlocks,
+        width: contentWidth,
+        style: currentContentStyle
+      )
       markdownContentView.frame = NSRect(x: Self.laneHorizontalInset, y: 0, width: contentWidth, height: mdHeight)
-      markdownContentView.configure(blocks: currentBlocks)
+      markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
       bodyContainer.addSubview(markdownContentView)
 
       if !model.images.isEmpty {
@@ -488,7 +494,11 @@ struct NativeRichMessageRowModel {
 
     private func rebuildUserBody(model: NativeRichMessageRowModel, contentWidth: CGFloat, totalWidth: CGFloat) {
       let innerWidth = contentWidth - Self.userBubbleHorizontalPad * 2 - Self.userAccentBarWidth
-      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth)
+      let mdHeight = NativeMarkdownContentView.requiredHeight(
+        for: currentBlocks,
+        width: innerWidth,
+        style: currentContentStyle
+      )
       let bubbleHeight = mdHeight + Self.userBubbleVerticalPad * 2
 
       // Position bubble right-aligned
@@ -516,7 +526,7 @@ struct NativeRichMessageRowModel {
         width: innerWidth,
         height: mdHeight
       )
-      markdownContentView.configure(blocks: currentBlocks)
+      markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
       bodyContainer.addSubview(markdownContentView)
 
       if !model.images.isEmpty {
@@ -563,8 +573,8 @@ struct NativeRichMessageRowModel {
       let vTop = Self.thinkingVPadTop
       let vBottom = Self.thinkingVPadBottom
       let innerWidth = contentWidth - hPad * 2
-      let displayBlocks = MarkdownAttributedStringRenderer.parse(model.displayContent, style: .thinking)
-      let mdHeight = NativeMarkdownContentView.requiredHeight(for: displayBlocks, width: innerWidth)
+      let displayBlocks = MarkdownSystemParser.parse(model.displayContent, style: .thinking)
+      let mdHeight = NativeMarkdownContentView.requiredHeight(for: displayBlocks, width: innerWidth, style: .thinking)
 
       let hasShowMore = model.isThinkingLong
       let isCollapsed = hasShowMore && !model.isThinkingExpanded
@@ -591,7 +601,7 @@ struct NativeRichMessageRowModel {
         width: innerWidth,
         height: mdHeight
       )
-      markdownContentView.configure(blocks: displayBlocks)
+      markdownContentView.configure(blocks: displayBlocks, style: .thinking)
       bodyContainer.addSubview(markdownContentView)
 
       // Gradient mask: fade text to transparent over the last lines when collapsed
@@ -646,7 +656,11 @@ struct NativeRichMessageRowModel {
       let vBottom = Self.errorVPadBottom
       let barWidth = Self.errorAccentBarWidth
       let innerWidth = contentWidth - hPad * 2 - barWidth
-      let mdHeight = NativeMarkdownContentView.requiredHeight(for: currentBlocks, width: innerWidth)
+      let mdHeight = NativeMarkdownContentView.requiredHeight(
+        for: currentBlocks,
+        width: innerWidth,
+        style: currentContentStyle
+      )
       let containerHeight = vTop + mdHeight + vBottom
 
       // Coral-tinted background with subtle border
@@ -677,7 +691,7 @@ struct NativeRichMessageRowModel {
         width: innerWidth,
         height: mdHeight
       )
-      markdownContentView.configure(blocks: currentBlocks)
+      markdownContentView.configure(blocks: currentBlocks, style: currentContentStyle)
       bodyContainer.addSubview(markdownContentView)
     }
 
@@ -945,13 +959,13 @@ struct NativeRichMessageRowModel {
       guard width > 1 else { return 1 }
 
       let style: ContentStyle = model.messageType == .thinking ? .thinking : .standard
-      let blocks = MarkdownAttributedStringRenderer.parse(model.displayContent, style: style)
+      let blocks = MarkdownSystemParser.parse(model.displayContent, style: style)
       let bodyHeight: CGFloat
 
       if model.isUserAligned {
         let contentWidth = min(width - laneHorizontalInset * 2, userRailMaxWidth)
         let innerWidth = contentWidth - userBubbleHorizontalPad * 2 - userAccentBarWidth
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
+        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth, style: style)
         let bubbleHeight = mdHeight + userBubbleVerticalPad * 2
         let imgHeight = imageBlockHeight(for: model.images, availableWidth: contentWidth)
         bodyHeight = bubbleHeight + imgHeight
@@ -973,17 +987,17 @@ struct NativeRichMessageRowModel {
       } else if model.messageType == .thinking {
         let contentWidth = min(width - laneHorizontalInset * 2, thinkingRailMaxWidth)
         let innerWidth = contentWidth - thinkingHPad * 2
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
+        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth, style: style)
         let bottomZoneHeight: CGFloat = model.isThinkingLong ? thinkingShowMoreHeight : 0
         bodyHeight = thinkingVPadTop + mdHeight + thinkingVPadBottom + bottomZoneHeight
       } else if model.messageType == .error {
         let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
         let innerWidth = contentWidth - errorHPad * 2 - errorAccentBarWidth
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth)
+        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: innerWidth, style: style)
         bodyHeight = errorVPadTop + mdHeight + errorVPadBottom
       } else {
         let contentWidth = min(width - laneHorizontalInset * 2, assistantRailMaxWidth)
-        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: contentWidth)
+        let mdHeight = NativeMarkdownContentView.requiredHeight(for: blocks, width: contentWidth, style: style)
         let imgHeight = imageBlockHeight(for: model.images, availableWidth: contentWidth)
         bodyHeight = mdHeight + imgHeight
       }
