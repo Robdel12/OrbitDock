@@ -20,25 +20,25 @@ const DEFAULT_SERVER_URL: &str = "http://127.0.0.1:4000";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum HookForwardType {
     #[value(name = "claude_session_start")]
-    ClaudeSessionStart,
+    SessionStart,
     #[value(name = "claude_session_end")]
-    ClaudeSessionEnd,
+    SessionEnd,
     #[value(name = "claude_status_event")]
-    ClaudeStatusEvent,
+    StatusEvent,
     #[value(name = "claude_tool_event")]
-    ClaudeToolEvent,
+    ToolEvent,
     #[value(name = "claude_subagent_event")]
-    ClaudeSubagentEvent,
+    SubagentEvent,
 }
 
 impl HookForwardType {
     pub fn as_wire_type(self) -> &'static str {
         match self {
-            HookForwardType::ClaudeSessionStart => "claude_session_start",
-            HookForwardType::ClaudeSessionEnd => "claude_session_end",
-            HookForwardType::ClaudeStatusEvent => "claude_status_event",
-            HookForwardType::ClaudeToolEvent => "claude_tool_event",
-            HookForwardType::ClaudeSubagentEvent => "claude_subagent_event",
+            HookForwardType::SessionStart => "claude_session_start",
+            HookForwardType::SessionEnd => "claude_session_end",
+            HookForwardType::StatusEvent => "claude_status_event",
+            HookForwardType::ToolEvent => "claude_tool_event",
+            HookForwardType::SubagentEvent => "claude_subagent_event",
         }
     }
 }
@@ -179,7 +179,7 @@ fn build_hook_body(hook_type: HookForwardType, payload: &str) -> anyhow::Result<
         Value::String(hook_type.as_wire_type().to_string()),
     );
 
-    if hook_type == HookForwardType::ClaudeSessionStart {
+    if hook_type == HookForwardType::SessionStart {
         inject_session_start_terminal_fields(obj);
     }
 
@@ -290,8 +290,7 @@ mod tests {
     #[test]
     fn build_hook_body_injects_type() {
         let payload = r#"{"session_id":"abc","cwd":"/tmp"}"#;
-        let body =
-            build_hook_body(HookForwardType::ClaudeStatusEvent, payload).expect("build hook body");
+        let body = build_hook_body(HookForwardType::StatusEvent, payload).expect("build hook body");
         let value: serde_json::Value = serde_json::from_str(&body).expect("parse body");
         assert_eq!(
             value.get("type").and_then(|v| v.as_str()),
@@ -308,7 +307,7 @@ mod tests {
           "terminal_app":"my-term"
         }"#;
         let body =
-            build_hook_body(HookForwardType::ClaudeSessionStart, payload).expect("build hook body");
+            build_hook_body(HookForwardType::SessionStart, payload).expect("build hook body");
         let value: serde_json::Value = serde_json::from_str(&body).expect("parse body");
         assert_eq!(
             value.get("terminal_session_id").and_then(|v| v.as_str()),
