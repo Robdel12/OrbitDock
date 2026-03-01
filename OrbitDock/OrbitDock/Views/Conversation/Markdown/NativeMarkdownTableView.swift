@@ -17,17 +17,14 @@ import SwiftUI
 final class NativeMarkdownTableView: PlatformView {
   // MARK: - Constants
 
-  private static let cellVerticalPadding: CGFloat = 8
-  private static let cellHorizontalPadding: CGFloat = 12
+  private static let cellVerticalPadding: CGFloat = 10
+  private static let cellHorizontalPadding: CGFloat = 14
   private static let borderWidth: CGFloat = 1
-  private static let borderColor = PlatformColor.white.withAlphaComponent(0.12)
-  private static let headerBgColor = PlatformColor.white.withAlphaComponent(0.05)
-  private static let evenRowBgColor = PlatformColor.white.withAlphaComponent(0.02)
-  private static let oddRowBgColor = PlatformColor.white.withAlphaComponent(0.05)
-  private static let cellFont = PlatformFont.systemFont(ofSize: TypeScale.chatBody)
-  private static let headerFont = PlatformFont.systemFont(ofSize: TypeScale.chatBody, weight: .semibold)
-  private static let textColor = PlatformColor(Color.textPrimary)
-  private static let headerTextColor = PlatformColor(Color.textPrimary)
+  private static let borderColor = PlatformColor(Color.surfaceBorder).withAlphaComponent(0.9)
+  private static let gridColor = PlatformColor(Color.surfaceBorder).withAlphaComponent(0.55)
+  private static let headerBgColor = PlatformColor(Color.backgroundTertiary).withAlphaComponent(0.68)
+  private static let evenRowBgColor = PlatformColor(Color.backgroundSecondary).withAlphaComponent(0.42)
+  private static let oddRowBgColor = PlatformColor(Color.backgroundTertiary).withAlphaComponent(0.48)
 
   // MARK: - Layout Metrics
 
@@ -46,6 +43,7 @@ final class NativeMarkdownTableView: PlatformView {
 
   private var headers: [String] = []
   private var rows: [[String]] = []
+  private var contentStyle: ContentStyle = .standard
 
   #if os(macOS)
     override var isFlipped: Bool {
@@ -77,9 +75,10 @@ final class NativeMarkdownTableView: PlatformView {
 
   // MARK: - Configure
 
-  func configure(headers: [String], rows: [[String]]) {
+  func configure(headers: [String], rows: [[String]], style: ContentStyle = .standard) {
     self.headers = headers
     self.rows = rows
+    contentStyle = style
     rebuildContent()
   }
 
@@ -88,7 +87,7 @@ final class NativeMarkdownTableView: PlatformView {
   private func rebuildContent() {
     subviews.forEach { $0.removeFromSuperview() }
 
-    let metrics = Self.layoutMetrics(headers: headers, rows: rows, width: bounds.width)
+    let metrics = Self.layoutMetrics(headers: headers, rows: rows, width: bounds.width, style: contentStyle)
     guard metrics.columnCount > 0 else { return }
 
     let normalizedHeaders = Self.normalizedCells(headers, columnCount: metrics.columnCount)
@@ -108,7 +107,12 @@ final class NativeMarkdownTableView: PlatformView {
     addSubview(headerBg)
 
     for col in 0 ..< metrics.columnCount {
-      let label = makeLabel(text: normalizedHeaders[col], isHeader: true)
+      let headerText = MarkdownSystemParser.inlineTableCellText(
+        from: normalizedHeaders[col],
+        style: contentStyle,
+        isHeader: true
+      )
+      let label = makeLabel(text: headerText)
       label.frame = CGRect(
         x: CGFloat(col) * metrics.columnWidth + Self.cellHorizontalPadding,
         y: yOffset + Self.cellVerticalPadding,
@@ -117,6 +121,8 @@ final class NativeMarkdownTableView: PlatformView {
       )
       addSubview(label)
     }
+
+    addColumnSeparators(rowY: yOffset, rowHeight: metrics.headerRowHeight, columnCount: metrics.columnCount, columnWidth: metrics.columnWidth)
     yOffset += metrics.headerRowHeight
 
     // Data rows
@@ -133,7 +139,12 @@ final class NativeMarkdownTableView: PlatformView {
       addSubview(rowBg)
 
       for col in 0 ..< metrics.columnCount {
-        let label = makeLabel(text: row[col], isHeader: false)
+        let bodyText = MarkdownSystemParser.inlineTableCellText(
+          from: row[col],
+          style: contentStyle,
+          isHeader: false
+        )
+        let label = makeLabel(text: bodyText)
         label.frame = CGRect(
           x: CGFloat(col) * metrics.columnWidth + Self.cellHorizontalPadding,
           y: yOffset + Self.cellVerticalPadding,
@@ -142,15 +153,17 @@ final class NativeMarkdownTableView: PlatformView {
         )
         addSubview(label)
       }
+      addColumnSeparators(rowY: yOffset, rowHeight: rowHeight, columnCount: metrics.columnCount, columnWidth: metrics.columnWidth)
+      addHorizontalSeparator(y: yOffset + rowHeight)
       yOffset += rowHeight
     }
   }
 
   #if os(macOS)
-    private func makeLabel(text: String, isHeader: Bool) -> NSTextField {
-      let label = NSTextField(wrappingLabelWithString: text)
-      label.font = isHeader ? Self.headerFont : Self.cellFont
-      label.textColor = isHeader ? Self.headerTextColor : Self.textColor
+    private func makeLabel(text: NSAttributedString) -> NSTextField {
+      let label = NSTextField(wrappingLabelWithString: "")
+      label.allowsEditingTextAttributes = true
+      label.attributedStringValue = text
       label.lineBreakMode = .byWordWrapping
       label.maximumNumberOfLines = 0
       label.cell?.usesSingleLineMode = false
@@ -160,24 +173,54 @@ final class NativeMarkdownTableView: PlatformView {
       return label
     }
   #else
-    private func makeLabel(text: String, isHeader: Bool) -> UILabel {
+    private func makeLabel(text: NSAttributedString) -> UILabel {
       let label = UILabel()
-      label.text = text
-      label.font = isHeader ? Self.headerFont : Self.cellFont
-      label.textColor = isHeader ? Self.headerTextColor : Self.textColor
+      label.attributedText = text
       label.lineBreakMode = .byWordWrapping
       label.numberOfLines = 0
       return label
     }
   #endif
 
-  // MARK: - Height Calculation
-
-  static func requiredHeight(headers: [String], rows: [[String]], width: CGFloat) -> CGFloat {
-    layoutMetrics(headers: headers, rows: rows, width: width).totalHeight
+  private func addHorizontalSeparator(y: CGFloat) {
+    let separator = PlatformView(frame: CGRect(x: 0, y: y - 0.5, width: bounds.width, height: 1))
+    #if os(macOS)
+      separator.wantsLayer = true
+      separator.layer?.backgroundColor = Self.gridColor.cgColor
+    #else
+      separator.backgroundColor = Self.gridColor
+    #endif
+    addSubview(separator)
   }
 
-  private static func layoutMetrics(headers: [String], rows: [[String]], width: CGFloat) -> TableLayoutMetrics {
+  private func addColumnSeparators(rowY: CGFloat, rowHeight: CGFloat, columnCount: Int, columnWidth: CGFloat) {
+    guard columnCount > 1 else { return }
+    for column in 1 ..< columnCount {
+      let separator = PlatformView(
+        frame: CGRect(x: CGFloat(column) * columnWidth - 0.5, y: rowY, width: 1, height: rowHeight)
+      )
+      #if os(macOS)
+        separator.wantsLayer = true
+        separator.layer?.backgroundColor = Self.gridColor.cgColor
+      #else
+        separator.backgroundColor = Self.gridColor
+      #endif
+      addSubview(separator)
+    }
+  }
+
+  // MARK: - Height Calculation
+
+  static func requiredHeight(headers: [String], rows: [[String]], width: CGFloat, style: ContentStyle = .standard) -> CGFloat {
+    layoutMetrics(headers: headers, rows: rows, width: width, style: style).totalHeight
+  }
+
+  private static func layoutMetrics(
+    headers: [String],
+    rows: [[String]],
+    width: CGFloat,
+    style: ContentStyle
+  ) -> TableLayoutMetrics {
     let rowColumnCount = rows.map(\.count).max() ?? 0
     let columnCount = max(headers.count, rowColumnCount)
     guard columnCount > 0 else {
@@ -188,21 +231,33 @@ final class NativeMarkdownTableView: PlatformView {
     let columnWidth = max(80, (contentWidth - CGFloat(columnCount + 1) * borderWidth) / CGFloat(columnCount))
     let textWidth = max(1, columnWidth - cellHorizontalPadding * 2)
 
-    let bodySingleLine = ceil(cellFont.ascender - cellFont.descender + cellFont.leading)
+    let bodyFont = PlatformFont.systemFont(ofSize: style == .thinking ? TypeScale.code : TypeScale.chatBody)
+    let headerFont = PlatformFont.systemFont(ofSize: style == .thinking ? TypeScale.code : TypeScale.chatBody, weight: .semibold)
+    let bodySingleLine = ceil(bodyFont.ascender - bodyFont.descender + bodyFont.leading)
     let headerSingleLine = ceil(headerFont.ascender - headerFont.descender + headerFont.leading)
     let minimumBodyRowHeight = bodySingleLine + cellVerticalPadding * 2
     let minimumHeaderRowHeight = headerSingleLine + cellVerticalPadding * 2
 
     let normalizedHeaders = normalizedCells(headers, columnCount: columnCount)
     let headerTextHeight = normalizedHeaders
-      .map { textHeight(for: $0, font: headerFont, width: textWidth) }
+      .map { header in
+        textHeight(
+          for: MarkdownSystemParser.inlineTableCellText(from: header, style: style, isHeader: true),
+          width: textWidth
+        )
+      }
       .max() ?? headerSingleLine
     let headerRowHeight = max(minimumHeaderRowHeight, headerTextHeight + cellVerticalPadding * 2)
 
     let normalizedRows = normalizedRows(rows, columnCount: columnCount)
     let dataRowHeights = normalizedRows.map { row -> CGFloat in
       let tallestCell = row
-        .map { textHeight(for: $0, font: cellFont, width: textWidth) }
+        .map { cell in
+          textHeight(
+            for: MarkdownSystemParser.inlineTableCellText(from: cell, style: style, isHeader: false),
+            width: textWidth
+          )
+        }
         .max() ?? bodySingleLine
       return max(minimumBodyRowHeight, tallestCell + cellVerticalPadding * 2)
     }
@@ -225,17 +280,15 @@ final class NativeMarkdownTableView: PlatformView {
     return trimmed + Array(repeating: "", count: columnCount - trimmed.count)
   }
 
-  private static func textHeight(for text: String, font: PlatformFont, width: CGFloat) -> CGFloat {
-    let singleLine = ceil(font.ascender - font.descender + font.leading)
-    guard width > 1, !text.isEmpty else { return singleLine }
-
-    let paragraphStyle = NSMutableParagraphStyle()
-    paragraphStyle.lineBreakMode = .byWordWrapping
-
-    let attributed = NSAttributedString(string: text, attributes: [
-      .font: font,
-      .paragraphStyle: paragraphStyle,
-    ])
+  private static func textHeight(for attributed: NSAttributedString, width: CGFloat) -> CGFloat {
+    guard attributed.length > 0 else { return 0 }
+    let paragraphStyle = attributed.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+    let singleLine = ceil(
+      (attributed.attribute(.font, at: 0, effectiveRange: nil) as? PlatformFont).map {
+        $0.ascender - $0.descender + $0.leading
+      } ?? 0
+    ) + (paragraphStyle?.lineSpacing ?? 0)
+    guard width > 1 else { return max(1, singleLine) }
 
     let rect = attributed.boundingRect(
       with: CGSize(width: width, height: .greatestFiniteMagnitude),
@@ -243,6 +296,6 @@ final class NativeMarkdownTableView: PlatformView {
       context: nil
     )
 
-    return max(singleLine, ceil(rect.height))
+    return max(max(1, singleLine), ceil(rect.height))
   }
 }

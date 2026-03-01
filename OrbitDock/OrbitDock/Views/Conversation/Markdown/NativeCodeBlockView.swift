@@ -21,7 +21,7 @@ final class NativeCodeBlockView: PlatformView {
 
   private static let headerHeight: CGFloat = 36
   private static let separatorHeight: CGFloat = 1
-  private static let lineHeight: CGFloat = 22
+  private static let lineHeight: CGFloat = 21
   private static let verticalPadding: CGFloat = 10
   private static let horizontalPadding: CGFloat = 14
   private static let lineNumberTrailingPad: CGFloat = 14
@@ -31,15 +31,13 @@ final class NativeCodeBlockView: PlatformView {
   private static let collapsedLineCount = 8
   private static let expandButtonHeight: CGFloat = 34
 
-  private static let bgColor = PlatformColor.calibrated(red: 0.04, green: 0.04, blue: 0.052, alpha: 1)
-  private static let borderColor = PlatformColor.white.withAlphaComponent(0.10)
-  private static let lineNumberColor = PlatformColor.white.withAlphaComponent(0.35)
-  private static let lineNumberFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-  private static let codeFont = PlatformFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-
+  private static let bgColor = PlatformColor(Color.backgroundCode)
+  private static let borderColor = PlatformColor(Color.surfaceBorder)
+  private static let lineNumberColor = PlatformColor(Color.textTertiary)
+  private static let lineNumberFont = PlatformFont.monospacedSystemFont(ofSize: 12, weight: .regular)
   // MARK: - State
 
-  private var language: String?
+  private var normalizedLanguage: String?
   private var code: String = ""
   private var lines: [String] = []
   private var isExpanded = false
@@ -116,13 +114,13 @@ final class NativeCodeBlockView: PlatformView {
       languageLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageLabel)
 
-      lineCountLabel.font = PlatformFont.systemFont(ofSize: 10, weight: .medium)
+      lineCountLabel.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
       lineCountLabel.textColor = NSColor.tertiaryLabelColor
       lineCountLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(lineCountLabel)
 
       copyButton.isBordered = false
-      copyButton.font = PlatformFont.systemFont(ofSize: 10, weight: .medium)
+      copyButton.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
       copyButton.contentTintColor = NSColor.secondaryLabelColor
       copyButton.target = self
       copyButton.action = #selector(handleCopy)
@@ -141,13 +139,13 @@ final class NativeCodeBlockView: PlatformView {
       languageLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(languageLabel)
 
-      lineCountLabel.font = PlatformFont.systemFont(ofSize: 10, weight: .medium)
+      lineCountLabel.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
       lineCountLabel.textColor = .tertiaryLabel
       lineCountLabel.translatesAutoresizingMaskIntoConstraints = false
       headerContainer.addSubview(lineCountLabel)
 
       copyButton.setTitle("Copy", for: .normal)
-      copyButton.titleLabel?.font = PlatformFont.systemFont(ofSize: 10, weight: .medium)
+      copyButton.titleLabel?.font = PlatformFont.systemFont(ofSize: 11, weight: .medium)
       copyButton.setTitleColor(.secondaryLabel, for: .normal)
       copyButton.addTarget(self, action: #selector(handleCopy), for: .touchUpInside)
       copyButton.translatesAutoresizingMaskIntoConstraints = false
@@ -255,13 +253,13 @@ final class NativeCodeBlockView: PlatformView {
   // MARK: - Configure
 
   func configure(language: String?, code: String) {
-    self.language = language
+    normalizedLanguage = MarkdownLanguage.normalize(language)
     self.code = code
     lines = code.components(separatedBy: "\n")
     isExpanded = false
 
     // Header
-    if let lang = language, !lang.isEmpty {
+    if let lang = normalizedLanguage, !lang.isEmpty {
       languageDot.isHidden = false
       languageLabel.isHidden = false
       #if os(macOS)
@@ -277,10 +275,10 @@ final class NativeCodeBlockView: PlatformView {
     }
 
     #if os(macOS)
-      lineCountLabel.stringValue = "\(lines.count) lines"
+      lineCountLabel.stringValue = lines.count == 1 ? "1 line" : "\(lines.count) lines"
       copyButton.title = "Copy"
     #else
-      lineCountLabel.text = "\(lines.count) lines"
+      lineCountLabel.text = lines.count == 1 ? "1 line" : "\(lines.count) lines"
       copyButton.setTitle("Copy", for: .normal)
     #endif
 
@@ -332,14 +330,14 @@ final class NativeCodeBlockView: PlatformView {
       // Code line
       #if os(macOS)
         let codeLine = NSTextField(labelWithString: "")
-        codeLine.attributedStringValue = NativeSyntaxHighlighter.highlightLine(line, language: language)
+        codeLine.attributedStringValue = SyntaxHighlighter.highlightNativeLine(line, language: normalizedLanguage)
         codeLine.lineBreakMode = .byClipping
         codeLine.maximumNumberOfLines = 1
         codeLine.isSelectable = true
         let lineSize = codeLine.attributedStringValue.size()
       #else
         let codeLine = UILabel()
-        codeLine.attributedText = NativeSyntaxHighlighter.highlightLine(line, language: language)
+        codeLine.attributedText = SyntaxHighlighter.highlightNativeLine(line, language: normalizedLanguage)
         codeLine.lineBreakMode = .byClipping
         codeLine.numberOfLines = 1
         let lineSize = (codeLine.attributedText ?? NSAttributedString()).size()
@@ -381,10 +379,10 @@ final class NativeCodeBlockView: PlatformView {
     ))
     #if os(macOS)
       lineNumBg.wantsLayer = true
-      lineNumBg.layer?.backgroundColor = PlatformColor.white.withAlphaComponent(0.02).cgColor
+      lineNumBg.layer?.backgroundColor = PlatformColor(Color.backgroundTertiary).withAlphaComponent(0.4).cgColor
       codeContainer.addSubview(lineNumBg, positioned: .below, relativeTo: nil)
     #else
-      lineNumBg.backgroundColor = PlatformColor.white.withAlphaComponent(0.02)
+      lineNumBg.backgroundColor = PlatformColor(Color.backgroundTertiary).withAlphaComponent(0.4)
       codeContainer.insertSubview(lineNumBg, at: 0)
     #endif
   }
@@ -444,20 +442,7 @@ final class NativeCodeBlockView: PlatformView {
   // MARK: - Language Color
 
   private static func languageColor(_ lang: String) -> PlatformColor {
-    switch lang.lowercased() {
-      case "swift": PlatformColor(Color.langSwift)
-      case "javascript", "typescript": PlatformColor(Color.langJavaScript)
-      case "python": PlatformColor(Color.langPython)
-      case "ruby": PlatformColor(Color.langRuby)
-      case "go": PlatformColor(Color.langGo)
-      case "rust": PlatformColor(Color.langRust)
-      case "bash": PlatformColor(Color.langBash)
-      case "json": PlatformColor(Color.langJSON)
-      case "html": PlatformColor(Color.langHTML)
-      case "css": PlatformColor(Color.langCSS)
-      case "sql": PlatformColor(Color.langSQL)
-      default: PlatformColor(Color.textTertiary)
-    }
+    PlatformColor(MarkdownLanguage.badgeColor(lang))
   }
 }
 

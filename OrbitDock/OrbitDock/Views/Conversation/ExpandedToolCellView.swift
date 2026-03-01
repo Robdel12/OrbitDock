@@ -1102,7 +1102,7 @@ enum ExpandedToolLayout {
 
         // Code line (in scroll view — scrolls horizontally)
         let codeLine = NSTextField(labelWithString: "")
-        codeLine.attributedStringValue = NativeSyntaxHighlighter.highlightLine(text, language: lang)
+        codeLine.attributedStringValue = SyntaxHighlighter.highlightNativeLine(text, language: lang)
         codeLine.lineBreakMode = .byClipping
         codeLine.maximumNumberOfLines = 1
         codeLine.isSelectable = true
