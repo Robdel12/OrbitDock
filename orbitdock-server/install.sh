@@ -96,13 +96,16 @@ normalize_tag() {
   fi
 }
 
-asset_name_for_platform() {
+asset_names_for_platform() {
   local os arch
   os="$(uname -s)"
   arch="$(uname -m)"
 
   case "$os/$arch" in
-    Darwin/*)          echo "orbitdock-server-darwin-universal.zip" ;;
+    Darwin/*)
+      echo "orbitdock-server-darwin-arm64.zip"
+      echo "orbitdock-server-darwin-universal.zip"
+      ;;
     Linux/x86_64)      echo "orbitdock-server-linux-x86_64.zip" ;;
     Linux/aarch64|Linux/arm64) echo "orbitdock-server-linux-aarch64.zip" ;;
     *)                 return 1 ;;
@@ -128,29 +131,39 @@ verify_checksum() {
 # ── Install from prebuilt binary ──────────────────────────────────────────
 install_from_release() {
   local asset_name url tmp_dir zip_path checksum_url checksum_file
+  local -a asset_names
+  local downloaded=0
 
-  asset_name="$(asset_name_for_platform)" || return 1
+  mapfile -t asset_names < <(asset_names_for_platform) || return 1
 
   if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
     warn "curl or unzip not found; can't download prebuilt binary."
     return 1
   fi
 
-  if [[ "$VERSION" == "latest" ]]; then
-    url="https://github.com/${REPO_SLUG}/releases/latest/download/${asset_name}"
-  else
-    local tag
-    tag="$(normalize_tag "$VERSION")"
-    url="https://github.com/${REPO_SLUG}/releases/download/${tag}/${asset_name}"
-  fi
-
   tmp_dir="$(mktemp -d)"
-  zip_path="$tmp_dir/$asset_name"
-  checksum_url="${url}.sha256"
-  checksum_file="${asset_name}.sha256"
 
-  info "Downloading $asset_name..."
-  if ! curl -fsSL "$url" -o "$zip_path"; then
+  for asset_name in "${asset_names[@]}"; do
+    if [[ "$VERSION" == "latest" ]]; then
+      url="https://github.com/${REPO_SLUG}/releases/latest/download/${asset_name}"
+    else
+      local tag
+      tag="$(normalize_tag "$VERSION")"
+      url="https://github.com/${REPO_SLUG}/releases/download/${tag}/${asset_name}"
+    fi
+
+    zip_path="$tmp_dir/$asset_name"
+    checksum_url="${url}.sha256"
+    checksum_file="${asset_name}.sha256"
+
+    info "Downloading $asset_name..."
+    if curl -fsSL "$url" -o "$zip_path"; then
+      downloaded=1
+      break
+    fi
+  done
+
+  if [[ "$downloaded" != "1" ]]; then
     rm -rf "$tmp_dir"
     return 1
   fi

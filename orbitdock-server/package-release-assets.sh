@@ -16,7 +16,7 @@ LINUX_DOCKER_CARGO_BUILD_JOBS="${ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS:-}"
 
 usage() {
   echo "Usage: $0 <darwin|linux|linux-x86_64|linux-aarch64> [output_dir]"
-  echo "  darwin: build universal macOS binary and package orbitdock-server-darwin-universal.zip"
+  echo "  darwin: build macOS arm64 binary and package orbitdock-server-darwin-arm64.zip"
   echo "  linux:  build linux binary for current Linux host arch (x86_64 or aarch64)"
   echo "  linux-x86_64: build x86_64-unknown-linux-gnu binary and package orbitdock-server-linux-x86_64.zip"
   echo "  linux-aarch64: build aarch64-unknown-linux-gnu binary and package orbitdock-server-linux-aarch64.zip"
@@ -248,8 +248,12 @@ build_linux_release() {
 if [[ "$TARGET" == "linux" ]]; then
   if [[ "$(uname -s)" == "Linux" ]]; then
     case "$(uname -m)" in
-      x86_64) TARGET="linux-x86_64" ;;
-      aarch64|arm64) TARGET="linux-aarch64" ;;
+      x86_64)
+        TARGET="linux-x86_64"
+        ;;
+      aarch64|arm64)
+        TARGET="linux-aarch64"
+        ;;
       *)
         echo "error: unsupported Linux host arch for 'linux' target: $(uname -m)"
         echo "Use one of: linux-x86_64, linux-aarch64"
@@ -263,14 +267,15 @@ fi
 
 case "$TARGET" in
   darwin)
-    ./build-universal.sh
-    package_binary "$TARGET_DIR/universal/orbitdock-server" "orbitdock-server-darwin-universal.zip"
+    rustup target add aarch64-apple-darwin
+    cargo build -p orbitdock-server --release --target aarch64-apple-darwin
+    package_binary "$TARGET_DIR/aarch64-apple-darwin/release/orbitdock-server" "orbitdock-server-darwin-arm64.zip"
     ;;
   linux-x86_64)
-    build_linux_release "x86_64-unknown-linux-gnu" "orbitdock-server-linux-x86_64.zip"
+    build_linux_release x86_64-unknown-linux-gnu orbitdock-server-linux-x86_64.zip
     ;;
   linux-aarch64)
-    build_linux_release "aarch64-unknown-linux-gnu" "orbitdock-server-linux-aarch64.zip"
+    build_linux_release aarch64-unknown-linux-gnu orbitdock-server-linux-aarch64.zip
     ;;
   *)
     usage

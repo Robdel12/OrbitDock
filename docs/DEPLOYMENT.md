@@ -75,7 +75,7 @@ Linux targets auto-use Docker when the host is not matching native Linux (for ex
 # Quick local validation loop (faster profile + container smoke tests)
 make rust-release-linux-validate
 
-# macOS universal
+# macOS arm64
 make rust-release-darwin
 
 # Both Linux release artifacts

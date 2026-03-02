@@ -497,13 +497,13 @@ make rust-clean-sccache       # clear sccache files
 
 You usually do not need `cargo clean`. Use the partial-clean targets above first.
 
-### Universal Binary (macOS)
+### macOS Binary (arm64)
 
 ```bash
-./build-universal.sh
+make rust-build-darwin
 ```
 
-Produces `${CARGO_TARGET_DIR:-target}/universal/orbitdock-server` for both Intel and Apple Silicon.
+Produces `${CARGO_TARGET_DIR:-target}/darwin-arm64/orbitdock-server` for Apple Silicon.
 
 ## Dependencies
 

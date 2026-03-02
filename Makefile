@@ -28,7 +28,9 @@ CLAUDE_SDK_VERSION ?= 0.2.62
 CLAUDE_SDK_PACKAGE ?= @anthropic-ai/claude-agent-sdk
 CLAUDE_SDK_VERSION_FILE ?= $(CLAUDE_SDK_DOCS_DIR)/claude-agent-sdk-version.json
 SCCACHE_BIN := $(shell command -v sccache 2>/dev/null)
-RUST_ENV_BASE = SCCACHE_DIR="$(SCCACHE_DIR)" SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE) CARGO_TARGET_DIR="$(RUST_TARGET_DIR)" CARGO_INCREMENTAL=0
+RUST_PATH_PREFIX ?= $(HOME)/.cargo/bin:/opt/homebrew/bin:/usr/local/bin
+RUST_PATH ?= $(RUST_PATH_PREFIX):$(PATH)
+RUST_ENV_BASE = PATH="$(RUST_PATH)" SCCACHE_DIR="$(SCCACHE_DIR)" SCCACHE_CACHE_SIZE=$(SCCACHE_CACHE_SIZE) CARGO_TARGET_DIR="$(RUST_TARGET_DIR)" CARGO_INCREMENTAL=0
 ifeq ($(RUST_SCCACHE),on)
 RUST_ENV = env $(RUST_ENV_BASE) RUSTC_WRAPPER=sccache CARGO_BUILD_RUSTC_WRAPPER=sccache
 else ifeq ($(RUST_SCCACHE),off)
@@ -42,7 +44,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-darwin rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -58,7 +60,8 @@ help:
 	@echo "make swift-fmt  Format Swift with SwiftFormat"
 	@echo "make swift-lint Lint Swift formatting with SwiftFormat --lint"
 	@echo "make rust-build Build Rust server crate"
-	@echo "make rust-build-universal Build fresh universal orbitdock-server binary (macOS)"
+	@echo "make rust-build-darwin Build fresh macOS arm64 orbitdock-server binary"
+	@echo "make rust-build-universal Alias for rust-build-darwin (legacy target name)"
 	@echo "make rust-check Run cargo check for Rust workspace"
 	@echo "make rust-test  Run Rust workspace tests"
 	@echo "make rust-ci    Run Rust fmt check + clippy + tests"
@@ -67,7 +70,7 @@ help:
 	@echo "make rust-lint  Lint Rust workspace"
 	@echo "make rust-run   Run orbitdock-server in dev mode"
 	@echo "make rust-run-debug Run orbitdock-server with debug logs"
-	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-universal.zip"
+	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-arm64.zip"
 	@echo "make rust-release-linux  Build + package host Linux arch zip (x86_64/aarch64); auto-uses Docker when needed"
 	@echo "make rust-release-linux-all Build + package both Linux release zips"
 	@echo "make rust-release-linux-x86_64 Build + package orbitdock-server-linux-x86_64.zip (auto Docker on macOS)"
@@ -205,17 +208,15 @@ rust-ci: rust-fmt-check rust-lint rust-test
 rust-build:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server
 
-rust-build-universal:
-	cd $(RUST_WORKSPACE_DIR) && rustup target add aarch64-apple-darwin x86_64-apple-darwin
+rust-build-darwin:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) rustup target add aarch64-apple-darwin
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server --release --target aarch64-apple-darwin
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo build -p orbitdock-server --release --target x86_64-apple-darwin
-	@mkdir -p "$(RUST_TARGET_DIR)/universal"
-	lipo -create \
-		"$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock-server" \
-		"$(RUST_TARGET_DIR)/x86_64-apple-darwin/release/orbitdock-server" \
-		-output "$(RUST_TARGET_DIR)/universal/orbitdock-server"
-	@chmod +x "$(RUST_TARGET_DIR)/universal/orbitdock-server"
-	@git rev-parse HEAD > "$(RUST_TARGET_DIR)/universal/orbitdock-server.gitsha"
+	@mkdir -p "$(RUST_TARGET_DIR)/darwin-arm64"
+	cp "$(RUST_TARGET_DIR)/aarch64-apple-darwin/release/orbitdock-server" "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock-server"
+	@chmod +x "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock-server"
+	@git rev-parse HEAD > "$(RUST_TARGET_DIR)/darwin-arm64/orbitdock-server.gitsha"
+
+rust-build-universal: rust-build-darwin
 
 rust-check:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo check --workspace
@@ -303,7 +304,7 @@ rust-clean-sccache:
 
 rust-clean-release-darwin:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target aarch64-apple-darwin
-	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target x86_64-apple-darwin
+	@rm -rf "$(RUST_TARGET_DIR)/darwin-arm64" "$(RUST_TARGET_DIR)/universal"
 
 rust-clean-release-linux: rust-clean-release-linux-x86_64
 

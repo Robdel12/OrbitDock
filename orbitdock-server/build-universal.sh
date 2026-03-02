@@ -1,31 +1,19 @@
 #!/bin/bash
-# Build universal binary for macOS (arm64 + x86_64)
-set -e
+# Build macOS arm64 binary
+set -euo pipefail
 TARGET_DIR="${CARGO_TARGET_DIR:-target}"
+OUTPUT_DIR="${TARGET_DIR}/darwin-arm64"
+OUTPUT_BIN="${OUTPUT_DIR}/orbitdock-server"
 
-echo "🦀 Building OrbitDock Server..."
-
-# Ensure targets are installed
+echo "🦀 Building OrbitDock Server (macOS arm64)..."
 rustup target add aarch64-apple-darwin 2>/dev/null || true
-rustup target add x86_64-apple-darwin 2>/dev/null || true
-
-# Build for both architectures
-echo "📦 Building for arm64..."
 cargo build -p orbitdock-server --release --target aarch64-apple-darwin
 
-echo "📦 Building for x86_64..."
-cargo build -p orbitdock-server --release --target x86_64-apple-darwin
+mkdir -p "$OUTPUT_DIR"
+cp "$TARGET_DIR/aarch64-apple-darwin/release/orbitdock-server" "$OUTPUT_BIN"
+chmod +x "$OUTPUT_BIN"
 
-# Create universal binary
-echo "🔗 Creating universal binary..."
-mkdir -p "$TARGET_DIR/universal"
-lipo -create \
-    "$TARGET_DIR/aarch64-apple-darwin/release/orbitdock-server" \
-    "$TARGET_DIR/x86_64-apple-darwin/release/orbitdock-server" \
-    -output "$TARGET_DIR/universal/orbitdock-server"
-
-# Show result
 echo ""
-echo "✅ Universal binary created:"
-file "$TARGET_DIR/universal/orbitdock-server"
-ls -lh "$TARGET_DIR/universal/orbitdock-server"
+echo "✅ macOS arm64 binary created:"
+file "$OUTPUT_BIN"
+ls -lh "$OUTPUT_BIN"
