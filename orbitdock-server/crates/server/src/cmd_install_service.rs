@@ -16,6 +16,12 @@ const COMMON_PATH_DIRS: [&str; 6] = [
     "/usr/sbin",
     "/sbin",
 ];
+const COMMON_CODEX_PATHS: [&str; 4] = [
+    "/usr/local/bin/codex",
+    "/opt/homebrew/bin/codex",
+    "/usr/bin/codex",
+    "/bin/codex",
+];
 
 const LAUNCHD_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -32,11 +38,7 @@ const LAUNCHD_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
         <string>--data-dir</string>
         <string>{{DATA_DIR}}</string>
     </array>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>{{PATH}}</string>
-    </dict>
+{{ENVIRONMENT_VARIABLES}}
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -111,13 +113,21 @@ fn install_launchd(
     extra_args: &str,
     enable: bool,
 ) -> anyhow::Result<()> {
-    let path_env = resolve_path_for_service();
+    let service_environment = resolve_service_environment();
+    let mut environment_variables = vec![("PATH".to_string(), service_environment.path)];
+    if let Some(codex_bin) = service_environment.codex_bin {
+        environment_variables.push(("ORBITDOCK_CODEX_PATH".to_string(), codex_bin));
+    }
+    if let Some(claude_bin) = service_environment.claude_bin {
+        environment_variables.push(("CLAUDE_BIN".to_string(), claude_bin));
+    }
+    let environment_xml = render_launchd_environment_variables(&environment_variables);
 
     let mut plist = LAUNCHD_TEMPLATE
         .replace("{{BINARY_PATH}}", binary_path)
         .replace("{{BIND_ADDR}}", bind)
         .replace("{{DATA_DIR}}", data_dir)
-        .replace("{{PATH}}", &path_env);
+        .replace("{{ENVIRONMENT_VARIABLES}}", &environment_xml);
 
     // Insert extra args (e.g. --tls-cert, --tls-key) into ProgramArguments
     if !extra_args.is_empty() {
@@ -170,24 +180,43 @@ fn install_launchd(
     Ok(())
 }
 
+struct ServiceEnvironment {
+    path: String,
+    codex_bin: Option<String>,
+    claude_bin: Option<String>,
+}
+
+fn resolve_service_environment() -> ServiceEnvironment {
+    let path = resolve_path_for_service();
+    let path_entries = split_path_entries(&path);
+    let codex_bin = resolve_codex_binary_for_service(&path_entries);
+    let claude_bin = resolve_claude_binary_for_service(&path_entries);
+    ServiceEnvironment {
+        path,
+        codex_bin,
+        claude_bin,
+    }
+}
+
 /// Resolve a PATH suitable for the launchd service environment.
 ///
-/// Tries the user's default login shell first,
-/// which picks up `.zprofile`, `.bash_profile`, etc. Falls back to the
-/// current process PATH merged with well-known tool directories.
+/// Uses the current process PATH first (captured from the invoking shell).
+/// Falls back to probing the login shell PATH and then to common defaults.
 fn resolve_path_for_service() -> String {
-    if let Some(path) = probe_login_shell_path() {
+    if let Some(path_env) = std::env::var_os("PATH") {
+        let entries = std::env::split_paths(&path_env)
+            .map(|path| path.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        if let Some(path) = dedup_non_empty(entries) {
+            return path;
+        }
+    }
+
+    if let Some(path) = probe_login_shell_path().and_then(|value| normalize_path_env(&value)) {
         return path;
     }
 
     let mut entries = Vec::new();
-    if let Some(base) = std::env::var_os("PATH") {
-        entries.extend(
-            std::env::split_paths(&base)
-                .map(|path| path.to_string_lossy().to_string())
-                .collect::<Vec<_>>(),
-        );
-    }
     for dir in COMMON_PATH_DIRS {
         entries.push(dir.to_string());
     }
@@ -202,6 +231,70 @@ fn resolve_path_for_service() -> String {
     }
 
     dedup_non_empty(entries).unwrap_or_else(|| COMMON_PATH_DIRS.join(":"))
+}
+
+fn resolve_codex_binary_for_service(path_entries: &[String]) -> Option<String> {
+    if let Some(path) = resolve_explicit_binary_env("ORBITDOCK_CODEX_PATH") {
+        return Some(path);
+    }
+
+    for candidate in COMMON_CODEX_PATHS {
+        let path = Path::new(candidate);
+        if is_executable_file(path) {
+            return Some(candidate.to_string());
+        }
+    }
+
+    find_binary_in_path_entries("codex", path_entries)
+}
+
+fn resolve_claude_binary_for_service(path_entries: &[String]) -> Option<String> {
+    if let Some(path) = resolve_explicit_binary_env("CLAUDE_BIN") {
+        return Some(path);
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        let candidate = home.join(".claude/local/claude");
+        if is_executable_file(&candidate) {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+
+    find_binary_in_path_entries("claude", path_entries)
+}
+
+fn resolve_explicit_binary_env(env_var: &str) -> Option<String> {
+    let value = std::env::var(env_var).ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let path = Path::new(trimmed);
+    if is_executable_file(path) {
+        Some(path.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
+fn find_binary_in_path_entries(binary_name: &str, path_entries: &[String]) -> Option<String> {
+    for entry in path_entries {
+        let candidate = Path::new(entry).join(binary_name);
+        if is_executable_file(&candidate) {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+fn split_path_entries(path_env: &str) -> Vec<String> {
+    std::env::split_paths(std::ffi::OsStr::new(path_env))
+        .map(|path| path.to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+}
+
+fn normalize_path_env(path_env: &str) -> Option<String> {
+    dedup_non_empty(split_path_entries(path_env))
 }
 
 fn probe_login_shell_path() -> Option<String> {
@@ -287,6 +380,33 @@ fn dedup_non_empty(values: Vec<String>) -> Option<String> {
     }
 }
 
+fn render_launchd_environment_variables(entries: &[(String, String)]) -> String {
+    let mut xml = Vec::new();
+    xml.push("    <key>EnvironmentVariables</key>".to_string());
+    xml.push("    <dict>".to_string());
+    for (key, value) in entries {
+        xml.push(format!("        <key>{}</key>", escape_xml(key)));
+        xml.push(format!("        <string>{}</string>", escape_xml(value)));
+    }
+    xml.push("    </dict>".to_string());
+    xml.join("\n")
+}
+
+fn escape_xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|meta| meta.is_file())
+        .unwrap_or(false)
+}
+
 fn install_systemd(
     binary_path: &str,
     bind: &str,
@@ -369,5 +489,27 @@ mod tests {
             "   ".to_string(),
         ];
         assert_eq!(dedup_non_empty(values).as_deref(), Some("/usr/bin:/bin"));
+    }
+
+    #[test]
+    fn normalize_path_env_dedups_empty_segments() {
+        let path = normalize_path_env("/usr/bin::/bin:/usr/bin");
+        assert_eq!(path.as_deref(), Some("/usr/bin:/bin"));
+    }
+
+    #[test]
+    fn render_launchd_environment_variables_escapes_values() {
+        let xml = render_launchd_environment_variables(&[
+            ("PATH".to_string(), "/usr/bin:/bin".to_string()),
+            (
+                "CLAUDE_BIN".to_string(),
+                "/tmp/claude & \"beta\"".to_string(),
+            ),
+        ]);
+        assert!(xml.contains("<key>EnvironmentVariables</key>"));
+        assert!(xml.contains("<key>PATH</key>"));
+        assert!(xml.contains("<string>/usr/bin:/bin</string>"));
+        assert!(xml.contains("<key>CLAUDE_BIN</key>"));
+        assert!(xml.contains("<string>/tmp/claude &amp; &quot;beta&quot;</string>"));
     }
 }
