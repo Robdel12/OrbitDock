@@ -39,6 +39,8 @@ enum ToolCardStyle {
         return .toolTask
       case "webfetch", "websearch":
         return .toolWeb
+      case "view_image":
+        return .toolRead
       case "askuserquestion":
         return .toolQuestion
       case "toolsearch":
@@ -80,6 +82,7 @@ enum ToolCardStyle {
       case "task": return "person.2.fill"
       case "webfetch": return "globe"
       case "websearch": return "magnifyingglass.circle"
+      case "view_image": return "photo"
       case "askuserquestion": return "questionmark.circle.fill"
       case "toolsearch": return "puzzlepiece.extension"
       case "skill": return "sparkles"

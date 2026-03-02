@@ -224,6 +224,7 @@ impl CodexConnector {
 
         let (event_tx, event_rx) = mpsc::channel(256);
         let output_buffers = Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new()));
+        let delta_buffers = Arc::new(tokio::sync::Mutex::new(HashMap::<String, String>::new()));
         let streaming_message = Arc::new(tokio::sync::Mutex::new(Option::<StreamingMessage>::None));
         let msg_counter = Arc::new(AtomicU64::new(0));
         let env_tracker = Arc::new(tokio::sync::Mutex::new(EnvironmentTracker {
@@ -236,11 +237,12 @@ impl CodexConnector {
         let tx = event_tx.clone();
         let t = thread.clone();
         let buffers = output_buffers.clone();
+        let deltas = delta_buffers.clone();
         let streaming = streaming_message.clone();
         let counter = msg_counter.clone();
         let tracker = env_tracker.clone();
         tokio::spawn(async move {
-            Self::event_loop(t, tx, buffers, streaming, counter, tracker).await;
+            Self::event_loop(t, tx, buffers, deltas, streaming, counter, tracker).await;
         });
 
         Ok(Self {
@@ -304,6 +306,7 @@ impl CodexConnector {
         thread: Arc<CodexThread>,
         tx: mpsc::Sender<ConnectorEvent>,
         output_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+        delta_buffers: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
         streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: Arc<AtomicU64>,
         env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
@@ -317,6 +320,7 @@ impl CodexConnector {
                     let events = Box::pin(Self::translate_event(
                         event,
                         &output_buffers,
+                        &delta_buffers,
                         &streaming_message,
                         &msg_counter,
                         &env_tracker,
@@ -344,10 +348,12 @@ impl CodexConnector {
     async fn translate_event(
         event: Event,
         output_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+        delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
         streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: &AtomicU64,
         env_tracker: &Arc<tokio::sync::Mutex<EnvironmentTracker>>,
     ) -> Vec<ConnectorEvent> {
+        #[allow(unreachable_patterns)]
         match event.msg {
             EventMsg::UserMessage(e) => {
                 let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
@@ -387,17 +393,55 @@ impl CodexConnector {
             }
 
             EventMsg::TurnStarted(_) => {
+                {
+                    let mut buffers = delta_buffers.lock().await;
+                    buffers.clear();
+                }
                 vec![ConnectorEvent::TurnStarted]
             }
 
             EventMsg::TurnComplete(_) => {
-                vec![ConnectorEvent::TurnCompleted]
+                let pending_delta_ids = {
+                    let mut buffers = delta_buffers.lock().await;
+                    let ids = buffers.keys().cloned().collect::<Vec<_>>();
+                    buffers.clear();
+                    ids
+                };
+                let mut events = vec![ConnectorEvent::TurnCompleted];
+                for message_id in pending_delta_ids {
+                    events.push(ConnectorEvent::MessageUpdated {
+                        message_id,
+                        content: None,
+                        tool_output: None,
+                        is_error: None,
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    });
+                }
+                events
             }
 
             EventMsg::TurnAborted(e) => {
-                vec![ConnectorEvent::TurnAborted {
+                let pending_delta_ids = {
+                    let mut buffers = delta_buffers.lock().await;
+                    let ids = buffers.keys().cloned().collect::<Vec<_>>();
+                    buffers.clear();
+                    ids
+                };
+                let mut events = vec![ConnectorEvent::TurnAborted {
                     reason: format!("{:?}", e.reason),
-                }]
+                }];
+                for message_id in pending_delta_ids {
+                    events.push(ConnectorEvent::MessageUpdated {
+                        message_id,
+                        content: None,
+                        tool_output: None,
+                        is_error: None,
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    });
+                }
+                events
             }
 
             EventMsg::SessionConfigured(e) => {
@@ -667,7 +711,7 @@ impl CodexConnector {
             }
 
             EventMsg::McpToolCallBegin(e) => {
-                let tool_name = format!("{}:{}", e.invocation.server, e.invocation.tool);
+                let tool_name = format!("mcp__{}__{}", e.invocation.server, e.invocation.tool);
                 let input_str = e
                     .invocation
                     .arguments
@@ -704,6 +748,324 @@ impl CodexConnector {
                     is_error: Some(is_error),
                     is_in_progress: Some(false),
                     duration_ms: Some(e.duration.as_millis() as u64),
+                }]
+            }
+
+            EventMsg::WebSearchBegin(e) => {
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Searching the web".to_string(),
+                    tool_name: Some("websearch".to_string()),
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::WebSearchEnd(e) => {
+                let query = e.query;
+                let output = serde_json::to_string_pretty(&e.action)
+                    .or_else(|_| serde_json::to_string(&e.action))
+                    .unwrap_or_default();
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: Some(query),
+                    tool_output: Some(output),
+                    is_error: Some(false),
+                    is_in_progress: Some(false),
+                    duration_ms: None,
+                }]
+            }
+
+            EventMsg::ViewImageToolCall(e) => {
+                let path = e.path.to_string_lossy().to_string();
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: path.clone(),
+                    tool_name: Some("view_image".to_string()),
+                    tool_input: serde_json::to_string(&json!({ "path": path })).ok(),
+                    tool_output: Some("Image loaded".to_string()),
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![orbitdock_protocol::ImageInput {
+                        input_type: "path".to_string(),
+                        value: e.path.to_string_lossy().to_string(),
+                    }],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::DynamicToolCallRequest(e) => {
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id.clone(),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: e.tool.clone(),
+                    tool_name: Some(e.tool),
+                    tool_input: serde_json::to_string(&e.arguments).ok(),
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::DynamicToolCallResponse(e) => {
+                let output = dynamic_tool_output_to_text(&e.content_items, e.error);
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: output,
+                    is_error: Some(!e.success),
+                    is_in_progress: Some(false),
+                    duration_ms: Some(e.duration.as_millis() as u64),
+                }]
+            }
+
+            EventMsg::TerminalInteraction(e) => {
+                let snippet = format!("\n[stdin] {}\n", e.stdin);
+                let next_output = {
+                    let mut buffers = output_buffers.lock().await;
+                    let entry = buffers.entry(e.call_id.clone()).or_default();
+                    entry.push_str(&snippet);
+                    entry.clone()
+                };
+
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: Some(next_output),
+                    is_error: None,
+                    is_in_progress: Some(true),
+                    duration_ms: None,
+                }]
+            }
+
+            EventMsg::CollabAgentSpawnBegin(e) => {
+                let tool_input = serde_json::to_string(&json!({
+                    "subagent_type": "spawn_agent",
+                    "description": "Spawning agent",
+                    "sender_thread_id": e.sender_thread_id.to_string(),
+                    "prompt": e.prompt,
+                }))
+                .ok();
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Spawn agent".to_string(),
+                    tool_name: Some("task".to_string()),
+                    tool_input,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::CollabAgentSpawnEnd(e) => {
+                let receiver = e
+                    .new_thread_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "none".to_string());
+                let status_text = format!("{:?}", e.status);
+                let output = format!("spawned: {receiver}\nstatus: {status_text}");
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: Some(output),
+                    is_error: Some(agent_status_failed(&e.status)),
+                    is_in_progress: Some(false),
+                    duration_ms: None,
+                }]
+            }
+
+            EventMsg::CollabAgentInteractionBegin(e) => {
+                let tool_input = serde_json::to_string(&json!({
+                    "subagent_type": "agent",
+                    "description": e.prompt,
+                    "receiver_thread_id": e.receiver_thread_id.to_string(),
+                }))
+                .ok();
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Agent interaction".to_string(),
+                    tool_name: Some("task".to_string()),
+                    tool_input,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::CollabAgentInteractionEnd(e) => {
+                let status_text = format!("{:?}", e.status);
+                let output = format!(
+                    "receiver: {}\nstatus: {}",
+                    e.receiver_thread_id, status_text
+                );
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: Some(output),
+                    is_error: Some(agent_status_failed(&e.status)),
+                    is_in_progress: Some(false),
+                    duration_ms: None,
+                }]
+            }
+
+            EventMsg::CollabWaitingBegin(e) => {
+                let receiver_ids: Vec<String> = e
+                    .receiver_thread_ids
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect();
+                let tool_input = serde_json::to_string(&json!({
+                    "subagent_type": "wait",
+                    "description": format!("Waiting for {} agent(s)", receiver_ids.len()),
+                    "receiver_thread_ids": receiver_ids,
+                }))
+                .ok();
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Waiting for agents".to_string(),
+                    tool_name: Some("task".to_string()),
+                    tool_input,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::CollabWaitingEnd(e) => {
+                let mut lines: Vec<String> = Vec::new();
+                let mut has_error = false;
+                for (thread_id, status) in &e.statuses {
+                    let status_text = format!("{:?}", status);
+                    lines.push(format!("{thread_id}: {status_text}"));
+                    has_error = has_error || agent_status_failed(status);
+                }
+                let output = if lines.is_empty() {
+                    "No agent statuses reported".to_string()
+                } else {
+                    lines.join("\n")
+                };
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: Some(output),
+                    is_error: Some(has_error),
+                    is_in_progress: Some(false),
+                    duration_ms: None,
+                }]
+            }
+
+            EventMsg::CollabCloseBegin(e) => {
+                let tool_input = serde_json::to_string(&json!({
+                    "subagent_type": "close",
+                    "description": "Closing agent",
+                    "receiver_thread_id": e.receiver_thread_id.to_string(),
+                }))
+                .ok();
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Close agent".to_string(),
+                    tool_name: Some("task".to_string()),
+                    tool_input,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::CollabCloseEnd(e) => {
+                let status_text = format!("{:?}", e.status);
+                let output = format!(
+                    "receiver: {}\nstatus: {}",
+                    e.receiver_thread_id, status_text
+                );
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: Some(output),
+                    is_error: Some(agent_status_failed(&e.status)),
+                    is_in_progress: Some(false),
+                    duration_ms: None,
+                }]
+            }
+
+            EventMsg::CollabResumeBegin(e) => {
+                let tool_input = serde_json::to_string(&json!({
+                    "subagent_type": "resume",
+                    "description": "Resuming agent",
+                    "receiver_thread_id": e.receiver_thread_id.to_string(),
+                }))
+                .ok();
+                let message = orbitdock_protocol::Message {
+                    id: e.call_id,
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Resume agent".to_string(),
+                    tool_name: Some("task".to_string()),
+                    tool_input,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::CollabResumeEnd(e) => {
+                let status_text = format!("{:?}", e.status);
+                let output = format!(
+                    "receiver: {}\nstatus: {}",
+                    e.receiver_thread_id, status_text
+                );
+                vec![ConnectorEvent::MessageUpdated {
+                    message_id: e.call_id,
+                    content: None,
+                    tool_output: Some(output),
+                    is_error: Some(agent_status_failed(&e.status)),
+                    is_in_progress: Some(false),
+                    duration_ms: None,
                 }]
             }
 
@@ -804,6 +1166,30 @@ impl CodexConnector {
                 }]
             }
 
+            EventMsg::ElicitationRequest(e) => {
+                let question_text = if e.message.is_empty() {
+                    Some(format!("{} request", e.server_name))
+                } else {
+                    Some(e.message.clone())
+                };
+                let tool_input = serde_json::to_string(&e).ok();
+                vec![ConnectorEvent::ApprovalRequested {
+                    request_id: format!(
+                        "elicitation-{}-{}",
+                        e.server_name,
+                        serde_json::to_string(&e.id).unwrap_or_else(|_| "request".to_string())
+                    ),
+                    approval_type: ApprovalType::Question,
+                    tool_name: Some("mcp_approval".to_string()),
+                    tool_input,
+                    command: None,
+                    file_path: None,
+                    diff: None,
+                    question: question_text,
+                    proposed_amendment: None,
+                }]
+            }
+
             EventMsg::TokenCount(e) => {
                 if let Some(info) = e.info {
                     let last = &info.last_token_usage;
@@ -831,6 +1217,246 @@ impl CodexConnector {
                 vec![ConnectorEvent::PlanUpdated(plan)]
             }
 
+            EventMsg::PlanDelta(e) => {
+                let message_id = format!("plan-{}", e.item_id);
+                Self::apply_delta_message(
+                    delta_buffers,
+                    message_id,
+                    e.delta,
+                    orbitdock_protocol::MessageType::Thinking,
+                )
+                .await
+            }
+
+            EventMsg::Warning(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let message = orbitdock_protocol::Message {
+                    id: format!("warning-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content: e.message,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::ModelReroute(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let reason = format!("{:?}", e.reason);
+                let message = orbitdock_protocol::Message {
+                    id: format!("model-reroute-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content: format!(
+                        "Model rerouted from {} to {} ({})",
+                        e.from_model, e.to_model, reason
+                    ),
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::RealtimeConversationStarted(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let content = match e.session_id {
+                    Some(session_id) if !session_id.is_empty() => {
+                        format!("Realtime conversation started ({session_id})")
+                    }
+                    _ => "Realtime conversation started".to_string(),
+                };
+                let message = orbitdock_protocol::Message {
+                    id: format!("realtime-start-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::RealtimeConversationRealtime(e) => match e.payload {
+                codex_protocol::protocol::RealtimeEvent::SessionCreated { session_id } => {
+                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                    let message = orbitdock_protocol::Message {
+                        id: format!("realtime-session-created-{}-{}", event.id, seq),
+                        session_id: String::new(),
+                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        content: format!("Realtime session created ({session_id})"),
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: false,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                        images: vec![],
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
+                codex_protocol::protocol::RealtimeEvent::SessionUpdated { backend_prompt } => {
+                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                    let content = match backend_prompt {
+                        Some(prompt) if !prompt.trim().is_empty() => {
+                            format!(
+                                "Realtime session updated\n\n{}",
+                                truncate_for_display(&prompt, 300)
+                            )
+                        }
+                        _ => "Realtime session updated".to_string(),
+                    };
+                    let message = orbitdock_protocol::Message {
+                        id: format!("realtime-session-updated-{}-{}", event.id, seq),
+                        session_id: String::new(),
+                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        content,
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: false,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                        images: vec![],
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
+                codex_protocol::protocol::RealtimeEvent::ConversationItemAdded(item) => {
+                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                    let item_text = serde_json::to_string_pretty(&item)
+                        .or_else(|_| serde_json::to_string(&item))
+                        .unwrap_or_default();
+                    let message = orbitdock_protocol::Message {
+                        id: format!("realtime-item-added-{}-{}", event.id, seq),
+                        session_id: String::new(),
+                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        content: format!(
+                            "Realtime conversation item added\n\n{}",
+                            truncate_for_display(&item_text, 500)
+                        ),
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: false,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                        images: vec![],
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
+                // Audio frames are intentionally omitted from the timeline to avoid
+                // flooding the UI with high-frequency events.
+                codex_protocol::protocol::RealtimeEvent::AudioOut(_) => vec![],
+                codex_protocol::protocol::RealtimeEvent::Error(message_text) => {
+                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                    let message = orbitdock_protocol::Message {
+                        id: format!("realtime-error-{}-{}", event.id, seq),
+                        session_id: String::new(),
+                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        content: format!("Realtime conversation error: {}", message_text),
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: true,
+                        is_in_progress: false,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                        images: vec![],
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
+            },
+
+            EventMsg::RealtimeConversationClosed(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let content = match e.reason {
+                    Some(reason) if !reason.trim().is_empty() => {
+                        format!("Realtime conversation closed: {}", reason)
+                    }
+                    _ => "Realtime conversation closed".to_string(),
+                };
+                let message = orbitdock_protocol::Message {
+                    id: format!("realtime-closed-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::DeprecationNotice(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let details = e.details.unwrap_or_default();
+                let content = if details.is_empty() {
+                    e.summary
+                } else {
+                    format!("{}\n\n{}", e.summary, details)
+                };
+                let message = orbitdock_protocol::Message {
+                    id: format!("deprecation-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::BackgroundEvent(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let message = orbitdock_protocol::Message {
+                    id: format!("background-event-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content: e.message,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
             EventMsg::ThreadNameUpdated(e) => {
                 if let Some(name) = e.thread_name {
                     vec![ConnectorEvent::ThreadNameUpdated(name)]
@@ -847,6 +1473,31 @@ impl CodexConnector {
 
             EventMsg::Error(e) => {
                 vec![ConnectorEvent::Error(e.message)]
+            }
+
+            EventMsg::StreamError(e) => {
+                let details = e.additional_details.unwrap_or_default();
+                let content = if details.is_empty() {
+                    e.message
+                } else {
+                    format!("{}\n\n{}", e.message, details)
+                };
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let message = orbitdock_protocol::Message {
+                    id: format!("stream-error-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: true,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
             }
 
             EventMsg::AgentMessageContentDelta(e) => {
@@ -952,6 +1603,225 @@ impl CodexConnector {
                 }
             }
 
+            EventMsg::ReasoningContentDelta(e) => {
+                let message_id = format!("reasoning-summary-{}-{}", e.item_id, e.summary_index);
+                Self::apply_delta_message(
+                    delta_buffers,
+                    message_id,
+                    e.delta,
+                    orbitdock_protocol::MessageType::Thinking,
+                )
+                .await
+            }
+
+            EventMsg::ReasoningRawContentDelta(e) => {
+                let message_id = format!("reasoning-raw-{}-{}", e.item_id, e.content_index);
+                Self::apply_delta_message(
+                    delta_buffers,
+                    message_id,
+                    e.delta,
+                    orbitdock_protocol::MessageType::Thinking,
+                )
+                .await
+            }
+
+            EventMsg::AgentReasoningDelta(e) => {
+                let message_id = format!("reasoning-summary-legacy-{}", event.id);
+                Self::apply_delta_message(
+                    delta_buffers,
+                    message_id,
+                    e.delta,
+                    orbitdock_protocol::MessageType::Thinking,
+                )
+                .await
+            }
+
+            EventMsg::AgentReasoningRawContent(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let message = orbitdock_protocol::Message {
+                    id: format!("reasoning-raw-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Thinking,
+                    content: e.text,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::AgentReasoningRawContentDelta(e) => {
+                let message_id = format!("reasoning-raw-legacy-{}", event.id);
+                Self::apply_delta_message(
+                    delta_buffers,
+                    message_id,
+                    e.delta,
+                    orbitdock_protocol::MessageType::Thinking,
+                )
+                .await
+            }
+
+            EventMsg::AgentReasoningSectionBreak(e) => {
+                let message = orbitdock_protocol::Message {
+                    id: format!("reasoning-section-{}-{}", e.item_id, e.summary_index),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Thinking,
+                    content: format!("Reasoning section {}", e.summary_index + 1),
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::EnteredReviewMode(e) => {
+                let summary = review_request_summary(&e);
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let message = orbitdock_protocol::Message {
+                    id: format!("review-entered-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Enter review mode".to_string(),
+                    tool_name: Some("task".to_string()),
+                    tool_input: serde_json::to_string(&json!({
+                        "subagent_type": "review",
+                        "description": summary,
+                    }))
+                    .ok(),
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::ExitedReviewMode(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let output = e
+                    .review_output
+                    .map(|r| render_review_output(&r))
+                    .unwrap_or_else(|| "Review mode exited.".to_string());
+                let message = orbitdock_protocol::Message {
+                    id: format!("review-exited-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: "Exit review mode".to_string(),
+                    tool_name: Some("task".to_string()),
+                    tool_input: serde_json::to_string(&json!({
+                        "subagent_type": "review",
+                        "description": "Review completed",
+                    }))
+                    .ok(),
+                    tool_output: Some(output),
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::ItemStarted(e) => match e.item {
+                // Most TurnItem variants also emit legacy compatibility events.
+                // We only render variants that add unique value to this timeline.
+                codex_protocol::items::TurnItem::Plan(item) => {
+                    Self::apply_delta_message(
+                        delta_buffers,
+                        format!("plan-{}", item.id),
+                        item.text,
+                        orbitdock_protocol::MessageType::Thinking,
+                    )
+                    .await
+                }
+                codex_protocol::items::TurnItem::ContextCompaction(item) => {
+                    let message = orbitdock_protocol::Message {
+                        id: item.id,
+                        session_id: String::new(),
+                        message_type: orbitdock_protocol::MessageType::Tool,
+                        content: "Compacting context".to_string(),
+                        tool_name: Some("compactcontext".to_string()),
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: true,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                        images: vec![],
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
+                _ => vec![],
+            },
+
+            EventMsg::ItemCompleted(e) => match e.item {
+                // Most TurnItem variants also emit legacy compatibility events.
+                // We only render variants that add unique value to this timeline.
+                codex_protocol::items::TurnItem::Plan(item) => {
+                    let message_id = format!("plan-{}", item.id);
+                    {
+                        let mut buffers = delta_buffers.lock().await;
+                        buffers.remove(&message_id);
+                    }
+                    vec![ConnectorEvent::MessageUpdated {
+                        message_id,
+                        content: Some(item.text),
+                        tool_output: None,
+                        is_error: None,
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    }]
+                }
+                codex_protocol::items::TurnItem::ContextCompaction(item) => {
+                    vec![ConnectorEvent::MessageUpdated {
+                        message_id: item.id,
+                        content: Some("Context compacted".to_string()),
+                        tool_output: Some("Context compacted".to_string()),
+                        is_error: Some(false),
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    }]
+                }
+                _ => vec![],
+            },
+
+            EventMsg::RawResponseItem(e) => match e.item {
+                // Core may emit raw items that do not have a higher-level mapping.
+                // Surface only unknown payloads to avoid duplicating the whole timeline.
+                codex_protocol::models::ResponseItem::Other => {
+                    let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                    let message = orbitdock_protocol::Message {
+                        id: format!("raw-response-item-{}-{}", event.id, seq),
+                        session_id: String::new(),
+                        message_type: orbitdock_protocol::MessageType::Assistant,
+                        content: "Received unsupported raw response item.".to_string(),
+                        tool_name: None,
+                        tool_input: None,
+                        tool_output: None,
+                        is_error: false,
+                        is_in_progress: false,
+                        timestamp: iso_now(),
+                        duration_ms: None,
+                        images: vec![],
+                    };
+                    vec![ConnectorEvent::MessageCreated(message)]
+                }
+                _ => vec![],
+            },
+
             EventMsg::ListSkillsResponse(e) => {
                 let skills = e
                     .skills
@@ -1019,6 +1889,73 @@ impl CodexConnector {
                     name: e.name,
                     path: e.path.to_string_lossy().to_string(),
                 }]
+            }
+
+            EventMsg::ListCustomPromptsResponse(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let mut lines = vec![format!(
+                    "Custom prompts available: {}",
+                    e.custom_prompts.len()
+                )];
+                for prompt in e.custom_prompts.iter().take(20) {
+                    let mut line = format!("/prompts:{}", prompt.name);
+                    if let Some(description) = &prompt.description {
+                        let trimmed = description.trim();
+                        if !trimmed.is_empty() {
+                            line.push_str(&format!(" - {}", trimmed));
+                        }
+                    }
+                    lines.push(line);
+                }
+                if e.custom_prompts.len() > 20 {
+                    lines.push(format!("... {} more", e.custom_prompts.len() - 20));
+                }
+
+                let message = orbitdock_protocol::Message {
+                    id: format!("custom-prompts-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content: lines.join("\n"),
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
+            }
+
+            EventMsg::GetHistoryEntryResponse(e) => {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let content = if let Some(entry) = e.entry {
+                    format!(
+                        "History entry offset {} (log {}):\n{}\n\nConversation: {}\nTimestamp: {}",
+                        e.offset, e.log_id, entry.text, entry.conversation_id, entry.ts
+                    )
+                } else {
+                    format!(
+                        "No history entry available for offset {} (log {}).",
+                        e.offset, e.log_id
+                    )
+                };
+                let message = orbitdock_protocol::Message {
+                    id: format!("history-entry-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Assistant,
+                    content,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![ConnectorEvent::MessageCreated(message)]
             }
 
             EventMsg::ContextCompacted(_) => {
@@ -1166,13 +2103,6 @@ impl CodexConnector {
                 }]
             }
 
-            // Ignore other high-frequency streaming events
-            EventMsg::AgentReasoningDelta(_)
-            | EventMsg::AgentReasoningRawContent(_)
-            | EventMsg::AgentReasoningRawContentDelta(_)
-            | EventMsg::AgentReasoningSectionBreak(_)
-            | EventMsg::PlanDelta(_) => vec![],
-
             // Log but ignore other events
             other => {
                 let name = format!("{:?}", other);
@@ -1180,6 +2110,55 @@ impl CodexConnector {
                 debug!("Unhandled codex event: {}", variant);
                 vec![]
             }
+        }
+    }
+
+    async fn apply_delta_message(
+        delta_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+        message_id: String,
+        delta: String,
+        message_type: orbitdock_protocol::MessageType,
+    ) -> Vec<ConnectorEvent> {
+        let (is_new, content) = {
+            let mut buffers = delta_buffers.lock().await;
+            match buffers.get_mut(&message_id) {
+                Some(existing) => {
+                    existing.push_str(&delta);
+                    (false, existing.clone())
+                }
+                None => {
+                    buffers.insert(message_id.clone(), delta.clone());
+                    (true, delta)
+                }
+            }
+        };
+
+        if is_new {
+            vec![ConnectorEvent::MessageCreated(
+                orbitdock_protocol::Message {
+                    id: message_id,
+                    session_id: String::new(),
+                    message_type,
+                    content,
+                    tool_name: None,
+                    tool_input: None,
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: true,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                },
+            )]
+        } else {
+            vec![ConnectorEvent::MessageUpdated {
+                message_id,
+                content: Some(content),
+                tool_output: None,
+                is_error: None,
+                is_in_progress: Some(true),
+                duration_ms: None,
+            }]
         }
     }
 
@@ -1702,6 +2681,132 @@ pub async fn discover_models() -> Result<Vec<orbitdock_protocol::CodexModelOptio
         .collect();
 
     Ok(models)
+}
+
+fn dynamic_tool_output_to_text(
+    content_items: &[codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem],
+    fallback_error: Option<String>,
+) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+
+    for item in content_items {
+        match item {
+            codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem::InputText { text } => {
+                if !text.is_empty() {
+                    lines.push(text.clone());
+                }
+            }
+            codex_protocol::dynamic_tools::DynamicToolCallOutputContentItem::InputImage {
+                image_url,
+            } => {
+                lines.push(format!("[image] {}", image_url));
+            }
+        }
+    }
+
+    if lines.is_empty() {
+        fallback_error
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+fn truncate_for_display(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= max_chars {
+        trimmed.to_string()
+    } else {
+        format!("{}...", trimmed.chars().take(max_chars).collect::<String>())
+    }
+}
+
+fn review_request_summary(request: &codex_protocol::protocol::ReviewRequest) -> String {
+    if let Some(hint) = &request.user_facing_hint {
+        let trimmed = hint.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    match &request.target {
+        codex_protocol::protocol::ReviewTarget::UncommittedChanges => {
+            "Review uncommitted changes".to_string()
+        }
+        codex_protocol::protocol::ReviewTarget::BaseBranch { branch } => {
+            format!("Review changes against branch `{branch}`")
+        }
+        codex_protocol::protocol::ReviewTarget::Commit { sha, title } => {
+            if let Some(title) = title {
+                let trimmed_title = title.trim();
+                if !trimmed_title.is_empty() {
+                    return format!("Review commit `{sha}` - {trimmed_title}");
+                }
+            }
+            format!("Review commit `{sha}`")
+        }
+        codex_protocol::protocol::ReviewTarget::Custom { instructions } => {
+            if instructions.trim().is_empty() {
+                "Run custom review".to_string()
+            } else {
+                format!(
+                    "Custom review\n\n{}",
+                    truncate_for_display(instructions, 600)
+                )
+            }
+        }
+    }
+}
+
+fn render_review_output(output: &codex_protocol::protocol::ReviewOutputEvent) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    if !output.overall_correctness.trim().is_empty() {
+        lines.push(format!(
+            "Overall correctness: {}",
+            output.overall_correctness.trim()
+        ));
+    }
+
+    if !output.overall_explanation.trim().is_empty() {
+        lines.push(String::new());
+        lines.push(output.overall_explanation.trim().to_string());
+    }
+
+    lines.push(String::new());
+    lines.push(format!(
+        "Confidence: {:.2}",
+        output.overall_confidence_score
+    ));
+
+    if !output.findings.is_empty() {
+        lines.push(String::new());
+        lines.push(format!("Findings ({})", output.findings.len()));
+        for finding in &output.findings {
+            let path = finding.code_location.absolute_file_path.display();
+            let range = &finding.code_location.line_range;
+            lines.push(format!(
+                "- [P{}] {} ({path}:{}-{}, confidence {:.2})",
+                finding.priority,
+                finding.title.trim(),
+                range.start,
+                range.end,
+                finding.confidence_score
+            ));
+            if !finding.body.trim().is_empty() {
+                lines.push(format!("  {}", finding.body.trim()));
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn agent_status_failed(status: &codex_protocol::protocol::AgentStatus) -> bool {
+    matches!(
+        status,
+        codex_protocol::protocol::AgentStatus::Errored(_)
+            | codex_protocol::protocol::AgentStatus::NotFound
+    )
 }
 
 /// Get current time as ISO 8601 string

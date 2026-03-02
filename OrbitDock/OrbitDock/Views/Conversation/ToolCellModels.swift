@@ -62,6 +62,7 @@ struct ToolGlyphInfo {
       case "compactcontext":
         return ToolGlyphInfo(symbol: "arrow.triangle.2.circlepath", color: PlatformColor(Color.accent))
       case "webfetch", "websearch": return ToolGlyphInfo(symbol: "globe", color: PlatformColor(Color.toolWeb))
+      case "view_image": return ToolGlyphInfo(symbol: "photo", color: PlatformColor(Color.toolRead))
       case "skill": return ToolGlyphInfo(symbol: "wand.and.stars", color: PlatformColor(Color.toolSkill))
       case "enterplanmode", "exitplanmode":
         return ToolGlyphInfo(symbol: "map", color: PlatformColor(Color.toolPlan))
@@ -375,7 +376,12 @@ enum CompactToolHelpers {
         if let input = message.toolInput, let url = input["url"] as? String {
           return URL(string: url)?.host ?? url
         }
-        return name
+        return message.content.isEmpty ? name : message.content
+      case "view_image":
+        if let input = message.toolInput, let path = input["path"] as? String {
+          return ToolCardStyle.shortenPath(path)
+        }
+        return message.content.isEmpty ? "view image" : message.content
       case "skill":
         if let input = message.toolInput, let skill = input["skill"] as? String { return skill }
         return "skill"
@@ -887,7 +893,9 @@ enum SharedModelBuilders {
           let domain = URL(string: url)?.host ?? url
           return .webFetch(domain: domain, url: url, output: message.sanitizedToolOutput)
         } else if lowercased == "websearch" {
-          let query = (message.toolInput?["query"] as? String) ?? ""
+          let query = ((message.toolInput?["query"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 } ?? message.content
           return .webSearch(query: query, output: message.sanitizedToolOutput)
         } else {
           return .generic(

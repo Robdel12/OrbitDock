@@ -16,7 +16,12 @@ struct WebSearchCard: View {
   } // Teal
 
   private var query: String {
-    (message.toolInput?["query"] as? String) ?? ""
+    let fromInput = (message.toolInput?["query"] as? String)?
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    if let fromInput, !fromInput.isEmpty {
+      return fromInput
+    }
+    return message.content
   }
 
   private var output: String {
