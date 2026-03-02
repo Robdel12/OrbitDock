@@ -730,6 +730,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                 }
             }
 
+            // On the first prompt, extract capabilities (skills, tools, slash_commands)
+            // from the transcript and broadcast to subscribers. By UserPromptSubmit time
+            // the init system message is always present in the transcript.
+            if hook_event_name == "UserPromptSubmit" {
+                emit_capabilities_from_transcript(&session_id, &actor).await;
+            }
+
             // On Stop events, try to extract AI-generated summary from transcript.
             if hook_event_name == "Stop" {
                 let snap = actor.snapshot();
@@ -935,24 +942,13 @@ pub async fn handle_hook_message(msg: ClientMessage, state: &Arc<SessionRegistry
                                 .await;
                         }
                         "PostToolUse" | "PostToolUseFailure" => {
-                            if let Some(actor) = state.get_session(&owning_id) {
-                                let decision = if hook_event_name == "PostToolUseFailure"
-                                    && is_interrupt.unwrap_or(false)
-                                {
-                                    "denied"
-                                } else {
-                                    "approved"
-                                };
-                                resolve_pending_approvals_after_tool_outcome(
-                                    &actor,
-                                    &persist_tx,
-                                    &owning_id,
-                                    decision,
-                                    orbitdock_protocol::WorkStatus::Working,
-                                )
-                                .await;
-                            }
-
+                            // For managed direct sessions, the connector owns
+                            // the approval lifecycle via control_response.
+                            // Do NOT call resolve_pending_approvals here — it
+                            // clears the server queue without sending the CLI
+                            // the control_response it's waiting for, causing a
+                            // deadlock when parallel tool calls are in flight.
+                            // Only persist supplementary metadata (tool count).
                             let _ = persist_tx
                                 .send(PersistCommand::ClaudeToolIncrement {
                                     id: owning_id.clone(),
@@ -1613,7 +1609,51 @@ async fn materialize_claude_session(
         })
         .await;
 
+    // Extract capabilities from the transcript so the sidebar shows skills.
+    emit_capabilities_from_transcript(session_id, &actor).await;
+
     actor
+}
+
+/// Extract capabilities (skills, tools, slash_commands) from a CLI session's
+/// transcript and broadcast `ClaudeCapabilities` to subscribers.
+async fn emit_capabilities_from_transcript(session_id: &str, actor: &SessionActorHandle) {
+    let transcript_path = {
+        let snap = actor.snapshot();
+        snap.transcript_path
+            .clone()
+            .or_else(|| claude_transcript_path_from_cwd(&snap.project_path, session_id))
+    };
+    let Some(tp) = transcript_path else { return };
+
+    let Some(caps) = crate::persistence::load_capabilities_from_transcript_path(&tp).await else {
+        return;
+    };
+
+    if caps.skills.is_empty() && caps.tools.is_empty() && caps.slash_commands.is_empty() {
+        return;
+    }
+
+    tracing::info!(
+        component = "hook_handler",
+        event = "claude.capabilities_from_transcript",
+        session_id = %session_id,
+        skills_count = caps.skills.len(),
+        tools_count = caps.tools.len(),
+        slash_commands_count = caps.slash_commands.len(),
+        "Extracted capabilities from transcript for CLI session"
+    );
+    actor
+        .send(SessionCommand::Broadcast {
+            msg: ServerMessage::ClaudeCapabilities {
+                session_id: session_id.to_string(),
+                slash_commands: caps.slash_commands,
+                skills: caps.skills,
+                tools: caps.tools,
+                models: vec![],
+            },
+        })
+        .await;
 }
 
 /// Prune stale empty Claude shells in the same project directory.

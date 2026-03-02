@@ -2887,6 +2887,67 @@ pub async fn load_token_usage_from_transcript_path(
         .await?
 }
 
+/// Capabilities extracted from a Claude transcript's init system message.
+pub struct TranscriptCapabilities {
+    pub slash_commands: Vec<String>,
+    pub skills: Vec<String>,
+    pub tools: Vec<String>,
+}
+
+/// Extract capabilities (skills, tools, slash_commands) from a Claude transcript's
+/// init system message. Returns `None` if the transcript doesn't exist or has no
+/// init message.
+pub async fn load_capabilities_from_transcript_path(
+    transcript_path: &str,
+) -> Option<TranscriptCapabilities> {
+    let path = transcript_path.to_string();
+    tokio::task::spawn_blocking(move || {
+        let file = File::open(&path).ok()?;
+        let reader = BufReader::new(file);
+
+        for line_result in reader.lines() {
+            let line = line_result.ok()?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let value: Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            // Look for the init system message
+            if value.get("type").and_then(|v| v.as_str()) != Some("system")
+                || value.get("subtype").and_then(|v| v.as_str()) != Some("init")
+            {
+                continue;
+            }
+
+            let parse_array = |key: &str| -> Vec<String> {
+                value
+                    .get(key)
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
+
+            return Some(TranscriptCapabilities {
+                slash_commands: parse_array("slash_commands"),
+                skills: parse_array("skills"),
+                tools: parse_array("tools"),
+            });
+        }
+        None
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 pub async fn load_latest_codex_turn_context_settings_from_transcript_path(
     transcript_path: &str,
 ) -> Result<(Option<String>, Option<String>), anyhow::Error> {
