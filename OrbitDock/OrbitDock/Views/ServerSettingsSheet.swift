@@ -26,6 +26,7 @@ struct ServerSettingsSheet: View {
   @State private var draftIsEnabled = true
   @State private var draftIsDefault = false
   @State private var draftIsLocalManaged = false
+  @State private var draftAuthToken = ""
   @State private var editorError: String?
   @State private var endpointPendingDelete: ServerEndpoint?
 
@@ -362,7 +363,7 @@ struct ServerSettingsSheet: View {
 
             // Host field
             editorField(label: "Host") {
-              TextField("10.0.0.5 or 10.0.0.5:4100", text: $draftHostInput)
+              TextField("10.0.0.5:4000 or https://host.example", text: $draftHostInput)
                 .textFieldStyle(.plain)
                 .font(.system(size: TypeScale.body, design: .monospaced))
               #if os(iOS)
@@ -379,6 +380,22 @@ struct ServerSettingsSheet: View {
                 .padding(.horizontal, Spacing.lg)
                 .padding(.bottom, Spacing.md)
                 .padding(.top, -Spacing.xs)
+            }
+
+            if !draftIsLocalManaged {
+              Divider()
+                .overlay(Color.panelBorder)
+
+              // Auth token field
+              editorField(label: "Auth Token") {
+                SecureField("Paste token", text: $draftAuthToken)
+                  .textFieldStyle(.plain)
+                  .font(.system(size: TypeScale.body, design: .monospaced))
+                #if os(iOS)
+                  .textInputAutocapitalization(.never)
+                #endif
+                  .autocorrectionDisabled()
+              }
             }
 
             Divider()
@@ -587,6 +604,7 @@ struct ServerSettingsSheet: View {
     editingEndpointId = nil
     draftName = ""
     draftHostInput = ""
+    draftAuthToken = ""
     draftIsEnabled = true
     draftIsDefault = endpoints.first(where: \.isDefault) == nil
     draftIsLocalManaged = false
@@ -598,6 +616,7 @@ struct ServerSettingsSheet: View {
     editingEndpointId = endpoint.id
     draftName = endpoint.name
     draftHostInput = ServerEndpointSettings.hostInput(from: endpoint.wsURL) ?? endpoint.wsURL.host ?? ""
+    draftAuthToken = endpoint.authToken ?? ""
     draftIsEnabled = endpoint.isEnabled
     draftIsDefault = endpoint.isDefault
     draftIsLocalManaged = endpoint.isLocalManaged
@@ -608,6 +627,7 @@ struct ServerSettingsSheet: View {
   private func closeEditor() {
     showEditor = false
     editorError = nil
+    draftAuthToken = ""
   }
 
   private func saveEditor() {
@@ -627,20 +647,22 @@ struct ServerSettingsSheet: View {
         .localDefault(defaultPort: ServerEndpointSettings.defaultPort).wsURL
     } else {
       guard let built = ServerEndpointSettings.buildURL(from: draftHostInput) else {
-        editorError = "Enter a valid host (for example 10.0.0.5 or 10.0.0.5:4100)."
+        editorError = "Enter a valid host (e.g. 10.0.0.5:4000 or https://host.example)."
         return
       }
       resolvedURL = built
     }
 
     var updated = endpoints
+    let trimmedToken = draftAuthToken.trimmingCharacters(in: .whitespacesAndNewlines)
     let endpoint = ServerEndpoint(
       id: endpointId,
       name: trimmedName,
       wsURL: resolvedURL,
       isLocalManaged: isLocalManaged,
       isEnabled: draftIsEnabled,
-      isDefault: draftIsEnabled && draftIsDefault
+      isDefault: draftIsEnabled && draftIsDefault,
+      authToken: trimmedToken.isEmpty ? nil : trimmedToken
     )
 
     if let index = updated.firstIndex(where: { $0.id == endpointId }) {

@@ -165,25 +165,48 @@ struct ServerEndpointStore {
     let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
 
-    let hostPort: String = if trimmed.hasPrefix("ws://") {
-      String(trimmed.dropFirst(5))
-    } else if trimmed.hasPrefix("wss://") {
-      String(trimmed.dropFirst(6))
+    let forceSecure: Bool
+    let hostPort: String
+
+    if trimmed.hasPrefix("wss://") {
+      forceSecure = true
+      hostPort = String(trimmed.dropFirst(6))
+    } else if trimmed.hasPrefix("https://") {
+      forceSecure = true
+      hostPort = String(trimmed.dropFirst(8))
+    } else if trimmed.hasPrefix("ws://") {
+      forceSecure = false
+      hostPort = String(trimmed.dropFirst(5))
     } else if trimmed.hasPrefix("http://") {
-      String(trimmed.dropFirst(7))
+      forceSecure = false
+      hostPort = String(trimmed.dropFirst(7))
     } else {
-      trimmed
+      forceSecure = false
+      hostPort = trimmed
     }
 
     let clean = hostPort.split(separator: "/").first.map(String.init) ?? hostPort
     guard !clean.isEmpty else { return nil }
 
-    let withPort = clean.contains(":") ? clean : "\(clean):\(defaultPort)"
-    return URL(string: "ws://\(withPort)/ws")
+    if forceSecure {
+      // TLS — use wss://, no default port (443 is implicit)
+      return URL(string: "wss://\(clean)/ws")
+    } else {
+      // Plain — use ws:// with default port fallback
+      let withPort = clean.contains(":") ? clean : "\(clean):\(defaultPort)"
+      return URL(string: "ws://\(withPort)/ws")
+    }
   }
 
   static func hostInput(from url: URL, defaultPort: Int) -> String? {
     guard let host = url.host else { return nil }
+    let isSecure = url.scheme == "wss"
+    if isSecure {
+      if let port = url.port {
+        return "https://\(host):\(port)"
+      }
+      return "https://\(host)"
+    }
     if let port = url.port, port != defaultPort {
       return "\(host):\(port)"
     }

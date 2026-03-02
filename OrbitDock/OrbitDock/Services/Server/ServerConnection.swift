@@ -366,6 +366,7 @@ class ServerConnection: ObservableObject {
 
   let endpointId: UUID
   let endpointName: String
+  private let authToken: String?
 
   @Published private(set) var status: ConnectionStatus = .disconnected
   @Published private(set) var lastError: String?
@@ -472,6 +473,7 @@ class ServerConnection: ObservableObject {
   init(endpoint: ServerEndpoint) {
     endpointId = endpoint.id
     endpointName = endpoint.name
+    authToken = endpoint.authToken
     serverURL = endpoint.wsURL
     queuedConversationMessagesDefaultsKey = "orbitdock.queued-conversation-messages.\(endpoint.id.uuidString)"
     restoreQueuedConversationMessages()
@@ -540,7 +542,19 @@ class ServerConnection: ObservableObject {
     configuration.timeoutIntervalForResource = 0 // No resource timeout (WebSocket is long-lived)
     session = URLSession(configuration: configuration)
 
-    webSocket = session?.webSocketTask(with: serverURL)
+    let wsURL: URL = {
+      guard let authToken, !authToken.isEmpty,
+            var components = URLComponents(url: serverURL, resolvingAgainstBaseURL: false)
+      else {
+        return serverURL
+      }
+      var items = components.queryItems ?? []
+      items.append(URLQueryItem(name: "token", value: authToken))
+      components.queryItems = items
+      return components.url ?? serverURL
+    }()
+
+    webSocket = session?.webSocketTask(with: wsURL)
     webSocket?.maximumMessageSize = Self.maxInboundWebSocketMessageBytes
     webSocket?.resume()
     startReceiving()
@@ -1986,6 +2000,12 @@ class ServerConnection: ObservableObject {
     }
   }
 
+  private func applyAuth(to request: inout URLRequest) {
+    if let authToken, !authToken.isEmpty {
+      request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+    }
+  }
+
   private func requestAPIJSON<Response: Decodable>(
     path: String,
     method: String,
@@ -1998,6 +2018,7 @@ class ServerConnection: ObservableObject {
     var request = URLRequest(url: url)
     request.httpMethod = method
     request.timeoutInterval = 15
+    applyAuth(to: &request)
 
     let (data, response) = try await URLSession.shared.data(for: request)
     guard let http = response as? HTTPURLResponse else {
@@ -2028,6 +2049,7 @@ class ServerConnection: ObservableObject {
     request.httpMethod = method
     request.timeoutInterval = 15
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    applyAuth(to: &request)
 
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -2062,6 +2084,7 @@ class ServerConnection: ObservableObject {
     request.httpMethod = method
     request.timeoutInterval = 15
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    applyAuth(to: &request)
 
     let encoder = JSONEncoder()
     encoder.keyEncodingStrategy = .convertToSnakeCase
@@ -2095,6 +2118,7 @@ class ServerConnection: ObservableObject {
     request.httpMethod = method
     request.timeoutInterval = 15
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    applyAuth(to: &request)
     request.httpBody = bodyData
 
     let (data, response) = try await URLSession.shared.data(for: request)

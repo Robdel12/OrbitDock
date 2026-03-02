@@ -7,6 +7,7 @@ struct ServerEndpoint: Codable, Equatable, Hashable, Identifiable {
   var isLocalManaged: Bool
   var isEnabled: Bool
   var isDefault: Bool
+  var authToken: String?
 
   init(
     id: UUID = UUID(),
@@ -14,7 +15,8 @@ struct ServerEndpoint: Codable, Equatable, Hashable, Identifiable {
     wsURL: URL,
     isLocalManaged: Bool,
     isEnabled: Bool = true,
-    isDefault: Bool = false
+    isDefault: Bool = false,
+    authToken: String? = nil
   ) {
     self.id = id
     self.name = name
@@ -22,6 +24,7 @@ struct ServerEndpoint: Codable, Equatable, Hashable, Identifiable {
     self.isLocalManaged = isLocalManaged
     self.isEnabled = isEnabled
     self.isDefault = isDefault
+    self.authToken = authToken
   }
 
   var isRemote: Bool {
