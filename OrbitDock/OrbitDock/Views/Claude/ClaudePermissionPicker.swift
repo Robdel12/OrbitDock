@@ -69,7 +69,55 @@ enum ClaudePermissionMode: String, CaseIterable, Identifiable {
 // MARK: - Compact Permission Pill
 
 struct ClaudePermissionPill: View {
+  enum PillSize {
+    case regular
+    case statusBar
+
+    var iconFontSize: CGFloat {
+      switch self {
+        case .regular: TypeScale.body
+        case .statusBar: 9
+      }
+    }
+
+    var textFontSize: CGFloat {
+      switch self {
+        case .regular: TypeScale.body
+        case .statusBar: 10
+      }
+    }
+
+    var horizontalPadding: CGFloat {
+      switch self {
+        case .regular: CGFloat(Spacing.md)
+        case .statusBar: 6
+      }
+    }
+
+    var verticalPadding: CGFloat {
+      switch self {
+        case .regular: CGFloat(Spacing.sm)
+        case .statusBar: 3
+      }
+    }
+
+    var spacing: CGFloat {
+      switch self {
+        case .regular: CGFloat(Spacing.xs)
+        case .statusBar: 3
+      }
+    }
+
+    var height: CGFloat? {
+      switch self {
+        case .regular: nil
+        case .statusBar: 20
+      }
+    }
+  }
+
   let sessionId: String
+  var size: PillSize = .regular
   @Environment(ServerAppState.self) private var serverState
   @State private var showPopover = false
 
@@ -81,15 +129,16 @@ struct ClaudePermissionPill: View {
     Button {
       showPopover.toggle()
     } label: {
-      HStack(spacing: Spacing.xs) {
+      HStack(spacing: size.spacing) {
         Image(systemName: currentMode.icon)
-          .font(.system(size: TypeScale.body, weight: .semibold))
+          .font(.system(size: size.iconFontSize, weight: .semibold))
         Text(currentMode.displayName)
-          .font(.system(size: TypeScale.body, weight: .semibold))
+          .font(.system(size: size.textFontSize, weight: .semibold))
       }
       .foregroundStyle(currentMode.color)
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm)
+      .padding(.horizontal, size.horizontalPadding)
+      .padding(.vertical, size.verticalPadding)
+      .frame(height: size.height)
       .background(currentMode.color.opacity(OpacityTier.light), in: Capsule())
     }
     .buttonStyle(.plain)

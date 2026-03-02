@@ -1022,9 +1022,9 @@ struct DirectSessionComposer: View {
       }
 
       if obs.isDirectCodex {
-        AutonomyPill(sessionId: sessionId)
+        AutonomyPill(sessionId: sessionId, size: .statusBar)
       } else if obs.isDirectClaude {
-        ClaudePermissionPill(sessionId: sessionId)
+        ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
       }
 
       if isSessionWorking {
@@ -1047,8 +1047,8 @@ struct DirectSessionComposer: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal, Spacing.lg + 10)
-    .padding(.top, -2)
-    .padding(.bottom, 6)
+    .padding(.top, 1)
+    .padding(.bottom, 9)
   }
 
   private var compactStatusBar: some View {
@@ -1059,9 +1059,9 @@ struct DirectSessionComposer: View {
         }
 
         if obs.isDirectCodex {
-          AutonomyPill(sessionId: sessionId)
+          AutonomyPill(sessionId: sessionId, size: .statusBar)
         } else if obs.isDirectClaude {
-          ClaudePermissionPill(sessionId: sessionId)
+          ClaudePermissionPill(sessionId: sessionId, size: .statusBar)
         }
 
         if isSessionWorking {

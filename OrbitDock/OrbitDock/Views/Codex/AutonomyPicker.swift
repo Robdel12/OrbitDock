@@ -142,7 +142,55 @@ enum AutonomyLevel: String, CaseIterable, Identifiable {
 // MARK: - Compact Autonomy Pill
 
 struct AutonomyPill: View {
+  enum PillSize {
+    case regular
+    case statusBar
+
+    var iconFontSize: CGFloat {
+      switch self {
+        case .regular: TypeScale.body
+        case .statusBar: 9
+      }
+    }
+
+    var textFontSize: CGFloat {
+      switch self {
+        case .regular: TypeScale.body
+        case .statusBar: 10
+      }
+    }
+
+    var horizontalPadding: CGFloat {
+      switch self {
+        case .regular: CGFloat(Spacing.md)
+        case .statusBar: 6
+      }
+    }
+
+    var verticalPadding: CGFloat {
+      switch self {
+        case .regular: CGFloat(Spacing.sm)
+        case .statusBar: 3
+      }
+    }
+
+    var spacing: CGFloat {
+      switch self {
+        case .regular: CGFloat(Spacing.xs)
+        case .statusBar: 3
+      }
+    }
+
+    var height: CGFloat? {
+      switch self {
+        case .regular: nil
+        case .statusBar: 20
+      }
+    }
+  }
+
   let sessionId: String
+  var size: PillSize = .regular
   @Environment(ServerAppState.self) private var serverState
   @State private var showPopover = false
 
@@ -158,19 +206,20 @@ struct AutonomyPill: View {
     Button {
       showPopover.toggle()
     } label: {
-      HStack(spacing: Spacing.xs) {
+      HStack(spacing: size.spacing) {
         Image(systemName: currentLevel.icon)
-          .font(.system(size: TypeScale.body, weight: .semibold))
+          .font(.system(size: size.iconFontSize, weight: .semibold))
         Text(currentLevel.displayName)
-          .font(.system(size: TypeScale.body, weight: .semibold))
+          .font(.system(size: size.textFontSize, weight: .semibold))
         if !isConfiguredOnServer {
           Image(systemName: "exclamationmark.circle.fill")
             .font(.system(size: TypeScale.caption, weight: .semibold))
         }
       }
       .foregroundStyle(currentLevel.color)
-      .padding(.horizontal, Spacing.md)
-      .padding(.vertical, Spacing.sm)
+      .padding(.horizontal, size.horizontalPadding)
+      .padding(.vertical, size.verticalPadding)
+      .frame(height: size.height)
       .background(currentLevel.color.opacity(OpacityTier.light), in: Capsule())
     }
     .buttonStyle(.plain)
