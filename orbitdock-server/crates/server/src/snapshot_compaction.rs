@@ -277,7 +277,9 @@ pub(crate) fn compact_snapshot_to_transport_limit(snapshot: SessionState) -> Ses
         return default_compacted;
     }
 
-    let message_caps = [160, 120, 96, 72, 48, 32, 24, 16, 8, 4, 2, 1, 0];
+    // Never go to 0 — sending an empty snapshot makes the client think the
+    // conversation was cleared. Better to exceed the target than lose all context.
+    let message_caps = [160, 120, 96, 72, 48, 32, 24, 16, 8, 4, 2, 1];
     let content_caps = [
         12_000,
         8_000,
@@ -377,6 +379,7 @@ pub(crate) fn sanitize_server_message_for_transport(msg: ServerMessage) -> Serve
                         session_id = %compacted.id,
                         before_bytes = before,
                         after_bytes = after,
+                        messages_in_snapshot = compacted.messages.len(),
                         target_bytes = SNAPSHOT_TARGET_TEXT_MESSAGE_BYTES,
                         max_bytes = WS_MAX_TEXT_MESSAGE_BYTES,
                         "Compacted session snapshot to fit outbound payload target"
