@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use tokio::process::Command;
+use tracing::warn;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct WorktreeIncludeCopySummary {
     pub manifest_found: bool,
     pub matched_entries: usize,
     pub copied_entries: usize,
     pub skipped_entries: usize,
+    pub errored_entries: usize,
 }
 
 /// Copy files from repo root into a newly created worktree using `.worktreeinclude`.
@@ -19,6 +21,7 @@ pub struct WorktreeIncludeCopySummary {
 /// - Only paths that are BOTH git-ignored (`.gitignore` and standard excludes)
 ///   and matched by `.worktreeinclude` are copied.
 /// - Tracked files are never copied because selection is based on `git ls-files -i -o`.
+/// - Copying is best-effort per entry: one failing path does not abort the whole operation.
 pub async fn copy_worktreeinclude(
     repo_root: &str,
     worktree_path: &str,
@@ -63,10 +66,11 @@ pub async fn copy_worktreeinclude(
         copy_selected_paths_blocking(&repo_root_path, &worktree_path_buf, &pruned)
     })
     .await
-    .map_err(|err| format!("copy_worktreeinclude task failed: {err}"))??;
+    .map_err(|err| format!("copy_worktreeinclude task failed: {err}"))?;
 
     summary.copied_entries = copy_result.copied_entries;
     summary.skipped_entries = copy_result.skipped_entries;
+    summary.errored_entries = copy_result.errored_entries;
 
     Ok(summary)
 }
@@ -156,13 +160,14 @@ fn prune_descendant_paths(paths: BTreeSet<String>) -> Vec<String> {
 struct CopyResult {
     copied_entries: usize,
     skipped_entries: usize,
+    errored_entries: usize,
 }
 
 fn copy_selected_paths_blocking(
     repo_root: &Path,
     worktree_path: &Path,
     selected_paths: &[String],
-) -> Result<CopyResult, String> {
+) -> CopyResult {
     let mut result = CopyResult::default();
 
     for rel in selected_paths {
@@ -181,11 +186,25 @@ fn copy_selected_paths_blocking(
             continue;
         }
 
-        copy_path_recursive(&source, &destination)?;
+        if let Err(err) = copy_path_recursive(&source, &destination) {
+            result.skipped_entries += 1;
+            result.errored_entries += 1;
+            warn!(
+                component = "worktree",
+                event = "worktree.include.copy_entry_failed",
+                relative_path = %rel,
+                source = %source.display(),
+                destination = %destination.display(),
+                error = %err,
+                "Failed to copy .worktreeinclude entry; continuing with remaining entries"
+            );
+            continue;
+        }
+
         result.copied_entries += 1;
     }
 
-    Ok(result)
+    result
 }
 
 fn copy_path_recursive(source: &Path, destination: &Path) -> Result<(), String> {
@@ -255,29 +274,17 @@ fn copy_symlink(source: &Path, destination: &Path) -> Result<(), String> {
 #[cfg(not(unix))]
 fn copy_symlink(source: &Path, destination: &Path) -> Result<(), String> {
     // Fallback for non-Unix targets: dereference and copy file contents when possible.
-    let target_metadata = std::fs::metadata(source)
-        .map_err(|err| format!("Failed to follow symlink {}: {err}", source.display()))?;
-    if target_metadata.is_dir() {
-        copy_path_recursive(
-            &std::fs::canonicalize(source).map_err(|err| {
-                format!("Failed to canonicalize symlink {}: {err}", source.display())
-            })?,
-            destination,
-        )
-    } else {
-        copy_path_recursive(
-            &std::fs::canonicalize(source).map_err(|err| {
-                format!("Failed to canonicalize symlink {}: {err}", source.display())
-            })?,
-            destination,
-        )
-    }
+    let canonicalized = std::fs::canonicalize(source)
+        .map_err(|err| format!("Failed to canonicalize symlink {}: {err}", source.display()))?;
+    copy_path_recursive(&canonicalized, destination)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
 
     fn run_git_checked(args: &[&str], cwd: &Path) {
@@ -346,6 +353,7 @@ mod tests {
         assert!(!summary.manifest_found);
         assert_eq!(summary.matched_entries, 0);
         assert_eq!(summary.copied_entries, 0);
+        assert_eq!(summary.errored_entries, 0);
     }
 
     #[tokio::test]
@@ -384,6 +392,7 @@ mod tests {
 
         assert!(summary.manifest_found);
         assert_eq!(summary.matched_entries, 2);
+        assert_eq!(summary.errored_entries, 0);
         assert!(worktree.join("node_modules/pkg/index.js").exists());
         assert!(worktree.join(".env.local").exists());
         assert!(!worktree.join("not-ignored.txt").exists());
@@ -413,9 +422,56 @@ mod tests {
         .expect("copy should succeed");
 
         assert_eq!(summary.matched_entries, 0);
+        assert_eq!(summary.errored_entries, 0);
         let worktree_contents = std::fs::read_to_string(worktree.join("tracked.env"))
             .expect("tracked file should exist from checkout");
         assert_eq!(worktree_contents, "committed\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn copy_is_best_effort_when_one_entry_fails() {
+        let (_tmp, repo) = setup_repo();
+
+        std::fs::write(repo.join(".gitignore"), "bad-copy.txt\ngood-copy.txt\n")
+            .expect("write gitignore");
+        std::fs::write(
+            repo.join(".worktreeinclude"),
+            "bad-copy.txt\ngood-copy.txt\n",
+        )
+        .expect("write include");
+        std::fs::write(repo.join("bad-copy.txt"), "restricted\n").expect("write bad file");
+        std::fs::write(repo.join("good-copy.txt"), "good\n").expect("write good file");
+
+        let mut restricted_mode = std::fs::metadata(repo.join("bad-copy.txt"))
+            .expect("read bad metadata")
+            .permissions();
+        restricted_mode.set_mode(0o000);
+        std::fs::set_permissions(repo.join("bad-copy.txt"), restricted_mode)
+            .expect("restrict permissions");
+
+        let worktree = create_worktree(&repo, "feature-best-effort").await;
+
+        let summary = copy_worktreeinclude(
+            repo.to_string_lossy().as_ref(),
+            worktree.to_string_lossy().as_ref(),
+        )
+        .await
+        .expect("copy should succeed");
+
+        let mut restored_mode = std::fs::metadata(repo.join("bad-copy.txt"))
+            .expect("read bad metadata for restore")
+            .permissions();
+        restored_mode.set_mode(0o644);
+        std::fs::set_permissions(repo.join("bad-copy.txt"), restored_mode)
+            .expect("restore permissions");
+
+        assert!(summary.manifest_found);
+        assert_eq!(summary.matched_entries, 2);
+        assert_eq!(summary.copied_entries, 1);
+        assert_eq!(summary.errored_entries, 1);
+        assert!(worktree.join("good-copy.txt").exists());
+        assert!(!worktree.join("bad-copy.txt").exists());
     }
 
     #[cfg(unix)]
@@ -439,6 +495,7 @@ mod tests {
         .expect("copy should succeed");
 
         assert!(summary.manifest_found);
+        assert_eq!(summary.errored_entries, 0);
         assert!(worktree.join(".env.local").exists());
     }
 }

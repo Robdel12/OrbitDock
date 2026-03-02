@@ -51,6 +51,7 @@ pub async fn create_tracked_worktree(
                     matched_entries = copy_summary.matched_entries,
                     copied_entries = copy_summary.copied_entries,
                     skipped_entries = copy_summary.skipped_entries,
+                    errored_entries = copy_summary.errored_entries,
                     "Applied .worktreeinclude copy pipeline"
                 );
             }

@@ -127,7 +127,7 @@ When creating a worktree via OrbitDock (`POST /api/worktrees` or fork-to-worktre
 - Patterns use gitignore syntax.
 - A path is copied only when it matches `.worktreeinclude` **and** is git-ignored by standard rules (`.gitignore`, excludes, etc).
 - Tracked files are never copied.
-- Copy failures are logged as warnings and do not fail worktree creation.
+- Copying is best-effort per entry: failures are logged, skipped, and do not fail worktree creation.
 
 ## CLI Reference
 
