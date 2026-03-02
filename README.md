@@ -4,7 +4,7 @@ Mission control for AI coding agents. Manage Claude Code and Codex sessions from
 your phone — create sessions, review diffs, approve tools, and steer agents from anywhere.
 
 ![macOS](https://img.shields.io/badge/macOS-15.0+-blue)
-![iOS](https://img.shields.io/badge/iOS-26.0+-blue)
+![iOS](https://img.shields.io/badge/iOS-18.0+-blue)
 ![Swift](https://img.shields.io/badge/Swift-6.0-orange)
 ![Rust](https://img.shields.io/badge/Rust-stable-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -93,7 +93,7 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and
 
 ## Requirements
 
-- macOS 15.0+ (iOS 26.0+ for mobile)
+- macOS 15.0+ (iOS 18.0+ for mobile)
 - **Codex** is built in — the server embeds codex-core; authenticate with ChatGPT sign-in or API key mode
 - **Claude Code** requires a separate install and active login — OrbitDock monitors it via hooks
 - Xcode 16+ and Rust stable toolchain if building from source
