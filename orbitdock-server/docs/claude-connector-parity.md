@@ -4,7 +4,7 @@ Central checklist for what OrbitDock handles for Claude sessions — both **dire
 
 **Source of truth:** `docs/node_modules/@anthropic-ai/claude-agent-sdk/` (v0.2.62, Claude Code v2.1.62)
 
-Last updated: 2026-03-01
+Last updated: 2026-03-02
 
 ---
 
@@ -375,30 +375,100 @@ Response fields:
 
 ---
 
-## Not Yet Implemented (Gaps)
+## Testing Checklist
 
-### High Priority
-- **WS dispatch for `StopTask`** — Action exists but no `ClientMessage` handler wires it from WS
-- **WS dispatch for `RewindFiles`** — Event loop handles it but no WS message triggers it (only available if called from code)
-- **`RollbackTurns` for Claude** — Only dispatches to Codex; Claude would need user_message_id resolution to use rewind_files
+Manual verification of each implemented feature in a live direct Claude session via OrbitDock.
 
-### Medium Priority
-- **`mcp_toggle` UI dispatch** — Method exists but no REST/WS endpoint exposes it
-- **`mcp_set_servers`** — Dynamic MCP server management (response: added/removed/errors)
-- **`mcp_authenticate` / `mcp_clear_auth`** — MCP OAuth flow
-- **`McpStartupUpdate`/`McpStartupComplete`** — Could parse from init `mcp_servers[]` array (each entry has `name` + `status`)
-- **`rate_limit_event` UI surfacing** — Currently logged only; rich data available (utilization, resets, overage status). Could show usage gauge or toast
-- **`prompt_suggestion` UI** — Could show suggested follow-up prompts after each turn
-- **`hook_progress`/`hook_response` routing** — Hook lifecycle events (could show hook execution progress in UI)
-- **`enableFileCheckpointing` via env var** — Set `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING=true` on subprocess for proper file checkpoint tracking
-- **Richer `initialize` request** — We send bare `{ subtype: "initialize" }`. Could pass `systemPrompt`, `appendSystemPrompt`, `agents`, `promptSuggestions`, `hooks`
+### Session Lifecycle
 
-### Low Priority
-- **`DiffUpdated` for Claude** — CLI doesn't emit patch diffs; would need to compute from file checkpoints
-- **`apply_flag_settings`** — Runtime feature flag control (merges settings into flag layer)
-- **`hook_callback`** — Hook callback resolution for async hooks (requires registering hooks in `initialize`)
-- **`mcp_message`** — Raw MCP JSON-RPC passthrough (requires registering `sdkMcpServers` in `initialize`)
-- **`SDKFilesPersistedEvent` handling** — Currently dead code; could track which files were persisted
+- [x] **Create session** — New Claude session starts, shows in dashboard
+- [x] **Resume session** — Server restart → session reconnects with history intact
+- [x] **End session** — Session ends cleanly, status → ended
+- [ ] **Fork session** — Fork creates new session with conversation history *(needs UI test)*
+- [x] **Init data** — Model (opus-4-6), 64 tools, 19 skills, 35 slash commands populated on init and every resume
+
+### Conversation
+
+- [x] **Send message** — User message appears in timeline, triggers Claude turn
+- [x] **Streaming content** — Assistant text streams in real-time (character-by-character)
+- [x] **Tool use cards** — Tool calls show structured cards (Bash, Read, Edit, Write, Glob, Grep, etc.)
+- [x] **Tool output** — Tool results appear in tool cards after execution
+- [x] **Tool progress** — Elapsed time updates on in-progress tool cards
+- [x] **Task/subagent cards** — Card created on task_started, finalized on tool_result via tool_use_id→task_id map *(UI: needs polish — raw JSON, duplicate cards)*
+- [ ] **Tool use summary** — Human-readable summary messages appear after tool sequences *(handler wired, CLI may not emit in all contexts)*
+- [x] **User message (tool results)** — Synthetic user messages with tool_result blocks handled correctly
+- [x] **TodoWrite card** — Structured todo list renders as a card (not raw JSON)
+- [x] **WebSearch card** — Web search results render as a card
+
+### Approvals
+
+- [x] **Single tool approval** — Approval card appears, approve/deny works, CLI gets control_response
+- [x] **Parallel tool approvals** — Multiple tool calls → queue handles them sequentially without deadlock *(fixed: removed resolve_pending_approvals for managed sessions)*
+- [x] **Approval cancel** — `control_cancel_request` clears stale approval card *(handler wired in dispatch, tested via control_cancel_request events)*
+- [x] **Question approval** — `AskUserQuestion` shows structured question with options, answer sent back
+- [x] **Permission suggestions** — Suggestions shown on approval cards (e.g. "Allow for session")
+
+### Turn Control
+
+- [x] **Interrupt** — Stop button interrupts active turn, Claude stops generating
+- [x] **Steer turn** — Inject guidance into active turn without interrupting
+- [ ] **Compact context** — `/compact` sent, `compact_boundary` received, message count adjusts *(now shows in-progress indicator during compaction; needs UI test)*
+- [ ] **Undo last turn** — `/undo` sent, last turn removed from conversation *(needs UI test)*
+
+### Model & Config
+
+- [ ] **Set model** — Model change sent via `set_model`, new model used on next turn *(needs UI test)*
+- [ ] **Set max thinking** — Thinking tokens control sent via `set_max_thinking_tokens` *(needs UI test)*
+- [ ] **Set permission mode** — Mode change (default/acceptEdits/bypassPermissions/plan) sent and reflected *(needs UI test)*
+- [x] **Permission mode from status** — `permissionMode` changes from CLI reflected in UI (e.g. entering plan mode)
+
+### MCP Management
+
+- [x] **MCP startup status** — Init `mcp_servers[]` parsed → per-server status (connected/failed/needs-auth/connecting)
+- [x] **MCP startup complete** — Startup complete event fires after all servers resolved
+- [x] **List MCP tools** — `GET /api/sessions/{id}/mcp/tools` returns tool list from `mcp_status` *(endpoint returns correct shape; tools populate after mcp_status)*
+- [x] **Refresh MCP server** — `POST /api/sessions/{id}/mcp/refresh` reconnects a server *(202 accepted)*
+- [x] **Toggle MCP server** — `POST /api/sessions/{id}/mcp/toggle` enables/disables a server *(202 accepted, tested disable+re-enable)*
+- [x] **MCP authenticate** — `POST /api/sessions/{id}/mcp/authenticate` triggers OAuth flow *(202 accepted)*
+- [x] **MCP clear auth** — `POST /api/sessions/{id}/mcp/clear-auth` clears stored auth *(202 accepted)*
+- [x] **MCP set servers** — `POST /api/sessions/{id}/mcp/servers` adds/removes servers dynamically *(202 accepted)*
+
+### File & Task Management
+
+- [ ] **Stop task** — `stopTask` WS message kills a running subagent task *(server ✅, UI: needs stop button on task cards)*
+- [ ] **Rewind files** — `rewindFiles` WS message reverts file changes from a turn *(server ✅, UI: needs rewind button per turn)*
+- [ ] **Files persisted** — `files_persisted` event broadcasts file list to clients *(server ✅, UI: needs visual indicator)*
+
+### Events & UI
+
+- [x] **Rate limit event** — Rate limit banner shows when utilization is high or rejected
+- [x] **Prompt suggestions** — Suggestion chips appear in composer after turn completion
+- [x] **Token usage** — Tokens updated after each turn (input/output/cached/context_window)
+- [ ] **Context compacted** — Compact count increments, compaction event shown in timeline *(now shows in-progress indicator; needs natural compaction to test)*
+- [x] **Diff updated** — Edit/Write tool diffs aggregated during assistant turns
+- [x] **Session naming** — First prompt triggers AI naming, summary extracted on end
+
+### Managed Thread Routing (hooks → owning session)
+
+- [x] **PreToolUse hook** — last_tool tracking persisted to DB
+- [x] **PostToolUse hook** — tool_count incremented (no approval queue interference) *(fixed: no longer calls resolve_pending_approvals)*
+- [x] **PermissionRequest hook** — Skipped for approval (connector handles it), metadata persisted
+- [ ] **Stop hook** — Summary extracted from transcript *(fires on session end; needs session end test)*
+- [ ] **PreCompact hook** — compact_count incremented *(fires during compaction; needs natural compaction to test)*
+- [x] **SubagentStart/Stop hooks** — Subagent records persisted, active_subagent_id tracked
+- [x] **Hook thread registration** — `hook_started` registers managed thread, prevents duplicate passive session
+
+### Apply Flag Settings
+
+- [ ] **Apply flags** — `POST /api/sessions/{id}/flags` sends `apply_flag_settings` control request *(server ✅, UI: needs settings panel)*
+
+### Notes
+
+- **`mcp_message` control request** — Handled: responds with error (correct — we don't host SDK MCP servers)
+- **`hook_callback` control request** — Handled: responds with empty `hookResults` (correct — we don't register hooks in `initialize`)
+- **`CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING`** — Already set on subprocess spawn
+- **`RollbackTurns` for Claude** — Uses `rewind_files` under the hood (Claude doesn't have Codex-style turn rollback)
+- **`DiffUpdated`** — Aggregated from Edit/Write tool_use content blocks during assistant turns
 
 ---
 
@@ -410,7 +480,7 @@ Useful env vars we could set on the subprocess (all verified in SDK source):
 |---|---|---|
 | `CLAUDE_CODE_ENTRYPOINT` | ✅ `"orbitdock"` | Identifies us as the launcher |
 | `CLAUDECODE` | ✅ removed | Prevents nesting detection |
-| `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING` | ❌ | Enables file checkpoint tracking for rewind_files |
+| `CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING` | ✅ | Enables file checkpoint tracking for rewind_files + files_persisted |
 | `CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING` | — | Explicitly disables file checkpointing |
 | `CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES` | — | Controls tool_use_summary message emission |
 | `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` | — | Enables prompt_suggestion messages |
