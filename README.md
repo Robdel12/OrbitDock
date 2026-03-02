@@ -5,7 +5,7 @@ your phone — create sessions, review diffs, approve tools, and steer agents fr
 
 ![macOS](https://img.shields.io/badge/macOS-15.0+-blue)
 ![iOS](https://img.shields.io/badge/iOS-18.0+-blue)
-![Swift](https://img.shields.io/badge/Swift-6.0-orange)
+![Swift](https://img.shields.io/badge/Swift-5.0-orange)
 ![Rust](https://img.shields.io/badge/Rust-stable-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -13,18 +13,19 @@ https://github.com/user-attachments/assets/58be4f6e-55f9-43fe-9336-d3db99c4471c
 
 ## Why
 
-I don't write code anymore (pretty much) -- agents do. My job is review, management, and provide guidance at
-the right time. But with multiple repos and a bunch of agents running across all of them, keeping
-track of it all was chaos. OrbitDock is how I'm trying to wrangle that.
+I don't write code anymore (pretty much) — agents do. My job is reviewing, managing, and
+providing guidance at the right time. But with multiple repos and a bunch of agents running
+across all of them, keeping track of it all was chaos. OrbitDock is how I'm trying to wrangle that.
 
-A Rust server sits at the center. It runs both Claude Code and Codex sessions directly, and
-picks up existing CLI sessions via hooks. Run a server on your laptop, your work machine, a VPS,
+A Rust server sits at the center. It creates and runs both Claude Code and Codex sessions
+directly — Codex via embedded codex-core, Claude via the CLI. It also picks up existing Claude
+Code terminal sessions through hooks. Run a server on your laptop, your work machine, a VPS,
 wherever your agents are. The macOS and iOS apps connect to all of them at once, so you get one
 unified view no matter where your sessions are running or what device you're on.
 
 ## What You Get
 
-- **Run agents from anywhere** — Create and control Claude and Codex sessions from Mac or iOS
+- **Run agents from anywhere** — Create Claude and Codex sessions from Mac or iOS, no terminal needed
 - **Live monitoring** — Every session across every project, updating in real time
 - **Code review** — Magit-style diffs with inline comments that steer the agent
 - **Approval triage** — Diff previews, risk cues, keyboard shortcuts (y/n/!/N)
@@ -34,9 +35,9 @@ unified view no matter where your sessions are running or what device you're on.
 
 See [FEATURES.md](docs/FEATURES.md) for the full list.
 
-## Quickstart (No Bullshit)
+## Quickstart
 
-If you want this running locally in a few minutes, do exactly this:
+Get this running locally in a few minutes.
 
 ### 1. Install the server
 
@@ -46,40 +47,46 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 
 The installer sets up the binary, data directory, database, Claude hooks, and background service.
 
-### 2. Verify it actually started
+### 2. Verify it started
 
 ```bash
 orbitdock-server status
-curl http://127.0.0.1:4000/health
 orbitdock-server doctor
 ```
 
-You should see healthy output from all three.
+`doctor` runs a full diagnostic — database, hooks, encryption key, disk space, port availability,
+and more. If something's wrong, it'll tell you.
 
 ### 3. Open the app
 
-Download from [Releases](https://github.com/Robdel12/OrbitDock/releases), or build from source:
+Download from [Releases](https://github.com/Robdel12/OrbitDock/releases) and run it.
+
+Or build from source:
 
 ```bash
 git clone https://github.com/Robdel12/OrbitDock.git
 cd OrbitDock
 make build
-open OrbitDock/OrbitDock.xcodeproj   # Cmd+R
 ```
 
-The app auto-connects to the local server endpoint.
+You can also open `OrbitDock/OrbitDock.xcodeproj` in Xcode and hit Cmd+R.
 
-### 4. Authenticate the provider you want to run
+The app auto-connects to the local server.
 
-- **Codex direct sessions**: open `Settings` → `CODEX CLI`, then sign in with ChatGPT (or use API key auth mode).
-- **Claude Code monitoring/control**: install Claude Code and log in; if you skipped hook install, run `orbitdock-server install-hooks`.
+### 4. Authenticate your providers
 
-### 5. Smoke test
+**Codex** — Open Settings → CODEX CLI → Sign in with ChatGPT (or use API key auth mode).
 
-- In OrbitDock, click `New Codex Session`, pick any local repo, and send a prompt.
-- Or start a Claude Code session in your terminal and confirm it appears in OrbitDock.
+**Claude Code** — Install the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/overview) and log in. The installer already set up hooks, but if you skipped that step: `orbitdock-server install-hooks`.
 
-If a session does not appear, run `orbitdock-server doctor` and check `~/.orbitdock/logs/server.log`.
+### 5. Create a session
+
+Click **New** in the top bar and pick **Claude Session** or **Codex Session**. Select a project
+directory, choose your model, and go.
+
+Existing Claude Code terminal sessions show up automatically through hooks.
+
+If something doesn't appear, run `orbitdock-server doctor` and check `~/.orbitdock/logs/server.log`.
 
 ### Remote server
 
@@ -94,8 +101,8 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for Cloudflare tunnels, TLS, Docker, and
 ## Requirements
 
 - macOS 15.0+ (iOS 18.0+ for mobile)
-- **Codex** is built in — the server embeds codex-core; authenticate with ChatGPT sign-in or API key mode
-- **Claude Code** requires a separate install and active login — OrbitDock monitors it via hooks
+- **Codex** — Built in. The server embeds codex-core. Authenticate with ChatGPT sign-in or API key
+- **Claude Code** — Requires the `claude` CLI installed and logged in. OrbitDock creates sessions directly or monitors existing ones via hooks
 - Xcode 16+ and Rust stable toolchain if building from source
 
 ## Documentation
