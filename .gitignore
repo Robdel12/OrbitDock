@@ -12,6 +12,8 @@
 # Build artifacts
 *.zip
 .cache/
+# Docker Buildx local cache (Linux release builds)
+.cache/docker-buildx/
 
 # Internal protocol docs (keep locally, don't publish)
 orbitdock-server/docs/claude-agent-sdk-protocol.md

@@ -104,6 +104,7 @@ asset_name_for_platform() {
   case "$os/$arch" in
     Darwin/*)          echo "orbitdock-server-darwin-universal.zip" ;;
     Linux/x86_64)      echo "orbitdock-server-linux-x86_64.zip" ;;
+    Linux/aarch64|Linux/arm64) echo "orbitdock-server-linux-aarch64.zip" ;;
     *)                 return 1 ;;
   esac
 }

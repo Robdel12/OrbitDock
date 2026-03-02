@@ -21,6 +21,8 @@ RUST_TARGET_DIR ?= $(abspath .cache/rust/target)
 SCCACHE_DIR ?= $(abspath .cache/rust/sccache)
 SCCACHE_CACHE_SIZE ?= 10G
 RUST_SCCACHE ?= off
+LINUX_AARCH64_PROFILE_PRESET ?= release-lowmem
+LINUX_AARCH64_DOCKER_JOBS ?= 1
 CLAUDE_SDK_DOCS_DIR ?= orbitdock-server/docs
 CLAUDE_SDK_VERSION ?= 0.2.62
 CLAUDE_SDK_PACKAGE ?= @anthropic-ai/claude-agent-sdk
@@ -40,7 +42,7 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := build
 
-.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
+.PHONY: help build build-ios build-all clean test test-all test-unit test-ui fmt lint swift-fmt swift-lint rust-ci rust-build rust-build-universal rust-check rust-test rust-fmt rust-fmt-check rust-lint rust-run rust-run-debug rust-release-darwin rust-release-linux rust-release-linux-all rust-release-linux-x86_64 rust-release-linux-aarch64 rust-release-linux-smoke rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64 rust-release-linux-test rust-smoke-linux rust-smoke-linux-x86_64 rust-smoke-linux-aarch64 rust-release-linux-validate release rust-sccache-start rust-sccache-stop rust-sccache-stats rust-sccache-zero rust-env rust-size rust-clean rust-clean-debug rust-clean-incremental rust-clean-sccache rust-clean-release rust-clean-release-darwin rust-clean-release-linux rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64 whisper-model xcode-cache-dirs claude-sdk-version claude-sdk-update claude-sdk-audit-checklist
 
 help:
 	@echo "make build      Build the macOS app"
@@ -66,7 +68,17 @@ help:
 	@echo "make rust-run   Run orbitdock-server in dev mode"
 	@echo "make rust-run-debug Run orbitdock-server with debug logs"
 	@echo "make rust-release-darwin Build + package orbitdock-server-darwin-universal.zip"
-	@echo "make rust-release-linux  Build + package orbitdock-server-linux-x86_64.zip"
+	@echo "make rust-release-linux  Build + package host Linux arch zip (x86_64/aarch64); auto-uses Docker when needed"
+	@echo "make rust-release-linux-all Build + package both Linux release zips"
+	@echo "make rust-release-linux-x86_64 Build + package orbitdock-server-linux-x86_64.zip (auto Docker on macOS)"
+	@echo "make rust-release-linux-aarch64 Build + package orbitdock-server-linux-aarch64.zip (auto Docker on macOS)"
+	@echo "  aarch64 defaults: LINUX_AARCH64_PROFILE_PRESET=release-lowmem, LINUX_AARCH64_DOCKER_JOBS=1"
+	@echo "  Override for full profile: make rust-release-linux-aarch64 LINUX_AARCH64_PROFILE_PRESET=release"
+	@echo "make rust-release-linux-smoke-x86_64 Build fast local-validation Linux x86_64 zip"
+	@echo "make rust-release-linux-smoke-aarch64 Build fast local-validation Linux aarch64 zip"
+	@echo "make rust-release-linux-smoke Build both fast local-validation Linux zips"
+	@echo "make rust-release-linux-test Run both Linux zips in matching Docker containers (--version)"
+	@echo "make rust-release-linux-validate Build smoke zips + run smoke tests"
 	@echo "make release             Alias for rust-release-darwin"
 	@echo "make rust-size           Show Rust target/sccache disk usage"
 	@echo "make rust-sccache-start  Start sccache server"
@@ -232,6 +244,42 @@ rust-release-darwin:
 rust-release-linux:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ./package-release-assets.sh linux
 
+rust-release-linux-all: rust-release-linux-x86_64 rust-release-linux-aarch64
+
+rust-release-linux-x86_64:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) ./package-release-assets.sh linux-x86_64
+
+rust-release-linux-aarch64:
+	cd $(RUST_WORKSPACE_DIR) && ORBITDOCK_LINUX_PROFILE_PRESET=$(LINUX_AARCH64_PROFILE_PRESET) ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS=$(LINUX_AARCH64_DOCKER_JOBS) $(RUST_ENV) ./package-release-assets.sh linux-aarch64
+
+rust-release-linux-smoke: rust-release-linux-smoke-x86_64 rust-release-linux-smoke-aarch64
+
+rust-release-linux-smoke-x86_64:
+	cd $(RUST_WORKSPACE_DIR) && ORBITDOCK_LINUX_PROFILE_PRESET=smoke $(RUST_ENV) ./package-release-assets.sh linux-x86_64
+
+rust-release-linux-smoke-aarch64:
+	cd $(RUST_WORKSPACE_DIR) && ORBITDOCK_LINUX_PROFILE_PRESET=smoke $(RUST_ENV) ./package-release-assets.sh linux-aarch64
+
+rust-smoke-linux: rust-smoke-linux-x86_64 rust-smoke-linux-aarch64
+
+rust-smoke-linux-x86_64:
+	@set -euo pipefail; \
+	tmpdir=$$(mktemp -d); \
+	unzip -q dist/orbitdock-server-linux-x86_64.zip -d "$$tmpdir"; \
+	docker run --rm --platform linux/amd64 -v "$$tmpdir:/work" --entrypoint /work/orbitdock-server rust:1-bookworm --version; \
+	rm -rf "$$tmpdir"
+
+rust-smoke-linux-aarch64:
+	@set -euo pipefail; \
+	tmpdir=$$(mktemp -d); \
+	unzip -q dist/orbitdock-server-linux-aarch64.zip -d "$$tmpdir"; \
+	docker run --rm --platform linux/arm64 -v "$$tmpdir:/work" --entrypoint /work/orbitdock-server rust:1-bookworm --version; \
+	rm -rf "$$tmpdir"
+
+rust-release-linux-test: rust-smoke-linux
+
+rust-release-linux-validate: rust-release-linux-smoke rust-release-linux-test
+
 release: rust-release-darwin
 
 rust-clean:
@@ -257,10 +305,15 @@ rust-clean-release-darwin:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target aarch64-apple-darwin
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target x86_64-apple-darwin
 
-rust-clean-release-linux:
+rust-clean-release-linux: rust-clean-release-linux-x86_64
+
+rust-clean-release-linux-x86_64:
 	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target x86_64-unknown-linux-gnu
 
-rust-clean-release: rust-clean-release-darwin rust-clean-release-linux
+rust-clean-release-linux-aarch64:
+	cd $(RUST_WORKSPACE_DIR) && $(RUST_ENV) cargo clean --profile release --target aarch64-unknown-linux-gnu
+
+rust-clean-release: rust-clean-release-darwin rust-clean-release-linux-x86_64 rust-clean-release-linux-aarch64
 
 whisper-model:
 	@./OrbitDock/Scripts/download-whisper-model.sh

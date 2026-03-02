@@ -14,7 +14,7 @@ Install the server without building or running the macOS app:
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-The installer downloads a prebuilt binary for macOS and Linux x86_64. Falls back to building from source if no prebuilt is available (requires the [Rust toolchain](https://rustup.rs)).
+The installer downloads a prebuilt binary for macOS, Linux x86_64, and Linux aarch64 (Raspberry Pi 64-bit). Falls back to building from source if no prebuilt is available (requires the [Rust toolchain](https://rustup.rs)).
 
 - Installs `orbitdock-server` to `~/.orbitdock/bin/`
 - Runs `orbitdock-server init`

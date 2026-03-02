@@ -55,16 +55,52 @@ orbitdock-server install-hooks \
 Or use the install script:
 
 ```bash
-curl -fsSL https://...install.sh | bash -s -- --server-url https://your-server.example.com:4000
+curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash -s -- --server-url https://your-server.example.com:4000
 ```
 
 ### Home Server (Raspberry Pi / NAS)
 
-The install script downloads a prebuilt binary for supported platforms, or builds from source as a fallback (requires the [Rust toolchain](https://rustup.rs)):
+The install script downloads a prebuilt binary for macOS, Linux x86_64, and Linux aarch64 (Raspberry Pi 64-bit). It builds from source as a fallback on unsupported platforms (including 32-bit Pi OS), which requires the [Rust toolchain](https://rustup.rs):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
+
+### Building Release Assets Locally (Maintainers)
+
+From the repo root, generate release zips into `dist/`.
+Linux targets auto-use Docker when the host is not matching native Linux (for example on macOS), so install Docker Desktop + Buildx first.
+
+```bash
+# Quick local validation loop (faster profile + container smoke tests)
+make rust-release-linux-validate
+
+# macOS universal
+make rust-release-darwin
+
+# Both Linux release artifacts
+make rust-release-linux-all
+
+# Validate both Linux release zips in matching containers
+make rust-release-linux-test
+
+# Linux x86_64 (full release profile)
+make rust-release-linux-x86_64
+
+# Linux aarch64 (Raspberry Pi 64-bit, low-memory release profile by default)
+make rust-release-linux-aarch64
+
+# Full release profile override (requires more Docker memory on arm64 emulation)
+make rust-release-linux-aarch64 LINUX_AARCH64_PROFILE_PRESET=release
+```
+
+Each command writes a `.zip` plus `.sha256` file in `dist/`. Attach those files to the GitHub release.
+Set `ORBITDOCK_LINUX_BUILD_MODE=native|docker|auto` to override Linux build mode (`auto` is default).
+`make rust-release-linux-aarch64` defaults to `release-lowmem` (thin LTO, codegen-units=8) plus `LINUX_AARCH64_DOCKER_JOBS=1` to avoid Docker OOM on local macOS arm64 emulation.
+Set `ORBITDOCK_LINUX_PROFILE_PRESET=smoke` for faster local validation builds (disables release LTO and uses more codegen units).
+Docker Linux builds now use persistent local Buildx cache export/import by default.
+Use `ORBITDOCK_LINUX_DOCKER_CACHE_MODE=none` to disable explicit local cache handling.
+Use `ORBITDOCK_LINUX_DOCKER_CARGO_BUILD_JOBS=<n>` to cap Docker cargo parallelism (useful for arm64 emulation memory pressure).
 
 ### Cloud Providers
 
@@ -248,7 +284,7 @@ cp ~/backups/orbitdock-20240115.db ~/.orbitdock/orbitdock.db
 ### Upgrading
 
 ```bash
-curl -fsSL https://...install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 # Migrations run automatically on startup
 ```
 
