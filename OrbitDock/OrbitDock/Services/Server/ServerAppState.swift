@@ -602,8 +602,7 @@ final class ServerAppState {
 
     conn.onFilesPersisted = { [weak self] sessionId, _ in
       Task { @MainActor in
-        // Log for now — files_persisted confirms checkpoint saved
-        _ = self?.session(sessionId)
+        self?.session(sessionId).lastFilesPersistedAt = Date()
       }
     }
 
@@ -1010,6 +1009,18 @@ final class ServerAppState {
   func cancelShell(sessionId: String, requestId: String) {
     logger.info("Canceling shell command in \(sessionId): \(requestId)")
     connection.cancelShell(sessionId: sessionId, requestId: requestId)
+  }
+
+  /// Stop a background task/subagent by task ID
+  func stopTask(sessionId: String, taskId: String) {
+    logger.info("Stopping task in \(sessionId): \(taskId)")
+    connection.stopTask(sessionId: sessionId, taskId: taskId)
+  }
+
+  /// Rewind files to their state before a given user message
+  func rewindFiles(sessionId: String, userMessageId: String) {
+    logger.info("Rewinding files in \(sessionId) to before \(userMessageId)")
+    connection.rewindFiles(sessionId: sessionId, userMessageId: userMessageId)
   }
 
   /// Interrupt a session

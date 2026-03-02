@@ -1565,6 +1565,19 @@ struct DirectSessionComposer: View {
       .disabled(serverState.session(sessionId).undoInProgress)
     }
 
+    if obs.isDirect, let lastUserMsg = obs.messages.last(where: \.isUser) {
+      let hasRecentCheckpoint = obs.lastFilesPersistedAt.map { Date().timeIntervalSince($0) < 300 } ?? false
+      Button {
+        serverState.rewindFiles(sessionId: sessionId, userMessageId: lastUserMsg.id)
+      } label: {
+        Label(
+          hasRecentCheckpoint ? "Rewind Files (checkpoint saved)" : "Rewind Files",
+          systemImage: "arrow.uturn.backward.circle"
+        )
+      }
+      .disabled(obs.workStatus == .working)
+    }
+
     Button {
       serverState.forkSession(sessionId: sessionId)
     } label: {

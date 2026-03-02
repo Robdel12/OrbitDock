@@ -852,8 +852,8 @@
 
     // MARK: - Menu Actions
 
-    private func denyMenuActions(_ _: ApprovalCardModel) -> [UIAction] {
-      ApprovalCardConfiguration.denyMenuActions.map { action in
+    private func denyMenuActions(_ model: ApprovalCardModel) -> [UIAction] {
+      ApprovalCardConfiguration.denyMenuActions(for: model).map { action in
         if action.decision == "deny_reason" {
           return UIAction(
             title: action.title,

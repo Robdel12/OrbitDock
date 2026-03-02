@@ -120,13 +120,24 @@ enum ApprovalCardConfiguration {
     }
   }
 
-  static var denyMenuActions: [MenuAction] {
-    [
-      MenuAction(title: "Deny", iconName: "xmark", keyEquivalent: "n", decision: "denied"),
-      MenuAction(title: "Deny with Reason", iconName: "text.bubble", keyEquivalent: "d", decision: "deny_reason"),
+  static func denyMenuActions(for model: ApprovalCardModel?) -> [MenuAction] {
+    let isPlan = model?.toolName == "ExitPlanMode"
+    return [
       MenuAction(
-        title: "Deny & Stop",
-        iconName: "stop.fill",
+        title: isPlan ? "Revise Plan" : "Deny",
+        iconName: isPlan ? "pencil" : "xmark",
+        keyEquivalent: "n",
+        decision: "denied"
+      ),
+      MenuAction(
+        title: isPlan ? "Revise with Feedback" : "Deny with Reason",
+        iconName: "text.bubble",
+        keyEquivalent: "d",
+        decision: "deny_reason"
+      ),
+      MenuAction(
+        title: isPlan ? "Reject & Clear Context" : "Deny & Stop",
+        iconName: isPlan ? "trash" : "stop.fill",
         keyEquivalent: "N",
         decision: "abort",
         isDestructive: true

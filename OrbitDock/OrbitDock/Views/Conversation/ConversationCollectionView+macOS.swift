@@ -1216,7 +1216,12 @@ import SwiftUI
 
     private func cancelShellCommand(requestID: String) {
       guard let serverState, let sessionId else { return }
-      serverState.cancelShell(sessionId: sessionId, requestId: requestID)
+      // Route to stopTask for task/subagent cards, cancelShell for bash
+      if let msg = messagesByID[requestID], msg.toolName?.lowercased() == "task" {
+        serverState.stopTask(sessionId: sessionId, taskId: requestID)
+      } else {
+        serverState.cancelShell(sessionId: sessionId, requestId: requestID)
+      }
     }
 
     // MARK: - Scroll

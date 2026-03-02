@@ -1147,7 +1147,7 @@
     @objc private func denyChevronClicked() {
       let menu = NSMenu()
 
-      for action in ApprovalCardConfiguration.denyMenuActions {
+      for action in ApprovalCardConfiguration.denyMenuActions(for: currentModel) {
         if action.isDestructive { menu.addItem(.separator()) }
         let item = NSMenuItem(
           title: action.title,

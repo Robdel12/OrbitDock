@@ -88,6 +88,7 @@ final class SessionObservable {
   var workStatus: Session.WorkStatus = .unknown
   var attentionReason: Session.AttentionReason = .none
   var lastActivityAt: Date?
+  var lastFilesPersistedAt: Date?
   var lastTool: String?
   var lastToolAt: Date?
   var inputTokens: Int?
