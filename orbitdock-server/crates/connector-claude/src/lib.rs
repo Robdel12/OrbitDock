@@ -927,6 +927,12 @@ impl ClaudeConnector {
         let mut last_turn_input: Option<(u64, u64)> = None;
         let mut cumulative_output: u64 = 0;
         let mut last_context_window: u64 = 200_000;
+        // Maps tool_use_id → task_id so we can finalize task cards when
+        // the Agent tool_result arrives (CLI never emits task_notification).
+        let mut task_tool_use_map: HashMap<String, String> = HashMap::new();
+        // Tracks the in-progress "Compacting context…" message ID so
+        // compact_boundary can finalize it.
+        let mut compacting_msg_id: Option<String> = None;
 
         let mut line_count: u64 = 0;
 
@@ -979,6 +985,8 @@ impl ClaudeConnector {
                         &mut last_context_window,
                         &models,
                         &stdin_tx,
+                        &mut task_tool_use_map,
+                        &mut compacting_msg_id,
                     )
                     .await;
 
@@ -1042,6 +1050,8 @@ impl ClaudeConnector {
         last_context_window: &mut u64,
         models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
         stdin_tx: &mpsc::Sender<String>,
+        task_tool_use_map: &mut HashMap<String, String>,
+        compacting_msg_id: &mut Option<String>,
     ) -> Vec<ConnectorEvent> {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
@@ -1075,7 +1085,16 @@ impl ClaudeConnector {
         }
 
         let mut events = match msg_type {
-            "system" => Self::handle_system_message(raw, session_id_slot, models).await,
+            "system" => {
+                Self::handle_system_message(
+                    raw,
+                    session_id_slot,
+                    models,
+                    task_tool_use_map,
+                    compacting_msg_id,
+                )
+                .await
+            }
 
             "assistant" => Self::handle_assistant_message(
                 raw,
@@ -1089,7 +1108,7 @@ impl ClaudeConnector {
                 last_context_window,
             ),
 
-            "user" => Self::handle_user_message(raw, &session_id, msg_counter),
+            "user" => Self::handle_user_message(raw, &session_id, msg_counter, task_tool_use_map),
 
             "stream_event" => Self::handle_stream_event(
                 raw,
@@ -1304,6 +1323,8 @@ impl ClaudeConnector {
         raw: &Value,
         session_id_slot: &Arc<Mutex<Option<String>>>,
         _models: &Arc<Mutex<Vec<orbitdock_protocol::ClaudeModelOption>>>,
+        task_tool_use_map: &mut HashMap<String, String>,
+        compacting_msg_id: &mut Option<String>,
     ) -> Vec<ConnectorEvent> {
         let subtype = raw.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -1408,7 +1429,20 @@ impl ClaudeConnector {
                 events
             }
             "compact_boundary" => {
-                vec![ConnectorEvent::ContextCompacted]
+                let mut events = vec![];
+                // Finalize the in-progress "Compacting context…" indicator if present.
+                if let Some(msg_id) = compacting_msg_id.take() {
+                    events.push(ConnectorEvent::MessageUpdated {
+                        message_id: msg_id,
+                        content: None,
+                        tool_output: Some("Done".to_string()),
+                        is_error: None,
+                        is_in_progress: Some(false),
+                        duration_ms: None,
+                    });
+                }
+                events.push(ConnectorEvent::ContextCompacted);
+                events
             }
             "hook_started" => {
                 // Capture the hook's session_id so we can register it as a managed thread.
@@ -1441,11 +1475,18 @@ impl ClaudeConnector {
                     .unwrap_or("Agent");
                 let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
 
+                // Store tool_use_id → task_id mapping so we can finalize the task
+                // card when the tool_result arrives (CLI never emits task_notification).
+                if let Some(tool_use_id) = raw.get("tool_use_id").and_then(Value::as_str) {
+                    task_tool_use_map.insert(tool_use_id.to_string(), task_id.to_string());
+                }
+
                 info!(
                     component = "claude_connector",
                     event = "claude.task_started",
                     task_id = %task_id,
                     task_type = %task_type,
+                    tool_use_id = ?raw.get("tool_use_id").and_then(|v| v.as_str()),
                     "Background task started"
                 );
 
@@ -1455,8 +1496,14 @@ impl ClaudeConnector {
                         session_id,
                         message_type: orbitdock_protocol::MessageType::Tool,
                         content: String::new(),
-                        tool_name: Some(task_type.to_string()),
-                        tool_input: Some(description.to_string()),
+                        tool_name: Some("task".to_string()),
+                        tool_input: Some(
+                            serde_json::json!({
+                                "subagent_type": task_type,
+                                "description": description
+                            })
+                            .to_string(),
+                        ),
                         tool_output: None,
                         is_error: false,
                         is_in_progress: true,
@@ -1556,17 +1603,41 @@ impl ClaudeConnector {
                     });
                 }
 
-                // "compacting" status means context compaction is in progress
+                // "compacting" status means context compaction is in progress.
+                // Show an in-progress indicator so the user knows what's happening
+                // during the ~30-90s silence before compact_boundary fires.
                 if let Some(s) = raw.get("status").and_then(Value::as_str) {
-                    if s == "compacting" {
-                        debug!(
+                    if s == "compacting" && compacting_msg_id.is_none() {
+                        let session_id = session_id_slot.lock().await.clone().unwrap_or_default();
+                        let msg_id = format!("compacting-{}", uuid::Uuid::new_v4());
+                        *compacting_msg_id = Some(msg_id.clone());
+
+                        info!(
                             component = "claude_connector",
                             event = "claude.status.compacting",
-                            "Context compaction in progress"
+                            msg_id = %msg_id,
+                            "Context compaction in progress — showing indicator"
                         );
-                        // The compact_boundary event handles the actual transition;
-                        // compacting status is informational. No event needed — the
-                        // TurnStarted already set WorkStatus::Working.
+
+                        events.push(ConnectorEvent::MessageCreated(
+                            orbitdock_protocol::Message {
+                                id: msg_id,
+                                session_id,
+                                message_type: orbitdock_protocol::MessageType::Tool,
+                                content: String::new(),
+                                tool_name: Some("CompactContext".to_string()),
+                                tool_input: Some(
+                                    "Compacting context to keep session within model context window…"
+                                        .to_string(),
+                                ),
+                                tool_output: None,
+                                is_error: false,
+                                is_in_progress: true,
+                                timestamp: now_iso(),
+                                duration_ms: None,
+                                images: vec![],
+                            },
+                        ));
                     }
                 }
 
@@ -1837,6 +1908,7 @@ impl ClaudeConnector {
         raw: &Value,
         session_id: &str,
         _msg_counter: &Arc<AtomicU64>,
+        task_tool_use_map: &mut HashMap<String, String>,
     ) -> Vec<ConnectorEvent> {
         let mut events = Vec::new();
         let message = match raw.get("message") {
@@ -1885,23 +1957,45 @@ impl ClaudeConnector {
                     .unwrap_or(false);
 
                 if let Some(tool_use_id) = block.get("tool_use_id").and_then(|v| v.as_str()) {
+                    // Check if this tool_use_id belongs to a background task/subagent.
+                    // If so, finalize the task card (which uses task_id as its message ID)
+                    // because the CLI never emits task_notification.
+                    let task_id = task_tool_use_map.remove(tool_use_id);
+
                     info!(
                         component = "claude_connector",
                         event = "claude.tool_result.extracted",
                         session_id = %session_id,
                         tool_use_id = %tool_use_id,
+                        task_id = ?task_id,
                         output_chars = content.len(),
                         is_error = is_error,
                         "Extracted tool result → MessageUpdated"
                     );
-                    events.push(ConnectorEvent::MessageUpdated {
-                        message_id: tool_use_id.to_string(),
-                        content: None,
-                        tool_output: Some(content.clone()),
-                        is_error: Some(is_error),
-                        is_in_progress: Some(false),
-                        duration_ms: None,
-                    });
+
+                    if let Some(tid) = task_id {
+                        // This tool_use_id belongs to a background task — only finalize
+                        // the task card (keyed by task_id). Skip the tool_use_id update
+                        // to prevent a duplicate card.
+                        events.push(ConnectorEvent::MessageUpdated {
+                            message_id: tid,
+                            content: None,
+                            tool_output: Some(content.clone()),
+                            is_error: Some(is_error),
+                            is_in_progress: Some(false),
+                            duration_ms: None,
+                        });
+                    } else {
+                        // Regular tool result — update the tool card keyed by tool_use_id.
+                        events.push(ConnectorEvent::MessageUpdated {
+                            message_id: tool_use_id.to_string(),
+                            content: None,
+                            tool_output: Some(content.clone()),
+                            is_error: Some(is_error),
+                            is_in_progress: Some(false),
+                            duration_ms: None,
+                        });
+                    }
                 } else {
                     warn!(
                         component = "claude_connector",
