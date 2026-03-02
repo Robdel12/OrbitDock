@@ -95,21 +95,28 @@ struct ClaudePermissionPill: View {
     .buttonStyle(.plain)
     .fixedSize()
     .platformPopover(isPresented: $showPopover) {
-      NavigationStack {
+      #if os(iOS)
+        NavigationStack {
+          ClaudePermissionPopover(selection: Binding(
+            get: { currentMode },
+            set: { newMode in
+              serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
+            }
+          ))
+          .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") { showPopover = false }
+            }
+          }
+        }
+      #else
         ClaudePermissionPopover(selection: Binding(
           get: { currentMode },
           set: { newMode in
             serverState.updateClaudePermissionMode(sessionId: sessionId, mode: newMode)
           }
         ))
-        .ifIOS { view in
-          view.toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-              Button("Done") { showPopover = false }
-            }
-          }
-        }
-      }
+      #endif
     }
   }
 }

@@ -1390,20 +1390,26 @@ struct DirectSessionComposer: View {
     .buttonStyle(.plain)
     .help("Model and reasoning effort")
     .platformPopover(isPresented: $showModelEffortPopover) {
-      NavigationStack {
-        ModelEffortPopover(
-          selectedModel: $selectedModel,
-          selectedEffort: $selectedEffort,
-          models: codexModelOptions
-        )
-        .ifIOS { view in
-          view.toolbar {
+      #if os(iOS)
+        NavigationStack {
+          ModelEffortPopover(
+            selectedModel: $selectedModel,
+            selectedEffort: $selectedEffort,
+            models: codexModelOptions
+          )
+          .toolbar {
             ToolbarItem(placement: .confirmationAction) {
               Button("Done") { showModelEffortPopover = false }
             }
           }
         }
-      }
+      #else
+        ModelEffortPopover(
+          selectedModel: $selectedModel,
+          selectedEffort: $selectedEffort,
+          models: codexModelOptions
+        )
+      #endif
     }
   }
 
@@ -1416,19 +1422,24 @@ struct DirectSessionComposer: View {
     .buttonStyle(.plain)
     .help("Claude model override")
     .platformPopover(isPresented: $showClaudeModelPopover) {
-      NavigationStack {
-        ComposerClaudeModelPopover(
-          selectedModel: $selectedClaudeModel,
-          models: claudeModelOptions
-        )
-        .ifIOS { view in
-          view.toolbar {
+      #if os(iOS)
+        NavigationStack {
+          ComposerClaudeModelPopover(
+            selectedModel: $selectedClaudeModel,
+            models: claudeModelOptions
+          )
+          .toolbar {
             ToolbarItem(placement: .confirmationAction) {
               Button("Done") { showClaudeModelPopover = false }
             }
           }
         }
-      }
+      #else
+        ComposerClaudeModelPopover(
+          selectedModel: $selectedClaudeModel,
+          models: claudeModelOptions
+        )
+      #endif
     }
   }
 
@@ -1450,22 +1461,29 @@ struct DirectSessionComposer: View {
     .buttonStyle(.plain)
     .help("Attach project files (@)")
     .platformPopover(isPresented: $showFilePickerPopover) {
-      NavigationStack {
-        ComposerFilePickerPopover(
-          query: $filePickerQuery,
-          files: filePickerResults,
-          onSelect: attachMentionFromPicker
-        )
-        .navigationTitle("Project Files")
-        .ifIOS { view in
-          view.toolbar {
+      #if os(iOS)
+        NavigationStack {
+          ComposerFilePickerPopover(
+            query: $filePickerQuery,
+            files: filePickerResults,
+            onSelect: attachMentionFromPicker
+          )
+          .navigationTitle("Project Files")
+          .toolbar {
             ToolbarItem(placement: .cancellationAction) {
               Button("Close") { showFilePickerPopover = false }
             }
           }
         }
-      }
-      .frame(minWidth: 340, minHeight: 320)
+        .frame(minWidth: 340, minHeight: 320)
+      #else
+        ComposerFilePickerPopover(
+          query: $filePickerQuery,
+          files: filePickerResults,
+          onSelect: attachMentionFromPicker
+        )
+        .frame(minWidth: 340, minHeight: 320)
+      #endif
     }
   }
 

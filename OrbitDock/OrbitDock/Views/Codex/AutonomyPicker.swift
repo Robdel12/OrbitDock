@@ -176,7 +176,23 @@ struct AutonomyPill: View {
     .buttonStyle(.plain)
     .fixedSize()
     .platformPopover(isPresented: $showPopover) {
-      NavigationStack {
+      #if os(iOS)
+        NavigationStack {
+          AutonomyPopover(selection: Binding(
+            get: { currentLevel },
+            set: { newLevel in
+              serverState.updateSessionConfig(sessionId: sessionId, autonomy: newLevel)
+            }
+          ), isConfiguredOnServer: isConfiguredOnServer) {
+            serverState.updateSessionConfig(sessionId: sessionId, autonomy: currentLevel)
+          }
+          .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+              Button("Done") { showPopover = false }
+            }
+          }
+        }
+      #else
         AutonomyPopover(selection: Binding(
           get: { currentLevel },
           set: { newLevel in
@@ -185,14 +201,7 @@ struct AutonomyPill: View {
         ), isConfiguredOnServer: isConfiguredOnServer) {
           serverState.updateSessionConfig(sessionId: sessionId, autonomy: currentLevel)
         }
-        .ifIOS { view in
-          view.toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-              Button("Done") { showPopover = false }
-            }
-          }
-        }
-      }
+      #endif
     }
   }
 }
