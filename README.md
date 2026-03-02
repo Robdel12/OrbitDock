@@ -9,7 +9,9 @@ your phone — create sessions, review diffs, approve tools, and steer agents fr
 ![Rust](https://img.shields.io/badge/Rust-stable-red)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-https://github.com/user-attachments/assets/58be4f6e-55f9-43fe-9336-d3db99c4471c
+
+https://github.com/user-attachments/assets/b1e23968-6196-45b3-8b86-c177b3e59e6d
+
 
 ## Why
 
