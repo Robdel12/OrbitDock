@@ -41,6 +41,7 @@ mod subagent_parser;
 mod transition;
 mod usage_probe;
 mod websocket;
+mod worktree_include;
 mod worktree_service;
 mod ws_handlers;
 

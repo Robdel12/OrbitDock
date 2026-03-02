@@ -452,6 +452,13 @@ Response:
 }
 ```
 
+Notes:
+
+- If `repo_path/.worktreeinclude` exists, OrbitDock attempts to copy matching local files into the new worktree.
+- Copying is intersection-based: paths must match `.worktreeinclude` patterns and be git-ignored by standard rules.
+- Tracked files are never copied.
+- Copying is best-effort per entry; failed entries are logged and skipped.
+
 ### `POST /api/worktrees/discover`
 
 Request:
