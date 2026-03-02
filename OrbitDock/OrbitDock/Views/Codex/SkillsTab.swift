@@ -19,6 +19,10 @@ struct SkillsTab: View {
     serverState.session(sessionId).skills.filter(\.enabled)
   }
 
+  private var claudeSkillNames: [String] {
+    serverState.session(sessionId).claudeSkillNames.sorted()
+  }
+
   private var groupedSkills: [(scope: ServerSkillScope, skills: [ServerSkillMetadata])] {
     scopeOrder.compactMap { scope in
       let matching = skills.filter { $0.scope == scope }
@@ -28,6 +32,57 @@ struct SkillsTab: View {
   }
 
   var body: some View {
+    if !skills.isEmpty {
+      codexSkillsView
+    } else if !claudeSkillNames.isEmpty {
+      claudeSkillsView
+    }
+  }
+
+  // MARK: - Claude Skills (read-only name list)
+
+  private var claudeSkillsView: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 6) {
+        Text("\(claudeSkillNames.count) skill\(claudeSkillNames.count == 1 ? "" : "s")")
+          .font(.system(size: 11, weight: .medium))
+          .foregroundStyle(.secondary)
+        Spacer()
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+
+      Divider()
+        .foregroundStyle(Color.panelBorder.opacity(0.5))
+
+      ScrollView(.vertical, showsIndicators: true) {
+        LazyVStack(alignment: .leading, spacing: 2) {
+          ForEach(claudeSkillNames, id: \.self) { name in
+            HStack(spacing: 8) {
+              Image(systemName: "bolt.fill")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.toolSkill)
+
+              Text(name)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+
+              Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+          }
+        }
+        .padding(.vertical, 8)
+      }
+    }
+    .background(Color.backgroundPrimary)
+  }
+
+  // MARK: - Codex Skills (interactive, grouped by scope)
+
+  private var codexSkillsView: some View {
     VStack(spacing: 0) {
       // Header
       HStack(spacing: 6) {

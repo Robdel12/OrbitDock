@@ -784,7 +784,7 @@ struct SessionDetailView: View {
     let hasPlan = obs.getPlanSteps() != nil
     let hasDiff = obs.diff != nil
     let hasMcp = obs.hasMcpData
-    let hasSkills = !obs.skills.isEmpty
+    let hasSkills = !obs.skills.isEmpty || !obs.claudeSkillNames.isEmpty
     let hasComments = !obs.reviewComments.isEmpty
     let hasApprovals = !obs.approvalHistory.isEmpty
     let hasTokens = obs.turnDiffs.contains { $0.tokenUsage != nil }

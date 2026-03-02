@@ -59,6 +59,8 @@ struct ToolGlyphInfo {
       case "glob", "grep":
         return ToolGlyphInfo(symbol: "magnifyingglass", color: PlatformColor(Color.toolSearch))
       case "task": return ToolGlyphInfo(symbol: "bolt.fill", color: PlatformColor(Color.toolTask))
+      case "compactcontext":
+        return ToolGlyphInfo(symbol: "arrow.triangle.2.circlepath", color: PlatformColor(Color.accent))
       case "webfetch", "websearch": return ToolGlyphInfo(symbol: "globe", color: PlatformColor(Color.toolWeb))
       case "skill": return ToolGlyphInfo(symbol: "wand.and.stars", color: PlatformColor(Color.toolSkill))
       case "enterplanmode", "exitplanmode":
@@ -366,6 +368,8 @@ enum CompactToolHelpers {
       case "glob": return message.globPattern ?? "glob"
       case "grep": return message.grepPattern ?? "grep"
       case "task": return message.taskDescription ?? message.taskPrompt ?? "task"
+      case "compactcontext":
+        return message.isInProgress ? "Compacting context…" : "Context compacted"
       case "webfetch", "websearch":
         if let input = message.toolInput, let query = input["query"] as? String { return query }
         if let input = message.toolInput, let url = input["url"] as? String {
@@ -716,7 +720,7 @@ enum SharedModelBuilders {
       iconName: ToolCardStyle.icon(for: toolName),
       hasError: message.bashHasError,
       isInProgress: message.isInProgress,
-      canCancel: message.isShell && message.isInProgress,
+      canCancel: (message.isShell || toolName.lowercased() == "task") && message.isInProgress,
       duration: message.formattedDuration,
       content: content
     )
@@ -855,6 +859,13 @@ enum SharedModelBuilders {
           description: message.taskDescription ?? "",
           output: message.sanitizedToolOutput,
           isComplete: isComplete
+        )
+
+      case "compactcontext":
+        return .generic(
+          toolName: "Compact Context",
+          input: message.formattedToolInput,
+          output: message.sanitizedToolOutput
         )
 
       default:

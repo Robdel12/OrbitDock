@@ -60,7 +60,7 @@ struct CodexTurnSidebar: View {
   }
 
   private var hasSkills: Bool {
-    !skills.isEmpty
+    !skills.isEmpty || !serverState.session(sessionId).claudeSkillNames.isEmpty
   }
 
   private var reviewComments: [ServerReviewComment] {
@@ -193,11 +193,14 @@ struct CodexTurnSidebar: View {
 
             // Skills section
             if hasSkills {
+              let skillCount = skills.isEmpty
+                ? serverState.session(sessionId).claudeSkillNames.count
+                : skills.count
               CollapsibleSection(
                 title: "Skills",
                 icon: "bolt.fill",
                 isExpanded: $expandSkills,
-                badge: "\(skills.count)"
+                badge: "\(skillCount)"
               ) {
                 SkillsTab(sessionId: sessionId, selectedSkills: $selectedSkills)
                   .onAppear { fetchSkillsIfNeeded() }
