@@ -21,6 +21,11 @@ const LAUNCHD_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
         <string>--data-dir</string>
         <string>{{DATA_DIR}}</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{{PATH}}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -95,10 +100,13 @@ fn install_launchd(
     extra_args: &str,
     enable: bool,
 ) -> anyhow::Result<()> {
+    let path_env = resolve_path_for_service();
+
     let mut plist = LAUNCHD_TEMPLATE
         .replace("{{BINARY_PATH}}", binary_path)
         .replace("{{BIND_ADDR}}", bind)
-        .replace("{{DATA_DIR}}", data_dir);
+        .replace("{{DATA_DIR}}", data_dir)
+        .replace("{{PATH}}", &path_env);
 
     // Insert extra args (e.g. --tls-cert, --tls-key) into ProgramArguments
     if !extra_args.is_empty() {
@@ -149,6 +157,57 @@ fn install_launchd(
 
     println!();
     Ok(())
+}
+
+/// Resolve a PATH suitable for the launchd service environment.
+///
+/// Tries the user's default login shell (`$SHELL -lc 'echo $PATH'`) first,
+/// which picks up `.zprofile`, `.bash_profile`, etc. Falls back to the
+/// current process PATH merged with well-known tool directories.
+fn resolve_path_for_service() -> String {
+    // Try login-shell PATH first
+    if let Some(shell) = std::env::var_os("SHELL") {
+        if let Ok(output) = std::process::Command::new(&shell)
+            .args(["-lc", "echo $PATH"])
+            .output()
+        {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    // Fallback: current PATH + common tool directories
+    let base = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<String> = base.split(':').map(String::from).collect();
+    for dir in [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ] {
+        if !parts.iter().any(|p| p == dir) {
+            parts.push(dir.to_string());
+        }
+    }
+
+    // Add ~/.local/bin and ~/.cargo/bin if they exist
+    if let Some(home) = dirs::home_dir() {
+        for rel in [".local/bin", ".cargo/bin"] {
+            let dir = home.join(rel);
+            if dir.is_dir() {
+                let s = dir.to_string_lossy().to_string();
+                if !parts.iter().any(|p| p == &s) {
+                    parts.push(s);
+                }
+            }
+        }
+    }
+
+    parts.join(":")
 }
 
 fn install_systemd(
