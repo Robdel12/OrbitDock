@@ -5,6 +5,17 @@
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+
+const PATH_PROBE_SENTINEL: &str = "__ORBITDOCK_PATH__";
+const COMMON_PATH_DIRS: [&str; 6] = [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+];
 
 const LAUNCHD_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -161,53 +172,119 @@ fn install_launchd(
 
 /// Resolve a PATH suitable for the launchd service environment.
 ///
-/// Tries the user's default login shell (`$SHELL -lc 'echo $PATH'`) first,
+/// Tries the user's default login shell first,
 /// which picks up `.zprofile`, `.bash_profile`, etc. Falls back to the
 /// current process PATH merged with well-known tool directories.
 fn resolve_path_for_service() -> String {
-    // Try login-shell PATH first
-    if let Some(shell) = std::env::var_os("SHELL") {
-        if let Ok(output) = std::process::Command::new(&shell)
-            .args(["-lc", "echo $PATH"])
-            .output()
-        {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return path;
-            }
-        }
+    if let Some(path) = probe_login_shell_path() {
+        return path;
     }
 
-    // Fallback: current PATH + common tool directories
-    let base = std::env::var("PATH").unwrap_or_default();
-    let mut parts: Vec<String> = base.split(':').map(String::from).collect();
-    for dir in [
-        "/opt/homebrew/bin",
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-        "/usr/sbin",
-        "/sbin",
-    ] {
-        if !parts.iter().any(|p| p == dir) {
-            parts.push(dir.to_string());
-        }
+    let mut entries = Vec::new();
+    if let Some(base) = std::env::var_os("PATH") {
+        entries.extend(
+            std::env::split_paths(&base)
+                .map(|path| path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+        );
+    }
+    for dir in COMMON_PATH_DIRS {
+        entries.push(dir.to_string());
     }
 
-    // Add ~/.local/bin and ~/.cargo/bin if they exist
     if let Some(home) = dirs::home_dir() {
         for rel in [".local/bin", ".cargo/bin"] {
             let dir = home.join(rel);
             if dir.is_dir() {
-                let s = dir.to_string_lossy().to_string();
-                if !parts.iter().any(|p| p == &s) {
-                    parts.push(s);
-                }
+                entries.push(dir.to_string_lossy().to_string());
             }
         }
     }
 
-    parts.join(":")
+    dedup_non_empty(entries).unwrap_or_else(|| COMMON_PATH_DIRS.join(":"))
+}
+
+fn probe_login_shell_path() -> Option<String> {
+    let command = format!("printf '{}%s\\n' \"$PATH\"", PATH_PROBE_SENTINEL);
+    let arg_sets = [
+        vec!["-ilc".to_string(), command.clone()],
+        vec!["-lc".to_string(), command.clone()],
+        vec!["-c".to_string(), command],
+    ];
+
+    for shell in candidate_shells() {
+        for args in arg_sets.iter().cloned() {
+            let output = match std::process::Command::new(&shell)
+                .args(args)
+                .stderr(Stdio::null())
+                .output()
+            {
+                Ok(output) => output,
+                Err(_) => continue,
+            };
+            if !output.status.success() {
+                continue;
+            }
+            let text = match String::from_utf8(output.stdout) {
+                Ok(text) => text,
+                Err(_) => continue,
+            };
+            if let Some(path) = extract_probe_path(&text) {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_probe_path(output: &str) -> Option<String> {
+    let start = output.rfind(PATH_PROBE_SENTINEL)?;
+    let path = &output[start + PATH_PROBE_SENTINEL.len()..];
+    let first_line = path.lines().next()?.trim();
+    if first_line.is_empty() {
+        None
+    } else {
+        Some(first_line.to_string())
+    }
+}
+
+fn candidate_shells() -> Vec<String> {
+    let mut shells = Vec::new();
+    if let Ok(shell) = std::env::var("SHELL") {
+        shells.push(shell);
+    }
+    for fallback in ["/bin/zsh", "/bin/bash", "/bin/sh"] {
+        shells.push(fallback.to_string());
+    }
+    dedup_values(shells)
+}
+
+fn dedup_values(values: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut deduped = Vec::new();
+
+    for value in values {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let normalized = trimmed.to_string();
+        if seen.insert(normalized.clone()) {
+            deduped.push(normalized);
+        }
+    }
+
+    deduped
+}
+
+fn dedup_non_empty(values: Vec<String>) -> Option<String> {
+    let deduped = dedup_values(values);
+    if deduped.is_empty() {
+        None
+    } else {
+        Some(deduped.join(":"))
+    }
 }
 
 fn install_systemd(
@@ -263,4 +340,34 @@ fn install_systemd(
 
     println!();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_probe_path_prefers_last_probe_output() {
+        let output = "__ORBITDOCK_PATH__/tmp/old\nnoise\n__ORBITDOCK_PATH__/usr/bin:/bin\n";
+        let path = extract_probe_path(output);
+        assert_eq!(path.as_deref(), Some("/usr/bin:/bin"));
+    }
+
+    #[test]
+    fn extract_probe_path_rejects_empty_paths() {
+        let output = "__ORBITDOCK_PATH__\n";
+        assert_eq!(extract_probe_path(output), None);
+    }
+
+    #[test]
+    fn dedup_non_empty_removes_blanks_and_duplicates() {
+        let values = vec![
+            "".to_string(),
+            " /usr/bin ".to_string(),
+            "/bin".to_string(),
+            "/usr/bin".to_string(),
+            "   ".to_string(),
+        ];
+        assert_eq!(dedup_non_empty(values).as_deref(), Some("/usr/bin:/bin"));
+    }
 }
