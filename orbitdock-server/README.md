@@ -120,6 +120,15 @@ Control-plane metadata:
 
 Usage reads are served via HTTP (`GET /api/usage/*`) and return `not_control_plane_endpoint` when the endpoint is not primary.
 
+### Worktree Include Copying
+
+When creating a worktree via OrbitDock (`POST /api/worktrees` or fork-to-worktree flows), the server checks for `repo_root/.worktreeinclude`.
+
+- Patterns use gitignore syntax.
+- A path is copied only when it matches `.worktreeinclude` **and** is git-ignored by standard rules (`.gitignore`, excludes, etc).
+- Tracked files are never copied.
+- Copy failures are logged as warnings and do not fail worktree creation.
+
 ## CLI Reference
 
 ```

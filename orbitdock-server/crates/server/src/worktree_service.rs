@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use orbitdock_protocol::{WorktreeOrigin, WorktreeStatus, WorktreeSummary};
+use tracing::{info, warn};
 
 use crate::persistence::PersistCommand;
 use crate::state::SessionRegistry;
@@ -38,6 +39,33 @@ pub async fn create_tracked_worktree(
         normalized_base.as_deref(),
     )
     .await?;
+
+    match crate::worktree_include::copy_worktreeinclude(normalized_repo, &worktree_path).await {
+        Ok(copy_summary) => {
+            if copy_summary.manifest_found {
+                info!(
+                    component = "worktree",
+                    event = "worktree.include.copied",
+                    repo_root = %normalized_repo,
+                    worktree_path = %worktree_path,
+                    matched_entries = copy_summary.matched_entries,
+                    copied_entries = copy_summary.copied_entries,
+                    skipped_entries = copy_summary.skipped_entries,
+                    "Applied .worktreeinclude copy pipeline"
+                );
+            }
+        }
+        Err(err) => {
+            warn!(
+                component = "worktree",
+                event = "worktree.include.copy_failed",
+                repo_root = %normalized_repo,
+                worktree_path = %worktree_path,
+                error = %err,
+                "Failed to apply .worktreeinclude; continuing with worktree creation"
+            );
+        }
+    }
 
     let worktree_id = orbitdock_protocol::new_id();
     let summary = WorktreeSummary {
