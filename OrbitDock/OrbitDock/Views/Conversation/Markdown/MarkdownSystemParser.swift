@@ -36,6 +36,44 @@ enum MarkdownSystemParser {
     private static let maxCacheSize = 500
   #endif
   private static let evictionBatchSize = 64
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // MARK: - Typography Rhythm System
+  //
+  // All spacing values sit on a **4pt baseline grid** (see Spacing in Theme.swift).
+  //
+  // Font sizes (from TypeScale):
+  //   Standard body: 15pt  (chatBody)       Thinking body: 13pt  (code)
+  //   Standard code: 14pt  (chatCode)       Thinking code: 12pt  (caption)
+  //   Standard H1-H3: 24→20→16             Thinking H1-H3: 18→16→14
+  //   Standard H4-H6: 15→14→13             Thinking H4-H6: 13→12→12
+  //
+  // Line spacing (NSParagraphStyle.lineSpacing — additive to natural line height):
+  //   Standard: +6pt → ~24pt total at 15pt body (1.6× effective line height)
+  //   Thinking: +4pt → ~20pt total at 13pt body (1.54×)
+  //
+  // Paragraph spacing (gap between paragraphs within a text block):
+  //   Body: 16pt standard / 12pt thinking
+  //   List items: 8pt / 4pt; continuation paragraphs tighter (4pt / 2pt)
+  //   Blockquotes: 12pt / 8pt
+  //
+  // Heading spacing (paragraphSpacingBefore / paragraphSpacing):
+  //   Top spacing creates "section break" feel (1.5–2× body paragraphSpacing).
+  //   Bottom spacing ties heading to its content (0.25–0.75× body paragraphSpacing).
+  //   Standard: H1=28/12  H2=24/8  H3=20/8  H4=16/8  H5=12/4  H6=8/4
+  //   Thinking: H1=16/8   H2=12/4  H3=8/4   H4=8/4   H5=4/4   H6=4/4
+  //
+  // Inter-block spacing (MarkdownLayoutMetrics in MarkdownTypes.swift):
+  //   Code/table/blockquote: 12pt standard / 8pt thinking — symmetric above and below.
+  //   Thematic break: 16pt / 8pt.
+  //   Text-to-text: uses trailing paragraphSpacing from last paragraph (min 4pt/3pt).
+  //
+  // Design constraints:
+  //   - Body font (15pt) and code font (14pt mono) are anchor points — do not change.
+  //   - Content caps at 880pt wide (ConversationLayout.assistantRailMaxWidth).
+  //   - Thinking mode should be noticeably compact, not just smaller.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
   private enum Typography {
     enum BlockKind {
       case body
@@ -410,15 +448,6 @@ enum MarkdownSystemParser {
       }
     }
 
-    if style == .thinking, role != .blockquote {
-      ns.enumerateAttribute(.font, in: fullRange) { value, range, _ in
-        guard let font = value as? PlatformFont else { return }
-        let scaledSize = max(10, font.pointSize - 1.5)
-        let scaled = resizedFont(font, size: scaledSize)
-        ns.addAttribute(.font, value: scaled, range: range)
-      }
-    }
-
     trimTrailingNewlines(in: ns)
     return ns
   }
@@ -576,14 +605,6 @@ enum MarkdownSystemParser {
     PlatformFont.systemFont(ofSize: style == .thinking ? TypeScale.code : TypeScale.chatBody)
   }
 
-  private static func resizedFont(_ font: PlatformFont, size: CGFloat) -> PlatformFont {
-    #if os(macOS)
-      PlatformFont(descriptor: font.fontDescriptor, size: size) ?? PlatformFont.systemFont(ofSize: size)
-    #else
-      PlatformFont(descriptor: font.fontDescriptor, size: size)
-    #endif
-  }
-
   private static func inlineCodeFont(style: ContentStyle) -> PlatformFont {
     PlatformFont.monospacedSystemFont(
       ofSize: style == .thinking ? TypeScale.caption : TypeScale.chatCode,
@@ -608,11 +629,11 @@ enum MarkdownSystemParser {
     let isThinking = style == .thinking
     switch level {
       case 1:
-        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.subhead : TypeScale.chatHeading1, weight: .bold)
+        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.thinkingHeading1 : TypeScale.chatHeading1, weight: .bold)
       case 2:
-        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.body : TypeScale.chatHeading2, weight: .semibold)
+        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.thinkingHeading2 : TypeScale.chatHeading2, weight: .semibold)
       case 3:
-        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.code : TypeScale.chatHeading3, weight: .bold)
+        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.chatCode : TypeScale.chatHeading3, weight: .bold)
       case 4:
         return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.code : TypeScale.chatBody, weight: .semibold)
       case 5:
@@ -643,11 +664,11 @@ enum MarkdownSystemParser {
   private static func headingTopSpacing(level: Int, style: ContentStyle) -> CGFloat {
     let isThinking = style == .thinking
     switch level {
-      case 1: return isThinking ? 12 : 26
-      case 2: return isThinking ? 9 : 20
-      case 3: return isThinking ? 7 : 14
-      case 4: return isThinking ? 6 : 12
-      case 5: return isThinking ? 5 : 10
+      case 1: return isThinking ? 16 : 28
+      case 2: return isThinking ? 12 : 24
+      case 3: return isThinking ? 8 : 20
+      case 4: return isThinking ? 8 : 16
+      case 5: return isThinking ? 4 : 12
       default: return isThinking ? 4 : 8
     }
   }
@@ -655,12 +676,12 @@ enum MarkdownSystemParser {
   private static func headingBottomSpacing(level: Int, style: ContentStyle) -> CGFloat {
     let isThinking = style == .thinking
     switch level {
-      case 1: return isThinking ? 6 : 14
-      case 2: return isThinking ? 5 : 10
+      case 1: return isThinking ? 8 : 12
+      case 2: return isThinking ? 4 : 8
       case 3: return isThinking ? 4 : 8
-      case 4: return isThinking ? 3 : 7
-      case 5: return isThinking ? 3 : 6
-      default: return isThinking ? 2 : 5
+      case 4: return isThinking ? 4 : 8
+      case 5: return isThinking ? 4 : 4
+      default: return isThinking ? 4 : 4
     }
   }
 

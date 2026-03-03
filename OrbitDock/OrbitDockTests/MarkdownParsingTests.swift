@@ -166,8 +166,8 @@ struct MarkdownParsingTests {
 
     let paragraphStyle = firstText?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
     #expect(paragraphStyle != nil)
-    #expect((paragraphStyle?.lineSpacing ?? 0) >= 6)
-    #expect((paragraphStyle?.paragraphSpacing ?? 0) >= 14)
+    #expect((paragraphStyle?.lineSpacing ?? 0) == 6)
+    #expect((paragraphStyle?.paragraphSpacing ?? 0) == 16)
   }
 
   @Test func listContinuationLinesRemainStructured() {
@@ -488,6 +488,51 @@ struct MarkdownParsingTests {
     let standardSize = fontPointSize(in: standardHeading) ?? 0
     let thinkingSize = fontPointSize(in: thinkingHeading) ?? 0
     #expect(thinkingSize < standardSize)
+    #expect(standardSize == 20, "Standard H2 should be 20pt")
+    #expect(thinkingSize == 16, "Thinking H2 should be 16pt")
+  }
+
+  @Test func thinkingModeHeadingsFormDistinctHierarchy() {
+    let markdown = """
+    # H1
+
+    ## H2
+
+    ### H3
+
+    Body text.
+    """
+    let blocks = MarkdownSystemParser.parse(markdown, style: .thinking)
+    let textBlocks = blocks.compactMap { block -> NSAttributedString? in
+      if case let .text(text) = block { return text }
+      return nil
+    }
+
+    #expect(textBlocks.count >= 4)
+    guard textBlocks.count >= 4 else { return }
+
+    let h1Size = fontPointSize(in: textBlocks[0]) ?? 0
+    let h2Size = fontPointSize(in: textBlocks[1]) ?? 0
+    let h3Size = fontPointSize(in: textBlocks[2]) ?? 0
+    let bodySize = fontPointSize(in: textBlocks[3]) ?? 0
+
+    #expect(h1Size > h2Size, "H1 (\(h1Size)) should be larger than H2 (\(h2Size))")
+    #expect(h2Size > h3Size, "H2 (\(h2Size)) should be larger than H3 (\(h3Size))")
+    #expect(h3Size > bodySize, "H3 (\(h3Size)) should be larger than body (\(bodySize))")
+
+    #expect(h1Size == 18, "H1 thinking should be 18pt, got \(h1Size)")
+    #expect(h2Size == 16, "H2 thinking should be 16pt, got \(h2Size)")
+    #expect(h3Size == 14, "H3 thinking should be 14pt, got \(h3Size)")
+    #expect(bodySize == 13, "Body thinking should be 13pt, got \(bodySize)")
+  }
+
+  @Test func interBlockSpacingUsesGridAlignedValues() {
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .codeBlock, style: .standard) == 12)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .table, style: .standard) == 12)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .blockquote, style: .standard) == 12)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .codeBlock, style: .thinking) == 8)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .thematicBreak, style: .standard) == 16)
+    #expect(MarkdownLayoutMetrics.verticalMargin(for: .thematicBreak, style: .thinking) == 8)
   }
 
   private func firstTable(in blocks: [MarkdownBlock]) -> (headers: [String], rows: [[String]])? {

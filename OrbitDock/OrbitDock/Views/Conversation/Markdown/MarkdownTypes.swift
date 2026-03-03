@@ -41,6 +41,15 @@ enum ContentStyle: Hashable {
   case thinking
 }
 
+/// Inter-block spacing metrics for the vertical markdown layout.
+///
+/// These values control the gap between distinct block-level elements
+/// (code blocks, tables, blockquotes, thematic breaks) when laid out
+/// by `NativeMarkdownContentView`. All values sit on a 4pt grid.
+///
+/// For text-to-text spacing, `trailingTextBlockSpacing` reads the
+/// trailing `paragraphSpacing` from the attributed string, which is
+/// set during parsing in `MarkdownSystemParser.Typography`.
 enum MarkdownLayoutMetrics {
   enum BlockKind {
     case codeBlock
@@ -67,9 +76,9 @@ enum MarkdownLayoutMetrics {
 
   static func verticalMargin(for block: BlockKind, style: ContentStyle) -> CGFloat {
     switch (block, style) {
-      case (.codeBlock, .standard), (.table, .standard), (.blockquote, .standard): 8
-      case (.codeBlock, .thinking), (.table, .thinking), (.blockquote, .thinking): 6
-      case (.thematicBreak, .standard): 14
+      case (.codeBlock, .standard), (.table, .standard), (.blockquote, .standard): 12
+      case (.codeBlock, .thinking), (.table, .thinking), (.blockquote, .thinking): 8
+      case (.thematicBreak, .standard): 16
       case (.thematicBreak, .thinking): 8
     }
   }
