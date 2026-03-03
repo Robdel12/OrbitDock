@@ -1,4 +1,3 @@
-use anyhow::Result;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 
@@ -34,16 +33,57 @@ impl RestClient {
     }
 
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> RestResult<T> {
+        self.request(reqwest::Method::GET, path, None::<&()>).await
+    }
+
+    pub async fn post_json<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> RestResult<T> {
+        self.request(reqwest::Method::POST, path, Some(body)).await
+    }
+
+    pub async fn put_json<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> RestResult<T> {
+        self.request(reqwest::Method::PUT, path, Some(body)).await
+    }
+
+    pub async fn patch_json<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> RestResult<T> {
+        self.request(reqwest::Method::PATCH, path, Some(body)).await
+    }
+
+    pub async fn delete<T: DeserializeOwned>(&self, path: &str) -> RestResult<T> {
+        self.request(reqwest::Method::DELETE, path, None::<&()>)
+            .await
+    }
+
+    async fn request<B: serde::Serialize, T: DeserializeOwned>(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<&B>,
+    ) -> RestResult<T> {
         let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.get(&url);
+        let mut req = self.client.request(method, &url);
         if let Some(ref token) = self.token {
             req = req.bearer_auth(token);
+        }
+        if let Some(body) = body {
+            req = req.json(body);
         }
 
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status();
-                if status.is_success() {
+                if status.is_success() || status == StatusCode::ACCEPTED {
                     match resp.json::<T>().await {
                         Ok(body) => RestResult::Ok(body),
                         Err(e) => {
@@ -73,119 +113,6 @@ impl RestClient {
                     RestResult::ConnectionError(format!("Request failed: {e}"))
                 }
             }
-        }
-    }
-
-    pub async fn post_json<B: serde::Serialize, T: DeserializeOwned>(
-        &self,
-        path: &str,
-        body: &B,
-    ) -> RestResult<T> {
-        let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.post(&url).json(body);
-        if let Some(ref token) = self.token {
-            req = req.bearer_auth(token);
-        }
-
-        match req.send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() || status == StatusCode::ACCEPTED {
-                    match resp.json::<T>().await {
-                        Ok(body) => RestResult::Ok(body),
-                        Err(e) => {
-                            RestResult::ConnectionError(format!("Failed to parse response: {e}"))
-                        }
-                    }
-                } else {
-                    let error = resp.json::<ApiError>().await.unwrap_or(ApiError {
-                        code: "unknown".to_string(),
-                        error: format!("HTTP {status}"),
-                    });
-                    RestResult::ApiError {
-                        status: status.as_u16(),
-                        error,
-                    }
-                }
-            }
-            Err(e) => {
-                if e.is_connect() {
-                    RestResult::ConnectionError(format!(
-                        "Cannot connect to OrbitDock server at {}",
-                        self.base_url
-                    ))
-                } else {
-                    RestResult::ConnectionError(format!("Request failed: {e}"))
-                }
-            }
-        }
-    }
-
-    pub async fn put_json<B: serde::Serialize, T: DeserializeOwned>(
-        &self,
-        path: &str,
-        body: &B,
-    ) -> RestResult<T> {
-        let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.put(&url).json(body);
-        if let Some(ref token) = self.token {
-            req = req.bearer_auth(token);
-        }
-
-        match req.send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    match resp.json::<T>().await {
-                        Ok(body) => RestResult::Ok(body),
-                        Err(e) => {
-                            RestResult::ConnectionError(format!("Failed to parse response: {e}"))
-                        }
-                    }
-                } else {
-                    let error = resp.json::<ApiError>().await.unwrap_or(ApiError {
-                        code: "unknown".to_string(),
-                        error: format!("HTTP {status}"),
-                    });
-                    RestResult::ApiError {
-                        status: status.as_u16(),
-                        error,
-                    }
-                }
-            }
-            Err(e) => RestResult::ConnectionError(format!("Request failed: {e}")),
-        }
-    }
-
-    pub async fn delete<T: DeserializeOwned>(&self, path: &str) -> RestResult<T> {
-        let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.delete(&url);
-        if let Some(ref token) = self.token {
-            req = req.bearer_auth(token);
-        }
-
-        match req.send().await {
-            Ok(resp) => {
-                let status = resp.status();
-                if status.is_success() {
-                    match resp.json::<T>().await {
-                        Ok(body) => RestResult::Ok(body),
-                        Err(e) => {
-                            RestResult::ConnectionError(format!("Failed to parse response: {e}"))
-                        }
-                    }
-                } else {
-                    let error = resp.json::<ApiError>().await.unwrap_or(ApiError {
-                        code: "unknown".to_string(),
-                        error: format!("HTTP {status}"),
-                    });
-                    RestResult::ApiError {
-                        status: status.as_u16(),
-                        error,
-                    }
-                }
-            }
-            Err(e) => RestResult::ConnectionError(format!("Request failed: {e}")),
         }
     }
 }

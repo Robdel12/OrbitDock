@@ -64,7 +64,7 @@ pub async fn run(action: &WorktreeAction, rest: &RestClient, output: &Output) ->
 
 async fn list(rest: &RestClient, output: &Output, repo: Option<&str>) -> i32 {
     let path = match repo {
-        Some(r) => format!("/api/worktrees?repo_root={}", urlencoding(r)),
+        Some(r) => format!("/api/worktrees?repo_root={}", urlencoding::encode(r)),
         None => "/api/worktrees".to_string(),
     };
 
@@ -76,7 +76,7 @@ async fn list(rest: &RestClient, output: &Output, repo: Option<&str>) -> i32 {
                 println!("No worktrees found.");
             } else {
                 for w in &resp.worktrees {
-                    let status = format!("{:?}", w.status).to_lowercase();
+                    let status = w.status.as_str();
                     println!(
                         "  {} ({}) - {} [{}]",
                         w.branch, status, w.worktree_path, w.id
@@ -197,13 +197,4 @@ async fn remove(
             code
         }
     }
-}
-
-/// Minimal percent-encoding for query parameter values.
-fn urlencoding(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace(' ', "%20")
-        .replace('&', "%26")
-        .replace('=', "%3D")
-        .replace('#', "%23")
 }

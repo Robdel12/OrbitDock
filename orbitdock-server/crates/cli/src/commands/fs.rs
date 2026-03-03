@@ -26,7 +26,7 @@ pub async fn run(action: &FsAction, rest: &RestClient, output: &Output) -> i32 {
 
 async fn browse(rest: &RestClient, output: &Output, path: Option<&str>) -> i32 {
     let api_path = match path {
-        Some(p) => format!("/api/fs/browse?path={}", urlencoding(p)),
+        Some(p) => format!("/api/fs/browse?path={}", urlencoding::encode(p)),
         None => "/api/fs/browse".to_string(),
     };
 
@@ -84,12 +84,4 @@ async fn recent(rest: &RestClient, output: &Output) -> i32 {
             code
         }
     }
-}
-
-fn urlencoding(s: &str) -> String {
-    s.replace('%', "%25")
-        .replace(' ', "%20")
-        .replace('&', "%26")
-        .replace('=', "%3D")
-        .replace('#', "%23")
 }

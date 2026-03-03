@@ -5,7 +5,7 @@ use futures::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-use orbitdock_protocol::{ClientMessage, ServerMessage, SessionState, SessionSummary};
+use orbitdock_protocol::{ClientMessage, ServerMessage, SessionState};
 
 use crate::client::config::ClientConfig;
 
@@ -87,6 +87,7 @@ impl WsClient {
     }
 
     /// Subscribe to a session and return its snapshot.
+    /// Times out after 15 seconds to prevent indefinite hangs.
     pub async fn subscribe_session(&mut self, session_id: &str) -> Result<SessionState> {
         self.send(&ClientMessage::SubscribeSession {
             session_id: session_id.to_string(),
@@ -95,31 +96,15 @@ impl WsClient {
         })
         .await?;
 
+        let deadline = Duration::from_secs(15);
         loop {
-            match self.recv().await? {
+            match self.recv_timeout(deadline).await? {
                 Some(ServerMessage::SessionSnapshot { session }) => return Ok(session),
                 Some(ServerMessage::Error { code, message, .. }) => {
                     bail!("[{code}] {message}");
                 }
                 Some(_) => continue,
-                None => bail!("Connection closed before receiving snapshot"),
-            }
-        }
-    }
-
-    /// Subscribe to the sessions list.
-    #[allow(dead_code)]
-    pub async fn subscribe_list(&mut self) -> Result<Vec<SessionSummary>> {
-        self.send(&ClientMessage::SubscribeList).await?;
-
-        loop {
-            match self.recv().await? {
-                Some(ServerMessage::SessionsList { sessions }) => return Ok(sessions),
-                Some(ServerMessage::Error { code, message, .. }) => {
-                    bail!("[{code}] {message}");
-                }
-                Some(_) => continue,
-                None => bail!("Connection closed before receiving list"),
+                None => bail!("Timed out waiting for session snapshot"),
             }
         }
     }

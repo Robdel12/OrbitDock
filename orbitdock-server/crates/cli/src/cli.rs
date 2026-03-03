@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
 #[command(
@@ -16,7 +16,7 @@ pub struct Cli {
     pub token: Option<String>,
 
     /// Output as JSON (auto-enabled when stdout is not a TTY)
-    #[arg(long, global = true)]
+    #[arg(long, short = 'j', global = true)]
     pub json: bool,
 
     /// Path to config file
@@ -97,6 +97,12 @@ pub enum Command {
         #[command(subcommand)]
         action: ShellAction,
     },
+
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        shell: clap_complete::Shell,
+    },
 }
 
 // ── Session ──────────────────────────────────────────────────
@@ -106,7 +112,7 @@ pub enum SessionAction {
     /// List all sessions
     List {
         /// Filter by provider
-        #[arg(long)]
+        #[arg(long, short = 'p')]
         provider: Option<ProviderFilter>,
 
         /// Filter by status
@@ -124,19 +130,19 @@ pub enum SessionAction {
         session_id: String,
 
         /// Include conversation messages
-        #[arg(long)]
+        #[arg(long, short = 'm')]
         messages: bool,
     },
 
     /// Create a new session
     Create {
         /// Provider (claude or codex)
-        #[arg(long)]
+        #[arg(long, short = 'p')]
         provider: ProviderFilter,
 
-        /// Working directory
+        /// Working directory (defaults to current directory)
         #[arg(long)]
-        cwd: String,
+        cwd: Option<String>,
 
         /// Model to use
         #[arg(long)]
@@ -144,23 +150,24 @@ pub enum SessionAction {
 
         /// Permission mode
         #[arg(long)]
-        permission_mode: Option<String>,
+        permission_mode: Option<PermissionMode>,
 
-        /// Reasoning effort (low, medium, high)
+        /// Reasoning effort
         #[arg(long)]
-        effort: Option<String>,
+        effort: Option<Effort>,
 
         /// System prompt
         #[arg(long)]
         system_prompt: Option<String>,
     },
 
-    /// Send a message to a session
+    /// Send a message to a session (reads from stdin if content is "-")
     Send {
         /// Session ID
         session_id: String,
 
-        /// Message content
+        /// Message content (use "-" to read from stdin)
+        #[arg(allow_hyphen_values = true)]
         content: String,
 
         /// Model override
@@ -169,10 +176,10 @@ pub enum SessionAction {
 
         /// Reasoning effort
         #[arg(long)]
-        effort: Option<String>,
+        effort: Option<Effort>,
 
         /// Don't wait for turn completion
-        #[arg(long)]
+        #[arg(long, short = 'n')]
         no_wait: bool,
     },
 
@@ -181,9 +188,9 @@ pub enum SessionAction {
         /// Session ID
         session_id: String,
 
-        /// Decision: approved, approved_for_session, approved_always, denied, abort
-        #[arg(long, default_value = "approved")]
-        decision: String,
+        /// Decision
+        #[arg(long, short = 'd', default_value = "approved")]
+        decision: ApprovalDecision,
 
         /// Message (for denied decisions)
         #[arg(long)]
@@ -194,12 +201,13 @@ pub enum SessionAction {
         request_id: Option<String>,
     },
 
-    /// Answer a question from the assistant
+    /// Answer a question from the assistant (reads from stdin if answer is "-")
     Answer {
         /// Session ID
         session_id: String,
 
-        /// Answer text
+        /// Answer text (use "-" to read from stdin)
+        #[arg(allow_hyphen_values = true)]
         answer: String,
 
         /// Request ID (auto-resolved if omitted)
@@ -233,12 +241,13 @@ pub enum SessionAction {
         model: Option<String>,
     },
 
-    /// Inject guidance into an active turn
+    /// Inject guidance into an active turn (reads from stdin if content is "-")
     Steer {
         /// Session ID
         session_id: String,
 
-        /// Guidance text
+        /// Guidance text (use "-" to read from stdin)
+        #[arg(allow_hyphen_values = true)]
         content: String,
     },
 
@@ -264,16 +273,16 @@ pub enum SessionAction {
         turns: u32,
     },
 
-    /// Watch session events in real-time
+    /// Watch session events in real-time (runs until session ends or Ctrl+C)
     Watch {
         /// Session ID
         session_id: String,
 
         /// Filter by event type (e.g. message_appended, session_delta)
-        #[arg(long)]
+        #[arg(long, short = 'f')]
         filter: Vec<String>,
 
-        /// Timeout in seconds
+        /// Timeout in seconds (omit for no timeout)
         #[arg(long)]
         timeout: Option<u64>,
     },
@@ -305,6 +314,66 @@ pub enum ProviderFilter {
 pub enum StatusFilter {
     Active,
     Ended,
+}
+
+#[derive(Clone, ValueEnum)]
+pub enum ApprovalDecision {
+    Approved,
+    ApprovedForSession,
+    ApprovedAlways,
+    Denied,
+    Abort,
+}
+
+impl ApprovalDecision {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::ApprovedForSession => "approved_for_session",
+            Self::ApprovedAlways => "approved_always",
+            Self::Denied => "denied",
+            Self::Abort => "abort",
+        }
+    }
+}
+
+#[derive(Clone, ValueEnum)]
+pub enum PermissionMode {
+    Default,
+    AcceptEdits,
+    Plan,
+    BypassPermissions,
+}
+
+impl PermissionMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::AcceptEdits => "acceptEdits",
+            Self::Plan => "plan",
+            Self::BypassPermissions => "bypassPermissions",
+        }
+    }
+}
+
+#[derive(Clone, ValueEnum)]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    #[value(name = "xhigh")]
+    XHigh,
+}
+
+impl Effort {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::XHigh => "xhigh",
+        }
+    }
 }
 
 // ── Approvals ────────────────────────────────────────────────
@@ -406,10 +475,30 @@ pub enum ReviewTagFilter {
     Nit,
 }
 
+impl ReviewTagFilter {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Clarity => "clarity",
+            Self::Scope => "scope",
+            Self::Risk => "risk",
+            Self::Nit => "nit",
+        }
+    }
+}
+
 #[derive(Clone, ValueEnum)]
 pub enum ReviewStatusFilter {
     Open,
     Resolved,
+}
+
+impl ReviewStatusFilter {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Resolved => "resolved",
+        }
+    }
 }
 
 // ── Models ───────────────────────────────────────────────────
@@ -419,7 +508,7 @@ pub enum ModelAction {
     /// List available models
     List {
         /// Filter by provider
-        #[arg(long)]
+        #[arg(long, short = 'p')]
         provider: Option<ProviderFilter>,
     },
 }
@@ -431,7 +520,7 @@ pub enum UsageAction {
     /// Show usage and rate limits
     Show {
         /// Filter by provider
-        #[arg(long)]
+        #[arg(long, short = 'p')]
         provider: Option<ProviderFilter>,
     },
 }
@@ -562,6 +651,7 @@ pub enum ShellAction {
         session_id: String,
 
         /// Command to execute
+        #[arg(allow_hyphen_values = true)]
         command: String,
 
         /// Working directory override
@@ -572,4 +662,22 @@ pub enum ShellAction {
         #[arg(long, default_value = "30")]
         timeout: u64,
     },
+}
+
+/// Generate shell completions to stdout.
+pub fn generate_completions(shell: clap_complete::Shell) {
+    let mut cmd = Cli::command();
+    clap_complete::generate(shell, &mut cmd, "orbitdock", &mut std::io::stdout());
+}
+
+/// Read content from stdin if the value is "-", otherwise return as-is.
+pub fn resolve_stdin(value: &str) -> std::io::Result<String> {
+    if value == "-" {
+        use std::io::Read;
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf)?;
+        Ok(buf)
+    } else {
+        Ok(value.to_string())
+    }
 }

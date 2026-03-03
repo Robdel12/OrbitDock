@@ -138,12 +138,7 @@ async fn create(
     tag: Option<&ReviewTagFilter>,
     turn: Option<&str>,
 ) -> i32 {
-    let tag_str = tag.map(|t| match t {
-        ReviewTagFilter::Clarity => "clarity",
-        ReviewTagFilter::Scope => "scope",
-        ReviewTagFilter::Risk => "risk",
-        ReviewTagFilter::Nit => "nit",
-    });
+    let tag_str = tag.map(ReviewTagFilter::as_str);
 
     let req = CreateReviewCommentRequest {
         turn_id: turn.map(|s| s.to_string()),
@@ -183,16 +178,8 @@ async fn update(
     tag: Option<&ReviewTagFilter>,
     status: Option<&ReviewStatusFilter>,
 ) -> i32 {
-    let tag_str = tag.map(|t| match t {
-        ReviewTagFilter::Clarity => "clarity".to_string(),
-        ReviewTagFilter::Scope => "scope".to_string(),
-        ReviewTagFilter::Risk => "risk".to_string(),
-        ReviewTagFilter::Nit => "nit".to_string(),
-    });
-    let status_str = status.map(|s| match s {
-        ReviewStatusFilter::Open => "open".to_string(),
-        ReviewStatusFilter::Resolved => "resolved".to_string(),
-    });
+    let tag_str = tag.map(|t| t.as_str().to_string());
+    let status_str = status.map(|s| s.as_str().to_string());
 
     let req = UpdateReviewCommentRequest {
         body: body.map(|s| s.to_string()),
@@ -202,7 +189,7 @@ async fn update(
 
     let path = format!("/api/review-comments/{comment_id}");
     match rest
-        .post_json::<_, ReviewCommentMutationResponse>(&path, &req)
+        .patch_json::<_, ReviewCommentMutationResponse>(&path, &req)
         .await
         .into_result()
     {

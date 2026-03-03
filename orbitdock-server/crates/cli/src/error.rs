@@ -33,9 +33,4 @@ impl CliError {
     pub fn connection(message: impl Into<String>) -> Self {
         Self::new("connection_error", message)
     }
-
-    #[allow(dead_code)]
-    pub fn not_found(message: impl Into<String>) -> Self {
-        Self::new("not_found", message)
-    }
 }

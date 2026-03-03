@@ -5,14 +5,17 @@ use orbitdock_protocol::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{ProviderFilter, SessionAction, StatusFilter};
+use crate::cli::{
+    resolve_stdin, ApprovalDecision, Effort, PermissionMode, ProviderFilter, SessionAction,
+    StatusFilter,
+};
 use crate::client::config::ClientConfig;
 use crate::client::rest::RestClient;
 use crate::client::ws::WsClient;
 use crate::error::{
     CliError, EXIT_CLIENT_ERROR, EXIT_CONNECTION_ERROR, EXIT_SERVER_ERROR, EXIT_SUCCESS,
 };
-use crate::output::{human, Output};
+use crate::output::{human, truncate, Output};
 
 #[derive(Debug, Deserialize, Serialize)]
 struct SessionsResponse {
@@ -60,14 +63,20 @@ pub async fn run(
             effort,
             system_prompt,
         } => {
+            let resolved_cwd = match cwd {
+                Some(c) => c.clone(),
+                None => std::env::current_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| ".".to_string()),
+            };
             create(
                 config,
                 output,
                 provider,
-                cwd,
+                &resolved_cwd,
                 model.as_deref(),
-                permission_mode.as_deref(),
-                effort.as_deref(),
+                permission_mode.as_ref(),
+                effort.as_ref(),
                 system_prompt.as_deref(),
             )
             .await
@@ -79,13 +88,20 @@ pub async fn run(
             effort,
             no_wait,
         } => {
+            let resolved = match resolve_stdin(content) {
+                Ok(c) => c,
+                Err(e) => {
+                    output.print_error(&CliError::new("stdin_error", e.to_string()));
+                    return EXIT_CLIENT_ERROR;
+                }
+            };
             send_message(
                 config,
                 output,
                 session_id,
-                content,
+                &resolved,
                 model.as_deref(),
-                effort.as_deref(),
+                effort.as_ref(),
                 *no_wait,
             )
             .await
@@ -110,7 +126,16 @@ pub async fn run(
             session_id,
             answer,
             request_id,
-        } => answer_question(config, output, session_id, answer, request_id.as_deref()).await,
+        } => {
+            let resolved = match resolve_stdin(answer) {
+                Ok(a) => a,
+                Err(e) => {
+                    output.print_error(&CliError::new("stdin_error", e.to_string()));
+                    return EXIT_CLIENT_ERROR;
+                }
+            };
+            answer_question(config, output, session_id, &resolved, request_id.as_deref()).await
+        }
         SessionAction::Interrupt { session_id } => interrupt(config, output, session_id).await,
         SessionAction::End { session_id } => end_session(config, output, session_id).await,
         SessionAction::Fork {
@@ -130,7 +155,16 @@ pub async fn run(
         SessionAction::Steer {
             session_id,
             content,
-        } => steer(config, output, session_id, content).await,
+        } => {
+            let resolved = match resolve_stdin(content) {
+                Ok(c) => c,
+                Err(e) => {
+                    output.print_error(&CliError::new("stdin_error", e.to_string()));
+                    return EXIT_CLIENT_ERROR;
+                }
+            };
+            steer(config, output, session_id, &resolved).await
+        }
         SessionAction::Compact { session_id } => compact(config, output, session_id).await,
         SessionAction::Undo { session_id } => undo(config, output, session_id).await,
         SessionAction::Rollback { session_id, turns } => {
@@ -164,6 +198,31 @@ fn pending_request_id(session: &SessionState) -> Option<&str> {
     session.pending_approval.as_ref().map(|req| req.id.as_str())
 }
 
+fn provider_str(p: &Provider) -> &'static str {
+    match p {
+        Provider::Claude => "claude",
+        Provider::Codex => "codex",
+    }
+}
+
+fn session_status_str(s: &SessionStatus) -> &'static str {
+    match s {
+        SessionStatus::Active => "active",
+        SessionStatus::Ended => "ended",
+    }
+}
+
+fn work_status_str(s: &WorkStatus) -> &'static str {
+    match s {
+        WorkStatus::Working => "working",
+        WorkStatus::Waiting => "waiting",
+        WorkStatus::Permission => "permission",
+        WorkStatus::Question => "question",
+        WorkStatus::Reply => "reply",
+        WorkStatus::Ended => "ended",
+    }
+}
+
 // ── REST Commands ────────────────────────────────────────────
 
 async fn list(
@@ -188,8 +247,8 @@ async fn list(
             }
             if let Some(s) = status {
                 let target = match s {
-                    StatusFilter::Active => SessionStatus::Active,
-                    StatusFilter::Ended => SessionStatus::Ended,
+                    StatusFilter::Active => orbitdock_protocol::SessionStatus::Active,
+                    StatusFilter::Ended => orbitdock_protocol::SessionStatus::Ended,
                 };
                 resp.sessions.retain(|s| s.status == target);
             }
@@ -241,8 +300,8 @@ async fn create(
     provider_filter: &ProviderFilter,
     cwd: &str,
     model: Option<&str>,
-    permission_mode: Option<&str>,
-    effort: Option<&str>,
+    permission_mode: Option<&PermissionMode>,
+    effort: Option<&Effort>,
     system_prompt: Option<&str>,
 ) -> i32 {
     let Some(mut ws) = ws_connect(config, output).await else {
@@ -261,10 +320,10 @@ async fn create(
             model: model.map(str::to_string),
             approval_policy: None,
             sandbox_mode: None,
-            permission_mode: permission_mode.map(str::to_string),
+            permission_mode: permission_mode.map(|m| m.as_str().to_string()),
             allowed_tools: vec![],
             disallowed_tools: vec![],
-            effort: effort.map(str::to_string),
+            effort: effort.map(|e| e.as_str().to_string()),
             system_prompt: system_prompt.map(str::to_string),
             append_system_prompt: None,
         })
@@ -280,15 +339,18 @@ async fn create(
                 if output.json {
                     output.print_json(&serde_json::json!({
                         "session_id": session.id,
-                        "provider": session.provider,
+                        "provider": provider_str(&session.provider),
                         "project_path": session.project_path,
-                        "status": session.status,
-                        "work_status": session.work_status,
+                        "status": work_status_str(&session.work_status),
                     }));
                 } else {
                     let bold = console::Style::new().bold();
                     println!("{} {}", bold.apply_to("Created session:"), session.id);
-                    println!("{} {:?}", bold.apply_to("Provider:"), session.provider);
+                    println!(
+                        "{} {}",
+                        bold.apply_to("Provider:"),
+                        provider_str(&session.provider)
+                    );
                     println!("{} {}", bold.apply_to("Project:"), session.project_path);
                 }
                 return EXIT_SUCCESS;
@@ -319,7 +381,7 @@ async fn send_message(
     session_id: &str,
     content: &str,
     model: Option<&str>,
-    effort: Option<&str>,
+    effort: Option<&Effort>,
     no_wait: bool,
 ) -> i32 {
     let Some(mut ws) = ws_connect(config, output).await else {
@@ -336,7 +398,7 @@ async fn send_message(
             session_id: session_id.to_string(),
             content: content.to_string(),
             model: model.map(str::to_string),
-            effort: effort.map(str::to_string),
+            effort: effort.map(|e| e.as_str().to_string()),
             skills: vec![],
             images: vec![],
             mentions: vec![],
@@ -363,7 +425,7 @@ async fn approve_tool(
     config: &ClientConfig,
     output: &Output,
     session_id: &str,
-    decision: &str,
+    decision: &ApprovalDecision,
     message: Option<&str>,
     request_id: Option<&str>,
 ) -> i32 {
@@ -397,7 +459,7 @@ async fn approve_tool(
         .send(&ClientMessage::ApproveTool {
             session_id: session_id.to_string(),
             request_id: resolved_id.clone(),
-            decision: decision.to_string(),
+            decision: decision.as_str().to_string(),
             message: message.map(str::to_string),
             interrupt: None,
             updated_input: None,
@@ -558,10 +620,10 @@ async fn interrupt(config: &ClientConfig, output: &Output, session_id: &str) -> 
                     if *status != WorkStatus::Working {
                         if output.json {
                             output.print_json(
-                                &serde_json::json!({"interrupted": true, "work_status": status}),
+                                &serde_json::json!({"interrupted": true, "work_status": work_status_str(status)}),
                             );
                         } else {
-                            println!("Session interrupted. Status: {status:?}");
+                            println!("Session interrupted. Status: {}", work_status_str(status));
                         }
                         return EXIT_SUCCESS;
                     }
@@ -592,6 +654,11 @@ async fn end_session(config: &ClientConfig, output: &Output, session_id: &str) -
     let Some(mut ws) = ws_connect(config, output).await else {
         return EXIT_CONNECTION_ERROR;
     };
+
+    if let Err(e) = ws.subscribe_session(session_id).await {
+        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+        return EXIT_SERVER_ERROR;
+    }
 
     if let Err(e) = ws
         .send(&ClientMessage::EndSession {
@@ -644,6 +711,12 @@ async fn fork(
     let Some(mut ws) = ws_connect(config, output).await else {
         return EXIT_CONNECTION_ERROR;
     };
+
+    // Subscribe to receive the forked session response
+    if let Err(e) = ws.subscribe_session(session_id).await {
+        output.print_error(&CliError::new("subscribe_error", e.to_string()));
+        return EXIT_SERVER_ERROR;
+    }
 
     if let Err(e) = ws
         .send(&ClientMessage::ForkSession {
@@ -923,28 +996,25 @@ async fn watch(
     };
 
     if output.json {
-        println!(
-            "{}",
-            serde_json::to_string(&ServerMessage::SessionSnapshot {
-                session: session.clone()
-            })
-            .unwrap_or_default()
-        );
+        output.print_json(&ServerMessage::SessionSnapshot {
+            session: session.clone(),
+        });
     } else {
         let bold = console::Style::new().bold();
         println!(
-            "{} {} ({:?} / {:?})",
+            "{} {} ({} / {})",
             bold.apply_to("Watching:"),
             session_id,
-            session.status,
-            session.work_status
+            provider_str(&session.provider),
+            work_status_str(&session.work_status)
         );
         println!("Press Ctrl+C to stop.\n");
     }
 
+    // Default: no timeout (wait indefinitely until session ends or Ctrl+C)
     let timeout = timeout_secs
         .map(Duration::from_secs)
-        .unwrap_or(Duration::from_secs(3600));
+        .unwrap_or(Duration::from_secs(u64::MAX / 2));
 
     loop {
         match ws.recv_timeout(timeout).await {
@@ -957,7 +1027,7 @@ async fn watch(
                 }
 
                 if output.json {
-                    println!("{}", serde_json::to_string(msg).unwrap_or_default());
+                    output.print_json(msg);
                 } else {
                     print_watch_event(msg);
                 }
@@ -1038,10 +1108,13 @@ async fn resume(config: &ClientConfig, output: &Output, session_id: &str) -> i32
                     output.print_json(&serde_json::json!({
                         "resumed": true,
                         "session_id": session.id,
-                        "work_status": session.work_status,
+                        "work_status": work_status_str(&session.work_status),
                     }));
                 } else {
-                    println!("Session resumed. Status: {:?}", session.work_status);
+                    println!(
+                        "Session resumed. Status: {}",
+                        work_status_str(&session.work_status)
+                    );
                 }
                 return EXIT_SUCCESS;
             }
@@ -1075,7 +1148,7 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
         match ws.recv_timeout(timeout).await {
             Ok(Some(ref msg)) => {
                 if output.json {
-                    println!("{}", serde_json::to_string(msg).unwrap_or_default());
+                    output.print_json(msg);
                 }
                 match msg {
                     ServerMessage::MessageAppended { message, .. } => {
@@ -1102,7 +1175,10 @@ async fn stream_turn_events(ws: &mut WsClient, output: &Output) -> i32 {
                                 WorkStatus::Working | WorkStatus::Waiting => {}
                                 _ => {
                                     if !output.json {
-                                        println!("\nTurn complete. Status: {status:?}");
+                                        println!(
+                                            "\nTurn complete. Status: {}",
+                                            work_status_str(status)
+                                        );
                                     }
                                     return EXIT_SUCCESS;
                                 }
@@ -1154,11 +1230,13 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::MessageAppended { .. } => "message_appended",
         ServerMessage::MessageUpdated { .. } => "message_updated",
         ServerMessage::ApprovalRequested { .. } => "approval_requested",
+        ServerMessage::ApprovalDecisionResult { .. } => "approval_decision_result",
+        ServerMessage::ApprovalDeleted { .. } => "approval_deleted",
+        ServerMessage::ApprovalsList { .. } => "approvals_list",
         ServerMessage::TokensUpdated { .. } => "tokens_updated",
         ServerMessage::SessionCreated { .. } => "session_created",
         ServerMessage::SessionEnded { .. } => "session_ended",
         ServerMessage::SessionForked { .. } => "session_forked",
-        ServerMessage::ApprovalDecisionResult { .. } => "approval_decision_result",
         ServerMessage::ContextCompacted { .. } => "context_compacted",
         ServerMessage::UndoStarted { .. } => "undo_started",
         ServerMessage::UndoCompleted { .. } => "undo_completed",
@@ -1169,7 +1247,38 @@ fn event_type_name(msg: &ServerMessage) -> &'static str {
         ServerMessage::RateLimitEvent { .. } => "rate_limit_event",
         ServerMessage::PromptSuggestion { .. } => "prompt_suggestion",
         ServerMessage::Error { .. } => "error",
-        _ => "other",
+        ServerMessage::ServerInfo { .. } => "server_info",
+        ServerMessage::ModelsList { .. } => "models_list",
+        ServerMessage::ReviewCommentCreated { .. } => "review_comment_created",
+        ServerMessage::ReviewCommentUpdated { .. } => "review_comment_updated",
+        ServerMessage::ReviewCommentDeleted { .. } => "review_comment_deleted",
+        ServerMessage::ReviewCommentsList { .. } => "review_comments_list",
+        ServerMessage::WorktreeCreated { .. } => "worktree_created",
+        ServerMessage::WorktreeRemoved { .. } => "worktree_removed",
+        ServerMessage::WorktreeStatusChanged { .. } => "worktree_status_changed",
+        ServerMessage::WorktreeError { .. } => "worktree_error",
+        ServerMessage::WorktreesList { .. } => "worktrees_list",
+        ServerMessage::CodexAccountStatus { .. } => "codex_account_status",
+        ServerMessage::CodexAccountUpdated { .. } => "codex_account_updated",
+        ServerMessage::CodexLoginChatgptStarted { .. } => "codex_login_started",
+        ServerMessage::CodexLoginChatgptCompleted { .. } => "codex_login_completed",
+        ServerMessage::CodexLoginChatgptCanceled { .. } => "codex_login_canceled",
+        ServerMessage::ClaudeCapabilities { .. } => "claude_capabilities",
+        ServerMessage::ClaudeModelsList { .. } => "claude_models_list",
+        ServerMessage::ClaudeUsageResult { .. } => "claude_usage_result",
+        ServerMessage::CodexUsageResult { .. } => "codex_usage_result",
+        ServerMessage::FilesPersisted { .. } => "files_persisted",
+        ServerMessage::McpToolsList { .. } => "mcp_tools_list",
+        ServerMessage::McpStartupUpdate { .. } => "mcp_startup_update",
+        ServerMessage::McpStartupComplete { .. } => "mcp_startup_complete",
+        ServerMessage::SkillsList { .. } => "skills_list",
+        ServerMessage::SkillsUpdateAvailable { .. } => "skills_update_available",
+        ServerMessage::RemoteSkillsList { .. } => "remote_skills_list",
+        ServerMessage::RemoteSkillDownloaded { .. } => "remote_skill_downloaded",
+        ServerMessage::SubagentToolsList { .. } => "subagent_tools_list",
+        ServerMessage::OpenAiKeyStatus { .. } => "openai_key_status",
+        ServerMessage::DirectoryListing { .. } => "directory_listing",
+        ServerMessage::RecentProjectsList { .. } => "recent_projects_list",
     }
 }
 
@@ -1180,7 +1289,11 @@ fn print_watch_event(msg: &ServerMessage) {
     match msg {
         ServerMessage::SessionDelta { changes, .. } => {
             if let Some(status) = &changes.work_status {
-                println!("{} work_status -> {status:?}", dim.apply_to("delta"));
+                println!(
+                    "{} work_status -> {}",
+                    dim.apply_to("delta"),
+                    work_status_str(status)
+                );
             }
             if let Some(Some(name)) = &changes.custom_name {
                 println!("{} name -> {name}", dim.apply_to("delta"));
@@ -1191,11 +1304,7 @@ fn print_watch_event(msg: &ServerMessage) {
         }
         ServerMessage::MessageAppended { message, .. } => {
             let role = format_role(message.message_type);
-            let content = if message.content.len() > 120 {
-                format!("{}...", &message.content[..117])
-            } else {
-                message.content.clone()
-            };
+            let content = truncate(&message.content, 120);
             println!("{} [{role}] {content}", bold.apply_to("+msg"));
         }
         ServerMessage::ApprovalRequested { request, .. } => {
@@ -1267,13 +1376,17 @@ fn print_session_detail(session: &SessionState, show_messages: bool) {
     let bold = console::Style::new().bold();
 
     println!("{} {}", bold.apply_to("Session:"), session.id);
-    println!("{} {:?}", bold.apply_to("Provider:"), session.provider);
+    println!(
+        "{} {}",
+        bold.apply_to("Provider:"),
+        provider_str(&session.provider)
+    );
     println!("{} {}", bold.apply_to("Project:"), session.project_path);
     println!(
-        "{} {:?} / {:?}",
+        "{} {} / {}",
         bold.apply_to("Status:"),
-        session.status,
-        session.work_status
+        session_status_str(&session.status),
+        work_status_str(&session.work_status)
     );
 
     if let Some(ref model) = session.model {
@@ -1313,12 +1426,8 @@ fn print_session_detail(session: &SessionState, show_messages: bool) {
                 _ => console::Style::new().dim(),
             };
 
-            let role = format!("{:?}", msg.message_type).to_lowercase();
-            let content_preview = if msg.content.len() > 200 {
-                format!("{}...", &msg.content[..197])
-            } else {
-                msg.content.clone()
-            };
+            let role = format_role(msg.message_type);
+            let content_preview = truncate(&msg.content, 200);
 
             println!(
                 "  {} {}",

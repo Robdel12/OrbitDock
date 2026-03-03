@@ -1,16 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use super::health::HealthResponse;
 use crate::cli::ServerAction;
 use crate::client::rest::RestClient;
 use crate::error::EXIT_SUCCESS;
 use crate::output::Output;
-
-#[derive(Debug, Deserialize, Serialize)]
-struct HealthResponse {
-    status: String,
-    #[serde(default)]
-    version: Option<String>,
-}
 
 #[derive(Debug, Deserialize, Serialize)]
 struct ServerRoleResponse {

@@ -5,10 +5,10 @@ use crate::error::EXIT_SUCCESS;
 use crate::output::Output;
 
 #[derive(Debug, Deserialize, serde::Serialize)]
-struct HealthResponse {
-    status: String,
+pub(super) struct HealthResponse {
+    pub status: String,
     #[serde(default)]
-    version: Option<String>,
+    pub version: Option<String>,
 }
 
 pub async fn run(rest: &RestClient, output: &Output) -> i32 {

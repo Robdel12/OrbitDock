@@ -5,6 +5,8 @@ use orbitdock_protocol::{
     ApprovalHistoryItem, Provider, SessionStatus, SessionSummary, WorkStatus,
 };
 
+use super::truncate;
+
 /// Format sessions as a human-readable table.
 pub fn sessions_table(sessions: &[SessionSummary]) {
     if sessions.is_empty() {
@@ -42,11 +44,7 @@ pub fn sessions_table(sessions: &[SessionSummary]) {
             .as_deref()
             .or(s.summary.as_deref())
             .unwrap_or("-");
-        let name_truncated = if name.len() > 40 {
-            format!("{}...", &name[..37])
-        } else {
-            name.to_string()
-        };
+        let name_truncated = truncate(name, 40);
 
         table.add_row(vec![
             Cell::new(id_short),
@@ -113,9 +111,5 @@ fn status_cell(status: SessionStatus, work_status: WorkStatus) -> Cell {
 }
 
 fn truncate_id(id: &str) -> String {
-    if id.len() > 16 {
-        format!("{}..", &id[..14])
-    } else {
-        id.to_string()
-    }
+    truncate(id, 16)
 }

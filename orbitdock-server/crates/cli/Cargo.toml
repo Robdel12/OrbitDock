@@ -24,3 +24,5 @@ comfy-table = "7"
 console = "0.15"
 toml = "0.8"
 futures = { workspace = true }
+urlencoding = "2"
+clap_complete = "4"

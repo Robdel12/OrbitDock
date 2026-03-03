@@ -40,7 +40,32 @@ async fn account(rest: &RestClient, output: &Output) -> i32 {
             if output.json {
                 output.print_json(&resp);
             } else {
-                println!("Codex Account: {:?}", resp.status);
+                let bold = console::Style::new().bold();
+                let logged_in = resp.status.account.is_some();
+                let status_str = if logged_in {
+                    "logged in"
+                } else {
+                    "not logged in"
+                };
+                println!("{} {}", bold.apply_to("Codex:"), status_str);
+                if let Some(ref acct) = resp.status.account {
+                    match acct {
+                        orbitdock_protocol::CodexAccount::ApiKey => {
+                            println!("{} API key", bold.apply_to("Auth:"));
+                        }
+                        orbitdock_protocol::CodexAccount::Chatgpt { email, plan_type } => {
+                            if let Some(email) = email {
+                                println!("{} {}", bold.apply_to("Email:"), email);
+                            }
+                            if let Some(plan) = plan_type {
+                                println!("{} {}", bold.apply_to("Plan:"), plan);
+                            }
+                        }
+                    }
+                }
+                if resp.status.login_in_progress {
+                    println!("Login in progress...");
+                }
             }
             EXIT_SUCCESS
         }
@@ -87,7 +112,7 @@ async fn logout(rest: &RestClient, output: &Output) -> i32 {
             if output.json {
                 output.print_json(&resp);
             } else {
-                println!("Logged out. Status: {:?}", resp.status);
+                println!("Logged out.");
             }
             EXIT_SUCCESS
         }

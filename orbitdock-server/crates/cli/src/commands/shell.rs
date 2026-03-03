@@ -100,11 +100,7 @@ async fn exec(
                     None => EXIT_SUCCESS,
                 };
             }
-            Ok(Some(ServerMessage::ShellStarted { .. })) => {
-                if !output.json {
-                    // Silently continue — output comes in ShellOutput
-                }
-            }
+            Ok(Some(ServerMessage::ShellStarted { .. })) => continue,
             Ok(Some(ServerMessage::Error { code, message, .. })) => {
                 output.print_error(&CliError::new(code, message));
                 return EXIT_SERVER_ERROR;

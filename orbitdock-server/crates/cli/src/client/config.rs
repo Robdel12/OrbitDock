@@ -14,16 +14,12 @@ pub struct ClientConfig {
 }
 
 /// Optional TOML config file (~/.orbitdock/cli.toml).
+/// Unknown keys (default_provider, default_model, color, etc.) are silently ignored
+/// by serde's default behavior, so forward-compatible with future config additions.
 #[derive(Debug, Deserialize, Default)]
 struct FileConfig {
     server: Option<String>,
     token: Option<String>,
-    #[allow(dead_code)]
-    default_provider: Option<String>,
-    #[allow(dead_code)]
-    default_model: Option<String>,
-    #[allow(dead_code)]
-    color: Option<String>,
 }
 
 impl ClientConfig {
@@ -33,7 +29,7 @@ impl ClientConfig {
     /// 1. CLI flags (--server, --token, --json)
     /// 2. Environment variables (ORBITDOCK_URL, ORBITDOCK_TOKEN) — handled by clap env
     /// 3. Config file (~/.orbitdock/cli.toml)
-    /// 4. Token file (~/.orbitdock/auth-token)
+    /// 4. Auth token file (~/.orbitdock/auth-token)
     /// 5. Defaults
     pub fn resolve(cli: &Cli) -> Result<Self> {
         let file_config = load_config_file(cli.config.as_deref());
@@ -45,12 +41,12 @@ impl ClientConfig {
             .or(file_config.server)
             .unwrap_or_else(|| DEFAULT_SERVER.to_string());
 
-        // Token: flag/env > config file > auth-token file
+        // Token: flag/env > config file > ~/.orbitdock/auth-token file
         let token = cli
             .token
             .clone()
             .or(file_config.token)
-            .or_else(load_token_file);
+            .or_else(load_auth_token_file);
 
         // JSON: flag or non-TTY stdout
         let json = cli.json || !atty_stdout();
@@ -81,9 +77,9 @@ fn load_config_file(explicit_path: Option<&str>) -> FileConfig {
     toml::from_str(&contents).unwrap_or_default()
 }
 
-fn load_token_file() -> Option<String> {
-    let home = dirs::home_dir()?;
-    let path = home.join(".orbitdock").join("auth-token");
+/// Read token from ~/.orbitdock/auth-token (created by `orbitdock-server generate-token`).
+fn load_auth_token_file() -> Option<String> {
+    let path = dirs::home_dir()?.join(".orbitdock").join("auth-token");
     let contents = std::fs::read_to_string(path).ok()?;
     let trimmed = contents.trim();
     if trimmed.is_empty() {

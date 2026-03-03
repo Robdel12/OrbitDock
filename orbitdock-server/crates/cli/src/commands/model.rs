@@ -92,8 +92,10 @@ async fn list_claude(rest: &RestClient, output: &Output) -> i32 {
 }
 
 async fn list_both(rest: &RestClient, output: &Output) -> i32 {
-    let codex = rest.get::<CodexModelsResponse>("/api/models/codex").await;
-    let claude = rest.get::<ClaudeModelsResponse>("/api/models/claude").await;
+    let (codex, claude) = tokio::join!(
+        rest.get::<CodexModelsResponse>("/api/models/codex"),
+        rest.get::<ClaudeModelsResponse>("/api/models/claude"),
+    );
 
     let codex_models = match codex.into_result() {
         Ok(r) => r.models,
