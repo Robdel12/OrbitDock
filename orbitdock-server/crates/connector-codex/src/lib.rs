@@ -421,6 +421,7 @@ impl CodexConnector {
     }
 
     /// Async event loop — pulls events from CodexThread and translates them
+    #[allow(clippy::too_many_arguments)]
     async fn event_loop(
         thread: Arc<CodexThread>,
         tx: mpsc::Sender<ConnectorEvent>,
@@ -470,6 +471,7 @@ impl CodexConnector {
     }
 
     /// Translate a codex-core Event to ConnectorEvent(s)
+    #[allow(clippy::too_many_arguments)]
     async fn translate_event(
         event: Event,
         output_buffers: &Arc<tokio::sync::Mutex<HashMap<String, String>>>,
@@ -3228,47 +3230,6 @@ fn collaboration_mode_from_permission_mode(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::collaboration_mode_from_permission_mode;
-    use codex_protocol::config_types::ModeKind;
-    use codex_protocol::openai_models::ReasoningEffort;
-
-    #[test]
-    fn collaboration_mode_maps_plan() {
-        let result = collaboration_mode_from_permission_mode(
-            Some("plan"),
-            "openai/gpt-5.3-codex".to_string(),
-            Some(ReasoningEffort::High),
-        )
-        .expect("expected mode");
-        assert_eq!(result.mode, ModeKind::Plan);
-        assert_eq!(result.settings.model, "openai/gpt-5.3-codex");
-        assert_eq!(
-            result.settings.reasoning_effort,
-            Some(ReasoningEffort::High)
-        );
-    }
-
-    #[test]
-    fn collaboration_mode_maps_default_case_insensitive() {
-        let result = collaboration_mode_from_permission_mode(
-            Some("Default"),
-            "openai/gpt-5.3-codex".to_string(),
-            None,
-        )
-        .expect("expected mode");
-        assert_eq!(result.mode, ModeKind::Default);
-    }
-
-    #[test]
-    fn collaboration_mode_ignores_unknown_modes() {
-        let result =
-            collaboration_mode_from_permission_mode(Some("acceptEdits"), "model".to_string(), None);
-        assert!(result.is_none());
-    }
-}
-
 fn tool_input_with_arguments(
     metadata: serde_json::Value,
     arguments: Option<&serde_json::Value>,
@@ -3489,4 +3450,45 @@ fn iso_now() -> String {
         minutes,
         seconds
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collaboration_mode_from_permission_mode;
+    use codex_protocol::config_types::ModeKind;
+    use codex_protocol::openai_models::ReasoningEffort;
+
+    #[test]
+    fn collaboration_mode_maps_plan() {
+        let result = collaboration_mode_from_permission_mode(
+            Some("plan"),
+            "openai/gpt-5.3-codex".to_string(),
+            Some(ReasoningEffort::High),
+        )
+        .expect("expected mode");
+        assert_eq!(result.mode, ModeKind::Plan);
+        assert_eq!(result.settings.model, "openai/gpt-5.3-codex");
+        assert_eq!(
+            result.settings.reasoning_effort,
+            Some(ReasoningEffort::High)
+        );
+    }
+
+    #[test]
+    fn collaboration_mode_maps_default_case_insensitive() {
+        let result = collaboration_mode_from_permission_mode(
+            Some("Default"),
+            "openai/gpt-5.3-codex".to_string(),
+            None,
+        )
+        .expect("expected mode");
+        assert_eq!(result.mode, ModeKind::Default);
+    }
+
+    #[test]
+    fn collaboration_mode_ignores_unknown_modes() {
+        let result =
+            collaboration_mode_from_permission_mode(Some("acceptEdits"), "model".to_string(), None);
+        assert!(result.is_none());
+    }
 }

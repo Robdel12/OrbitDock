@@ -32,7 +32,11 @@ struct CompactToolHelpersTests {
       ]
     )
 
-    let content = SharedModelBuilders.expandedToolContent(from: message, toolName: "TodoWrite")
+    let content = SharedModelBuilders.expandedToolContent(
+      from: message,
+      toolName: "TodoWrite",
+      supportsRichToolingCards: true
+    )
     switch content {
       case let .todo(title, subtitle, items, output):
         #expect(title == "Todos")
@@ -57,7 +61,11 @@ struct CompactToolHelpersTests {
       toolOutput: output
     )
 
-    let content = SharedModelBuilders.expandedToolContent(from: message, toolName: "TodoWrite")
+    let content = SharedModelBuilders.expandedToolContent(
+      from: message,
+      toolName: "TodoWrite",
+      supportsRichToolingCards: true
+    )
     switch content {
       case let .todo(_, subtitle, items, renderedOutput):
         #expect(subtitle == "1 items · 1 done")
@@ -76,7 +84,7 @@ struct CompactToolHelpersTests {
       toolInput: ["subject": "Ship polished todo UI", "status": "pending"]
     )
 
-    #expect(CompactToolHelpers.summary(for: message) == "Ship polished todo UI")
+    #expect(CompactToolHelpers.summary(for: message, supportsRichToolingCards: true) == "Ship polished todo UI")
     #expect(ToolGlyphInfo.from(message: message).symbol == "checklist")
   }
 

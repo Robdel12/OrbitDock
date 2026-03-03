@@ -191,6 +191,8 @@ struct ConversationTimelinePipelineTests {
       pendingQuestion: nil,
       pendingApprovalId: "req-1",
       isDirectSession: true,
+      isDirectCodexSession: true,
+      supportsRichToolingCards: true,
       sessionId: "session-1",
       projectPath: "/tmp/project"
     )
@@ -205,11 +207,11 @@ struct ConversationTimelinePipelineTests {
     )
 
     let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
-    let rowIDs = projected.rows.map(\.id)
+    let rowIDs: [TimelineRowID] = projected.rows.map(\.id)
 
-    #expect(!rowIDs.contains(.message("a1")))
-    #expect(rowIDs.contains(.message("a2")))
-    #expect(rowIDs.contains(.approvalCard))
+    #expect(!rowIDs.contains(TimelineRowID.message("a1")))
+    #expect(rowIDs.contains(TimelineRowID.message("a2")))
+    #expect(rowIDs.contains(TimelineRowID.approvalCard))
   }
 
   @Test func projectorSuppressesDuplicatePendingBashToolRowWhenApprovalCardIsVisible() {
@@ -243,16 +245,18 @@ struct ConversationTimelinePipelineTests {
       pendingQuestion: nil,
       pendingApprovalId: "req-2",
       isDirectSession: true,
+      isDirectCodexSession: true,
+      supportsRichToolingCards: true,
       sessionId: "session-1",
       projectPath: "/tmp/project"
     )
     let source = ConversationSourceState(messages: [pendingTool], turns: [], metadata: metadata)
 
     let projected = ConversationTimelineProjector.project(source: source, ui: ConversationUIState(widthBucket: 12))
-    let rowIDs = projected.rows.map(\.id)
+    let rowIDs: [TimelineRowID] = projected.rows.map(\.id)
 
-    #expect(!rowIDs.contains(.tool("t-approval")))
-    #expect(rowIDs.contains(.approvalCard))
+    #expect(!rowIDs.contains(TimelineRowID.tool("t-approval")))
+    #expect(rowIDs.contains(TimelineRowID.approvalCard))
   }
 
   @Test func heightCacheKeyHashesDeterministically() {
@@ -331,7 +335,13 @@ struct ConversationTimelinePipelineTests {
         hasMoreMessages: false,
         needsApprovalCard: false,
         approvalMode: .none,
-        isDirectSession: false
+        pendingQuestion: nil,
+        pendingApprovalId: nil,
+        isDirectSession: false,
+        isDirectCodexSession: false,
+        supportsRichToolingCards: false,
+        sessionId: nil,
+        projectPath: nil
       )
     )
   }
