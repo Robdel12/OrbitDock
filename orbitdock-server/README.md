@@ -17,6 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-s
 The installer downloads a prebuilt binary for macOS, Linux x86_64, and Linux aarch64 (Raspberry Pi 64-bit). Falls back to building from source if no prebuilt is available (requires the [Rust toolchain](https://rustup.rs)).
 
 - Installs `orbitdock-server` to `~/.orbitdock/bin/`
+- Ensures `~/.orbitdock/bin` is on shell `PATH`
 - Runs `orbitdock-server init`
 - Runs `orbitdock-server install-hooks`
 - Runs `orbitdock-server install-service --enable`
@@ -140,6 +141,7 @@ orbitdock-server [--data-dir PATH] <command>
 | `start` | Start the server (also the default when you omit the subcommand) |
 | `setup` | Interactive wizard (init + hooks + token + service) |
 | `init` | Create data directory and run migrations |
+| `ensure-path` | Persist the server binary directory on your shell `PATH` |
 | `install-hooks` | Merge OrbitDock hooks into `~/.claude/settings.json` |
 | `install-service` | Generate a launchd plist (macOS) or systemd unit (Linux) |
 | `status` | Check if the server is running |

@@ -47,7 +47,7 @@ Get this running locally in a few minutes.
 curl -fsSL https://raw.githubusercontent.com/Robdel12/OrbitDock/main/orbitdock-server/install.sh | bash
 ```
 
-The installer sets up the binary, data directory, database, Claude hooks, and background service.
+The installer sets up the binary, shell `PATH`, data directory, database, Claude hooks, and background service.
 
 ### 2. Verify it started
 
