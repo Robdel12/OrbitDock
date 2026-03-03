@@ -528,6 +528,8 @@ import SwiftUI
         pendingQuestion: session?.pendingQuestion,
         pendingApprovalId: resolvedApprovalId,
         isDirectSession: session?.isDirect ?? false,
+        isDirectCodexSession: session?.isDirectCodex ?? false,
+        supportsRichToolingCards: session?.isDirectCodex ?? false,
         sessionId: self.sessionId,
         projectPath: session?.projectPath
       )
@@ -776,7 +778,10 @@ import SwiftUI
           } else if case let .tool(id) = row.payload {
             if let message = messagesByID[id] {
               let summary = CompactToolHelpers.compactSingleLineSummary(
-                CompactToolHelpers.summary(for: message)
+                CompactToolHelpers.summary(
+                  for: message,
+                  supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+                )
               )
               let preview = CompactToolHelpers.diffPreview(for: message)
               let livePreview = CompactToolHelpers.liveOutputPreview(for: message)
@@ -848,7 +853,10 @@ import SwiftUI
     private func buildCompactToolModel(for messageId: String) -> NativeCompactToolRowModel? {
       guard let message = messagesByID[messageId] else { return nil }
       guard message.isToolLike else { return nil }
-      return SharedModelBuilders.compactToolModel(from: message)
+      return SharedModelBuilders.compactToolModel(
+        from: message,
+        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+      )
     }
 
     private func buildExpandedToolModel(for messageId: String) -> NativeExpandedToolModel? {
@@ -870,7 +878,11 @@ import SwiftUI
           + "content=\(message.content.prefix(60))"
       )
 
-      return SharedModelBuilders.expandedToolModel(from: message, messageID: messageId)
+      return SharedModelBuilders.expandedToolModel(
+        from: message,
+        messageID: messageId,
+        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+      )
     }
 
     // MARK: - Tool Expansion

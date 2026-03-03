@@ -1668,6 +1668,7 @@ final class ServerAppState {
       timestamp: incoming.timestamp,
       toolName: incoming.toolName ?? existing.toolName,
       toolInput: incoming.toolInput ?? existing.toolInput,
+      rawToolInput: incoming.rawToolInput ?? existing.rawToolInput,
       toolOutput: incoming.toolOutput ?? existing.toolOutput,
       toolDuration: incoming.toolDuration ?? existing.toolDuration,
       inputTokens: incoming.inputTokens ?? existing.inputTokens,
@@ -1687,6 +1688,7 @@ final class ServerAppState {
       timestamp: message.timestamp,
       toolName: message.toolName,
       toolInput: message.toolInput,
+      rawToolInput: message.rawToolInput,
       toolOutput: message.toolOutput,
       toolDuration: message.toolDuration,
       inputTokens: message.inputTokens,
@@ -1827,6 +1829,7 @@ final class ServerAppState {
         timestamp: Date(),
         toolName: nil,
         toolInput: nil,
+        rawToolInput: nil,
         toolOutput: changes.toolOutput,
         toolDuration: changes.durationMs.map { Double($0) / 1_000.0 },
         inputTokens: nil,
@@ -1850,6 +1853,7 @@ final class ServerAppState {
         timestamp: msg.timestamp,
         toolName: msg.toolName,
         toolInput: msg.toolInput,
+        rawToolInput: msg.rawToolInput,
         toolOutput: changes.toolOutput ?? msg.toolOutput,
         toolDuration: changes.durationMs.map { Double($0) / 1_000.0 } ?? msg.toolDuration,
         inputTokens: msg.inputTokens,
@@ -1986,37 +1990,41 @@ final class ServerAppState {
 
     let normalizedActiveRequestId = normalizedApprovalRequestId(activeRequestId)
 
-    // Eagerly clear the pending approval if it matches the decided request so the
-    // approval card disappears immediately rather than lingering until the next
-    // session state delta arrives.
-    if let pending = obs.pendingApproval, normalizedApprovalRequestId(pending.id) == normalizedDecided {
-      obs.pendingApproval = nil
-      obs.pendingApprovalId = nil
-      obs.pendingToolName = nil
-      obs.pendingToolInput = nil
-      obs.pendingPermissionDetail = nil
-      obs.pendingQuestion = nil
-      if obs.attentionReason == .awaitingPermission || obs.attentionReason == .awaitingQuestion {
-        obs.attentionReason = .none
-      }
-      if obs.workStatus == .permission {
-        obs.workStatus = .working
-      }
+    // Only clear pending approval optimistically when the server applied the
+    // decision. A stale outcome means this request did not resolve.
+    if outcome == "applied" {
+      // Eagerly clear the pending approval if it matches the decided request so the
+      // approval card disappears immediately rather than lingering until the next
+      // session state delta arrives.
+      if let pending = obs.pendingApproval, normalizedApprovalRequestId(pending.id) == normalizedDecided {
+        obs.pendingApproval = nil
+        obs.pendingApprovalId = nil
+        obs.pendingToolName = nil
+        obs.pendingToolInput = nil
+        obs.pendingPermissionDetail = nil
+        obs.pendingQuestion = nil
+        if obs.attentionReason == .awaitingPermission || obs.attentionReason == .awaitingQuestion {
+          obs.attentionReason = .none
+        }
+        if obs.workStatus == .permission {
+          obs.workStatus = .working
+        }
 
-      if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
-        var sess = sessions[idx]
-        sess.pendingApprovalId = nil
-        sess.pendingToolName = nil
-        sess.pendingToolInput = nil
-        sess.pendingPermissionDetail = nil
-        sess.pendingQuestion = nil
-        if sess.attentionReason == .awaitingPermission || sess.attentionReason == .awaitingQuestion {
-          sess.attentionReason = .none
+        if let idx = sessions.firstIndex(where: { $0.id == sessionId }) {
+          var sess = sessions[idx]
+          sess.pendingApprovalId = nil
+          sess.pendingToolName = nil
+          sess.pendingToolInput = nil
+          sess.pendingPermissionDetail = nil
+          sess.pendingQuestion = nil
+          if sess.attentionReason == .awaitingPermission || sess.attentionReason == .awaitingQuestion {
+            sess.attentionReason = .none
+          }
+          if sess.workStatus == .permission {
+            sess.workStatus = .working
+          }
+          sessions[idx] = sess
         }
-        if sess.workStatus == .permission {
-          sess.workStatus = .working
-        }
-        sessions[idx] = sess
       }
     }
 
@@ -2441,7 +2449,9 @@ final class ServerAppState {
   }
 
   private func isAutonomyConfigured(approvalPolicy: String?, sandboxMode: String?) -> Bool {
-    approvalPolicy != nil || sandboxMode != nil
+    // Codex defaults are meaningful server-side even when explicit policy/mode
+    // values are omitted from summaries/deltas, so treat nil/nil as configured.
+    true
   }
 
   private func trimInactiveSessionPayload(_ sessionId: String, reason: String) {

@@ -22,7 +22,7 @@ struct StandardToolCard: View {
       HStack(spacing: 0) {
         Rectangle()
           .fill(color)
-          .frame(width: 2)
+          .frame(width: EdgeBar.width)
           .padding(.vertical, 4)
 
         HStack(spacing: 10) {

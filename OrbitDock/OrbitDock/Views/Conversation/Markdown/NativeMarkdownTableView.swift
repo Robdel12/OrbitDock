@@ -122,7 +122,12 @@ final class NativeMarkdownTableView: PlatformView {
       addSubview(label)
     }
 
-    addColumnSeparators(rowY: yOffset, rowHeight: metrics.headerRowHeight, columnCount: metrics.columnCount, columnWidth: metrics.columnWidth)
+    addColumnSeparators(
+      rowY: yOffset,
+      rowHeight: metrics.headerRowHeight,
+      columnCount: metrics.columnCount,
+      columnWidth: metrics.columnWidth
+    )
     yOffset += metrics.headerRowHeight
 
     // Data rows
@@ -153,7 +158,12 @@ final class NativeMarkdownTableView: PlatformView {
         )
         addSubview(label)
       }
-      addColumnSeparators(rowY: yOffset, rowHeight: rowHeight, columnCount: metrics.columnCount, columnWidth: metrics.columnWidth)
+      addColumnSeparators(
+        rowY: yOffset,
+        rowHeight: rowHeight,
+        columnCount: metrics.columnCount,
+        columnWidth: metrics.columnWidth
+      )
       addHorizontalSeparator(y: yOffset + rowHeight)
       yOffset += rowHeight
     }
@@ -211,7 +221,12 @@ final class NativeMarkdownTableView: PlatformView {
 
   // MARK: - Height Calculation
 
-  static func requiredHeight(headers: [String], rows: [[String]], width: CGFloat, style: ContentStyle = .standard) -> CGFloat {
+  static func requiredHeight(
+    headers: [String],
+    rows: [[String]],
+    width: CGFloat,
+    style: ContentStyle = .standard
+  ) -> CGFloat {
     layoutMetrics(headers: headers, rows: rows, width: width, style: style).totalHeight
   }
 
@@ -232,7 +247,10 @@ final class NativeMarkdownTableView: PlatformView {
     let textWidth = max(1, columnWidth - cellHorizontalPadding * 2)
 
     let bodyFont = PlatformFont.systemFont(ofSize: style == .thinking ? TypeScale.code : TypeScale.chatBody)
-    let headerFont = PlatformFont.systemFont(ofSize: style == .thinking ? TypeScale.code : TypeScale.chatBody, weight: .semibold)
+    let headerFont = PlatformFont.systemFont(
+      ofSize: style == .thinking ? TypeScale.code : TypeScale.chatBody,
+      weight: .semibold
+    )
     let bodySingleLine = ceil(bodyFont.ascender - bodyFont.descender + bodyFont.leading)
     let headerSingleLine = ceil(headerFont.ascender - headerFont.descender + headerFont.leading)
     let minimumBodyRowHeight = bodySingleLine + cellVerticalPadding * 2

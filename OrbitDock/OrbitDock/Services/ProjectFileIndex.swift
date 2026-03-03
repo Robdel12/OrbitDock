@@ -59,8 +59,7 @@ final class ProjectFileIndex {
     return nameMatches + pathMatches
   }
 
-  nonisolated
-  private static func runGitLsFiles(in directory: String) async -> [ProjectFile] {
+  private nonisolated static func runGitLsFiles(in directory: String) async -> [ProjectFile] {
     #if os(macOS)
       let gitFiles: [ProjectFile] = await withCheckedContinuation { continuation in
         DispatchQueue.global(qos: .userInitiated).async {
@@ -109,8 +108,7 @@ final class ProjectFileIndex {
     return await Self.scanWithFileManager(in: directory)
   }
 
-  nonisolated
-  private static func scanWithFileManager(in directory: String) async -> [ProjectFile] {
+  private nonisolated static func scanWithFileManager(in directory: String) async -> [ProjectFile] {
     await withCheckedContinuation { continuation in
       DispatchQueue.global(qos: .userInitiated).async {
         let rootURL = URL(fileURLWithPath: directory, isDirectory: true)

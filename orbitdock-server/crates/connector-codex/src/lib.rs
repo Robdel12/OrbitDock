@@ -52,6 +52,81 @@ struct StreamingMessage {
     from_content_delta: bool,
 }
 
+/// Determines which reasoning event stream is active for the current turn.
+///
+/// codex-protocol can emit both modern and legacy reasoning events for compatibility.
+/// We process only one stream per turn to avoid duplicated timeline rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ReasoningStreamMode {
+    #[default]
+    Unknown,
+    Modern,
+    Legacy,
+}
+
+#[derive(Debug, Default)]
+struct ReasoningEventTracker {
+    summary_mode: ReasoningStreamMode,
+    raw_mode: ReasoningStreamMode,
+}
+
+impl ReasoningEventTracker {
+    fn reset_for_turn(&mut self) {
+        self.summary_mode = ReasoningStreamMode::Unknown;
+        self.raw_mode = ReasoningStreamMode::Unknown;
+    }
+
+    fn should_process_modern_summary(&mut self) -> bool {
+        match self.summary_mode {
+            ReasoningStreamMode::Unknown => {
+                self.summary_mode = ReasoningStreamMode::Modern;
+                true
+            }
+            ReasoningStreamMode::Modern => true,
+            ReasoningStreamMode::Legacy => false,
+        }
+    }
+
+    fn should_process_legacy_summary(&mut self) -> bool {
+        match self.summary_mode {
+            ReasoningStreamMode::Unknown => {
+                self.summary_mode = ReasoningStreamMode::Legacy;
+                true
+            }
+            ReasoningStreamMode::Legacy => true,
+            ReasoningStreamMode::Modern => false,
+        }
+    }
+
+    fn mark_modern_summary_seen(&mut self) {
+        if self.summary_mode == ReasoningStreamMode::Unknown {
+            self.summary_mode = ReasoningStreamMode::Modern;
+        }
+    }
+
+    fn should_process_modern_raw(&mut self) -> bool {
+        match self.raw_mode {
+            ReasoningStreamMode::Unknown => {
+                self.raw_mode = ReasoningStreamMode::Modern;
+                true
+            }
+            ReasoningStreamMode::Modern => true,
+            ReasoningStreamMode::Legacy => false,
+        }
+    }
+
+    fn should_process_legacy_raw(&mut self) -> bool {
+        match self.raw_mode {
+            ReasoningStreamMode::Unknown => {
+                self.raw_mode = ReasoningStreamMode::Legacy;
+                true
+            }
+            ReasoningStreamMode::Legacy => true,
+            ReasoningStreamMode::Modern => false,
+        }
+    }
+}
+
 /// Tracks the current working directory so we only emit changes
 struct EnvironmentTracker {
     cwd: Option<String>,
@@ -61,6 +136,12 @@ struct EnvironmentTracker {
 
 /// Minimum interval between streaming content broadcasts (ms)
 const STREAM_THROTTLE_MS: u128 = 50;
+const DEFAULT_CODEX_SHOW_RAW_REASONING: bool = true;
+const DEFAULT_CODEX_HIDE_REASONING: bool = false;
+const DEFAULT_CODEX_REASONING_SUMMARY: &str = "detailed";
+const ENV_CODEX_SHOW_RAW_REASONING: &str = "ORBITDOCK_CODEX_SHOW_RAW_REASONING";
+const ENV_CODEX_HIDE_REASONING: &str = "ORBITDOCK_CODEX_HIDE_REASONING";
+const ENV_CODEX_REASONING_SUMMARY: &str = "ORBITDOCK_CODEX_REASONING_SUMMARY";
 
 /// Codex connector using direct codex-core integration
 pub struct CodexConnector {
@@ -200,6 +281,28 @@ impl CodexConnector {
             ));
         }
 
+        // Reasoning trace defaults for OrbitDock direct sessions. These can be
+        // overridden via environment variables for troubleshooting.
+        let show_raw_reasoning = parse_bool_env(ENV_CODEX_SHOW_RAW_REASONING)
+            .unwrap_or(DEFAULT_CODEX_SHOW_RAW_REASONING);
+        let hide_reasoning =
+            parse_bool_env(ENV_CODEX_HIDE_REASONING).unwrap_or(DEFAULT_CODEX_HIDE_REASONING);
+        let reasoning_summary = parse_reasoning_summary_env(ENV_CODEX_REASONING_SUMMARY)
+            .unwrap_or_else(|| DEFAULT_CODEX_REASONING_SUMMARY.to_string());
+
+        cli_overrides.push((
+            "show_raw_agent_reasoning".to_string(),
+            toml::Value::Boolean(show_raw_reasoning),
+        ));
+        cli_overrides.push((
+            "hide_agent_reasoning".to_string(),
+            toml::Value::Boolean(hide_reasoning),
+        ));
+        cli_overrides.push((
+            "model_reasoning_summary".to_string(),
+            toml::Value::String(reasoning_summary),
+        ));
+
         // cwd is a ConfigOverrides field, not a TOML config field
         let harness_overrides = ConfigOverrides {
             cwd: Some(std::path::PathBuf::from(cwd)),
@@ -232,6 +335,7 @@ impl CodexConnector {
             branch: None,
             sha: None,
         }));
+        let reasoning_tracker = Arc::new(tokio::sync::Mutex::new(ReasoningEventTracker::default()));
 
         // Spawn async event loop
         let tx = event_tx.clone();
@@ -241,8 +345,12 @@ impl CodexConnector {
         let streaming = streaming_message.clone();
         let counter = msg_counter.clone();
         let tracker = env_tracker.clone();
+        let reasoning = reasoning_tracker.clone();
         tokio::spawn(async move {
-            Self::event_loop(t, tx, buffers, deltas, streaming, counter, tracker).await;
+            Self::event_loop(
+                t, tx, buffers, deltas, streaming, counter, tracker, reasoning,
+            )
+            .await;
         });
 
         Ok(Self {
@@ -310,6 +418,7 @@ impl CodexConnector {
         streaming_message: Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: Arc<AtomicU64>,
         env_tracker: Arc<tokio::sync::Mutex<EnvironmentTracker>>,
+        reasoning_tracker: Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
     ) {
         loop {
             match thread.next_event().await {
@@ -324,6 +433,7 @@ impl CodexConnector {
                         &streaming_message,
                         &msg_counter,
                         &env_tracker,
+                        &reasoning_tracker,
                     ))
                     .await;
                     for ev in events {
@@ -352,6 +462,7 @@ impl CodexConnector {
         streaming_message: &Arc<tokio::sync::Mutex<Option<StreamingMessage>>>,
         msg_counter: &AtomicU64,
         env_tracker: &Arc<tokio::sync::Mutex<EnvironmentTracker>>,
+        reasoning_tracker: &Arc<tokio::sync::Mutex<ReasoningEventTracker>>,
     ) -> Vec<ConnectorEvent> {
         #[allow(unreachable_patterns)]
         match event.msg {
@@ -397,6 +508,10 @@ impl CodexConnector {
                     let mut buffers = delta_buffers.lock().await;
                     buffers.clear();
                 }
+                {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.reset_for_turn();
+                }
                 vec![ConnectorEvent::TurnStarted]
             }
 
@@ -407,6 +522,10 @@ impl CodexConnector {
                     buffers.clear();
                     ids
                 };
+                {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.reset_for_turn();
+                }
                 let mut events = vec![ConnectorEvent::TurnCompleted];
                 for message_id in pending_delta_ids {
                     events.push(ConnectorEvent::MessageUpdated {
@@ -428,6 +547,10 @@ impl CodexConnector {
                     buffers.clear();
                     ids
                 };
+                {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.reset_for_turn();
+                }
                 let mut events = vec![ConnectorEvent::TurnAborted {
                     reason: format!("{:?}", e.reason),
                 }];
@@ -502,6 +625,13 @@ impl CodexConnector {
             }
 
             EventMsg::AgentReasoning(e) => {
+                let should_process = {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.should_process_legacy_summary()
+                };
+                if !should_process {
+                    return vec![];
+                }
                 let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
                 let message = orbitdock_protocol::Message {
                     id: format!("thinking-{}-{}", event.id, seq),
@@ -509,7 +639,7 @@ impl CodexConnector {
                     message_type: orbitdock_protocol::MessageType::Thinking,
                     content: e.text,
                     tool_name: None,
-                    tool_input: None,
+                    tool_input: reasoning_trace_metadata_json("summary", "legacy", None, None),
                     tool_output: None,
                     is_error: false,
                     is_in_progress: false,
@@ -522,6 +652,18 @@ impl CodexConnector {
 
             EventMsg::ExecCommandBegin(e) => {
                 let command_str = e.command.join(" ");
+                let tool_input = serde_json::to_string(&json!({
+                    "command": command_str.clone(),
+                    "argv": e.command.clone(),
+                    "cwd": e.cwd.display().to_string(),
+                    "source": e.source.to_string(),
+                    "call_id": e.call_id.clone(),
+                    "turn_id": e.turn_id.clone(),
+                    "process_id": e.process_id.clone(),
+                    "interaction_input": e.interaction_input.clone(),
+                    "parsed_cmd": e.parsed_cmd.clone(),
+                }))
+                .ok();
                 // Initialize output buffer for this call
                 {
                     let mut buffers = output_buffers.lock().await;
@@ -560,9 +702,7 @@ impl CodexConnector {
                     message_type: orbitdock_protocol::MessageType::Tool,
                     content: command_str.clone(),
                     tool_name: Some("Bash".to_string()),
-                    tool_input: Some(
-                        serde_json::to_string(&json!({"command": command_str})).unwrap_or_default(),
-                    ),
+                    tool_input,
                     tool_output: None,
                     is_error: false,
                     is_in_progress: true,
@@ -673,6 +813,10 @@ impl CodexConnector {
                 let tool_input = serde_json::to_string(&json!({
                     "file_path": first_file,
                     "unified_diff": unified_diff,
+                    "files": files,
+                    "call_id": e.call_id,
+                    "turn_id": e.turn_id,
+                    "auto_approved": e.auto_approved,
                 }))
                 .unwrap_or_default();
 
@@ -694,11 +838,24 @@ impl CodexConnector {
             }
 
             EventMsg::PatchApplyEnd(e) => {
-                let output = if e.success {
-                    "Applied successfully".to_string()
+                let mut output_lines: Vec<String> = Vec::new();
+                output_lines.push(format!("status: {:?}", e.status));
+                if e.success {
+                    output_lines.push("result: applied successfully".to_string());
                 } else {
-                    format!("Failed: {}", e.stderr)
-                };
+                    output_lines.push("result: failed".to_string());
+                }
+                if !e.stdout.trim().is_empty() {
+                    output_lines.push(String::new());
+                    output_lines.push("stdout:".to_string());
+                    output_lines.push(e.stdout);
+                }
+                if !e.stderr.trim().is_empty() {
+                    output_lines.push(String::new());
+                    output_lines.push("stderr:".to_string());
+                    output_lines.push(e.stderr);
+                }
+                let output = output_lines.join("\n");
 
                 vec![ConnectorEvent::MessageUpdated {
                     message_id: e.call_id,
@@ -711,15 +868,21 @@ impl CodexConnector {
             }
 
             EventMsg::McpToolCallBegin(e) => {
-                let tool_name = format!("mcp__{}__{}", e.invocation.server, e.invocation.tool);
-                let input_str = e
-                    .invocation
-                    .arguments
-                    .as_ref()
-                    .map(|v| serde_json::to_string(v).unwrap_or_default());
+                let server = e.invocation.server.clone();
+                let tool = e.invocation.tool.clone();
+                let call_id = e.call_id.clone();
+                let tool_name = format!("mcp__{}__{}", server, tool);
+                let input_str = tool_input_with_arguments(
+                    json!({
+                        "call_id": call_id.clone(),
+                        "server": server,
+                        "tool": tool,
+                    }),
+                    e.invocation.arguments.as_ref(),
+                );
 
                 let message = orbitdock_protocol::Message {
-                    id: e.call_id.clone(),
+                    id: call_id,
                     session_id: String::new(),
                     message_type: orbitdock_protocol::MessageType::Tool,
                     content: e.invocation.tool.clone(),
@@ -807,13 +970,22 @@ impl CodexConnector {
             }
 
             EventMsg::DynamicToolCallRequest(e) => {
+                let call_id = e.call_id.clone();
+                let turn_id = e.turn_id.clone();
+                let tool = e.tool.clone();
                 let message = orbitdock_protocol::Message {
-                    id: e.call_id.clone(),
+                    id: call_id.clone(),
                     session_id: String::new(),
                     message_type: orbitdock_protocol::MessageType::Tool,
-                    content: e.tool.clone(),
-                    tool_name: Some(e.tool),
-                    tool_input: serde_json::to_string(&e.arguments).ok(),
+                    content: tool.clone(),
+                    tool_name: Some(tool),
+                    tool_input: tool_input_with_arguments(
+                        json!({
+                            "call_id": call_id,
+                            "turn_id": turn_id,
+                        }),
+                        Some(&e.arguments),
+                    ),
                     tool_output: None,
                     is_error: false,
                     is_in_progress: true,
@@ -856,9 +1028,14 @@ impl CodexConnector {
             }
 
             EventMsg::CollabAgentSpawnBegin(e) => {
+                let description = if e.prompt.trim().is_empty() {
+                    "Spawning agent".to_string()
+                } else {
+                    e.prompt.clone()
+                };
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "spawn_agent",
-                    "description": "Spawning agent",
+                    "description": description,
                     "sender_thread_id": e.sender_thread_id.to_string(),
                     "prompt": e.prompt,
                 }))
@@ -885,8 +1062,16 @@ impl CodexConnector {
                     .new_thread_id
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "none".to_string());
+                let receiver_label = collab_agent_label(
+                    &receiver,
+                    e.new_agent_nickname.as_deref(),
+                    e.new_agent_role.as_deref(),
+                );
                 let status_text = format!("{:?}", e.status);
-                let output = format!("spawned: {receiver}\nstatus: {status_text}");
+                let output = format!(
+                    "sender: {}\nspawned: {}\nstatus: {}",
+                    e.sender_thread_id, receiver_label, status_text
+                );
                 vec![ConnectorEvent::MessageUpdated {
                     message_id: e.call_id,
                     content: None,
@@ -901,6 +1086,7 @@ impl CodexConnector {
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "agent",
                     "description": e.prompt,
+                    "sender_thread_id": e.sender_thread_id.to_string(),
                     "receiver_thread_id": e.receiver_thread_id.to_string(),
                 }))
                 .ok();
@@ -923,9 +1109,14 @@ impl CodexConnector {
 
             EventMsg::CollabAgentInteractionEnd(e) => {
                 let status_text = format!("{:?}", e.status);
+                let receiver_label = collab_agent_label(
+                    &e.receiver_thread_id.to_string(),
+                    e.receiver_agent_nickname.as_deref(),
+                    e.receiver_agent_role.as_deref(),
+                );
                 let output = format!(
-                    "receiver: {}\nstatus: {}",
-                    e.receiver_thread_id, status_text
+                    "sender: {}\nreceiver: {}\nstatus: {}",
+                    e.sender_thread_id, receiver_label, status_text
                 );
                 vec![ConnectorEvent::MessageUpdated {
                     message_id: e.call_id,
@@ -943,10 +1134,23 @@ impl CodexConnector {
                     .iter()
                     .map(ToString::to_string)
                     .collect();
+                let receiver_agents: Vec<serde_json::Value> = e
+                    .receiver_agents
+                    .iter()
+                    .map(|agent| {
+                        json!({
+                            "thread_id": agent.thread_id.to_string(),
+                            "agent_nickname": agent.agent_nickname,
+                            "agent_role": agent.agent_role,
+                        })
+                    })
+                    .collect();
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "wait",
                     "description": format!("Waiting for {} agent(s)", receiver_ids.len()),
+                    "sender_thread_id": e.sender_thread_id.to_string(),
                     "receiver_thread_ids": receiver_ids,
+                    "receiver_agents": receiver_agents,
                 }))
                 .ok();
                 let message = orbitdock_protocol::Message {
@@ -969,10 +1173,24 @@ impl CodexConnector {
             EventMsg::CollabWaitingEnd(e) => {
                 let mut lines: Vec<String> = Vec::new();
                 let mut has_error = false;
-                for (thread_id, status) in &e.statuses {
-                    let status_text = format!("{:?}", status);
-                    lines.push(format!("{thread_id}: {status_text}"));
-                    has_error = has_error || agent_status_failed(status);
+                lines.push(format!("sender: {}", e.sender_thread_id));
+                if !e.agent_statuses.is_empty() {
+                    for entry in &e.agent_statuses {
+                        let status_text = format!("{:?}", entry.status);
+                        let label = collab_agent_label(
+                            &entry.thread_id.to_string(),
+                            entry.agent_nickname.as_deref(),
+                            entry.agent_role.as_deref(),
+                        );
+                        lines.push(format!("{label}: {status_text}"));
+                        has_error = has_error || agent_status_failed(&entry.status);
+                    }
+                } else {
+                    for (thread_id, status) in &e.statuses {
+                        let status_text = format!("{:?}", status);
+                        lines.push(format!("{thread_id}: {status_text}"));
+                        has_error = has_error || agent_status_failed(status);
+                    }
                 }
                 let output = if lines.is_empty() {
                     "No agent statuses reported".to_string()
@@ -993,6 +1211,7 @@ impl CodexConnector {
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "close",
                     "description": "Closing agent",
+                    "sender_thread_id": e.sender_thread_id.to_string(),
                     "receiver_thread_id": e.receiver_thread_id.to_string(),
                 }))
                 .ok();
@@ -1015,9 +1234,14 @@ impl CodexConnector {
 
             EventMsg::CollabCloseEnd(e) => {
                 let status_text = format!("{:?}", e.status);
+                let receiver_label = collab_agent_label(
+                    &e.receiver_thread_id.to_string(),
+                    e.receiver_agent_nickname.as_deref(),
+                    e.receiver_agent_role.as_deref(),
+                );
                 let output = format!(
-                    "receiver: {}\nstatus: {}",
-                    e.receiver_thread_id, status_text
+                    "sender: {}\nreceiver: {}\nstatus: {}",
+                    e.sender_thread_id, receiver_label, status_text
                 );
                 vec![ConnectorEvent::MessageUpdated {
                     message_id: e.call_id,
@@ -1033,7 +1257,10 @@ impl CodexConnector {
                 let tool_input = serde_json::to_string(&json!({
                     "subagent_type": "resume",
                     "description": "Resuming agent",
+                    "sender_thread_id": e.sender_thread_id.to_string(),
                     "receiver_thread_id": e.receiver_thread_id.to_string(),
+                    "receiver_agent_nickname": e.receiver_agent_nickname,
+                    "receiver_agent_role": e.receiver_agent_role,
                 }))
                 .ok();
                 let message = orbitdock_protocol::Message {
@@ -1055,9 +1282,14 @@ impl CodexConnector {
 
             EventMsg::CollabResumeEnd(e) => {
                 let status_text = format!("{:?}", e.status);
+                let receiver_label = collab_agent_label(
+                    &e.receiver_thread_id.to_string(),
+                    e.receiver_agent_nickname.as_deref(),
+                    e.receiver_agent_role.as_deref(),
+                );
                 let output = format!(
-                    "receiver: {}\nstatus: {}",
-                    e.receiver_thread_id, status_text
+                    "sender: {}\nreceiver: {}\nstatus: {}",
+                    e.sender_thread_id, receiver_label, status_text
                 );
                 vec![ConnectorEvent::MessageUpdated {
                     message_id: e.call_id,
@@ -1153,7 +1385,26 @@ impl CodexConnector {
                     "questions": e.questions,
                 }))
                 .ok();
-                vec![ConnectorEvent::ApprovalRequested {
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let message = orbitdock_protocol::Message {
+                    id: format!("ask-user-question-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: question_text
+                        .clone()
+                        .unwrap_or_else(|| "Question requested".to_string()),
+                    tool_name: Some("askuserquestion".to_string()),
+                    tool_input: tool_input.clone(),
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![
+                    ConnectorEvent::MessageCreated(message),
+                    ConnectorEvent::ApprovalRequested {
                     request_id: e.call_id,
                     approval_type: ApprovalType::Question,
                     tool_name: None,
@@ -1163,7 +1414,8 @@ impl CodexConnector {
                     diff: None,
                     question: question_text,
                     proposed_amendment: None,
-                }]
+                },
+                ]
             }
 
             EventMsg::ElicitationRequest(e) => {
@@ -1173,21 +1425,41 @@ impl CodexConnector {
                     Some(e.message.clone())
                 };
                 let tool_input = serde_json::to_string(&e).ok();
-                vec![ConnectorEvent::ApprovalRequested {
-                    request_id: format!(
-                        "elicitation-{}-{}",
-                        e.server_name,
-                        serde_json::to_string(&e.id).unwrap_or_else(|_| "request".to_string())
-                    ),
-                    approval_type: ApprovalType::Question,
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let message = orbitdock_protocol::Message {
+                    id: format!("mcp-approval-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content: question_text
+                        .clone()
+                        .unwrap_or_else(|| "MCP approval requested".to_string()),
                     tool_name: Some("mcp_approval".to_string()),
-                    tool_input,
-                    command: None,
-                    file_path: None,
-                    diff: None,
-                    question: question_text,
-                    proposed_amendment: None,
-                }]
+                    tool_input: tool_input.clone(),
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![
+                    ConnectorEvent::MessageCreated(message),
+                    ConnectorEvent::ApprovalRequested {
+                        request_id: format!(
+                            "elicitation-{}-{}",
+                            e.server_name,
+                            serde_json::to_string(&e.id).unwrap_or_else(|_| "request".to_string())
+                        ),
+                        approval_type: ApprovalType::Question,
+                        tool_name: Some("mcp_approval".to_string()),
+                        tool_input,
+                        command: None,
+                        file_path: None,
+                        diff: None,
+                        question: question_text,
+                        proposed_amendment: None,
+                    },
+                ]
             }
 
             EventMsg::TokenCount(e) => {
@@ -1214,7 +1486,32 @@ impl CodexConnector {
 
             EventMsg::PlanUpdate(e) => {
                 let plan = serde_json::to_string(&e).unwrap_or_default();
-                vec![ConnectorEvent::PlanUpdated(plan)]
+                let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
+                let explanation = e
+                    .explanation
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("Plan updated");
+                let content = format!("{} ({} steps)", explanation, e.plan.len());
+                let message = orbitdock_protocol::Message {
+                    id: format!("update-plan-{}-{}", event.id, seq),
+                    session_id: String::new(),
+                    message_type: orbitdock_protocol::MessageType::Tool,
+                    content,
+                    tool_name: Some("update_plan".to_string()),
+                    tool_input: serde_json::to_string(&e).ok(),
+                    tool_output: None,
+                    is_error: false,
+                    is_in_progress: false,
+                    timestamp: iso_now(),
+                    duration_ms: None,
+                    images: vec![],
+                };
+                vec![
+                    ConnectorEvent::PlanUpdated(plan),
+                    ConnectorEvent::MessageCreated(message),
+                ]
             }
 
             EventMsg::PlanDelta(e) => {
@@ -1224,6 +1521,7 @@ impl CodexConnector {
                     message_id,
                     e.delta,
                     orbitdock_protocol::MessageType::Thinking,
+                    None,
                 )
                 .await
             }
@@ -1248,6 +1546,10 @@ impl CodexConnector {
             }
 
             EventMsg::ModelReroute(e) => {
+                {
+                    let mut model = current_model.lock().await;
+                    *model = Some(e.to_model.clone());
+                }
                 let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
                 let reason = format!("{:?}", e.reason);
                 let message = orbitdock_protocol::Message {
@@ -1604,39 +1906,80 @@ impl CodexConnector {
             }
 
             EventMsg::ReasoningContentDelta(e) => {
+                let should_process = {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.should_process_modern_summary()
+                };
+                if !should_process {
+                    return vec![];
+                }
                 let message_id = format!("reasoning-summary-{}-{}", e.item_id, e.summary_index);
                 Self::apply_delta_message(
                     delta_buffers,
                     message_id,
                     e.delta,
                     orbitdock_protocol::MessageType::Thinking,
+                    reasoning_trace_metadata_json(
+                        "summary",
+                        "modern",
+                        Some(e.item_id.as_str()),
+                        Some(e.summary_index),
+                    ),
                 )
                 .await
             }
 
             EventMsg::ReasoningRawContentDelta(e) => {
+                let should_process = {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.should_process_modern_raw()
+                };
+                if !should_process {
+                    return vec![];
+                }
                 let message_id = format!("reasoning-raw-{}-{}", e.item_id, e.content_index);
                 Self::apply_delta_message(
                     delta_buffers,
                     message_id,
                     e.delta,
                     orbitdock_protocol::MessageType::Thinking,
+                    reasoning_trace_metadata_json(
+                        "raw",
+                        "modern",
+                        Some(e.item_id.as_str()),
+                        Some(e.content_index),
+                    ),
                 )
                 .await
             }
 
             EventMsg::AgentReasoningDelta(e) => {
+                let should_process = {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.should_process_legacy_summary()
+                };
+                if !should_process {
+                    return vec![];
+                }
                 let message_id = format!("reasoning-summary-legacy-{}", event.id);
                 Self::apply_delta_message(
                     delta_buffers,
                     message_id,
                     e.delta,
                     orbitdock_protocol::MessageType::Thinking,
+                    reasoning_trace_metadata_json("summary", "legacy", None, None),
                 )
                 .await
             }
 
             EventMsg::AgentReasoningRawContent(e) => {
+                let should_process = {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.should_process_legacy_raw()
+                };
+                if !should_process {
+                    return vec![];
+                }
                 let seq = msg_counter.fetch_add(1, Ordering::SeqCst);
                 let message = orbitdock_protocol::Message {
                     id: format!("reasoning-raw-{}-{}", event.id, seq),
@@ -1644,7 +1987,7 @@ impl CodexConnector {
                     message_type: orbitdock_protocol::MessageType::Thinking,
                     content: e.text,
                     tool_name: None,
-                    tool_input: None,
+                    tool_input: reasoning_trace_metadata_json("raw", "legacy", None, None),
                     tool_output: None,
                     is_error: false,
                     is_in_progress: false,
@@ -1656,32 +1999,30 @@ impl CodexConnector {
             }
 
             EventMsg::AgentReasoningRawContentDelta(e) => {
+                let should_process = {
+                    let mut tracker = reasoning_tracker.lock().await;
+                    tracker.should_process_legacy_raw()
+                };
+                if !should_process {
+                    return vec![];
+                }
                 let message_id = format!("reasoning-raw-legacy-{}", event.id);
                 Self::apply_delta_message(
                     delta_buffers,
                     message_id,
                     e.delta,
                     orbitdock_protocol::MessageType::Thinking,
+                    reasoning_trace_metadata_json("raw", "legacy", None, None),
                 )
                 .await
             }
 
-            EventMsg::AgentReasoningSectionBreak(e) => {
-                let message = orbitdock_protocol::Message {
-                    id: format!("reasoning-section-{}-{}", e.item_id, e.summary_index),
-                    session_id: String::new(),
-                    message_type: orbitdock_protocol::MessageType::Thinking,
-                    content: format!("Reasoning section {}", e.summary_index + 1),
-                    tool_name: None,
-                    tool_input: None,
-                    tool_output: None,
-                    is_error: false,
-                    is_in_progress: false,
-                    timestamp: iso_now(),
-                    duration_ms: None,
-                    images: vec![],
-                };
-                vec![ConnectorEvent::MessageCreated(message)]
+            EventMsg::AgentReasoningSectionBreak(_) => {
+                // Separator-only signal for reasoning summaries. We use summary/content deltas for
+                // visible rows and do not render placeholder "Reasoning section N" messages.
+                let mut tracker = reasoning_tracker.lock().await;
+                tracker.mark_modern_summary_seen();
+                vec![]
             }
 
             EventMsg::EnteredReviewMode(e) => {
@@ -1744,6 +2085,7 @@ impl CodexConnector {
                         format!("plan-{}", item.id),
                         item.text,
                         orbitdock_protocol::MessageType::Thinking,
+                        None,
                     )
                     .await
                 }
@@ -1784,6 +2126,89 @@ impl CodexConnector {
                         is_in_progress: Some(false),
                         duration_ms: None,
                     }]
+                }
+                codex_protocol::items::TurnItem::Reasoning(item) => {
+                    let mut events: Vec<ConnectorEvent> = Vec::new();
+
+                    for (idx, summary) in item.summary_text.into_iter().enumerate() {
+                        let message_id = format!("reasoning-summary-{}-{}", item.id, idx);
+                        let had_buffer = {
+                            let mut buffers = delta_buffers.lock().await;
+                            buffers.remove(&message_id).is_some()
+                        };
+                        if had_buffer {
+                            events.push(ConnectorEvent::MessageUpdated {
+                                message_id,
+                                content: Some(summary),
+                                tool_output: None,
+                                is_error: None,
+                                is_in_progress: Some(false),
+                                duration_ms: None,
+                            });
+                        } else {
+                            let message = orbitdock_protocol::Message {
+                                id: message_id,
+                                session_id: String::new(),
+                                message_type: orbitdock_protocol::MessageType::Thinking,
+                                content: summary,
+                                tool_name: None,
+                                tool_input: reasoning_trace_metadata_json(
+                                    "summary",
+                                    "modern",
+                                    Some(item.id.as_str()),
+                                    Some(idx as i64),
+                                ),
+                                tool_output: None,
+                                is_error: false,
+                                is_in_progress: false,
+                                timestamp: iso_now(),
+                                duration_ms: None,
+                                images: vec![],
+                            };
+                            events.push(ConnectorEvent::MessageCreated(message));
+                        }
+                    }
+
+                    for (idx, raw) in item.raw_content.into_iter().enumerate() {
+                        let message_id = format!("reasoning-raw-{}-{}", item.id, idx);
+                        let had_buffer = {
+                            let mut buffers = delta_buffers.lock().await;
+                            buffers.remove(&message_id).is_some()
+                        };
+                        if had_buffer {
+                            events.push(ConnectorEvent::MessageUpdated {
+                                message_id,
+                                content: Some(raw),
+                                tool_output: None,
+                                is_error: None,
+                                is_in_progress: Some(false),
+                                duration_ms: None,
+                            });
+                        } else {
+                            let message = orbitdock_protocol::Message {
+                                id: message_id,
+                                session_id: String::new(),
+                                message_type: orbitdock_protocol::MessageType::Thinking,
+                                content: raw,
+                                tool_name: None,
+                                tool_input: reasoning_trace_metadata_json(
+                                    "raw",
+                                    "modern",
+                                    Some(item.id.as_str()),
+                                    Some(idx as i64),
+                                ),
+                                tool_output: None,
+                                is_error: false,
+                                is_in_progress: false,
+                                timestamp: iso_now(),
+                                duration_ms: None,
+                                images: vec![],
+                            };
+                            events.push(ConnectorEvent::MessageCreated(message));
+                        }
+                    }
+
+                    events
                 }
                 codex_protocol::items::TurnItem::ContextCompaction(item) => {
                     vec![ConnectorEvent::MessageUpdated {
@@ -2118,6 +2543,7 @@ impl CodexConnector {
         message_id: String,
         delta: String,
         message_type: orbitdock_protocol::MessageType,
+        tool_input: Option<String>,
     ) -> Vec<ConnectorEvent> {
         let (is_new, content) = {
             let mut buffers = delta_buffers.lock().await;
@@ -2141,7 +2567,7 @@ impl CodexConnector {
                     message_type,
                     content,
                     tool_name: None,
-                    tool_input: None,
+                    tool_input,
                     tool_output: None,
                     is_error: false,
                     is_in_progress: true,
@@ -2571,6 +2997,17 @@ impl CodexConnector {
             },
         });
 
+        let model = {
+            let current = self.current_model.lock().await;
+            current.clone().unwrap_or_else(|| "gpt-5-codex".to_string())
+        };
+        let effort = {
+            let current = self.current_reasoning_effort.lock().await;
+            *current
+        };
+        let collaboration_mode =
+            collaboration_mode_from_permission_mode(permission_mode, model, effort);
+
         let op = Op::OverrideTurnContext {
             cwd: None,
             approval_policy: policy,
@@ -2579,7 +3016,7 @@ impl CodexConnector {
             model: None,
             effort: None,
             summary: None,
-            collaboration_mode: None,
+            collaboration_mode,
             personality: None,
         };
 
@@ -2588,8 +3025,8 @@ impl CodexConnector {
         })?;
 
         info!(
-            "Updated session config: approval={:?}, sandbox={:?}",
-            approval_policy, sandbox_mode
+            "Updated session config: approval={:?}, sandbox={:?}, permission_mode={:?}",
+            approval_policy, sandbox_mode, permission_mode
         );
         Ok(())
     }
@@ -2709,6 +3146,105 @@ fn dynamic_tool_output_to_text(
     } else {
         Some(lines.join("\n"))
     }
+}
+
+fn parse_bool_env(name: &str) -> Option<bool> {
+    let raw = std::env::var(name).ok()?;
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        other => {
+            warn!(
+                "Ignoring invalid boolean env {}={} (expected true/false, 1/0, yes/no, on/off)",
+                name, other
+            );
+            None
+        }
+    }
+}
+
+fn parse_reasoning_summary_env(name: &str) -> Option<String> {
+    let raw = std::env::var(name).ok()?;
+    let value = raw.trim().to_ascii_lowercase();
+    match value.as_str() {
+        "auto" | "concise" | "detailed" | "none" => Some(value),
+        other => {
+            warn!(
+                "Ignoring invalid reasoning summary env {}={} (expected auto|concise|detailed|none)",
+                name, other
+            );
+            None
+        }
+    }
+}
+
+fn tool_input_with_arguments(
+    metadata: serde_json::Value,
+    arguments: Option<&serde_json::Value>,
+) -> Option<String> {
+    let mut payload = match metadata {
+        serde_json::Value::Object(object) => object,
+        _ => serde_json::Map::new(),
+    };
+
+    if let Some(args_value) = arguments {
+        payload.insert("arguments".to_string(), args_value.clone());
+
+        if let serde_json::Value::Object(args_object) = args_value {
+            for (key, value) in args_object {
+                if !payload.contains_key(key) {
+                    payload.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+
+    serde_json::to_string(&serde_json::Value::Object(payload)).ok()
+}
+
+fn collab_agent_label(
+    thread_id: &str,
+    agent_nickname: Option<&str>,
+    agent_role: Option<&str>,
+) -> String {
+    let mut parts = vec![thread_id.to_string()];
+    if let Some(nickname) = agent_nickname {
+        let trimmed = nickname.trim();
+        if !trimmed.is_empty() {
+            parts.push(format!("nickname={trimmed}"));
+        }
+    }
+    if let Some(role) = agent_role {
+        let trimmed = role.trim();
+        if !trimmed.is_empty() {
+            parts.push(format!("role={trimmed}"));
+        }
+    }
+    parts.join(" · ")
+}
+
+fn reasoning_trace_metadata_json(
+    reasoning_kind: &'static str,
+    stream: &'static str,
+    item_id: Option<&str>,
+    part_index: Option<i64>,
+) -> Option<String> {
+    let mut metadata = json!({
+        "kind": "reasoning_trace",
+        "reasoning_kind": reasoning_kind,
+        "stream": stream,
+    });
+
+    if let Some(object) = metadata.as_object_mut() {
+        if let Some(id) = item_id {
+            object.insert("item_id".to_string(), json!(id));
+        }
+        if let Some(index) = part_index {
+            object.insert("part_index".to_string(), json!(index));
+        }
+    }
+
+    serde_json::to_string(&metadata).ok()
 }
 
 fn truncate_for_display(value: &str, max_chars: usize) -> String {

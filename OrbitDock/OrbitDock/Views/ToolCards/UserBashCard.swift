@@ -338,7 +338,7 @@ struct UserBashCard: View {
             if showErrorState {
               Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 9))
-                .foregroundStyle(Color.statusWaiting)
+                .foregroundStyle(Color.feedbackCaution)
             }
 
             if bash.hasOutput {

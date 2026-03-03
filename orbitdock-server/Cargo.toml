@@ -16,10 +16,10 @@ authors = ["Robert DeLuca"]
 
 [workspace.dependencies]
 # Codex direct integration (OSS: https://github.com/openai/codex)
-codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.106.0" }
-codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.106.0" }
-codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.106.0" }
-codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.106.0" }
+codex-core = { git = "https://github.com/openai/codex", tag = "rust-v0.107.0" }
+codex-protocol = { git = "https://github.com/openai/codex", tag = "rust-v0.107.0" }
+codex-arg0 = { git = "https://github.com/openai/codex", tag = "rust-v0.107.0" }
+codex-login = { git = "https://github.com/openai/codex", tag = "rust-v0.107.0" }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }

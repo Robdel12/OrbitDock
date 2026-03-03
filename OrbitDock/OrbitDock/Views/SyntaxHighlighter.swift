@@ -137,7 +137,20 @@ enum SyntaxHighlighter {
       "break", "continue", "throw", "try", "catch", "finally", "new", "typeof", "instanceof", "this", "class",
       "extends", "static", "async", "await", "import", "export", "from", "as", "true", "false", "null", "undefined",
     ]
-    let types = ["Array", "Object", "String", "Number", "Boolean", "Promise", "Map", "Set", "Date", "Error", "JSON", "console"]
+    let types = [
+      "Array",
+      "Object",
+      "String",
+      "Number",
+      "Boolean",
+      "Promise",
+      "Map",
+      "Set",
+      "Date",
+      "Error",
+      "JSON",
+      "console",
+    ]
 
     applyLinePatterns(
       result,
@@ -154,7 +167,8 @@ enum SyntaxHighlighter {
   private static func highlightPythonLine(_ result: NSMutableAttributedString, line: String) {
     let keywords = [
       "def", "class", "if", "elif", "else", "for", "while", "try", "except", "finally", "with", "as", "import", "from",
-      "return", "yield", "raise", "pass", "break", "continue", "lambda", "and", "or", "not", "in", "is", "True", "False",
+      "return", "yield", "raise", "pass", "break", "continue", "lambda", "and", "or", "not", "in", "is", "True",
+      "False",
       "None", "self", "async", "await", "global",
     ]
     let types = ["int", "str", "float", "bool", "list", "dict", "set", "tuple", "print", "range", "len", "open"]
@@ -195,12 +209,14 @@ enum SyntaxHighlighter {
 
   private static func highlightRustLine(_ result: NSMutableAttributedString, line: String) {
     let keywords = [
-      "as", "async", "await", "break", "const", "continue", "else", "enum", "extern", "false", "fn", "for", "if", "impl",
+      "as", "async", "await", "break", "const", "continue", "else", "enum", "extern", "false", "fn", "for", "if",
+      "impl",
       "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static", "struct",
       "super", "trait", "true", "type", "unsafe", "use", "where", "while",
     ]
     let types = [
-      "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "char", "str", "String", "Vec", "Option",
+      "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "char", "str", "String", "Vec",
+      "Option",
       "Result", "Box", "Some", "None", "Ok", "Err",
     ]
 
@@ -253,7 +269,13 @@ enum SyntaxHighlighter {
   private static func highlightYAMLLine(_ result: NSMutableAttributedString, line: String) {
     applyPattern(result, code: line, pattern: #"^[\s-]*[a-zA-Z_][a-zA-Z0-9_]*(?=\s*:)"#, color: colorProperty)
     applyPattern(result, code: line, pattern: #"(?:\"[^\"]*\"|'[^']*')"#, color: colorString)
-    applyPattern(result, code: line, pattern: #"\b(true|false|yes|no|null|~)\b"#, color: colorKeyword, caseInsensitive: true)
+    applyPattern(
+      result,
+      code: line,
+      pattern: #"\b(true|false|yes|no|null|~)\b"#,
+      color: colorKeyword,
+      caseInsensitive: true
+    )
     applyPattern(result, code: line, pattern: #"#.*$"#, color: colorComment)
   }
 

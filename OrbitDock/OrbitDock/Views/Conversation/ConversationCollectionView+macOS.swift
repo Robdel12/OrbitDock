@@ -478,6 +478,8 @@ import SwiftUI
         pendingQuestion: session?.pendingQuestion,
         pendingApprovalId: resolvedApprovalId,
         isDirectSession: session?.isDirect ?? false,
+        isDirectCodexSession: session?.isDirectCodex ?? false,
+        supportsRichToolingCards: session?.isDirectCodex ?? false,
         sessionId: self.sessionId,
         projectPath: session?.projectPath
       )
@@ -839,7 +841,10 @@ import SwiftUI
       guard case let .tool(id) = row.payload else { return nil }
       guard !uiState.expandedToolCards.contains(id) else { return nil }
       guard let message = messagesByID[id] else { return nil }
-      return SharedModelBuilders.compactToolModel(from: message)
+      return SharedModelBuilders.compactToolModel(
+        from: message,
+        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+      )
     }
 
     // MARK: - Expanded Tool Model Builder
@@ -848,7 +853,11 @@ import SwiftUI
       guard case let .tool(id) = row.payload else { return nil }
       guard uiState.expandedToolCards.contains(id) else { return nil }
       guard let message = messagesByID[id] else { return nil }
-      return SharedModelBuilders.expandedToolModel(from: message, messageID: id)
+      return SharedModelBuilders.expandedToolModel(
+        from: message,
+        messageID: id,
+        supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+      )
     }
 
     // MARK: - Approval Card Model
@@ -1124,7 +1133,10 @@ import SwiftUI
           if case let .tool(id) = timelineRow.payload, !uiState.expandedToolCards.contains(id) {
             let compactH: CGFloat
             if let message = messagesByID[id] {
-              let summary = CompactToolHelpers.summary(for: message)
+              let summary = CompactToolHelpers.summary(
+                for: message,
+                supportsRichToolingCards: sourceState.metadata.supportsRichToolingCards
+              )
               let preview = CompactToolHelpers.diffPreview(for: message)
               let livePreview = CompactToolHelpers.liveOutputPreview(for: message)
               compactH = NativeCompactToolCellView.requiredHeight(

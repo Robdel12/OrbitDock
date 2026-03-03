@@ -302,7 +302,7 @@
       let rightEdge = cardWidth - EL.headerHPad - 12 - 8 - 60
 
       switch model.content {
-        case let .bash(command, _):
+        case let .bash(command, _, _):
           let bashColor: UIColor = model.hasError ? UIColor(Color.statusError) : model.toolColor
           let bashAttr = NSMutableAttributedString()
           bashAttr.append(NSAttributedString(
@@ -388,7 +388,7 @@
           subtitleLabel.text = subtitle
           subtitleLabel.isHidden = subtitle?.isEmpty ?? true
           if !items.isEmpty {
-            var statusParts: [String] = ["\(completedCount)/\(items.count) done"]
+            var statusParts = ["\(completedCount)/\(items.count) done"]
             if activeCount > 0 {
               statusParts.append("\(activeCount) active")
             }
@@ -402,7 +402,7 @@
           }
           statsLabel.textColor = EL.textTertiary
 
-        case let .mcp(server, displayTool, subtitle, _):
+        case let .mcp(server, displayTool, subtitle, _, _):
           titleLabel.attributedText = nil
           titleLabel.text = displayTool
           titleLabel.font = EL.headerFont
@@ -412,7 +412,7 @@
           statsLabel.isHidden = false
           statsLabel.text = server
 
-        case let .webFetch(domain, _, _):
+        case let .webFetch(domain, _, _, _):
           titleLabel.attributedText = nil
           titleLabel.text = "WebFetch"
           titleLabel.font = EL.headerFont
@@ -421,7 +421,7 @@
           subtitleLabel.text = domain
           statsLabel.isHidden = true
 
-        case let .webSearch(query, _):
+        case let .webSearch(query, _, _):
           titleLabel.attributedText = nil
           titleLabel.text = "WebSearch"
           titleLabel.font = EL.headerFont
@@ -492,8 +492,8 @@
 
     private func buildContent(model: NativeExpandedToolModel, width: CGFloat) {
       switch model.content {
-        case let .bash(_, output):
-          buildTextOutputContent(output: output, width: width)
+        case let .bash(_, input, output):
+          buildGenericContent(input: input, output: output, width: width)
         case let .edit(_, _, _, _, lines, isWriteNew):
           buildEditContent(lines: lines, isWriteNew: isWriteNew, width: width)
         case let .read(_, _, language, lines):
@@ -506,12 +506,12 @@
           buildTextOutputContent(output: output, width: width)
         case let .todo(_, _, items, output):
           buildTodoContent(items: items, output: output, width: width)
-        case let .mcp(_, _, _, output):
-          buildTextOutputContent(output: output, width: width)
-        case let .webFetch(_, _, output):
-          buildTextOutputContent(output: output, width: width)
-        case let .webSearch(_, output):
-          buildTextOutputContent(output: output, width: width)
+        case let .mcp(_, _, _, input, output):
+          buildGenericContent(input: input, output: output, width: width)
+        case let .webFetch(_, _, input, output):
+          buildGenericContent(input: input, output: output, width: width)
+        case let .webSearch(_, input, output):
+          buildGenericContent(input: input, output: output, width: width)
         case let .generic(_, input, output):
           buildGenericContent(input: input, output: output, width: width)
       }
@@ -920,12 +920,12 @@
 
     private func todoStatusIconName(for status: NativeTodoStatus) -> String {
       switch status {
-        case .pending: return "circle"
-        case .inProgress: return "arrow.triangle.2.circlepath"
-        case .completed: return "checkmark.circle.fill"
-        case .blocked: return "exclamationmark.triangle.fill"
-        case .canceled: return "xmark.circle.fill"
-        case .unknown: return "questionmark.circle"
+        case .pending: "circle"
+        case .inProgress: "arrow.triangle.2.circlepath"
+        case .completed: "checkmark.circle.fill"
+        case .blocked: "exclamationmark.triangle.fill"
+        case .canceled: "xmark.circle.fill"
+        case .unknown: "questionmark.circle"
       }
     }
 
@@ -935,14 +935,30 @@
       let textWidth = width - EL.headerHPad * 2
       var y: CGFloat = EL.contentTopPad
 
-      if let input, !input.isEmpty {
-        let inputHeader = makeSectionHeader("INPUT")
-        inputHeader.frame = CGRect(x: EL.headerHPad, y: y + EL.sectionPadding, width: 60, height: 14)
-        contentContainer.addSubview(inputHeader)
-        y += EL.sectionHeaderHeight + EL.sectionPadding
+      buildPayloadSection(title: "INPUT", payload: input, textWidth: textWidth, y: &y)
+      buildPayloadSection(title: "OUTPUT", payload: output, textWidth: textWidth, y: &y)
+    }
 
-        let inputLines = input.components(separatedBy: "\n")
-        for line in inputLines {
+    private func buildPayloadSection(title: String, payload: String?, textWidth: CGFloat, y: inout CGFloat) {
+      guard let payload, !payload.isEmpty else { return }
+
+      let header = makeSectionHeader(title)
+      header.frame = CGRect(x: EL.headerHPad, y: y + EL.sectionPadding, width: 80, height: 14)
+      contentContainer.addSubview(header)
+      y += EL.sectionHeaderHeight + EL.sectionPadding
+
+      if let entries = EL.structuredPayloadEntries(from: payload) {
+        for entry in entries {
+          let label = makePayloadLabel(key: entry.keyPath, value: entry.value)
+          let display = "\(entry.keyPath): \(entry.value)"
+          let labelH = EL.measuredTextHeight(display, font: EL.codeFont, maxWidth: textWidth)
+          label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
+          contentContainer.addSubview(label)
+          y += labelH
+        }
+      } else {
+        let lines = EL.payloadDisplayLines(from: payload)
+        for line in lines {
           let text = line.isEmpty ? " " : line
           let label = makeCodeLabel(text, color: EL.textSecondary)
           let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
@@ -950,25 +966,9 @@
           contentContainer.addSubview(label)
           y += labelH
         }
-        y += EL.sectionPadding
       }
 
-      if let output, !output.isEmpty {
-        let outputHeader = makeSectionHeader("OUTPUT")
-        outputHeader.frame = CGRect(x: EL.headerHPad, y: y + EL.sectionPadding, width: 60, height: 14)
-        contentContainer.addSubview(outputHeader)
-        y += EL.sectionHeaderHeight + EL.sectionPadding
-
-        let outputLines = output.components(separatedBy: "\n")
-        for line in outputLines {
-          let text = line.isEmpty ? " " : line
-          let label = makeCodeLabel(text, color: EL.textSecondary)
-          let labelH = EL.measuredTextHeight(text, font: EL.codeFont, maxWidth: textWidth)
-          label.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: labelH)
-          contentContainer.addSubview(label)
-          y += labelH
-        }
-      }
+      y += EL.sectionPadding
     }
 
     // MARK: - Label Factories
@@ -985,6 +985,22 @@
       label.lineBreakMode = .byCharWrapping
       label.numberOfLines = 0
       label.text = text
+      return label
+    }
+
+    private func makePayloadLabel(key: String, value: String) -> UILabel {
+      let label = UILabel()
+      label.lineBreakMode = .byCharWrapping
+      label.numberOfLines = 0
+      let attributed = NSMutableAttributedString(string: "\(key): ", attributes: [
+        .font: EL.codeFontStrong,
+        .foregroundColor: EL.textQuaternary,
+      ])
+      attributed.append(NSAttributedString(string: value, attributes: [
+        .font: EL.codeFont,
+        .foregroundColor: EL.textSecondary,
+      ]))
+      label.attributedText = attributed
       return label
     }
 

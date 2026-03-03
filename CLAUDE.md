@@ -124,19 +124,33 @@ The Swift client uses a **hybrid networking model**: REST for client-initiated o
 - `assess_worktree_health` is a pure function for lifecycle management (Active → Orphaned → Stale → Removed)
 - Key files: `git.rs` (detection + CRUD), `worktree.rs` (health assessment), `hook_handler.rs` (enrichment)
 
-### Cosmic Harbor Theme
-- Use custom colors from Theme.swift - deep space backgrounds with nebula undertones
-- `Color.backgroundPrimary` (void black), `Color.backgroundSecondary` (nebula purple), etc.
+### Cosmic Harbor Theme & Design System
+- Design tokens in `Theme.swift`, `DesignTokens.swift`, `ComponentStyles.swift`
+- Use custom colors from Theme.swift - deep space backgrounds with indigo undertones
+- `Color.backgroundPrimary` (charcoal), `Color.backgroundSecondary` (elevated), `Color.backgroundTertiary` (cards)
 - `Color.accent` is the cyan orbit ring - use for active states, links, working sessions
 - Text hierarchy: `Color.textPrimary` / `.textSecondary` / `.textTertiary` / `.textQuaternary` — see "Text Contrast" section below
-- Status colors (5 distinct states):
+- Status colors (5 distinct session states):
   - `.statusWorking` (cyan) - Claude actively processing
   - `.statusPermission` (coral) - Needs tool approval - URGENT
   - `.statusQuestion` (purple) - Claude asked something - URGENT
   - `.statusReply` (soft blue) - Awaiting your next prompt
   - `.statusEnded` (gray) - Session finished
+- Feedback colors (non-session UI states):
+  - `.feedbackPositive` (green) - Saved, connected, success, completed
+  - `.feedbackCaution` (amber) - Approaching limits, warnings
+  - `.feedbackWarning` (orange) - Bash errors, risky states
+  - `.feedbackNegative` (red) - Failed, disconnected
+- Use `Spacing.*` tokens for all padding (xxs/xs/sm/md/lg/xl/xxl)
+- Use `TypeScale.*` tokens for all font sizes (mini/micro/caption/meta/body/code/subhead/reading/title/large/headline)
+- Use `Radius.*` tokens for all corner radii (sm/md/ml/lg/xl)
+- Use `OpacityTier.*` for opacity values (tint/subtle/light/medium/strong/vivid)
+- Use `Motion.*` for animations (snappy/standard/gentle/bouncy/hover/fade)
+- Use `Shadow.*` for shadows (sm/md/lg + glow)
+- Use `IconScale.*` for icon sizes (xs/sm/md/lg/xl/xxl/hero)
+- Use `EdgeBar.width` (3pt) for ALL left accent edge bars
 - All backgrounds should use theme colors, not system defaults
-- Never use system colors (.blue, .green, .purple) - use themed equivalents
+- Never use system colors (.blue, .green, .purple, .orange) - use themed equivalents
 
 ## Server Setup Flow
 

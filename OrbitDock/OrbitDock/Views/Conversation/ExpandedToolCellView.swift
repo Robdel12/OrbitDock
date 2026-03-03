@@ -41,12 +41,12 @@ enum NativeTodoStatus: Hashable {
 
   var label: String {
     switch self {
-      case .pending: return "Pending"
-      case .inProgress: return "In Progress"
-      case .completed: return "Completed"
-      case .blocked: return "Blocked"
-      case .canceled: return "Canceled"
-      case .unknown: return "Unknown"
+      case .pending: "Pending"
+      case .inProgress: "In Progress"
+      case .completed: "Completed"
+      case .blocked: "Blocked"
+      case .canceled: "Canceled"
+      case .unknown: "Unknown"
     }
   }
 }
@@ -81,16 +81,16 @@ struct NativeTodoItem: Hashable {
 // MARK: - Tool Content Enum
 
 enum NativeToolContent {
-  case bash(command: String, output: String?)
+  case bash(command: String, input: String?, output: String?)
   case edit(filename: String?, path: String?, additions: Int, deletions: Int, lines: [DiffLine], isWriteNew: Bool)
   case read(filename: String?, path: String?, language: String, lines: [String])
   case glob(pattern: String, grouped: [(dir: String, files: [String])])
   case grep(pattern: String, grouped: [(file: String, matches: [String])])
   case task(agentLabel: String, agentColor: PlatformColor, description: String, output: String?, isComplete: Bool)
   case todo(title: String, subtitle: String?, items: [NativeTodoItem], output: String?)
-  case mcp(server: String, displayTool: String, subtitle: String?, output: String?)
-  case webFetch(domain: String, url: String, output: String?)
-  case webSearch(query: String, output: String?)
+  case mcp(server: String, displayTool: String, subtitle: String?, input: String?, output: String?)
+  case webFetch(domain: String, url: String, input: String?, output: String?)
+  case webSearch(query: String, input: String?, output: String?)
   case generic(toolName: String, input: String?, output: String?)
 }
 
@@ -219,6 +219,7 @@ enum ExpandedToolLayout {
 
   // Fonts
   static let codeFont = PlatformFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+  static let codeFontStrong = PlatformFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
   static let diffContentFont = PlatformFont.monospacedSystemFont(ofSize: 12, weight: .regular)
   static let headerFont = PlatformFont.systemFont(ofSize: 13, weight: .semibold)
   static let subtitleFont = PlatformFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -266,31 +267,31 @@ enum ExpandedToolLayout {
   static func todoStatusStyle(_ status: NativeTodoStatus) -> TodoStatusStyle {
     switch status {
       case .completed:
-        return TodoStatusStyle(
+        TodoStatusStyle(
           tint: PlatformColor.calibrated(red: 0.40, green: 0.95, blue: 0.55, alpha: 1),
           rowBackground: PlatformColor.calibrated(red: 0.13, green: 0.24, blue: 0.16, alpha: 0.95),
           badgeBackground: PlatformColor.calibrated(red: 0.22, green: 0.44, blue: 0.28, alpha: 1)
         )
       case .inProgress:
-        return TodoStatusStyle(
+        TodoStatusStyle(
           tint: PlatformColor.calibrated(red: 0.53, green: 0.78, blue: 1.0, alpha: 1),
           rowBackground: PlatformColor.calibrated(red: 0.12, green: 0.18, blue: 0.24, alpha: 0.95),
           badgeBackground: PlatformColor.calibrated(red: 0.23, green: 0.37, blue: 0.54, alpha: 1)
         )
       case .blocked:
-        return TodoStatusStyle(
+        TodoStatusStyle(
           tint: PlatformColor.calibrated(red: 0.98, green: 0.72, blue: 0.35, alpha: 1),
           rowBackground: PlatformColor.calibrated(red: 0.26, green: 0.18, blue: 0.08, alpha: 0.95),
           badgeBackground: PlatformColor.calibrated(red: 0.45, green: 0.31, blue: 0.11, alpha: 1)
         )
       case .canceled:
-        return TodoStatusStyle(
+        TodoStatusStyle(
           tint: PlatformColor.calibrated(red: 1.0, green: 0.62, blue: 0.62, alpha: 1),
           rowBackground: PlatformColor.calibrated(red: 0.28, green: 0.14, blue: 0.16, alpha: 0.95),
           badgeBackground: PlatformColor.calibrated(red: 0.48, green: 0.21, blue: 0.25, alpha: 1)
         )
       case .pending, .unknown:
-        return TodoStatusStyle(
+        TodoStatusStyle(
           tint: PlatformColor.calibrated(red: 0.86, green: 0.86, blue: 0.86, alpha: 1),
           rowBackground: PlatformColor.calibrated(red: 0.13, green: 0.13, blue: 0.16, alpha: 0.95),
           badgeBackground: PlatformColor.calibrated(red: 0.24, green: 0.24, blue: 0.29, alpha: 1)
@@ -303,7 +304,7 @@ enum ExpandedToolLayout {
   static func headerHeight(for model: NativeExpandedToolModel?, cardWidth: CGFloat = 0) -> CGFloat {
     guard let model else { return 40 }
     switch model.content {
-      case let .bash(command, _):
+      case let .bash(command, _, _):
         guard cardWidth > 0 else { return 40 }
         let leftEdge: CGFloat = accentBarWidth + headerHPad + 20 + 8
         let rightEdge: CGFloat = cardWidth - headerHPad - 12 - 8 - 60
@@ -320,8 +321,8 @@ enum ExpandedToolLayout {
 
   static func contentHeight(for model: NativeExpandedToolModel, cardWidth: CGFloat = 0) -> CGFloat {
     switch model.content {
-      case let .bash(_, output):
-        return textOutputHeight(output: output, cardWidth: cardWidth)
+      case let .bash(_, input, output):
+        return genericHeight(input: input, output: output, cardWidth: cardWidth)
       case let .edit(_, _, _, _, lines, isWriteNew):
         let writeHeaderH: CGFloat = isWriteNew ? 28 : 0
         return writeHeaderH + CGFloat(lines.count) * diffLineHeight
@@ -335,15 +336,120 @@ enum ExpandedToolLayout {
         return textOutputHeight(output: output, cardWidth: cardWidth)
       case let .todo(_, _, items, output):
         return todoHeight(items: items, output: output, cardWidth: cardWidth)
-      case let .mcp(_, _, _, output):
-        return textOutputHeight(output: output, cardWidth: cardWidth)
-      case let .webFetch(_, _, output):
-        return textOutputHeight(output: output, cardWidth: cardWidth)
-      case let .webSearch(_, output):
-        return textOutputHeight(output: output, cardWidth: cardWidth)
+      case let .mcp(_, _, _, input, output):
+        return genericHeight(input: input, output: output, cardWidth: cardWidth)
+      case let .webFetch(_, _, input, output):
+        return genericHeight(input: input, output: output, cardWidth: cardWidth)
+      case let .webSearch(_, input, output):
+        return genericHeight(input: input, output: output, cardWidth: cardWidth)
       case let .generic(_, input, output):
         return genericHeight(input: input, output: output, cardWidth: cardWidth)
     }
+  }
+
+  struct StructuredPayloadEntry {
+    let keyPath: String
+    let value: String
+  }
+
+  private static let maxStructuredPayloadEntries = 120
+  private static let maxStructuredValueChars = 220
+
+  static func structuredPayloadEntries(from text: String?) -> [StructuredPayloadEntry]? {
+    guard let raw = text?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    guard let data = raw.data(using: .utf8),
+          let json = try? JSONSerialization.jsonObject(with: data, options: [])
+    else {
+      return nil
+    }
+
+    var entries: [StructuredPayloadEntry] = []
+    collectStructuredEntries(json, path: "", into: &entries)
+    if entries.isEmpty {
+      return nil
+    }
+    if entries.count >= maxStructuredPayloadEntries {
+      entries.append(StructuredPayloadEntry(keyPath: "$", value: "…truncated"))
+    }
+    return entries
+  }
+
+  static func payloadDisplayLines(from text: String?) -> [String] {
+    if let entries = structuredPayloadEntries(from: text) {
+      return entries.map { "\($0.keyPath): \($0.value)" }
+    }
+    guard let text else { return [] }
+    return text.components(separatedBy: "\n")
+  }
+
+  private static func collectStructuredEntries(_ value: Any, path: String, into entries: inout [StructuredPayloadEntry]) {
+    guard entries.count < maxStructuredPayloadEntries else { return }
+
+    switch value {
+      case let object as [String: Any]:
+        if object.isEmpty {
+          appendStructuredEntry(path: path, value: "{}", into: &entries)
+          return
+        }
+        for key in object.keys.sorted() {
+          guard let child = object[key] else { continue }
+          let nextPath = path.isEmpty ? key : "\(path).\(key)"
+          collectStructuredEntries(child, path: nextPath, into: &entries)
+          if entries.count >= maxStructuredPayloadEntries { break }
+        }
+      case let array as [Any]:
+        if array.isEmpty {
+          appendStructuredEntry(path: path, value: "[]", into: &entries)
+          return
+        }
+        var scalarPreview: [String] = []
+        var allScalar = array.count <= 6
+        if allScalar {
+          for item in array {
+            if isScalarJSONValue(item) {
+              scalarPreview.append(formatScalarJSONValue(item))
+            } else {
+              allScalar = false
+              break
+            }
+          }
+        }
+        if allScalar {
+          let joined = scalarPreview.joined(separator: ", ")
+          appendStructuredEntry(path: path, value: "[\(joined)]", into: &entries)
+          return
+        }
+        for (idx, item) in array.enumerated() {
+          let nextPath = path.isEmpty ? "[\(idx)]" : "\(path)[\(idx)]"
+          collectStructuredEntries(item, path: nextPath, into: &entries)
+          if entries.count >= maxStructuredPayloadEntries { break }
+        }
+      default:
+        appendStructuredEntry(path: path, value: formatScalarJSONValue(value), into: &entries)
+    }
+  }
+
+  private static func appendStructuredEntry(path: String, value: String, into entries: inout [StructuredPayloadEntry]) {
+    let keyPath = path.isEmpty ? "$" : path
+    let normalized = value.replacingOccurrences(of: "\n", with: "\\n")
+    let limited = normalized.count > maxStructuredValueChars
+      ? String(normalized.prefix(maxStructuredValueChars)) + "…"
+      : normalized
+    entries.append(StructuredPayloadEntry(keyPath: keyPath, value: limited))
+  }
+
+  private static func isScalarJSONValue(_ value: Any) -> Bool {
+    !(value is [String: Any]) && !(value is [Any])
+  }
+
+  private static func formatScalarJSONValue(_ value: Any) -> String {
+    if value is NSNull { return "null" }
+    if let bool = value as? Bool { return bool ? "true" : "false" }
+    if let number = value as? NSNumber { return number.stringValue }
+    if let string = value as? String { return "\"\(string)\"" }
+    return String(describing: value)
   }
 
   static func requiredHeight(for width: CGFloat, model: NativeExpandedToolModel) -> CGFloat {
@@ -436,7 +542,7 @@ enum ExpandedToolLayout {
     var h: CGFloat = contentTopPad
 
     if let input, !input.isEmpty {
-      let inputLines = input.components(separatedBy: "\n")
+      let inputLines = payloadDisplayLines(from: input)
       h += sectionPadding + sectionHeaderHeight
       if textWidth > 0 {
         for line in inputLines {
@@ -449,7 +555,7 @@ enum ExpandedToolLayout {
     }
 
     if let output, !output.isEmpty {
-      let outputLines = output.components(separatedBy: "\n")
+      let outputLines = payloadDisplayLines(from: output)
       h += sectionPadding + sectionHeaderHeight
       if textWidth > 0 {
         for line in outputLines {
@@ -586,6 +692,7 @@ enum ExpandedToolLayout {
     private static let textQuaternary = NSColor.white.withAlphaComponent(0.38)
 
     private static let codeFont = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+    private static let codeFontStrong = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .semibold)
     private static let headerFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
     private static let subtitleFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
     private static let lineNumFont = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
@@ -877,7 +984,7 @@ enum ExpandedToolLayout {
       let rightEdge = cardWidth - Self.headerHPad - 12 - 8 - 60 // before chevron + duration
 
       switch model.content {
-        case let .bash(command, _):
+        case let .bash(command, _, _):
           let bashColor = model.hasError ? NSColor(Color.statusError) : model.toolColor
           let bashAttr = NSMutableAttributedString()
           bashAttr.append(NSAttributedString(
@@ -957,7 +1064,7 @@ enum ExpandedToolLayout {
           subtitleField.stringValue = subtitle ?? ""
           subtitleField.isHidden = subtitle?.isEmpty ?? true
           if !items.isEmpty {
-            var statusParts: [String] = ["\(completedCount)/\(items.count) done"]
+            var statusParts = ["\(completedCount)/\(items.count) done"]
             if activeCount > 0 {
               statusParts.append("\(activeCount) active")
             }
@@ -971,7 +1078,7 @@ enum ExpandedToolLayout {
           }
           statsField.textColor = Self.textTertiary
 
-        case let .mcp(server, displayTool, subtitle, _):
+        case let .mcp(server, displayTool, subtitle, _, _):
           titleField.stringValue = displayTool
           titleField.font = Self.headerFont
           titleField.textColor = model.toolColor
@@ -980,7 +1087,7 @@ enum ExpandedToolLayout {
           statsField.isHidden = false
           statsField.stringValue = server
 
-        case let .webFetch(domain, _, _):
+        case let .webFetch(domain, _, _, _):
           titleField.stringValue = "WebFetch"
           titleField.font = Self.headerFont
           titleField.textColor = model.toolColor
@@ -988,7 +1095,7 @@ enum ExpandedToolLayout {
           subtitleField.stringValue = domain
           statsField.isHidden = true
 
-        case let .webSearch(query, _):
+        case let .webSearch(query, _, _):
           titleField.stringValue = "WebSearch"
           titleField.font = Self.headerFont
           titleField.textColor = model.toolColor
@@ -1059,8 +1166,8 @@ enum ExpandedToolLayout {
 
     private func buildContent(model: NativeExpandedToolModel, width: CGFloat) {
       switch model.content {
-        case let .bash(_, output):
-          buildTextOutputContent(output: output, width: width)
+        case let .bash(_, input, output):
+          buildGenericContent(input: input, output: output, width: width)
         case let .edit(_, _, _, _, lines, isWriteNew):
           buildEditContent(lines: lines, isWriteNew: isWriteNew, width: width)
         case let .read(_, _, language, lines):
@@ -1073,12 +1180,12 @@ enum ExpandedToolLayout {
           buildTextOutputContent(output: output, width: width)
         case let .todo(_, _, items, output):
           buildTodoContent(items: items, output: output, width: width)
-        case let .mcp(_, _, _, output):
-          buildTextOutputContent(output: output, width: width)
-        case let .webFetch(_, _, output):
-          buildTextOutputContent(output: output, width: width)
-        case let .webSearch(_, output):
-          buildTextOutputContent(output: output, width: width)
+        case let .mcp(_, _, _, input, output):
+          buildGenericContent(input: input, output: output, width: width)
+        case let .webFetch(_, _, input, output):
+          buildGenericContent(input: input, output: output, width: width)
+        case let .webSearch(_, input, output):
+          buildGenericContent(input: input, output: output, width: width)
         case let .generic(_, input, output):
           buildGenericContent(input: input, output: output, width: width)
       }
@@ -1458,7 +1565,10 @@ enum ExpandedToolLayout {
 
           let iconConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
           let iconView = NSImageView()
-          iconView.image = NSImage(systemSymbolName: todoStatusIconName(for: item.status), accessibilityDescription: nil)?
+          iconView.image = NSImage(
+            systemSymbolName: todoStatusIconName(for: item.status),
+            accessibilityDescription: nil
+          )?
             .withSymbolConfiguration(iconConfig)
           iconView.contentTintColor = style.tint
           iconView.frame = NSRect(
@@ -1554,12 +1664,12 @@ enum ExpandedToolLayout {
 
     private func todoStatusIconName(for status: NativeTodoStatus) -> String {
       switch status {
-        case .pending: return "circle"
-        case .inProgress: return "arrow.triangle.2.circlepath"
-        case .completed: return "checkmark.circle.fill"
-        case .blocked: return "exclamationmark.triangle.fill"
-        case .canceled: return "xmark.circle.fill"
-        case .unknown: return "questionmark.circle"
+        case .pending: "circle"
+        case .inProgress: "arrow.triangle.2.circlepath"
+        case .completed: "checkmark.circle.fill"
+        case .blocked: "exclamationmark.triangle.fill"
+        case .canceled: "xmark.circle.fill"
+        case .unknown: "questionmark.circle"
       }
     }
 
@@ -1568,24 +1678,40 @@ enum ExpandedToolLayout {
     private func buildGenericContent(input: String?, output: String?, width: CGFloat) {
       var y: CGFloat = Self.contentTopPad
 
-      // Input section
-      if let input, !input.isEmpty {
-        let inputHeader = NSTextField(labelWithString: "INPUT")
-        inputHeader.font = Self.sectionLabelFont
-        inputHeader.textColor = Self.textQuaternary
-        let attrs: [NSAttributedString.Key: Any] = [
-          .kern: 0.8,
-          .font: Self.sectionLabelFont as Any,
-          .foregroundColor: Self.textQuaternary,
-        ]
-        inputHeader.attributedStringValue = NSAttributedString(string: "INPUT", attributes: attrs)
-        inputHeader.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 60, height: 14)
-        contentContainer.addSubview(inputHeader)
-        y += Self.sectionHeaderHeight + Self.sectionPadding
+      buildPayloadSection(title: "INPUT", payload: input, width: width, y: &y)
+      buildPayloadSection(title: "OUTPUT", payload: output, width: width, y: &y)
+    }
 
-        let inputLines = input.components(separatedBy: "\n")
-        let textW = width - Self.headerHPad * 2
-        for line in inputLines {
+    private func buildPayloadSection(title: String, payload: String?, width: CGFloat, y: inout CGFloat) {
+      guard let payload, !payload.isEmpty else { return }
+
+      let header = NSTextField(labelWithString: "")
+      let attrs: [NSAttributedString.Key: Any] = [
+        .kern: 0.8,
+        .font: Self.sectionLabelFont as Any,
+        .foregroundColor: Self.textQuaternary,
+      ]
+      header.attributedStringValue = NSAttributedString(string: title, attributes: attrs)
+      header.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 80, height: 14)
+      contentContainer.addSubview(header)
+      y += Self.sectionHeaderHeight + Self.sectionPadding
+
+      let textWidth = width - Self.headerHPad * 2
+      if let entries = ExpandedToolLayout.structuredPayloadEntries(from: payload) {
+        for entry in entries {
+          let label = NSTextField(labelWithAttributedString: payloadAttributedLine(key: entry.keyPath, value: entry.value))
+          label.lineBreakMode = .byCharWrapping
+          label.maximumNumberOfLines = 0
+          label.isSelectable = true
+          let text = "\(entry.keyPath): \(entry.value)"
+          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
+          label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
+          contentContainer.addSubview(label)
+          y += lineH
+        }
+      } else {
+        let lines = ExpandedToolLayout.payloadDisplayLines(from: payload)
+        for line in lines {
           let text = line.isEmpty ? " " : line
           let label = NSTextField(labelWithString: text)
           label.font = Self.codeFont
@@ -1593,55 +1719,32 @@ enum ExpandedToolLayout {
           label.lineBreakMode = .byCharWrapping
           label.maximumNumberOfLines = 0
           label.isSelectable = true
-          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textW)
-          label.frame = NSRect(
-            x: Self.headerHPad,
-            y: y,
-            width: textW,
-            height: lineH
-          )
+          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: textWidth)
+          label.frame = NSRect(x: Self.headerHPad, y: y, width: textWidth, height: lineH)
           contentContainer.addSubview(label)
           y += lineH
         }
-        y += Self.sectionPadding
       }
 
-      // Output section
-      if let output, !output.isEmpty {
-        let outputHeader = NSTextField(labelWithString: "")
-        let attrs: [NSAttributedString.Key: Any] = [
-          .kern: 0.8,
-          .font: Self.sectionLabelFont as Any,
+      y += Self.sectionPadding
+    }
+
+    private func payloadAttributedLine(key: String, value: String) -> NSAttributedString {
+      let attributed = NSMutableAttributedString(
+        string: "\(key): ",
+        attributes: [
+          .font: Self.codeFontStrong as Any,
           .foregroundColor: Self.textQuaternary,
         ]
-        outputHeader.attributedStringValue = NSAttributedString(string: "OUTPUT", attributes: attrs)
-        outputHeader.frame = NSRect(x: Self.headerHPad, y: y + Self.sectionPadding, width: 60, height: 14)
-        contentContainer.addSubview(outputHeader)
-        y += Self.sectionHeaderHeight + Self.sectionPadding
-
-        let outputLines = output.components(separatedBy: "\n")
-        let outTextW = width - Self.headerHPad * 2
-        for line in outputLines {
-          let text = line.isEmpty ? " " : line
-          let label = NSTextField(labelWithString: text)
-          label.font = Self.codeFont
-          label.textColor = Self.textSecondary
-          label.lineBreakMode = .byCharWrapping
-          label.maximumNumberOfLines = 0
-          label.isSelectable = true
-          let lineH = ExpandedToolLayout.measuredTextHeight(text, font: Self.codeFont, maxWidth: outTextW)
-          label.frame = NSRect(
-            x: Self.headerHPad,
-            y: y,
-            width: outTextW,
-            height: lineH
-          )
-          contentContainer.addSubview(label)
-          y += lineH
-        }
-
-        y += Self.sectionPadding
-      }
+      )
+      attributed.append(NSAttributedString(
+        string: value,
+        attributes: [
+          .font: Self.codeFont as Any,
+          .foregroundColor: Self.textSecondary,
+        ]
+      ))
+      return attributed
     }
 
     // ── Height Calculation (delegates to shared ExpandedToolLayout) ──

@@ -66,10 +66,12 @@ struct ToolGlyphInfo {
       case "skill": return ToolGlyphInfo(symbol: "wand.and.stars", color: PlatformColor(Color.toolSkill))
       case "enterplanmode", "exitplanmode":
         return ToolGlyphInfo(symbol: "map", color: PlatformColor(Color.toolPlan))
-      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
         return ToolGlyphInfo(symbol: "checklist", color: PlatformColor(Color.toolTodo))
       case "askuserquestion":
         return ToolGlyphInfo(symbol: "questionmark.bubble", color: PlatformColor(Color.toolQuestion))
+      case "mcp_approval":
+        return ToolGlyphInfo(symbol: "shield.lefthalf.filled", color: PlatformColor(Color.toolQuestion))
       default: return ToolGlyphInfo(symbol: "gearshape", color: PlatformColor.secondaryLabelCompat)
     }
   }
@@ -93,6 +95,7 @@ private enum TodoToolOperation {
   case update
   case list
   case get
+  case updatePlan
 
   init?(toolName: String) {
     let normalized = Self.normalizedName(toolName)
@@ -102,6 +105,7 @@ private enum TodoToolOperation {
       case "taskupdate", "task_update": self = .update
       case "tasklist", "task_list": self = .list
       case "taskget", "task_get": self = .get
+      case "updateplan", "update_plan": self = .updatePlan
       default: return nil
     }
   }
@@ -123,20 +127,21 @@ private enum TodoToolOperation {
 
   var title: String {
     switch self {
-      case .write: return "Todos"
-      case .create: return "Create Task"
-      case .update: return "Update Task"
-      case .list: return "List Tasks"
-      case .get: return "Get Task"
+      case .write: "Todos"
+      case .create: "Create Task"
+      case .update: "Update Task"
+      case .list: "List Tasks"
+      case .get: "Get Task"
+      case .updatePlan: "Plan"
     }
   }
 
   var defaultStatus: NativeTodoStatus {
     switch self {
-      case .write, .create, .list, .get:
-        return .pending
+      case .write, .create, .list, .get, .updatePlan:
+        .pending
       case .update:
-        return .inProgress
+        .inProgress
     }
   }
 }
@@ -149,11 +154,16 @@ private enum TodoToolParser {
     let output: String?
   }
 
-  static func payload(from message: TranscriptMessage, toolName: String) -> Payload? {
+  static func payload(
+    from message: TranscriptMessage,
+    toolName: String,
+    supportsRichToolingCards: Bool
+  ) -> Payload? {
+    guard supportsRichToolingCards else { return nil }
     guard let operation = TodoToolOperation(toolName: toolName) else { return nil }
 
     let itemsFromOutput = parseOutputTodos(message.sanitizedToolOutput)
-    let itemsFromInput = parseInputTodos(message.toolInput)
+    let itemsFromInput = parseInputTodos(message.toolInput, operation: operation)
     let fallbackItem = fallbackItem(input: message.toolInput, defaultStatus: operation.defaultStatus)
     let items: [NativeTodoItem] = {
       if !itemsFromOutput.isEmpty { return itemsFromOutput }
@@ -170,14 +180,18 @@ private enum TodoToolParser {
     return Payload(title: operation.title, subtitle: subtitle, items: items, output: output)
   }
 
-  static func compactSummary(from message: TranscriptMessage) -> String? {
+  static func compactSummary(from message: TranscriptMessage, supportsRichToolingCards: Bool) -> String? {
     guard let toolName = message.toolName,
           TodoToolOperation(toolName: toolName) != nil
     else {
       return nil
     }
 
-    let payload = payload(from: message, toolName: toolName)
+    let payload = payload(
+      from: message,
+      toolName: toolName,
+      supportsRichToolingCards: supportsRichToolingCards
+    )
     if let active = payload?.items.first(where: { $0.status == .inProgress }) {
       return active.primaryText
     }
@@ -202,7 +216,7 @@ private enum TodoToolParser {
       guard !items.isEmpty else { return nil }
       let active = items.filter { $0.status == .inProgress }.count
       let completed = items.filter { $0.status == .completed }.count
-      var parts: [String] = ["\(items.count) items"]
+      var parts = ["\(items.count) items"]
       if active > 0 { parts.append("\(active) active") }
       if completed > 0 { parts.append("\(completed) done") }
       return parts.joined(separator: " · ")
@@ -229,8 +243,11 @@ private enum TodoToolParser {
     return parts.isEmpty ? nil : parts.joined(separator: " · ")
   }
 
-  private static func parseInputTodos(_ input: [String: Any]?) -> [NativeTodoItem] {
+  private static func parseInputTodos(_ input: [String: Any]?, operation: TodoToolOperation) -> [NativeTodoItem] {
     guard let input else { return [] }
+    if operation == .updatePlan {
+      return parsePlanArray(input["plan"])
+    }
     return parseTodoArray(input["todos"])
   }
 
@@ -280,6 +297,24 @@ private enum TodoToolParser {
           activeForm: activeForm,
           status: status
         )
+      }
+    }
+    return []
+  }
+
+  private static func parsePlanArray(_ rawValue: Any?) -> [NativeTodoItem] {
+    guard let rawValue else { return [] }
+    if let array = rawValue as? [Any] {
+      return array.compactMap { rawItem in
+        guard let dict = rawItem as? [String: Any] else { return nil }
+        let step = trimmed(dict["step"] as? String)
+          ?? trimmed(dict["title"] as? String)
+          ?? trimmed(dict["content"] as? String)
+        guard let step else { return nil }
+
+        let statusRaw = trimmed(dict["status"] as? String)
+        let status = NativeTodoStatus(statusRaw)
+        return NativeTodoItem(content: step, activeForm: nil, status: status)
       }
     }
     return []
@@ -349,12 +384,15 @@ enum CompactToolHelpers {
     return truncated + "..."
   }
 
-  static func summary(for message: TranscriptMessage) -> String {
+  static func summary(for message: TranscriptMessage, supportsRichToolingCards: Bool) -> String {
     if message.isShell {
       return String.shellCommandDisplay(from: message.content) ?? message.content
     }
     guard let name = message.toolName else { return "tool" }
-    if let todoSummary = TodoToolParser.compactSummary(from: message) {
+    if let todoSummary = TodoToolParser.compactSummary(
+      from: message,
+      supportsRichToolingCards: supportsRichToolingCards
+    ) {
       return todoSummary
     }
     let lowercased = name.lowercased()
@@ -372,30 +410,31 @@ enum CompactToolHelpers {
       case "compactcontext":
         return message.isInProgress ? "Compacting context…" : "Context compacted"
       case "webfetch", "websearch":
-        if let input = message.toolInput, let query = input["query"] as? String { return query }
-        if let input = message.toolInput, let url = input["url"] as? String {
+        if let query = inputString(message, key: "query") { return query }
+        if let url = inputString(message, key: "url") {
           return URL(string: url)?.host ?? url
         }
         return message.content.isEmpty ? name : message.content
       case "view_image":
-        if let input = message.toolInput, let path = input["path"] as? String {
+        if let path = inputString(message, key: "path") {
           return ToolCardStyle.shortenPath(path)
         }
         return message.content.isEmpty ? "view image" : message.content
       case "skill":
-        if let input = message.toolInput, let skill = input["skill"] as? String { return skill }
+        if let skill = inputString(message, key: "skill") { return skill }
         return "skill"
       case "enterplanmode": return "Enter plan mode"
       case "exitplanmode": return "Exit plan mode"
-      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
-        if let input = message.toolInput, let subject = input["subject"] as? String { return subject }
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
+        if let subject = inputString(message, key: "subject") { return subject }
         return name
       case "askuserquestion": return "Asking question"
+      case "mcp_approval": return "MCP approval"
       default: return name
     }
   }
 
-  static func rightMeta(for message: TranscriptMessage) -> String? {
+  static func rightMeta(for message: TranscriptMessage, supportsRichToolingCards: Bool) -> String? {
     if message.isShell {
       if let dur = message.formattedDuration {
         let prefix = message.bashHasError ? "\u{2717}" : "\u{2713}"
@@ -406,7 +445,11 @@ enum CompactToolHelpers {
     }
     guard let name = message.toolName else { return nil }
     if TodoToolOperation(toolName: name) != nil {
-      if let payload = TodoToolParser.payload(from: message, toolName: name), !payload.items.isEmpty {
+      if let payload = TodoToolParser.payload(
+        from: message,
+        toolName: name,
+        supportsRichToolingCards: supportsRichToolingCards
+      ), !payload.items.isEmpty {
         let completed = payload.items.filter { $0.status == .completed }.count
         let active = payload.items.filter { $0.status == .inProgress }.count
         if active > 0 { return "\(completed)/\(payload.items.count) · \(active) active" }
@@ -587,15 +630,40 @@ enum CompactToolHelpers {
   static func mcpPrimaryParameter(message: TranscriptMessage) -> String? {
     guard let input = message.toolInput else { return nil }
     let priorityKeys = ["query", "url", "path", "owner", "repo", "message", "title", "name"]
-    for key in priorityKeys {
-      if let value = input[key], let str = value as? String, !str.isEmpty, str != "<null>" {
-        return str.count > 60 ? String(str.prefix(60)) + "..." : str
+    func firstParameter(from dictionary: [String: Any]) -> String? {
+      for key in priorityKeys {
+        if let value = dictionary[key], let str = value as? String, !str.isEmpty, str != "<null>" {
+          return str.count > 60 ? String(str.prefix(60)) + "..." : str
+        }
       }
+      for (_, value) in dictionary {
+        if let str = value as? String, !str.isEmpty {
+          return str.count > 60 ? String(str.prefix(60)) + "..." : str
+        }
+      }
+      return nil
     }
-    for (_, value) in input {
-      if let str = value as? String, !str.isEmpty {
-        return str.count > 60 ? String(str.prefix(60)) + "..." : str
-      }
+
+    if let args = input["arguments"] as? [String: Any],
+       let nested = firstParameter(from: args)
+    {
+      return nested
+    }
+
+    return firstParameter(from: input)
+  }
+
+  static func inputString(_ message: TranscriptMessage, key: String) -> String? {
+    guard let input = message.toolInput else { return nil }
+    if let value = input[key] as? String, !value.isEmpty, value != "<null>" {
+      return value
+    }
+    if let args = input["arguments"] as? [String: Any],
+       let value = args[key] as? String,
+       !value.isEmpty,
+       value != "<null>"
+    {
+      return value
     }
     return nil
   }
@@ -689,12 +757,15 @@ enum SharedModelBuilders {
 
   // MARK: Compact Tool
 
-  static func compactToolModel(from message: TranscriptMessage) -> NativeCompactToolRowModel {
+  static func compactToolModel(
+    from message: TranscriptMessage,
+    supportsRichToolingCards: Bool
+  ) -> NativeCompactToolRowModel {
     let glyph = ToolGlyphInfo.from(message: message)
     let summary = CompactToolHelpers.compactSingleLineSummary(
-      CompactToolHelpers.summary(for: message)
+      CompactToolHelpers.summary(for: message, supportsRichToolingCards: supportsRichToolingCards)
     )
-    let meta = CompactToolHelpers.rightMeta(for: message)
+    let meta = CompactToolHelpers.rightMeta(for: message, supportsRichToolingCards: supportsRichToolingCards)
     let preview = CompactToolHelpers.diffPreview(for: message)
     let liveOutputPreview = CompactToolHelpers.liveOutputPreview(for: message)
 
@@ -714,11 +785,16 @@ enum SharedModelBuilders {
 
   static func expandedToolModel(
     from message: TranscriptMessage,
-    messageID: String
+    messageID: String,
+    supportsRichToolingCards: Bool
   ) -> NativeExpandedToolModel {
     let glyph = ToolGlyphInfo.from(message: message)
     let toolName = message.toolName ?? (message.isShell ? "bash" : "tool")
-    let content = expandedToolContent(from: message, toolName: toolName)
+    let content = expandedToolContent(
+      from: message,
+      toolName: toolName,
+      supportsRichToolingCards: supportsRichToolingCards
+    )
 
     return NativeExpandedToolModel(
       messageID: messageID,
@@ -773,9 +849,17 @@ enum SharedModelBuilders {
 
   /// Build the NativeToolContent for an expanded tool card.
   /// This is the big switch statement that was duplicated on both platforms.
-  static func expandedToolContent(from message: TranscriptMessage, toolName: String) -> NativeToolContent {
+  static func expandedToolContent(
+    from message: TranscriptMessage,
+    toolName: String,
+    supportsRichToolingCards: Bool
+  ) -> NativeToolContent {
     let lowercased = toolName.lowercased()
-    if let payload = TodoToolParser.payload(from: message, toolName: toolName) {
+    if let payload = TodoToolParser.payload(
+      from: message,
+      toolName: toolName,
+      supportsRichToolingCards: supportsRichToolingCards
+    ) {
       return .todo(
         title: payload.title,
         subtitle: payload.subtitle,
@@ -788,6 +872,7 @@ enum SharedModelBuilders {
       case "bash":
         return .bash(
           command: message.bashCommand ?? message.content,
+          input: message.bashMetadataInput,
           output: message.sanitizedToolOutput
         )
 
@@ -870,7 +955,19 @@ enum SharedModelBuilders {
       case "compactcontext":
         return .generic(
           toolName: "Compact Context",
-          input: message.formattedToolInput,
+          input: message.fullFormattedToolInput,
+          output: message.sanitizedToolOutput
+        )
+      case "askuserquestion":
+        return .generic(
+          toolName: "Question",
+          input: message.fullFormattedToolInput,
+          output: message.sanitizedToolOutput
+        )
+      case "mcp_approval":
+        return .generic(
+          toolName: "MCP Approval",
+          input: message.fullFormattedToolInput,
           output: message.sanitizedToolOutput
         )
 
@@ -886,21 +983,31 @@ enum SharedModelBuilders {
             server: server,
             displayTool: displayTool,
             subtitle: subtitle,
+            input: message.fullFormattedToolInput,
             output: message.sanitizedToolOutput
           )
         } else if lowercased == "webfetch" {
-          let url = (message.toolInput?["url"] as? String) ?? ""
+          let url = CompactToolHelpers.inputString(message, key: "url") ?? ""
           let domain = URL(string: url)?.host ?? url
-          return .webFetch(domain: domain, url: url, output: message.sanitizedToolOutput)
+          return .webFetch(
+            domain: domain,
+            url: url,
+            input: message.fullFormattedToolInput,
+            output: message.sanitizedToolOutput
+          )
         } else if lowercased == "websearch" {
-          let query = ((message.toolInput?["query"] as? String)?
+          let query = (CompactToolHelpers.inputString(message, key: "query")?
             .trimmingCharacters(in: .whitespacesAndNewlines))
             .flatMap { $0.isEmpty ? nil : $0 } ?? message.content
-          return .webSearch(query: query, output: message.sanitizedToolOutput)
+          return .webSearch(
+            query: query,
+            input: message.fullFormattedToolInput,
+            output: message.sanitizedToolOutput
+          )
         } else {
           return .generic(
             toolName: toolName,
-            input: message.formattedToolInput,
+            input: message.fullFormattedToolInput,
             output: message.sanitizedToolOutput
           )
         }

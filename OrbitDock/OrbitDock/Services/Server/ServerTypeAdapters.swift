@@ -219,6 +219,7 @@ extension ServerMessage {
       timestamp: parseServerTimestamp(timestamp) ?? Date(),
       toolName: toolName,
       toolInput: parsedToolInput,
+      rawToolInput: toolInput,
       toolOutput: toolOutput,
       toolDuration: duration,
       inputTokens: nil,

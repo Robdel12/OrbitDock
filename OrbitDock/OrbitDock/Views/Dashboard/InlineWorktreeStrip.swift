@@ -19,7 +19,9 @@ private struct WorktreeStripRemoveAttempt: Identifiable {
   let deleteRemoteBranch: Bool
   let archiveOnly: Bool
 
-  var id: String { worktreeId }
+  var id: String {
+    worktreeId
+  }
 }
 
 private enum WorktreeStripRemoveFeedbackAlert: Identifiable {
@@ -343,13 +345,12 @@ struct InlineWorktreeStrip: View {
     removeFeedbackAlert = .error(error.message)
   }
 
-  @ViewBuilder
   private var removeFeedbackAlertHost: some View {
     Color.clear
       .alert(item: $removeFeedbackAlert) { alert in
         switch alert {
           case let .dirty(attempt):
-            return Alert(
+            Alert(
               title: Text("Worktree Has Local Changes"),
               message: Text(
                 "“\(attempt.branch)” at \(attempt.worktreePath) has modified or untracked files. Force remove will discard those local changes."
@@ -377,7 +378,7 @@ struct InlineWorktreeStrip: View {
             )
 
           case let .error(message):
-            return Alert(
+            Alert(
               title: Text("Couldn’t Complete Worktree"),
               message: Text(message),
               dismissButton: .default(Text("OK"))

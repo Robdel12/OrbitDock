@@ -369,9 +369,10 @@
         case "websearch": return "Search"
         case "skill": return "Skill"
         case "enterplanmode", "exitplanmode": return "Plan"
-        case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
-          return "Todo"
+        case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
+            return "Todo"
         case "askuserquestion": return "Question"
+        case "mcp_approval": return "MCP Approval"
         case "notebookedit": return "Notebook"
         default:
           if toolName.hasPrefix("mcp__") {

@@ -50,6 +50,8 @@ nonisolated struct ConversationSourceState {
     var pendingQuestion: String?
     var pendingApprovalId: String?
     var isDirectSession: Bool
+    var isDirectCodexSession: Bool
+    var supportsRichToolingCards: Bool
     var sessionId: String?
     var projectPath: String?
 
@@ -78,6 +80,8 @@ nonisolated struct ConversationSourceState {
       pendingQuestion: nil,
       pendingApprovalId: nil,
       isDirectSession: false,
+      isDirectCodexSession: false,
+      supportsRichToolingCards: false,
       sessionId: nil,
       projectPath: nil
     )

@@ -358,7 +358,7 @@ nonisolated enum ConversationTimelineProjector {
 
   private static func resolveToolIcon(_ name: String) -> String {
     let normalized = name.lowercased().split(separator: ":").last.map(String.init) ?? name.lowercased()
-    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget"].contains(normalized) {
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan"].contains(normalized) {
       return "checklist"
     }
     if name.hasPrefix("mcp__") { return "puzzlepiece.extension" }
@@ -371,16 +371,17 @@ nonisolated enum ConversationTimelineProjector {
       case "webfetch", "websearch": return "globe"
       case "skill": return "wand.and.stars"
       case "enterplanmode", "exitplanmode": return "map"
-      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
         return "checklist"
       case "askuserquestion": return "questionmark.bubble"
+      case "mcp_approval": return "shield.lefthalf.filled"
       default: return "gearshape"
     }
   }
 
   private static func resolveToolColorKey(_ name: String) -> String {
     let normalized = name.lowercased().split(separator: ":").last.map(String.init) ?? name.lowercased()
-    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget"].contains(normalized) {
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan"].contains(normalized) {
       return "todo"
     }
     if name.hasPrefix("mcp__") { return "mcp" }
@@ -393,9 +394,10 @@ nonisolated enum ConversationTimelineProjector {
       case "webfetch", "websearch": return "web"
       case "skill": return "skill"
       case "enterplanmode", "exitplanmode": return "plan"
-      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget":
+      case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
         return "todo"
       case "askuserquestion": return "question"
+      case "mcp_approval": return "question"
       default: return "secondary"
     }
   }
@@ -585,6 +587,7 @@ nonisolated enum ConversationTimelineProjector {
     hasher.combine(message.type.rawValue)
     combineTextSignature(message.content, into: &hasher)
     hasher.combine(message.toolName)
+    combineTextSignature(toolInputRenderSignature(for: message), into: &hasher)
     combineTextSignature(message.toolOutput, into: &hasher)
     hasher.combine(message.toolDuration)
     hasher.combine(message.inputTokens)
@@ -597,6 +600,13 @@ nonisolated enum ConversationTimelineProjector {
       hasher.combine(image.mimeType)
       hasher.combine(image.byteCount)
     }
+  }
+
+  private static func toolInputRenderSignature(for message: TranscriptMessage) -> String? {
+    if let raw = message.rawToolInput?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
+      return raw
+    }
+    return nil
   }
 
   private static func combineTextSignature(_ text: String?, into hasher: inout Hasher) {

@@ -12,7 +12,9 @@ enum WorktreeCleanupMode: String, CaseIterable, Identifiable {
   case complete
   case archive
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var title: String {
     switch self {

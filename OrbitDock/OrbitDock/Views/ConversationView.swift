@@ -262,6 +262,7 @@ struct ConversationView: View {
       lhs.type == rhs.type &&
       lhs.content == rhs.content &&
       lhs.toolName == rhs.toolName &&
+      lhs.toolInputRenderSignature == rhs.toolInputRenderSignature &&
       lhs.toolOutput == rhs.toolOutput &&
       lhs.toolDuration == rhs.toolDuration &&
       lhs.inputTokens == rhs.inputTokens &&

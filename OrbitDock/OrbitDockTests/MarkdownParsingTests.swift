@@ -257,7 +257,11 @@ struct MarkdownParsingTests {
     #expect(continuationRange.location != NSNotFound)
     guard markerRange.location != NSNotFound, continuationRange.location != NSNotFound else { return }
 
-    let markerStyle = listText.attribute(.paragraphStyle, at: markerRange.location, effectiveRange: nil) as? NSParagraphStyle
+    let markerStyle = listText.attribute(
+      .paragraphStyle,
+      at: markerRange.location,
+      effectiveRange: nil
+    ) as? NSParagraphStyle
     let continuationStyle = listText.attribute(
       .paragraphStyle,
       at: continuationRange.location,

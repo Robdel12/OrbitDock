@@ -39,6 +39,7 @@ struct TranscriptMessage: Identifiable, Hashable {
   let timestamp: Date
   let toolName: String?
   let toolInput: [String: Any]?
+  let rawToolInput: String?
   var toolOutput: String? // Result of tool execution (var for incremental updates)
   var toolDuration: TimeInterval? // How long the tool took
   let inputTokens: Int?
@@ -89,6 +90,40 @@ struct TranscriptMessage: Identifiable, Hashable {
 
   var isShell: Bool {
     type == .shell
+  }
+
+  init(
+    id: String,
+    type: MessageType,
+    content: String,
+    timestamp: Date,
+    toolName: String? = nil,
+    toolInput: [String: Any]? = nil,
+    rawToolInput: String? = nil,
+    toolOutput: String? = nil,
+    toolDuration: TimeInterval? = nil,
+    inputTokens: Int? = nil,
+    outputTokens: Int? = nil,
+    isError: Bool = false,
+    isInProgress: Bool = false,
+    images: [MessageImage] = [],
+    thinking: String? = nil
+  ) {
+    self.id = id
+    self.type = type
+    self.content = content
+    self.timestamp = timestamp
+    self.toolName = toolName
+    self.toolInput = toolInput
+    self.rawToolInput = rawToolInput
+    self.toolOutput = toolOutput
+    self.toolDuration = toolDuration
+    self.inputTokens = inputTokens
+    self.outputTokens = outputTokens
+    self.isError = isError
+    self.isInProgress = isInProgress
+    self.images = images
+    self.thinking = thinking
   }
 
   var isBashLikeCommand: Bool {
@@ -181,6 +216,27 @@ struct TranscriptMessage: Identifiable, Hashable {
     return String.shellCommandDisplay(from: content) ?? content
   }
 
+  var bashMetadataInput: String? {
+    guard isBashLikeCommand else { return nil }
+    guard var input = toolInput else {
+      return trimmedRawToolInput
+    }
+
+    input.removeValue(forKey: "command")
+    input.removeValue(forKey: "cmd")
+    if input.isEmpty {
+      return nil
+    }
+
+    guard JSONSerialization.isValidJSONObject(input),
+          let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .prettyPrinted]),
+          let text = String(data: data, encoding: .utf8)
+    else {
+      return trimmedRawToolInput
+    }
+    return text
+  }
+
   /// Extract edit details
   var editOldString: String? {
     guard toolName?.lowercased() == "edit", let input = toolInput else { return nil }
@@ -232,42 +288,101 @@ struct TranscriptMessage: Identifiable, Hashable {
     return input["description"] as? String
   }
 
-  /// Format tool input as displayable text
-  var formattedToolInput: String? {
-    guard let input = toolInput else { return nil }
+  private var trimmedRawToolInput: String? {
+    guard let raw = rawToolInput?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+      return nil
+    }
+    return raw
+  }
+
+  private func truncateToolText(_ value: String, maxLength: Int?) -> String {
+    guard let maxLength else { return value }
+    if value.count > maxLength {
+      return String(value.prefix(maxLength)) + "..."
+    }
+    return value
+  }
+
+  private func formatToolInput(maxLength: Int?) -> String? {
+    guard let input = toolInput else {
+      guard let raw = trimmedRawToolInput else { return nil }
+      return truncateToolText(raw, maxLength: maxLength)
+    }
 
     switch toolName?.lowercased() {
       case "bash":
-        return bashCommand
+        guard let command = bashCommand else { return nil }
+        return truncateToolText(command, maxLength: maxLength)
       case "read":
-        return filePath
+        guard let path = filePath else { return nil }
+        return truncateToolText(path, maxLength: maxLength)
       case "edit":
         if let old = editOldString, let new = editNewString {
           let oldPreview = old.count > 200 ? String(old.prefix(200)) + "..." : old
           let newPreview = new.count > 200 ? String(new.prefix(200)) + "..." : new
           return "- \(oldPreview)\n+ \(newPreview)"
         }
-        return filePath
+        if let path = filePath {
+          return truncateToolText(path, maxLength: maxLength)
+        }
+        return nil
       case "write":
         if let content = writeContent {
-          return content.count > 500 ? String(content.prefix(500)) + "..." : content
+          return truncateToolText(content, maxLength: maxLength)
         }
-        return filePath
+        if let path = filePath {
+          return truncateToolText(path, maxLength: maxLength)
+        }
+        return nil
       case "glob":
-        return globPattern
+        guard let pattern = globPattern else { return nil }
+        return truncateToolText(pattern, maxLength: maxLength)
       case "grep":
-        return grepPattern
+        guard let pattern = grepPattern else { return nil }
+        return truncateToolText(pattern, maxLength: maxLength)
       case "task":
-        return taskDescription ?? taskPrompt
+        if let description = taskDescription {
+          return truncateToolText(description, maxLength: maxLength)
+        }
+        if let prompt = taskPrompt {
+          return truncateToolText(prompt, maxLength: maxLength)
+        }
+        return nil
       default:
-        // Generic JSON display for unknown tools
         if let data = try? JSONSerialization.data(withJSONObject: input, options: .prettyPrinted),
            let str = String(data: data, encoding: .utf8)
         {
-          return str.count > 500 ? String(str.prefix(500)) + "..." : str
+          return truncateToolText(str, maxLength: maxLength)
+        }
+        if let raw = trimmedRawToolInput {
+          return truncateToolText(raw, maxLength: maxLength)
         }
         return nil
     }
+  }
+
+  var fullFormattedToolInput: String? {
+    formatToolInput(maxLength: nil)
+  }
+
+  var toolInputRenderSignature: String? {
+    if let raw = trimmedRawToolInput {
+      return raw
+    }
+
+    guard let input = toolInput,
+          JSONSerialization.isValidJSONObject(input),
+          let data = try? JSONSerialization.data(withJSONObject: input, options: .sortedKeys),
+          let canonical = String(data: data, encoding: .utf8)
+    else {
+      return nil
+    }
+    return canonical
+  }
+
+  /// Format tool input as displayable text
+  var formattedToolInput: String? {
+    formatToolInput(maxLength: 500)
   }
 
   /// Truncated output for preview

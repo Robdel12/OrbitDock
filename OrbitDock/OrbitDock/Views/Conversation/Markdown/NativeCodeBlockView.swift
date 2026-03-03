@@ -35,6 +35,7 @@ final class NativeCodeBlockView: PlatformView {
   private static let borderColor = PlatformColor(Color.surfaceBorder)
   private static let lineNumberColor = PlatformColor(Color.textTertiary)
   private static let lineNumberFont = PlatformFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+
   // MARK: - State
 
   private var normalizedLanguage: String?

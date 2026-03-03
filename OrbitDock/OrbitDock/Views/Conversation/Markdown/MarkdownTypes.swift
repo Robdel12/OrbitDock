@@ -67,8 +67,11 @@ enum MarkdownLayoutMetrics {
 
   static func trailingTextBlockSpacing(_ attrStr: NSAttributedString, style: ContentStyle) -> CGFloat {
     guard attrStr.length > 0 else { return 0 }
-    if let paragraphStyle = attrStr.attribute(.paragraphStyle, at: attrStr.length - 1, effectiveRange: nil) as? NSParagraphStyle
-    {
+    if let paragraphStyle = attrStr.attribute(
+      .paragraphStyle,
+      at: attrStr.length - 1,
+      effectiveRange: nil
+    ) as? NSParagraphStyle {
       return max(minimumTextBlockSpacing(style: style), paragraphStyle.paragraphSpacing)
     }
     return minimumTextBlockSpacing(style: style)

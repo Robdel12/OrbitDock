@@ -123,7 +123,7 @@ struct ShellCard: View {
               .font(.system(size: 11, design: .monospaced))
               .foregroundStyle(
                 hasError
-                  ? Color.orange.opacity(0.85)
+                  ? Color.feedbackWarning.opacity(0.85)
                   : Color.textPrimary.opacity(0.85)
               )
               .textSelection(.enabled)
