@@ -406,6 +406,69 @@ struct MarkdownParsingTests {
     #expect(h4 > 0)
   }
 
+  @Test func boldTextAppliesBoldFontWeight() {
+    let blocks = MarkdownSystemParser.parse("This has **bold** text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let font = fontAt(substring: "bold", in: text)
+    #expect(font != nil)
+    #if os(macOS)
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.bold) == true)
+    #else
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.traitBold) == true)
+    #endif
+  }
+
+  @Test func italicTextAppliesItalicFontTrait() {
+    let blocks = MarkdownSystemParser.parse("This has *italic* text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let font = fontAt(substring: "italic", in: text)
+    #expect(font != nil)
+    #if os(macOS)
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.italic) == true)
+    #else
+      #expect(font?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true)
+    #endif
+  }
+
+  @Test func strikethroughTextAppliesStrikethroughAttribute() {
+    let blocks = MarkdownSystemParser.parse("This has ~~struck~~ text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let range = (text.string as NSString).range(of: "struck")
+    #expect(range.location != NSNotFound)
+    guard range.location != NSNotFound else { return }
+
+    let strikethrough = text.attribute(.strikethroughStyle, at: range.location, effectiveRange: nil) as? Int
+    #expect(strikethrough == NSUnderlineStyle.single.rawValue)
+  }
+
+  @Test func boldItalicCombinationAppliesBothTraits() {
+    let blocks = MarkdownSystemParser.parse("This has ***bolditalic*** text.")
+    let text = firstText(in: blocks)
+    #expect(text != nil)
+    guard let text else { return }
+
+    let font = fontAt(substring: "bolditalic", in: text)
+    #expect(font != nil)
+    #if os(macOS)
+      let traits = font?.fontDescriptor.symbolicTraits ?? []
+      #expect(traits.contains(.bold))
+      #expect(traits.contains(.italic))
+    #else
+      let traits = font?.fontDescriptor.symbolicTraits ?? []
+      #expect(traits.contains(.traitBold))
+      #expect(traits.contains(.traitItalic))
+    #endif
+  }
+
   @Test func thinkingStyleUsesSmallerHeadingAndBodyTypography() {
     let markdown = """
     ## Heading
@@ -451,6 +514,12 @@ struct MarkdownParsingTests {
       case .table: "table"
       case .thematicBreak: "thematicBreak"
     }
+  }
+
+  private func fontAt(substring: String, in text: NSAttributedString) -> PlatformFont? {
+    let range = (text.string as NSString).range(of: substring)
+    guard range.location != NSNotFound else { return nil }
+    return text.attribute(.font, at: range.location, effectiveRange: nil) as? PlatformFont
   }
 
   private func fontPointSize(in text: NSAttributedString) -> CGFloat? {

@@ -585,7 +585,7 @@ struct WorkStreamEntry: View {
           ImageGallery(images: message.images)
         }
         if !markdown.isEmpty {
-          MarkdownContentView(content: markdown)
+          MarkdownRepresentable(content: markdown)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .multilineTextAlignment(.trailing)
         }
@@ -767,7 +767,7 @@ struct WorkStreamEntry: View {
           ImageGallery(images: message.images)
         }
         if !markdown.isEmpty {
-          MarkdownContentView(content: markdown)
+          MarkdownRepresentable(content: markdown)
         }
       }
       .padding(.vertical, Spacing.sm)
@@ -787,7 +787,7 @@ struct WorkStreamEntry: View {
         thinkingDisclosure
       }
 
-      StreamingMarkdownView(content: displayContent)
+      MarkdownRepresentable(content: displayContent)
 
       if isLongContent {
         Button {
@@ -841,7 +841,7 @@ struct WorkStreamEntry: View {
     let thinkingColor = Color(red: 0.65, green: 0.6, blue: 0.85)
 
     return VStack(alignment: .leading, spacing: 0) {
-      StreamingMarkdownView(content: message.content, style: .thinking)
+      MarkdownRepresentable(content: message.content, style: .thinking)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.top, 14)
@@ -927,7 +927,7 @@ struct WorkStreamEntry: View {
 
       case .thinking:
         ScrollView {
-          StreamingMarkdownView(content: message.content, style: .thinking)
+          MarkdownRepresentable(content: message.content, style: .thinking)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 300)
@@ -985,7 +985,7 @@ struct WorkStreamEntry: View {
           .padding(.horizontal, 10)
 
         ScrollView {
-          StreamingMarkdownView(content: thinking, style: .thinking)
+          MarkdownRepresentable(content: thinking, style: .thinking)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 250)

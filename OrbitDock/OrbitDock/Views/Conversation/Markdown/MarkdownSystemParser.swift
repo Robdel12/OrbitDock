@@ -288,10 +288,30 @@ enum MarkdownSystemParser {
         ns.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: runRange)
       }
 
-      if let inlineIntent = run.inlinePresentationIntent, inlineIntent.contains(.code) {
-        ns.addAttribute(.font, value: tableInlineCodeFont(style: style), range: runRange)
-        ns.addAttribute(.foregroundColor, value: inlineCodeColor, range: runRange)
-        ns.addAttribute(.backgroundColor, value: inlineCodeBackground, range: runRange)
+      if let inlineIntent = run.inlinePresentationIntent {
+        if inlineIntent.contains(.code) {
+          ns.addAttribute(.font, value: tableInlineCodeFont(style: style), range: runRange)
+          ns.addAttribute(.foregroundColor, value: inlineCodeColor, range: runRange)
+          ns.addAttribute(.backgroundColor, value: inlineCodeBackground, range: runRange)
+        } else {
+          let currentFont = (ns.attribute(.font, at: runRange.location, effectiveRange: nil) as? PlatformFont)
+            ?? tableCellFont(style: style, isHeader: isHeader)
+          if inlineIntent.contains(.stronglyEmphasized), inlineIntent.contains(.emphasized) {
+            ns.addAttribute(.font, value: currentFont.withBoldItalic(), range: runRange)
+          } else if inlineIntent.contains(.stronglyEmphasized) {
+            ns.addAttribute(
+              .font,
+              value: PlatformFont.systemFont(ofSize: currentFont.pointSize, weight: .bold),
+              range: runRange
+            )
+          } else if inlineIntent.contains(.emphasized) {
+            ns.addAttribute(.font, value: currentFont.withItalic(), range: runRange)
+          }
+        }
+
+        if inlineIntent.contains(.strikethrough) {
+          ns.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: runRange)
+        }
       }
     }
 
@@ -347,12 +367,30 @@ enum MarkdownSystemParser {
         ns.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
       }
 
-      if let inlineIntent = run.inlinePresentationIntent,
-         inlineIntent.contains(.code)
-      {
-        ns.addAttribute(.font, value: inlineCodeFont(style: style), range: nsRange)
-        ns.addAttribute(.foregroundColor, value: inlineCodeColor, range: nsRange)
-        ns.addAttribute(.backgroundColor, value: inlineCodeBackground, range: nsRange)
+      if let inlineIntent = run.inlinePresentationIntent {
+        if inlineIntent.contains(.code) {
+          ns.addAttribute(.font, value: inlineCodeFont(style: style), range: nsRange)
+          ns.addAttribute(.foregroundColor, value: inlineCodeColor, range: nsRange)
+          ns.addAttribute(.backgroundColor, value: inlineCodeBackground, range: nsRange)
+        } else {
+          let currentFont = (ns.attribute(.font, at: nsRange.location, effectiveRange: nil) as? PlatformFont)
+            ?? bodyFont(style: style)
+          if inlineIntent.contains(.stronglyEmphasized), inlineIntent.contains(.emphasized) {
+            ns.addAttribute(.font, value: currentFont.withBoldItalic(), range: nsRange)
+          } else if inlineIntent.contains(.stronglyEmphasized) {
+            ns.addAttribute(
+              .font,
+              value: PlatformFont.systemFont(ofSize: currentFont.pointSize, weight: .bold),
+              range: nsRange
+            )
+          } else if inlineIntent.contains(.emphasized) {
+            ns.addAttribute(.font, value: currentFont.withItalic(), range: nsRange)
+          }
+        }
+
+        if inlineIntent.contains(.strikethrough) {
+          ns.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: nsRange)
+        }
       }
 
       if let headingLevel = headingLevel(from: run.presentationIntent) {

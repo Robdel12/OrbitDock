@@ -167,7 +167,7 @@ struct SystemContextCard: View {
       // Expanded content
       if isExpanded {
         ScrollView {
-          ThinkingMarkdownView(content: context.body)
+          MarkdownRepresentable(content: context.body, style: .thinking)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 300)
