@@ -958,12 +958,14 @@ enum SharedModelBuilders {
           input: message.fullFormattedToolInput,
           output: message.sanitizedToolOutput
         )
+
       case "askuserquestion":
         return .generic(
           toolName: "Question",
           input: message.fullFormattedToolInput,
           output: message.sanitizedToolOutput
         )
+
       case "mcp_approval":
         return .generic(
           toolName: "MCP Approval",

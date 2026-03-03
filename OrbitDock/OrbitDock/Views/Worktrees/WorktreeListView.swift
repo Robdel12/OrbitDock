@@ -493,7 +493,10 @@ struct WorktreeListView: View {
           .foregroundStyle(Color.providerCodex)
           .padding(.horizontal, Spacing.sm)
           .padding(.vertical, Spacing.xs)
-          .background(Color.providerCodex.opacity(0.10), in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous))
+          .background(
+            Color.providerCodex.opacity(0.10),
+            in: RoundedRectangle(cornerRadius: Radius.sm_, style: .continuous)
+          )
         }
         .buttonStyle(.plain)
 

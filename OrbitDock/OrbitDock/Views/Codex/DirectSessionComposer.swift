@@ -1811,7 +1811,10 @@ struct DirectSessionComposer: View {
     tint: Color = .accent
   ) -> some View {
     Image(systemName: icon)
-      .font(.system(size: isCompactLayout ? TypeScale.subhead : TypeScale.caption, weight: isCompactLayout ? .semibold : .medium))
+      .font(.system(
+        size: isCompactLayout ? TypeScale.subhead : TypeScale.caption,
+        weight: isCompactLayout ? .semibold : .medium
+      ))
       .foregroundStyle(isActive ? tint : (isCompactLayout ? Color.textTertiary : Color.textQuaternary))
       .frame(width: isCompactLayout ? 34 : 26, height: isCompactLayout ? 34 : 26)
       .background(

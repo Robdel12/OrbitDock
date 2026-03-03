@@ -383,7 +383,10 @@ struct ProjectStreamSection: View {
               .font(.system(size: TypeScale.meta, weight: .semibold))
               .foregroundStyle(Color.textSecondary)
               .frame(width: 28, height: 28)
-              .background(Color.surfaceHover.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+              .background(
+                Color.surfaceHover.opacity(0.5),
+                in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+              )
           }
           .buttonStyle(.plain)
 

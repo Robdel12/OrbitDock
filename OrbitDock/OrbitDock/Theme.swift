@@ -236,6 +236,7 @@ extension Color {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: Feedback Colors — Non-Session UI States
+
   //
   // Use these for general UI feedback (connection status, save confirmations,
   // warnings, errors). NOT for session status — use status* colors for that.
@@ -744,7 +745,10 @@ struct PermissionBanner: View {
         .foregroundStyle(Color.textTertiary)
     }
     .padding(Spacing.lg_)
-    .background(Color.statusPermission.opacity(OpacityTier.light), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .background(
+      Color.statusPermission.opacity(OpacityTier.light),
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
     .overlay(
       RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
         .stroke(Color.statusPermission.opacity(0.25), lineWidth: 1)

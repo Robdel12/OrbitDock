@@ -963,7 +963,11 @@
             headerLabel.textColor = EL.textQuaternary
             headerLabel.text = headerText.uppercased()
             headerLabel.numberOfLines = 0
-            let headerHeight = EL.measuredTextHeight(headerText, font: UIFont.systemFont(ofSize: TypeScale.mini, weight: .bold), maxWidth: textWidth)
+            let headerHeight = EL.measuredTextHeight(
+              headerText,
+              font: UIFont.systemFont(ofSize: TypeScale.mini, weight: .bold),
+              maxWidth: textWidth
+            )
             headerLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: headerHeight)
             contentContainer.addSubview(headerLabel)
             y += headerHeight + 3
@@ -975,7 +979,11 @@
           promptLabel.lineBreakMode = .byWordWrapping
           promptLabel.numberOfLines = 0
           promptLabel.text = question.question
-          let promptHeight = EL.measuredTextHeight(question.question, font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold), maxWidth: textWidth)
+          let promptHeight = EL.measuredTextHeight(
+            question.question,
+            font: UIFont.systemFont(ofSize: TypeScale.body, weight: .semibold),
+            maxWidth: textWidth
+          )
           promptLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: promptHeight)
           contentContainer.addSubview(promptLabel)
           y += promptHeight
@@ -988,7 +996,11 @@
               optionLabel.textColor = EL.textSecondary
               optionLabel.numberOfLines = 0
               optionLabel.text = "• \(option.label)"
-              let optionHeight = EL.measuredTextHeight("• \(option.label)", font: UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium), maxWidth: textWidth)
+              let optionHeight = EL.measuredTextHeight(
+                "• \(option.label)",
+                font: UIFont.systemFont(ofSize: TypeScale.caption, weight: .medium),
+                maxWidth: textWidth
+              )
               optionLabel.frame = CGRect(x: EL.headerHPad, y: y, width: textWidth, height: optionHeight)
               contentContainer.addSubview(optionLabel)
               y += optionHeight
@@ -1000,7 +1012,11 @@
                 detailLabel.lineBreakMode = .byWordWrapping
                 detailLabel.numberOfLines = 0
                 detailLabel.text = detail
-                let detailHeight = EL.measuredTextHeight(detail, font: UIFont.systemFont(ofSize: TypeScale.meta, weight: .regular), maxWidth: textWidth - 14)
+                let detailHeight = EL.measuredTextHeight(
+                  detail,
+                  font: UIFont.systemFont(ofSize: TypeScale.meta, weight: .regular),
+                  maxWidth: textWidth - 14
+                )
                 detailLabel.frame = CGRect(x: EL.headerHPad + 14, y: y + 2, width: textWidth - 14, height: detailHeight)
                 contentContainer.addSubview(detailLabel)
                 y += detailHeight + 2

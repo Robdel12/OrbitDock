@@ -19,9 +19,6 @@ struct MarkdownRepresentable: Equatable {
   let content: String
   var style: ContentStyle = .standard
 
-  static func == (lhs: Self, rhs: Self) -> Bool {
-    lhs.content == rhs.content && lhs.style == rhs.style
-  }
 }
 
 #if os(macOS)

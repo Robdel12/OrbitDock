@@ -162,7 +162,6 @@ struct AskUserQuestionCard: View {
     .padding(Spacing.md)
   }
 
-  @ViewBuilder
   private func questionSection(_ question: ParsedQuestion, index: Int) -> some View {
     VStack(alignment: .leading, spacing: Spacing.sm) {
       HStack(alignment: .top, spacing: Spacing.sm) {
@@ -214,7 +213,10 @@ struct AskUserQuestionCard: View {
             }
             .padding(.horizontal, Spacing.sm)
             .padding(.vertical, Spacing.sm_)
-            .background(Color.backgroundPrimary.opacity(0.75), in: RoundedRectangle(cornerRadius: CGFloat(Radius.sm), style: .continuous))
+            .background(
+              Color.backgroundPrimary.opacity(0.75),
+              in: RoundedRectangle(cornerRadius: CGFloat(Radius.sm), style: .continuous)
+            )
           }
         }
       }
@@ -233,7 +235,10 @@ struct AskUserQuestionCard: View {
     }
     .padding(Spacing.md_)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: CGFloat(Radius.md), style: .continuous))
+    .background(
+      Color.backgroundTertiary.opacity(0.5),
+      in: RoundedRectangle(cornerRadius: CGFloat(Radius.md), style: .continuous)
+    )
   }
 
   private func chip(_ label: String) -> some View {

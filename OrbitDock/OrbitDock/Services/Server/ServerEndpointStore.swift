@@ -154,7 +154,7 @@ struct ServerEndpointStore {
   }
 
   private func syncAuthTokens(from endpoints: [ServerEndpoint]) {
-    let currentIds = Set(endpoints.map { $0.id.uuidString })
+    let currentIds = Set(endpoints.map(\.id.uuidString))
     let previousIds = Set(defaults.stringArray(forKey: endpointTokenIdsKey) ?? [])
 
     for removedId in previousIds.subtracting(currentIds) {
@@ -174,14 +174,14 @@ struct ServerEndpointStore {
       endpoints.removeAll(where: \.isLocalManaged)
     }
 
-    if endpoints.isEmpty && Self.includesLocalManagedEndpoint {
+    if endpoints.isEmpty, Self.includesLocalManagedEndpoint {
       endpoints = [ServerEndpoint.localDefault(defaultPort: defaultPort)]
     }
 
     var seen = Set<UUID>()
     endpoints = endpoints.filter { seen.insert($0.id).inserted }
 
-    if Self.includesLocalManagedEndpoint && !endpoints.contains(where: \.isLocalManaged) {
+    if Self.includesLocalManagedEndpoint, !endpoints.contains(where: \.isLocalManaged) {
       let shouldBeDefault = !endpoints.contains(where: { $0.isDefault && $0.isEnabled })
       var local = ServerEndpoint.localDefault(defaultPort: defaultPort)
       local.isDefault = shouldBeDefault

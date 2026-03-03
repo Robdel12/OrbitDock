@@ -247,7 +247,10 @@ struct DashboardView: View {
       }
       .padding(.vertical, Spacing.md_)
       .padding(.horizontal, Spacing.lg_)
-      .background(Color.backgroundTertiary.opacity(0.3), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+      .background(
+        Color.backgroundTertiary.opacity(0.3),
+        in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+      )
 
       VStack(spacing: Spacing.sm) {
         ForEach(0 ..< 2, id: \.self) { _ in
@@ -262,7 +265,10 @@ struct DashboardView: View {
           }
           .padding(.horizontal, Spacing.md)
           .padding(.vertical, Spacing.md_)
-          .background(Color.backgroundSecondary.opacity(0.4), in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous))
+          .background(
+            Color.backgroundSecondary.opacity(0.4),
+            in: RoundedRectangle(cornerRadius: Radius.ml, style: .continuous)
+          )
         }
       }
     }

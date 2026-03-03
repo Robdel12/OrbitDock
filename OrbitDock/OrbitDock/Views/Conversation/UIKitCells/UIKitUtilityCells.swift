@@ -370,7 +370,7 @@
         case "skill": return "Skill"
         case "enterplanmode", "exitplanmode": return "Plan"
         case "todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan":
-            return "Todo"
+          return "Todo"
         case "askuserquestion": return "Question"
         case "mcp_approval": return "MCP Approval"
         case "notebookedit": return "Notebook"

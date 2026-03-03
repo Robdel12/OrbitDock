@@ -353,7 +353,10 @@ struct ActiveSessionsSection: View {
     }
     .padding(.vertical, Spacing.md_)
     .padding(.horizontal, Spacing.lg_)
-    .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .background(
+      Color.backgroundTertiary.opacity(0.5),
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
   }
 
   private var modeToggle: some View {
@@ -376,7 +379,10 @@ struct ActiveSessionsSection: View {
       }
     }
     .padding(Spacing.xxs)
-    .background(Color.backgroundSecondary.opacity(0.7), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+    .background(
+      Color.backgroundSecondary.opacity(0.7),
+      in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+    )
   }
 
   private func headerFilterChip(

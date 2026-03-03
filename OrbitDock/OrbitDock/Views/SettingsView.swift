@@ -525,7 +525,10 @@ struct GeneralSettingsView: View {
                   .padding(.horizontal, Spacing.md_)
                   .padding(.vertical, 7)
                   .frame(maxWidth: .infinity, alignment: .leading)
-                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                  .background(
+                    Color.backgroundTertiary,
+                    in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  )
                   .overlay(
                     RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                       .strokeBorder(Color.panelBorder, lineWidth: 1)
@@ -806,7 +809,10 @@ struct NotificationSettingsView: View {
                   .font(.system(size: TypeScale.micro, weight: .semibold))
                   .foregroundStyle(notificationSound == "none" ? Color.textTertiary : Color.accent)
                   .frame(width: 28, height: 28)
-                  .background(Color.backgroundTertiary, in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+                  .background(
+                    Color.backgroundTertiary,
+                    in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                  )
                   .overlay(
                     RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                       .strokeBorder(Color.panelBorder, lineWidth: 1)

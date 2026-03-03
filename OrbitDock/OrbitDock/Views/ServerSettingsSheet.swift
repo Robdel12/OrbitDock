@@ -122,7 +122,10 @@ struct ServerSettingsSheet: View {
         .fill(statusColor(for: endpointStatus))
         .frame(width: EdgeBar.width)
         .frame(maxHeight: .infinity)
-        .themeShadow(Shadow.glow(color: endpointStatus == .connected ? statusColor(for: endpointStatus) : .clear, intensity: 0.3))
+        .themeShadow(Shadow.glow(
+          color: endpointStatus == .connected ? statusColor(for: endpointStatus) : .clear,
+          intensity: 0.3
+        ))
 
       VStack(alignment: .leading, spacing: 0) {
         // Primary row — name + status + connection action + toggle + chevron

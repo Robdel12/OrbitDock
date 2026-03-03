@@ -244,7 +244,10 @@ struct CodexTurnSidebar: View {
         }
       }
       .padding(Spacing.xxs)
-      .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+      .background(
+        Color.backgroundTertiary.opacity(0.5),
+        in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+      )
 
       Spacer()
 

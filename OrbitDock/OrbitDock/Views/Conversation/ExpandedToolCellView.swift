@@ -424,7 +424,11 @@ enum ExpandedToolLayout {
     return items.isEmpty ? nil : items
   }
 
-  private static func collectStructuredEntries(_ value: Any, path: String, into entries: inout [StructuredPayloadEntry]) {
+  private static func collectStructuredEntries(
+    _ value: Any,
+    path: String,
+    into entries: inout [StructuredPayloadEntry]
+  ) {
     guard entries.count < maxStructuredPayloadEntries else { return }
 
     switch value {
@@ -577,7 +581,12 @@ enum ExpandedToolLayout {
     return h
   }
 
-  static func genericHeight(toolName: String? = nil, input: String?, output: String?, cardWidth: CGFloat = 0) -> CGFloat {
+  static func genericHeight(
+    toolName: String? = nil,
+    input: String?,
+    output: String?,
+    cardWidth: CGFloat = 0
+  ) -> CGFloat {
     let textWidth = contentTextWidth(cardWidth: cardWidth)
     var h: CGFloat = contentTopPad
 
@@ -1785,7 +1794,11 @@ enum ExpandedToolLayout {
               x: Self.headerHPad,
               y: y,
               width: textWidth,
-              height: ExpandedToolLayout.measuredTextHeight(headerText, font: NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold), maxWidth: textWidth)
+              height: ExpandedToolLayout.measuredTextHeight(
+                headerText,
+                font: NSFont.systemFont(ofSize: TypeScale.mini, weight: .bold),
+                maxWidth: textWidth
+              )
             )
             contentContainer.addSubview(headerLabel)
             y += headerLabel.frame.height + 3
@@ -1837,7 +1850,12 @@ enum ExpandedToolLayout {
                   font: NSFont.systemFont(ofSize: TypeScale.meta, weight: .regular),
                   maxWidth: textWidth
                 )
-                detailLabel.frame = NSRect(x: Self.headerHPad + 14, y: y + 2, width: textWidth - 14, height: detailHeight)
+                detailLabel.frame = NSRect(
+                  x: Self.headerHPad + 14,
+                  y: y + 2,
+                  width: textWidth - 14,
+                  height: detailHeight
+                )
                 contentContainer.addSubview(detailLabel)
                 y += detailHeight + 2
               }
@@ -1853,7 +1871,10 @@ enum ExpandedToolLayout {
         }
       } else if let entries = ExpandedToolLayout.structuredPayloadEntries(from: payload) {
         for entry in entries {
-          let label = NSTextField(labelWithAttributedString: payloadAttributedLine(key: entry.keyPath, value: entry.value))
+          let label = NSTextField(labelWithAttributedString: payloadAttributedLine(
+            key: entry.keyPath,
+            value: entry.value
+          ))
           label.lineBreakMode = .byCharWrapping
           label.maximumNumberOfLines = 0
           label.isSelectable = true

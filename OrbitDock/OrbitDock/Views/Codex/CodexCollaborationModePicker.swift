@@ -4,7 +4,9 @@ enum CodexCollaborationMode: String, CaseIterable, Identifiable {
   case `default`
   case plan
 
-  var id: String { rawValue }
+  var id: String {
+    rawValue
+  }
 
   var displayName: String {
     switch self {
@@ -44,12 +46,29 @@ struct CodexModePill: View {
     case regular
     case statusBar
 
-    var iconFontSize: CGFloat { self == .statusBar ? 9 : TypeScale.body }
-    var textFontSize: CGFloat { self == .statusBar ? 10 : TypeScale.body }
-    var horizontalPadding: CGFloat { self == .statusBar ? 6 : CGFloat(Spacing.md) }
-    var verticalPadding: CGFloat { self == .statusBar ? 3 : CGFloat(Spacing.sm) }
-    var spacing: CGFloat { self == .statusBar ? 3 : CGFloat(Spacing.xs) }
-    var height: CGFloat? { self == .statusBar ? 20 : nil }
+    var iconFontSize: CGFloat {
+      self == .statusBar ? 9 : TypeScale.body
+    }
+
+    var textFontSize: CGFloat {
+      self == .statusBar ? 10 : TypeScale.body
+    }
+
+    var horizontalPadding: CGFloat {
+      self == .statusBar ? 6 : CGFloat(Spacing.md)
+    }
+
+    var verticalPadding: CGFloat {
+      self == .statusBar ? 3 : CGFloat(Spacing.sm)
+    }
+
+    var spacing: CGFloat {
+      self == .statusBar ? 3 : CGFloat(Spacing.xs)
+    }
+
+    var height: CGFloat? {
+      self == .statusBar ? 20 : nil
+    }
   }
 
   let sessionId: String

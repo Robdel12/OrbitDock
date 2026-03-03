@@ -909,7 +909,10 @@ struct QuickSwitcher: View {
       HStack(spacing: isCompactLayout ? Spacing.md_ : Spacing.lg_) {
         // Status indicator - smaller on compact, no glow
         SessionStatusDot(status: displayStatus, size: isCompactLayout ? 8 : 10, showGlow: !isCompactLayout)
-          .frame(width: isCompactLayout ? Spacing.lg : Spacing.section, height: isCompactLayout ? Spacing.lg : Spacing.section)
+          .frame(
+            width: isCompactLayout ? Spacing.lg : Spacing.section,
+            height: isCompactLayout ? Spacing.lg : Spacing.section
+          )
 
         // Content - stacked layout for better hierarchy
         VStack(alignment: .leading, spacing: isCompactLayout ? Spacing.xxs : Spacing.xs) {

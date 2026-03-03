@@ -358,7 +358,9 @@ nonisolated enum ConversationTimelineProjector {
 
   private static func resolveToolIcon(_ name: String) -> String {
     let normalized = name.lowercased().split(separator: ":").last.map(String.init) ?? name.lowercased()
-    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan"].contains(normalized) {
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan"]
+      .contains(normalized)
+    {
       return "checklist"
     }
     if name.hasPrefix("mcp__") { return "puzzlepiece.extension" }
@@ -381,7 +383,9 @@ nonisolated enum ConversationTimelineProjector {
 
   private static func resolveToolColorKey(_ name: String) -> String {
     let normalized = name.lowercased().split(separator: ":").last.map(String.init) ?? name.lowercased()
-    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan"].contains(normalized) {
+    if ["todowrite", "todo_write", "taskcreate", "taskupdate", "tasklist", "taskget", "update_plan"]
+      .contains(normalized)
+    {
       return "todo"
     }
     if name.hasPrefix("mcp__") { return "mcp" }

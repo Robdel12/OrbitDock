@@ -163,14 +163,20 @@ struct SessionHistorySection: View {
           }
         }
         .padding(Spacing.xxs)
-        .background(Color.backgroundTertiary.opacity(0.5), in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
+        .background(
+          Color.backgroundTertiary.opacity(0.5),
+          in: RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+        )
       }
     }
     .padding(.vertical, Spacing.md_)
     .padding(.horizontal, Spacing.lg_)
     .frame(maxWidth: .infinity, alignment: .leading)
     .contentShape(Rectangle())
-    .background(Color.backgroundTertiary.opacity(0.3), in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous))
+    .background(
+      Color.backgroundTertiary.opacity(0.3),
+      in: RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+    )
     .onTapGesture {
       withAnimation(Motion.standard) {
         isExpanded.toggle()

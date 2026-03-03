@@ -69,7 +69,8 @@ struct BashCard: View {
       }
       .background(
         RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-          .fill(hasError ? Color.feedbackWarning.opacity(isHovering ? 0.12 : 0.08) : color.opacity(isHovering ? 0.10 : 0.06))
+          .fill(hasError ? Color.feedbackWarning.opacity(isHovering ? 0.12 : 0.08) : color
+            .opacity(isHovering ? 0.10 : 0.06))
       )
       .contentShape(Rectangle())
       .onTapGesture {

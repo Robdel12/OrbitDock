@@ -302,7 +302,6 @@ struct SessionDetailView: View {
     )
   }
 
-
   // MARK: - Action Bar
 
   private var actionBar: some View {

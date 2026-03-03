@@ -39,6 +39,7 @@ enum MarkdownSystemParser {
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // MARK: - Typography Rhythm System
+
   //
   // All spacing values sit on a **4pt baseline grid** (see Spacing in Theme.swift).
   //
@@ -629,9 +630,15 @@ enum MarkdownSystemParser {
     let isThinking = style == .thinking
     switch level {
       case 1:
-        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.thinkingHeading1 : TypeScale.chatHeading1, weight: .bold)
+        return PlatformFont.systemFont(
+          ofSize: isThinking ? TypeScale.thinkingHeading1 : TypeScale.chatHeading1,
+          weight: .bold
+        )
       case 2:
-        return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.thinkingHeading2 : TypeScale.chatHeading2, weight: .semibold)
+        return PlatformFont.systemFont(
+          ofSize: isThinking ? TypeScale.thinkingHeading2 : TypeScale.chatHeading2,
+          weight: .semibold
+        )
       case 3:
         return PlatformFont.systemFont(ofSize: isThinking ? TypeScale.chatCode : TypeScale.chatHeading3, weight: .bold)
       case 4:
